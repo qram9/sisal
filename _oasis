@@ -1,0 +1,25 @@
+OASISFormat: 0.4
+BuildTools: ocamlbuild
+Plugins: META (0.4), DevFiles (0.4)
+License: PROP
+Authors: Ram
+Synopsis: Sisal
+Version: 0.1
+Name: Sisal
+
+Executable sisal
+  Path: src
+  MainIs: main.ml
+  CompiledObject: best
+  BuildDepends: unix, fe, ir
+
+Library fe
+  Path: src/fe
+  Modules: Lex, Parse
+  BuildDepends: unix, ir
+  BuildTools+: ocamllex,menhir
+
+Library ir
+  Path: src/ir
+  Modules: Type
+  BuildDepends: unix

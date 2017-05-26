@@ -1,0 +1,10 @@
+{
+  "name": "src",
+  "version": "1.0.0",
+  "license": "PROP",
+  "author": { "username": "kindan", "email": "ramshankar543@gmail.com" },
+  "homepage": null,
+  "synopsis": "sisal",
+  "package_type": [ "Exe", "" ],
+  "dependencies": []
+}

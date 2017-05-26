@@ -1,0 +1,74 @@
+%**************************************************************************%
+%* FILE   **************         crypto.sis        ************************%
+%**************************************************************************%
+%* Author: Patrick Miller January  2 2001				  *%
+%* Copyright (C) 2001 Patrick Miller					  *%
+%**************************************************************************%
+% I'll put an implementation of crypto.c in here, but for now,
+% it will just be an equivalance string checker
+%**************************************************************************%
+
+define main
+
+type string = array[character];
+
+% Should be able to say string(c)
+function charToString( c : character returns string )
+  array [1: c]
+end function
+
+function crypto(password,trial: string returns boolean)
+
+  % Array equivalence doesn't work!  I'll fix that
+  % password = trial
+  
+  % short circuit boolean not guarantied
+  % I'll add in the ADA style ``f1 and if f2''
+  if array_size(password) ~= array_size(trial) then
+    false
+  else
+    for a in password dot b in trial
+    returns
+      value of product a=b % This is reduce(and)
+    end for
+  end if
+end function
+
+function firstTrue(flags: array[boolean] returns integer)
+  % You would think we would have done this as a reduction!
+  for initial
+    i := array_liml(flags);
+    n := array_limh(flags)
+  while ( i <= n & ~flags[i] ) repeat
+    i := old i + 1;
+  returns
+    value of i
+  end for
+end function
+    
+
+function main( password: string returns string)
+  
+  let
+    possible := for L0 in 0,25 cross L1 in 0,25 
+	trial := for L2 in 0,25
+	  returns array of array [1: character(97+L0),character(97+L1),character(97+L2)]
+	  end for
+      returns
+	value of catenate trial
+      end for;
+    
+    flags := for trial in possible
+      returns array of crypto(password,trial)
+      end for;
+    
+    index := firstTrue(flags)
+  in
+    possible[index]
+  end let
+  
+end function
+
+%**************************************************************************%
+%* $Log:
+%**************************************************************************%

@@ -1,0 +1,21 @@
+%**************************************************************************%
+%* FILE   **************         hello.sis         ************************%
+%**************************************************************************%
+%* Author: Patrick Miller January  2 2001				  *%
+%* Copyright (C) 2001 Patrick Miller					  *%
+%**************************************************************************%
+%* You just have to do hello world (though I usually like "hi mom" myself)*%
+%**************************************************************************%
+% $Log:
+%**************************************************************************%
+
+define main
+
+% I'm planning on adding some convience built-ins
+% like string and complex
+
+type string = array[character];
+
+function main(returns string)
+  "Hello world!"
+end function

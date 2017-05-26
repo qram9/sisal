@@ -1,0 +1,39 @@
+define Main
+
+type onedim = array[ integer ]
+
+%  Bubblesort A
+%
+function Bubble( n: integer; Ain : onedim returns onedim )
+
+    for initial
+
+      A, limit := Ain, n
+
+    while limit > 1 repeat
+
+      limit := old limit - 1;
+
+      A     := for initial
+                 j  := 0;
+                 A1 := old A;
+               while j < limit repeat
+		 j  := old j + 1;
+		 A1 := if old A1[j] > old A1[j+1] then
+                          old A1[j: old A1[j+1], old A1[j]]
+                       else
+                          old A1
+                       end if
+	       returns
+                 value of A1
+               end for
+
+    returns
+      value of A
+    end for
+
+end function % Sort
+
+function Main(A : onedim returns onedim)
+  Bubble(array_size(A),A)
+end function % Main

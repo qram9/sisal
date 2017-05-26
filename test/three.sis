@@ -1,0 +1,5 @@
+define main
+
+function main(returns integer)
+  3
+end function
