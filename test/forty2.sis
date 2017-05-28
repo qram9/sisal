@@ -1,0 +1,13 @@
+define main
+
+function main(returns integer)
+  if x < Y then
+  3+42*5
+  elseif x > Y then
+  3+42-5
+  elseif Z = Y then
+  3+42/5
+  else
+  5+42
+  end if
+end function

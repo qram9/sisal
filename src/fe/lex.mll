@@ -5,7 +5,7 @@ let error msg = raise (Error msg)
 let return x = fun map -> x (* returns the value x *)
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
-let debug_level = ref 5
+let debug_level = ref 3
 let padded_lex_msg level fmt = 
   let print_at_level str 
     = if !debug_level >= level 
@@ -164,13 +164,11 @@ rule sisal_lex = parse eof {
 | '\"' (match_string as st) '\"' 
 {
   padded_lex_msg 5 "_string: %s>\n" st; 
-  print_endline st;
   STRING st
 }
 | match_char as ch 
 {
   padded_lex_msg 5 "_char: %s>\n" ch; 
-  print_endline ch;
   CHAR ch 
 }
 | ([' ' '\t'])+ as spaces {
@@ -179,17 +177,14 @@ rule sisal_lex = parse eof {
 }
 | ('\n')+  as mynewlines {
   padded_lex_msg 5 ": EOL:%d times>\n" (String.length mynewlines);
-  print_endline "\n";
   (*Lexing.new_line lexbuf;*)sisal_lex lexbuf
 }
 | flonum as f {
   padded_lex_msg 5 ": %s>\n" f;
-  print_endline "\n";
   FLOAT (float_of_string f)
 }
 | dec as d {
   padded_lex_msg 5 ": %s>\n" d;
-  print_endline "\n";
   INT (int_of_string d)
 }
 | id+ as ident_or_kw {
@@ -218,6 +213,7 @@ rule sisal_lex = parse eof {
 | "<<" {padded_lex_msg 5 " << >\n"; SHL}
 | ">>" {padded_lex_msg 5 " >> >\n"; SHR}
 | '*' {padded_lex_msg 5 " * >\n"; STAR}
+| '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
 | '+' {padded_lex_msg 5 " + >\n"; PLUS}
 | '-' {padded_lex_msg 5 " - >\n"; MINUS}
 | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
