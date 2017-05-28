@@ -1,5 +1,6 @@
 %{
-  let debug_level = ref 5
+open Type
+  let debug_level = ref 3
 
 let parse_msg level fmt = 
   let print_at_level str 
@@ -9,11 +10,7 @@ let parse_msg level fmt =
   %}
 
 
-%token PLUS
 %token PIPE
-%token MINUS
-%token STAR
-%token DIVIDE
 %token OR
 %token AND
 %token NOT
@@ -118,7 +115,14 @@ let parse_msg level fmt =
 %token<string> STRING
 %token TRUNC
 %token EOF
-
+%token PLUS
+%token MINUS
+%token STAR
+%token DIVIDE
+%left LT GT EQ NE LE GE PIPE AND OR 
+%left PLUS MINUS
+%left STAR DIVIDE
+%nonassoc UMINUS
 %type <string> main
 %start main
 %%
@@ -136,12 +140,12 @@ compilation_unit :
       ($1 ^ " " ^ $2 ^ " " ^ $3);
     $1 ^ " " ^ $2 ^ " " ^ $3
   }
-| def_func_name_list type_def_part GLOBAL function_header function_def_list
+| def_func_name_list type_def_part global_header_list function_def_list
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ " GLOBAL " ^ $4 ^ " " ^ $5);
-    ($1 ^ " " ^ $2 ^ " GLOBAL " ^ $4 ^ " " ^ $5)
+      ($1 ^ " " ^ $2 ^ " " ^ $3 ^ " " ^ $4);
+    ($1 ^ " " ^ $2 ^ " " ^ $3 ^ " " ^ $4)
   }
 | def_func_name_list type_def_part SEMICOLON function_def_list
   {
@@ -150,14 +154,25 @@ compilation_unit :
       ($1 ^ " " ^ $2 ^ " " ^ $4);
     $1 ^ " " ^ $2 ^ "; " ^ $4
   }
-| def_func_name_list type_def_part  SEMICOLON GLOBAL function_header function_def_list
+| def_func_name_list type_def_part  SEMICOLON global_header_list function_def_list
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ "; GLOBAL " ^ $5 ^ " " ^ $6);
-    ($1 ^ " " ^ $2 ^ "; GLOBAL " ^ $5 ^ " " ^ $6)
+      ($1 ^ " " ^ $2 ^ "; " ^ $4 ^ " " ^ $5);
+    ($1 ^ " " ^ $2 ^ "; " ^ $4 ^ " " ^ $5)
   }
 
+;
+
+global_header_list :
+  GLOBAL function_header
+    {
+        "GLOBAL " ^ $2
+    }
+| global_header_list GLOBAL function_header
+    {
+        $1 ^ " " ^ " GLOBAL " ^ $3
+    }
 ;
 
 def_func_name_list:
@@ -297,28 +312,40 @@ type_list :
 simple_expression:
   primary_part2
     {
-      $1
+      "(" ^ $1 ^")"
     }
-|   simple_expression binary_op primary_part2
+| simple_expression   GT simple_expression { "(" ^ $1 ^  ">" ^ " " ^ $3 ^ ")" }
+| simple_expression   GE simple_expression { "(" ^ $1 ^  ">=" ^ " " ^ $3 ^ ")" }
+| simple_expression   LT simple_expression { "(" ^ $1 ^  "<" ^ " " ^ $3 ^ ")" }
+| simple_expression   LE simple_expression { "(" ^ $1 ^  "<=" ^ " " ^ $3 ^ ")" }
+| simple_expression   EQ simple_expression { "(" ^ $1 ^  "=" ^ " " ^ $3 ^ ")" }
+| simple_expression   NE simple_expression { "(" ^ $1 ^  "~=" ^ " " ^ $3 ^ ")" }
+| simple_expression   PLUS simple_expression { "(" ^ $1 ^  "+" ^ " " ^ $3 ^ ")" }
+| simple_expression   MINUS simple_expression { "(" ^ $1 ^  "-" ^ " " ^ $3 ^ ")" }
+| simple_expression   OR simple_expression { "(" ^ $1 ^  "|" ^ " " ^ $3 ^ ")" }
+| simple_expression   STAR simple_expression { "(" ^ $1 ^  "*" ^ " " ^ $3 ^ ")" }
+| simple_expression   DIVIDE simple_expression { "(" ^ $1 ^  "/" ^ " " ^ $3 ^ ")" }
+| simple_expression   AND simple_expression { "(" ^ $1 ^  "&" ^ " " ^ $3 ^ ")" }
+| simple_expression   PIPE simple_expression { "(" ^ $1 ^  "||" ^ " " ^ $3 ^ ")" }
+|  PLUS simple_expression
   {
-    $1 ^ " " ^ $2 ^ " " ^ $3
+    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
+    parse_msg 5 "<Parsed:[UNARY_PLUS:%s#1]>\n" ("+" ^ $2);
+    ("+" ^ $2)
   }
-;
+|   MINUS simple_expression %prec UMINUS
+  {
+    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
+    parse_msg 5 "<Parsed:[UNARY_MINUS:%s#1]>\n" ("-" ^ $2);
+    ("-" ^ $2)
+  }
+|   NOT simple_expression %prec UMINUS
+  {
+    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
+    parse_msg 5 "<Parsed:[UNARY_NOT:%s#1]>\n" ("~" ^ $2);
+    ("~" ^ $2)
+  }
 
-binary_op:
-  GT { ">" }
-|   GE { ">=" }
-|   LT { "<" }
-|   LE { "<=" }
-|   EQ { "=" }
-|   NE { "~=" }
-|   PLUS { "+" }
-|   MINUS { "-" }
-|   OR { "|" }
-|   STAR { "*" }
-|   DIVIDE { "/" }
-|   AND { "&" }
-|   PIPE { "||" }
 ;
 
 primary_part2 :
@@ -470,24 +497,6 @@ primary :
     parse_msg 5 "<Parsed:[function_invocation:%s#1]>\n" $1;
     $1
   }
-|  PLUS primary
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_PLUS:%s#1]>\n" ("+" ^ $2);
-    ("+" ^ $2)
-  }
-|   MINUS primary
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_MINUS:%s#1]>\n" ("-" ^ $2);
-    ("-" ^ $2)
-  }
-|   NOT primary
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_NOT:%s#1]>\n" ("~" ^ $2);
-    ("~" ^ $2)
-  }
 ;
 
 iteration_exp:
@@ -526,6 +535,8 @@ iteration_exp:
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     parse_msg 5 "%s\n" "<Parsed:iterator FOR>";
+    let k = str_forall_loop (`For (`Inexp_list $2, `Returns_list $4))
+    in print_endline ("From types:" ^ k );
     "FOR " ^ " " ^ $2 ^ " RETURNS " ^ $4 ^ " END FOR"
   }
 
@@ -877,18 +888,18 @@ def :
 ;
 
 conditional_exp:
-  conditional_ifexp conditional_else conditional_endif
+  conditional_ifexp conditional_else END IF
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     let k = 
-    ($1 ^" " ^ $2 ^" " ^ $3) in
+    ($1 ^" " ^ $2 ^" END IF") in
     parse_msg 5 "<Parsed IF:%s>\n" k; k
   }
-|   conditional_ifexp conditional_elseif conditional_else conditional_endif
+|   conditional_ifexp conditional_elseif conditional_else END IF
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     let k = 
-    ($1 ^" " ^ $2 ^" " ^ $3 ^" " ^ $4) in
+    ($1 ^" " ^ $2 ^" " ^ $3 ^" END IF") in
     parse_msg 5 "<Parsed IF:%s>\n" k; k
   }
 ;
@@ -907,6 +918,7 @@ conditional_elseif:
     $1 ^ " ELSEIF " ^ $3 ^ " THEN " ^ $5 
   }
 ;
+
 conditional_else:
 ELSE expression
   {
@@ -915,6 +927,7 @@ ELSE expression
     " ELSE " ^ $2
   }
 ;
+
 conditional_ifexp:
   IF expression THEN expression
     {
@@ -922,14 +935,6 @@ conditional_ifexp:
       parse_msg 5 "%s\n" "<Parsed:IF exp>";
       "{IF " ^ $2 ^ " THEN " ^ $4
     }       
-;
-conditional_endif:
-  END IF
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:END IF exp>";
-      (*"END IF" ^*) "}"
-    }
 ;
 
 union_test :
@@ -1113,6 +1118,8 @@ basic_type_spec :
     {
       let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
       parse_msg 5 "%s\n" "<Parsed:[BOOLEAN#1]>";
+      let k = str_sisal_type `Boolean
+      in print_endline ("From type:"  ^k );
       "BOOLEAN"
     }
 | prefix_name
@@ -1125,6 +1132,8 @@ basic_type_spec :
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
     parse_msg 5 "%s\n" "<Parsed:[NULL#1]>";
+    let k = str_sisal_type `Null
+    in print_endline ("From type: " ^ k);
     "NULL"
   }
 ;
@@ -1383,6 +1392,7 @@ record_generator :
     ($1 ^ " REPLACE [" ^ $4 ^ "]")
   }
 ;
+
 field_def_list :
   field_def
     {
@@ -1440,7 +1450,6 @@ field : field_name
   }
 ;
 
-//%inline
 field_name : NAME
   {
     let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
