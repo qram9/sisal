@@ -131,7 +131,7 @@ compilation_unit :
     function_def_list
     {
       let t:Type.compilation_unit =
-        `Compilation_unit ($1,[],[],$2)
+        Compilation_unit ($1,[],[],$2)
       in t
     }
 | def_func_name_list
@@ -139,7 +139,7 @@ compilation_unit :
     function_def_list
   {
     let t:Type.compilation_unit =
-      `Compilation_unit ($1,$2,[],$3)
+      Compilation_unit ($1,$2,[],$3)
     in t
   }
 | def_func_name_list
@@ -148,7 +148,7 @@ compilation_unit :
     function_def_list
   {
     let t:Type.compilation_unit =
-      `Compilation_unit ($1,$2,$3,$4)
+      Compilation_unit ($1,$2,$3,$4)
     in t
   }
 | def_func_name_list
@@ -157,7 +157,7 @@ compilation_unit :
     function_def_list
   {
     let t:Type.compilation_unit =
-      `Compilation_unit ($1,$2,[],$4)
+      Compilation_unit ($1,$2,[],$4)
     in t
   }
 | def_func_name_list
@@ -167,7 +167,7 @@ compilation_unit :
     function_def_list
   {
     let t:Type.compilation_unit =
-      `Compilation_unit ($1,$2,$4,$5)
+      Compilation_unit ($1,$2,$4,$5)
     in t
   }
 ;
@@ -187,7 +187,7 @@ def_func_name_list:
   DEFINE function_name_list
     {
       let t:Type.define =
-        `Define $2
+        Define $2
       in t
     }
 ;
@@ -195,12 +195,12 @@ def_func_name_list:
 function_name_list :
   function_name_list NAME
     {
-      (`Function_name $2)::$1
+      (Function_name $2)::$1
     }
 | NAME
   {
     let t:Type.function_name =
-      `Function_name $1
+      Function_name $1
     in [t]
   }
 ;
@@ -219,13 +219,13 @@ function_def:
   FORWARD FUNCTION function_header
     {
       let t:Type.function_def =
-        `Forward_function $3
+        Forward_function $3
       in t
     }
 | functions_nest
   {
     let t:Type.function_def =
-      `Function $1
+      Function $1
     in t
   }
 ;
@@ -267,12 +267,12 @@ function_header :
   function_name LPAREN RETURNS type_list RPAREN
     {
       let t:Type.function_header =
-        `Function_header_nodec ($1,$4) in t
+        Function_header_nodec ($1,$4) in t
     }
 | function_name LPAREN decl_list_semi RETURNS type_list RPAREN
   {
     let t:Type.function_header =
-      `Function_header ($1,$3,$5) in t
+      Function_header ($1,$3,$5) in t
   }
 ;
 
@@ -299,7 +299,7 @@ type_list :
 ;
 expression: exp_list
     {
-      `Exp $1
+      Exp $1
     }
 ;
 exp_list :
@@ -321,13 +321,13 @@ simple_expression:
 | simple_expression   GT simple_expression 
   {
     let t:Type.simple_exp =
-      `Greater ($1,$3)
+      Greater ($1,$3)
     in t
   }
 | simple_expression   GE simple_expression 
   {
     let t:Type.simple_exp =
-      `Greater_equal($1,$3) 
+      Greater_equal($1,$3) 
     in t
   }
 | simple_expression
@@ -335,7 +335,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Lesser ($1,$3)
+      Lesser ($1,$3)
     in t
   }
 
@@ -344,7 +344,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Lesser_equal ($1,$3)
+      Lesser_equal ($1,$3)
     in t
   }
 
@@ -353,7 +353,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Equal($1,$3) 
+      Equal($1,$3) 
     in t
   }
 
@@ -362,7 +362,7 @@ simple_expression:
   simple_expression 
   { 
     let t:Type.simple_exp =
-      `Not_equal ($1,$3) 
+      Not_equal ($1,$3) 
     in t
   }
 
@@ -371,7 +371,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Add ($1,$3) 
+      Add ($1,$3) 
     in t
   }
 
@@ -380,7 +380,7 @@ simple_expression:
   simple_expression
   { 
     let t:Type.simple_exp =
-      `Subtract ($1,$3) 
+      Subtract ($1,$3) 
     in t
   }
 
@@ -389,7 +389,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Or ($1,$3) 
+      Or ($1,$3) 
     in t
   }
 
@@ -398,7 +398,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Multiply ($1,$3) 
+      Multiply ($1,$3) 
     in t
   }
 | simple_expression
@@ -406,7 +406,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Divide ($1,$3) 
+      Divide ($1,$3) 
     in t
   }
 | simple_expression
@@ -414,7 +414,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `And ($1,$3)
+      And ($1,$3)
     in t
   }
 | simple_expression
@@ -422,7 +422,7 @@ simple_expression:
   simple_expression 
   {
     let t:Type.simple_exp =
-      `Pipe ($1, $3)
+      Pipe ($1, $3)
     in t
   }
 |  PLUS simple_expression
@@ -434,13 +434,13 @@ simple_expression:
 |   MINUS simple_expression %prec UMINUS
   {
     let t:Type.simple_exp =
-      `Negate $2
+      Negate $2
     in t
   }
 |   NOT simple_expression %prec UMINUS
   {
     let t:Type.simple_exp =
-    `Not $2
+    Not $2
     in t 
   }
 
@@ -508,30 +508,30 @@ primary_part2 :
 array_ref :
   primary LBRACK expression RBRACK
     {
-      let t:Type.simple_exp = `Array_ref ($1,$3) in t
+      let t:Type.simple_exp = Array_ref ($1,$3) in t
     }
 ;
 
 array_generator :
   ARRAY type_name LBRACK RBRACK
     {
-      let t:(Type.simple_exp) = `Array_generator_named $2 in t
+      let t:(Type.simple_exp) = Array_generator_named $2 in t
     }
 |    ARRAY LBRACK expr_pair RBRACK
   {
-    let t:(Type.simple_exp) = `Array_generator_unnamed $3 in t
+    let t:(Type.simple_exp) = Array_generator_unnamed $3 in t
   }
 |    ARRAY type_name LBRACK expr_pair RBRACK
   {
-    let t:(Type.simple_exp) = `Array_generator_named_addr ($2,$4) in t
+    let t:(Type.simple_exp) = Array_generator_named_addr ($2,$4) in t
   }
 |    primary LBRACK expr_pair_list RBRACK
   {
-    let t:(Type.simple_exp) = `Array_generator_primary ($1,$3) in t
+    let t:(Type.simple_exp) = Array_generator_primary ($1,$3) in t
   }
 |    primary LBRACK expr_pair_list SEMICOLON RBRACK
   {
-    let t:(Type.simple_exp) = `Array_generator_primary ($1,$3) in t
+    let t:(Type.simple_exp) = Array_generator_primary ($1,$3) in t
   }
 ;
 
@@ -548,24 +548,24 @@ expr_pair_list :
 expr_pair :
   expression COLON expression
     {
-      let t:(Type.expr_pair) = `Expr_pair ($1,$3) in t
+      let t:(Type.expr_pair) = Expr_pair ($1,$3) in t
     }
 ;
 stream_generator :
   STREAM type_name LBRACK RBRACK
     {
-      let t:(Type.simple_exp) = `Stream_generator ($2) in t
+      let t:(Type.simple_exp) = Stream_generator ($2) in t
     }
 | STREAM type_name LBRACK expression RBRACK
   {
-    let t:(Type.simple_exp) = `Stream_generator_exp ($2,$4) in t
+    let t:(Type.simple_exp) = Stream_generator_exp ($2,$4) in t
   }
 ;
 
 record_ref :
   primary DOTSTOP field_name
     {
-      let t:(Type.simple_exp) = `Record_ref ($1,$3) in t
+      let t:(Type.simple_exp) = Record_ref ($1,$3) in t
     }
 ;
 
@@ -573,32 +573,32 @@ record_generator :
   RECORD type_name LBRACK field_def_list RBRACK
     {
       let t:Type.simple_exp =
-        `Record_generator_named ($2,$4) in t
+        Record_generator_named ($2,$4) in t
     }
 |  RECORD type_name LBRACK field_def_list SEMICOLON RBRACK
   {
     let t:Type.simple_exp =
-      `Record_generator_named ($2,$4) in t
+      Record_generator_named ($2,$4) in t
   }
 |   RECORD LBRACK field_def_list RBRACK
   {
     let t:Type.simple_exp =
-      `Record_generator_unnamed $3 in t
+      Record_generator_unnamed $3 in t
   }
 |  RECORD LBRACK field_def_list SEMICOLON RBRACK
   {
     let t:Type.simple_exp =
-      `Record_generator_unnamed $3 in t
+      Record_generator_unnamed $3 in t
   }
 |  primary REPLACE LBRACK field_list RBRACK
   {
     let t:Type.simple_exp =
-      `Record_generator_primary ($1, $4) in t
+      Record_generator_primary ($1, $4) in t
   }
 |  primary REPLACE LBRACK field_list SEMICOLON RBRACK
   {
     let t:Type.simple_exp =
-      `Record_generator_primary ($1, $4) in t
+      Record_generator_primary ($1, $4) in t
   }
 ;
 
@@ -615,7 +615,7 @@ field_def_list :
 
 field_def : field_name COLON expression
     {
-      let k:Type.field_def = `Field_def ($1,$3) in k
+      let k:Type.field_def = Field_def ($1,$3) in k
     }
 ;
 field_list :
@@ -631,7 +631,7 @@ field_list :
 field_expn :
   field COLON expression
     {
-      let k:Type.field_exp = `Field_exp (`Field $1,$3) in k
+      let k:Type.field_exp = Field_exp (Field $1,$3) in k
     }
 ;
 
@@ -639,23 +639,23 @@ tagcase_exp :
   TAGCASE expression tag_list_colon_expression END TAGCASE
     {
       let t:(Type.simple_exp) =
-        `Tagcase (`Tagcase_exp $2, $3, `Empty) in t
+        Tagcase (Tagcase_exp $2, $3, Empty) in t
     }
 | TAGCASE expression tag_list_colon_expression OTHERWISE COLON expression END TAGCASE
   {
     let t:(Type.simple_exp) =
-      `Tagcase (`Tagcase_exp $2, $3, `Otherwise $6) in t
+      Tagcase (Tagcase_exp $2, $3, Otherwise $6) in t
   }
 | TAGCASE value_name ASSIGN expression tag_list_colon_expression END TAGCASE
   {
     let t:(Type.simple_exp) =
-      `Tagcase (`Assign (`Value_name $2,$4), $5,`Empty) in t
+      Tagcase (Assign (Value_name $2,$4), $5,Empty) in t
   }
 | TAGCASE value_name ASSIGN expression tag_list_colon_expression
   OTHERWISE COLON expression END TAGCASE
   {
     let t:(Type.simple_exp) =
-      `Tagcase (`Assign (`Value_name $2,$4), $5, `Otherwise $8) in t
+      Tagcase (Assign (Value_name $2,$4), $5, Otherwise $8) in t
   }
 ;
 
@@ -663,34 +663,34 @@ tag_list_colon_expression :
   tagnames COLON expression
     {
       let t:(Type.tagnames_colon_exp) =
-        `Tag_list ($1,$3) in t
+        Tag_list ($1,$3) in t
     }
 ;
 
 tagnames : TAG names
     {
       let t:Type.tagnames =
-      `Tagnames $2 in t
+      Tagnames $2 in t
     }
 ;
 
 primary :
   constant
     {
-      let t:Type.simple_exp = `Constant $1
+      let t:Type.simple_exp = Constant $1
       in t
     }
 |   OLD value_name
   {
-    let t:Type.simple_exp = `Old (`Value_name $2) in t
+    let t:Type.simple_exp = Old (Value_name $2) in t
   }
 |   value_name
   {
-    let t:Type.simple_exp = `Val (`Value_name $1) in t
+    let t:Type.simple_exp = Val (Value_name $1) in t
   }
 |   LPAREN expression RPAREN
   {
-    let t:Type.simple_exp = `Paren $2 in t
+    let t:Type.simple_exp = Paren $2 in t
   }
 |   invocation
   {
@@ -707,7 +707,7 @@ iteration_exp:
   END FOR
     {
       let t:Type.simple_exp =
-        `For_initial (`Decldef_part $3,$4,$6) in t
+        For_initial (Decldef_part $3,$4,$6) in t
     }
 | FOR
   INITIAL
@@ -718,7 +718,7 @@ iteration_exp:
   END FOR
     {
       let t:Type.simple_exp =
-        `For_initial (`Decldef_part $3,$5,$7) in t
+        For_initial (Decldef_part $3,$5,$7) in t
     }
 | FOR
   in_exp_list
@@ -727,7 +727,7 @@ iteration_exp:
   END FOR
   {
     let t:Type.simple_exp =
-      `For_all ($2,`Decldef_part [],$4) in t
+      For_all ($2,Decldef_part [],$4) in t
   }
 
 | FOR
@@ -738,7 +738,7 @@ iteration_exp:
   END FOR
   {
     let t:Type.simple_exp =
-      `For_all ($2,`Decldef_part $3,$5) in t
+      For_all ($2,Decldef_part $3,$5) in t
   }
 |   FOR
   in_exp_list
@@ -749,7 +749,7 @@ iteration_exp:
   END FOR
   {
     let t:Type.simple_exp =
-      `For_all ($2,`Decldef_part $3,$6) in t
+      For_all ($2,Decldef_part $3,$6) in t
   }
 ;
 
@@ -757,12 +757,12 @@ iterator_terminator:
   iterator termination_test
     {
       let t:(iterator_terminator) =
-        `Iterator_termination ($1,$2) in t
+        Iterator_termination ($1,$2) in t
     }
 |   termination_test iterator
   {
     let t:(iterator_terminator) =
-      `Termination_iterator ($1,$2) in t
+      Termination_iterator ($1,$2) in t
   }
 ;
 
@@ -770,7 +770,7 @@ iterator:
   REPEAT iterator_body
     {
       let t:(Type.iterator) =
-      `Repeat $2 in t
+      Repeat $2 in t
     }
 ;
 
@@ -778,23 +778,23 @@ termination_test :
   WHILE expression
     {
       let t:(Type.termination_test) =
-      `While $2 in t
+      While $2 in t
     }
 |   UNTIL expression
   {
     let t:(Type.termination_test) =
-    `Until $2 in t
+    Until $2 in t
   }
 ;
 
 iterator_body :
   decldef_part
     {
-      `Decldef_part $1
+      Decldef_part $1
     }
 | decldef_part SEMICOLON
     {
-      `Decldef_part $1
+      Decldef_part $1
     }
 
 ;
@@ -802,12 +802,12 @@ iterator_body :
 in_exp_list: in_exp_list DOT in_exp
     {
       let t:(Type.in_exp) =
-      `Dot($1,$3) in t
+      Dot($1,$3) in t
     }
 | in_exp_list CROSS in_exp
     {
       let t:(Type.in_exp) =
-      `Cross ($1,$3) in t
+      Cross ($1,$3) in t
     }
 | in_exp
     {
@@ -819,12 +819,12 @@ in_exp:
   NAME IN expression
     {
       let t:(Type.in_exp) =
-        `In_exp (`Value_name $1, $3) in t
+        In_exp (Value_name $1, $3) in t
     }
 |   in_exp AT NAME
   {
     let t:(Type.in_exp) =
-      `At_exp ($1, `Value_name $3) in t
+      At_exp ($1, Value_name $3) in t
   }
 ;
 
@@ -846,109 +846,109 @@ return_clause_old:
   OLD return_exp masking_clause
     {
       let t:(return_clause)  =
-        `Old ($2, $3) in t
+        Old ($2, $3) in t
     }
 |   OLD return_exp
   {
     let t:(return_clause)  =
-      `Old($2, `Empty) in t
+      Old($2, Empty) in t
   }
 ;
 return_clause:
 return_exp masking_clause
   {
     let t:(return_clause)  =
-    `Return_exp ($1, $2) in t
+    Return_exp ($1, $2) in t
   }
 |   return_exp
   {
     let t:(return_clause)  =
-    `Return_exp ($1, `Empty) in t
+    Return_exp ($1, Empty) in t
   }
 ;
 masking_clause:
   UNLESS expression
     {
-      `Unless $2
+      Unless $2
     }
 |   WHEN expression
   {
-    let t:(Type.masking_clause) = `When $2 in t
+    let t:(Type.masking_clause) = When $2 in t
   }
 ;
 
 return_exp:
   VALUE OF direction expression
     {
-      let t:(Type.return_exp) = `Value_of ($3, `Empty, $4)
+      let t:(Type.return_exp) = Value_of ($3, Empty, $4)
       in t 
     }
 |   VALUE OF direction reduction_op expression
   {
-    let t:(Type.return_exp) = `Value_of ( $3, $4, $5)
+    let t:(Type.return_exp) = Value_of ( $3, $4, $5)
     in t
   }
 |   VALUE OF reduction_op expression
   {
-    let t:(Type.return_exp) = `Value_of (`Empty, $3, $4)
+    let t:(Type.return_exp) = Value_of (Empty, $3, $4)
     in t
   }
 |   VALUE OF expression
   {
     let t:(Type.return_exp) =
-      `Value_of (`Empty,`Empty,$3) in t
+      Value_of (Empty,Empty,$3) in t
   }
 |   ARRAY OF expression
   {
-    let t:(Type.return_exp) = `Array_of $3 in t
+    let t:(Type.return_exp) = Array_of $3 in t
   }
 |   STREAM OF expression
   {
-    let t:(Type.return_exp) = `Stream_of $3 in t
+    let t:(Type.return_exp) = Stream_of $3 in t
   }
 ;
 
 direction:
   LEFT
     {
-      `Left
+      Left
     }
 |   RIGHT
   {
-    `Right
+    Right
   }
 |   TREE
   {
-    let t:Type.direction_op = `Tree in t
+    let t:Type.direction_op = Tree in t
   }
 ;
 reduction_op:
   SUM 
     {
-      `Sum
+      Sum
     }
 |   PRODUCT
   {
-    `Product
+    Product
   }
 |   LEAST
   {
-    `Least
+    Least
   }
 |   GREATEST
   {
-    `Greatest
+    Greatest
   }
 |   CATENATE
   {
-    let t:Type.reduction_op = `Catenate in t
+    let t:Type.reduction_op = Catenate in t
   }
 ;
 
 let_in_exp :
   LET decldef_part IN expression END LET
     {
-      let t:Type.simple_exp = `Let (`Decldef_part $2,$4) in t
+      let t:Type.simple_exp = Let (Decldef_part $2,$4) in t
     }
 ;
 
@@ -974,7 +974,7 @@ decldef :
   }
 |   decl_list ASSIGN expression
   {
-    let t:(Type.decldef) = `Decldef ($1,$3) in t
+    let t:(Type.decldef) = Decldef ($1,$3) in t
   }
 ;
 
@@ -992,71 +992,25 @@ decl_list :
 decl : 
   names COLON type_spec
     {
-      `Decl ($1,$3)
+      Decl ($1,$3)
     }
 ;
 
 def :
   names ASSIGN expression
     {
-      `Def ($1,$3)
+      Def ($1,$3)
     }
 ;
-
-/*
-decldef :
-  decl
-    {
-      let t:(Type.decldef) = 
-        `Decl $1
-      in t
-    }
-|   def
-  {
-    let t:(Type.decldef) = 
-      `Def $1 
-    in t
-  }
-|   decl_list ASSIGN expression
-  {
-    let t:(Type.decldef) = `Decldef ($1,$3) in t
-  }
-;
-
-decl_list :
-  decl
-    {
-      [`Decl $1]
-    }
-|   decl_list COMMA decl
-  {
-    (`Decl $3)::$1
-  }
-;
-
-decl : 
-  names COLON type_spec
-    {
-      ($1,$3)
-    }
-;
-
-def :
-  names ASSIGN expression
-    {
-      ($1,$3)
-    }
-;
-*/
 
 conditional_exp:
   conditional_ifexp conditional_else END IF
   {
-    let t:(Type.simple_exp) = `If ([$1],$2) in t
+    let t:(Type.simple_exp) = If ([$1],$2) in t
   }
 |   conditional_ifexp conditional_elseif conditional_else END IF
   {
-    let t:(Type.simple_exp) = `If ($1::$2,$3) in t
+    let t:(Type.simple_exp) = If ($1::$2,$3) in t
   }
 ;
 
@@ -1064,48 +1018,48 @@ conditional_elseif:
   ELSEIF expression THEN expression
     {
       let t:(Type.cond) = 
-        `Cond ($2,$4) in [t]
+        Cond ($2,$4) in [t]
     }
 |   conditional_elseif ELSEIF expression THEN expression
   {
-      let t:(Type.cond) = `Cond ($3,$5) in t::$1
+      let t:(Type.cond) = Cond ($3,$5) in t::$1
   }
 ;
 
 conditional_else:
 ELSE expression
   {
-    let t:(Type.last_else) = `Else $2 in t
+    let t:(Type.last_else) = Else $2 in t
   }
 ;
 
 conditional_ifexp:
   IF expression THEN expression
     {
-      let t:(cond) = `Cond ($2,$4) in t
+      let t:(cond) = Cond ($2,$4) in t
     }       
 ;
 
 union_test :
   IS tag_name LPAREN expression RPAREN
     {
-      let t:(Type.simple_exp) = `Is ($2,$4) in t
+      let t:(Type.simple_exp) = Is ($2,$4) in t
     }
 ;
 union_generator :
   UNION type_name LBRACK tag_name RBRACK
     {
-      let t:Type.simple_exp = `Union ($2,`Tag_name $4) in t
+      let t:Type.simple_exp = Union ($2,Tag_name $4) in t
     }
 | UNION type_name LBRACK tag_name COLON expression RBRACK
   {
-    let t:Type.simple_exp = `Union ($2,`Tag_exp ($4,$6)) in t
+    let t:Type.simple_exp = Union ($2,Tag_exp ($4,$6)) in t
   }
 ;
 error_test :
   IS ERROR LPAREN expression RPAREN
     {
-      let t:Type.simple_exp = `Is_error $4 in t
+      let t:Type.simple_exp = Is_error $4 in t
     }
 ;
   tag_name : NAME
@@ -1118,59 +1072,59 @@ prefix_operation :
   prefix_name LPAREN expression RPAREN
     {
       let k:Type.simple_exp = 
-       `Prefix_operation ($1,$3) in k
+       Prefix_operation ($1,$3) in k
     }
 ;
   prefix_name :
   CHARACTER
     {
-      let k:Type.prefix_name = `Char_prefix in k
+      let k:Type.prefix_name = Char_prefix in k
     }
 | DOUBLE_REAL
   {
-      let k:Type.prefix_name = `Double_prefix in k
+      let k:Type.prefix_name = Double_prefix in k
   }
 | INTEGER
   {
-      let k:Type.prefix_name = `Integer_prefix in k
+      let k:Type.prefix_name = Integer_prefix in k
   }
 | REAL
   {
-      let k:Type.prefix_name = `Real_prefix in k
+      let k:Type.prefix_name = Real_prefix in k
   }
 ;
 
 constant : FALSE
     {
-      let k:Type.sisal_constant = `False in k
+      let k:Type.sisal_constant = False in k
     }
 | NIL
   {
-    let k:Type.sisal_constant = `Nil in k
+    let k:Type.sisal_constant = Nil in k
   }
 | TRUE
   {
-    let k:Type.sisal_constant = `True in k
+    let k:Type.sisal_constant = True in k
   }
 | INT
   {
-    let k:Type.sisal_constant = `Int $1 in k
+    let k:Type.sisal_constant = Int $1 in k
   }
 | FLOAT
   {
-    let k:Type.sisal_constant = `Float $1 in k
+    let k:Type.sisal_constant = Float $1 in k
   }
 | CHAR
   {
-    let k:Type.sisal_constant = `Char $1 in k
+    let k:Type.sisal_constant = Char $1 in k
   }
 | STRING
   {
-    let k:Type.sisal_constant = `String $1 in k
+    let k:Type.sisal_constant = String $1 in k
   }
 | ERROR LBRACK type_spec RBRACK
   {
-    let k:Type.sisal_constant = `Error $3 in k
+    let k:Type.sisal_constant = Error $3 in k
   }
 ;
 
@@ -1185,7 +1139,7 @@ type_def_part: type_def
 ;
 type_def : TYPE type_name EQ type_spec
     {
-      let k:Type.type_def = `Type_def ($2, $4)
+      let k:Type.type_def = Type_def ($2, $4)
       in k
     }
 ;
@@ -1195,11 +1149,11 @@ type_spec : basic_type_spec
     }
 |   compound_type_spec
   {
-    `Compound_type $1
+    Compound_type $1
   }
 |   type_name
   {
-    `Type_name $1
+    Type_name $1
   } 
 ;
 type_name : NAME
@@ -1211,50 +1165,50 @@ type_name : NAME
 basic_type_spec :
   BOOLEAN
     {
-      let k:Type.sisal_type = `Boolean in k
+      let k:Type.sisal_type = Boolean in k
     }
 | CHARACTER
     {
-      let k:Type.sisal_type = `Character in k
+      let k:Type.sisal_type = Character in k
     }
 | DOUBLE_REAL
   {
-      let k:Type.sisal_type = `Double_real in k
+      let k:Type.sisal_type = Double_real in k
   }
 | INTEGER
   {
-      let k:Type.sisal_type = `Integer in k
+      let k:Type.sisal_type = Integer in k
   }
 | NULL
   {
-    let k:Type.sisal_type = `Null in k
+    let k:Type.sisal_type = Null in k
   }
 | REAL
   {
-      let k:Type.sisal_type = `Real in k
+      let k:Type.sisal_type = Real in k
   }
 ;
 
 compound_type_spec :
   ARRAY LBRACK type_spec RBRACK
     {
-      let k:Type.compound_type = `Sisal_array $3 in k
+      let k:Type.compound_type = Sisal_array $3 in k
     }
 |   STREAM LBRACK type_spec RBRACK
   {
-      let k:Type.compound_type = `Sisal_stream $3 in k
+      let k:Type.compound_type = Sisal_stream $3 in k
   }
 |   RECORD LBRACK field_spec_list RBRACK
   {
-      let k:Type.compound_type = `Sisal_record $3 in k
+      let k:Type.compound_type = Sisal_record $3 in k
   }
 |   UNION LBRACK tag_spec_list RBRACK
   {
-      let k:Type.compound_type = `Sisal_union $3 in k
+      let k:Type.compound_type = Sisal_union $3 in k
   }
 |   UNION LBRACK names RBRACK
   {
-      let k:Type.compound_type = `Sisal_union_enum $3 in k
+      let k:Type.compound_type = Sisal_union_enum $3 in k
   }
 ;
 
@@ -1273,7 +1227,7 @@ field_spec :
   names COLON type_spec
     {
       let k:Type.field_spec =
-      `Field_spec ($1,$3) in k
+      Field_spec ($1,$3) in k
     }
 ;
 
@@ -1304,18 +1258,18 @@ invocation :
   function_name LPAREN RPAREN
     {
       let t:(Type.simple_exp) =
-        `Invocation ($1,`Empty) in t
+        Invocation ($1,Empty) in t
     }
 |   function_name LPAREN expression RPAREN
   {
     let t:(Type.simple_exp) =
-      `Invocation ($1,`Arg $3) in t
+      Invocation ($1,Arg $3) in t
   }
 ;
 function_name : NAME
     {
       let t:(Type.function_name) =
-      `Function_name $1 in t
+      Function_name $1 in t
     }
 ;
 field : field_name
@@ -1330,7 +1284,7 @@ field : field_name
 
 field_name : NAME
   {
-    let k:(Type.field_name) = `Field_name $1
+    let k:Type.field_name = Field_name $1
     in k
   }
 ;
