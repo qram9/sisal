@@ -16,6 +16,6 @@ let main () =
       Lexing.from_channel (open_in Sys.argv.(1))
     else get_lex_buf
   in
-  Parse.main Lex.sisal_lex lexbuf
+  Parse.main Lex.sisal_lex lexbuf;"Done"
 let parsing = Printexc.print main ()
 let _ = parsing
