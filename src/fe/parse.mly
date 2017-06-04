@@ -277,11 +277,11 @@ function_header :
 ;
 
 decl_list_semi:
-  decl_list 
+  decl
   { 
     [$1] 
   }
-| decl_list_semi SEMICOLON decl_list
+| decl_list_semi SEMICOLON decl
   {
     $3::$1
   }
