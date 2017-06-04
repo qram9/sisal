@@ -76,7 +76,7 @@ and tagnames = Tagnames of string list
 and tagnames_colon_exp = Tag_list of tagnames * exp
 and arg = Empty | Arg of exp
 and function_name = Function_name of string
-and function_header = Function_header of function_name * (decldef list) list * sisal_type list
+and function_header = Function_header of function_name * decldef list * sisal_type list
                       | Function_header_nodec of function_name * sisal_type list
 and function_def = Forward_function of function_header
                | Function of ((function_header * (type_def list)) list * exp)
