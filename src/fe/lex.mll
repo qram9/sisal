@@ -1,7 +1,14 @@
 {
 open Parse
-exception Error of string
-let error msg = raise (Error msg)
+open Lexing
+exception LexErr of string
+let error msg start finish = 
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum 
+    (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
+  (*raise (Error msg)*)
+let lex_error lexbuf = 
+  raise ( LexErr (error (lexeme lexbuf) (lexeme_start_p lexbuf) (lexeme_end_p lexbuf)))
+
 let return x = fun map -> x (* returns the value x *)
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
@@ -175,9 +182,10 @@ rule sisal_lex = parse eof {
   padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
   sisal_lex lexbuf
 }
-| ('\n')+  as mynewlines {
-  padded_lex_msg 5 ": EOL:%d times>\n" (String.length mynewlines);
-  (*Lexing.new_line lexbuf;*)sisal_lex lexbuf
+| ('\n')  as mynewlines {
+    padded_lex_msg 5 ": EOL>\n";
+    Lexing.new_line lexbuf;
+  sisal_lex lexbuf
 }
 | flonum as f {
   padded_lex_msg 5 ": %s>\n" f;
@@ -231,7 +239,7 @@ rule sisal_lex = parse eof {
 | [';'] {
   padded_lex_msg 5 " ; >\n"; 
   SEMICOLON
-}
+} | _ {  lex_error lexbuf }
 {
   let get_lex_buf = Lexing.from_channel stdin
 }
