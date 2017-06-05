@@ -1,12 +1,21 @@
 %{
+
+exception ParseErr of string
+
 open Type
+open Lexing
+open Parsing
   let debug_level = ref 3
+let error msg start finish = 
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum 
+    (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
 
 let parse_msg level fmt = 
   let print_at_level str 
     = if !debug_level >= level 
     then print_string str in
   Format.ksprintf print_at_level fmt
+
   %}
 
 
@@ -179,7 +188,7 @@ global_header_list :
     }
 | global_header_list GLOBAL function_header
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -195,7 +204,7 @@ def_func_name_list:
 function_name_list :
   function_name_list NAME
     {
-      (Function_name $2)::$1
+      $1@[(Function_name $2)]
     }
 | NAME
   {
@@ -211,7 +220,7 @@ function_def_list: function_def
     }
 | function_def_list function_def
   {
-    $2::$1
+    $1@[$2]
   }
 ;
 
@@ -244,7 +253,7 @@ function_def_nest:
     }
 | function_def_nest function_def_head
   {
-    $2::$1
+      $1@[$2]
   }
 ;
 
@@ -283,7 +292,7 @@ decl_list_semi:
   }
 | decl_list_semi SEMICOLON decl
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -294,7 +303,7 @@ type_list :
     }
 |   type_list COMMA type_spec
   {
-    $3::$1
+      $1@[$3]
   }
 ;
 expression: exp_list
@@ -303,13 +312,13 @@ expression: exp_list
     }
 ;
 exp_list :
-      simple_expression
-        {
-          [$1]
-        }
+  simple_expression
+  {
+    [$1]
+  }
 |  exp_list COMMA simple_expression
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -542,7 +551,7 @@ expr_pair_list :
     }
 |   expr_pair_list SEMICOLON expr_pair
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 expr_pair :
@@ -609,7 +618,7 @@ field_def_list :
     }
 | field_def_list SEMICOLON field_def
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -625,7 +634,7 @@ field_list :
     }
 |   field_list SEMICOLON field_expn
   {
-     $3::$1
+    $1@[$3]
   }
 ;
 field_expn :
@@ -636,26 +645,37 @@ field_expn :
 ;
 
 tagcase_exp :
-  TAGCASE expression tag_list_colon_expression END TAGCASE
+  TAGCASE expression tag_list_colon_expression_list END TAGCASE
     {
       let t:(Type.simple_exp) =
-        Tagcase (Tagcase_exp $2, $3, Empty) in t
+        Tagcase (Tagcase_exp $2, $3, Otherwise Empty) in t
     }
-| TAGCASE expression tag_list_colon_expression OTHERWISE COLON expression END TAGCASE
+| TAGCASE expression tag_list_colon_expression_list OTHERWISE COLON expression END TAGCASE
   {
     let t:(Type.simple_exp) =
       Tagcase (Tagcase_exp $2, $3, Otherwise $6) in t
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression END TAGCASE
+| TAGCASE value_name ASSIGN expression tag_list_colon_expression_list END TAGCASE
   {
     let t:(Type.simple_exp) =
-      Tagcase (Assign (Value_name $2,$4), $5,Empty) in t
+      Tagcase (Assign (Value_name $2,$4), $5,Otherwise Empty) in t
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression
+| TAGCASE value_name ASSIGN expression tag_list_colon_expression_list
   OTHERWISE COLON expression END TAGCASE
   {
     let t:(Type.simple_exp) =
       Tagcase (Assign (Value_name $2,$4), $5, Otherwise $8) in t
+  }
+;
+
+tag_list_colon_expression_list :
+tag_list_colon_expression
+  {
+        [$1]
+  }
+|tag_list_colon_expression_list  tag_list_colon_expression
+  {
+    $1@[$2]
   }
 ;
 
@@ -831,7 +851,7 @@ in_exp:
 return_exp_list:
   return_exp_list return_clause
     {
-      $2::$1
+      $1@[$2]
     }
 |   return_clause_old
   {
@@ -846,12 +866,12 @@ return_clause_old:
   OLD return_exp masking_clause
     {
       let t:(return_clause)  =
-        Old ($2, $3) in t
+        Old_ret  ($2, $3) in t
     }
 |   OLD return_exp
   {
     let t:(return_clause)  =
-      Old($2, Empty) in t
+      Old_ret ($2, No_mask) in t
   }
 ;
 return_clause:
@@ -863,7 +883,7 @@ return_exp masking_clause
 |   return_exp
   {
     let t:(return_clause)  =
-    Return_exp ($1, Empty) in t
+    Return_exp ($1, No_mask) in t
   }
 ;
 masking_clause:
@@ -880,7 +900,7 @@ masking_clause:
 return_exp:
   VALUE OF direction expression
     {
-      let t:(Type.return_exp) = Value_of ($3, Empty, $4)
+      let t:(Type.return_exp) = Value_of ($3, No_red, $4)
       in t 
     }
 |   VALUE OF direction reduction_op expression
@@ -890,13 +910,13 @@ return_exp:
   }
 |   VALUE OF reduction_op expression
   {
-    let t:(Type.return_exp) = Value_of (Empty, $3, $4)
+    let t:(Type.return_exp) = Value_of (No_dir, $3, $4)
     in t
   }
 |   VALUE OF expression
   {
     let t:(Type.return_exp) =
-      Value_of (Empty,Empty,$3) in t
+      Value_of (No_dir,No_red,$3) in t
   }
 |   ARRAY OF expression
   {
@@ -959,18 +979,18 @@ decldef_part :
     }
 |   decldef_part SEMICOLON decldef
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
 decldef :
   decl
     {
-      $1
+      Decl_decl $1
     }
 |   def
   {
-    $1
+    Decl_def $1
   }
 |   decl_list ASSIGN expression
   {
@@ -985,7 +1005,7 @@ decl_list :
     }
 |   decl_list COMMA decl
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -1022,7 +1042,7 @@ conditional_elseif:
     }
 |   conditional_elseif ELSEIF expression THEN expression
   {
-      let t:(Type.cond) = Cond ($3,$5) in t::$1
+    $1@[let t:(Type.cond) = Cond ($3,$5) in t]
   }
 ;
 
@@ -1049,11 +1069,11 @@ union_test :
 union_generator :
   UNION type_name LBRACK tag_name RBRACK
     {
-      let t:Type.simple_exp = Union ($2,Tag_name $4) in t
+      let t:Type.simple_exp = Union_generator ($2,Tag_name $4) in t
     }
 | UNION type_name LBRACK tag_name COLON expression RBRACK
   {
-    let t:Type.simple_exp = Union ($2,Tag_exp ($4,$6)) in t
+    let t:Type.simple_exp = Union_generator ($2,Tag_exp ($4,$6)) in t
   }
 ;
 error_test :
@@ -1134,7 +1154,7 @@ type_def_part: type_def
     }
 |   type_def_part SEMICOLON type_def
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 type_def : TYPE type_name EQ type_spec
@@ -1219,7 +1239,7 @@ field_spec_list:
     }
 | field_spec_list SEMICOLON field_spec
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
@@ -1233,7 +1253,7 @@ field_spec :
 
 names : names COMMA NAME
     {
-      $3::$1
+      $1@[$3]
     }
 |   NAME
   {
@@ -1258,7 +1278,7 @@ invocation :
   function_name LPAREN RPAREN
     {
       let t:(Type.simple_exp) =
-        Invocation ($1,Empty) in t
+        Invocation ($1,Arg Empty) in t
     }
 |   function_name LPAREN expression RPAREN
   {
@@ -1278,7 +1298,7 @@ field : field_name
     }
 | field DOTSTOP field_name
   {
-    $3::$1
+    $1@[$3]
   }
 ;
 
