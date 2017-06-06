@@ -76,9 +76,10 @@ and function_header =
     Function_header of function_name * decl list * sisal_type list
   | Function_header_nodec of function_name * sisal_type list
 and function_def = Forward_function of function_header
-               | Function of ((function_header * (type_def list)) list * exp)
+  | Function of function_leaf list
+and function_leaf = Function_single of (function_header * (type_def list) * (function_leaf list) * exp)
 and define = Define of function_name list
-and compilation_unit = Compilation_unit of define * (type_def list) * (function_header list) * (function_def list)
+and compilation_unit = Compilation_unit of define * (type_def list) * (function_header list) * function_def list
 and fun_returns = Returns of sisal_type list
 and decldef_part = Decldef_part of decldef list
 and reduction_op = Sum | Product | Least | Greatest | Catenate | No_red
@@ -207,8 +208,8 @@ and
 and
   str_constant = function
   | False -> "FALSE" | Nil -> "NIL" | True -> "TRUE" | Int i -> string_of_int i
-  | Float f -> string_of_float f | Char st -> st
-  | String st -> st
+  | Float f -> string_of_float f | Char st -> "\"" ^ st  ^ "\""
+  | String st -> "\"" ^ st ^ "\""
   | Error st -> "ERROR [" ^ (str_sisal_type st) ^ "]"
 and
   str_val = function | Value_name v -> v
@@ -305,7 +306,7 @@ and str_simple_exp = function
     spc_fold ["UNION"; tn; "["; str_tag_exp te; "]"]
   | Prefix_operation (pn,e) -> (str_prefix_name pn) ^ "(" ^ (str_exp e) ^ ")"
   | Is_error e -> "IS ERROR (" ^ (str_exp e) ^ ")"
-  | Let (dp,e) -> spc_fold["LET"; str_decldef_part dp; str_exp e]
+  | Let (dp,e) -> nl_fold["LET"; str_decldef_part dp;"IN"; str_exp e; "END LET"]
   | Tagcase (ae,tc,o) ->
     nl_fold [str_tagcase_exp ae; str_taglist_list tc; str_otherwise o]
   | If (cl, el) -> nl_fold[ "IF"; str_if cl; str_else el; "END IF"]
@@ -346,21 +347,23 @@ and str_compilation_unit = function
       [str_defines defines;
        semi_nl_fold (List.map str_type_def type_defs);
        nl_fold (List.map str_global globals);
-       nl_fold (List.map str_function_def fdefs)]
+       nl_fold (List.map
+       str_function_def fdefs)]
 and str_type_def = function
   | Type_def (n,t) ->
     spc_fold ["TYPE";n;"="; str_sisal_type t]
-and str_function_def_pair = function
-  | (fh,tyd) ->
-    nl_fold [str_function_header fh;
-             semi_nl_fold (List.map str_type_def tyd)]
-and str_functions_nest = function
-  | (fnest, e) ->
-    nl_fold [nl_fold (List.map str_function_def_pair fnest);
-              str_exp e;
-              "END FUNCTION"]
+and internals f =
+  match f with
+  |  [] -> ""
+  | (Function_single (header,tdefs,nest,e))::tl ->
+    ("FUNCTION " ^
+    (nl_fold [ str_function_header header;
+               semi_nl_fold (List.map str_type_def tdefs);
+               internals nest;
+               str_exp e;
+               "END FUNCTION"])) ^ ( internals tl)
 and str_function_def = function
-  | Function f -> "FUNCTION " ^  (str_functions_nest f)
+  | Function f -> internals f
   | Forward_function f -> "FORWARD FUNCTION " ^ (str_function_header f)
 and str_function_header = function
   | Function_header_nodec (fun_name,tl) -> 
@@ -372,245 +375,4 @@ and str_function_header = function
       [str_function_name fun_name;
        paren ((semi_fold (List.map str_decl decls))
               ^ "\n   RETURNS "  ^ (str_type_list tl))]
-(*
-and
-  str_it =
-  function
-  | `Compilation_unit (d,tdl,fhl,fdl) ->
-    nl_fold [str_it d;foldsemi_list tdl; foldnl_list fhl; foldnl_list fdl]
-  | `Type_name typename -> typename
-  | `Real -> "REAL"
-  | `Null -> "NULL"
-  | `Integer -> "INTEGER"
-  | `Double_real -> "DOUBLE_REAL"
-  | `Character -> "CHARACTER"
-  | (`Constant _ | `Old _ | `Val _ | `Paren _ | `Invocation _
-  | `Array_ref _ | `Array_generator_named _ | `Array_generator_unnamed _
-  | `Array_generator_named_addr _ | `Array_generator_primary _ | `Stream_generator _
-  | `Stream_generator_exp _ | `Record_ref _ | `Record_generator_named _
-  | `Record_generator_unnamed _ | `Record_generator_primary _ | `Is _
-  | `Union_generator _ | `Is_error _ | `Prefix_operation _
-  | `If _ | `Let _ | `Tagcase _
-  | `For_all _ | `For_initial _ | `Not _ | `Negate _
-  | `Pipe _ | `And _ | `Divide _ | `Multiply _ | `Or _
-  | `Subtract _ | `Add _ | `Not_equal _ | `Equal _
-  | `Lesser_equal _ | `Lesser _ | `Greater_equal _ | `Greater _) as se ->
-    str_simple_exp se
-  | `False -> "FALSE"
-  | `True -> "TRUE"
-  | `Nil -> "NIL"
-  | `Int i -> string_of_int i
-  | `Float f -> string_of_float f
-  | `Char st -> st
-  | `String st -> st
-  | `Error sty ->
-    "ERROR OF " ^ (str_it sty)
-  | `Arg ar -> str_it ar
-  | `Boolean -> "BOOLEAN"
-  | `Compound_type c -> str_it c
-  | `Sisal_array sa -> str_it sa
-  | `Sisal_stream ss -> str_it ss
-  | `Sisal_union (strs, st) ->
-    (foldstr_list strs) ^ ":" ^ (str_it st)
-  | `Sisal_union_enum strs -> foldstr_list strs
-  | `Sisal_record fs -> str_it fs
-  | `Type_def (tn,st) -> "TYPE " ^ tn ^ " = " ^ (str_it st)
-  | `Field_spec (strs,st) -> (foldstr_list strs) ^ ":" ^ (str_it st)
-  | `Field_name f -> f
-  | `Field_exp (f,e) -> (str_it f) ^ ":" ^ (str_it e)
-  | `Field_def (f,e) -> (str_it f) ^ ":" ^ (str_it e)
-  | `Field fl -> dot_fold fl
-  | `Char_prefix -> "CHARACTER"
-  | `Double_prefix -> "DOUBLE"
-  | `Integer_prefix -> "INTEGER"
-  | `Real_prefix -> "REAL"
-  | `Sum -> "SUM"
-  | `Product -> "PRODUCT"
-  | `Least -> "LEAST"
-  | `Greatest -> "GREATEST"
-  | `Catenate -> "CATENATE"
-  | `Left -> "LEFT"
-  | `Right -> "RIGHT"
-  | `Tree -> "TREE"
-  | `Old_ret (re, mc) ->
-    "OLD " ^ (str_it re) ^ " " ^ (str_it mc)
-  | `Return_exp (re,mc) -> (str_it re) ^ " " ^ (str_it mc)
-  | `Assign (a,e) -> (str_it a) ^ " := " ^ (str_it e)
-  | `Otherwise e -> "OTHERWISE " ^ (str_it e)
-  | `Tag_list (tn, e) -> spc_fold ["TAG"; foldstr_list tn; str_it e]
-  | `Tag_name tn -> tn
-  | `Tag_exp (tn,te) -> tn ^ ":"^ (str_it te)
-  | `Expr_pair (e1,e2) -> (str_simple_exp e1) ^ ":" ^ (str_simple_exp e2)
-  | `Tagnames tnl -> colon_fold tnl
-  | `While e -> "WHILE " ^ (str_it e)
-  | `Until e -> "UNTIL " ^ (str_it e)
-  | `Repeat r -> "REPEAT\n" ^ (str_it r)
-  | `Value_of (x, y, z) as return_exp -> spc_fold
-                             ["VALUE OF"; str_it x; str_it y; str_it z]
-  | `Unless ex -> "UNLESS " ^ (str_it ex)
-  | `When ex -> "WHEN " ^ (str_it ex)
-  | `Empty -> ""
-  | `Dot (x,y) ->
-    spc_fold [str_it x; "DOT" ;str_it y]
-  | `Cross (x,y) ->
-    spc_fold [str_it x; "CROSS"; str_it y]
-  | `In_exp (x,y) -> spc_fold ["IN"; str_it x; str_it y]
-  | `At_exp (x,y) -> spc_fold [str_it x; "AT"; str_it y]
-  | `Decldef_part x -> List.fold_left
-                    (fun last fs -> mysplcon last (str_it fs) ";") "" x
-  | `Def (x,y) -> (comma_fold x)
-                  ^ " := " ^ (str_it y)
-  | `Decl (x,y) -> (comma_fold x) ^ ":" ^ (str_it y)
-  | `Decldef (x,y) -> (foldstr_list x) ^ " := " ^ (str_it y)
-  | `Returns x -> "RETURNS " ^ (foldstr_list x)
-  | `Define fl -> "DEFINE " ^ (foldstr_list fl)
-  | `Function_name f -> f
-  | `Function_header (fn,dll,st) ->
-    spc_fold ["FUNCTION " ^ ( str_it fn);
-              semi_fold dll;
-              "RETURNS";
-              foldstr_list st] 
-  | `Function_header_nodec (fn,st) ->
-    spc_fold ["FUNCTION " ^ ( str_it fn);
-              "RETURNS";
-              foldstr_list st]
-  | `Forward_function ff -> "FORWARD " ^ (str_it ff)
-  | `Function (fh,e) ->
-    mysplcon
-      (List.fold_left (fun last (fh, tdlis) ->
-           mysplcon last (mysplcon fh (semi_fold tdlis) "\n")
-             "\n")
-          "" fh) (str_it e) "\n"
 
-type array_value = { t : sisal_type ; lo : int; hi : int }
-type stream_value = { t : sisal_type ; hi : int }
-
-let rec 
-  str_forall_loop fl = 
-  match fl with
-  | For (Inexp_list il, Returns_list rl) ->
-    "FOR " ^ il ^ " RETURNS " ^ rl
-and str_primary = function
-  False -> "False"
-  | Nil -> "Nil"
-  | True -> "True"
-  | Int ii -> string_of_int ii
-  | Float ff -> string_of_float ff
-  | Char cc -> cc
-  | String st -> st
-  | Error ts -> str_sisal_type ts
-and str_sisal_type st =
-  match st with 
-  | Boolean -> "BOOLEAN"
-  | Character -> "CHARACTER"
-  | Double_real -> "DOUBLE_REAL"
-  | Integer -> "INTEGER"
-  | Null -> "NULL"
-  | Real -> "REAL"
-  | Type_name  t    -> t
-  | Sisal_array  sa ->
-    ("ARRAY"   ^ "[ " ^ (str_sisal_type  sa) ^ " ]")
-  | Sisal_stream ss ->
-    ("STREAM"  ^ "[ " ^ (str_sisal_type  ss) ^ " ]")
-  | Sisal_record sr ->
-    ("RECORD"  ^ "[ " ^ (foldf sr) ^ " ]")
-  | Sisal_union su ->
-    ("UNION"   ^ "[ " ^ (foldu su) ^ " ]")
-and foldf sr = 
-  (List.fold_left
-     (fun last fs -> (mysplcon last (str_field fs) ";"))
-     ""
-     sr) 
-and foldu su = 
-  (List.fold_left
-     (fun last fs -> (mysplcon last (str_tag fs) ";"))
-     ""
-     su) 
-and
-  str_field = function
-  | Field (f,ts) ->
-    match f with
-    | Field_name af ->  
-    (af ^ ":" ^ (str_sisal_type ts))
-    | Field_names cdrf -> 
-      (List.fold_left
-        (fun last fs -> (mysplcon last fs ","))
-        "" cdrf)
-and
-  str_tag = function
-  | (t,ts) -> 
-    let r =
-      (List.fold_left
-        (fun last fs -> (match fs with Tag f -> mysplcon last f ","))
-        "" t)
-    in
-    (r ^ ":" ^ (str_sisal_type ts))
-   *)
-
-
-(*let _ = 
-let sis_rec = (
-      Sisal_record [
-        Field (
-          Field_name "MASHI", 
-          Sisal_array Real)])
-in
-let sis_uni1 = (
-    Sisal_union [
-      Tag ("MASHI", Real); 
-      Tag ("MOSHI", sis_rec)])
-in
-let sis_uni2 = (
-  Sisal_union [
-    Tag ("NoMode", Null); 
-    Tag ("ListElement",
-          Sisal_record [
-            Field (
-              Field_name "Data",
-              Integer);
-            Field (
-              Field_name "Next",
-              Integer)])])
-in
-  print_endline (str_sisal_type (Sisal_array Real));
-  print_endline (str_sisal_type (
-      Sisal_array (Sisal_array Real)));
-  print_endline (str_sisal_type sis_rec);
-  print_endline (str_sisal_type (Sisal_stream (sis_uni2)));
-  print_endline (str_sisal_type sis_uni1)
-  *)
-(*
-type
-  sisal_type = 
-    Boolean
-  | Character
-  | Double_real
-  | Integer
-  | Null
-  | Real
-  | Compound_type of compound_type
-  | Type_name of type_name
-and
-  compound_type =
-    Sisal_array  of sisal_type
-  | Sisal_stream of sisal_type
-  | Sisal_record of (field list)
-  | Sisal_union  of (tag list)
-and
-  field =
-    Field of (field_name * sisal_type)
-and
-  tag =
-    Tag of (tag_name * sisal_type)
-and field_name =
-  Field_name of string
-| Field_names of (string list)
-and tag_name = string
-and type_name = string
-
-type sisal_constant =
-  | Constant of sisal_type
-  | Error of sisal_type
-type array_value = { t : sisal_type ; lo : int; hi : int }
-type stream_value = { t : sisal_type ; hi : int }
-   *)
