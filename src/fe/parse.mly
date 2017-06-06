@@ -137,7 +137,7 @@ let parse_msg level fmt =
 %%
 compilation_unit :
   def_func_name_list
-    function_def_list
+    function_def_list EOF
     {
       let t:Type.compilation_unit =
         Compilation_unit ($1,[],[],$2)
@@ -145,7 +145,7 @@ compilation_unit :
     }
 | def_func_name_list
     type_def_part
-    function_def_list
+    function_def_list EOF
   {
     let t:Type.compilation_unit =
       Compilation_unit ($1,$2,[],$3)
@@ -154,7 +154,7 @@ compilation_unit :
 | def_func_name_list
     type_def_part
     global_header_list
-    function_def_list
+    function_def_list EOF
   {
     let t:Type.compilation_unit =
       Compilation_unit ($1,$2,$3,$4)
@@ -163,7 +163,7 @@ compilation_unit :
 | def_func_name_list
     type_def_part
     SEMICOLON
-    function_def_list
+    function_def_list EOF
   {
     let t:Type.compilation_unit =
       Compilation_unit ($1,$2,[],$4)
@@ -173,7 +173,7 @@ compilation_unit :
     type_def_part
     SEMICOLON
     global_header_list
-    function_def_list
+    function_def_list EOF
   {
     let t:Type.compilation_unit =
       Compilation_unit ($1,$2,$4,$5)
@@ -231,7 +231,7 @@ function_def:
         Forward_function $3
       in t
     }
-| functions_nest
+| function_nest
   {
     let t:Type.function_def =
       Function $1
@@ -239,36 +239,43 @@ function_def:
   }
 ;
 
-functions_nest :
-  function_def_nest expression END FUNCTION
-    {
-        ($1,$2)
-    }
-;
+function_nest:
+FUNCTION function_header function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,[],$3,$4)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part SEMICOLON function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,$3,$5,$6)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,$3,$4,$5)
+    in [Function_single t]
+  }
 
-function_def_nest:
-  function_def_head
-    {
-      [$1]
-    }
-| function_def_nest function_def_head
+| FUNCTION function_header expression END FUNCTION
   {
-      $1@[$2]
+    let t =
+    ($2,[],[],$3)
+    in [Function_single t]
   }
-;
-
-function_def_head:
-FUNCTION function_header
+|   FUNCTION function_header type_def_part SEMICOLON expression END FUNCTION
   {
-    ($2,[])
+    let t =
+    ($2,$3,[],$5)
+    in [Function_single t]
   }
-|   FUNCTION function_header type_def_part SEMICOLON
+|   FUNCTION function_header type_def_part expression END FUNCTION
   {
-    ($2,$3)
-  }
-|   FUNCTION function_header type_def_part
-  {
-    ($2,$3)
+    let t =
+    ($2,$3,[],$4)
+    in [Function_single t]
   }
 ;
 

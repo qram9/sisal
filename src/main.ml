@@ -24,7 +24,8 @@ let main () =
   in
   try
     print_endline (str_compilation_unit (Parse.main Lex.sisal_lex lexbuf));"Done"
-  with Parsing.Parse_error ->
+  with 
+    _ ->
     let msg = "Parse error before " ^ (Lexing.lexeme lexbuf) in
     error msg lexbuf;
     exit 1
