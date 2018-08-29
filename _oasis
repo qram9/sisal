@@ -10,8 +10,8 @@ Name: Sisal
 Executable sisal
   Path: src
   MainIs: main.ml
-  CompiledObject: best
-  BuildDepends: unix, fe, ir
+  CompiledObject: byte,debug
+  BuildDepends: unix, fe, ir, ocamlgraph, graphics
 
 Library fe
   Path: src/fe
@@ -21,5 +21,5 @@ Library fe
 
 Library ir
   Path: src/ir
-  Modules: Type
-  BuildDepends: unix
+  Modules: Ast, If1, To_if1
+  BuildDepends: unix, ocamlgraph, graphics
