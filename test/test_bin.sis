@@ -1,0 +1,17 @@
+define Main 
+
+function tempFun(vv,uu: integer returns integer)
+vv * uu
+end function
+
+function tempFun2(JJ : array[integer] returns integer)
+JJ[0]
+end function
+
+function Main(level: integer returns integer)
+let x,y : INTEGER := level-1,level+1 in
+let z : INTEGER := level-4 in
+tempFun(x*y+2*3*z,x*z+2*3*y)
+end let
+end let
+end function

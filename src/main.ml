@@ -2,18 +2,23 @@ open Unix
 open Lex
 open Lexing
 open Parse
-open Type
-
+open Ast
+open If1
+open To_if1
 let help = 
   [ "usage: sisal_it -help prints this message"
   ; "       sisal_it -debug prints debug messages"
   ]
 let error msg lexbuf = 
-    let start = (Lexing.lexeme_start_p lexbuf) in
-    let finish = (Lexing.lexeme_end_p lexbuf) in
-    print_endline (
-      Printf.sprintf ("(line %d" ^^ ": char %d" ^^ "..%d)"^^ ": %s") start.pos_lnum 
-        (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg)
+  let start = (Lexing.lexeme_start_p lexbuf) in
+  let finish = (Lexing.lexeme_end_p lexbuf) in
+  print_endline (
+      Printf.sprintf ("%s in file: %s (line %d" ^^ ": char %d" ^^ "..%d)")
+        msg
+        start.pos_fname
+        start.pos_lnum 
+        (start.pos_cnum -start.pos_bol)
+        (finish.pos_cnum - finish.pos_bol))
 
 let main () =
   let lexbuf = 
@@ -23,10 +28,24 @@ let main () =
     else get_lex_buf
   in
   try
-    print_endline (str_compilation_unit (Parse.main Lex.sisal_lex lexbuf));"Done"
+    let set_filename (fname:string) (lexbuf:Lexing.lexbuf)  =
+      ( lexbuf.Lexing.lex_curr_p <-  
+          { lexbuf.lex_curr_p with Lexing.pos_fname = fname }
+      ; lexbuf
+      ) in
+    let mashi = (Parse.main Lex.sisal_lex
+                   (set_filename (Sys.argv.(1)) lexbuf)) in
+    let z,ou = do_compilation_unit mashi in
+    print_endline "Result graph";
+    print_endline (string_of_graph ou);
+    print_endline (str_compilation_unit mashi);
+    "Done"
   with 
-    _ ->
-    let msg = "Parse error before " ^ (Lexing.lexeme lexbuf) in
+    e ->
+    let msg = Printexc.to_string e
+    and stack = Printexc.get_backtrace () in
+    Printf.eprintf "there was an error: %s%s\n" msg stack;    
+    let msg = "Unexpected: " ^ ("\"" ^ Lexing.lexeme lexbuf ^ "\"") in
     error msg lexbuf;
     exit 1
 let parsing = Printexc.print main ()

@@ -203,10 +203,10 @@ rule sisal_lex = parse eof {
     k
   with Not_found ->
     try
-      let k =
+      (*let k =
         KeywordTable.find ident_or_kw predef_fn_table
       in padded_lex_msg 5 ": Predef_fn:%s>\n" (String.uppercase ident_or_kw);
-      (*k*)
+      k*)
       NAME (String.uppercase ident_or_kw)
     with Not_found ->
       padded_lex_msg 5 ": NAME:%s>\n" (String.uppercase ident_or_kw);
