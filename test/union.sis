@@ -1,7 +1,7 @@
 
 define Main
 
-type Cart = record[X,Y:real]
+type IntList = UNION[EMPTY: null,Full: record [Mote:integer; Next:IntList]]
 
 function Main(returns Cart)
 let Origin : Cart := record[X:4.2;Y:3.1] in

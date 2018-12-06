@@ -1,0 +1,11 @@
+define main
+type ar		= array[integer];
+type un		= union[a : integer; b : real; c : double; d : ar];
+function ucreate(a : integer; b : real; c : double; d : ar returns
+     un,un,un,un)
+     union un[a : a],
+     union un[b : b],
+     union un[c : c],
+     union un[d : d]
+end function
+

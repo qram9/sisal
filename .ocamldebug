@@ -1,0 +1,2 @@
+load_printer _build/src/ir/ir.cma
+install_printer If1.graph_printer
