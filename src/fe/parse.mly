@@ -7,13 +7,13 @@ open Lexing
 open Parsing
 
 let debug_level = ref 3
-let error msg start finish = 
-  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum 
+let error msg start finish =
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum
     (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
 
-let parse_msg level fmt = 
-  let print_at_level str 
-    = if !debug_level >= level 
+let parse_msg level fmt =
+  let print_at_level str
+    = if !debug_level >= level
     then print_string str in
   Format.ksprintf print_at_level fmt
 
@@ -128,7 +128,7 @@ let parse_msg level fmt =
 %token MINUS
 %token STAR
 %token DIVIDE
-%left LT GT EQ NE LE GE PIPE AND OR 
+%left LT GT EQ NE LE GE PIPE AND OR
 %left PLUS MINUS
 %left STAR DIVIDE
 %nonassoc UMINUS
@@ -279,7 +279,7 @@ FUNCTION function_header function_nest expression END FUNCTION
   }
 ;
 
-function_header : 
+function_header :
   function_name LPAREN RETURNS type_list RPAREN
     {
       let t:Ast.function_header =
@@ -294,8 +294,8 @@ function_header :
 
 decl_list_semi:
   decl
-  { 
-    [$1] 
+  {
+    [$1]
   }
 | decl_list_semi SEMICOLON decl
   {
@@ -334,21 +334,21 @@ simple_expression:
     {
       $1
     }
-| simple_expression   GT simple_expression 
+| simple_expression   GT simple_expression
   {
     let t:Ast.simple_exp =
       Greater ($1,$3)
     in t
   }
-| simple_expression   GE simple_expression 
+| simple_expression   GE simple_expression
   {
     let t:Ast.simple_exp =
-      Greater_equal($1,$3) 
+      Greater_equal($1,$3)
     in t
   }
 | simple_expression
   LT
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
       Lesser ($1,$3)
@@ -356,7 +356,7 @@ simple_expression:
   }
 | simple_expression
   LE
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
       Lesser_equal ($1,$3)
@@ -365,68 +365,68 @@ simple_expression:
 
 | simple_expression
   EQ
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
-      Equal($1,$3) 
+      Equal($1,$3)
     in t
   }
 
 | simple_expression
   NE
-  simple_expression 
-  { 
+  simple_expression
+  {
     let t:Ast.simple_exp =
-      Not_equal ($1,$3) 
+      Not_equal ($1,$3)
     in t
   }
 
 | simple_expression
   PLUS
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
-      Add ($1,$3) 
+      Add ($1,$3)
     in t
   }
 
 | simple_expression
   MINUS
   simple_expression
-  { 
+  {
     let t:Ast.simple_exp =
-      Subtract ($1,$3) 
+      Subtract ($1,$3)
     in t
   }
 
 | simple_expression
   OR
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
-      Or ($1,$3) 
+      Or ($1,$3)
     in t
   }
 
 | simple_expression
   STAR
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
-      Multiply ($1,$3) 
+      Multiply ($1,$3)
     in t
   }
 | simple_expression
   DIVIDE
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
-      Divide ($1,$3) 
+      Divide ($1,$3)
     in t
   }
 | simple_expression
   AND
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
       And ($1,$3)
@@ -434,7 +434,7 @@ simple_expression:
   }
 | simple_expression
   PIPE
-  simple_expression 
+  simple_expression
   {
     let t:Ast.simple_exp =
       Pipe ($1, $3)
@@ -456,7 +456,7 @@ simple_expression:
   {
     let t:Ast.simple_exp =
     Not $2
-    in t 
+    in t
   }
 
 ;
@@ -560,7 +560,7 @@ expr_pair_list :
     $1@[$3]
   }
 ;
-  
+
 expr_pair :
   expression COLON expression
     {
@@ -584,7 +584,7 @@ simple_expr_pair :
      {
        let t:(Ast.sexpr_pair) = SExpr_pair ($1,$3) in t
      }
-;      
+;
 stream_generator :
   STREAM type_name LBRACK RBRACK
     {
@@ -674,26 +674,26 @@ field_expn :
 ;
 
 tagcase_exp :
-  TAGCASE expression tag_list_colon_expression_list END TAGCASE
+  TAGCASE simple_expression tag_list_colon_expression_list END TAGCASE
     {
       let t:(Ast.simple_exp) =
         Tagcase (Tagcase_exp $2, $3, Otherwise Empty) in t
     }
-| TAGCASE expression tag_list_colon_expression_list OTHERWISE COLON expression END TAGCASE
+| TAGCASE simple_expression tag_list_colon_expression_list OTHERWISE COLON expression END TAGCASE
   {
     let t:(Ast.simple_exp) =
       Tagcase (Tagcase_exp $2, $3, Otherwise $6) in t
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression_list END TAGCASE
+| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list END TAGCASE
   {
     let t:(Ast.simple_exp) =
-      Tagcase (Assign (Value_name $2,$4), $5,Otherwise Empty) in t
+      Tagcase (Assign (Value_name $2,$4), $5, Otherwise Empty) in t
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression_list
+| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list
   OTHERWISE COLON expression END TAGCASE
   {
     let t:(Ast.simple_exp) =
-      Tagcase (Assign (Value_name $2,$4), $5, Otherwise $8) in t
+      Tagcase (Assign (Value_name $2, $4), $5, Otherwise $8) in t
   }
 ;
 
@@ -916,42 +916,42 @@ return_exp masking_clause
   }
 ;
 masking_clause:
-  UNLESS expression
+  UNLESS simple_expression
     {
       Unless $2
     }
-|   WHEN expression
+|   WHEN simple_expression
   {
     let t:(Ast.masking_clause) = When $2 in t
   }
 ;
 
 return_exp:
-  VALUE OF direction expression
+  VALUE OF direction simple_expression
     {
       let t:(Ast.return_exp) = Value_of ($3, No_red, $4)
-      in t 
+      in t
     }
-|   VALUE OF direction reduction_op expression
+|   VALUE OF direction reduction_op simple_expression
   {
     let t:(Ast.return_exp) = Value_of ( $3, $4, $5)
     in t
   }
-|   VALUE OF reduction_op expression
+|   VALUE OF reduction_op simple_expression
   {
     let t:(Ast.return_exp) = Value_of (No_dir, $3, $4)
     in t
   }
-|   VALUE OF expression
+|   VALUE OF simple_expression
   {
     let t:(Ast.return_exp) =
       Value_of (No_dir,No_red,$3) in t
   }
-|   ARRAY OF expression
+|   ARRAY OF simple_expression
   {
     let t:(Ast.return_exp) = Array_of $3 in t
   }
-|   STREAM OF expression
+|   STREAM OF simple_expression
   {
     let t:(Ast.return_exp) = Stream_of $3 in t
   }
@@ -972,7 +972,7 @@ direction:
   }
 ;
 reduction_op:
-  SUM 
+  SUM
     {
       Sum
     }
@@ -1038,7 +1038,7 @@ decl_list :
   }
 ;
 
-decl : 
+decl :
   names COLON type_spec
     {
       Decl ($1,$3)
@@ -1066,7 +1066,7 @@ conditional_exp:
 conditional_elseif:
   ELSEIF expression THEN expression
     {
-      let t:(Ast.cond) = 
+      let t:(Ast.cond) =
         Cond ($2,$4) in [t]
     }
 |   conditional_elseif ELSEIF expression THEN expression
@@ -1086,7 +1086,7 @@ conditional_ifexp:
   IF expression THEN expression
     {
       let t:(cond) = Cond ($2,$4) in t
-    }       
+    }
 ;
 
 union_test :
@@ -1100,7 +1100,7 @@ union_generator :
     {
       let t:Ast.simple_exp = Union_generator ($2,Tag_name $4) in t
     }
-| UNION type_name LBRACK tag_name COLON expression RBRACK
+| UNION type_name LBRACK tag_name COLON simple_expression RBRACK
   {
     let t:Ast.simple_exp = Union_generator ($2,Tag_exp ($4,$6)) in t
   }
@@ -1120,7 +1120,7 @@ error_test :
 prefix_operation :
   prefix_name LPAREN expression RPAREN
     {
-      let k:Ast.simple_exp = 
+      let k:Ast.simple_exp =
        Prefix_operation ($1,$3) in k
     }
 ;
@@ -1203,7 +1203,7 @@ type_spec : basic_type_spec
 |   type_name
   {
     Type_name $1
-  } 
+  }
 ;
 type_name : NAME
     {
@@ -1262,7 +1262,7 @@ compound_type_spec :
 ;
 
 field_spec_list:
-  field_spec 
+  field_spec
     {
       [$1]
     }
@@ -1290,7 +1290,7 @@ names : names COMMA NAME
   }
 ;
 
-tag_spec_list : 
+tag_spec_list :
   tag_spec
     {
       [$1]
@@ -1300,21 +1300,21 @@ tag_spec_list :
         $1@[$3]
       }
 ;
-  
+
 tag_spec :
   names COLON type_spec
     {
       ($1,$3)
     }
 ;
-    
+
 value_name : NAME
     {
       $1
     }
 ;
 
-invocation : 
+invocation :
   function_name LPAREN RPAREN
     {
       let t:(Ast.simple_exp) =
@@ -1354,4 +1354,3 @@ main: compilation_unit
     $1
   }
 ;
-
