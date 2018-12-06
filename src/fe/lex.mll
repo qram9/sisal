@@ -125,14 +125,15 @@ let predef_fn_table =
 let digit = ['0'-'9']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
 let dec = digit+
-let flonum = (['+' '-']?) ['0'-'9']+ 
+            (*            let flonum = (['+' '-']?)*)
+            let flonum = ['0'-'9']+ 
              '.' 
              ['0'-'9']*
              (['e' 'E']?
              ['+' '-']?
              ['0'-'9']+)*
-
-                                 let negnum = '-'? dec
+               
+               let negnum = '-'? dec
 let negflonum = '-'? flonum
 
 let alpha = ['a'-'z' 'A'-'Z']
