@@ -856,7 +856,7 @@ in_exp_list: in_exp_list DOT in_exp
 | in_exp_list CROSS in_exp
     {
       let t:(Ast.in_exp) =
-      Cross ($1,$3) in t
+      Cross ($3,$1) in t
     }
 | in_exp
     {

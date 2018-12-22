@@ -6,10 +6,10 @@ Define  Main
 type double = double_real;
 type ThreeD   = array[array[array[double]]];
 
-function Main( n,m:integer; Y:ThreeD returns ThreeD, ThreeD )
-   for K in 1,n cross J in 2,m cross L in 3,n
-   returns array of Y[K,J,L]*Y[K,J,L]
-           array of Y[K,J,L] - Y[K,J,L]
+function Main( n,m:integer; Y,W,U:ThreeD returns ThreeD, ThreeD )
+   for K in 4,n cross J in 1,m cross L in 1,n
+   returns array of Y[K,J,L]*w[K,J,L]
+           array of Y[K,J,L] - u[K,J,L]
    end for
 end function
 
