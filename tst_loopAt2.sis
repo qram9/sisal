@@ -1,0 +1,14 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Main(N:Integer; Y:OneD returns OneD )
+   for I in 1,N
+   returns array of Y[I]*Y[I]
+   end for
+end function
+

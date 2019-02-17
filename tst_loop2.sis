@@ -1,0 +1,15 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Main( Y:OneD returns double )
+   for K in Y
+       X := K+K
+   returns VALUE OF sum X
+   end for
+end function
+

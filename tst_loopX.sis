@@ -7,9 +7,9 @@ type double = double_real;
 type ThreeD   = array[array[array[double]]];
 
 function Main( n,m:integer; Y,W,U:ThreeD returns ThreeD, ThreeD )
-   for K in 4,n cross J in 1,m cross L in 1,n
-   returns array of Y[K,J,L]*w[K,J,L]
-           array of Y[K,J,L] - u[K,J,L]
+   for I in 4,n cross J in 1,m cross K in 1,n
+   returns array of Y[I,J,K]*w[K,J,I]
+           array of Y[I,J,K] - u[I,J,K]
    end for
 end function
 

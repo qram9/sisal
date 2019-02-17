@@ -1,0 +1,15 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type TwoD   = array[array[double]];
+
+function Main( n,m:integer; Y:TwoD returns TwoD, TwoD )
+   for K in 1,n cross J in 2,m
+   returns array of Y[K,J]*Y[K,J]
+           array of Y[K,J] - Y[K,J]
+   end for
+end function
+

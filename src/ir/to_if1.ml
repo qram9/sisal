@@ -1,29 +1,59 @@
 
-(** Licensed under GPL v3 **)
-(** Ideas here mostly come from the single paper:
- "IF1, AN INTERMEDIATE FORM FOR APPLICATIVE LANGUAGES, JULY 31, 1985
- VERSION 1.0". I also would have looked at:
- "FRONTEND OF A SISAL COMPILER, RIYAZ V.P,
- M.TECH THESIS INDIAN INST OF TECH. KANPUR, MARCH 1993". **)
+(** Licensed under GPL v3 *)
 
-(** I understand that IF1 is a dataflow graph format generated with
-    minor effort (albiet boring and time consuming) using an AST
-    visitor/walker for the applicative and single assignment SISAL
-    langauge.
-    I also found reading "Dr. Appel's Compiling with
-    Continuations" facinating-- including callcc etc concepts.
-    CPS callcc etc. Also CPS would that get everything
-    to the parallel world just as well. Not only that,
-    they discuss closure conversion etc. and maybe a CPS
-    lowering would be fun too...
-    However, loops and arrays, if2 etc, optimizations etc are
-    what seemed to have motivated the original designers --
-    Also SISAL2 etc had written about but not attempted...**)
+(** Ideas here mostly come from the single paper:
+    "IF1, AN INTERMEDIATE FORM FOR APPLICATIVE LANGUAGES,
+    JULY 31, 1985 VERSION 1.0".
+
+    This is also useful:
+    "FRONTEND OF A SISAL COMPILER, RIYAZ V.P,
+    M.TECH THESIS INDIAN INST OF TECH. KANPUR, MARCH 1993". *)
+
+(** IF1 is a dataflow graph format
+    generated with some effort (boring and time consuming)
+    using an AST visitor/walker for the applicative
+    and single assignment SISAL langauge. The
+    language has let bindings, compound statements
+    like forall (perfect loops with scoping
+    similar to nested lets, with mostly bindings
+    similar to a standard let), for_initial,
+    if expressions (select expressions), tagged unions
+    which are mostly like ML variants but with one difference -
+    sharing of the body expression by different tags is allowed,
+    nested functions but no higher order functions
+    (though, SISAL2 and SISAL90 supports higher order functions).
+    Types would need to be provided by the user,
+    for the most part, with an exception for arithmetic
+    operations, for which the compiler infers types from the
+    expression's operands. When types are specified, infered types
+    need to be checked against the specified types etc.
+    LET's are lowered here using hierarchical symtabs,
+    with a parent symtab for enclosing-scope and
+    one for current-scope.
+
+    A spate of library functions do exist and we do not support
+    any yet...
+    DOUBLE, TRIPLE are some shortcuts to create tuples from
+    expressions or declarations.
+    There are peculiarities in function declarations due to the need
+    for forward declarations etc.
+
+    What next:
+    1: I also found reading Prof. Andrew Appel's book:
+    "Compiling with Continuations" facinating--
+    including callcc etc concepts.
+    CPS callcc etc. Every compiler stage is discussed
+    and also they discuss closure conversion etc.
+    and maybe a CPS lowering would be fun to do...
+
+    2: For better usability: SISAL2 etc had written about
+    but not attempted...*)
 
 open Ast
 open If1
 
 let in_port_1 =
+  (** memory allocate arrays *)
   let in_array = Array.make 2 "" in
   in_array.(0) <- "0";
   in_array
@@ -49,17 +79,19 @@ let out_port_0 = Array.make 0 ""
 (** Variable has a name and a type
    and has an associated expression **)
 
-(** A LET EXP MAY CREATE A LOCAL SCOPE
+(**A LET EXP MAY CREATE A LOCAL SCOPE
    IN A FOLLOWING IN EXP, SO CURRENT
    SCOPE WOULD GET PUSHED IN.
    AFTER WE ARE OUT OF THE SCOPE,
    WE MUST NOT SEE THE ELEMENTS.**)
 
-(** We have two numbers from each recursive call:-
-   one for node# and another for port#.
-   Should we introduce a third one to denote type?**)
+(** We have three numbers returned from
+    each recursive call:-
+    One for node#, one for port# and one for type#.*)
 
 let rec zipem fst snd =
+  (** Add a pair of elements to a list, from
+      two input lists *)
   match fst, snd with
   | hd_fst::tl_fst, hd_snd::tl_snd ->
      (** function looks generic over any list
@@ -79,6 +111,8 @@ let rec string_of_zip zipped fst_fn snd_fn =
   | [] -> ""
 
 let rec array_builder_exp in_gr = function
+    (** Helper function that code generates
+        IF1 tree for building arrays *)
   | SExpr_pair(e,f) ->
      let (e,p,t1),in_gr = do_simple_exp in_gr e in
      (match f with
@@ -98,6 +132,8 @@ let rec array_builder_exp in_gr = function
          (arrnum,arrport,t1),in_gr)
 
 and add_each_edge edg_lis anode nn in_gr =
+  (** Call add_edge for a list, connected
+      to anode, starting at port nn*)
   (match edg_lis with
    | (edghd,edgp,tty)::edgtl ->
       add_each_edge edgtl anode (nn+1)
@@ -105,6 +141,7 @@ and add_each_edge edg_lis anode nn in_gr =
    | [] -> in_gr)
 
 and add_edges_for_fields edg_lis anode nn in_gr =
+  (** Minor variant of above function, add_each_edge *)
   (match edg_lis with
    | (ff,(edghd,edgp,tty))::edgtl ->
       add_edges_for_fields edgtl anode (nn+1)
@@ -112,6 +149,7 @@ and add_edges_for_fields edg_lis anode nn in_gr =
    | [] -> in_gr)
 
 and do_each_exp_in_strm in_gr = function
+  (** Helper function for stream SAPPEND expression *)
   | (hdn,hdp,tt)::tll ->
      let (i,j,tt),in_gr = do_each_exp_in_strm in_gr tll in
      let (k,l,t1),in_gr = add_node_2
@@ -130,12 +168,15 @@ and do_each_exp_in_strm in_gr = function
                     Array.make 1 "",[None])) in_gr
 
 and get_tys ttts ous =
+  (** Types are extracted from a
+      triplet and added to a list *)
   match ttts with
   | (fn,(_,_,tt))::tl ->
      get_tys tl ((fn,tt)::ous)
   | [] -> ous
 
 and union_builder in_gr utags iornone =
+  (** Union or Record builder helper function *)
   let union_builder_impl in_gr = function
     | Tag_exp(tn,ex1) ->
        let exp_l,in_gr =
@@ -187,6 +228,7 @@ and union_builder in_gr utags iornone =
   (bb,pp,aout),in_gr
 
 and check_rec_ty tty_lis tm outlis =
+  (** Do a type check recursively *)
   (** beef this up **)
   match tty_lis with
   | (hdf,hd)::tl ->
@@ -259,27 +301,19 @@ and record_builder in_gr fdl iornone =
   let in_gr = add_edges_for_fields lll bb t1 in_gr in
   (bb,pp,aout), in_gr
 
-and add_edges_in_list exp_list anode portnum in_gr =
+and add_edges_in_list exp_list anode fin_ty portnum in_gr =
+  (** Add edges from anode, starting at portnum and
+      ending IF1 node tuple *)
   match exp_list with
   | (hd_node,in_port,tt)::tl ->
      add_edges_in_list
        tl
        anode
+       fin_ty
        (portnum+1)
        (add_edge hd_node in_port
           anode portnum tt in_gr)
-  | [] -> ((anode,0,0),in_gr)
-
-and do_tagnames in_gr = function
-  | Tagnames tn -> ((0,0,0), in_gr)
-
-and do_masking_clause in_gr = function
-  | Unless e ->
-     do_simple_exp in_gr e
-  | When e ->
-     do_simple_exp in_gr e
-  | No_mask ->
-     ((0,0,0), in_gr)
+  | [] -> ((anode,0,fin_ty),in_gr)
 
 and do_iterator in_gr = function
   | Repeat dp ->
@@ -291,17 +325,9 @@ and do_termination in_gr = function
   | Until e ->
      do_exp in_gr e
 
-and do_return_clause in_gr = function _ -> (0,0,0),in_gr
-(**function | Old_ret (re, mc) ->
-     let (re,iii,t1),in_gr =
-       do_return_exp
-         in_gr re in
-     do_masking_clause in_gr mc
-  | Return_exp (re,mc) ->
-     let (re,iii,t1),in_gr = do_return_exp in_gr re in
-     do_masking_clause in_gr mc**)
-
 and do_constant in_gr xx =
+  (** Return an IF1 node for
+      constants *)
   let out_port_1 =
     let out_array = Array.make 1 "" in
     out_array in
@@ -339,20 +365,49 @@ and do_constant in_gr xx =
          Node_not_found
            "Error type- don't know what to do")
 
+and do_val_internal in_gr v =
+  (** 'v' may be a name of a variable or
+      an 'old v' which may be used in
+      for_initial bodies to keep copies
+      from the previous iteration. *)
+  match in_gr with
+    {nmap=nmap;eset=eset;
+     symtab=(umap,vma);typemap=oo,tm,tmn;w=w} ->
+
+    print_endline "I AM ZIT\n";
+    Printexc.print_raw_backtrace stdout (Printexc.get_callstack 20);
+
+    let (nn,np,nty),in_gr =
+      match v with
+      |  `Std10 v -> get_symbol_id v in_gr
+      | `OldMob v -> get_symbol_id_old v in_gr in
+    let mn = has_node nn in_gr in
+    print_endline ("Has "^ (string_of_int nn));
+    let nn,np,nty = match get_node nn in_gr with
+        (** If the defining node is MULTIARITY
+            type, propagate its operand instead.
+            Not recursive right now.*)
+      | Simple (_,MULTIARITY,_,_,_) ->
+         let nn,np,nty =
+           node_incoming_at_port nn np in_gr in
+         (nn,np,nty)
+      | _ -> nn,np,nty in
+    (nn,np,nty),in_gr
+
 and do_val in_gr = function
+  (** Look up the node defining a variable *)
   | Value_name v ->
-     match in_gr with
-       {nmap=nmap;eset=eset;
-        symtab=(umap,vma);typemap=oo,tm,tmn;w=w} ->
-       get_symbol_id v in_gr
+     do_val_internal in_gr (`Std10 v)
 
 and do_exp in_gr = function
+  (** Add an expression using add_exp *)
   | Exp e ->
-     add_each_exp_in_list_list in_gr e 0 [] do_simple_exp
+     add_exp in_gr e 0 []
   | Empty ->
      ((0,0,0), in_gr)
 
 and extr_types in_gr = function
+  (** Look up type of MULTIARITY *)
   | (xx,yy,zz),res ->
      let {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
      let myn = NM.find xx nm in
@@ -360,14 +415,19 @@ and extr_types in_gr = function
      | Simple (lab,MULTIARITY,pl,g,assoc) ->
         let k =
           all_types_ending_at lab in_gr res in
-        Format.printf "%s\n" (IntMap.fold (
-                                  fun x y z ->
-                                  "(" ^ (string_of_int x) ^
-                                    ":" ^ (string_of_int y) ^ ")" ^ z) k "");
         k,in_gr
      | _ -> res,in_gr
 
-and add_each_exp_in_list_list in_gr ex lasti ret_lis appl =
+and add_exp in_gr ex lasti ret_lis =
+  (** Call do_simple_exp for each in list:ex and
+      if there are multiple results, tie
+      each result(s) to a MULTIARITY node in
+      sequentially numbered input ports
+      in the same order as list:ex. Some simple exp
+      may provide MULTIARITY results-
+      so handle those as well. If there is a single
+      result, just return it without
+      MULTIARITY. *)
   match ex with
   | [] ->
      if (List.length ret_lis) != 0 then
@@ -383,12 +443,11 @@ and add_each_exp_in_list_list in_gr ex lasti ret_lis appl =
            let (oo,op,ot),in_gr =
              add_node_2 (
                  `Simple
-                   (MULTIARITY, in_port_1, out_port_1, [Name "LET"])) in_gr in
-           Format.printf "Incoming arity:%d\n" (List.length ret_lis);
-           Format.printf "RET_LIS:%s\n" (string_of_triple_int_list ret_lis);
-           let rec add_all_edges_to_multiarity (mo,mp,mt) in_gr = function
-             | [] ->
-                (mo,mp,mt),in_gr
+                   (MULTIARITY, in_port_1, out_port_1,
+                    [Name "LET"])) in_gr in
+           let rec add_all_edges_to_multiarity
+                     (mo,mp,mt) in_gr = function
+             | [] -> (mo,mp,mt),in_gr
              | (hdn,hdp,hdt)::tl ->
                 add_all_edges_to_multiarity
                   (mo,mp+1,mt)
@@ -399,9 +458,9 @@ and add_each_exp_in_list_list in_gr ex lasti ret_lis appl =
            (oo,op,ot),in_gr))
      else ((0,0,0),in_gr)
   | hde::tl ->
-     let (lasti,pp,tt1),in_gr_ = (appl in_gr hde) in
-     add_each_exp_in_list_list in_gr_ tl lasti
-       (ret_lis@[(lasti,pp,tt1)]) appl
+     let (lasti,pp,tt1),in_gr_ = do_simple_exp in_gr hde in
+     add_exp in_gr_ tl lasti
+       (ret_lis@[(lasti,pp,tt1)])
 
 and do_exp_pair in_gr = function
   | Expr_pair (e,f) ->
@@ -409,7 +468,7 @@ and do_exp_pair in_gr = function
        do_exp in_gr e in do_exp in_gr f
 
 and do_field_name in_gr = function
-  | Field_name f -> let f = f in ((0,0,0), in_gr)
+  | Field_name f -> ((0,0,0), in_gr)
 
 and do_field_exp in_gr = function
   | Field_exp (f,e) ->
@@ -423,114 +482,8 @@ and do_field_def in_gr = function
   | Field_def (fn,ex) ->
      let fn = do_field_name in_gr fn in
      do_simple_exp in_gr ex
-(*
-and add_result_G in_gr ie =
-  raise (Node_not_found "Not yet")
- *)
-and do_in_exp_internal in_gr = function
-  | In_exp (vn,e) ->
-     let (aa,bb,cc),in_gr =
-       (match e with
-        | Exp ei ->
-           (match ei with
-            | [hd;tl] ->
-               (** Add each element in the exp to
-                   a range generator graph.\n**)
-               bin_fun hd tl in_gr RANGEGEN
-            | [hd] ->
-               let (x,y,z),in_gr =
-                 unary_fun ~nou:2 in_gr hd ASCATTER in
-            let inner_ty_num =
-               match lookup_ty z in_gr with
-               | Array_ty ij -> ij
-               | _ -> raise (Sem_error (
-                                 "Situation with ASCATTER TY" ^
-                                   (string_of_int z))) in
-            (x,y,inner_ty_num),in_gr
-            | _ ->
-               raise (Sem_error
-                        ("Unsupported arity for in exp,"^
-                           " must be 1 for array and 2 for"^
-                             " comma separated bounds.\n")))
-        | _ ->
-           raise (Sem_error
-                    ("Unsupported arity for in exp,"^
-                       " must be 1 for array and 2 for"^
-                         " comma separated bounds.\n"))) in
-     let in_gr =
-       match in_gr with
-         {nmap=nmap;eset=eset;symtab=sm,pm;typemap=tm;w=w} ->
-          match vn with
-          | Value_name v ->
-             {nmap=nmap;eset=eset;
-              symtab=(SM.add v
-                        {val_name=v;val_ty=cc;
-                         val_def=aa;def_port=bb}
-                        sm, pm);typemap=tm;w=w} in
-     let in_gr = output_to_boundary ~start_port:(boundary_in_port_count in_gr)
-                   [(aa,bb,cc)] in_gr in
-     (aa,bb,cc),in_gr
 
-  | At_exp (ie,vn) ->
-     (** The optional at clause is present in an in-exp.
-         The value names following "at" denote index values of type
-         integer corresponding to the current element value's
-         position in the array. It is an error if the
-         number of value names in the index list is greater than the
-         number of dimensions of the array expression.
-         The range of the for expression is the cross product
-         over the number of ranges specified by the number of
-         names in the index list. **)
-     let (aa,bb,cc),in_gr =
-       do_in_exp_internal in_gr ie in
-     let in_gr =
-       match in_gr with
-         {nmap=nmap;eset=eset;symtab=sm,pm;typemap=tm;w=w} ->
-          match vn with
-          | Value_name v ->
-             {nmap=nmap;eset=eset;
-              symtab=(SM.add v
-                        {val_name=v;val_ty=cc;
-                         val_def=aa;def_port=bb+1}
-                        sm, pm);typemap=tm;w=w} in
-     let in_gr = output_to_boundary  ~start_port:(boundary_in_port_count in_gr)
-                   [(aa,bb,cc)] in_gr in
-     (aa,bb,cc),in_gr
-
-  | Dot (ie1,ie2) ->
-     let _,in_gr =
-       do_in_exp_internal in_gr ie1 in
-     do_in_exp_internal in_gr ie2
-
-  | _ -> raise (Sem_error "Provide singletons to build generators")
-
-(*
-and do_in_exp3 in_gr bod ret iexp = match iexp with
-  | Cross (ie1, Cross (ie2,ie3)) ->
-  (** Create nested graphs, a series of generator graphs
-      and give the id of the last one as the graph's
-      entry-node? **)
-      raise (Sem_error "not yet done")
-  | Cross (ie1, ie2) ->
-     let (gen_ie1x,gen_ie1y,gen_ie1z),ie1_gr =
-       do_in_exp_internal ie1 (get_a_new_graph in_gr) in
-     let (ie2x,ie2y,ie2z),ie2_gr = do_in_exp_internal ie2
-                                     (get_a_new_graph ie1_gr) in
-     let body_gr =  (setup_in_ports (get_a_new_graph ie1_gr)) in
-     let (body_x,body_y,body_z),body_gr = do_exp bod body_gr in
-     let ret_gr = (setup_in_ports (from body_gr)) in
-     let retys, ret_gr = add_return_G ret (get_a_new_graph body_gr) in
-     let ret = from_rettys in
-     let lll,ie1_gr = add_compound_node
-       (add_compound_node ie2_gr in forall, body_gr in
-        forall, ret_gr in forall) in ie1_gr in
-     add_return_G ret ie1_gr
-  | _ ->
-    let (genx,geny,genz),gen_gr =
-      do_in_exp_internal iexp (get_a_new_graph in_gr) in
- *)
-
-and do_in_exp in_gr = function
+and do_in_exp ?(curr_level=1) in_gr = function
   (** Inexp
       1: Each expression in here must be of Arity two.
          The first and the second are the lower and upper bounds
@@ -554,7 +507,7 @@ and do_in_exp in_gr = function
          create-by-elements operation) of the array, since it
          must be defined as an array of arrays.
          Test#1: a range expression.
-         Test#2: an array without "at". **)
+         Test#2: an array without "at". *)
   | In_exp (vn,e) ->
      let (aa,bb,cc),in_gr =
        (match e with
@@ -565,15 +518,30 @@ and do_in_exp in_gr = function
                    a range generator graph.\n**)
                bin_fun hd tl in_gr RANGEGEN
             | [hd] ->
-               let (x,y,z),in_gr =
-                 unary_fun ~nou:2 in_gr hd ASCATTER in
-            let inner_ty_num =
-               match lookup_ty z in_gr with
-               | Array_ty ij -> ij
-               | _ -> raise (Sem_error (
-                                 "Situation with ASCATTER TY" ^
-                                   (string_of_int z))) in
-            (x,y,inner_ty_num),in_gr
+               let (e,pi,t1),in_gr = do_simple_exp in_gr hd in
+               let (scatter,_,_),in_gr =
+                 get_simple_unary 2 in_gr ASCATTER in
+               let outer_ty_num,inner_ty_num =
+                 let lookup_array_ty curr_ty in_gr =
+                   match lookup_ty curr_ty in_gr with
+                   | Array_ty ij -> (curr_ty,ij)
+                   | _ ->
+                      raise (
+                          Sem_error (
+                              "Array type expected"^
+                                " when constructing ASCATTER" ^
+                                  (string_of_int curr_ty))) in
+                 let rec walk_ty curr_ty curr_l =
+                   if curr_l = curr_level
+                   then
+                     (lookup_array_ty curr_ty in_gr)
+                   else
+                     (let outer_ty_num,inner_ty_num =
+                        lookup_array_ty curr_ty in_gr in
+                      walk_ty inner_ty_num (curr_l+1)) in
+                 walk_ty t1 1 in
+               let in_gr = add_edge e pi scatter 0 outer_ty_num in_gr in
+               (scatter,0,inner_ty_num),in_gr
             | _ ->
                raise (Sem_error
                         ("Unsupported arity for in exp,"^
@@ -592,13 +560,14 @@ and do_in_exp in_gr = function
              {nmap=nmap;eset=eset;
               symtab=(SM.add v
                         {val_name=v;val_ty=cc;
-                         val_def=aa;def_port=bb}
-                        sm, pm);typemap=tm;w=w} in
-     let in_gr = output_to_boundary ~start_port:(boundary_in_port_count in_gr)
+                         val_def=aa;def_port=bb} sm,
+                      pm);typemap=tm;w=w} in
+     let in_gr = output_to_boundary
+                   ~start_port:(boundary_in_port_count in_gr)
                    [(aa,bb,cc)] in_gr in
      (aa,bb,cc),in_gr
 
-  | At_exp (ie,vn) ->
+  | At_exp (ie,vns) ->
      (** The optional at clause is present in an in-exp.
          The value names following "at" denote index values of type
          integer corresponding to the current element value's
@@ -607,21 +576,24 @@ and do_in_exp in_gr = function
          number of dimensions of the array expression.
          The range of the for expression is the cross product
          over the number of ranges specified by the number of
-         names in the index list. **)
+         names in the index list. *)
      let (aa,bb,cc),in_gr =
-       do_in_exp in_gr ie in
+       do_in_exp ~curr_level:curr_level in_gr ie in
      let in_gr =
        match in_gr with
          {nmap=nmap;eset=eset;symtab=sm,pm;typemap=tm;w=w} ->
-          match vn with
-          | Value_name v ->
+          match vns with
+          | Value_names v ->
              {nmap=nmap;eset=eset;
-              symtab=(SM.add v
-                        {val_name=v;val_ty=cc;
-                         val_def=aa;def_port=bb+1}
-                        sm, pm);typemap=tm;w=w} in
-     let in_gr = output_to_boundary  ~start_port:(boundary_in_port_count in_gr)
-                   [(aa,bb,cc)] in_gr in
+              symtab=(
+                let vv = (List.nth v (curr_level-1)) in
+                SM.add vv
+                  {val_name=vv;val_ty=5;
+                   val_def=aa;def_port=bb+1}
+                  sm, pm);typemap=tm;w=w} in
+     let in_gr = output_to_boundary
+                   ~start_port:(boundary_in_port_count in_gr)
+                   [(aa,bb+1,5)] in_gr in
      (aa,bb,cc),in_gr
 
   | Dot (ie1, ie2) ->
@@ -630,23 +602,311 @@ and do_in_exp in_gr = function
      do_in_exp in_gr ie2
 
   | Cross (ie1, ie2) ->
-     let (dd,ee,ff),new_in_gr = do_in_exp in_gr ie1 in
-     let (aa,bb,cc),ie1_gr =
-       add_node_2
-         (`Compound(
-              new_in_gr,INTERNAL,
-              [Name "GENERATOR"],[]))
-         (get_a_new_graph in_gr) in
-     do_in_exp ie1_gr ie2
+     raise (Sem_error "Need to be in a forall context")
 
-and do_tag_exp in_gr = function
-  | Tag_name tn ->
-     let tn = tn in ((0,0,0), in_gr)
-  | Tag_exp (tn, ex) ->
-     let tn = tn in
-     do_simple_exp in_gr ex
+and get_lower_lim = function
+  | Cross (ie1, ie2) ->
+     raise (Sem_error "Cannot be used in a forall context")
+  | Dot (ie1, ie2) ->
+     get_lower_lim ie1
+  | At_exp (ie,_) ->
+     raise (Sem_error "Cannot be used in a forall context")
+  | In_exp (vn,Exp e) ->
+     List.hd e
+
+and build_alim in_gr =
+  (** Helper function to build an ALim node *)
+  let in_port_1 =
+    let in_array = Array.make 2 "" in
+    in_array in
+  let out_port_1 =
+    let out_array = Array.make 2 "" in
+    out_array in
+  add_node_2
+    (`Simple (
+         ALIML, in_port_1, out_port_1,
+         [Name "ALimL"])) in_gr
+
+and build_multiarity siz in_gr =
+  (** Helper function building a MULTIARITY node *)
+  let in_port_1 =
+    let in_array = Array.make siz  "" in
+    in_array in
+  let out_port_1 =
+    let out_array = Array.make siz "" in
+    out_array in
+  add_node_2 (
+      `Simple
+        (MULTIARITY,in_port_1,out_port_1,
+         [Name "multiARITY"])) in_gr
+
+and get_ports_unified of_gr basis_gr parent_gr =
+  (** Take basis_gr:boundary and add them to of_gr:boundary
+        with the same port numbers. Confirm that parent_gr
+        contains the symbol, i.e., restrict to outer
+        scope variables.*)
+  let bin = get_boundary_node basis_gr in
+  match bin with
+  | (Boundary (in_port_lis,out_port_lis,boundary_p)) ->
+     List.fold_right (fun (x,xp,xn) f_gr ->
+         if (is_outer_var xn parent_gr) = true
+         then
+           (let {nmap=nm;eset=es;symtab=(cs,ps);typemap=ttt;w=i} =
+              f_gr in
+            if (SM.mem xn ps = true) then
+              (let {val_ty=t;val_name=_;val_def=_;def_port=_} =
+                 SM.find xn ps in
+               let f_gr = {nmap=nm;eset=es;symtab=(
+                             SM.add xn
+                               {val_ty=t;val_name=xn;val_def=0;
+                                def_port=xp} cs,ps);
+                           typemap=ttt;w=i} in
+               add_to_boundary_inputs ~namen:xn 0 xp f_gr)
+            else (raise (Sem_error
+                           ("Cannot find name in outer scope:"^xn))))
+         else f_gr)
+       in_port_lis of_gr
+  | _ -> of_gr
+
+and tie_outer_scope_to_inner from_gr to_gr to_node =
+  (** Tie outer scope variables to forall boundary
+      input ports. *)
+  let bin = get_boundary_node from_gr in
+  match bin with
+  | (Boundary (in_port_lis,out_port_lis,boundary_p)) ->
+     List.fold_right (fun (yy,yp,xn) o_gr ->
+         let (xx,xy,xt),o_gr = get_symbol_id xn o_gr in
+         add_edge xx xy to_node yp xt o_gr) in_port_lis to_gr
+  | _ -> to_gr
+
+and do_forall inexp bodyexp retexp in_gr =
+  (** Use Array input's dimensions to
+      set Array output's dimensions*)
+  let rec get_cross_exp_lis inexp retl =
+    (** Create a list of index expressions.
+        Cross would be for nested loops and so would At.*)
+    match inexp with
+    | Cross (ie1,ie2) ->
+       get_cross_exp_lis ie2 ((1,ie1)::retl)
+    | At_exp (ie,Value_names vns) ->
+       let _,oul =
+         List.fold_right
+           (fun ae (lev,re) ->
+             (lev-1,(lev,inexp)::re)) vns
+           (List.length vns,[]) in oul
+    | aie ->
+       (** single nest case *)
+       (1,aie)::retl in
+
+  let generator_array_lowlim
+        {nmap=nm;eset=es;symtab=(cs,ps);typemap=ttt;w=i} =
+    (** Check if we have an ASCATTER or
+        Counted loop in the generator *)
+    try
+      `ArrLim (
+          NM.fold (fun kk vv ooo ->
+              match vv with
+              | Simple (lab,ASCATTER,_,_,_) ->
+                 raise (Val_is_found lab)
+              | _ -> ooo) nm 0)
+    with Val_is_found xyz -> `AScatt xyz in
+
+  let add_asetl_for_array_res
+        outer_gen_gr gen_exp_outer in_gr fx aa tt cc mul_n =
+    let aar = generator_array_lowlim outer_gen_gr in
+    match aar with
+    | `ArrLim xy ->
+       let ainx = get_lower_lim gen_exp_outer in
+       let (ai,ay,at),in_gr = do_simple_exp in_gr ainx in
+       let (aa1,bb,ci),in_gr =
+         unary_internal 2 fx aa tt in_gr ASETL in
+       let in_gr = add_edge ai ay aa1 bb ci in_gr in
+       let in_gr = add_to_boundary_outputs aa1 cc tt in_gr in
+       xy,in_gr
+    | `AScatt xy ->
+       let x,xx,xxx = node_incoming_at_port xy 0 outer_gen_gr in
+       let (ix,ij,it),in_gr = build_alim in_gr in
+       let in_gr = add_edge x xx ix 0 xxx in_gr in
+       let (aa1,bb,ci),in_gr =
+         unary_internal 2 fx aa tt in_gr ASETL in
+       let in_gr = add_edge ix 0 aa1 1 5 in_gr in
+       let in_gr =
+         if mul_n = 0 then
+           add_to_boundary_outputs aa1 cc tt in_gr
+         else
+           add_edge2 aa1 cc mul_n cc tt in_gr in
+       aa1,in_gr in
+
+  let build_gen_graph curr_lev in_gr gen_exp =
+    let gen_gr =
+      get_ports_unified
+        (get_a_new_graph in_gr) in_gr in_gr in
+    let xyz,gen_gr =
+      do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
+    xyz,gen_gr in
+
+  let rec build_forloop inexp bodyexp retexp in_gr =
+    match inexp with
+    | [] ->
+       raise (Sem_error "Internal Compiler Error")
+    | (curr_lev,gen_exp_inner)::[] ->
+       (** In_Gr Must Be Based On An Outer Gen_Gr. *)
+       let _,gen_gr =
+         build_gen_graph curr_lev in_gr gen_exp_inner in
+
+       (** Put The Decldefs (Loop Code) In The Body. *)
+       let (d,q,t1),body_gr =
+         (** Create Body Graph Based On In_Gr. **)
+         let body_gr = update_parent_syms gen_gr
+                         (get_a_new_graph gen_gr) in
+
+         let body_gr = get_ports_unified
+                         body_gr gen_gr gen_gr in
+
+         do_decldef_part body_gr bodyexp in
+
+       (** Insert Expressions Inside Return Clauses To Body Graph. *)
+       let body_gr,ret_lis_a,ret_lis_b =
+         do_returns_clause_list body_gr retexp [] [] in
+
+       (** Connect Results To Body's Boundary *)
+       let body_gr = output_to_boundary ret_lis_b body_gr in
+
+       (** Build Return-Signature To Provide To Outer
+           Loop In Order To Build Its Returns Graph. *)
+       let ret_lis_a,_,_ =
+         List.fold_right
+           (fun (y,x,tt) (outL,sm,cou) ->
+             if (IntMap.mem x sm = true) then
+               (y,tt,(IntMap.find x sm))::outL,sm,cou
+             else
+               (y,tt,cou)::outL,
+               (IntMap.add x cou sm),cou+1) ret_lis_a
+           ([],IntMap.empty,1) in
+
+       (** Add gen, body and returns subgraphs
+           to the return value, Graph type: "forall_gr". *)
+       (** Add Returns Subgraph to Forall Graph. *)
+       let (rx,ry,rz), forall_gr, ret_lis_a =
+         let forall_gr = get_a_new_graph in_gr in
+         add_return_gr forall_gr in_gr ret_lis_a in
+
+       let (gx,gy,gz), forall_gr =
+         add_node_2
+           (`Compound(
+                gen_gr,INTERNAL,0,
+                [Name "GENERATOR"],[])) forall_gr in
+
+       let (bx,by,bz), forall_gr =
+         add_node_2
+           (`Compound (body_gr,INTERNAL,0,
+                       [Name "BODY"],[])) forall_gr in
+
+       let forall_gr =
+         get_ports_unified forall_gr body_gr gen_gr in
+
+       (bx,by,bz),ret_lis_a,forall_gr
+
+    | (curr_lev,gen_exp)::gen_exp_tl ->
+       let (inner_gen_n,inner_gen_p,inner_gen_ty),
+           inner_ret,forall_gr =
+         (** Create A Generator For Outer Loop. *)
+         let (outer_gen_n,outer_gen_p,outer_gen_ty),gen_gr =
+           build_gen_graph curr_lev in_gr gen_exp in
+
+         (** Add outer loop generator to a new forall_gr. *)
+
+         let _,forall_gr =
+           let forall_gr = get_ports_unified
+                             (get_a_new_graph gen_gr)
+                             gen_gr gen_gr in
+           add_node_2
+             (`Compound(
+                  gen_gr,INTERNAL,0,
+                  [Name "GENERATOR"],[])) forall_gr in
+
+         let _, inner_ret, body_nest_gr =
+         (** As The Body Would Need Outer And Inner Generators,
+             Send Gen_Gr To The Recursive Call To Obtain
+             The Inner Loop, Which Is Body_Nest_Gr. *)
+           build_forloop gen_exp_tl bodyexp retexp
+             (get_ports_unified
+                (get_a_new_graph gen_gr)
+                gen_gr gen_gr) in
+
+         (** Add Returns Graph To Forall_Gr. **)
+         let (rx,ay,az), forall_gr, ret_lis_a =
+           add_return_gr forall_gr gen_gr inner_ret in
+
+         (** Add Body_Nest_Gr In Place Of A "Body" Subgraph. *)
+         let (fx,fy,fz), forall_gr =
+           add_node_2
+             (`Compound (body_nest_gr,INTERNAL,0,
+                         [Name "FORALL"],
+                         let lis = get_assoc_list body_nest_gr in
+                         (List.length lis)::lis)) forall_gr in
+
+         let _, re_ret_lis_a, forall_gr =
+           (** Get Generator'S Lower Size Setting
+               And Add To Asetl. After That Abstract This
+               And Call From Outside As Well. *)
+           List.fold_right (
+               fun (wh,tt,aa) (cc, outl, in_gr) ->
+               match wh with
+               | `Array_of ->
+                  let ouln,in_gr =
+                    add_asetl_for_array_res gen_gr gen_exp
+                      in_gr fx aa tt cc 0 in
+                  cc+1,(wh,tt,ouln,cc)::outl,in_gr
+               | _ ->
+                  let in_gr = add_to_boundary_outputs fx cc tt in_gr in
+                  cc+1,(wh,tt,fx,cc)::outl,in_gr) ret_lis_a
+             (0,[],forall_gr) in
+
+         let forall_gr =
+           let forall_gr =
+             get_ports_unified
+               forall_gr body_nest_gr gen_gr in
+           tie_outer_scope_to_inner forall_gr forall_gr fx in
+
+         (fx,fy,fz),ret_lis_a,forall_gr in
+       (inner_gen_n,inner_gen_p,inner_gen_ty),inner_ret,forall_gr in
+
+  let acrossl = get_cross_exp_lis inexp [] in
+  let xyz,ret_lis_a,forall_gr =
+    build_forloop acrossl bodyexp retexp in_gr in
+  let forall_gr =
+    get_ports_unified forall_gr forall_gr forall_gr in
+  let (fx,fy,fz), in_gr =
+    add_node_2
+      (`Compound (forall_gr,INTERNAL,0,
+                  [Name "FORALL"],
+                  let lis = get_assoc_list forall_gr in
+                  (List.length lis)::lis)) in_gr in
+
+  let (mul_n,mul_p,mul_t),in_gr =
+    build_multiarity (List.length ret_lis_a) in_gr in
+
+  let _,re_ret_lis_a,in_gr =
+    List.fold_right (
+        fun (wh,tt,aa) (cc,outl,iigr) ->
+        match wh with
+        | `Array_of ->
+           let ouln,iigr =
+             let _,gen_exp = List.hd acrossl in
+             add_asetl_for_array_res (get_gen_graph forall_gr)
+               gen_exp iigr fx aa tt cc mul_n in
+           cc+1,(wh,tt,ouln,cc)::outl,iigr
+        | _ ->
+           cc+1,(wh,tt,fx,cc)::outl,
+           add_edge2 fx aa mul_n cc tt iigr)
+      ret_lis_a (0,[],in_gr) in
+
+  let in_gr = tie_outer_scope_to_inner forall_gr in_gr fx in
+  (mul_n,mul_p,mul_t),ret_lis_a,in_gr
 
 and do_prefix_name in_gr = function
+  (** TODO *)
   | Char_prefix -> ((0,0,0), in_gr)
   | Double_prefix -> ((0,0,0), in_gr)
   | Integer_prefix -> ((0,0,0), in_gr)
@@ -654,62 +914,42 @@ and do_prefix_name in_gr = function
 
 and do_decldef_part in_gr = function
   | Decldef_part f ->
+  (** A list of variable bindings in a LET expression.
+      For example,
+      LET
+      X := 1;
+      Y,Z := LET
+      X := 2;
+      Y := 3 IN
+      X + Y,X - Y
+      END LET IN
+      X * Y + Z
+      END LET
+      'f' will have an AST looking like:
+      f: Ast.decldef list =
+      [Decl_def (
+           Def (["X"],
+           Exp [Constant (Int 1)])
+           );
+       Decl_def (
+           Def (["Y"; "Z"],
+           Exp [Let
+               (Decldef_part
+                  [Decl_def (
+                       Def (["X"],
+                       Exp [Constant (Int 2)]));
+                   Decl_def (
+                       Def (["Y"],
+                       Exp [Constant (Int 3)]))],
+                Exp [Add (Val (Value_name "X"), Val (Value_name "Y"));
+                     Subtract (Val (Value_name "X"), Val (Value_name "Y")
+      )])]))] *)
      let xyz, in_gr =
        add_each_in_list in_gr f 0 do_decldef
      in xyz,in_gr
 
-and do_for_each_in_exp in_gr ret_lis name_lis = function
-  | hde::tle ->
-     (let (x,y,z),in_gr = do_simple_exp in_gr hde in
-      let  {nmap=nm;eset=es;
-            symtab=(umap,vmap);typemap=tm;w=w} = in_gr in
-      let node_t = NM.find x nm in
-      let add_an_entry (x,y,z) in_gr name_lis =
-        let  {nmap=nm;eset=es;
-              symtab=(umap,vmap);typemap=tm;w=w} = in_gr in
-        let anam = (List.hd name_lis) in
-        let umap = SM.add anam
-                     {val_ty=z;
-                      val_name=anam;val_def = x;
-                      def_port=y} umap in
-        {nmap=nm;eset=es;symtab=(umap,vmap);
-         typemap=tm;w=w}, (List.tl name_lis) in
-      let in_gr,name_lis =
-        match node_t with
-        | Literal (lab,ty,str,pout) ->
-           add_an_entry (x,y,z) in_gr name_lis
-        | Simple _ ->
-           add_an_entry (x,y,z) in_gr name_lis
-        | Rajathi ->
-           in_gr,name_lis
-        | Boundary _ ->
-           in_gr,name_lis
-        | Compound (lab,sy,pl,g,assoc) ->
-           match pl with
-           | hdp::tlp ->
-              (match hdp with
-               | Name namen ->
-                  if (String.equal namen "FORALL") then
-                    (match find_in_graph_from_pragma g "RETURN" with
-                     | `Found_one (lab,sy,pl,g,assoc) ->
-                        let fin = boundary_out_port_count g in
-                        let rec add_names nm_lis fin curr in_gr =
-                          if curr < fin then
-                            (let in_gr, nm_lis =
-                               add_an_entry (0,curr,0) in_gr nm_lis in
-                             add_names nm_lis fin (curr+1) in_gr)
-                          else (in_gr,nm_lis) in
-                        add_names name_lis fin 0 in_gr
-                     | `Nth -> raise (Sem_error "Cannot find Returns"))
-                  else (raise (Sem_error "No Returns graph in forall"))
-               | _ ->
-                  in_gr,name_lis)
-           | [] -> in_gr,name_lis in
-      do_for_each_in_exp in_gr (ret_lis@[(x,y,z)]) name_lis tle)
-  | [] -> ret_lis,in_gr
-
 and do_def in_gr = function
-  | Def (x1,y) ->
+  | Def (bound_names,y) ->
      (** WHY ARE MULTIARITY EDGES HERE MISSING TYPES **)
      let rec add_all_to_sm
                ((nx,po,pq),
@@ -755,35 +995,31 @@ and do_def in_gr = function
                         val_def=nx;def_port=po}
                        umap,
                      vmap);
-                  typemap=tm;w=w}) tlx)
-     (*raise
-                       (Node_not_found
-                          "Unknown symtab entry"))*) in
+                  typemap=tm;w=w}) tlx) in
      let named_exp = match y with
        | Exp ee ->
-          (*if (List.length ee) = (List.length x1) then
-           add_all_to_sm ((0,0,0),in_gr) (zipem x1 ee)
-          else*)
           let (mx,mp,mt),in_gr = do_exp in_gr (Exp ee) in
-          let rec add_multiarity_to_gr (mx,mp,mt) xli
+          let rec add_multiarity_to_gr (mx,mp,mt) bound_names
                     {nmap=nmap;eset=eset;
                      symtab=(umap,vmap);typemap=tm;w=w} =
-            match xli with
-            | [] -> (mx,mp,mt),
-                    {nmap=nmap;eset=eset;
-                     symtab=(umap,vmap);typemap=tm;w=w}
-            | hdx::tl ->
+            match bound_names with
+            | [] ->
+               (mx,mp,mt),
+               {nmap=nmap;eset=eset;
+                symtab=(umap,vmap);typemap=tm;w=w}
+            | bound_name::tl_names ->
                add_multiarity_to_gr
-                 (mx,mp+1,mt) tl
+                 (mx,mp+1,mt) tl_names
                  {nmap=nmap;eset=eset;
                   symtab=(
-                    SM.add hdx
-                      {val_name=hdx;val_ty=mt;
+                    SM.add bound_name
+                      {val_name=bound_name;val_ty=mt;
                        val_def=mx;def_port=mp}
                       umap,vmap);typemap=tm;w=w} in
-          add_multiarity_to_gr (mx,mp,mt) x1 in_gr
+          add_multiarity_to_gr (mx,mp,mt) bound_names in_gr
        | _ ->
-          (0,0,0),in_gr in named_exp
+          (0,0,0),in_gr in
+     named_exp
 
 and get_type_num in_gr = function
   | Ast.Type_name yy ->
@@ -833,6 +1069,13 @@ and do_decl in_gr z =
         ((0,0,type_num),
          {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w})
 
+and extract_types_from_decl_list dl =
+  List.fold_left (
+      fun dlz dlx ->
+      dlz @ (match dlx with
+               Decl(x,aty) ->
+               List.map (fun x -> aty) x)) [] dl
+
 and do_decl_helper in_gr ex1 xl =
   match in_gr with
   | {nmap=nmap;eset=eset;symtab=(umap,v);typemap=tm;w=w} ->
@@ -841,8 +1084,8 @@ and do_decl_helper in_gr ex1 xl =
        match existing_rec
        with {val_name=xl;val_ty=aty;val_def=_;def_port=_;} ->
          (SM.add xl
-            {val_name=xl;val_ty=aty;val_def=ex1;def_port=0;} umap)
-     in umap
+            {val_name=xl;val_ty=aty;val_def=ex1;def_port=0;} umap) in
+     umap
 
 and do_decldef in_gr =
   function
@@ -991,7 +1234,8 @@ and check_subgr_tys in_gr jj prev =
          if fst != snd then
            raise (Sem_error (
                       Format.printf "%d:%d %d:%d\n"
-                        (IntMap.find curr jj) (IntMap.find curr prev);"Mismatched types"))
+                        (IntMap.find curr jj)
+                        (IntMap.find curr prev);"Mismatched types";"Loop bug"))
          else
            (Format.printf "Matches: %d:%d %d:%d\n" curr fst curr snd;
             do_in_loop (curr+1) last jj prev))
@@ -1099,7 +1343,7 @@ and check_tag_types vn_n jj prev in_gr =
 
 and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
   (** A recursive visitor that builds subgraphs for each variant
-      in the match **)
+      in the match. **)
   match ex with
   | [] -> prev_out_types,tagcase_g,tag_gr_map
   | hde::tl ->
@@ -1115,7 +1359,7 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
           let a_tag_ty = find_an_union_ty (List.hd nums) tagcase_g in
           (** the output types from each variant is put
               in jj below ---
-              all tags need to output the same types--- **)
+              all tags need to output the same types--- *)
           let outlis,prags,in_gt_ =
             get_new_tagcase_graph tagcase_gr_
               (`AnyTag (vn_n,a_tag_ty,tns)) e in
@@ -1124,20 +1368,14 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
      (** There can be a bunch of exps from each tag,
          get the types and compare
          them to make sure that they are the same
-         as for each earlier tag-case match
-      **)
+         as for each earlier tag-case match *)
      let _ = check_tag_types vn_n jj prev_out_types tagcase_gr_ in
      let (ii,_,_),tagcase_g =
        add_node_2 (`Compound(
-                       tagcase_gr_i,INTERNAL,prags,[])) tagcase_g in
+                       tagcase_gr_i,INTERNAL,0,prags,[])) tagcase_g in
      let bound_nodes_TC = boundary_node_lookup tagcase_g in
-     print_endline ("BOUNDED NAMES FOR TAGCASE:" ^
-                      (AStrSet.fold (fun x y ->
-                           cate_nicer x y ",")
-                         bound_nodes_TC ""));
      let tagcase_g = add_edges_to_boundary
                        tagcase_gr_i tagcase_g ii in
-     print_endline ("Tagcase with boundary:\n" ^ (string_of_graph tagcase_g));
      (** map each tagnum to its subgraph,
          this will become the association list **)
      let tag_gr_map = List.fold_right
@@ -1153,6 +1391,9 @@ and buildList n =
   get_a_list_of_N [] 0
 
 and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
+  (** Propagate outputs of inner compound nodes to the
+      recursive caller, using MULTIARITY. Make sure that they
+      are returned in the expected order.*)
   let in_port_1 =
     let in_array = Array.make (IntMap.cardinal ty_map) "" in
     in_array in
@@ -1172,10 +1413,6 @@ and add_edges_to_boundary a_gr outer_gr to_node =
   let bound_nodes_a = boundary_node_lookup a_gr in
   let bound_nodes_a_lis =
     AStrSet.fold (fun x y -> x::y) bound_nodes_a [] in
-  print_endline ("Bounded names for THEN:" ^
-                   (AStrSet.fold (fun x y ->
-                        cate_nicer x y ",")
-                      bound_nodes_a ""));
   let sym_ids =
     List.map (fun x ->
         let xx,xxy =
@@ -1186,23 +1423,27 @@ and add_edges_to_boundary a_gr outer_gr to_node =
         ((add_edge nx np to_node i nt y),i+1))
       sym_ids (outer_gr,0) in gr
 
-and unary_fun ?nou:(nou=1) in_gr e node_tag =
-  let get_simple_unary in_gr node_tag =
-    let in_port_1 =
-      let in_array = Array.make 1 "" in
-      in_array in
-    let out_port_1 =
-      let out_array = Array.make nou "" in
-      out_array in
-    let (z,_,_),in_gr =
-      add_node_2 (
-          `Simple
-            (node_tag,in_port_1,out_port_1,[None])) in_gr in
-    ((z,0,0), in_gr) in
-  let (e,pi,t1),in_gr = do_simple_exp in_gr e in
-  let (z,_,_), in_gr = get_simple_unary in_gr node_tag in
+and get_simple_unary nou in_gr node_tag =
+  let in_port_1 =
+    let in_array = Array.make 1 "" in
+    in_array in
+  let out_port_1 =
+    let out_array = Array.make nou "" in
+    out_array in
+  let (z,_,_),in_gr =
+    add_node_2 (
+        `Simple
+          (node_tag,in_port_1,out_port_1,[None])) in_gr in
+  ((z,0,0), in_gr)
+
+and unary_internal nou e pi t1 in_gr node_tag =
+  let (z,_,_), in_gr = get_simple_unary nou in_gr node_tag in
   let in_gr = add_edge e pi z 0 t1 in_gr in
   ((z,0,t1),in_gr)
+
+and unary_fun nou in_gr e node_tag =
+  let (e,pi,t1),in_gr = do_simple_exp in_gr e in
+  unary_internal nou e pi t1 in_gr node_tag
 
 and bin_fun a b in_gr node_tag =
   let get_simple_bin in_gr node_tag =
@@ -1222,7 +1463,7 @@ and bin_fun a b in_gr node_tag =
       do_simple_exp i_gr b in
     let (z,_,_), out_gr =
       get_simple_bin i_gr node_tag in
-    (match  qq1 = qq2
+    (match qq1 = qq2
      with true ->
            (let out_gr =
               add_edge c pi1 z 0 qq1 out_gr in
@@ -1230,19 +1471,22 @@ and bin_fun a b in_gr node_tag =
               add_edge d pi2 z 1 qq2 out_gr in
             ((z,0,qq1),out_gr))
         | false ->
-           (print_string (str_simple_exp ~offset:2 a);
-            print_endline (" of type:" ^ (string_of_int qq1));
-            print_string (str_simple_exp ~offset:2 b);
-            print_endline (" of type:" ^ (string_of_int qq2));
-            (z,0,qq1),out_gr)) in(*
-            raise (Node_not_found "Bad type in binary exp"))) in*)
+           raise (Sem_error (
+                      let kkk =
+                        cate_list
+                          [str_simple_exp ~offset:2 a;
+                           " of type:" ^ (string_of_int qq1);
+                           str_simple_exp ~offset:2 b;
+                           " of type:" ^ (string_of_int qq2)]
+                          "\n" in
+                      ("Bad type in binary exp:" ^ kkk)))) in
   base_case_bin a b node_tag in_gr
 
 and do_simple_exp in_gr in_sim_ex =
   match in_sim_ex with
   | Constant x -> do_constant in_gr x
-  | Not e -> unary_fun in_gr e NOT
-  | Negate e -> unary_fun in_gr e NEGATE
+  | Not e -> unary_fun 1 in_gr e NOT
+  | Negate e -> unary_fun 1 in_gr e NEGATE
   | Pipe (a,b) -> bin_fun a b in_gr ACATENATE
   | And (a,b) ->  bin_fun a b in_gr AND
   | Divide (a,b) -> bin_fun a b in_gr DIVIDE
@@ -1259,24 +1503,86 @@ and do_simple_exp in_gr in_sim_ex =
   | Invocation(fn,arg) ->
      (match fn with
       | Function_name f ->
-         let prags = [Name f] in
-         let expl,in_gr =
-           (match arg with
-            | Arg aa ->
-               match aa with
-               | Exp aexps ->
-                  map_exp in_gr aexps [] do_simple_exp
-               | Empty -> ([],in_gr)
-           ) in
-         let in_port_00 =
-           Array.make (List.length expl) "" in
-         let ((n,k,_),in_gr) =
-           add_node_2
-             (`Simple (INVOCATION, in_port_00,
-                       out_port_0, prags))
-             in_gr in
-         add_edges_in_list expl n 0 in_gr)
-
+         (match f with
+          | "ARRAY_ADDH" ->
+             let in_port_00 = Array.make (1) "" in
+             let out_port_00 = Array.make (1) "" in
+             let ((n,k,_),in_gr) =
+               add_node_2
+                 (`Simple (AADDH, in_port_00,
+                           out_port_00, [])) in_gr in
+             let _,tt,in_gr =
+               (match arg with
+                | Arg aa ->
+                   (match aa with
+                    | Exp aexps ->
+                       List.fold_right(
+                           fun x (cou,_,in_gr) ->
+                           let (l,m,tt),in_gr =
+                             do_simple_exp in_gr x in
+                           cou+1,tt,add_edge l m n cou tt in_gr)
+                         aexps (0,0,in_gr)
+                    | _ -> 0,0,in_gr)) in
+             (n,0,tt),in_gr
+          | "ARRAY_SIZE" ->
+             let in_port_00 = Array.make (1) "" in
+             let out_port_00 = Array.make (1) "" in
+             let ((n,k,_),in_gr) =
+               add_node_2
+                 (`Simple (ASIZE, in_port_00,
+                           out_port_00, [])) in_gr in
+             let _,in_gr =
+               match arg with
+               | Arg aa ->
+                  match aa with
+                  | Exp aexps ->
+                     List.fold_right(
+                         fun x (cou,in_gr) ->
+                         let (l,m,tt),in_gr =
+                           do_simple_exp in_gr x in
+                         cou+1,add_edge l m n cou tt in_gr)
+                       aexps (0,in_gr)
+                  | _ -> 0,in_gr in
+             (n,0,5),in_gr
+          | _ ->
+             (let prags = [Name f] in
+              let expl,in_gr =
+                (match arg with
+                 | Arg aa ->
+                    match aa with
+                    | Exp aexps ->
+                       map_exp in_gr aexps [] do_simple_exp
+                    | Empty -> ([],in_gr)
+                ) in
+              let in_port_00 =
+                Array.make (List.length expl) "" in
+              let fn_ty = find_fun_ty in_gr f in
+              let fun_ty_lis = get_ret_ty_list in_gr fn_ty in
+              let out_port_00 =
+                Array.make (List.length fun_ty_lis) "" in
+              let ((n,k,_),in_gr) =
+                add_node_2
+                  (`Simple (INVOCATION, in_port_00,
+                            out_port_00, prags))
+                  in_gr in
+              let (call_nod,call_po,call_ty),in_gr =
+                add_edges_in_list expl n fn_ty 0 in_gr in
+              if List.length fun_ty_lis > 1 then
+                (let (ret_nod,ret_po,ret_ty),in_gr =
+                   let in_port_00 =
+                     Array.make (List.length fun_ty_lis) "" in
+                   let out_port_00 =
+                     Array.make (List.length fun_ty_lis) "" in
+                   add_node_2
+                     (`Simple (MULTIARITY, in_port_00, out_port_00, prags))
+                     in_gr in
+                 let _,in_gr = List.fold_right
+                                 (fun aty (cur_p,in_gr) ->
+                                   (cur_p+1,
+                                    add_edge call_nod cur_p ret_nod cur_p aty in_gr))
+                                 fun_ty_lis (0,in_gr) in
+                 (ret_nod,ret_po,ret_ty),in_gr)
+              else (call_nod,call_po,List.hd fun_ty_lis),in_gr)))
   | Array_ref (ar_a,ar_b) ->
      let (arr_node,arr_port,att),in_gr = do_simple_exp in_gr ar_a in
      let (res_node,res_port,tt),in_gr_res =
@@ -1300,7 +1606,8 @@ and do_simple_exp in_gr in_sim_ex =
                | Array_ty ij -> ij
                | _ -> raise (Sem_error (
                                  "Situation:" ^
-                                   (string_of_if1_ty (lookup_ty att in_gr)))) in
+                                   (string_of_if1_ty
+                                      (lookup_ty att in_gr)))) in
              ((arrnum,arrport,inner_ty_num),in_gr) in
            List.fold_left add_basic_arr_elem
              ((arr_node,arr_port,att),in_gr) ex_lis
@@ -1313,18 +1620,24 @@ and do_simple_exp in_gr in_sim_ex =
      let (xx,xy,xz),in_gr = do_exp in_gr e in
      let {nmap=nm;eset=pe;symtab=_;typemap=tm;w=pi} = in_gr in
      let in_gr = {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} in
-     print_endline ("multiarity edge from exp:");
-     outs_node xx in_gr;
-     outs_graph in_gr;
      (xx,xy,xz),in_gr
 
-  | Old v -> do_val in_gr v
-  | Val v -> do_val in_gr v
-  | Paren e -> do_exp in_gr e
+  | Old (Value_name v) ->
+     do_val_internal in_gr (`OldMob v)
+
+  | Val v ->
+     do_val in_gr v
+  | Paren e ->
+     do_exp in_gr e
 
   | Array_generator_named tn ->
-     let tn = tn in (0,0,0),in_gr
-
+     let (bb,pp,_),in_gr =
+       add_node_2
+         (`Simple(ABUILD,
+                  (Array.make 1 ""),
+                  Array.make 1 "",[])) in_gr in
+     let tt = lookup_by_typename in_gr tn in
+     (bb,pp,tt),in_gr
   | Array_generator_named_addr (tn,ep) ->
      let tn = tn in
      array_builder_exp in_gr ep
@@ -1357,7 +1670,7 @@ and do_simple_exp in_gr in_sim_ex =
                 let in_gr =
                   add_edge idxnum idxport bb 1 0
                     (add_edge sn sp bb 0 0 in_gr) in
-                add_edges_in_list bbu bb 2 in_gr) in
+                add_edges_in_list bbu bb 0 2 in_gr) in
           let (tan,tap,t1),in_gr =
             do_array_replace ((al,ap,0),in_gr) tl
           in (tan,tap,0),in_gr
@@ -1394,7 +1707,7 @@ and do_simple_exp in_gr in_sim_ex =
                            Array.make 1 "",[None])) in_gr in
                  (bb,bp,tt),add_edge fe ff bb 0 tt in_gr in
                let t1,t2 = get_record_field in_gr tt fna in
-               (** below tt must be field name's id **)
+               (** Below tt must be field name's id **)
                do_field_chain ((bb,bp,t1),in_gr) tll
             | [] -> (fe,ff,finaltt),
                     add_edge aseb asep fe 2 finaltt in_gr in
@@ -1484,7 +1797,7 @@ and do_simple_exp in_gr in_sim_ex =
          let (aa,bb,cc),tagcase_gr =
            add_node_2
              (`Compound(
-                  gr_o,INTERNAL,
+                  gr_o,INTERNAL,0,
                   [Name "OTHERWISE"],[])) tagcase_gr_ in
          (** Build assoc_list: tag_builder would have
              a key-value for the listed variants
@@ -1495,22 +1808,16 @@ and do_simple_exp in_gr in_sim_ex =
              (fun x outl ->
                match IntMap.mem x tag_map with
                | true ->
-                  Printf.printf ("(%d:%s)") x "YES";
                   (IntMap.find x tag_map)::outl
                | false ->
-                  Printf.printf ("(%d:%s)") x "NO";
                   aa::outl)
              tag_nums [] in
-         print_endline "";
          let (fin_node,fin_por,fin_tyy),out_gr =
            add_node_2 (`Compound
-                         (tagcase_gr,TAGCASE,
+                         (tagcase_gr,TAGCASE,0,
                           [Name "TAGCASE"],assoc_lis)) in_gr in
          let bound_nodes_TC = boundary_node_lookup tagcase_gr in
-         print_endline ("BOUND NAMES FOR TAGCASE:" ^
-                          (AStrSet.fold (fun x y ->
-                               cate_nicer x y ",")
-                             bound_nodes_TC ""));
+
          let tagcase_g = add_edges_to_boundary
                            tagcase_gr out_gr fin_node in
          (fin_node,fin_por,fin_tyy),tagcase_g)
@@ -1527,7 +1834,7 @@ and do_simple_exp in_gr in_sim_ex =
      do_exp in_gr e
 
   | If (cl, Else el) ->
-     (** work an example with [1,2]
+     (** Work an example with [1,2]
          and [1,2,3] and [1,2,3,4] **)
      (** How are outputs tied to the
          compound node's outputs?
@@ -1540,10 +1847,6 @@ and do_simple_exp in_gr in_sim_ex =
              let grr_th = get_a_new_graph in_gr_if in
              if_builder tl xyz grr_th els (curr_num+1) ty_lis_ret in
            let bound_nodes_else = boundary_node_lookup else_gr in
-           print_endline ("Bounded names for ELSE:" ^
-                            (AStrSet.fold (fun x y ->
-                                 cate_nicer x y ",")
-                               bound_nodes_else ""));
 
            let point_edges_to_boundary frm elp elt in_gr =
              match get_node frm in_gr with
@@ -1558,35 +1861,33 @@ and do_simple_exp in_gr in_sim_ex =
              | _ -> add_edge frm elp 0 0 elt in_gr in
 
            let els,elp,elt = else_outs in
-           let ty_lis_else,else_gr = extr_types else_gr (else_outs,IntMap.empty) in
+           let ty_lis_else,else_gr = extr_types else_gr
+                                       (else_outs,IntMap.empty) in
            let else_gr = point_edges_to_boundary els elp elt else_gr in
-           print_endline ("ELSE_GR\n");
-           outs_graph else_gr;
 
            let (else_n,else_p,else_t),in_gr_if =
              add_node_2
                (`Compound(
                     else_gr,
-                    INTERNAL,
+                    INTERNAL,0,
                     [Name ("ELSE"^ (string_of_int curr_num))],[]))
                in_gr_if in
 
            let in_gr_if = add_edges_to_boundary
                             else_gr in_gr_if else_n in
            let in_outs,then_gr = do_exp (get_a_new_graph in_gr_if) body in
-           let ty_lis_then,then_gr = extr_types then_gr (in_outs,IntMap.empty) in
+           let ty_lis_then,then_gr = extr_types then_gr
+                                       (in_outs,IntMap.empty) in
 
            let then_s,then_p,then_t = in_outs in
-           let then_gr = point_edges_to_boundary then_s then_p then_t then_gr in
-
-           print_endline "THEN_GR\n";
-           outs_graph then_gr;
+           let then_gr = point_edges_to_boundary
+                           then_s then_p then_t then_gr in
 
            let (then_n,then_p,then_t),in_gr_if =
              add_node_2
                (`Compound(
                     then_gr,
-                    INTERNAL,
+                    INTERNAL,0,
                     [Name ("BODY"^ (string_of_int curr_num))],[]))
                in_gr_if in
 
@@ -1599,23 +1900,14 @@ and do_simple_exp in_gr in_sim_ex =
            let ty_lis,predicate_gr =
              extr_types predicate_gr (pred_out,IntMap.empty) in
            let bound_nodes_pred = boundary_node_lookup predicate_gr in
-           print_endline ("BOUNDED NAMES FOR PREDICATE:" ^
-                            (AStrSet.fold (fun x y ->
-                                 cate_nicer x y ",")
-                               bound_nodes_pred ""));
-
            let pred_s,pred_p,pred_t = pred_out in
            let predicate_gr = point_edges_to_boundary
                                 pred_s pred_p pred_t predicate_gr in
-
-           print_endline "PREDICATE_GR\n";
-           outs_graph predicate_gr;
-
            let (pn,pp,pt),in_gr_if =
              add_node_2
                (`Compound(
                     predicate_gr,
-                    INTERNAL,
+                    INTERNAL,0,
                     [Name ("PREDICATE" ^ (string_of_int
                                             curr_num))],[]))
                in_gr_if in
@@ -1649,55 +1941,153 @@ and do_simple_exp in_gr in_sim_ex =
        let (sn,sp,st),in_gr =
          add_node_2 (
              `Compound (regar,
-                        INTERNAL,
+                        INTERNAL,0,
                         [Name "SELECT"],boundary_ooo)) in_gr in
        add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT" in
      sai,gai
 
   | For_all (i,d,r) ->
-     (** First we build a hierarchy based on in-exps, then we
-         add the body/returns in it. Perhaps we could
-         do this easily... i am not sure yet **)
-     (* TODO: NEED TO CHECK VS IF1, ADD ASSOC LIST *)
-     (** HOW DO WE TIE UP RESULTS TO CALLING FUNCTION OR TO A LET VAR **)
-     let (i,p,t1), gen_gr = do_in_exp (get_a_new_graph in_gr) i in
-     let ret_lis, forall_gr = for_graph_walker gen_gr d r in
-
-     let (fx,fy,fz), in_gr =
-       add_node_2
-         (`Compound (forall_gr,INTERNAL,
-                     [Name "FORALL"],
-                     let lis = get_assoc_list forall_gr in
-                     (List.length lis)::lis)) in_gr in
-     let (x,y,z),in_gr =
-       let in_port_1 =
-         let in_array = Array.make (List.length ret_lis) "" in
-         in_array in
-       let out_port_1 =
-         let out_array = Array.make (List.length ret_lis) "" in
-         out_array in
-       add_node_2 (
-           `Simple
-             (MULTIARITY, in_port_1, out_port_1, [])) in_gr in
-     let _,in_gr = List.fold_right (
-                     fun (_,tt,aa) (cou,gr) ->
-                     (cou+1,add_edge fx cou x cou tt gr)) ret_lis (0,in_gr) in
-     (* insert a multiarity node *)
-     (x,y,z),in_gr
+     (** First we build a hierarchy based on in-exps,
+         then we add the body/returns in it. Perhaps
+         we could do this easily... i am not sure yet **)
+     let (fx,fy,fz),ret_lis,in_gr =
+       do_forall i d r in_gr in
+     (* TODO: Need To Check Vs If1, Add Assoc List *)
+     (** How Do We Tie Up Results To Calling Function
+         Or To A Let Var *)
+     write_any_dot_file "snd.dot" in_gr;
+     (fx,fy,fz),in_gr
 
   | For_initial (d,i,r) ->
+     let add_decls in_gr dp =
+       let build_init_graph in_gr =
+         let init_gr =
+           get_ports_unified
+             (get_a_new_graph in_gr) in_gr in_gr in
+         init_gr in
+       let xyz,out_gr =
+         do_decldef_part (build_init_graph in_gr) dp in
+       let _,out_gr =
+         let {nmap=_;eset=_;symtab=(cs,ps);typemap=_;w=_} =
+           out_gr in
+         SM.fold (fun k {val_name=vn_n;
+                         val_ty=t1;
+                         val_def=dd;
+                         def_port=dp}
+                      (op,out_gr) ->
+             if dd != 0 then
+               (op+1,add_edge dd dp 0 op t1 out_gr)
+             else (op,out_gr))
+           cs (boundary_in_port_count out_gr,out_gr) in
+       xyz,out_gr in
+
+     let add_terminator init_gr t =
+       let build_term_graph init_gr =
+         let term_gr =
+           get_ports_unified
+             (get_a_new_graph init_gr) init_gr init_gr in
+         update_parent_syms init_gr term_gr in
+       let (tn,tp,tt),init_gr =
+         do_termination (build_term_graph init_gr) t in
+       (tn,tp,tt),output_to_boundary [(tn,tp,tt)] init_gr in
+
+     let add_body init_gr bi rclau =
+       let build_body_graph init_gr =
+         let body_gr =
+           get_ports_unified
+             (get_a_new_graph init_gr) init_gr init_gr in
+         update_parent_syms init_gr body_gr in
+       let (bn,bp,bt),body_gr =
+         do_iterator (build_body_graph init_gr) bi in
+       let body_gr,ret_lis_a,ret_lis_b =
+         do_returns_clause_list body_gr rclau [] [] in
+       let body_gr = output_bound_names_for_subgraphs ret_lis_b body_gr in
+       (** Build Return-Signature To Provide To Outer
+           Loop In Order To Build Its Returns Graph. *)
+       let ret_lis_a,_,_ =
+         List.fold_right
+           (fun (y,x,tt) (outL,sm,cou) ->
+             if (IntMap.mem x sm = true) then
+               (y,tt,(IntMap.find x sm))::outL,sm,cou
+             else
+               (y,tt,cou)::outL,
+               (IntMap.add x cou sm),cou+1) ret_lis_a
+           ([],IntMap.empty,1) in
+       body_gr,ret_lis_a,ret_lis_b in
+
+     let add_ret in_gr ret_lis_a =
+       let for_gr = get_a_new_graph in_gr in
+       add_return_gr for_gr in_gr ret_lis_a in
+
+     let add_comp_node to_gr in_gr namen =
+       add_node_2
+         (`Compound (in_gr, INTERNAL,0,
+                     [Name namen],[])) to_gr in
+
      let loopAOrB i in_gr = match i with
        | Iterator_termination (ii,t) ->
-          let (ii,ip,t1),in_gr = do_iterator in_gr ii in
-          let (t,tp,t1),in_gr = do_termination in_gr t in
-          let (r,rp,t1),in_gr =
-            add_each_in_list in_gr r 0 do_return_clause in
-          do_decldef_part in_gr d
+          let (dn,dp,dt),decl_gr = add_decls in_gr d in
+          let (tn,tp,tt),test_gr = add_terminator decl_gr t in
+          let body_gr,ret_lis_a,ret_lis_b = add_body test_gr ii r in
+          let (rx,ry,rt),for_gr,ret_lis_a = add_ret body_gr ret_lis_a in
+          let (bx,by,bz),for_gr =
+            add_comp_node for_gr body_gr "BODY" in
+          let (tx,ty,tz),for_gr =
+            add_comp_node for_gr test_gr "TEST" in
+          let (ix,iy,iz),for_gr = add_comp_node for_gr decl_gr "INIT" in
+          let for_gr =
+              get_ports_unified for_gr body_gr decl_gr in
+
+          let (fx,fy,fz),in_gr =
+            add_node_2
+              (`Compound (for_gr, INTERNAL,0,
+                          [Name "LoopA"],
+                          let lis = get_assoc_list_loopAOrB for_gr in
+                          (List.length lis)::lis)) in_gr in
+          let (mul_n,mul_p,mul_t),in_gr =
+            build_multiarity (List.length ret_lis_a) in_gr in
+
+          let _,re_ret_lis_a,in_gr =
+            List.fold_right (
+                fun (wh,tt,aa) (cc,outl,iigr) ->
+                cc+1,(wh,tt,fx,cc)::outl,
+                add_edge2 fx aa mul_n cc tt iigr)
+              ret_lis_a (0,[],in_gr) in
+          let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
+          (mul_n,mul_p,mul_t),in_gr
        | Termination_iterator (t,ii) ->
-          let d = do_decldef_part in_gr d in
-          let t = do_termination in_gr t in
-          let ii = do_iterator in_gr ii in
-          add_each_in_list in_gr r 0 do_return_clause in
+          let (dn,dp,dt),decl_gr = add_decls in_gr d in
+          let (tn,tp,tt),test_gr = add_terminator decl_gr t in
+          let body_gr,ret_lis_a,ret_lis_b = add_body test_gr ii r in
+          let (rx,ry,rt),for_gr,ret_lis_a = add_ret body_gr ret_lis_a in
+          let (bx,by,bz),for_gr =
+            add_comp_node for_gr body_gr "BODY" in
+          let (tx,ty,tz),for_gr =
+            add_comp_node for_gr test_gr "TEST" in
+          let (ix,iy,iz),for_gr =
+            add_comp_node for_gr decl_gr "INIT" in
+          let for_gr =
+              get_ports_unified for_gr body_gr in_gr in
+
+          let (fx,fy,fz),in_gr =
+            add_node_2
+              (`Compound (for_gr, INTERNAL,0,
+                          [Name "LoopB"],
+                          let lis = get_assoc_list_loopAOrB for_gr in
+                          (List.length lis)::lis)) in_gr in
+
+          let (mul_n,mul_p,mul_t),in_gr =
+            build_multiarity (List.length ret_lis_a) in_gr in
+
+          let _,re_ret_lis_a,in_gr =
+            List.fold_right (
+                fun (wh,tt,aa) (cc,outl,iigr) ->
+                cc+1,(wh,tt,fx,cc)::outl,
+                add_edge2 fx aa mul_n cc tt iigr)
+              ret_lis_a (0,[],in_gr) in
+
+          let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
+          (mul_n,mul_p,mul_t),in_gr in
      loopAOrB i in_gr
 
 and find_in_graph_from_pragma in_gr namen =
@@ -1708,7 +2098,7 @@ and find_in_graph_from_pragma in_gr namen =
       else
         (let agr = NM.find tl nm in
          match agr with
-         | Compound (lab,sy,pl,g,assoc) ->
+         | Compound (lab,sy,ty,pl,g,assoc) ->
             if (List.hd pl) = Name namen then
               `Found_one (lab,sy,pl,g,assoc)
             else gen_gr (tl+1)
@@ -1794,27 +2184,80 @@ and add_return_gr in_gr body_gr ret_lis_a =
             let out_gr = add_to_boundary_outputs dd ee what_ty out_gr in
             (out_gr,in_count+2,out_count+1,out_lis@[`Array_of, what_ty, aa])
          | `FinalVal, tt, aa ->
-            (out_gr,in_count+1,out_count+1,out_lis@[`FinalVal, tt, aa])
+            (
+              let (dd,ee,ff),out_gr =
+                add_node_2 (
+                    `Simple (
+                        FINALVALUE,
+                        Array.make(2) "",
+                        Array.make(1) "",[None])) out_gr in
+              let out_gr = add_edge 0 aa dd 0 tt out_gr in
+              add_to_boundary_outputs dd ee tt out_gr,
+             in_count+1,out_count+1,out_lis@[`FinalVal, tt, aa])
          | `Reduce (`JustReduce, red_fn), tt, aa ->
             let out_gr = do_reduc ((`JustReduce,red_fn),tt,aa) in_gr in
-            (out_gr,in_count+1,out_count+1,out_lis@[`Reduce (`JustReduce, red_fn),tt,aa])
+            (out_gr,in_count+1,out_count+1,
+             out_lis@[`Reduce (`JustReduce, red_fn),tt,aa])
          | `Reduce (`RedLeft, red_fn), tt, aa ->
             let out_gr = do_reduc ((`RedLeft,red_fn),tt,aa) in_gr in
-            (out_gr,in_count+1,out_count+1,out_lis@[`Reduce (`RedLeft, red_fn),tt,aa])
+            (out_gr,in_count+1,out_count+1,
+             out_lis@[`Reduce (`RedLeft, red_fn),tt,aa])
          | `Reduce (`RedRight, red_fn), tt, aa ->
             let out_gr = do_reduc ((`RedRight,red_fn),tt,aa) in_gr in
-            (out_gr,in_count+1,out_count+1,out_lis@[`Reduce (`RedRight, red_fn),tt,aa])
+            (out_gr,in_count+1,out_count+1,
+             out_lis@[`Reduce (`RedRight, red_fn),tt,aa])
          | `Reduce (`RedTree, red_fn), tt, aa ->
             let out_gr = do_reduc ((`RedTree,red_fn),tt,aa) in_gr in
-            (out_gr,in_count+1,out_count+1, out_lis@[`Reduce (`RedTree, red_fn),tt,aa])
+            (out_gr,in_count+1,out_count+1,
+             out_lis@[`Reduce (`RedTree, red_fn),tt,aa])
          | `Stream_of, tt, aa ->
             (out_gr,in_count+1,out_count+1, out_lis@[`Stream_of, tt, aa])))
       ret_lis_a (ret_gr,0,0,[]) in
   let xyz, in_gr =
     add_node_2
-      (`Compound(ret_gr,INTERNAL,
+      (`Compound(ret_gr,INTERNAL,0,
                  [Name "RETURN"],[])) in_gr in
   xyz,in_gr,out_lis
+
+and get_gen_graph in_gr =
+  let xyz =
+    find_in_graph_from_pragma in_gr "GENERATOR" in
+  match xyz with
+    `Found_one (lab,sy,pl,g,assoc) -> g
+  | `Nth -> raise (
+                Sem_error
+                  ("Didnt find Generator in In loop"))
+
+and get_assoc_list_loopAOrB inner_gr =
+  let body_lab =
+    let xyz =
+      find_in_graph_from_pragma inner_gr "BODY" in
+    match xyz with
+      `Found_one (lab,sy,pl,g,assoc) -> lab
+    | `Nth ->
+       raise (Sem_error ("Didnt find Body in for loop")) in
+  let test_lab =
+    let xyz =
+      find_in_graph_from_pragma inner_gr "TEST" in
+    match xyz with
+      `Found_one (lab,sy,pl,g,assoc) -> lab
+    | `Nth ->
+       raise (Sem_error ("Didnt find Test in for loop")) in
+  let init_lab =
+    let xyz =
+      find_in_graph_from_pragma inner_gr "INIT" in
+    match xyz with
+      `Found_one (lab,sy,pl,g,assoc) -> lab
+    | `Nth ->
+       raise (Sem_error ("Didnt find Init in for loop")) in
+  let ret_lab =
+    let xyz =
+      find_in_graph_from_pragma inner_gr "RETURN" in
+    match xyz with
+      `Found_one (lab,sy,pl,g,assoc) -> lab
+    | `Nth ->
+       raise (Sem_error ("Didnt find RETURN in for loop")) in
+  [init_lab;test_lab;body_lab;ret_lab]
 
 and get_assoc_list inner_gr =
   let gen_lab =
@@ -1837,7 +2280,7 @@ and get_assoc_list inner_gr =
          find_in_graph_from_pragma inner_gr "BODY" in
        match xyz with
        | `Nth ->
-          raise (Sem_error ("Didnt find Forall in Inner loop"))
+          raise (Sem_error ("Didnt find Body in Inner loop"))
        | `Found_one (lab,sy,pl,g,assoc) ->
           lab in
 
@@ -1851,121 +2294,12 @@ and get_assoc_list inner_gr =
        raise (Sem_error ("Didnt find Returns in Inner loop")) in
   [gen_lab;for_lab;for_returns]
 
-and for_graph_walker in_gr body ret_clauses =
-  let {nmap=nm;eset=ne;symtab=sm;typemap=(t,tm,tmn);w=tail} = in_gr in
-  match find_in_graph_from_pragma in_gr "GENERATOR" with
-  | `Found_one (lab,sy,pl,g,assoc) ->
-     (** 1: recurse immediately and get the enclosed loop's graph
-         2: Copy parent symbols to current symbols
-         3: Do some more copying of cs syms to cs
-         4: Build a return graph using add_return_gr
-         5: Add the enclosed loop's graph as a compound forall node
-      **)
-     (** GENERATOR IS FOUND, RECURSE INTO GENERATOR.
-         FIRST ADD PARENT SYMBOLS ON THE GENERATOR. **)
-     (** INSTEAD OF INNER_GR GET FORALL FROM NTH, SO THAT WE
-         CAN TIE ITS MULTIARITY TO OUTPUTS HERE **)
-     let inner_ret,inner_gr =
-       for_graph_walker
-         (update_parent_syms in_gr g) body ret_clauses in
-
-     (** CREATE A NEW FORALL GRAPH **)
-     let forall_gr = copy_cs_syms_to_cs inner_gr
-                       (get_a_new_graph in_gr) in
-
-     (** GET RETURNS GRAPH IN RET_GR **)
-     let (rx,ay,az),forall_gr,inner_ret =
-       add_return_gr forall_gr in_gr inner_ret in
-
-     (** REMOVE INNER GENERATOR FROM INGR **)
-     let in_gr = {nmap=NM.remove lab nm;
-                  eset=ne;symtab=sm;
-                  typemap=(t,tm,tmn);w=tail} in
-
-     (** ADD INNER GRAPH AS AN INNER FORALL GRAPH **)
-     let (fx,fy,fz),forall_gr =
-       add_node_2
-         (`Compound (inner_gr,INTERNAL,
-                     [Name "FORALL"],
-                     let lis = get_assoc_list inner_gr in
-                     (List.length lis)::lis)) forall_gr in
-     let (x,y,z)(_,forall_gr) =
-       let (x,y,z),forall_gr =
-         let in_port_1 =
-           let in_array = Array.make (List.length inner_ret) "" in
-           in_array in
-         let out_port_1 =
-           let out_array = Array.make (List.length inner_ret) "" in
-           out_array in
-         add_node_2 (
-             `Simple
-               (MULTIARITY, in_port_1, out_port_1, [])) forall_gr in
-       (x,y,z),List.fold_right (
-                   fun (_,tt,aa) (cou,gr) ->
-                   (cou+1,add_edge fx cou x cou tt gr)) inner_ret (0,forall_gr) in
-     (** ADD INGR TO FORALL **)
-     let _,forall_gr =
-       add_node_2
-         (`Compound (in_gr,INTERNAL,
-                     [Name "GENERATOR"],[])) forall_gr in
-     inner_ret,forall_gr
-  | `Nth ->
-     (** NO GENERATOR FOUND, MUST CREATE INNER MOST FORALL
-         HERE AND RETURN **)
-     (** ADD INNERMOST FORALL GRAPH **)
-     let forall_gr = get_a_new_graph in_gr in
-
-     (** CREATE BODY GRAPH **)
-     let body_gr = get_a_new_graph in_gr in
-     let (d,q,t1),body_gr = do_decldef_part body_gr body in
-
-     (** INSERT EXPRESSIONS INSIDE RETURN CLAUSES TO BODY GRAPH **)
-     let body_gr,ret_lis_a,ret_lis_b =
-       do_returns_clause_list body_gr ret_clauses [] [] in
-
-     (** CONNECT RESULTS TO BODY's BOUNDARY **)
-     let body_gr = output_to_boundary ret_lis_b body_gr in
-
-     (** CREATE A ASSOC LIST WITH RET_LIS_A (THE
-         EXPRESSION PART OF RET_CLAUSE LIKE ARRAY_OF) **)
-     (** What is this for??? **)
-
-     let ret_lis_a,_,_ =
-       List.fold_right
-         (fun (y,x,tt) (outL,sm,cou) ->
-           if (IntMap.mem x sm = true) then
-             (y,tt,(IntMap.find x sm))::outL,sm,cou
-           else
-             (y,tt,cou)::outL,(IntMap.add x cou sm),cou+1) ret_lis_a
-         ([],IntMap.empty,1) in
-
-     (** CREATE A RESULT GRAPH **)
-     (** We must also put the return types in ret_lis_a **)
-     let (rx,ry,rz), forall_gr,ret_lis_a =
-       add_return_gr forall_gr in_gr ret_lis_a in
-
-     let ret_port_lis = get_named_input_ports
-                          (get_graph_from_label rx forall_gr) in
-     let body_port_lis =  get_named_input_ports body_gr in
-     let gen_port_lis =  get_named_input_ports in_gr in
-
-     (** ADD BODY TO FORALL **)
-     let (bx,by,bt),forall_gr =
-       add_node_2
-         (`Compound (body_gr,INTERNAL,
-                     [Name "BODY"],[])) forall_gr in
-     (** IN_GR IS THE GENERATOR, ADD TO INNER-MOST FORALL **)
-     let (gx,gy,gt),forall_gr =
-       add_node_2
-         (`Compound (in_gr,INTERNAL,
-                     [Name "GENERATOR"],[])) forall_gr in
-     ret_lis_a,forall_gr
-
 and do_returns_clause in_gr ret_clause =
   match ret_clause with
   | Old_ret (re,mc) ->
      raise (Node_not_found "Dont know how to handle this one");
   | Return_exp (re,mc) ->
+     (* TODO support mc *)
      let aa,bb,in_gr = do_return_exp in_gr re in
      aa,bb,in_gr
 
@@ -1977,9 +2311,6 @@ ret_lis_a ret_lis_b =
      do_returns_clause_list in_gr tl
        ((xx,yy,yt)::ret_lis_a) ((yy,yp,yt)::ret_lis_b)
   | [] -> in_gr, ret_lis_a, ret_lis_b
-
-and do_type_list in_gr tl =
-  add_each_in_list in_gr tl 0 add_sisal_type
 
 and do_defines in_gr = function
   | Define dn ->
@@ -2023,7 +2354,7 @@ and do_internals iin_gr f =
   | (Function_single (header, tdefs, nest,e))::tl ->
      let (header,hp,t1),in_gr =
        do_function_header in_gr header in
-     let (t,tp,t1),in_gr =
+     let (t,tp,_),in_gr =
        add_each_in_list in_gr tdefs 0 do_type_def in
      let _,in_gr =
        do_internals ((t,tp,t1)::ii,in_gr) nest in
@@ -2031,11 +2362,10 @@ and do_internals iin_gr f =
        | Exp elis ->
           let olis,in_gr = add_each_in_list_to_node []
                              in_gr elis 0 0 do_simple_exp in
-          let in_gr = output_to_boundary olis in_gr in
           (olis,in_gr)
        | Empty -> [],in_gr in
-     let {nmap=nm;eset=_;symtab=_;typemap = _;w=_} = in_gr in
-     do_internals (ii@jj,in_gr) tl
+     let {nmap=nm;eset=_;symtab=_;typemap=_;w=_} = in_gr in
+     do_internals (ii@[(0,0,t1)],in_gr) tl
 
 and do_function_def in_gr  = function
   | Ast.Function f ->
@@ -2048,13 +2378,12 @@ and do_function_def in_gr  = function
      let ii,in_gr_ =
        do_internals ([],get_empty_graph ty_blob) f in
      (*let in_gr_ = graph_clean_multiarity in_gr_ in *)
+     let jj,kk,ll = List.hd ii in
      let (aa,bb,cc),yyy =
        add_node_2 (
-           `Compound(in_gr_,INTERNAL,[],[]))
+           `Compound(in_gr_,INTERNAL,ll,[],[]))
          in_gr in
-
      write_any_dot_file "mydot.dot" yyy;
-
      (aa,bb,cc),yyy
   | Forward_function f ->
      do_function_header in_gr f
@@ -2062,7 +2391,7 @@ and do_function_def in_gr  = function
 and do_function_header in_gr = function
   | Function_header_nodec (fn, tl) ->
      let fn,in_gr = do_function_name in_gr fn in
-     do_type_list in_gr tl
+     add_sisal_type in_gr (Compound_type (Sisal_function_type ("",[],tl)))
   | Function_header (Function_name fn, decls,tl) ->
      let {nmap=nm;eset=es;symtab=(cs,ps);
           typemap=yy,tm,tmn;w=i;} = in_gr in
@@ -2073,6 +2402,7 @@ and do_function_header in_gr = function
                   | _ -> bound_node)) nm in
      let in_gr = {nmap=nm;eset=es;symtab=(cs,ps);
                   typemap=yy,tm,tmn;w=i;} in
+     let tyy = extract_types_from_decl_list decls in
      let bi,(ds,_,_),in_gr =
        let rec addeach_decl in_gr decls lasti bi q =
          match decls with
@@ -2083,6 +2413,6 @@ and do_function_header in_gr = function
             addeach_decl in_gr tl lasti
               ((lasti,pp,tt1)::bi) pp in
        addeach_decl in_gr decls 0 [] [] in
-     do_type_list in_gr tl
+     add_sisal_type in_gr (Compound_type (Sisal_function_type (fn,tyy,tl)))
 
 let _ = do_compilation_unit

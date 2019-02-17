@@ -1,0 +1,21 @@
+define Main 
+
+type queen_list    = array[integer];
+type solution_list = array [queen_list]
+
+
+%  in_check checks to see that the (row,column) pair proposed
+%  does not enter check with any of the previously assigned
+%  (row,column) pairs.
+%
+function in_check (r, c : integer; queens : queen_list
+		   returns boolean)
+
+    for row in queens at column
+    returns value of sum
+      (r = row) |
+      ((row + column) = (r + c)) |
+      ((row - column) = (r - c))
+    end for
+
+end function

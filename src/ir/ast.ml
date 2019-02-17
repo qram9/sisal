@@ -86,10 +86,11 @@ and decldef_part = Decldef_part of decldef list
 and reduction_op = Sum | Product | Least | Greatest | Catenate | No_red
 and direction_op = Left | Right | Tree | No_dir
 and in_exp = In_exp of value_name * exp
-           | At_exp of in_exp * value_name
+           | At_exp of in_exp * value_names
            | Dot of in_exp * in_exp
            | Cross of in_exp * in_exp
 and value_name = Value_name of string
+and value_names = Value_names of string list
 and return_exp = Value_of of direction_op * reduction_op * simple_exp
                | Array_of of simple_exp | Stream_of of simple_exp
 and masking_clause = Unless of simple_exp | When of simple_exp | No_mask
@@ -119,6 +120,7 @@ and
 | Sisal_stream of sisal_type
 | Sisal_record of (field_spec list)
 | Sisal_union  of (string list * sisal_type) list
+| Sisal_function_type of (string * sisal_type list * sisal_type list)
 | Sisal_union_enum  of (string list)
 and tag_name = string
 and type_name = string
@@ -218,6 +220,10 @@ and str_compound_type = function
   (*(space_cate ("UNION [" ^ (comma_fold stl)) (str_sisal_type s) ":") ^ "]"*)
   | Sisal_union_enum  (stl) -> "UNION [" ^ (comma_fold stl) ^ "]"
   | Sisal_record ff -> "RECORD [" ^ (semicolon_fold (List.map str_field_spec ff)) ^ "]"
+  | Sisal_function_type (fn_name,tyargs,tyres) ->
+     fn_name ^ "(" ^ (comma_fold (List.map (fun x -> str_sisal_type x) tyargs))
+     ^ " returns " ^  (comma_fold (List.map (fun x -> str_sisal_type x)
+                                     tyres)) ^ ")"
 and
   str_sisal_type = function
   | Boolean -> "BOOLEAN"
@@ -237,6 +243,17 @@ and
   | Error st -> "ERROR [" ^ (str_sisal_type st) ^ "]"
 and
   str_val = function | Value_name v -> v
+and
+  str_val_names = function
+  | Value_names v ->
+     List.fold_right
+       (fun x z ->
+         (if x = "" then
+            z
+          else if z = "" then
+            x
+          else x ^"," ^ z))
+       v ""
 and
   str_exp ?(offset=0) =
   function
@@ -259,9 +276,10 @@ and str_cond ?(offset=0) = function
   | Cond (c,e) -> (str_exp c) ^ " THEN\n" ^ (str_exp ~offset:(offset+2) e)
 and str_in_exp = function
   | In_exp (vn,e) -> (str_val vn) ^ " IN " ^ (str_exp e)
-  | At_exp (ie,vn) -> (str_in_exp ie) ^ " AT " ^ (str_val vn)
+  | At_exp (ie,vn) -> (str_in_exp ie) ^ " AT "
+                      ^ (str_val_names vn)
   | Dot (ie1,ie2) -> (str_in_exp ie1) ^ " DOT " ^ (str_in_exp ie2)
-  | Cross (ie1,ie2) -> (str_in_exp ie1) ^ " CROSS " ^ (str_in_exp ie2)
+  | Cross (ie1,ie2) -> (str_in_exp ie2) ^ " CROSS " ^ (str_in_exp ie1)
 and str_if ?(offset=0) f =
   "IF " ^
     (elseif_fold (List.map (str_cond ~offset:(offset)) f))

@@ -31,14 +31,14 @@ function Main(level: integer returns solution_list)
 	end for
     else
 	for partial_assignment in Main(level - 1)
-	    column := 1 + array_size(partial_assignment);
+	    column := 1 + level;
 	    new_assignment :=
 		 for row in 1,8
 		     ischeck    := in_check(row, column, partial_assignment);
 		     assignment := if ischeck then
 			              array queen_list []
 			           else
-			              array_addh(partial_assignment, row)
+			              array queen_list[]
 			           end if
 		 returns
 		   array of assignment unless ischeck
