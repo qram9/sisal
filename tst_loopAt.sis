@@ -1,0 +1,14 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type ThreeD   = array[array[array[double]]];
+
+function Main( n,m:integer; Y,W,U:ThreeD returns ThreeD )
+   for Elem in Y At I,J,K
+   returns array of Y[I,J,K]*Y[J,I,K]
+   end for
+end function
+

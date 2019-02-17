@@ -870,10 +870,10 @@ in_exp:
       let t:(Ast.in_exp) =
         In_exp (Value_name $1, $3) in t
     }
-|   in_exp AT NAME
+|   in_exp AT names
   {
     let t:(Ast.in_exp) =
-      At_exp ($1, Value_name $3) in t
+      At_exp ($1, Value_names $3) in t
   }
 ;
 

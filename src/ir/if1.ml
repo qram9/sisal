@@ -9,6 +9,18 @@ module IntMap = Map.Make(
                       type t = int
                       let compare = compare
                     end)
+
+module IntSet = Set.Make(
+                    struct
+                      type t = int
+                      let compare = compare
+                    end)
+module StringMap = Map.Make(
+                    struct
+                      type t = string
+                      let compare = compare
+                    end)
+
 type label_or_none = Som of int | Emp
 
 type node_sym =
@@ -33,6 +45,7 @@ type node_sym =
   | GREATER
   | AELEMENT
   | ABUILD
+  | AFILL
   | AREPLACE
   | RBUILD
   | RELEMENTS
@@ -43,6 +56,15 @@ type node_sym =
   | SELECT
   | RANGEGEN
   | ASCATTER
+  | ASIZE
+  | AADDH
+  | AADDL
+  | ALIML
+  | ALIMH
+  | AREMH
+  | AREML
+  | AISEMPTY
+  | ASETL
   | INTERNAL
   | AGATHER
   | REDUCE
@@ -74,11 +96,11 @@ type label = int
 type if1_ty =
   | Array_ty of label
   | Basic of basic_code
-  | Function of label list * label list
+  | Function_ty of label * label * string
   | Multiple of basic_code
   | Record of label * label * string
   | Stream of label
-  | Tuple of label list
+  | Tuple_ty of label * label
   | Union of label * label * string
   | Unknown_ty
   | If1Type_name of label
@@ -205,7 +227,7 @@ and if1_value =
 
 and node =
   | Simple of N.t * node_sym * ports * ports * pragmas
-  | Compound of N.t * node_sym * pragmas * graph * N.t list
+  | Compound of N.t * node_sym * label * pragmas * graph * N.t list
   | Literal of N.t * basic_code * string * ports
   | Boundary of (label * int * string ) list * (label * int) list * pragmas
   | Rajathi
@@ -237,7 +259,7 @@ let rec get_empty_graph ty_blob =
 and get_node_label n =
   match n with
   | Simple (x, _, _, _,_) -> x
-  | Compound (x,_,_,_,_) -> x
+  | Compound (x,_,_,_,_,_) -> x
   | Literal (x,_,_,_) -> x
   | Boundary _ -> 0
   | Rajathi -> 0
@@ -267,7 +289,7 @@ and get_graph_label
 
 and get_graph_from_label ii
 {nmap=nm;eset=_;symtab=(_,_);typemap=_;w=_} = match NM.find ii nm with
-  | Compound (_,_,_,gg,_) -> gg
+  | Compound (_,_,_,_,gg,_) -> gg
   | _ -> raise (Sem_error "Lookup failed for compound")
 
 and has_node i
@@ -285,9 +307,8 @@ and unify_syms
 and update_parent_syms
 {nmap=_;eset=_;symtab=(cs,ps);typemap=_;w=_}
 {nmap=nm;eset=es;symtab=(other_cs,other_ps);typemap=tm;w=i} =
-  (** UNION PS, OTHER_PS with CURR and MAKE IT A NEW PARENT SYMTAB
-      DONT FORGET THAT THE LAST ONE IS THE ACCUMULATED VAL.
-   **)
+  (** Union ps, other_ps With curr
+      And Make It A New Parent Symtab *)
   {nmap=nm;eset=es;
    symtab=(other_cs,
            let kkk = fun k v z -> SM.add k v z in
@@ -320,9 +341,7 @@ and copy_cs_syms_to_cs
               (z,cou) ->
           if SM.mem k other_ps = false
           then
-            (print_endline ("adding:" ^ (vn_n));
-             print_endline ("K is " ^ k);
-             ((SM.add k
+            (((SM.add k
               {val_name=vn_n;
                val_ty=t1;val_def=0;
                def_port=cou} z),cou+1))
@@ -347,7 +366,6 @@ and copy_cs_syms_to_cs
                 symtab = (cs,ps);
                 typemap = tm;w = i} in
   let in_gr = input_from_boundary boun_lis in_gr in
-  print_endline ("Node-0: " ^ (string_of_node 0 in_gr));
   in_gr
 
 and update_node n_int nnode in_gr =
@@ -396,6 +414,13 @@ and get_named_input_ports in_gr =
       in_port_list
   | _ -> []
 
+and get_named_input_port_map in_gr =
+  match get_boundary_node in_gr with
+  |  (Boundary (in_port_list,out_port_list,boundary_p)) ->
+      List.fold_right (fun (xx,yy,zz) output_map ->
+          StringMap.add zz yy output_map) in_port_list StringMap.empty
+  | _ -> StringMap.empty
+
 and add_to_boundary_inputs ?(namen="") n p in_gr =
   match get_boundary_node in_gr with
   | (Boundary (in_port_list,out_port_list,boundary_p)) ->
@@ -414,7 +439,8 @@ and add_to_boundary_inputs ?(namen="") n p in_gr =
        (let {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} =
           in_gr in
         {nmap=NM.add 0
-                (Boundary ((n,p,namen)::in_port_list,out_port_list,boundary_p))
+                (Boundary ((n,p,namen)::in_port_list,
+                           out_port_list,boundary_p))
                 nm;
          eset=es;symtab=sm;typemap=tm;w=pi})
   | _ -> in_gr
@@ -430,6 +456,39 @@ and boundary_out_port_count in_gr =
   | (Boundary (in_port_list,out_port_list,boundary_p)) ->
      List.length out_port_list
   | _ -> 0
+
+and get_old_var_port vv =
+  function
+    {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
+    let old_name =  ("OLD " ^ vv) in
+    if SM.mem old_name cs = true then
+      let {val_name=vn;val_ty=tt;
+           val_def=def;def_port=cou} =
+        (SM.find old_name cs) in
+      `Found_one cou
+    else `Not_there
+
+and defs_of_bound_names =
+  function
+    {nmap=nm;eset=pe;symtab=(cs,ps);typemap=tm;w=pi} ->
+    SM.fold
+      (fun k
+           {val_name=vn;val_ty=tt;
+            val_def=def;def_port=cou} xx ->
+        IntMap.add def k xx) cs IntMap.empty
+
+and output_bound_names_for_subgraphs ?(start_port=0) alis in_gr =
+  let bound_ports = defs_of_bound_names in_gr in
+  let alis,in_gr =
+    List.fold_right
+      (fun (x,y,z) (yy,in_gr_) ->
+        if IntMap.mem x bound_ports then
+          match get_old_var_port (IntMap.find x bound_ports) in_gr with
+          | `Not_there -> (x,y,z)::yy,in_gr_
+          | `Found_one cou ->
+             yy,add_edge2 x y 0 cou z in_gr_
+        else (x,y,z)::yy,in_gr_) alis ([],in_gr) in
+  output_to_boundary ~start_port:(boundary_out_port_count in_gr) alis in_gr
 
 and output_to_boundary ?(start_port=0) alis in_gr =
      match alis with
@@ -460,11 +519,7 @@ and set_out_port_str src_nod src_port dest_nn =
      Literal (lab,ty,str,safe_set_arr dest_nn src_port pout)
   | Simple (lab,n,pin,pout,prag) ->
      Simple (lab,n,pin,safe_set_arr dest_nn src_port pout,prag)
-  | Compound (lab, sy, pl, g, assoc) ->
-     (*let boundary_node = set_out_port
-       (get_node 0 g) src_port dest_nn in
-       Compound (lab,sy,pl,update_node 0
-       boundary_node g, assoc)*)
+  | Compound (lab, sy, ty, pl, g, assoc) ->
      src_nod
   | Boundary (_,_,p) -> src_nod
   | Rajathi -> src_nod
@@ -478,9 +533,7 @@ and clear_port_str dst_nod =
      let kk = Array.make 1 "" in
      let ll = Array.make 1 "" in
      Simple (lab,n,kk,ll,prag)
-  | Compound (lab,sy, pl, g, assoc) -> (*
-     let boundary_node = set_in_port (get_node 0 g) dst_port src_nn in
-     Compound (lab,sy,pl,update_node 0 boundary_node g, assoc)*)
+  | Compound (lab,sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Rajathi -> dst_nod
@@ -494,11 +547,7 @@ and set_in_port dst_nod dst_port src_nn =
        raise (Node_not_found "in_port set already")
      else
        Simple (lab,n,safe_set_arr src_nn dst_port pin,pout,prag)
-  | Compound (lab, sy, pl, g, assoc) -> (*
-     let boundary_node = set_in_port
-     (get_node 0 g) dst_port src_nn in
-     Compound (lab, sy, pl,
-     update_node 0 boundary_node g, assoc)*)
+  | Compound (lab, sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Rajathi -> dst_nod
@@ -509,11 +558,7 @@ and set_in_port_str dst_nod dst_port src_str =
      dst_nod
   | Simple (lab,n,pin,pout,prag) ->
      Simple (lab,n,safe_set_arr src_str dst_port pin,pout,prag)
-  | Compound (lab,sy, pl, g, assoc) -> (*
-     let boundary_node = set_in_port
-     (get_node 0 g) dst_port src_nn in
-     Compound (lab,sy,pl,
-     update_node 0 boundary_node g, assoc)*)
+  | Compound (lab,sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Rajathi -> dst_nod
@@ -528,7 +573,7 @@ and set_literal dst_nod dst_port src_node =
          Simple (lab,n,
                  (pin.(dst_port) <- "Literal:" ^ str_;pin),
                  pout,prag)
-      | Compound (lab, sy,pl, g, assoc) ->
+      | Compound (lab, sy, ty, pl, g, assoc) ->
          dst_nod
       | Boundary _ -> dst_nod
       | Rajathi -> dst_nod)
@@ -540,9 +585,9 @@ and add_node nn
   | `Simple (n,pin,pout,prag) ->
      {nmap = NM.add pi (Simple(pi,n,pin,pout,prag)) nm;
       eset = pe;symtab = sm;typemap = tm;w = pi+1}
-  | `Compound (g,sy,prag,alis) ->
-     {nmap = NM.add pi (Compound(pi,sy,prag,g,alis)) nm;
-      eset = pe;symtab = sm;typemap = tm;w = pi+1}
+  | `Compound (g,sy,ty,prag,alis) ->
+     {nmap = NM.add pi (Compound(pi,sy,ty,prag,g,alis)) nm;
+      eset = pe;symtab = sm;typemap = get_tymap g ;w = pi+1}
   | `Literal (ty_lab,str,pout) ->
      {nmap = NM.add pi (Literal(pi,ty_lab,str,pout)) nm;
       eset = pe;symtab = sm;typemap = tm;w = pi+1}
@@ -568,6 +613,10 @@ and rev_lookup_ty_name = function
   | 6 -> "NULL"
   | _ -> "UNKNOWN"
 
+and get_tymap
+{nmap = _;eset = _;symtab = _;typemap = (id,tm,tmn);w = _} =
+  (id,tm,tmn)
+
 and add_node_2 nn
 {nmap = nm;eset = pe;symtab = sm;typemap = tm;w = pi} =
   match nn with
@@ -577,12 +626,12 @@ and add_node_2 nn
         NM.add pi
 	  (Simple(pi,n,pin,pout,prag)) nm;
       eset = pe;symtab = sm;typemap = tm;w = pi+1}
-  | `Compound (g,sy,prag,alis) ->
+  | `Compound (g,sy,ty,prag,alis) ->
      (pi,0,0),
      {nmap =
         NM.add pi
-	  (Compound(pi,sy,prag,g,alis)) nm;
-      eset = pe;symtab = sm;typemap = tm;w = pi+1}
+	  (Compound(pi,sy,ty,prag,g,alis)) nm;
+      eset = pe;symtab = sm;typemap = get_tymap g;w = pi+1}
   | `Literal (ty_lab,str,pout) ->
      (pi,0,lookup_tyid ty_lab),
      {nmap =
@@ -704,9 +753,9 @@ and cleanup_multiarity in_gr =
              z,k::edges
            else
              NM.add k v z,edges
-        | Compound(lab,sy,pl,g,assoc) ->
+        | Compound(lab,sy,ty,pl,g,assoc) ->
            NM.add k (
-               Compound (lab,sy,pl,
+               Compound (lab,sy,ty,pl,
                          (cleanup_multiarity g),assoc)) z, edges
         | _ -> NM.add k v z,edges)
       nm (NM.empty,[]) in
@@ -735,58 +784,41 @@ and node_incoming_at_port n1 p in_gr =
     (x,y,ty)
 
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
-  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
-  let ii =
-  if n1 = 0 && n2 = 0 then
-    (print_endline ("Trying to connect:" ^
-                     (string_of_edge ((n1,p1),(n2,p2),ed_ty))); "ii")
-  else "k" in
+  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2);
   let n1,p1,ed_ty = match get_node n1 in_gr with
     | Simple (_,MULTIARITY,_,_,_) ->
-       node_incoming_at_port n1 p1 in_gr
+       let n1,p1,ed_ty =
+         node_incoming_at_port n1 p1 in_gr in
+       (n1,p1,ed_ty)
     | _ -> n1,p1,ed_ty in
-  let in_gr =
-    (if n1 = 0
-     then
-       add_to_boundary_inputs 0 p1 in_gr
-     else
-       in_gr) in
-  let in_gr =
-    (if n2 = 0
-     then
-       add_to_boundary_outputs n2 p2 ed_ty in_gr
-     else
-       in_gr) in
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
-  let anod1 = NM.find n1 nm in
-  let anod2 = NM.find n2 nm in
-  (*match anod1 with
-    |     Literal (lab,ty,str,pout) ->
-       (l et anod2 = set_in_port_str anod2 p2 ("\"" ^ str ^ "\"") in
-        le   t nm = NM.add n2 anod2 nm in
-        {nmap   = nm;eset = pe;symtab = sm;typemap = tm;w = pi;})
-    | _ ->*)
-  (let anod1 =
-     if n1 != 0 then
-       set_out_port_str anod1 p1
-         ("(" ^ (string_of_int n2) ^ "," ^ (string_of_int p2) ^ ")")
-     else anod1 in
-   let anod2 =
-     if n2 != 0 then
-       set_in_port_str anod2 p2
-         ("(" ^ (string_of_int n1) ^ "," ^ (string_of_int p1) ^ ")")
-     else anod2 in
-   let nm = NM.add n1 anod1 nm in
-   let nm = NM.add n2 anod2 nm in
-   let in_gr =
-   { nmap = nm;
-     eset = ES.add ((n1,p1),(n2,p2),ed_ty) pe;
-     symtab = sm;typemap = tm;w = pi;} in
-   in_gr
-   (*if check_for_multiarity n1 n2 in_gr = true then
-     fold_multiarity_edge n1 n2 in_gr
-   else
-     fix_incoming_multiarity n1 p1 n2 p2 ed_ty in_gr*))
+  if n2 = 0
+  then
+    (add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr)
+  else
+    (let in_gr =
+       (if n1 = 0
+        then
+          add_to_boundary_inputs 0 p1 in_gr
+        else
+          in_gr) in
+
+     let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+     let anod1 = NM.find n1 nm in
+     let anod2 = NM.find n2 nm in
+     (let anod1 =
+        if n1 != 0 then
+          set_out_port_str anod1 p1
+            ("(" ^ (string_of_int n2) ^ "," ^ (string_of_int p2) ^ ")")
+        else anod1 in
+      let anod2 =
+        if n2 != 0 then
+          set_in_port_str anod2 p2
+            ("(" ^ (string_of_int n1) ^ "," ^ (string_of_int p1) ^ ")")
+        else anod2 in
+      let nm = NM.add n1 anod1 nm in
+      let nm = NM.add n2 anod2 nm in
+      let in_gr = add_edge2 n1 p1 n2 p2 ed_ty in_gr in
+      in_gr))
 
 and redirect_edges n2 es =
   ES.fold (fun hde (res,p2) ->
@@ -824,8 +856,6 @@ and fold_multiarity_edge n1 n2 in_gr =
   let es = (ES.diff (ES.diff es ending_at) edges) in
   let in_gr =  { nmap = nm; eset = es;
                  symtab = sm;typemap = tm;w = pi;} in
-  print_endline "AFTER REDIRECTING";
-  outs_graph in_gr;
   in_gr
 
 and add_each_in_list in_gr ex lasti appl =
@@ -835,15 +865,28 @@ and add_each_in_list in_gr ex lasti appl =
      let (lasti,pp,tt1),in_gr_ = (appl in_gr hde) in
      add_each_in_list in_gr_ tl lasti appl
 
+and range a b =
+  (if a >= b then []
+  else a :: range (a+1) b)
+
+and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
+  match get_node in_n in_gr with
+  | Simple(_,MULTIARITY,_,_,_) ->
+     let ll =  range 0 (ES.cardinal (all_edges_ending_at in_n in_gr)) in
+     List.fold_right (
+         fun x igr ->
+         add_edge in_n x out_n (out_p+x) tt1 igr) (List.rev ll) in_gr
+  | _ ->
+     add_edge in_n in_p out_n out_p tt1 in_gr
+
 and add_each_in_list_to_node olis in_gr ex out_e ni appl =
   match ex with
   | [] -> (olis,in_gr)
   | hde::tl ->
      let (lasti,pp,tt1),in_gr_ = (appl in_gr hde) in
-     let in_gr_ = (add_edge lasti pp out_e ni tt1 in_gr_) in
+     let in_gr_ = (add_edge_multiarity lasti pp out_e ni tt1 in_gr_) in
      add_each_in_list_to_node
        ((lasti,pp,tt1)::olis) in_gr_ tl out_e (ni+1) appl
-
 
 and add_each_in_list_to_node_and_get_types olis in_gr ex out_e ni appl =
   match ex with
@@ -883,8 +926,8 @@ and map_exp in_gr in_explist expl appl =
   match in_explist with
   | [] -> (expl,in_gr)
   | hde::tl ->
-     let (lasti,pp,_),in_gr = (appl in_gr hde) in
-     map_exp in_gr tl (expl@[(lasti,pp,0)]) appl
+     let (lasti,pp,tt),in_gr = (appl in_gr hde) in
+     map_exp in_gr tl (expl@[(lasti,pp,tt)]) appl
 
 and add_a_tag (namen,tagty,ss) ((id,p,q),in_gr) =
   let (tt_id,ii,_),in_gr = add_sisal_type in_gr tagty in
@@ -893,6 +936,10 @@ and add_a_tag (namen,tagty,ss) ((id,p,q),in_gr) =
 and add_a_field (namen,tag_ty,ss) ((id,p,q),in_gr) =
   let (tt_id,ii,_),in_gr = add_sisal_type in_gr tag_ty in
   add_type_to_typemap (Record (tt_id,id,namen)) in_gr
+
+and add_a_tuple_entry tup_ty ((id,p,q),in_gr) =
+  let (tt_id,ii,_),in_gr = add_sisal_type in_gr tup_ty in
+  add_type_to_typemap (Tuple_ty (tt_id,id)) in_gr
 
 and add_tag_spec (strlis,tl,_) in_gr =
   (strlis,tl,0),in_gr
@@ -927,6 +974,16 @@ and add_compound_type in_gr =
          rrr
          ((0,0,0),in_gr) in
      add_type_to_typemap (Record (0,rec_fst,"")) in_gr
+  | Sisal_function_type (fn_name,tyargs,tyres) ->
+     let (res_fst,_,_),in_gr =
+       List.fold_right
+         (fun curr_t out_stf ->
+           add_a_tuple_entry curr_t out_stf) tyres ((0,0,0),in_gr) in
+     let (arg_fst,_,_),in_gr =
+       List.fold_right
+         (fun curr_t out_stf ->
+           add_a_tuple_entry curr_t out_stf) tyargs ((0,0,0),in_gr) in
+     add_type_to_typemap (Function_ty (arg_fst,res_fst,fn_name)) in_gr
   | _ ->
      raise (Node_not_found "In compound type")
 
@@ -963,6 +1020,63 @@ and find_ty
                       w = pi;
                     }; in
           "Type not found by find_ty in typemap: " ^ (string_of_if1_ty aty)))
+  else lookin_vals
+
+and get_ret_ty_list
+{
+  nmap = nm;
+  eset = pe;
+  symtab = sm;
+  typemap = (id,tm,tmn);
+  w = pi;
+} funty =
+  try
+    let funv = TM.find funty tm in
+    (match funv with
+     | Function_ty (arg_ty, ret_ty, anma) ->
+        let rec fold_to_lis aty tm =
+          if aty = 0 then []
+          else
+            (let this_ty =
+               TM.find aty tm in
+             match this_ty with
+             | Tuple_ty(aty,nty)-> aty::(fold_to_lis nty tm)
+             | _ -> raise (Sem_error (
+                               "Unknown function type:" ^
+                                 (string_of_int funty)))) in
+        fold_to_lis ret_ty tm
+     | _ ->
+        raise (Sem_error ("Unknown function type:" ^ (string_of_int funty))))
+  with Not_found ->
+    raise (Sem_error ("Unknown function type:" ^ (string_of_int funty)))
+
+and find_fun_ty
+{
+  nmap = nm;
+  eset = pe;
+  symtab = sm;
+  typemap = (id,tm,tmn);
+  w = pi;
+} fn_name =
+  let lookin_vals =
+    try
+      TM.fold (fun ke va z ->
+          match va with
+          |  Function_ty (_,_,anam) ->
+              (if anam = fn_name then raise (Val_is_found ke) else z)
+          | _ -> z) tm 0
+    with Val_is_found ke -> ke in
+  if lookin_vals = 0 then
+    raise
+      (Node_not_found
+         (let _ = outs_graph {
+                      nmap = nm;
+                      eset = pe;
+                      symtab = sm;
+                      typemap = (id,tm,tmn);
+                      w = pi;
+                    }; in
+          "FUNCTION Type not found by find_ty in typemap: " ^ fn_name))
   else lookin_vals
 
 and add_sisal_typename
@@ -1053,6 +1167,7 @@ and string_of_node_sym = function
   | GREATER      -> "GREATER"
   | AELEMENT     -> "AELEMENT"
   | ABUILD       -> "ABUILD"
+  | AFILL        -> "AFILL"
   | AREPLACE     -> "AREPLACE"
   | RBUILD       -> "RBUILD"
   | RELEMENTS    -> "RELEMENTS"
@@ -1063,6 +1178,15 @@ and string_of_node_sym = function
   | SELECT       -> "SELECT"
   | RANGEGEN     -> "RANGEGEN"
   | ASCATTER     -> "ASCATTER"
+  | ASIZE        -> "ASIZE"
+  | AADDH        -> "AADDH"
+  | AADDL        -> "AADDL"
+  | ASETL        -> "ASETL"
+  | ALIML        -> "ALIML"
+  | ALIMH        -> "ALIMH"
+  | AREMH        -> "AREMH"
+  | AREML        -> "AREML"
+  | AISEMPTY     -> "AISEMPTY"
   | INTERNAL     -> ""
   | AGATHER      -> "AGATHER"
   | REDUCE       -> "REDUCE"
@@ -1106,16 +1230,9 @@ and string_of_if1_ty ity = match ity with
      "ARRAY " ^ (string_of_int a)
   | Basic bc ->
      string_of_if1_basic_ty bc
-  | Function (if1l,if2l) ->
-     "Function (ins: " ^
-       (List.fold_right
-	  (fun x y ->
-	    (string_of_int x) ^ "," ^ y)
-	  if1l "")
-       ^ ") (outs:" ^
-	 (List.fold_right
-	    (fun x y -> (string_of_int x) ^ "," ^ y)
-	    if2l "") ^ ")"
+  | Function_ty (if1l,if2l,fn_name) ->
+     "FUNCTION_TYPE " ^ fn_name ^ " (ARGS: " ^ (string_of_int if1l) ^
+       ") (RETURNS:" ^ (string_of_int if2l) ^ ")"
   | Multiple bc ->
      "Multiple " ^ (string_of_if1_basic_ty bc)
   | Record (fty,nfty, namen) ->
@@ -1126,12 +1243,13 @@ and string_of_if1_ty ity = match ity with
            "%na=" ^ namen
           ] "; ") ^ "}"
   | Stream bc ->
-     "Stream (" ^ (string_of_int bc) ^ ")"
-  | Tuple if1l ->
-     "Tuple "  ^
-       (List.fold_right
-	  (fun x y -> (string_of_int x) ^ ";" ^ y)
-	  if1l "") ^ ")"
+     "STREAM (" ^ (string_of_int bc) ^ ")"
+  | Tuple_ty (fty,nty) ->
+     "TUPLE {"  ^
+       (cate_list
+          ["Type label:" ^ (string_of_int fty);
+           "Next label:" ^ (string_of_int nty);
+          ] "; ") ^ "}"
   | Union (lab1,lab2,namen) ->
      "UNION {" ^
        (cate_list
@@ -1197,12 +1315,12 @@ and string_of_node_ty ?(offset=2) =
              (string_of_ports pin) " ")
           (string_of_ports pout) " ")
        (string_of_pragmas prag) " "
-  | Compound (lab,sy,pl, g, assoc) ->
+  | Compound (lab,sy,ty,pl,g,assoc) ->
      cate_nicer
        (cate_nicer
           (cate_nicer
              (cate_nicer
-                (string_of_int lab)
+                ((string_of_int lab) ^ (string_of_int ty))
                 (string_of_pragmas pl) " ")
              (string_of_graph ~offset:(offset+2) g)
              "\n")
@@ -1252,7 +1370,7 @@ and dot_of_node_ty id in_gr =
        " [shape=rect;label=\""^
        (string_of_int lab)^ " "  ^
        (string_of_node_sym n) ^ "\"]"
-  | Compound (lab,sy,pl,g,assoc) ->
+  | Compound (lab,sy,ty_lab,pl,g,assoc) ->
      "subgraph cluster_"^ (string_of_int id) ^ (string_of_int lab) ^
        " {\n" ^"label=\"" ^ (string_of_int lab) ^ " "
        ^ (string_of_pragmas pl) ^ "\";\n" ^
@@ -1461,7 +1579,17 @@ and symtab_printer fmt (cs,ps,tm) =
 and outs_syms {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} =
   symtab_printer Format.std_formatter (cs,ps,tm)
 
-let get_symbol_id v in_gr = match in_gr with
+let bind_name nam (n,p,ty) in_gr =
+  match in_gr with
+    {nmap=nm;eset=es;symtab = (cs,ps);typemap=tmm;w = i} ->
+    {nmap=nm;eset=es;
+     symtab =
+       (SM.add nam {val_ty=ty;val_name=nam;
+                    val_def=n;def_port=p} cs,ps);
+     typemap=tmm;w=i}
+
+let get_symbol_id v in_gr =
+  match in_gr with
     {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
     if (SM.mem v cs = true) then
       let {val_ty=t; val_name=_; val_def=aa; def_port=p} =
@@ -1484,9 +1612,31 @@ let get_symbol_id v in_gr = match in_gr with
         (aa,ap,t),add_to_boundary_inputs ~namen:v 0 ap in_gr
       ) else (
         print_endline v;
-        raise (Node_not_found "got a problem here");
+        raise (Node_not_found ( "Issue For Symbol: " ^ v));
       )
-    (** GRAPH is best to build inside out, due to the
+
+let get_symbol_id_old v in_gr =
+  match in_gr with
+    {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
+     if (SM.mem ("OLD " ^ v) cs = true) then
+       let {val_ty=t; val_name=_; val_def=aa; def_port=p} =
+         SM.find v cs in
+       (aa,p,t),in_gr
+     else if (SM.mem v cs = true) then
+       let {val_ty=t; val_name=vv; val_def=aa; def_port=p} =
+         SM.find v cs in
+       let cs = SM.add ("OLD " ^ vv)
+                  {val_ty=t; val_name=("OLD " ^ vv);
+                   val_def=aa; def_port=p} cs in
+       (aa,p,t),{nmap=nm;eset=es;symtab=(cs,ps);typemap=ii,tm,tmn;
+                 w=i}
+     else
+       raise (Node_not_found ("Issue For Symbol: OLD " ^ v))
+
+let is_outer_var vv = function
+    {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
+    SM.mem vv ps
+   (** GRAPH is best to build inside out, due to the
     language strictness that we need a node and ports
     tuple
     AST visitor may build the GRAPH inside out

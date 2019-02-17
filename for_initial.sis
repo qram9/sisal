@@ -1,0 +1,16 @@
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Main( X, Eps : real returns real )
+  for initial
+    Root := X/2.0
+  repeat
+    Root := ( X / old Root + old Root ) / 2.0
+  until (X - (Root*Root)) < Eps
+  returns value of Root
+  end for
+end function
+ 
