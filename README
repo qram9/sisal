@@ -32,6 +32,11 @@ and one thing lead to another and we are stuck with it.
 I haven't given much thought to the compiler's performance at this time. I have avoided
 using references or hashtables etc at this time.
 
+I also support displaying with Graphviz- this gave a huge improvement to my productivity.
+From any point in the code-base, you may attempt to invoke a dot dump by using
+outs_graph gr or write_dot_file gr and you would get a file that you can provide
+to dotty.
+
 In case you wish to know how to compile, for yourself, please read on.
 
 I would basically use opam to install merlin tuareg etc. I use emacs with tuareg.
