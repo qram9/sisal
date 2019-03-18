@@ -1,0 +1,14 @@
+
+define Main
+
+type IntList = UNION[EMPTY: null,Full: record [Mote:integer; Next:IntList]]
+
+function Main(returns Cart)
+let Origin : Cart := record[X:4.2;Y:3.1] in
+let XX : REAL := Origin.X * 2.0 in
+let HOME : Cart := Origin replace [Y:XX] in
+HOME
+end let
+end let
+end let
+end function
