@@ -31,6 +31,22 @@
     LET's are lowered here using hierarchical symtabs,
     with a parent symtab for enclosing-scope and
     one for current-scope.
+    
+    Each lowering function below may start with a do_, for example,
+    do_exp, do_simple_exp etc. Their purpose would be to recursively
+    lower an incoming AST type (for the two mentioned above, exp,
+    simple_exp would be the AST type) to IF1. The return value
+    is a quadruple, organized into a triplet of ints followed by
+    a graph type: (x,y,z),gr. x signifying node-id,
+    y for port-id and z for type-id all ints. gr is a graph type
+    that you may find in if1.ml. The difficulty here is that
+    we just return only one int for node-id. But AST types may return
+    multiple values. So, what I did was introduce a MULTIARITY
+    node, which adds each result from the AST type as
+    incoming entries- When a node's result is connected with
+    an user, the expectation is that we can propagate the input
+    directly to the user, when the incoming node-type is
+    MULTIARITY.
 
     A spate of library functions do exist and we do not support
     any yet...
