@@ -22,6 +22,7 @@ let error msg lexbuf =
 
 let main () =
   let lexbuf =
+
     if Array.length Sys.argv > 1
     then
       Lexing.from_channel (open_in Sys.argv.(1))

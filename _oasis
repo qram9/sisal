@@ -11,7 +11,7 @@ Executable sisal
   Path: src
   MainIs: main.ml
   CompiledObject: byte
-  BuildDepends: unix, fe, ir, ocamlgraph, graphics
+  BuildDepends: unix, fe, ir
 
 Library fe
   Path: src/fe
@@ -22,5 +22,5 @@ Library fe
 Library ir
   Path: src/ir
   Modules: Ast, If1, To_if1
-  BuildDepends: unix, ocamlgraph, graphics
+  BuildDepends: unix
 
