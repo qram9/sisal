@@ -1,14 +1,23 @@
 %{
-open Type
-  let debug_level = ref 3
 
-let parse_msg level fmt = 
-  let print_at_level str 
-    = if !debug_level >= level 
+exception ParseErr of string
+
+open Ast
+open Lexing
+open Parsing
+
+let debug_level = ref 3
+let error msg start finish =
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum
+    (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
+
+let parse_msg level fmt =
+  let print_at_level str
+    = if !debug_level >= level
     then print_string str in
   Format.ksprintf print_at_level fmt
-  %}
 
+  %}
 
 %token PIPE
 %token OR
@@ -119,231 +128,335 @@ let parse_msg level fmt =
 %token MINUS
 %token STAR
 %token DIVIDE
-%left LT GT EQ NE LE GE PIPE AND OR 
+%left LT GT EQ NE LE GE PIPE AND OR
 %left PLUS MINUS
 %left STAR DIVIDE
 %nonassoc UMINUS
-%type <string> main
+%type <Ast.compilation_unit> main
 %start main
 %%
 compilation_unit :
-  def_func_name_list function_def_list
+  def_func_name_list
+    function_def_list EOF
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" $1;
-      $1 ^ " " ^ $2 
+      let t:Ast.compilation_unit =
+        Compilation_unit ($1,[],[],$2)
+      in t
     }
-| def_func_name_list type_def_part function_def_list
+| def_func_name_list
+    type_def_part
+    function_def_list EOF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ " " ^ $3);
-    $1 ^ " " ^ $2 ^ " " ^ $3
+    let t:Ast.compilation_unit =
+      Compilation_unit ($1,$2,[],$3)
+    in t
   }
-| def_func_name_list type_def_part global_header_list function_def_list
+| def_func_name_list
+    type_def_part
+    global_header_list
+    function_def_list EOF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ " " ^ $3 ^ " " ^ $4);
-    ($1 ^ " " ^ $2 ^ " " ^ $3 ^ " " ^ $4)
+    let t:Ast.compilation_unit =
+      Compilation_unit ($1,$2,$3,$4)
+    in t
   }
-| def_func_name_list type_def_part SEMICOLON function_def_list
+| def_func_name_list
+    type_def_part
+    SEMICOLON
+    function_def_list EOF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ " " ^ $4);
-    $1 ^ " " ^ $2 ^ "; " ^ $4
+    let t:Ast.compilation_unit =
+      Compilation_unit ($1,$2,[],$4)
+    in t
   }
-| def_func_name_list type_def_part  SEMICOLON global_header_list function_def_list
+| def_func_name_list
+    type_def_part
+    SEMICOLON
+    global_header_list
+    function_def_list EOF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[compilation unit:%s#1]>\n" 
-      ($1 ^ " " ^ $2 ^ "; " ^ $4 ^ " " ^ $5);
-    ($1 ^ " " ^ $2 ^ "; " ^ $4 ^ " " ^ $5)
+    let t:Ast.compilation_unit =
+      Compilation_unit ($1,$2,$4,$5)
+    in t
   }
-
 ;
 
 global_header_list :
   GLOBAL function_header
     {
-        "GLOBAL " ^ $2
+      [$2]
     }
 | global_header_list GLOBAL function_header
-    {
-        $1 ^ " " ^ " GLOBAL " ^ $3
-    }
+  {
+    $1@[$3]
+  }
 ;
 
 def_func_name_list:
   DEFINE function_name_list
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[DEFINE_func_name_list:%s#1]>\n"
-        ("DEFINE " ^ $2);
-      ("DEFINE " ^ $2)
+      let t:Ast.define =
+        Define $2
+      in t
     }
 ;
+
 function_name_list :
-  names
+  function_name_list NAME
     {
-      $1
+      $1@[(Function_name $2)]
     }
+| NAME
+  {
+    let t:Ast.function_name =
+      Function_name $1
+    in [t]
+  }
 ;
+
 function_def_list: function_def
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[function_list:%s#1]>\n"
-        ($1);
-      $1
+      [$1]
     }
 | function_def_list function_def
   {
-
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function_list:%s#2]>\n"
-      ($1 ^ " " ^ $2);
-    ($1 ^ " " ^ $2)
+    $1@[$2]
   }
 ;
 
-function_def: FORWARD FUNCTION function_header
+function_def:
+  FORWARD FUNCTION function_header
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[forward function:%s#1]>\n"
-        ("FORWARD FUNCTION " ^ $3);
-      ("FORWARD FUNCTION " ^ $3)
+      let t:Ast.function_def =
+        Forward_function $3
+      in t
     }
-|      function_def_nest
+| function_nest
   {
-
-    $1
-  }
-;
-function_def_nest: function_def_head expression END FUNCTION
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[function_def:%s#1]>\n"
-        ("FUNCTION_def " ^ $1 ^ $2 ^ " END FUNCTION");
-      ("FUNCTION_def " ^ $1 ^ $2 ^ " END FUNCTION")
-    }
-| function_def_head function_def_nest expression END FUNCTION
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function_def:%s#1]>\n"
-      ("FUNCTION_def_nested " ^ $1 ^ $2 ^ $3 ^ " END FUNCTION");
-    ("FUNCTION_def_nested " ^ $1 ^ $2 ^ $3 ^ " END FUNCTION")
-  }
-;
-function_def_head:
-  |   FUNCTION function_header
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[function:%s#1]>\n"
-        ("FUNCTION " ^ $2);
-      ("FUNCTION " ^ $2)
-    }
-|   FUNCTION function_header type_def_part SEMICOLON
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function:%s#1]>\n"
-      ("FUNCTION " ^ $2);
-    ("FUNCTION " ^ $2)
-  }
-|   FUNCTION function_header type_def_part
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function:%s#1]>\n"
-      ("FUNCTION " ^ $2);
-    ("FUNCTION " ^ $2)
+    let t:Ast.function_def =
+      Function $1
+    in t
   }
 ;
 
-function_header : 
+function_nest:
+FUNCTION function_header function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,[],$3,$4)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part SEMICOLON function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,$3,$5,$6)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part function_nest expression END FUNCTION
+  {
+    let t =
+    ($2,$3,$4,$5)
+    in [Function_single t]
+  }
+
+| FUNCTION function_header expression END FUNCTION
+  {
+    let t =
+    ($2,[],[],$3)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part SEMICOLON expression END FUNCTION
+  {
+    let t =
+    ($2,$3,[],$5)
+    in [Function_single t]
+  }
+|   FUNCTION function_header type_def_part expression END FUNCTION
+  {
+    let t =
+    ($2,$3,[],$4)
+    in [Function_single t]
+  }
+;
+
+function_header :
   function_name LPAREN RETURNS type_list RPAREN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[function_header:%s#1]>\n"
-        ($1 ^ " ( RETURNS " ^ $4 ^ ")");
-      ($1 ^ " ( RETURNS " ^ $4 ^ ")")
+      let t:Ast.function_header =
+        Function_header_nodec ($1,$4) in t
     }
 | function_name LPAREN decl_list_semi RETURNS type_list RPAREN
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function_header:%s#1]>\n"
-      ($1 ^ " (" ^ $3 ^ " RETURNS " ^ $5 ^ ")");
-    ($1 ^ " (" ^ $3 ^ " RETURNS " ^ $5 ^ ")")
+    let t:Ast.function_header =
+      Function_header ($1,$3,$5) in t
   }
 ;
 
 decl_list_semi:
- decl_list { $1}
-| decl_list_semi SEMICOLON decl_list {$1 ^ ";" ^ $3}
+  decl
+  {
+    [$1]
+  }
+| decl_list_semi SEMICOLON decl
+  {
+    $1@[$3]
+  }
 ;
 
 type_list :
   type_spec
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[type_spec:%s#1]>\n" $1;
-      $1
+      [$1]
     }
 |   type_list COMMA type_spec
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[type_spec:%s#1]>\n" ($1 ^ "," ^ $3);
-    ($1 ^ "," ^ $3)
+      $1@[$3]
   }
-  expression :
-      simple_expression
-        {
-          let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-          parse_msg 5 "<Parsed:[expression:%s#1]>\n" $1;
-          $1
-        }
-|  expression COMMA simple_expression
+;
+expression: exp_list
+    {
+      Exp $1
+    }
+;
+exp_list :
+  simple_expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[expression comma seperated:%s#1]>\n" $1;
-    $1 ^ "," ^ $3
+    [$1]
+  }
+|  exp_list COMMA simple_expression
+  {
+    $1@[$3]
   }
 ;
 
 simple_expression:
   primary_part2
     {
-      "(" ^ $1 ^")"
+      $1
     }
-| simple_expression   GT simple_expression { "(" ^ $1 ^  ">" ^ " " ^ $3 ^ ")" }
-| simple_expression   GE simple_expression { "(" ^ $1 ^  ">=" ^ " " ^ $3 ^ ")" }
-| simple_expression   LT simple_expression { "(" ^ $1 ^  "<" ^ " " ^ $3 ^ ")" }
-| simple_expression   LE simple_expression { "(" ^ $1 ^  "<=" ^ " " ^ $3 ^ ")" }
-| simple_expression   EQ simple_expression { "(" ^ $1 ^  "=" ^ " " ^ $3 ^ ")" }
-| simple_expression   NE simple_expression { "(" ^ $1 ^  "~=" ^ " " ^ $3 ^ ")" }
-| simple_expression   PLUS simple_expression { "(" ^ $1 ^  "+" ^ " " ^ $3 ^ ")" }
-| simple_expression   MINUS simple_expression { "(" ^ $1 ^  "-" ^ " " ^ $3 ^ ")" }
-| simple_expression   OR simple_expression { "(" ^ $1 ^  "|" ^ " " ^ $3 ^ ")" }
-| simple_expression   STAR simple_expression { "(" ^ $1 ^  "*" ^ " " ^ $3 ^ ")" }
-| simple_expression   DIVIDE simple_expression { "(" ^ $1 ^  "/" ^ " " ^ $3 ^ ")" }
-| simple_expression   AND simple_expression { "(" ^ $1 ^  "&" ^ " " ^ $3 ^ ")" }
-| simple_expression   PIPE simple_expression { "(" ^ $1 ^  "||" ^ " " ^ $3 ^ ")" }
+| simple_expression   GT simple_expression
+  {
+    let t:Ast.simple_exp =
+      Greater ($1,$3)
+    in t
+  }
+| simple_expression   GE simple_expression
+  {
+    let t:Ast.simple_exp =
+      Greater_equal($1,$3)
+    in t
+  }
+| simple_expression
+  LT
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Lesser ($1,$3)
+    in t
+  }
+| simple_expression
+  LE
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Lesser_equal ($1,$3)
+    in t
+  }
+
+| simple_expression
+  EQ
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Equal($1,$3)
+    in t
+  }
+
+| simple_expression
+  NE
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Not_equal ($1,$3)
+    in t
+  }
+
+| simple_expression
+  PLUS
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Add ($1,$3)
+    in t
+  }
+
+| simple_expression
+  MINUS
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Subtract ($1,$3)
+    in t
+  }
+
+| simple_expression
+  OR
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Or ($1,$3)
+    in t
+  }
+
+| simple_expression
+  STAR
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Multiply ($1,$3)
+    in t
+  }
+| simple_expression
+  DIVIDE
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Divide ($1,$3)
+    in t
+  }
+| simple_expression
+  AND
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      And ($1,$3)
+    in t
+  }
+| simple_expression
+  PIPE
+  simple_expression
+  {
+    let t:Ast.simple_exp =
+      Pipe ($1, $3)
+    in t
+  }
 |  PLUS simple_expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_PLUS:%s#1]>\n" ("+" ^ $2);
-    ("+" ^ $2)
+    let t:Ast.simple_exp =
+      $2
+    in t
   }
 |   MINUS simple_expression %prec UMINUS
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_MINUS:%s#1]>\n" ("-" ^ $2);
-    ("-" ^ $2)
+    let t:Ast.simple_exp =
+      Negate $2
+    in t
   }
 |   NOT simple_expression %prec UMINUS
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNARY_NOT:%s#1]>\n" ("~" ^ $2);
-    ("~" ^ $2)
+    let t:Ast.simple_exp =
+    Not $2
+    in t
   }
 
 ;
@@ -353,148 +466,283 @@ primary_part2 :
     {
       $1
     }
-|    array_ref
+|  array_ref
   {
     $1
   }
-|     array_generator
+|   array_generator
   {
     $1
   }
-|     stream_generator
+|   stream_generator
   {
     $1
   }
-|     record_ref
+|   record_ref
   {
     $1
   }
-|     record_generator
+|   record_generator
   {
     $1
   }
-|     union_test
+|   union_test
   {
     $1
   }
-|     union_generator
+|   union_generator
   {
     $1
   }
-|     error_test
+|   error_test
   {
     $1
   }
-|     prefix_operation
+|   prefix_operation
   {
     $1
   }
-|     conditional_exp
+|   conditional_exp
   {
     $1
   }
 |   let_in_exp
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[let_in_exp#1]>";
     $1
   }
 |   tagcase_exp
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[tagcase_exp#1]>";
     $1
   }
 |   iteration_exp
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[iteration_exp]>";
     $1
   }
 ;
 
-tagcase_exp :
-  TAGCASE expression tag_list_colon_expression END TAGCASE
+array_ref :
+  primary LBRACK expression RBRACK
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[TAGCASE]#1>:%s\n" ("TAGCASE " ^ $2);
-      "TAGCASE " ^ $2 ^ " " ^ $3 ^ " END TAGCASE"
+      let t:Ast.simple_exp = Array_ref ($1,$3) in t
     }
-|    TAGCASE expression tag_list_colon_expression 
+;
+
+array_generator :
+  ARRAY type_name LBRACK RBRACK
+    {
+      let t:(Ast.simple_exp) = Array_generator_named $2 in t
+    }
+|    ARRAY LBRACK simple_expr_pair RBRACK
+  {
+    let t:(Ast.simple_exp) = Array_generator_unnamed $3 in t
+  }
+|    ARRAY type_name LBRACK simple_expr_pair RBRACK
+  {
+    let t:(Ast.simple_exp) = Array_generator_named_addr ($2,$4) in t
+  }
+|    primary LBRACK simple_expr_pair_list RBRACK
+  {
+    let t:(Ast.simple_exp) = Array_replace ($1,$3) in t
+  }
+|    primary LBRACK simple_expr_pair_list SEMICOLON RBRACK
+  {
+    let t:(Ast.simple_exp) = Array_replace ($1,$3) in t
+  }
+;
+
+expr_pair_list :
+  expr_pair
+    {
+      [$1]
+    }
+|   expr_pair_list SEMICOLON expr_pair
+  {
+    $1@[$3]
+  }
+;
+
+expr_pair :
+  expression COLON expression
+    {
+      let t:(Ast.expr_pair) = Expr_pair ($1,$3) in t
+    }
+;
+
+  simple_expr_pair_list :
+  simple_expr_pair
+    {
+      [$1]
+    }
+|   simple_expr_pair_list SEMICOLON simple_expr_pair
+  {
+    $1@[$3]
+  }
+;
+
+simple_expr_pair :
+  simple_expression COLON expression
+     {
+       let t:(Ast.sexpr_pair) = SExpr_pair ($1,$3) in t
+     }
+;
+stream_generator :
+  STREAM type_name LBRACK RBRACK
+    {
+      let t:(Ast.simple_exp) = Stream_generator ($2) in t
+    }
+| STREAM type_name LBRACK expression RBRACK
+  {
+    let t:(Ast.simple_exp) = Stream_generator_exp ($2,$4) in t
+  }
+| STREAM LBRACK expression RBRACK
+  {
+    let t:(Ast.simple_exp) = Stream_generator_unknown_exp $3 in t
+  }
+;
+
+record_ref :
+  primary DOTSTOP field_name
+    {
+      let t:(Ast.simple_exp) = Record_ref ($1,$3) in t
+    }
+;
+
+record_generator :
+  RECORD type_name LBRACK field_def_list RBRACK
+    {
+      let t:Ast.simple_exp =
+        Record_generator_named ($2,$4) in t
+    }
+|  RECORD type_name LBRACK field_def_list SEMICOLON RBRACK
+  {
+    let t:Ast.simple_exp =
+      Record_generator_named ($2,$4) in t
+  }
+|   RECORD LBRACK field_def_list RBRACK
+  {
+    let t:Ast.simple_exp =
+      Record_generator_unnamed $3 in t
+  }
+|  RECORD LBRACK field_def_list SEMICOLON RBRACK
+  {
+    let t:Ast.simple_exp =
+      Record_generator_unnamed $3 in t
+  }
+|  primary REPLACE LBRACK field_list RBRACK
+  {
+    let t:Ast.simple_exp =
+      Record_generator_primary ($1, $4) in t
+  }
+|  primary REPLACE LBRACK field_list SEMICOLON RBRACK
+  {
+    let t:Ast.simple_exp =
+      Record_generator_primary ($1, $4) in t
+  }
+;
+
+field_def_list :
+  field_def
+    {
+      [$1]
+    }
+| field_def_list SEMICOLON field_def
+  {
+    $1@[$3]
+  }
+;
+
+field_def : field_name COLON simple_expression
+    {
+      let k:Ast.field_def = Field_def ($1,$3) in k
+    }
+;
+field_list :
+  field_expn
+    {
+      [$1]
+    }
+|   field_list SEMICOLON field_expn
+  {
+    $1@[$3]
+  }
+;
+field_expn :
+  field COLON simple_expression
+    {
+      let k:Ast.field_exp = Field_exp (Field $1,$3) in k
+    }
+;
+
+tagcase_exp :
+  TAGCASE simple_expression tag_list_colon_expression_list END TAGCASE
+    {
+      let t:(Ast.simple_exp) =
+        Tagcase (Tagcase_exp $2, $3, Otherwise Empty) in t
+    }
+| TAGCASE simple_expression tag_list_colon_expression_list OTHERWISE COLON expression END TAGCASE
+  {
+    let t:(Ast.simple_exp) =
+      Tagcase (Tagcase_exp $2, $3, Otherwise $6) in t
+  }
+| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list END TAGCASE
+  {
+    let t:(Ast.simple_exp) =
+      Tagcase (Assign (Value_name $2,$4), $5, Otherwise Empty) in t
+  }
+| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list
   OTHERWISE COLON expression END TAGCASE
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[TAGCASE]#2>:%s\n"
-      ("TAGCASE " ^ $2 ^ " " ^ $3 ^ " OTHERWISE : " ^ $6 ^ "END TAGCASE");
-    "TAGCASE " ^ $2 ^ " " ^ $3 ^ " OTHERWISE : " ^ $6 ^ "END TAGCASE"
+    let t:(Ast.simple_exp) =
+      Tagcase (Assign (Value_name $2, $4), $5, Otherwise $8) in t
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression END TAGCASE
+;
+
+tag_list_colon_expression_list :
+tag_list_colon_expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[TAGCASE#3]:%s\n>"
-      ("TAGCASE " ^ $2 ^ " := " ^ $4 ^ " " ^ $5 ^ "END TAGCASE");
-    "TAGCASE " ^ $2 ^ " := " ^ $4 ^ " " ^ $5 ^ "END TAGCASE"
+        [$1]
   }
-| TAGCASE value_name ASSIGN expression tag_list_colon_expression
-  OTHERWISE COLON expression END TAGCASE
+|tag_list_colon_expression_list  tag_list_colon_expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[TAGCASE#4]:%s\n>"
-      ("TAGCASE " ^ $2 ^ " := " ^ $4 ^ " " 
-       ^ $5 ^ "OTHERWISE : " ^ $8 ^ "END TAGCASE");
-    ("TAGCASE " ^ $2 ^ " := " ^ $4 ^ " " 
-     ^ $5 ^ "OTHERWISE : " ^ $8 ^ "END TAGCASE");
+    $1@[$2]
   }
 ;
 
 tag_list_colon_expression :
   tagnames COLON expression
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[tag_list_colon_expression]:%s\n>"
-        ($1 ^ " : " ^ $3);
-      ($1 ^ " : " ^ $3)
-    }
-;
-tagnames : TAG names
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[TAG names]:%s\n>" $2;
-      "TAG " ^ $2
+      let t:(Ast.tagnames_colon_exp) =
+        Tag_list ($1,$3) in t
     }
 ;
 
+tagnames : TAG names
+    {
+      let t:Ast.tagnames =
+      Tagnames $2 in t
+    }
+;
 
 primary :
   constant
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[expression:%s#1]>\n" $1;
-      $1
+      let t:Ast.simple_exp = Constant $1
+      in t
     }
 |   OLD value_name
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[OLD :%s#1]>\n" ("OLD " ^ $2);
-    ("OLD " ^ $2)
+    let t:Ast.simple_exp = Old (Value_name $2) in t
   }
 |   value_name
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[value_name:%s#1]>\n" ($1);
-    ($1)
+    let t:Ast.simple_exp = Val (Value_name $1) in t
   }
 |   LPAREN expression RPAREN
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[LPAREN EXPN RPAREN:%s#1]>\n"
-      ("(" ^ $2 ^ ")");
-    ("(" ^ $2 ^ ")")
+    let t:Ast.simple_exp = Paren $2 in t
   }
 |   invocation
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[function_invocation:%s#1]>\n" $1;
     $1
   }
 ;
@@ -507,11 +755,8 @@ iteration_exp:
   RETURNS return_exp_list
   END FOR
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:iterator FOR INITIAL>";
-      "FOR " ^ " INITIAL " ^ $3 ^ " "
-      ^ $4 ^ " RETURNS " ^ $6
-      ^ " END FOR"
+      let t:Ast.simple_exp =
+        For_initial (Decldef_part $3,$4,$6) in t
     }
 | FOR
   INITIAL
@@ -521,11 +766,8 @@ iteration_exp:
   RETURNS return_exp_list
   END FOR
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:iterator FOR INITIAL>";
-      "FOR " ^ " INITIAL " ^ $3 ^ " "
-      ^ $5 ^ " RETURNS " ^ $7
-      ^ " END FOR"
+      let t:Ast.simple_exp =
+        For_initial (Decldef_part $3,$5,$7) in t
     }
 | FOR
   in_exp_list
@@ -533,11 +775,8 @@ iteration_exp:
   return_exp_list
   END FOR
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:iterator FOR>";
-    let k = str_forall_loop (`For (`Inexp_list $2, `Returns_list $4))
-    in print_endline ("From types:" ^ k );
-    "FOR " ^ " " ^ $2 ^ " RETURNS " ^ $4 ^ " END FOR"
+    let t:Ast.simple_exp =
+      For_all ($2,Decldef_part [],$4) in t
   }
 
 | FOR
@@ -547,9 +786,8 @@ iteration_exp:
   return_exp_list
   END FOR
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:iterator FOR>";
-    "FOR " ^ " " ^ $2 ^ " " ^ $3 ^ " RETURNS " ^ $5 ^ " END FOR"
+    let t:Ast.simple_exp =
+      For_all ($2,Decldef_part $3,$5) in t
   }
 |   FOR
   in_exp_list
@@ -559,553 +797,413 @@ iteration_exp:
   return_exp_list
   END FOR
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:iterator FOR>";
-    "FOR " ^ " " ^ $2 ^ " " ^ $3 ^ " RETURNS " ^ $6 ^ " END FOR"
+    let t:Ast.simple_exp =
+      For_all ($2,Decldef_part $3,$6) in t
   }
-
 ;
 
 iterator_terminator:
   iterator termination_test
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:iterator termination_test>";
-      $1 ^ " " ^ $2
+      let t:(iterator_terminator) =
+        Iterator_termination ($1,$2) in t
     }
 |   termination_test iterator
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:termination_test iterator>";
-    $1 ^ " " ^ $2
+    let t:(iterator_terminator) =
+      Termination_iterator ($1,$2) in t
   }
 ;
 
 iterator:
   REPEAT iterator_body
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:REPEAT>";
-      "REPEAT " ^ $2
+      let t:(Ast.iterator) =
+      Repeat $2 in t
     }
 ;
 
 termination_test :
   WHILE expression
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:WHILE>";
-      "WHILE"
+      let t:(Ast.termination_test) =
+      While $2 in t
     }
 |   UNTIL expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:UNTIL>";
-    "UNTIL"
+    let t:(Ast.termination_test) =
+    Until $2 in t
   }
 ;
 
 iterator_body :
   decldef_part
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:iterator_body>";
-      $1
+      Decldef_part $1
     }
 | decldef_part SEMICOLON
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:iterator_body>";
-      $1
+      Decldef_part $1
     }
 
 ;
 
 in_exp_list: in_exp_list DOT in_exp
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      let k = 
-      $1 ^ " DOT " ^ $3
-      in 
-      parse_msg 5 "<Parsed:%s\n>" k ; k
+      let t:(Ast.in_exp) =
+      Dot($1,$3) in t
     }
 | in_exp_list CROSS in_exp
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      let k = 
-      $1 ^ " CROSS " ^ $3
-      in 
-      parse_msg 5 "<Parsed:%s\n>" k ; k
+      let t:(Ast.in_exp) =
+      Cross ($3,$1) in t
     }
 | in_exp
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      let k = $1 in
-      parse_msg 5 "<Parsed:IN_EXP:%s\n>" k; k
+       $1
     }
 ;
 
 in_exp:
   NAME IN expression
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:IN_EXP>";
-      $1 ^ " IN " ^ $3
+      let t:(Ast.in_exp) =
+        In_exp (Value_name $1, $3) in t
     }
-|   in_exp AT NAME
+|   in_exp AT names
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:IN_EXP>";
-    $1 ^ " AT " ^ $3
+    let t:(Ast.in_exp) =
+      At_exp ($1, Value_names $3) in t
   }
-
 ;
 
 return_exp_list:
   return_exp_list return_clause
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:return_clause_list>";
-      $1 ^ $2
+      $1@[$2]
     }
+|   return_clause_old
+  {
+    [$1]
+  }
 |   return_clause
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:return_clause>";
-    $1
+    [$1]
   }
 ;
-return_clause:
+return_clause_old:
   OLD return_exp masking_clause
     {
-
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:OLD return_exp>";
-      "OLD " ^ $2 ^ " " ^ $3
+      let t:(return_clause)  =
+        Old_ret  ($2, $3) in t
     }
 |   OLD return_exp
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:OLD return_exp>";
-    "OLD " ^ $2
+    let t:(return_clause)  =
+      Old_ret ($2, No_mask) in t
   }
-|   return_exp masking_clause
+;
+return_clause:
+return_exp masking_clause
   {
-    let pst = String.make 7 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:return_exp with masking clause>";
-    $1 ^ " " ^ $2
+    let t:(return_clause)  =
+    Return_exp ($1, $2) in t
   }
 |   return_exp
   {
-    let pst = String.make 7 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:return_exp>";
-    $1
+    let t:(return_clause)  =
+    Return_exp ($1, No_mask) in t
   }
 ;
 masking_clause:
-  UNLESS expression
+  UNLESS simple_expression
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:UNLESS>";
-      "UNLESS " ^ $2
+      Unless $2
     }
-|   WHEN expression
+|   WHEN simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:WHEN>";
-    "WHEN " ^ $2
+    let t:(Ast.masking_clause) = When $2 in t
   }
 ;
+
 return_exp:
-  VALUE OF direction expression
+  VALUE OF direction simple_expression
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:VALUE OF>";
-      "VALUE OF " ^ $3 ^ " " ^ $4
+      let t:(Ast.return_exp) = Value_of ($3, No_red, $4)
+      in t
     }
-|   VALUE OF direction reduction_op expression
+|   VALUE OF direction reduction_op simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:VALUE OF>";
-    "VALUE OF " ^ $3 ^ " " ^ $4 ^ " " ^ $5
+    let t:(Ast.return_exp) = Value_of ( $3, $4, $5)
+    in t
   }
-|   VALUE OF reduction_op expression
+|   VALUE OF reduction_op simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:VALUE OF reduction_op>";
-    "VALUE OF " ^ $3 ^ " " ^ $4
+    let t:(Ast.return_exp) = Value_of (No_dir, $3, $4)
+    in t
   }
-|   VALUE OF expression
+|   VALUE OF simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:VALUE OF>";
-    "VALUE OF " ^ $3
+    let t:(Ast.return_exp) =
+      Value_of (No_dir,No_red,$3) in t
   }
-|   ARRAY OF expression
+|   ARRAY OF simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:ARRAY OF>";
-    "ARRAY OF " ^ $3
+    let t:(Ast.return_exp) = Array_of $3 in t
   }
-|   STREAM OF expression
+|   STREAM OF simple_expression
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:STREAM OF>";
-    "STREAM OF " ^ $3
+    let t:(Ast.return_exp) = Stream_of $3 in t
   }
 ;
+
 direction:
   LEFT
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:LEFT>";
-      "LEFT"
+      Left
     }
 |   RIGHT
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:RIGHT>";
-    "RIGHT"
+    Right
   }
 |   TREE
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:TREE>";
-    "TREE"
+    let t:Ast.direction_op = Tree in t
   }
 ;
 reduction_op:
-  SUM 
+  SUM
     {
-      let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:SUM>";
-      "SUM"
+      Sum
     }
 |   PRODUCT
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:PRODUCT>";
-    "PRODUCT"
+    Product
   }
 |   LEAST
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:LEAST>";
-    "LEAST"
+    Least
   }
 |   GREATEST
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:GREATEST>";
-    "GREATEST"
+    Greatest
   }
 |   CATENATE
   {
-    let pst = String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:CATENATE>";
-    "CATENATE"
+    let t:Ast.reduction_op = Catenate in t
   }
 ;
 
 let_in_exp :
   LET decldef_part IN expression END LET
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[decl_part#1]%s\n>"
-        ("LET " ^ $2 ^ " IN " ^ $4 ^ " END LET");
-      ("LET " ^ $2 ^ " IN " ^ $4 ^ " END LET")
+      let t:Ast.simple_exp = Let (Decldef_part $2,$4) in t
     }
 ;
 
 decldef_part :
   decldef
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[decl_part#1]%s\n>" $1;
-      $1
+      [$1]
     }
 |   decldef_part SEMICOLON decldef
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[decl SEMICOLON#1]%s\n>" $1;
-    $1
+    $1@[$3]
   }
 ;
 
 decldef :
   decl
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[decl#1]%s\n>" $1;
-      $1
+      Decl_decl $1
     }
 |   def
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[def#1]%s\n>" $1;
-    $1
+    Decl_def $1
   }
 |   decl_list ASSIGN expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[decl_list#1]%s\n>"
-      ($1 ^ " ASSIGN " ^ $3);
-    ($1 ^ "," ^ $3)
+    let t:(Ast.decldef) = Decldef ($1,$3) in t
   }
 ;
 
 decl_list :
   decl
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[decl_list#1]%s\n>" $1;
-      $1
+      [$1]
     }
 |   decl_list COMMA decl
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[decl_list#1]%s\n>" ($1 ^ "," ^ $3);
-    ($1 ^ "," ^ $3)
+    $1@[$3]
   }
 ;
 
-decl : 
-  field_spec
+decl :
+  names COLON type_spec
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_spec#1]%s\n>" $1;
-      $1
+      Decl ($1,$3)
     }
 ;
 
 def :
   names ASSIGN expression
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[def#1]%s\n>" ($1 ^ " ASSIGN " ^ $3);
-      $1 ^ " ASSIGN " ^ $3
+      Def ($1,$3)
     }
 ;
 
 conditional_exp:
   conditional_ifexp conditional_else END IF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    let k = 
-    ($1 ^" " ^ $2 ^" END IF") in
-    parse_msg 5 "<Parsed IF:%s>\n" k; k
+    let t:(Ast.simple_exp) = If ([$1],$2) in t
   }
 |   conditional_ifexp conditional_elseif conditional_else END IF
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    let k = 
-    ($1 ^" " ^ $2 ^" " ^ $3 ^" END IF") in
-    parse_msg 5 "<Parsed IF:%s>\n" k; k
+    let t:(Ast.simple_exp) = If ($1::$2,$3) in t
   }
 ;
 
 conditional_elseif:
   ELSEIF expression THEN expression
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:IF THEN ELSEIF exp>";
-      " ELSEIF " ^ $2 ^ " THEN " ^ $4
+      let t:(Ast.cond) =
+        Cond ($2,$4) in [t]
     }
 |   conditional_elseif ELSEIF expression THEN expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:IF THEN ELSEIF exp>";
-    $1 ^ " ELSEIF " ^ $3 ^ " THEN " ^ $5 
+    $1@[let t:(Ast.cond) = Cond ($3,$5) in t]
   }
 ;
 
 conditional_else:
 ELSE expression
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:ELSE exp>";
-    " ELSE " ^ $2
+    let t:(Ast.last_else) = Else $2 in t
   }
 ;
 
 conditional_ifexp:
   IF expression THEN expression
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:IF exp>";
-      "{IF " ^ $2 ^ " THEN " ^ $4
-    }       
+      let t:(cond) = Cond ($2,$4) in t
+    }
 ;
 
 union_test :
   IS tag_name LPAREN expression RPAREN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[union_test:%s#1]>\n"
-        ("IS " ^ $2 ^ "(" ^ $4 ^ ")");
-      ("IS " ^ $2 ^ "(" ^ $4 ^ ")")
+      let t:(Ast.simple_exp) = Is ($2,$4) in t
     }
 ;
 union_generator :
   UNION type_name LBRACK tag_name RBRACK
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[union_generator:%s#1]>\n"
-        ("UNION " ^ $2 ^ "[" ^ $4 ^ "]");
-      "UNION " ^ $2 ^ "[" ^ $4 ^ "]"
+      let t:Ast.simple_exp = Union_generator ($2,Tag_name $4) in t
     }
-| UNION type_name LBRACK tag_name COLON expression RBRACK
+| UNION type_name LBRACK tag_name COLON simple_expression RBRACK
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[union_generator:%s#1]>\n"
-      ("UNION " ^ $2 ^ "[" ^ $4 ^ ":" ^ $6 ^ "]");
-    "UNION " ^ $2 ^ "[" ^ $4 ^ ":" ^ $6 ^ "]"
+    let t:Ast.simple_exp = Union_generator ($2,Tag_exp ($4,$6)) in t
   }
 ;
 error_test :
   IS ERROR LPAREN expression RPAREN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[error_test#1]%s\n>" ("IS ERROR (" ^ $4 ^")");
-      "IS ERROR (" ^ $4 ^")"
+      let t:Ast.simple_exp = Is_error $4 in t
     }
 ;
-//%inline
   tag_name : NAME
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_name#1]%s\n>" $1;
-      $1
+      let t:Ast.tag_name = $1 in t
     }
 ;
 
 prefix_operation :
   prefix_name LPAREN expression RPAREN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[prefix_operation:%s#1]>\n"
-        ($1 ^ "(" ^ $3 ^ ")");
-      $1 ^ "(" ^ $3 ^ ")"
+      let k:Ast.simple_exp =
+       Prefix_operation ($1,$3) in k
     }
 ;
-//%inline
   prefix_name :
   CHARACTER
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[CHARACTER#1]>";
-      "CHARACTER"
+      let k:Ast.prefix_name = Char_prefix in k
     }
 | DOUBLE_REAL
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[DOUBLE_REAL#1]>";
-    "DOUBLE_REAL"
+      let k:Ast.prefix_name = Double_prefix in k
   }
 | INTEGER
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[INTEGER#1]>";
-    "INTEGER"
+      let k:Ast.prefix_name = Integer_prefix in k
   }
 | REAL
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[REAL#1]>";
-    "REAL"
+      let k:Ast.prefix_name = Real_prefix in k
   }
-
 ;
 
 constant : FALSE
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[constant#2]:%s>\n" ("FALSE");
-      "FALSE"
+      let k:Ast.sisal_constant = False in k
     }
 | NIL
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[constant#1]:%s>\n" ("NIL");
-    "NIL"
+    let k:Ast.sisal_constant = Nil in k
   }
 | TRUE
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[constant#2]:%s>\n" ("TRUE");
-    "TRUE"
+    let k:Ast.sisal_constant = True in k
   }
 | INT
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[integer]:%d>\n" ($1);
-    string_of_int $1
+    let k:Ast.sisal_constant = Int $1 in k
   }
 | FLOAT
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[float]:%f>\n" ($1);
-    string_of_float $1
+    let k:Ast.sisal_constant = Float $1 in k
   }
 | CHAR
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[character#2]:%s>\n" ($1);
-    $1
+    let k:Ast.sisal_constant = Char $1 in k
   }
 | STRING
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[string#2]:%s>\n" ($1);
-    $1
+    let k:Ast.sisal_constant = String $1 in k
   }
 | ERROR LBRACK type_spec RBRACK
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[erro lbrack type_spec#2]:%s>\n"
-      ("ERROR [" ^ $3 ^ "]");
-    "ERROR [" ^ $3 ^ "]"
+    let k:Ast.sisal_constant = Error $3 in k
   }
 ;
 
 type_def_part: type_def
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[type_def#2]:%s>\n" $1;
-      $1
+      [$1]
     }
 |   type_def_part SEMICOLON type_def
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[type_def_part#2]:%s>\n" ($1 ^ ";" ^ $3);
-    ($1 ^ ";" ^ $3)
+    $1@[$3]
   }
 ;
 type_def : TYPE type_name EQ type_spec
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[type_def#1]:%s>\n" ("TYPE:" ^ $2 ^ " = " ^ $4);
-      "TYPE " ^ $2 ^ " = " ^ $4
+      let k:Ast.type_def = Type_def ($2, $4)
+      in k
     }
 ;
 type_spec : basic_type_spec
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[basic_type_spec#2]>";
       $1
     }
 |   compound_type_spec
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[compound_type_spec#2]>";
-    $1
+    Compound_type $1
   }
 |   type_name
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[type_name#2]>";
-    $1
-  } 
+    Type_name $1
+  }
 ;
 type_name : NAME
     {
@@ -1116,345 +1214,138 @@ type_name : NAME
 basic_type_spec :
   BOOLEAN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[BOOLEAN#1]>";
-      let k = str_sisal_type `Boolean
-      in print_endline ("From type:"  ^k );
-      "BOOLEAN"
+      let k:Ast.sisal_type = Boolean in k
     }
-| prefix_name
+| CHARACTER
+    {
+      let k:Ast.sisal_type = Character in k
+    }
+| DOUBLE_REAL
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[prefix_name#1]>";
-    $1
+      let k:Ast.sisal_type = Double_real in k
+  }
+| INTEGER
+  {
+      let k:Ast.sisal_type = Integer in k
   }
 | NULL
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[NULL#1]>";
-    let k = str_sisal_type `Null
-    in print_endline ("From type: " ^ k);
-    "NULL"
+    let k:Ast.sisal_type = Null in k
+  }
+| REAL
+  {
+      let k:Ast.sisal_type = Real in k
   }
 ;
 
 compound_type_spec :
   ARRAY LBRACK type_spec RBRACK
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[ARRAY#1]>";
-      "ARRAY [" ^ $3 ^ "]"
+      let k:Ast.compound_type = Sisal_array $3 in k
     }
 |   STREAM LBRACK type_spec RBRACK
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[STREAM#1]>";
-    "STREAM [" ^ $3 ^ "]"
+      let k:Ast.compound_type = Sisal_stream $3 in k
   }
 |   RECORD LBRACK field_spec_list RBRACK
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" ("<Parsed:<"^"RECORD [" ^ $3 ^ "]>");
-    "RECORD [" ^ $3 ^ "]"
+      let k:Ast.compound_type = Sisal_record $3 in k
   }
 |   UNION LBRACK tag_spec_list RBRACK
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[UNION#1]:%s\n>" ("UNION [" ^ $3 ^ "]");
-    "UNION [" ^ $3 ^ "]"
+      let k:Ast.compound_type = Sisal_union $3 in k
   }
-
-;
-
-tag_spec_list: field_spec_list
-    {
-      $1
-    }
-| names_list
+|   UNION LBRACK names RBRACK
   {
-    $1
+      let k:Ast.compound_type = Sisal_union_enum $3 in k
   }
 ;
 
 field_spec_list:
-  field_spec 
+  field_spec
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[FIELD_SPEC#1]>";
-      $1
+      [$1]
     }
 | field_spec_list SEMICOLON field_spec
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[field_spec_list#1]>";
-    $1 ^ ";" ^ $3
+    $1@[$3]
   }
 ;
 
-
-field_spec : names COLON type_spec
+field_spec :
+  names COLON type_spec
     {
-      $1 ^ ":" ^ $3
+      let k:Ast.field_spec =
+      Field_spec ($1,$3) in k
     }
-;
-
-names_list : 
-  names 
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "%s\n" "<Parsed:[bunchofnames#1]>";
-      $1
-    }
-|  names_list SEMICOLON names
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "%s\n" "<Parsed:[bunchofnames with SEMI#1]>";
-    $1 ^ ";" ^ $3
-  }
 ;
 
 names : names COMMA NAME
     {
-      $1 ^ "," ^ $3
+      $1@[$3]
     }
 |   NAME
   {
-    $1
+    [$1]
   }
 ;
+
+tag_spec_list :
+  tag_spec
+    {
+      [$1]
+    }
+| tag_spec_list SEMICOLON tag_spec
+      {
+        $1@[$3]
+      }
+;
+
+tag_spec :
+  names COLON type_spec
+    {
+      ($1,$3)
+    }
+;
+
 value_name : NAME
     {
       $1
     }
 ;
 
-invocation : 
+invocation :
   function_name LPAREN RPAREN
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[invocation:%s#1]>\n"
-        ($1 ^ "()");
-      ($1 ^ "()")
+      let t:(Ast.simple_exp) =
+        Invocation ($1,Arg Empty) in t
     }
 |   function_name LPAREN expression RPAREN
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[invocation:%s#2]>\n"
-      ($1 ^ "(" ^ $3 ^ ")");
-    ($1 ^ "(" ^ $3 ^ ")")
+    let t:(Ast.simple_exp) =
+      Invocation ($1,Arg $3) in t
   }
 ;
 function_name : NAME
     {
-      $1
-    }
-;
-array_ref :
-  primary LBRACK expression RBRACK
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[array_ref:%s#1]>\n"
-        ($1 ^ "[" ^ $3 ^ "]");
-      ($1 ^ "[" ^ $3 ^ "]")
-    }
-;
-
-array_generator :
-  ARRAY type_name LBRACK RBRACK
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[array_generator:%s#1]>\n"
-        ("ARRAY " ^ $2 ^ "[]");
-      "ARRAY " ^ $2 ^ "[]"
-    }
-|    ARRAY LBRACK expr_pair RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[array_generator:%s#2]>\n"
-      ("ARRAY [" ^ $3 ^ "]");
-    "ARRAY " ^ "[" ^ $3 ^ "]"
-  }
-
-|    ARRAY type_name LBRACK expr_pair RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[array_generator:%s#2]>\n"
-      ("ARRAY " ^ $2 ^ "[]");
-    "ARRAY " ^ $2 ^ "[" ^ $4 ^ "]"
-  }
-|    primary LBRACK expr_pair_list RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[array_generator:%s#3]>\n"
-      ($1 ^ "[" ^ $3 ^ "]") ;
-    $1 ^ "[" ^ $3 ^ "]"
-  }
-|    primary LBRACK expr_pair_list SEMICOLON RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[array_generator:%s#3]>\n"
-      ($1 ^ "[" ^ $3 ^ "]") ;
-    $1 ^ "[" ^ $3 ^ "]"
-  }
-;
-
-expr_pair_list :
-  expr_pair
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[EXPR_PAIR:%s#1]>\n" $1;
-      $1
-    }
-|   expr_pair_list SEMICOLON expr_pair
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[EXPR_PAIR:%s#1]>\n" 
-      ($1 ^ ";" ^ $3);
-    $1 ^ ";" ^ $3
-  }
-;
-expr_pair :
-  expression COLON expression
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[EXPR_PAIR:%s#1]>\n" ($1 ^ ":" ^ $3);
-      $1 ^ ":" ^ $3
-    }
-;
-stream_generator :
-  STREAM type_name LBRACK RBRACK
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[STREAM:%s#1]>\n" ("STREAM " ^ $2 ^ "[]");
-      ("STREAM " ^ $2 ^ "[]")
-    }
-;
-| STREAM type_name LBRACK expression RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[STREAM:%s#1]>\n"
-      ("STREAM " ^ $2 ^ "[" ^ $4 ^ "]");
-    ("STREAM " ^ $2 ^ "[" ^ $4 ^ "]")
-  }
-;
-
-record_ref :
-  primary DOTSTOP field_name
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[record_ref:%s#1]>\n" ($1 ^ "." ^ $3);
-      $1 ^ "." ^ $3
-    }
-;
-
-record_generator :
-  RECORD type_name LBRACK field_def_list RBRACK
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[record_generator:%s#1]>\n"
-        ("RECORD " ^ $2 ^ "[" ^ $4 ^ "]");
-      "RECORD " ^ $2 ^ "[" ^ $4 ^ "]"
-    }
-|  RECORD type_name LBRACK field_def_list SEMICOLON RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[record_generator:%s#2]>\n"
-      ("RECORD " ^ $2 ^ "[" ^ $4 ^ "]");
-    "RECORD " ^ $2 ^ "[" ^ $4 ^ "]"
-  }
-|   RECORD LBRACK field_def_list RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[record_generator:%s#3]>\n"
-      ("RECORD " ^ "[" ^ $3 ^ "]");
-    "RECORD " ^ "[" ^ $3 ^ "]"
-  }
-|  RECORD LBRACK field_def_list SEMICOLON RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[record_generator:%s#4]>\n"
-      ("RECORD " ^ "[" ^ $3 ^ "]");
-    "RECORD " ^ "[" ^ $3 ^ "]"
-  }
-|  primary REPLACE LBRACK field_list RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[record_generator:%s#1]>\n"
-      ($1 ^ " REPLACE [" ^ $4 ^ "]");
-    ($1 ^ " REPLACE [" ^ $4 ^ "]")
-
-  }
-|  primary REPLACE LBRACK field_list SEMICOLON RBRACK
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[record_generator:%s#1]>\n"
-      ($1 ^ " REPLACE [" ^ $4 ^ "]");
-    ($1 ^ " REPLACE [" ^ $4 ^ "]")
-  }
-;
-
-field_def_list :
-  field_def
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_def:%s#1]>\n" $1;
-      $1
-    }
-| field_def_list SEMICOLON field_def
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[field_def:%s#1]>\n" ($1 ^ ";" ^ $3);
-    $1 ^ ";" ^ $3
-  }
-;
-field_def : field_name COLON expression
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_def:%s#1]>\n" ($1 ^ ":" ^ $3);
-      ($1 ^ ":" ^ $3)
-    }
-;
-field_list :
-  field_expn
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_list:%s#1]>\n" $1;
-      $1
-    }
-|   field_list SEMICOLON field_expn
-  {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[field_list:%s#1]>\n" $1;
-    $1 ^ ";" ^ $3
-  }
-;
-field_expn :
-  field COLON expression
-    {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_list:%s#1]>\n" $1;
-      $1 ^ ":" ^ $3
+      let t:(Ast.function_name) =
+      Function_name $1 in t
     }
 ;
 field : field_name
     {
-      let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-      parse_msg 5 "<Parsed:[field_name:%s#1]>\n" $1;
-      $1
+      [$1]
     }
 | field DOTSTOP field_name
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[field:%s#r]>\n" ($1 ^ "." ^ $3);
-    $1 ^ "." ^ $3
+    $1@[$3]
   }
 ;
 
 field_name : NAME
   {
-    let pst =  String.make 5 ' ' in parse_msg 5 "%s" pst;
-    parse_msg 5 "<Parsed:[field_name#1]%s\n>" $1;
-    $1
+    let k:Ast.field_name = Field_name $1
+    in k
   }
 ;
 
@@ -1463,4 +1354,3 @@ main: compilation_unit
     $1
   }
 ;
-

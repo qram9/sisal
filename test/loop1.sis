@@ -1,0 +1,21 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop1( n:integer; Q,R,T:double; Y,Z:OneD returns OneD )
+   for K in 1,n
+       X := Q + (Y[K] * (R * Z[K+10] + T * Z[K+11]))
+   returns array of X
+   end for
+end function
+
+function Main( rep,n:integer; Q,R,T:double; Y,Z:OneD returns OneD )
+   for i in 1, rep
+      X := Loop1( n, Q, R, T, Y, Z );
+   returns value of X
+   end for
+end function

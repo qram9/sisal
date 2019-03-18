@@ -1,0 +1,69 @@
+
+There is already a fully functional compiler for SISAL written is very proper looking C code.
+If you want something right away, please go there first!
+
+If you are still here :-
+
+Any suggestions or corrections are very welcome.
+
+I looked for some practice and this project sounded good. Development attempts has been sporadic as 
+I have always needed to find free time first. Coding is spread over almost 2 years to get to this point -
+at this point I am working to complete and clean up IF1 lowering, for example introduce port classes
+as described in the IF1 manual.
+
+There look to be atleast one or two reduce-reduce conflicts in the parser.
+
+Going forward, I would mainly first try to imitate ideas already attempted by the pioneers here.
+
+Also I plan to catch up on some of the other features that were added in SISAL2.0 or SISAL90 etc, especially
+higher order functions, multidim arrays etc.  At some point, I am thinking of lowering to CPS from IF1-
+there is Dr. Andrew Appel's excellent book on CPS.
+
+The list of articles of interest for this is quite long -- I would recommend going here to get
+the batch - http://kestrel.nmt.edu/~raymond/software/sisal
+
+If you are able to access ACM/IEEE Springer etc through your university or otherwise, do look for as many
+articles that you may find on SISAL, Id, Single assignment C, early papers about arrays in Haskell,
+several enhancements to add array comprehensions, better controlling SISAL for-all loops' output values,
+ideas for higher order functions, partial application etc. etc. etc. etc.
+
+My code is written in Ocaml. I could to a reasonable degree use Ocaml's lexer/parser kit
+and one thing lead to another and we are stuck with it.
+I haven't given much thought to the compiler's performance at this time. I have avoided
+using references or hashtables etc at this time.
+
+In case you wish to know how to compile, for yourself, please read on.
+
+I would basically use opam to install merlin tuareg etc. I use emacs with tuareg.
+
+This is what my Opam --list looks like:
+# Packages matching: installed
+# Name        # Installed # Synopsis
+base-bigarray base
+base-bytes    base        Bytes library distributed with the OCaml compiler
+base-threads  base
+base-unix     base
+biniou        1.2.0       Binary data format designed for speed, safety, ease of use and backward compat
+caml-mode     4.06        OCaml code editing commands for Emacs
+conf-emacs    1           Virtual package to install the Emacs editor
+conf-m4       1           Virtual package relying on m4
+conf-which    1           Virtual package relying on which
+cppo          1.6.5       Equivalent of the C preprocessor for OCaml programs
+dune          1.7.3       Fast, portable and opinionated build system
+easy-format   1.3.1       High-level and functional interface to the Format module of the OCaml standard
+jbuilder      transition  This is a transition package, jbuilder is now named dune. Use the dune
+merlin        3.2.2       Installation with Opam
+oasis         0.4.11      Tooling for building OCaml libraries and applications
+ocaml         4.07.1      The OCaml compiler (virtual package)
+ocaml-config  1           OCaml Switch Configuration
+ocaml-system  4.07.1      The OCaml compiler (system version, from outside of opam)
+ocamlbuild    0.14.0      OCamlbuild is a build system with builtin rules to easily build most OCaml pro
+ocamlfind     1.8.0       A library manager for OCaml
+ocamlify      0.0.1       Include files in OCaml code
+ocamlmod      0.0.9       Generate OCaml modules from source files
+result        1.3         Compatibility Result module
+tuareg        2.2.0       OCaml mode for GNU Emacs and XEmacs.
+yojson        1.7.0       Yojson is an optimized parsing and printing library for the JSON format
+
+
+

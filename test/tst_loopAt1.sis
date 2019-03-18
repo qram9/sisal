@@ -1,0 +1,15 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type TwoD   = array[array[double]];
+type OneD   = array[double];
+
+function Main(Y:TwoD returns OneD )
+   for I in 2,10 dot J in 1,10 
+   returns array of Y[J,I]
+   end for
+end function
+

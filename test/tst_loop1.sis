@@ -1,0 +1,15 @@
+% Hydro Fragment
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Main( n:integer; Q,R,T:double; Y,Z:OneD returns OneD )
+   for K in Y
+       X := K+K
+   returns array of X
+   end for
+end function
+

@@ -1,0 +1,6 @@
+define Main
+
+function Main(returns stream[real])
+stream[1.2,3.2]
+end function
+

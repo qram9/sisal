@@ -1,7 +1,14 @@
 {
 open Parse
-exception Error of string
-let error msg = raise (Error msg)
+open Lexing
+exception LexErr of string
+let error msg start finish = 
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum 
+    (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
+  (*raise (Error msg)*)
+let lex_error lexbuf = 
+  raise ( LexErr (error (lexeme lexbuf) (lexeme_start_p lexbuf) (lexeme_end_p lexbuf)))
+
 let return x = fun map -> x (* returns the value x *)
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
@@ -118,14 +125,15 @@ let predef_fn_table =
 let digit = ['0'-'9']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
 let dec = digit+
-let flonum = (['+' '-']?) ['0'-'9']+ 
+            (*            let flonum = (['+' '-']?)*)
+            let flonum = ['0'-'9']+ 
              '.' 
              ['0'-'9']*
              (['e' 'E']?
              ['+' '-']?
              ['0'-'9']+)*
-
-                                 let negnum = '-'? dec
+               
+               let negnum = '-'? dec
 let negflonum = '-'? flonum
 
 let alpha = ['a'-'z' 'A'-'Z']
@@ -175,9 +183,10 @@ rule sisal_lex = parse eof {
   padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
   sisal_lex lexbuf
 }
-| ('\n')+  as mynewlines {
-  padded_lex_msg 5 ": EOL:%d times>\n" (String.length mynewlines);
-  (*Lexing.new_line lexbuf;*)sisal_lex lexbuf
+| ('\n')  as mynewlines {
+    padded_lex_msg 5 ": EOL>\n";
+    Lexing.new_line lexbuf;
+  sisal_lex lexbuf
 }
 | flonum as f {
   padded_lex_msg 5 ": %s>\n" f;
@@ -195,10 +204,10 @@ rule sisal_lex = parse eof {
     k
   with Not_found ->
     try
-      let k =
+      (*let k =
         KeywordTable.find ident_or_kw predef_fn_table
       in padded_lex_msg 5 ": Predef_fn:%s>\n" (String.uppercase ident_or_kw);
-      (*k*)
+      k*)
       NAME (String.uppercase ident_or_kw)
     with Not_found ->
       padded_lex_msg 5 ": NAME:%s>\n" (String.uppercase ident_or_kw);
@@ -231,7 +240,7 @@ rule sisal_lex = parse eof {
 | [';'] {
   padded_lex_msg 5 " ; >\n"; 
   SEMICOLON
-}
+} | _ {  lex_error lexbuf }
 {
   let get_lex_buf = Lexing.from_channel stdin
 }

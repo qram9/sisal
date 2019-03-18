@@ -1,0 +1,41 @@
+define	Main
+
+type Info = array[ integer ]
+
+function Main (	Data : Info returns Info )
+
+    function Split (Data : Info  returns Info, Info, Info )
+      function moshan (Data : Info  returns Info, Info, Info )
+      function mashan (Data : Info  returns Info, Info, Info )
+       for E in Data
+	returns	array of E when E < Data[ 1 ]
+		array of E when E = Data[ 1 ]
+		array of E when E > Data[ 1 ]
+	end for
+        end function
+
+       for E in Data
+	returns	array of E when E < Data[ 1 ]
+		array of E when E = Data[ 1 ]
+		array of E when E > Data[ 1 ]
+	end for
+    end function
+	for E in Data
+	returns	array of E when E < Data[ 1 ]
+		array of E when E = Data[ 1 ]
+		array of E when E > Data[ 1 ]
+	end for
+    end function
+
+
+    if array_size( Data ) > 2 then
+       let
+          L, Middle, R := Split( Data )
+       in
+	  Main( L ) || Middle || Main( R )
+       end let
+    else
+       Data
+    end if
+
+end function % quicksort
