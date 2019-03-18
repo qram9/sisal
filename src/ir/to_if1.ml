@@ -1,7 +1,6 @@
 
 (* TODO: inputs to select do not seem to get from outer scope *)
 (* many boundary boxes are empty *)
-(** Licensed under GPL v3 *)
 
 (** Ideas here mostly come from the single paper:
     "IF1, AN INTERMEDIATE FORM FOR APPLICATIVE LANGUAGES,
