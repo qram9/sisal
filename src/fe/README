@@ -1,4 +1,8 @@
-I dont do it now:
+We are quite lucky that the grammar is available in the SISAL 1.2
+ref manual. The grammar became my parse rules without any changes
+and then the AST variant type, again without changes!
+
+I dont do this now:
 "As in the case of field names, a tag name may coincide with any
 other name without conflict and the same tag name may be used
 in several union types without conflict."
