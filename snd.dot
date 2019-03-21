@@ -1,0 +1,47 @@
+digraph R {
+newrank=true;
+IN00 [shape=rect;label=""];
+OUT00 [shape=rect;label="[]"];
+subgraph cluster_01 {
+label="1 %na=FORALL";
+IN01 [shape=rect;label=""];
+OUT01 [shape=rect;label="[]"];
+subgraph cluster_11 {
+label="1 %na=RETURN";
+IN011 [shape=rect;label=""];
+OUT011 [shape=rect;label="[(1,0)]"];
+111 [shape=rect;label="1 AGATHER"]
+IN011 ->  111 [label="(0,0),Ty=5"]
+IN011 ->  111 [label="(1,1),Ty=7"]
+111 ->  OUT011 [label="(0,0),Ty=8"]
+};
+subgraph cluster_12 {
+label="2 %na=GENERATOR";
+IN012 [shape=rect;label=""];
+OUT012 [shape=rect;label="{INTEGRAL;ROW;(3,0)}[(3,0)]"];
+121 [shape=plaintext;label="1"];
+122 [shape=plaintext;label="4"];
+123 [shape=rect;label="3 RANGEGEN"]
+121 ->  123 [label="(0,0),Ty=5"]
+122 ->  123 [label="(0,1),Ty=5"]
+123 ->  OUT012 [label="(0,0),Ty=5"]
+};
+subgraph cluster_13 {
+label="3 %na=BODY";
+IN013 [shape=rect;label="INTEGRAL;ROW;(0,0)"];
+OUT013 [shape=rect;label="{ARRAY 5;ASSIGNMENT;(2,0)}[(2,0)]"];
+131 [shape=plaintext;label="1"];
+132 [shape=rect;label="2 ABUILD"];
+133 [shape=rect;label="3 MULTIARITY:%na=LET"]
+IN013 ->  132 [label="(0,1),Ty=0"]
+131 ->  132 [label="(0,0),Ty=0"]
+132 ->  OUT013 [label="(0,0),Ty=7"]
+132 ->  133 [label="(0,0),Ty=7"]
+}
+};
+02 [shape=rect;label="2 MULTIARITY:%na=multiARITY_1"];
+03 [shape=plaintext;label="1"];
+04 [shape=rect;label="4 ASETL"]
+01 ->  04 [label="(1,0),Ty=8"]
+03 ->  04 [label="(0,0),Ty=8"]
+04 ->  02 [label="(0,0),Ty=8"]}
