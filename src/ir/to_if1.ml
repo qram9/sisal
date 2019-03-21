@@ -2018,13 +2018,16 @@ and do_simple_exp in_gr in_sim_ex =
                in_gr_if in
 
            (* TODO:What is the context for this *)
-           let in_gr_if = add_edges_to_boundary
-                            else_gr in_gr_if else_n in
-           let in_outs,then_gr = do_exp
-                                   (get_a_new_graph in_gr_if)
-                                   body in
-           let ty_lis_then,then_gr = extr_types then_gr
-                                       (in_outs,IntMap.empty) in
+          let in_gr_if
+             = add_edges_to_boundary
+                 else_gr in_gr_if else_n in
+           let in_outs,then_gr
+             = do_exp
+                 (get_a_new_graph in_gr_if)
+                 body in
+           let ty_lis_then,then_gr
+             = extr_types then_gr
+                 (in_outs,IntMap.empty) in
 
            let then_s,then_p,then_t = in_outs in
            let then_s,then_p,then_t =
