@@ -1080,7 +1080,8 @@ and do_def in_gr = function
             | bound_name::tl_names ->
                let in_gr2 = {nmap=nmap;eset=eset;
                      symtab=(umap,vmap);typemap=tm;w=w} in
-               let n1,p1,ed_ty = find_incoming_regular_node mx mp mt in_gr2 in
+               let n1,p1,ed_ty =
+                 find_incoming_regular_node mx mp mt in_gr2 in
                add_multiarity_to_gr
                  (mx,mp+1,mt) tl_names
                  {nmap=nmap;eset=eset;
@@ -1595,6 +1596,7 @@ and do_simple_exp in_gr in_sim_ex =
      (match fn with
       | Function_name f ->
          (match f with
+          (*TODO: More libs *)
           | "ARRAY_ADDH" ->
              let in_port_00 = Array.make (1) "" in
              let out_port_00 = Array.make (1) "" in
@@ -1876,9 +1878,11 @@ and do_simple_exp in_gr in_sim_ex =
           (an,po,tyy),in_gr,vn_n
        | Tagcase_exp (exp) ->
           raise (Node_not_found "what do we do here") in
-     (** Walk over typemap lists and collect the union's tag#s **)
+     (** Walk over typemap lists and collect
+         the union's tag#s **)
      let tag_nums = enumerate_union_tags aunion_type in_gr in
-     (** The tags follow the union type in the above list, but
+     (** The tags follow the union type in
+         the above list, but
          the list needs reversing first. **)
      let tag_nums = List.tl (List.rev tag_nums) in
      (** get one subgraph for each tag in the variant
@@ -1889,13 +1893,15 @@ and do_simple_exp in_gr in_sim_ex =
      let output_type_list,tagcase_gr_,tag_map =
        let tagcase_gr_ =
          new_graph_for_tag_case vn_n aunion_type in_gr in
-       tag_builder aunion_type in_gr tagcase_gr_ tc vn_n IntMap.empty
+       tag_builder aunion_type in_gr tagcase_gr_
+         tc vn_n IntMap.empty
          IntMap.empty in
      (match o with
       | Otherwise e ->
-         let (outlis,ii,gr_o) = get_new_tagcase_graph
-                                  tagcase_gr_
-                                  (`OtherwiseTag) e in
+         let (outlis,ii,gr_o) =
+           get_new_tagcase_graph
+             tagcase_gr_
+             (`OtherwiseTag) e in
          let jj,gr_o = extr_types gr_o (outlis,IntMap.empty) in
          let _ = check_tag_types vn_n jj output_type_list in
          let (aa,bb,cc),tagcase_gr =
@@ -1943,57 +1949,97 @@ and do_simple_exp in_gr in_sim_ex =
      (** How are outputs tied to the
          compound node's outputs?
          Same with inputs **)
-     print_endline ("Lowering If-else\n" ^(str_if cl) ^ (str_else (Else el)));
-     let rec if_builder cl xyz in_gr_if els curr_num ty_lis_ret =
+     print_endline ("Lowering If-else\n" ^
+                      (str_if cl) ^
+                        (str_else (Else el)));
+     let rec if_builder cl xyz in_gr_if els curr_num
+               ty_lis_ret =
        (match cl with
         | (Cond (predicate,body))::tl ->
-           print_endline ("Lower predicated body\n" ^ (str_if cl));
-           (** get a new graph and put tl in it **)
+           print_endline ("Lower predicated body\n" ^
+                            (str_if cl));
+           (** Provide a new graph to add tl to it **)
            let ty_lis_ret,else_outs,else_gr =
              let grr_th = get_a_new_graph in_gr_if in
-             if_builder tl xyz grr_th els (curr_num+1) ty_lis_ret in
-           let bound_nodes_else = boundary_node_lookup else_gr in
+             if_builder tl xyz grr_th els
+               (curr_num+1) ty_lis_ret in
+           let bound_nodes_else = boundary_node_lookup
+                                    else_gr in
            let point_edges_to_boundary frm elp elt in_gr =
              match get_node frm in_gr with
              | Simple (_,MULTIARITY,_,_,_) ->
-                let  {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
-                let unwanted_edges =  (all_edges_ending_at frm in_gr) in
-                let nes = ES.diff pe unwanted_edges in
-                let red_nes,_ = redirect_edges 0 unwanted_edges in
+                (*In case frm is a MULTIARITY, redirect
+                  incoming edges to the boundary node.*)
+                let  {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi}
+                  = in_gr in
+                let unwanted_edges
+                  = (all_edges_ending_at frm in_gr) in
+                let in_str = ES.fold
+                               (fun hde res ->
+                                 let (x,xp),(y,yp),yt = hde in
+                                 ("(" ^ (string_of_int x) ^ "," ^
+                                    (string_of_int xp) ^
+                                      ") -> (" ^
+                                        (string_of_int y) ^
+                                          "," ^
+                                            (string_of_int yp) ^
+                                          ") of type: " ^
+                                            (string_of_int yt)
+                                            ^ "\n") ^ res)
+                               unwanted_edges "" in
+                print_endline ("Incoming edges to boundary:"
+                               ^ in_str);
+                (*let nes = ES.diff pe unwanted_edges in*)
+                let nes = pe in
+                let red_nes,_ = redirect_edges 0
+                                  unwanted_edges in
                 let nes = ES.union nes red_nes in
                 {nmap=nm;eset=nes;
                  symtab=sm;typemap=tm;w=pi}
              | _ -> add_edge frm elp 0 0 elt in_gr in
 
            let els,elp,elt = else_outs in
-           let ty_lis_else,else_gr = extr_types else_gr
-                                       (else_outs,IntMap.empty) in
-           let else_gr = point_edges_to_boundary els elp elt else_gr in
+           let _,else_p,else_t
+             = find_incoming_regular_node
+                 els elp elt else_gr in 
+           let ty_lis_else,else_gr =
+             extr_types else_gr
+               (else_outs,IntMap.empty) in
+           let else_gr = point_edges_to_boundary
+                           els elp elt else_gr in
 
-           let (else_n,else_p,else_t),in_gr_if =
+           let (else_n,_,_),in_gr_if =
              add_node_2
                (`Compound(
                     else_gr,
                     INTERNAL,0,
-                    [Name ("ELSE"^ (string_of_int curr_num))],[]))
+                    [Name ("ELSE"^
+                             (string_of_int curr_num))],[]))
                in_gr_if in
 
+           (* TODO:What is the context for this *)
            let in_gr_if = add_edges_to_boundary
                             else_gr in_gr_if else_n in
-           let in_outs,then_gr = do_exp (get_a_new_graph in_gr_if) body in
+           let in_outs,then_gr = do_exp
+                                   (get_a_new_graph in_gr_if)
+                                   body in
            let ty_lis_then,then_gr = extr_types then_gr
                                        (in_outs,IntMap.empty) in
 
            let then_s,then_p,then_t = in_outs in
+           let then_s,then_p,then_t =
+             find_incoming_regular_node then_s then_p then_t
+               then_gr in
            let then_gr = point_edges_to_boundary
                            then_s then_p then_t then_gr in
 
-           let (then_n,then_p,then_t),in_gr_if =
+           let (then_n,_,_),in_gr_if =
              add_node_2
                (`Compound(
                     then_gr,
                     INTERNAL,0,
-                    [Name ("BODY"^ (string_of_int curr_num))],[]))
+                    [Name ("BODY"^
+                             (string_of_int curr_num))],[]))
                in_gr_if in
 
            let in_gr_if = add_edges_to_boundary
@@ -2007,11 +2053,14 @@ and do_simple_exp in_gr in_sim_ex =
            let ty_lis,predicate_gr =
              extr_types predicate_gr (pred_out,IntMap.empty) in
 
-           let bound_nodes_pred = boundary_node_lookup predicate_gr in
            let pred_s,pred_p,pred_t = pred_out in
-           let predicate_gr = point_edges_to_boundary
-                                pred_s pred_p pred_t predicate_gr in
-           let (pn,pp,pt),in_gr_if =
+           let _,pp,pt =
+             find_incoming_regular_node
+                 pred_s pred_p pred_t predicate_gr in
+           let predicate_gr =
+             point_edges_to_boundary
+               pred_s pred_p pred_t predicate_gr in
+           let (pn,_,_),in_gr_if =
              add_node_2
                (`Compound(
                     predicate_gr,
