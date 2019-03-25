@@ -5,6 +5,6 @@ OUT00 [shape=rect;label="[]"];
 01 [shape=plaintext;label="1"];
 02 [shape=rect;label="2 ABUILD"];
 03 [shape=rect;label="3 MULTIARITY:%na=LET"]
-IN00 ->  02 [label="(0,1),Ty=0"]
-01 ->  02 [label="(0,0),Ty=0"]
+IN00 ->  02 [label="(0,1),Ty=5"]
+01 ->  02 [label="(0,0),Ty=5"]
 02 ->  03 [label="(0,0),Ty=7"]}

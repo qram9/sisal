@@ -1,5 +1,5 @@
 
-(* TODO: inputs to select do not seem to get from outer scope *)
+(* TO_TEST: inputs to select do not seem to get from outer scope *)
 (* many boundary boxes are empty *)
 
 (** Ideas here mostly come from the single paper:
@@ -31,7 +31,7 @@
     LET's are lowered here using hierarchical symtabs,
     with a parent symtab for enclosing-scope and
     one for current-scope.
-    
+
     Each lowering function below may start with a do_, for example,
     do_exp, do_simple_exp etc. Their purpose would be to recursively
     lower an incoming AST type (for the two mentioned above, exp,
@@ -144,7 +144,7 @@ let rec array_builder_exp ?(inc_typ=0) in_gr = function
                   ABUILD,
                   Array.make ((List.length fe_lis)+1) "",
                   Array.make 1 "" ,[None])) in_gr in
-         let in_gr = add_edge e p arrnum 0 0 in_gr in
+         let in_gr = add_edge e p arrnum 0 t1 in_gr in
          let in_gr = add_each_edge exp_l arrnum 1 in_gr in
          let t1 =
            if inc_typ = 0 then (
@@ -164,7 +164,7 @@ and add_each_edge edg_lis anode nn in_gr =
   (match edg_lis with
    | (edghd,edgp,tty)::edgtl ->
       add_each_edge edgtl anode (nn+1)
-        (add_edge edghd edgp anode nn 0 in_gr)
+        (add_edge edghd edgp anode nn tty in_gr)
    | [] -> in_gr)
 
 and add_edges_for_fields edg_lis anode nn in_gr =
@@ -802,7 +802,8 @@ and do_forall inexp bodyexp retexp in_gr =
            (print_endline ("Connect ASETL to boundary:");
             add_to_boundary_outputs aa1 cc tt in_gr)
          else
-           (print_endline ("Connect ASETL to MULTIARITY:"^(string_of_int mul_n));
+           (print_endline ("Connect ASETL to MULTIARITY:"
+                           ^(string_of_int mul_n));
             add_edge2 aa1 cc mul_n cc tt in_gr) in
        xy,in_gr
     | `AScatt xy ->
@@ -2001,7 +2002,7 @@ and do_simple_exp in_gr in_sim_ex =
            let els,elp,elt = else_outs in
            let _,else_p,else_t
              = find_incoming_regular_node
-                 els elp elt else_gr in 
+                 els elp elt else_gr in
            let ty_lis_else,else_gr =
              extr_types else_gr
                (else_outs,IntMap.empty) in
@@ -2341,59 +2342,6 @@ and add_return_gr in_gr body_gr ret_lis_a ret_lis_c =
     let in_gr = add_edge lx ly dd 0 (lookup_tyid CHARACTER) in_gr in
     let in_gr = add_edge 0 aa dd 1 tt in_gr in
     add_to_boundary_outputs dd ee tt in_gr in
-
-  (*let ret_gr,in_count,out_count,out_lis =
-    (* TODO Instead of folding right, we may
-      visit each element of each list (ret_lis_a,ret_lis_c)
-      to create masked outs *)
-    List.fold_right
-      (fun x (out_gr,in_count,out_count,out_lis) ->
-        (match x with
-         | `Array_of, tt, aa ->
-            let (dd,ee,ff),out_gr =
-              add_node_2 (
-                  `Simple (
-                      AGATHER,
-                      Array.make(2) "",
-                      Array.make(1) "",[None])) out_gr in
-            (** Create a type for AGATHER HERE AND ADD ITS TYPE TO
-                output ret_lis_a **)
-            let what_ty = find_ty in_gr (Array_ty tt) in
-            let out_gr = add_edge 0 0 dd 0 5 (*integer type for indx*) out_gr in
-            let out_gr = add_edge 0 aa dd 1 tt out_gr in
-            let out_gr = add_to_boundary_outputs dd ee what_ty out_gr in
-            (out_gr,in_count+2,out_count+1,out_lis@[`Array_of, what_ty, aa])
-         | `FinalVal, tt, aa ->
-            (
-              let (dd,ee,ff),out_gr =
-                add_node_2 (
-                    `Simple (
-                        FINALVALUE,
-                        Array.make(2) "",
-                        Array.make(1) "",[None])) out_gr in
-              let out_gr = add_edge 0 aa dd 0 tt out_gr in
-              add_to_boundary_outputs dd ee tt out_gr,
-             in_count+1,out_count+1,out_lis@[`FinalVal, tt, aa])
-         | `Reduce (`JustReduce, red_fn), tt, aa ->
-            let out_gr = do_reduc ((`JustReduce,red_fn),tt,aa) None in_gr in
-            (out_gr,in_count+1,out_count+1,
-             out_lis@[`Reduce (`JustReduce, red_fn),tt,aa])
-         | `Reduce (`RedLeft, red_fn), tt, aa ->
-            let out_gr = do_reduc ((`RedLeft,red_fn),tt,aa) None in_gr in
-            (out_gr,in_count+1,out_count+1,
-             out_lis@[`Reduce (`RedLeft, red_fn),tt,aa])
-         | `Reduce (`RedRight, red_fn), tt, aa ->
-            let out_gr = do_reduc ((`RedRight,red_fn),tt,aa) None in_gr in
-            (out_gr,in_count+1,out_count+1,
-             out_lis@[`Reduce (`RedRight, red_fn),tt,aa])
-         | `Reduce (`RedTree, red_fn), tt, aa ->
-            let out_gr = do_reduc ((`RedTree,red_fn),tt,aa) None in_gr in
-            (out_gr,in_count+1,out_count+1,
-             out_lis@[`Reduce (`RedTree, red_fn),tt,aa])
-         | `Stream_of, tt, aa ->
-            (out_gr,in_count+1,out_count+1, out_lis@[`Stream_of, tt, aa])))
-      ret_lis_a (ret_gr,0,0,[]) in *)
-
   let ret_gr,in_count,out_count,out_lis =
     let rec create_return_nodes
               out_gr in_count out_count
@@ -2413,7 +2361,8 @@ and add_return_gr in_gr body_gr ret_lis_a ret_lis_c =
              (** Create a type for AGATHER HERE AND ADD ITS TYPE TO
                 output ret_lis_a **)
              let what_ty = find_ty in_gr (Array_ty tt) in
-             let out_gr = add_edge 0 0 dd 0 5 (*integer type for indx*) out_gr in
+             let out_gr = add_edge 0 0 dd 0 5
+                            (*integer type for indx*) out_gr in
              let out_gr = add_edge 0 aa dd 1 tt out_gr in
              let out_gr = add_to_boundary_outputs dd ee what_ty out_gr in
              let out_gr =

@@ -953,8 +953,8 @@ and map_exp in_gr in_explist expl appl =
   match in_explist with
   | [] -> (expl,in_gr)
   | hde::tl ->
-     let (lasti,pp,_),in_gr = (appl in_gr hde) in
-     map_exp in_gr tl (expl@[(lasti,pp,0)]) appl
+     let (lasti,pp,tt),in_gr = (appl in_gr hde) in
+     map_exp in_gr tl (expl@[(lasti,pp,tt)]) appl
 
 and add_a_tag (namen,tagty,ss) ((id,p,q),in_gr) =
   let (tt_id,ii,_),in_gr = add_sisal_type in_gr tagty in
