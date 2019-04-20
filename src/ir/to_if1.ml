@@ -505,6 +505,8 @@ and add_exp in_gr ex lasti ret_lis =
          let {nmap = nm;eset = _;symtab = (_,_);
               typemap = _;w = _} = in_gr in
          let rec fold_away_multiarity_nodes alis oth_lis =
+           (* Move CAR from alis to oth_lis, but only
+              when CAR is non-MULTIARITY *)
            match alis with
            | (ahd,apo,aed_ty)::atl ->
               let new_alis,new_oth_lis =
