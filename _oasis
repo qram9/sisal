@@ -23,4 +23,3 @@ Library ir
   Path: src/ir
   Modules: Ast, If1, To_if1
   BuildDepends: unix
-

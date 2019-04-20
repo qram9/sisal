@@ -24,7 +24,9 @@ module StringMap = Map.Make(
 type label_or_none = Som of int | Emp
 
 type node_sym =
+  | BOUNDARY
   | CONSTANT
+  | GRAPH
   | OLD
   | VAL
   | INVOCATION
@@ -383,6 +385,279 @@ and update_node n_int nnode in_gr =
 
 and get_boundary_node {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} =
   NM.find 0 nm
+
+and cse_by_height in_gr =
+  let {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} = in_gr in
+  (*TODO: Write a recursive walker. *)
+  (*TODO: Understand the flow here *)
+  (* Each edge starts at a node,port and
+     ends at another node,port.
+      (x,xp) -> (y,yp), with type ed_ty:
+      (x,xp,y,yp,ed_ty).
+      Pred of y, is a reversing of the arrow
+      or by adjusting the tuple like this:
+      (yp,x,xp,ed_ty):
+      incoming port is yp, src# is x,
+      src out-port is xp, type ed_ty.
+      Similarly, for each x, the tuples
+      that describe the arrow
+      going out is (xp,y,yp,ed_ty).
+      That shall be used along with the
+      opcode, xn, to describe the outgoing edge.
+      Similarly, (yn,y,yp,xp,ed_ty) will
+      describe a pred-edge with the node-type
+      of y: yn. Suppose we have a binary
+      operation, for ex,
+      opcode:ADD,
+      Preds:
+      Op1:(xp1,y1,yp1,ed_ty)
+      Op2:(xp2,y2,yp2,ed_ty).
+      Folding the tree to a list gives:
+      [ADD;xp1;y1;yp1;ed_ty;xp2;y2;yp2;ed_ty]
+      A duplicate operation needs to have the
+      same content as above.
+      The cse algorithm operate from
+      inner-most graphs outwards, in post-order.
+      Upon looking at the nodes in a graph, a
+      height relation is first obtained.
+      The top-level is called
+      cse_by_height.
+      The height relation function is called
+      get_height. It would start with
+      the height of incoming boundary node to 0.
+      Then the height of internal nodes are
+      calculated by getting the max of children
+      heights, with a recursive walk that
+      ends on the outgoing boundary node,
+      again numbered 0.
+   *)
+  let string_of_5_ints (a,b,c,d,e) =
+    (* Print a single predecessor, represented
+       as a 5 tup *)
+    "[" ^ (String.concat ";"
+             ((string_of_node_sym
+                 (num_to_node_sym a))::
+                (List.map string_of_int [b;c;d;e]))) ^ "]" in
+  let string_of_pred_lis anod map_pred =
+    (* Given a node number, print its predecessors *)
+    if (IntMap.mem anod map_pred = true)
+    then
+      List.fold_left (
+          fun zz cur ->
+          cate_nicer
+            zz
+            ((string_of_5_ints cur))
+            ";") "" (IntMap.find anod map_pred)
+    else
+      "" in
+  let rec cse_trees es nm =
+    let sort_maps amap =
+      (* Sort incoming edges by incoming port#, field#4*)
+      let compare_5 (_,_,_,a,_) (_,_,_,b,_) =
+        compare a b in
+      IntMap.fold (
+          fun ke va ret_map ->
+          IntMap.add ke
+            (List.sort compare_5 va) ret_map)
+        amap IntMap.empty in
+    ES.fold
+      (fun ((x,xp),(y,yp),ed_ty)
+           (node_l,nm,init_height,map_succ,map_pred) ->
+        let node_l,init_height =
+          match IntMap.mem x init_height with
+          | true -> node_l,init_height
+          | false -> x::node_l, IntMap.add x 0 init_height in
+        let xnm = NM.find x nm in
+        let ynm = NM.find y nm in
+        let xn = match xnm with
+          | Simple (lab,n,_,_,_) -> n
+          | Boundary _ -> BOUNDARY
+          | Rajathi ->
+             raise (Sem_error "Internal, unreachable cse_height_xn")
+          | Literal _ -> CONSTANT
+          | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+
+        let yn = match ynm with
+          | Simple (lab,n,_,_,_) -> n
+          | Boundary _ -> BOUNDARY
+          | Literal _ -> CONSTANT
+          | Rajathi ->
+             raise (Sem_error "Internal, unreachable cse_height_yn")
+          | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+
+        match xn with
+        | GRAPH ->
+           let (lab,sy,ty,prag,subgr,assoc) = match xnm with
+             |  Compound (lab, sy, ty, pl, g, assoc) ->
+                 lab,sy,ty,pl,g,assoc
+             | _ ->
+                raise (Sem_error "Internal, unreachable") in
+           let subgr = cse_by_height subgr in
+           let out_nm =
+             NM.add x
+               (Compound (y,sy,ty,prag,subgr,assoc)) nm in
+           (node_l,out_nm,init_height,map_succ,map_pred)
+        | _ ->
+           let map_succ =
+             match IntMap.mem x map_succ with
+             | true ->
+                IntMap.add x
+                  (((node_sym_to_num xn),xp,y,yp,ed_ty)::
+                     (IntMap.find x map_succ)) map_succ
+             | false ->
+                IntMap.add x
+                  (((node_sym_to_num xn),xp,y,yp,ed_ty)::[])
+                  map_succ in
+           let map_pred =
+             match IntMap.mem y map_pred with
+             | true ->
+                IntMap.add y
+                  (((node_sym_to_num yn),x,xp,yp,ed_ty)::
+                     (IntMap.find y map_pred)) map_pred
+             | false ->
+                IntMap.add y
+                  (((node_sym_to_num yn),x,xp,yp,ed_ty)::[])
+                  map_pred in
+           let map_pred = sort_maps map_pred in
+           let map_succ = sort_maps map_succ in
+           (node_l,nm,init_height,map_succ,map_pred)) es
+      ([],nm,IntMap.empty,IntMap.empty, IntMap.empty) in
+
+  let fold_pred_to_one_lis anod map_pred =
+    if (IntMap.mem anod map_pred = true) then
+      let pred_lis = IntMap.find anod map_pred in
+      let pred_lis =
+        List.fold_right (fun (a,b,c,d,e) zz ->
+            a::b::c::d::e::zz) pred_lis [] in
+      pred_lis @ [-1;anod]
+    else [] in
+
+  let rec get_height cur map_pred h rev_h =
+    let append_or_add rev_h nod num =
+      if (IntMap.mem num rev_h) = true
+      then
+        (IntMap.add num
+           (IntSet.add nod (IntMap.find num rev_h))
+           rev_h)
+      else
+        (IntMap.add num
+           (IntSet.add nod IntSet.empty) rev_h) in
+    if cur = 0
+    then
+      ((IntMap.add cur 0 h),
+       (append_or_add rev_h cur 0))
+    else
+      (if (IntMap.mem cur h) = true
+       then
+         (h,rev_h)
+       else
+         (let cur_h,h,rev_h =
+            let rec max_of_preds cur_max alis h rev_h =
+              match alis with
+              | [] -> cur_max,h,rev_h
+              | (_,ahd,_,_,_)::atl ->
+                 let h,rev_h = get_height
+                                 ahd map_pred h rev_h in
+                 let ahd_h = IntMap.find ahd h in
+                 let cur_max,h,rev_h =
+                   if (cur_max < ahd_h)
+                   then
+                     (ahd_h,h,rev_h)
+                   else
+                     (cur_max,h,rev_h) in
+                 max_of_preds cur_max atl h rev_h in
+            if ((IntMap.mem cur map_pred) = false)
+            then
+              (0,h,rev_h)
+            else
+              (let ret_h,h,rev_h =
+                 (max_of_preds 0
+                    (IntMap.find cur map_pred) h rev_h) in
+               ret_h+1,h,rev_h) in
+          IntMap.add cur cur_h h,
+          append_or_add rev_h cur cur_h)) in
+  let node_l,nm,init_height,map_succ,map_pred =
+    cse_trees es nm in
+  print_endline
+    (string_of_graph in_gr);
+  print_endline
+    ("PRED_MAP:\n" ^
+       (IntMap.fold (
+            fun nod ed z ->
+            (string_of_int nod) ^
+              (" -> " ^
+                 (List.fold_right
+                    (fun x y ->
+                      cate_nicer
+                        (string_of_5_ints x) y ",")
+                    ed ""))) map_pred ""));
+  print_endline
+    ("SUCC_MAP:\n" ^
+       (IntMap.fold (
+            fun nod ed z ->
+            (string_of_int nod) ^
+              (" -> " ^
+                 (List.fold_right
+                    (fun x y ->
+                      cate_nicer
+                        (string_of_5_ints x) y ",")
+                    ed ""))) map_succ ""));
+  let height_map,rev_height_map =
+    List.fold_left
+      (fun (height_map,rev_h) cur ->
+        get_height cur map_pred height_map rev_h)
+      (IntMap.empty,IntMap.empty) node_l in
+  print_endline
+    ("Height:\n" ^
+       (IntMap.fold (
+            fun nod h z ->
+            (string_of_int nod) ^
+              " -> " ^ (string_of_int h) ^ "\n" ^ z)
+          height_map ""));
+  print_endline
+    ("RevHeight:\n" ^
+       (IntMap.fold (
+            fun nod h z ->
+            (string_of_int nod) ^
+              " -> " ^
+                (IntSet.fold
+                   (fun cur yy ->
+                     (cate_nicer
+                        (cate_nicer
+                           (string_of_int cur)
+                           (string_of_pred_lis cur map_pred) ":")
+                        yy "\n     "))
+                   h "") ^ "\n" ^ z)
+          rev_height_map ""));
+  let rev_height_map_folded =
+    IntMap.fold (
+        fun nod ed z ->
+        IntMap.add nod
+          (IntSet.fold
+             (fun cur yy ->
+               let folded_lis =
+                 fold_pred_to_one_lis cur map_pred in
+               folded_lis::yy)
+             ed []) z) rev_height_map IntMap.empty in
+  let height_bound_blocks =
+    IntMap.bindings rev_height_map_folded in
+  print_endline
+    (List.fold_right
+       (fun (xh,blocks) last_set ->
+         cate_nicer
+           ("AT HEIGHT:" ^ (string_of_int xh) ^ "\n" ^
+              (List.fold_right
+                 (fun blk last_blk ->
+                   cate_nicer
+                     ("    {" ^
+                        (String.concat ";"
+                           (List.map string_of_int blk)) ^ "}")
+                     last_blk
+                     "\n")
+                 blocks ""))
+           last_set
+           "\n") height_bound_blocks "");
+  {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi}
 
 and add_to_boundary_outputs ?(start_port=0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
@@ -807,7 +1082,9 @@ and node_incoming_at_port n1 p in_gr =
     try
       let (x,y),(u,v),ty = List.hd edges in (x,y,ty)
     with _ ->
-      print_endline ("Error when looking up node incoming to port");
+      write_any_dot_file "ERROR.dot" in_gr;
+      print_string ("Error when looking up node incoming to port");
+      print_int p;print_char '\n';
       print_endline (string_of_graph in_gr);
       Printexc.print_raw_backtrace stdout (Printexc.get_callstack 20);
       raise (Sem_error ("Failing with node incoming at port:" ^
@@ -868,17 +1145,17 @@ and fold_multiarity_edge n1 n2 in_gr =
                     (ES.diff ending_at edges) in
   let { nmap = nm;
         eset = es;
-        symtab = sm;typemap = tm;w = pi;} = in_gr in
+        symtab = sm;typemap = tm;w = pi; } = in_gr in
   let es = ES.union
              redir_set in
   let  { nmap = nm; eset = es;
-         symtab = sm;typemap = tm;w = pi;} =
+         symtab = sm;typemap = tm;w = pi; } =
     ES.fold (
         fun ((x,xp),(y,yp),yt) gr ->
         add_edge x xp y yp yt gr) redir_set in_gr in
   let es = (ES.diff (ES.diff es ending_at) edges) in
   let in_gr =  { nmap = nm; eset = es;
-                 symtab = sm;typemap = tm;w = pi;} in
+                 symtab = sm;typemap = tm;w = pi; } in
   in_gr
 
 and add_each_in_list in_gr ex lasti appl =
@@ -1137,9 +1414,118 @@ and get_a_new_graph in_gr =
    typemap=tmn1;w=tail} in
   print_endline "After creating a new graph";
   print_endline (string_of_graph out_gr); out_gr
+and num_to_node_sym = function
+  |	0	->	   BOUNDARY
+  |	1	->	   CONSTANT
+  |	2	->	   GRAPH
+  |	3	->	   OLD
+  |	4	->	   VAL
+  |	5	->	   INVOCATION
+  |	6	->	   NOT
+  |	7	->	   NEGATE
+  |	8	->	   ACATENATE
+  |	9	->	   AND
+  |	10	->	   DIVIDE
+  |	11	->	   TIMES
+  |	12	->	   SUBTRACT
+  |	13	->	   ADD
+  |	14	->	   OR
+  |	15	->	   NOT_EQUAL
+  |	16	->	   EQUAL
+  |	17	->	   LESSER_EQUAL
+  |	18	->	   LESSER
+  |	19	->	   GREATER_EQUAL
+  |	20	->	   GREATER
+  |	21	->	   RBUILD
+  |	22	->	   RELEMENTS
+  |	23	->	   RREPLACE
+  |	24	->	   SBUILD
+  |	25	->	   SAPPEND
+  |	26	->	   TAGCASE
+  |	27	->	   SELECT
+  |	28	->	   RANGEGEN
+  |	29	->	   AADDH
+  |	30	->	   AADDL
+  |	31	->	   ABUILD
+  |	32	->	   AELEMENT
+  |	33	->	   AFILL
+  |	34	->	   AGATHER
+  |	35	->	   AISEMPTY
+  |	36	->	   ALIML
+  |	37	->	   ALIMH
+  |	38	->	   AREPLACE
+  |	39	->	   AREML
+  |	40	->	   AREMH
+  |	41	->	   ASCATTER
+  |	42	->	   ASETL
+  |	43	->	   ASIZE
+  |	44	->	   INTERNAL
+  |	45	->	   REDUCE
+  |	46	->	   REDUCELEFT
+  |	47	->	   REDUCERIGHT
+  |	48	->	   REDUCETREE
+  |	49	->	   STREAM
+  |	50	->	   FINALVALUE
+  |	51	->	   MULTIARITY
+  | _ -> raise (Sem_error  "Error looking up type")
+and node_sym_to_num = function
+  | BOUNDARY	->	0
+  | CONSTANT	->	1
+  | GRAPH	->	2
+  | OLD	        ->	3
+  | VAL	        ->	4
+  | INVOCATION	->	5
+  | NOT	        ->	6
+  | NEGATE	->	7
+  | ACATENATE	->	8
+  | AND	        ->	9
+  | DIVIDE	->	10
+  | TIMES	->	11
+  | SUBTRACT	->	12
+  | ADD	        ->	13
+  | OR	        ->	14
+  | NOT_EQUAL	->	15
+  | EQUAL	->	16
+  | LESSER_EQUAL ->	17
+  | LESSER	 ->	18
+  | GREATER_EQUAL ->	19
+  | GREATER	->	20
+  | RBUILD	->	21
+  | RELEMENTS	->	22
+  | RREPLACE	->	23
+  | SBUILD	->	24
+  | SAPPEND	->	25
+  | TAGCASE	->	26
+  | SELECT	->	27
+  | RANGEGEN	->	28
+  | AADDH	->	29
+  | AADDL	->	30
+  | ABUILD	->	31
+  | AELEMENT	->	32
+  | AFILL	->	33
+  | AGATHER	->	34
+  | AISEMPTY	->	35
+  | ALIML	->	36
+  | ALIMH	->	37
+  | AREPLACE	->	38
+  | AREML	->	39
+  | AREMH	->	40
+  | ASCATTER	->	41
+  | ASETL	->	42
+  | ASIZE	->	43
+  | INTERNAL	->	44
+  | REDUCE	->	45
+  | REDUCELEFT	->	46
+  | REDUCERIGHT	->	47
+  | REDUCETREE	->	48
+  | STREAM	->	49
+  | FINALVALUE	->	50
+  | MULTIARITY	->	51
 
 and string_of_node_sym = function
+  | BOUNDARY     -> "BOUNDARY"
   | CONSTANT     -> "CONSTANT"
+  | GRAPH        -> "GRAPH"
   | OLD          -> "OLD"
   | VAL          -> "VAL"
   | INVOCATION   -> "INVOCATION"
@@ -1530,7 +1916,7 @@ and string_of_triple_int (i,j,k) =
              ")")
 
 and string_of_triple_int_list zz =
-  List.fold_left (fun zz (i,j,k) -> (string_of_triple_int (i,j,k)) ^ zz) "" zz
+  List.fold_left (fun zz (i,j,k) -> zz ^ (string_of_triple_int (i,j,k))) "" zz
 
 and string_of_graph ?(offset=0)
 {nmap=nm;eset=ne;symtab=sm;typemap=(t,tm,tmn);w=tail} =
