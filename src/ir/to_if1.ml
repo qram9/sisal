@@ -1,5 +1,8 @@
-
+(* TEST about multiple definition to same variable in a scope,
+   add scope numbers, level etc. *)
+(* Can we add array dope-vectors *)
 (* TO_TEST: inputs to select do not seem to get from outer scope *)
+(* TODO: forall do not seem to pull inputs from outside *)
 (* many boundary boxes are empty *)
 
 (** Ideas here mostly come from the single paper:
@@ -485,35 +488,49 @@ and add_exp in_gr ex lasti ret_lis =
       MULTIARITY. *)
   match ex with
   | [] ->
-      if (List.length ret_lis) != 0 then(
-          (let in_port_1 =
-             let in_array = Array.make (List.length ret_lis) "" in
-             in_array in
-           let out_port_1 =
-             let out_array = Array.make (List.length ret_lis) "" in
-             out_array in
-           let (oo,op,ot),in_gr =
-             add_node_2 (
-                 `Simple
-                   (MULTIARITY, in_port_1, out_port_1,
-				[Name "LET"])) in_gr in
-	   print_endline "Adding multiarity edges for an EXP list:";
-           let rec add_all_edges_to_multiarity
-                     (mo,mp,mt) in_gr = function
-             | [] ->
-               print_endline (string_of_node mo in_gr);
-               (mo,mp,mt),in_gr
-             | (hdn,hdp,hdt)::tl ->
-                print_endline (string_of_node hdn in_gr);
-                add_all_edges_to_multiarity
-                  (mo,mp+1,mt)
-                  (add_edge hdn hdp mo mp hdt in_gr)
-                  tl in
-           let xyz,in_gr = add_all_edges_to_multiarity
-                             (oo,op,ot) in_gr ret_lis in
-           (oo,op,ot),in_gr))
-    else (
-	  (0,0,0),in_gr)
+     if (List.length ret_lis) != 0
+     then
+       ((let in_port_1 =
+           let in_array = Array.make (List.length ret_lis) "" in
+           in_array in
+         let out_port_1 =
+           let out_array = Array.make (List.length ret_lis) "" in
+           out_array in
+         let (oo,op,ot),in_gr =
+           add_node_2 (
+               `Simple
+                 (MULTIARITY, in_port_1, out_port_1,
+		  [Name "LET"])) in_gr in
+	 print_endline "Adding multiarity edges for an EXP list:";
+         let {nmap = nm;eset = _;symtab = (_,_);
+              typemap = _;w = _} = in_gr in
+         let rec fold_away_multiarity_nodes alis oth_lis =
+           match alis with
+           | (ahd,apo,aed_ty)::atl ->
+              let new_alis,new_oth_lis =
+                match NM.find ahd nm with
+                | Simple(lab,MULTIARITY,_,_,_) ->
+                   (all_nodes_joining_at (ahd,apo,aed_ty) in_gr)@atl,oth_lis
+                | _ -> atl,(ahd,apo,aed_ty)::oth_lis in
+              fold_away_multiarity_nodes new_alis new_oth_lis
+           | [] -> alis,oth_lis in
+         let _,ret_lis = fold_away_multiarity_nodes ret_lis [] in
+         let rec add_all_edges_to_multiarity
+                   (mo,mp,mt) in_gr = function
+           | [] ->
+              print_endline (string_of_node mo in_gr);
+              (mo,mp,mt),in_gr
+           | (hdn,hdp,hdt)::tl ->
+              print_endline (string_of_node hdn in_gr);
+              add_all_edges_to_multiarity
+                (mo,mp+1,mt)
+                (add_edge hdn hdp mo mp hdt in_gr)
+                tl in
+         let xyz,in_gr = add_all_edges_to_multiarity
+                           (oo,op,ot) in_gr ret_lis in
+         (oo,0,ot),in_gr))
+     else
+       ((0,0,0),in_gr)
   | hde::tl ->
      print_endline "Lowering exp with add_exp:";
      print_endline (str_simple_exp hde);
@@ -860,6 +877,8 @@ and do_forall inexp bodyexp retexp in_gr =
        let body_gr = output_to_boundary ret_lis_b body_gr in
        (** Connect Results To Body's Boundary *)
        let body_gr = output_to_boundary_with_none ret_lis_c body_gr in
+
+       let testss = cse_by_height body_gr in
 
        (** Build Return-Signature To Provide To Outer
            Loop In Order To Build Its Returns Graph. *)
