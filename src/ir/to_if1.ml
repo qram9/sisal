@@ -880,8 +880,6 @@ and do_forall inexp bodyexp retexp in_gr =
        (** Connect Results To Body's Boundary *)
        let body_gr = output_to_boundary_with_none ret_lis_c body_gr in
 
-       let testss = cse_by_height body_gr in
-
        (** Build Return-Signature To Provide To Outer
            Loop In Order To Build Its Returns Graph. *)
        let ret_lis_a,_,cou =
@@ -1083,6 +1081,31 @@ and do_decldef_part in_gr = function
 
 and do_def in_gr = function
   | Def (bound_names,y) ->
+     (* Things get confusing, no doubt:
+     LET
+     X := 1;
+     Y,Z :=
+       LET
+         X := 2;
+         Y := 3 IN
+       X + Y,X - Y
+       END LET
+     IN
+     X * Y + Z
+     END LET
+
+     x * y + z for
+               (x for x = 1;
+               y,z = ( x+y,x-y ) for x = 2, y = 3)
+     The exp above without any paren - that is the outer
+     one. That use 1 for x, (2+3) for y and (2-3) for z.
+     We specify bound values before specifying the
+     function's body. Names are shared all over.
+     That is all going to add to confusion.
+     The numbering technique is not used in this lowering.
+     I think it may help.
+      *)
+
      (** WHY ARE MULTIARITY EDGES HERE MISSING TYPES **)
      let named_exp = match y with
        | Exp ee ->
@@ -1092,7 +1115,7 @@ and do_def in_gr = function
 	  print_endline (string_of_triple_int (mx,mp,mt));
 	  print_endline (string_of_node mx in_gr);
           let rec add_multiarity_to_gr (mx,mp,mt) bound_names
-                    {nmap=nmap;eset=eset;
+     {nmap=nmap;eset=eset;
                      symtab=(umap,vmap);typemap=tm;w=w} =
             match bound_names with
             | [] ->
@@ -2577,7 +2600,7 @@ and do_compilation_unit = function
      (** Add each function in the list **)
      let xyz,in_gr =
        add_each_in_list in_gr fdefs 0 do_function_def in
-     xyz, in_gr
+     xyz, cse_by_part in_gr
 
 and do_type_def in_gr = function
   | Type_def(n,t) ->
