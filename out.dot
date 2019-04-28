@@ -5,21 +5,40 @@ OUT00 [shape=rect;label="[]"];
 subgraph cluster_01 {
 label="1 ";
 IN01 [shape=rect;label="ARRAY 8;Y;(0,2)\nINTEGRAL;N;(0,0)\nINTEGRAL;M;(0,1)"];
-OUT01 [shape=rect;label="[(12,0)]%na=MAIN"];
+OUT01 [shape=rect;label="[(16,0);(18,0)]%na=MAIN"];
 11 [shape=plaintext;label="1"];
 13 [shape=plaintext;label="2"];
 15 [shape=plaintext;label="3"];
 17 [shape=rect;label="7 ADD"];
-18 [shape=rect;label="8 SUBTRACT"];
+18 [shape=rect;label="8 TIMES"];
+19 [shape=rect;label="9 ADD"];
+110 [shape=rect;label="10 TIMES"];
 111 [shape=rect;label="11 TIMES"];
-112 [shape=rect;label="12 ADD"]
-11 ->  111 [label="(0,0),Ty=5"]
+112 [shape=rect;label="12 ADD"];
+115 [shape=rect;label="15 TIMES"];
+116 [shape=rect;label="16 ADD"];
+117 [shape=rect;label="17 TIMES"];
+118 [shape=rect;label="18 ADD"]
+11 ->  115 [label="(0,0),Ty=5"]
+11 ->  117 [label="(0,0),Ty=5"]
 13 ->  17 [label="(0,0),Ty=5"]
 13 ->  18 [label="(0,0),Ty=5"]
+13 ->  110 [label="(0,0),Ty=5"]
+13 ->  111 [label="(0,0),Ty=5"]
 15 ->  17 [label="(0,1),Ty=5"]
 15 ->  18 [label="(0,1),Ty=5"]
-17 ->  112 [label="(0,1),Ty=5"]
-18 ->  111 [label="(0,1),Ty=5"]
+15 ->  110 [label="(0,1),Ty=5"]
+15 ->  111 [label="(0,1),Ty=5"]
+17 ->  19 [label="(0,0),Ty=5"]
+19 ->  116 [label="(0,1),Ty=5"]
+19 ->  118 [label="(0,1),Ty=5"]
+111 ->  19 [label="(0,1),Ty=5"]
 111 ->  112 [label="(0,0),Ty=5"]
-112 ->  OUT01 [label="(0,0),Ty=5"]
+111 ->  112 [label="(0,1),Ty=5"]
+112 ->  115 [label="(0,1),Ty=5"]
+112 ->  117 [label="(0,1),Ty=5"]
+117 ->  116 [label="(0,0),Ty=5"]
+117 ->  118 [label="(0,0),Ty=5"]
+118 ->  OUT01 [label="(0,0),Ty=5"]
+118 ->  OUT01 [label="(0,1),Ty=5"]
 }}

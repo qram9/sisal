@@ -1,6 +1,7 @@
 open Ast
 open Format
 open Printf
+open Filename
 
 (** TODO: FOLDING OF MULTIARITY SEEMS IFFY **)
 
@@ -386,10 +387,288 @@ and update_node n_int nnode in_gr =
 and get_boundary_node {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} =
   NM.find 0 nm
 
-and cse_by_height in_gr =
-  let {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} = in_gr in
-  (*TODO: Write a recursive walker. *)
-  (*TODO: Understand the flow here *)
+and string_of_list_of_list alist_lis out_s =
+  match alist_lis with
+  | ahd::atl ->
+     string_of_list_of_list atl
+       ("[" ^ (String.concat ";"
+                 (List.map (fun (_,y) -> string_of_int y)
+                    ahd)) ^ "]")
+  | _ -> out_s
+
+and string_of_height_list height_list height_num =
+  match height_list with
+  | alis_lis::alis_tl ->
+     cate_nicer
+       ((string_of_int height_num) ^
+          " : " ^ (string_of_list_of_list alis_lis ""))
+       (string_of_height_list alis_tl (height_num+1))
+       "\n"
+  | [] -> ""
+
+and string_of_5_ints (a,b,c,d,e) =
+  (* Print a single predecessor, represented
+       as a 5 tup *)
+  "[" ^ (String.concat ";"
+           ((string_of_node_sym
+               (num_to_node_sym a))::
+              (List.map string_of_int [b;c;d;e]))) ^ "]"
+
+and string_of_pred_lis anod map_pred =
+  (* Given a node number, print its predecessors *)
+  if (IntMap.mem anod map_pred = true)
+  then
+    List.fold_left (
+        fun zz cur ->
+        cate_nicer
+          zz
+          ((string_of_5_ints cur))
+          ";") "" (IntMap.find anod map_pred)
+  else ""
+
+and get_pred_lis anod map_pred =
+  if (IntMap.mem anod map_pred = true)
+  then
+    List.fold_right
+      (fun cur zz ->
+        let a,b,c,d,e = cur in
+        a::b::c::d::e::zz) (IntMap.find anod map_pred) [-1]
+  else [anod;-1]
+
+and sort_maps amap =
+  (* Sort incoming edges by incoming port#, field#4*)
+  let compare_5 (_,_,_,a,_) (_,_,_,b,_) =
+    compare a b in
+  IntMap.fold (
+      fun ke va ret_map ->
+      IntMap.add ke
+        (List.sort compare_5 va) ret_map)
+    amap IntMap.empty
+
+and fold_pred_to_one_lis anod map_pred =
+  if (IntMap.mem anod map_pred = true) then
+    let pred_lis = IntMap.find anod map_pred in
+    let pred_lis =
+      List.fold_right (fun (a,b,c,d,e) zz ->
+          a::b::c::d::e::-1::zz) pred_lis [] in
+    pred_lis @ [-1;anod]
+  else []
+
+and append_or_add rev_h nod num =
+  if (IntMap.mem num rev_h) = true
+  then
+    (IntMap.add num
+       (IntSet.add nod (IntMap.find num rev_h))
+       rev_h)
+  else
+    (IntMap.add num
+       (IntSet.add nod IntSet.empty) rev_h)
+
+and max_of_preds cur_max alis h rev_h map_pred cur_gr =
+  match alis with
+  | [] -> cur_max,h,rev_h
+  | (_,ahd,_,_,_)::atl ->
+     let h,rev_h = get_height
+                     ahd map_pred h rev_h cur_gr in
+     let ahd_h = IntMap.find ahd h in
+     let cur_max,h,rev_h =
+       if (cur_max < ahd_h)
+       then
+         (ahd_h,h,rev_h)
+       else
+         (cur_max,h,rev_h) in
+     max_of_preds cur_max atl h rev_h map_pred cur_gr
+
+and get_height cur map_pred h rev_h cur_gr =
+  (if cur = 0
+   then
+     ((IntMap.add cur 0 h),
+      (append_or_add rev_h cur 0))
+   else
+     (if (IntMap.mem cur h) = true
+      then
+        (h,rev_h)
+      else
+        (let cur_h,h,rev_h =
+           if ((IntMap.mem cur map_pred) = false)
+           then
+             (0,h,rev_h)
+           else
+             (let ret_h,h,rev_h =
+                (max_of_preds 0
+                   (IntMap.find cur map_pred) h rev_h)
+                  map_pred cur_gr in
+              ret_h+1,h,rev_h) in
+         IntMap.add cur cur_h h,
+         append_or_add rev_h cur cur_h)))
+
+and cse_trees es nm =
+  ES.fold
+    (fun ((x,xp),(y,yp),ed_ty)
+         (node_l,nm,init_height,map_succ,map_pred) ->
+      let node_l,init_height =
+        match IntMap.mem x init_height with
+        | true -> node_l,init_height
+        | false -> x::node_l, IntMap.add x 0 init_height in
+      let xnm = NM.find x nm in
+      let ynm = NM.find y nm in
+      let xn = match xnm with
+        | Simple (lab,n,_,_,_) -> n
+        | Boundary _ -> BOUNDARY
+        | Rajathi ->
+           raise (Sem_error "Internal, unreachable cse_height_xn")
+        | Literal _ -> CONSTANT
+        | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+
+      let yn = match ynm with
+        | Simple (lab,n,_,_,_) -> n
+        | Boundary _ -> BOUNDARY
+        | Literal _ -> CONSTANT
+        | Rajathi ->
+           raise (Sem_error "Internal, unreachable cse_height_yn")
+        | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+
+      if xn != GRAPH && yn != GRAPH
+      then
+        (* True body when xn and yn are not GRAPHS *)
+        let map_succ =
+          match IntMap.mem x map_succ with
+          | true ->
+             IntMap.add x
+               (((node_sym_to_num xn),xp,y,yp,ed_ty)::
+                  (IntMap.find x map_succ)) map_succ
+          | false ->
+             IntMap.add x
+               (((node_sym_to_num xn),xp,y,yp,ed_ty)::[])
+               map_succ in
+        let map_pred =
+          match IntMap.mem y map_pred with
+          | true ->
+             IntMap.add y
+               (((node_sym_to_num yn),x,xp,yp,ed_ty)::
+                  (IntMap.find y map_pred)) map_pred
+          | false ->
+             IntMap.add y
+               (((node_sym_to_num yn),x,xp,yp,ed_ty)::[])
+               map_pred in
+        let map_pred = sort_maps map_pred in
+        let map_succ = sort_maps map_succ in
+        (node_l,nm,init_height,map_succ,map_pred)
+      else
+        (* False Body when either xn and yn are GRAPHS.
+           Not sure what to do here.*)
+        (node_l,nm,init_height,map_succ,map_pred))
+    (* ES.fold input *) es
+    (* ES.fold output *) ([],nm,
+                          IntMap.empty,
+                          IntMap.empty,
+                          IntMap.empty)
+and visit_block ablk mymap (directory,capF) =
+  match ablk with
+  | (cur_pos,ahd)::atl ->
+     let blk_content = IntMap.find ahd mymap in
+     let nth = List.nth blk_content cur_pos in
+     let directory =
+       if (IntMap.mem nth directory = false) then
+         (IntMap.add nth [(cur_pos,ahd)] directory)
+       else
+         (IntMap.add nth
+            ((cur_pos,ahd)::(IntMap.find nth directory))
+            directory) in
+     let capF =
+       if (IntSet.mem ahd capF = false)
+       then (IntSet.add ahd capF)
+       else capF in
+     visit_block atl mymap (directory,capF)
+  | [] ->
+     directory,capF
+
+and inc_pos alis =
+  List.fold_right (fun (x,y) ou -> (x+1,y)::ou) alis []
+
+and print_a_finished_one sentinel alis mymap =
+  let string_of_int_pair (x,y) =
+    "("^ (string_of_int (x+1)) ^ ","
+    ^ (string_of_int y) ^
+      " aka [" ^
+        (String.concat "; "
+           (List.map string_of_int
+              (IntMap.find y mymap))) ^ "])" in
+  (sentinel ^
+     (String.concat ";"
+        (List.map (string_of_int_pair) alis)) ^ "\n")
+
+and get_vn_table alis cur outm =
+  match alis with
+  | (_,hd)::tl ->
+     get_vn_table tl cur (IntMap.add hd cur outm)
+  | [] -> outm
+
+and update_a_list ahd vns =
+  List.map
+    (fun x ->
+      if IntMap.mem x vns = true then
+        (IntMap.find x vns)
+      else x) ahd
+
+and update_vns ablk vns new_mymap =
+  match ablk with
+  | (cur_pos,ahd)::atl ->
+     let updated_map = (* output map *)
+       IntMap.add
+         ahd (* key *)
+         (update_a_list
+            (IntMap.find ahd new_mymap) vns) (* value *)
+         new_mymap (* input map *)in
+     update_vns atl vns updated_map
+  | [] -> new_mymap
+
+and visit_block_list blks vns mymap =
+  match blks with
+  | ahd::atl ->
+     let ff,capF =
+       visit_block ahd (update_vns ahd vns mymap)
+         (IntMap.empty, IntSet.empty) in
+     (* figure out the cases that finished
+        and cases that are still being updated. *)
+     let not_yet_done,done_ones =
+       IntMap.fold (fun ke valu (not_done,all_done) ->
+           if ke = -1
+           then
+             (not_done,
+              ( let _,s = List.hd valu in
+                print_string
+                  ("(REACHED SENTINEL) WITNESS:" ^
+                     (string_of_int s) ^ " FOR " ^
+                       (string_of_int (List.length valu)) ^
+                         " TREES" ^
+                           (print_a_finished_one " :- " valu mymap));
+                get_vn_table valu s all_done))
+           else if List.length valu = 1
+           then
+             (not_done,
+              (print_string
+                 (print_a_finished_one "SIZE 1 :- " valu mymap);
+               let _,s = List.hd valu in
+               print_endline ("WITNESS:" ^ (string_of_int s));
+               get_vn_table valu s all_done))
+           else
+             ((inc_pos valu)::not_done,all_done)) ff ([],vns) in
+     let to_follow = atl@not_yet_done in
+     visit_block_list to_follow done_ones mymap
+  | [] -> vns
+
+and visit_by_height mymap height_list vns height_num =
+  match height_list with
+  | alis::tl ->
+     print_endline ("-------------------");
+     print_endline ("At Height:" ^
+                      (string_of_int height_num));
+     let vns = visit_block_list alis vns mymap in
+     visit_by_height mymap tl vns (height_num+1)
+  | [] -> vns
+
+and cse_by_part in_gr =
   (* Each edge starts at a node,port and
      ends at another node,port.
       (x,xp) -> (y,yp), with type ed_ty:
@@ -405,7 +684,7 @@ and cse_by_height in_gr =
       That shall be used along with the
       opcode, xn, to describe the outgoing edge.
       Similarly, (yn,y,yp,xp,ed_ty) will
-      describe a pred-edge with the node-type
+      describe a succ-edge with the node-type
       of y: yn. Suppose we have a binary
       operation, for ex,
       opcode:ADD,
@@ -416,12 +695,10 @@ and cse_by_height in_gr =
       [ADD;xp1;y1;yp1;ed_ty;xp2;y2;yp2;ed_ty]
       A duplicate operation needs to have the
       same content as above.
-      The cse algorithm operate from
-      inner-most graphs outwards, in post-order.
-      Upon looking at the nodes in a graph, a
-      height relation is first obtained.
-      The top-level is called
-      cse_by_height.
+      TODO: How do we do this for calls?!?
+      Must we have a compare function that
+      accepts a node-sym variant?
+      1:A height relation is first obtained.
       The height relation function is called
       get_height. It would start with
       the height of incoming boundary node to 0.
@@ -430,157 +707,39 @@ and cse_by_height in_gr =
       heights, with a recursive walk that
       ends on the outgoing boundary node,
       again numbered 0.
-   *)
-  let string_of_5_ints (a,b,c,d,e) =
-    (* Print a single predecessor, represented
-       as a 5 tup *)
-    "[" ^ (String.concat ";"
-             ((string_of_node_sym
-                 (num_to_node_sym a))::
-                (List.map string_of_int [b;c;d;e]))) ^ "]" in
-  let string_of_pred_lis anod map_pred =
-    (* Given a node number, print its predecessors *)
-    if (IntMap.mem anod map_pred = true)
-    then
-      List.fold_left (
-          fun zz cur ->
-          cate_nicer
-            zz
-            ((string_of_5_ints cur))
-            ";") "" (IntMap.find anod map_pred)
-    else
-      "" in
-  let rec cse_trees es nm =
-    let sort_maps amap =
-      (* Sort incoming edges by incoming port#, field#4*)
-      let compare_5 (_,_,_,a,_) (_,_,_,b,_) =
-        compare a b in
-      IntMap.fold (
-          fun ke va ret_map ->
-          IntMap.add ke
-            (List.sort compare_5 va) ret_map)
-        amap IntMap.empty in
-    ES.fold
-      (fun ((x,xp),(y,yp),ed_ty)
-           (node_l,nm,init_height,map_succ,map_pred) ->
-        let node_l,init_height =
-          match IntMap.mem x init_height with
-          | true -> node_l,init_height
-          | false -> x::node_l, IntMap.add x 0 init_height in
-        let xnm = NM.find x nm in
-        let ynm = NM.find y nm in
-        let xn = match xnm with
-          | Simple (lab,n,_,_,_) -> n
-          | Boundary _ -> BOUNDARY
+      2:The cse algorithm operates from
+      inner-most graphs outwards,
+      in post-order. The top-level is called
+      cse_by_part. For each graph,
+      CSE goes up the height relation
+      and DAGifys, that is, it provides
+      value numbers to each of the
+      unique trees at a current
+      height. Height is incremented,
+      but before processing the nodes
+      at the incremented height,
+      the vn table must be checked and
+      current lists updated.*)
+  let {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let nm =
+    NM.fold
+      (fun lab nod last_nm ->
+        let last_nm = match nod with
+          | Simple (lab,n,_,_,_) ->
+             last_nm
+          | Boundary _ ->
+             last_nm
           | Rajathi ->
              raise (Sem_error "Internal, unreachable cse_height_xn")
-          | Literal _ -> CONSTANT
-          | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
-
-        let yn = match ynm with
-          | Simple (lab,n,_,_,_) -> n
-          | Boundary _ -> BOUNDARY
-          | Literal _ -> CONSTANT
-          | Rajathi ->
-             raise (Sem_error "Internal, unreachable cse_height_yn")
-          | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
-
-        match xn with
-        | GRAPH ->
-           let (lab,sy,ty,prag,subgr,assoc) = match xnm with
-             |  Compound (lab, sy, ty, pl, g, assoc) ->
-                 lab,sy,ty,pl,g,assoc
-             | _ ->
-                raise (Sem_error "Internal, unreachable") in
-           let subgr = cse_by_height subgr in
-           let out_nm =
-             NM.add x
-               (Compound (y,sy,ty,prag,subgr,assoc)) nm in
-           (node_l,out_nm,init_height,map_succ,map_pred)
-        | _ ->
-           let map_succ =
-             match IntMap.mem x map_succ with
-             | true ->
-                IntMap.add x
-                  (((node_sym_to_num xn),xp,y,yp,ed_ty)::
-                     (IntMap.find x map_succ)) map_succ
-             | false ->
-                IntMap.add x
-                  (((node_sym_to_num xn),xp,y,yp,ed_ty)::[])
-                  map_succ in
-           let map_pred =
-             match IntMap.mem y map_pred with
-             | true ->
-                IntMap.add y
-                  (((node_sym_to_num yn),x,xp,yp,ed_ty)::
-                     (IntMap.find y map_pred)) map_pred
-             | false ->
-                IntMap.add y
-                  (((node_sym_to_num yn),x,xp,yp,ed_ty)::[])
-                  map_pred in
-           let map_pred = sort_maps map_pred in
-           let map_succ = sort_maps map_succ in
-           (node_l,nm,init_height,map_succ,map_pred)) es
-      ([],nm,IntMap.empty,IntMap.empty, IntMap.empty) in
-
-  let fold_pred_to_one_lis anod map_pred =
-    if (IntMap.mem anod map_pred = true) then
-      let pred_lis = IntMap.find anod map_pred in
-      let pred_lis =
-        List.fold_right (fun (a,b,c,d,e) zz ->
-            a::b::c::d::e::zz) pred_lis [] in
-      pred_lis @ [-1;anod]
-    else [] in
-
-  let rec get_height cur map_pred h rev_h =
-    let append_or_add rev_h nod num =
-      if (IntMap.mem num rev_h) = true
-      then
-        (IntMap.add num
-           (IntSet.add nod (IntMap.find num rev_h))
-           rev_h)
-      else
-        (IntMap.add num
-           (IntSet.add nod IntSet.empty) rev_h) in
-    if cur = 0
-    then
-      ((IntMap.add cur 0 h),
-       (append_or_add rev_h cur 0))
-    else
-      (if (IntMap.mem cur h) = true
-       then
-         (h,rev_h)
-       else
-         (let cur_h,h,rev_h =
-            let rec max_of_preds cur_max alis h rev_h =
-              match alis with
-              | [] -> cur_max,h,rev_h
-              | (_,ahd,_,_,_)::atl ->
-                 let h,rev_h = get_height
-                                 ahd map_pred h rev_h in
-                 let ahd_h = IntMap.find ahd h in
-                 let cur_max,h,rev_h =
-                   if (cur_max < ahd_h)
-                   then
-                     (ahd_h,h,rev_h)
-                   else
-                     (cur_max,h,rev_h) in
-                 max_of_preds cur_max atl h rev_h in
-            if ((IntMap.mem cur map_pred) = false)
-            then
-              (0,h,rev_h)
-            else
-              (let ret_h,h,rev_h =
-                 (max_of_preds 0
-                    (IntMap.find cur map_pred) h rev_h) in
-               ret_h+1,h,rev_h) in
-          IntMap.add cur cur_h h,
-          append_or_add rev_h cur cur_h)) in
-  let node_l,nm,init_height,map_succ,map_pred =
-    cse_trees es nm in
-  print_endline
-    (string_of_graph in_gr);
-  print_endline
+          | Literal _ -> last_nm
+          | Compound (lab, sy, ty, pl, subgr, assoc) ->
+             let subgr = cse_by_part subgr in
+             NM.add lab
+               (Compound (lab,sy,ty,pl,subgr,assoc)) last_nm in
+        last_nm) nm nm in
+  let node_l,nm,init_height,map_succ,map_pred = cse_trees es nm in
+  let cur_gr = {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} in
+  (*print_endline
     ("PRED_MAP:\n" ^
        (IntMap.fold (
             fun nod ed z ->
@@ -601,19 +760,43 @@ and cse_by_height in_gr =
                     (fun x y ->
                       cate_nicer
                         (string_of_5_ints x) y ",")
-                    ed ""))) map_succ ""));
+                    ed ""))) map_succ ""));*)
   let height_map,rev_height_map =
     List.fold_left
       (fun (height_map,rev_h) cur ->
-        get_height cur map_pred height_map rev_h)
+        get_height cur map_pred height_map rev_h cur_gr)
       (IntMap.empty,IntMap.empty) node_l in
-  print_endline
+  (*print_endline
     ("Height:\n" ^
        (IntMap.fold (
             fun nod h z ->
             (string_of_int nod) ^
               " -> " ^ (string_of_int h) ^ "\n" ^ z)
-          height_map ""));
+          height_map ""));*)
+  let nodes_by_height =
+    IntMap.bindings rev_height_map in
+  let my_lis_lis =
+    (List.fold_right
+       (fun (x,set) last_lis ->
+         [(List.map
+             (fun x -> (0,x))
+             (IntSet.elements set))]::last_lis)
+       nodes_by_height []) in
+  let mymap =
+    IntMap.fold
+      (fun x h last_m ->
+        IntSet.fold
+          (fun cur last_map ->
+            IntMap.add cur
+              (get_pred_lis cur map_pred)
+              last_map) h last_m) rev_height_map IntMap.empty in
+  (* print_endline "CONTENT MAP";
+  (IntMap.fold (fun x y z ->
+       print_int x; print_char ':';
+       print_endline (
+           String.concat ";"
+             (List.map string_of_int y));
+       "") mymap "");
   print_endline
     ("RevHeight:\n" ^
        (IntMap.fold (
@@ -628,7 +811,7 @@ and cse_by_height in_gr =
                            (string_of_pred_lis cur map_pred) ":")
                         yy "\n     "))
                    h "") ^ "\n" ^ z)
-          rev_height_map ""));
+          rev_height_map ""));*)
   let rev_height_map_folded =
     IntMap.fold (
         fun nod ed z ->
@@ -639,7 +822,7 @@ and cse_by_height in_gr =
                  fold_pred_to_one_lis cur map_pred in
                folded_lis::yy)
              ed []) z) rev_height_map IntMap.empty in
-  let height_bound_blocks =
+  (* let height_bound_blocks =
     IntMap.bindings rev_height_map_folded in
   print_endline
     (List.fold_right
@@ -656,8 +839,29 @@ and cse_by_height in_gr =
                      "\n")
                  blocks ""))
            last_set
-           "\n") height_bound_blocks "");
-  {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi}
+           "\n") height_bound_blocks "");*)
+  let vns = visit_by_height mymap my_lis_lis IntMap.empty 1 in
+  print_endline "Val-nums";
+  print_string
+    (IntMap.fold (fun x y las ->
+         let x,y = string_of_int x, string_of_int y in
+         String.concat "\n"
+           [(String.concat " -> " [x; y]); las])
+       vns "");
+  let es =
+    ES.fold (fun ((x,xp),(y,yp),y_ty) res ->
+        let x =
+          if IntMap.mem x vns = true
+          then
+            IntMap.find x vns
+          else
+            x in
+        ES.add ((x,xp),(y,yp),y_ty) res)
+      es ES.empty in
+  let res_gr =
+    {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} in
+  let ll = dot_graph res_gr in
+  res_gr
 
 and add_to_boundary_outputs ?(start_port=0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
@@ -768,15 +972,15 @@ and output_bound_names_for_subgraphs ?(start_port=0) alis in_gr =
   output_to_boundary ~start_port:(boundary_out_port_count in_gr) alis in_gr
 
 and output_to_boundary ?(start_port=0) alis in_gr =
-     match alis with
-      | (srcn,srcp,tyy)::tl ->
-         print_endline ("output_to_boundary:"^
-           (string_of_triple_int (srcn,srcp,tyy)));
-         output_to_boundary tl
-           (add_to_boundary_outputs ~start_port:start_port
-              srcn srcp tyy in_gr)
-      | [] ->
-         in_gr
+  match alis with
+  | (srcn,srcp,tyy)::tl ->
+     print_endline ("output_to_boundary:"^
+                      (string_of_triple_int (srcn,srcp,tyy)));
+     output_to_boundary tl
+       (add_to_boundary_outputs ~start_port:start_port
+          srcn srcp tyy in_gr)
+  | [] ->
+     in_gr
 
 and output_to_boundary_with_none ?(start_port=0) alis in_gr =
   match alis with
@@ -792,11 +996,11 @@ and output_to_boundary_with_none ?(start_port=0) alis in_gr =
   | [] -> in_gr
 
 and input_from_boundary alis in_gr =
-     match alis with
-      | (srcn,srcp,nam)::tl ->
-         input_from_boundary tl
-           (add_to_boundary_inputs ~namen:nam srcn srcp in_gr)
-      | [] -> in_gr
+  match alis with
+  | (srcn,srcp,nam)::tl ->
+     input_from_boundary tl
+       (add_to_boundary_inputs ~namen:nam srcn srcp in_gr)
+  | [] -> in_gr
 
 and string_of_pair_int (x,y) =
   "("^ (string_of_int x) ^ "," ^ (string_of_int y) ^ ")"
@@ -915,21 +1119,21 @@ and lookup_fn_ty fff in_gr =
       (fun ke va z ->
         match va with
         | Function_ty (args_ty,ret_ty,fn_name) ->
-          (if fn_name = fff then
-            (
-               let tm_l =
-               let rec fold_ret_ty_lis ret_ty =
-                 match TM.find ret_ty tm with
-                   | Tuple_ty (fty,nty) ->
-                     if (nty = 0) then
-                       [fty]
-                     else
-                       fty::(fold_ret_ty_lis nty)
-                   | _ -> raise (Sem_error "Incorrect function type in") in
-             fold_ret_ty_lis ret_ty in
-           raise (List_is_found tm_l))
-        else z)
-      | _ -> z) tm []
+           (if fn_name = fff then
+              (
+                let tm_l =
+                  let rec fold_ret_ty_lis ret_ty =
+                    match TM.find ret_ty tm with
+                    | Tuple_ty (fty,nty) ->
+                       if (nty = 0) then
+                         [fty]
+                       else
+                         fty::(fold_ret_ty_lis nty)
+                    | _ -> raise (Sem_error "Incorrect function type in") in
+                  fold_ret_ty_lis ret_ty in
+                raise (List_is_found tm_l))
+            else z)
+        | _ -> z) tm []
   with List_is_found tml -> tml
 
 and add_node_2 nn
@@ -1019,11 +1223,11 @@ and all_nodes_joining_at (n2,np,ed_ty) in_gr =
 and all_types_ending_at n2 in_gr res =
   let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
   let map_tnem =
-  ES.fold
-    (fun ((x,xp),(y,yp),y_ty) acc ->
-      if y=n2 then
-        (Format.printf "Ending:%d\n" n2;
-        IntMap.add yp y_ty acc) else acc) pe res in
+    ES.fold
+      (fun ((x,xp),(y,yp),y_ty) acc ->
+        if y=n2 then
+          (Format.printf "Ending:%d\n" n2;
+           IntMap.add yp y_ty acc) else acc) pe res in
   map_tnem
 
 and connect_one_to_one in_lis to_n in_gr =
@@ -1800,13 +2004,23 @@ cate_nicer
 
 and write_dot_file in_gr =
   let oc = open_out "out.dot" in
-  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
+  fprintf oc "%s"
+    ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
   close_out oc;
   "Output Dot in out.dot"
 
+and dot_graph in_gr =
+  let na,oc = Filename.open_temp_file "graph-" ".dot" in
+  fprintf oc "%s"
+    ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
+  close_out oc;
+
+  print_endline  ( "Output Dot in " ^ na); ""
+
 and write_any_dot_file sss in_gr =
   let oc = open_out sss in
-  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
+  fprintf oc
+    "%s" ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
   close_out oc;
   "Output Dot in"
 

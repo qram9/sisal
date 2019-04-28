@@ -9,17 +9,29 @@ OUT00 [shape=rect;label="{INTEGRAL;X;(1,0)}[]%na=MAIN"];
 05 [shape=plaintext;label="3"];
 06 [shape=rect;label="6 MULTIARITY:%na=LET"];
 07 [shape=rect;label="7 ADD"];
-08 [shape=rect;label="8 SUBTRACT"];
-09 [shape=rect;label="9 MULTIARITY:%na=LET"];
-010 [shape=rect;label="10 MULTIARITY:%na=LET"]
+08 [shape=rect;label="8 TIMES"];
+09 [shape=rect;label="9 ADD"];
+010 [shape=rect;label="10 TIMES"];
+011 [shape=rect;label="11 TIMES"];
+012 [shape=rect;label="12 ADD"];
+013 [shape=rect;label="13 MULTIARITY:%na=LET"];
+014 [shape=rect;label="14 MULTIARITY:%na=LET"]
 01 ->  02 [label="(0,0),Ty=5"]
 03 ->  04 [label="(0,0),Ty=5"]
 03 ->  07 [label="(0,0),Ty=5"]
 03 ->  08 [label="(0,0),Ty=5"]
+03 ->  010 [label="(0,0),Ty=5"]
+03 ->  011 [label="(0,0),Ty=5"]
 05 ->  06 [label="(0,0),Ty=5"]
 05 ->  07 [label="(0,1),Ty=5"]
 05 ->  08 [label="(0,1),Ty=5"]
-07 ->  09 [label="(0,1),Ty=5"]
-07 ->  010 [label="(0,1),Ty=5"]
-08 ->  09 [label="(0,0),Ty=5"]
-08 ->  010 [label="(0,0),Ty=5"]}
+05 ->  010 [label="(0,1),Ty=5"]
+05 ->  011 [label="(0,1),Ty=5"]
+07 ->  09 [label="(0,0),Ty=5"]
+08 ->  09 [label="(0,1),Ty=5"]
+09 ->  013 [label="(0,1),Ty=5"]
+09 ->  014 [label="(0,1),Ty=5"]
+010 ->  012 [label="(0,0),Ty=5"]
+011 ->  012 [label="(0,1),Ty=5"]
+012 ->  013 [label="(0,0),Ty=5"]
+012 ->  014 [label="(0,0),Ty=5"]}
