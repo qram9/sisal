@@ -1,3 +1,10 @@
+(*TODO: BUNCH OF CASES FAIL DUE TO TYPE MISMATCH,
+ MAYBE SOMETHING TRIVIAL. NEED TO ALSO SEE IF
+ THE NESTED FUNCTIONS CAPTURE ANY VARS FROM
+ OUTSIDE AND NEED TO SEE HOW THAT WOULD BE
+SUPPORTED.. MIGHT BE SOMETHING TO CONFIRM
+WITH THE STANDARD..*)
+
 (* TEST about multiple definition to same variable in a scope,
    add scope numbers, level etc. *)
 (* Can we add array dope-vectors *)
@@ -892,6 +899,7 @@ and do_forall inexp bodyexp retexp in_gr =
                (IntMap.add x cou sm),cou+1) ret_lis_a
            ([],IntMap.empty,1) in
 
+       (** TODO -> GO HERE NEED TO ADD THIS TO THE OTHER LOOPS **)
        let ret_lis_c,_,cou =
          List.fold_right
            (fun rrr (outL,sm,cou) ->
@@ -1126,7 +1134,7 @@ and do_def in_gr = function
                let in_gr2 = {nmap=nmap;eset=eset;
                      symtab=(umap,vmap);typemap=tm;w=w} in
                let n1,p1,ed_ty =
-                 find_incoming_regular_node mx mp mt in_gr2 in
+                 find_incoming_regular_node (mx, mp, mt) in_gr2 in
                add_multiarity_to_gr
                  (mx,mp+1,mt) tl_names
                  {nmap=nmap;eset=eset;
@@ -2046,7 +2054,7 @@ and do_simple_exp in_gr in_sim_ex =
            let els,elp,elt = else_outs in
            let _,else_p,else_t
              = find_incoming_regular_node
-                 els elp elt else_gr in
+                 (els, elp, elt) else_gr in
            let ty_lis_else,else_gr =
              extr_types else_gr
                (else_outs,IntMap.empty) in
@@ -2076,7 +2084,7 @@ and do_simple_exp in_gr in_sim_ex =
 
            let then_s,then_p,then_t = in_outs in
            let then_s,then_p,then_t =
-             find_incoming_regular_node then_s then_p then_t
+             find_incoming_regular_node (then_s, then_p, then_t)
                then_gr in
            let then_gr = point_edges_to_boundary
                            then_s then_p then_t then_gr in
@@ -2104,7 +2112,7 @@ and do_simple_exp in_gr in_sim_ex =
            let pred_s,pred_p,pred_t = pred_out in
            let _,pp,pt =
              find_incoming_regular_node
-                 pred_s pred_p pred_t predicate_gr in
+                 (pred_s, pred_p, pred_t) predicate_gr in
            let predicate_gr =
              point_edges_to_boundary
                pred_s pred_p pred_t predicate_gr in
@@ -2248,8 +2256,37 @@ and do_simple_exp in_gr in_sim_ex =
        | Iterator_termination (ii,t) ->
           let (dn,dp,dt),decl_gr = add_decls in_gr d in
           let (tn,tp,tt),test_gr = add_terminator decl_gr t in
-          let body_gr,ret_lis_a,ret_lis_b,ret_lis_c = add_body test_gr ii r in
-          let (rx,ry,rt),for_gr,ret_lis_a = add_ret body_gr ret_lis_a [] in
+          let body_gr,ret_lis_a,ret_lis_b,ret_lis_c =
+            add_body test_gr ii r in
+
+          (** Build Return-Signature To Provide To Outer
+           Loop In Order To Build Its Returns Graph. *)
+          let ret_lis_a,_,cou =
+            List.fold_right
+              (fun (y,x,tt) (outL,sm,cou) ->
+                if (IntMap.mem x sm = true) then
+                  (y,tt,(IntMap.find x sm))::outL,sm,cou
+                else
+                  (y,tt,cou)::outL,
+                  (IntMap.add x cou sm),cou+1) ret_lis_a
+              ([],IntMap.empty,1) in
+
+          (** TODO -> GO HERE NEED TO ADD THIS TO THE OTHER LOOPS **)
+          let ret_lis_c,_,cou =
+            List.fold_right
+              (fun rrr (outL,sm,cou) ->
+                match rrr with
+                | Some (x,px,tt) ->
+                   (if (IntMap.mem x sm = true) then
+                      (Some (tt,(IntMap.find x sm)))::outL,sm,cou
+                    else
+                      (Some (tt,cou))::outL,
+                      (IntMap.add x cou sm),cou+1)
+                | None -> (None::outL,sm,cou)) ret_lis_c
+              ([],IntMap.empty,cou) in
+
+          let (rx,ry,rt),for_gr,ret_lis_a =
+            add_ret body_gr ret_lis_a ret_lis_c in
           let (bx,by,bz),for_gr =
             add_comp_node for_gr body_gr "BODY" in
           let (tx,ty,tz),for_gr =
@@ -2279,6 +2316,32 @@ and do_simple_exp in_gr in_sim_ex =
           let (dn,dp,dt),decl_gr = add_decls in_gr d in
           let (tn,tp,tt),test_gr = add_terminator decl_gr t in
           let body_gr,ret_lis_a,ret_lis_b,ret_lis_c = add_body test_gr ii r in
+          (** Build Return-Signature To Provide To Outer
+           Loop In Order To Build Its Returns Graph. *)
+          let ret_lis_a,_,cou =
+            List.fold_right
+              (fun (y,x,tt) (outL,sm,cou) ->
+                if (IntMap.mem x sm = true) then
+                  (y,tt,(IntMap.find x sm))::outL,sm,cou
+                else
+                  (y,tt,cou)::outL,
+                  (IntMap.add x cou sm),cou+1) ret_lis_a
+              ([],IntMap.empty,1) in
+
+          (** TODO -> GO HERE NEED TO ADD THIS TO THE OTHER LOOPS **)
+          let ret_lis_c,_,cou =
+            List.fold_right
+              (fun rrr (outL,sm,cou) ->
+                match rrr with
+                | Some (x,px,tt) ->
+                   (if (IntMap.mem x sm = true) then
+                      (Some (tt,(IntMap.find x sm)))::outL,sm,cou
+                    else
+                      (Some (tt,cou))::outL,
+                      (IntMap.add x cou sm),cou+1)
+                | None -> (None::outL,sm,cou)) ret_lis_c
+              ([],IntMap.empty,cou) in
+
           let (rx,ry,rt),for_gr,ret_lis_a = add_ret body_gr ret_lis_a [] in
           let (bx,by,bz),for_gr =
             add_comp_node for_gr body_gr "BODY" in
@@ -2564,7 +2627,8 @@ and do_returns_clause in_gr ret_clause =
      let aa,bb,in_gr = do_return_exp in_gr re in
      aa,bb,msk,in_gr
 
-and do_returns_clause_list in_gr ret_clause_list ret_lis_a ret_lis_b ret_lis_c =
+and do_returns_clause_list in_gr
+ret_clause_list ret_lis_a ret_lis_b ret_lis_c =
   (** ret_lis_a, ret_lis_b, ret_lis_c *)
   match ret_clause_list with
   | hd::tl ->

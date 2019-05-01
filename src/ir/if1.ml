@@ -503,6 +503,8 @@ and get_height cur map_pred h rev_h cur_gr =
          append_or_add rev_h cur cur_h)))
 
 and cse_trees es nm =
+  print_endline (String.concat ";" (string_of_node_map nm));
+  print_endline (String.concat ";" (string_of_edge_set es));
   ES.fold
     (fun ((x,xp),(y,yp),ed_ty)
          (node_l,nm,init_height,map_succ,map_pred) ->
@@ -974,6 +976,7 @@ and output_bound_names_for_subgraphs ?(start_port=0) alis in_gr =
 and output_to_boundary ?(start_port=0) alis in_gr =
   match alis with
   | (srcn,srcp,tyy)::tl ->
+     let srcn,srcp,tyy = find_incoming_regular_node (srcn,srcp,tyy) in_gr in
      print_endline ("output_to_boundary:"^
                       (string_of_triple_int (srcn,srcp,tyy)));
      output_to_boundary tl
@@ -985,6 +988,7 @@ and output_to_boundary ?(start_port=0) alis in_gr =
 and output_to_boundary_with_none ?(start_port=0) alis in_gr =
   match alis with
   | (Some (srcn,srcp,tyy))::tl ->
+     let srcn,srcp,tyy = find_incoming_regular_node (srcn,srcp,tyy) in_gr in
      print_endline ("output_to_boundary:"^
                       (string_of_triple_int (srcn,srcp,tyy)));
      output_to_boundary_with_none tl
@@ -1294,12 +1298,12 @@ and node_incoming_at_port n1 p in_gr =
       raise (Sem_error ("Failing with node incoming at port:" ^
 		          (string_of_int n1) ^ "," ^ (string_of_int p)))
 
-and find_incoming_regular_node n1 p1 ed_ty in_gr =
+and find_incoming_regular_node (n1, p1, ed_ty) in_gr =
   match get_node n1 in_gr with
   | Simple (_,MULTIARITY,_,_,_) ->
      let n1,p1,ed_ty =
        node_incoming_at_port n1 p1 in_gr in
-     find_incoming_regular_node n1 p1 ed_ty in_gr
+     find_incoming_regular_node (n1, p1, ed_ty) in_gr
   | _ -> n1,p1,ed_ty
 
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
@@ -1309,7 +1313,7 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
   print_endline "Calltrace:";
   Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
 
-  let n1,p1,ed_ty = find_incoming_regular_node n1 p1 ed_ty in_gr in
+  let n1,p1,ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0
   then
     (add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr)
