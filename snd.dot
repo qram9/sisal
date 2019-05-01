@@ -1,51 +1,265 @@
 digraph R {
 newrank=true;
-IN00 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)"];
-OUT00 [shape=rect;label="[]%na=MAIN"];
+IN00 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT00 [shape=rect;label="[(16,2);(14,1);(12,0);(8,2);(6,1);(4,0)]%na=MASHAN ,%na=MOSHAN ,%na=SPLIT ,%na=MAIN"];
 subgraph cluster_01 {
 label="1 %na=FORALL";
-IN01 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)"];
+IN01 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
 OUT01 [shape=rect;label="[]"];
 subgraph cluster_11 {
 label="1 %na=RETURN";
 IN011 [shape=rect;label=""];
-OUT011 [shape=rect;label="[(1,0)]"];
-111 [shape=rect;label="1 AGATHER"]
+OUT011 [shape=rect;label="[(3,0);(2,0);(1,0)]"];
+111 [shape=rect;label="1 AGATHER"];
+112 [shape=rect;label="2 AGATHER"];
+113 [shape=rect;label="3 AGATHER"]
 IN011 ->  111 [label="(0,0),Ty=5"]
-IN011 ->  111 [label="(1,1),Ty=4"]
+IN011 ->  111 [label="(1,1),Ty=5"]
+IN011 ->  111 [label="(4,2),Ty=5"]
+IN011 ->  112 [label="(0,0),Ty=5"]
+IN011 ->  112 [label="(1,1),Ty=5"]
+IN011 ->  112 [label="(3,2),Ty=5"]
+IN011 ->  113 [label="(0,0),Ty=5"]
+IN011 ->  113 [label="(1,1),Ty=5"]
+IN011 ->  113 [label="(2,2),Ty=5"]
 111 ->  OUT011 [label="(0,0),Ty=7"]
+112 ->  OUT011 [label="(0,1),Ty=7"]
+113 ->  OUT011 [label="(0,2),Ty=7"]
 };
 subgraph cluster_12 {
 label="2 %na=GENERATOR";
-IN012 [shape=rect;label="INTEGRAL;N;(0,0)"];
-OUT012 [shape=rect;label="{INTEGRAL;I;(2,0)}[(2,0)]"];
-121 [shape=plaintext;label="1"];
-122 [shape=rect;label="2 RANGEGEN"]
-IN012 ->  122 [label="(0,1),Ty=5"]
-121 ->  122 [label="(0,0),Ty=5"]
-122 ->  OUT012 [label="(0,1),Ty=5"]
+IN012 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT012 [shape=rect;label="{INTEGRAL;E;(1,0)}[(1,0)]"];
+121 [shape=rect;label="1 ASCATTER"]
+IN012 ->  121 [label="(0,0),Ty=7"]
+121 ->  OUT012 [label="(0,1),Ty=5"]
 };
 subgraph cluster_13 {
 label="3 %na=BODY";
-IN013 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)\nINTEGRAL;I;(0,2)"];
-OUT013 [shape=rect;label="[(3,0)]"];
-131 [shape=rect;label="1 AELEMENT"];
+IN013 [shape=rect;label="INTEGRAL;E;(0,1)\nARRAY 5;DATA;(0,0)"];
+OUT013 [shape=rect;label="[(3,0);(6,0);(9,0);(0,1);(0,1);(0,1)]"];
+131 [shape=plaintext;label="1"];
 132 [shape=rect;label="2 AELEMENT"];
-133 [shape=rect;label="3 TIMES"]
-IN013 ->  131 [label="(1,0),Ty=7"]
-IN013 ->  131 [label="(2,1),Ty=5"]
-IN013 ->  132 [label="(1,0),Ty=7"]
-IN013 ->  132 [label="(2,1),Ty=5"]
-131 ->  133 [label="(0,0),Ty=4"]
-132 ->  133 [label="(0,1),Ty=4"]
-133 ->  OUT013 [label="(0,0),Ty=4"]
+133 [shape=rect;label="3 LESSER"];
+134 [shape=plaintext;label="1"];
+135 [shape=rect;label="5 AELEMENT"];
+136 [shape=rect;label="6 EQUAL"];
+137 [shape=plaintext;label="1"];
+138 [shape=rect;label="8 AELEMENT"];
+139 [shape=rect;label="9 GREATER"]
+IN013 ->  OUT013 [label="(1,0),Ty=5"]
+IN013 ->  OUT013 [label="(1,1),Ty=5"]
+IN013 ->  OUT013 [label="(1,2),Ty=5"]
+IN013 ->  132 [label="(0,0),Ty=7"]
+IN013 ->  133 [label="(1,0),Ty=5"]
+IN013 ->  135 [label="(0,0),Ty=7"]
+IN013 ->  136 [label="(1,0),Ty=5"]
+IN013 ->  138 [label="(0,0),Ty=7"]
+IN013 ->  139 [label="(1,0),Ty=5"]
+131 ->  132 [label="(0,1),Ty=5"]
+132 ->  133 [label="(0,1),Ty=5"]
+133 ->  OUT013 [label="(0,5),Ty=5"]
+134 ->  135 [label="(0,1),Ty=5"]
+135 ->  136 [label="(0,1),Ty=5"]
+136 ->  OUT013 [label="(0,4),Ty=5"]
+137 ->  138 [label="(0,1),Ty=5"]
+138 ->  139 [label="(0,1),Ty=5"]
+139 ->  OUT013 [label="(0,3),Ty=5"]
 }
 };
-02 [shape=rect;label="2 MULTIARITY:%na=multiARITY_1"];
-03 [shape=plaintext;label="1"];
-04 [shape=rect;label="4 ASETL"]
-IN00 ->  01 [label="(0,0),Ty=5"]
-IN00 ->  01 [label="(1,1),Ty=7"]
+02 [shape=rect;label="2 MULTIARITY:%na=multiARITY_3"];
+03 [shape=rect;label="3 ALIML:%na=ALimL"];
+04 [shape=rect;label="4 ASETL"];
+05 [shape=rect;label="5 ALIML:%na=ALimL"];
+06 [shape=rect;label="6 ASETL"];
+07 [shape=rect;label="7 ALIML:%na=ALimL"];
+08 [shape=rect;label="8 ASETL"];
+subgraph cluster_09 {
+label="9 %na=FORALL";
+IN09 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT09 [shape=rect;label="[]"];
+subgraph cluster_91 {
+label="1 %na=RETURN";
+IN091 [shape=rect;label=""];
+OUT091 [shape=rect;label="[(3,0);(2,0);(1,0)]"];
+911 [shape=rect;label="1 AGATHER"];
+912 [shape=rect;label="2 AGATHER"];
+913 [shape=rect;label="3 AGATHER"]
+IN091 ->  911 [label="(0,0),Ty=5"]
+IN091 ->  911 [label="(1,1),Ty=5"]
+IN091 ->  911 [label="(4,2),Ty=5"]
+IN091 ->  912 [label="(0,0),Ty=5"]
+IN091 ->  912 [label="(1,1),Ty=5"]
+IN091 ->  912 [label="(3,2),Ty=5"]
+IN091 ->  913 [label="(0,0),Ty=5"]
+IN091 ->  913 [label="(1,1),Ty=5"]
+IN091 ->  913 [label="(2,2),Ty=5"]
+911 ->  OUT091 [label="(0,0),Ty=7"]
+912 ->  OUT091 [label="(0,1),Ty=7"]
+913 ->  OUT091 [label="(0,2),Ty=7"]
+};
+subgraph cluster_92 {
+label="2 %na=GENERATOR";
+IN092 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT092 [shape=rect;label="{INTEGRAL;E;(1,0)}[(1,0)]"];
+921 [shape=rect;label="1 ASCATTER"]
+IN092 ->  921 [label="(0,0),Ty=7"]
+921 ->  OUT092 [label="(0,1),Ty=5"]
+};
+subgraph cluster_93 {
+label="3 %na=BODY";
+IN093 [shape=rect;label="INTEGRAL;E;(0,1)\nARRAY 5;DATA;(0,0)"];
+OUT093 [shape=rect;label="[(3,0);(6,0);(9,0);(0,1);(0,1);(0,1)]"];
+931 [shape=plaintext;label="1"];
+932 [shape=rect;label="2 AELEMENT"];
+933 [shape=rect;label="3 LESSER"];
+934 [shape=plaintext;label="1"];
+935 [shape=rect;label="5 AELEMENT"];
+936 [shape=rect;label="6 EQUAL"];
+937 [shape=plaintext;label="1"];
+938 [shape=rect;label="8 AELEMENT"];
+939 [shape=rect;label="9 GREATER"]
+IN093 ->  OUT093 [label="(1,0),Ty=5"]
+IN093 ->  OUT093 [label="(1,1),Ty=5"]
+IN093 ->  OUT093 [label="(1,2),Ty=5"]
+IN093 ->  932 [label="(0,0),Ty=7"]
+IN093 ->  933 [label="(1,0),Ty=5"]
+IN093 ->  935 [label="(0,0),Ty=7"]
+IN093 ->  936 [label="(1,0),Ty=5"]
+IN093 ->  938 [label="(0,0),Ty=7"]
+IN093 ->  939 [label="(1,0),Ty=5"]
+931 ->  932 [label="(0,1),Ty=5"]
+932 ->  933 [label="(0,1),Ty=5"]
+933 ->  OUT093 [label="(0,5),Ty=5"]
+934 ->  935 [label="(0,1),Ty=5"]
+935 ->  936 [label="(0,1),Ty=5"]
+936 ->  OUT093 [label="(0,4),Ty=5"]
+937 ->  938 [label="(0,1),Ty=5"]
+938 ->  939 [label="(0,1),Ty=5"]
+939 ->  OUT093 [label="(0,3),Ty=5"]
+}
+};
+010 [shape=rect;label="10 MULTIARITY:%na=multiARITY_3"];
+011 [shape=rect;label="11 ALIML:%na=ALimL"];
+012 [shape=rect;label="12 ASETL"];
+013 [shape=rect;label="13 ALIML:%na=ALimL"];
+014 [shape=rect;label="14 ASETL"];
+015 [shape=rect;label="15 ALIML:%na=ALimL"];
+016 [shape=rect;label="16 ASETL"];
+subgraph cluster_017 {
+label="17 %na=FORALL";
+IN017 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT017 [shape=rect;label="[]"];
+subgraph cluster_171 {
+label="1 %na=RETURN";
+IN0171 [shape=rect;label=""];
+OUT0171 [shape=rect;label="[(3,0);(2,0);(1,0)]"];
+1711 [shape=rect;label="1 AGATHER"];
+1712 [shape=rect;label="2 AGATHER"];
+1713 [shape=rect;label="3 AGATHER"]
+IN0171 ->  1711 [label="(0,0),Ty=5"]
+IN0171 ->  1711 [label="(1,1),Ty=5"]
+IN0171 ->  1711 [label="(4,2),Ty=5"]
+IN0171 ->  1712 [label="(0,0),Ty=5"]
+IN0171 ->  1712 [label="(1,1),Ty=5"]
+IN0171 ->  1712 [label="(3,2),Ty=5"]
+IN0171 ->  1713 [label="(0,0),Ty=5"]
+IN0171 ->  1713 [label="(1,1),Ty=5"]
+IN0171 ->  1713 [label="(2,2),Ty=5"]
+1711 ->  OUT0171 [label="(0,0),Ty=7"]
+1712 ->  OUT0171 [label="(0,1),Ty=7"]
+1713 ->  OUT0171 [label="(0,2),Ty=7"]
+};
+subgraph cluster_172 {
+label="2 %na=GENERATOR";
+IN0172 [shape=rect;label="ARRAY 5;DATA;(0,0)"];
+OUT0172 [shape=rect;label="{INTEGRAL;E;(1,0)}[(1,0)]"];
+1721 [shape=rect;label="1 ASCATTER"]
+IN0172 ->  1721 [label="(0,0),Ty=7"]
+1721 ->  OUT0172 [label="(0,1),Ty=5"]
+};
+subgraph cluster_173 {
+label="3 %na=BODY";
+IN0173 [shape=rect;label="INTEGRAL;E;(0,1)\nARRAY 5;DATA;(0,0)"];
+OUT0173 [shape=rect;label="[(3,0);(6,0);(9,0);(0,1);(0,1);(0,1)]"];
+1731 [shape=plaintext;label="1"];
+1732 [shape=rect;label="2 AELEMENT"];
+1733 [shape=rect;label="3 LESSER"];
+1734 [shape=plaintext;label="1"];
+1735 [shape=rect;label="5 AELEMENT"];
+1736 [shape=rect;label="6 EQUAL"];
+1737 [shape=plaintext;label="1"];
+1738 [shape=rect;label="8 AELEMENT"];
+1739 [shape=rect;label="9 GREATER"]
+IN0173 ->  OUT0173 [label="(1,0),Ty=5"]
+IN0173 ->  OUT0173 [label="(1,1),Ty=5"]
+IN0173 ->  OUT0173 [label="(1,2),Ty=5"]
+IN0173 ->  1732 [label="(0,0),Ty=7"]
+IN0173 ->  1733 [label="(1,0),Ty=5"]
+IN0173 ->  1735 [label="(0,0),Ty=7"]
+IN0173 ->  1736 [label="(1,0),Ty=5"]
+IN0173 ->  1738 [label="(0,0),Ty=7"]
+IN0173 ->  1739 [label="(1,0),Ty=5"]
+1731 ->  1732 [label="(0,1),Ty=5"]
+1732 ->  1733 [label="(0,1),Ty=5"]
+1733 ->  OUT0173 [label="(0,5),Ty=5"]
+1734 ->  1735 [label="(0,1),Ty=5"]
+1735 ->  1736 [label="(0,1),Ty=5"]
+1736 ->  OUT0173 [label="(0,4),Ty=5"]
+1737 ->  1738 [label="(0,1),Ty=5"]
+1738 ->  1739 [label="(0,1),Ty=5"]
+1739 ->  OUT0173 [label="(0,3),Ty=5"]
+}
+};
+018 [shape=rect;label="18 MULTIARITY:%na=multiARITY_3"];
+019 [shape=rect;label="19 ALIML:%na=ALimL"];
+020 [shape=rect;label="20 ASETL"];
+021 [shape=rect;label="21 ALIML:%na=ALimL"];
+022 [shape=rect;label="22 ASETL"];
+023 [shape=rect;label="23 ALIML:%na=ALimL"];
+024 [shape=rect;label="24 ASETL"]
+IN00 ->  01 [label="(0,0),Ty=7"]
+IN00 ->  03 [label="(0,0),Ty=7"]
+IN00 ->  05 [label="(0,0),Ty=7"]
+IN00 ->  07 [label="(0,0),Ty=7"]
+IN00 ->  09 [label="(0,0),Ty=7"]
+IN00 ->  011 [label="(0,0),Ty=7"]
+IN00 ->  013 [label="(0,0),Ty=7"]
+IN00 ->  015 [label="(0,0),Ty=7"]
+IN00 ->  017 [label="(0,0),Ty=7"]
+IN00 ->  019 [label="(0,0),Ty=7"]
+IN00 ->  021 [label="(0,0),Ty=7"]
+IN00 ->  023 [label="(0,0),Ty=7"]
 01 ->  04 [label="(1,0),Ty=7"]
-03 ->  04 [label="(0,0),Ty=7"]
-04 ->  02 [label="(0,0),Ty=7"]}
+01 ->  06 [label="(1,0),Ty=7"]
+01 ->  08 [label="(1,0),Ty=7"]
+03 ->  04 [label="(0,1),Ty=5"]
+04 ->  OUT00 [label="(0,0),Ty=7"]
+04 ->  02 [label="(0,0),Ty=7"]
+05 ->  06 [label="(0,1),Ty=5"]
+06 ->  OUT00 [label="(1,1),Ty=7"]
+06 ->  02 [label="(1,1),Ty=7"]
+07 ->  08 [label="(0,1),Ty=5"]
+08 ->  OUT00 [label="(2,2),Ty=7"]
+08 ->  02 [label="(2,2),Ty=7"]
+09 ->  012 [label="(1,0),Ty=7"]
+09 ->  014 [label="(1,0),Ty=7"]
+09 ->  016 [label="(1,0),Ty=7"]
+011 ->  012 [label="(0,1),Ty=5"]
+012 ->  OUT00 [label="(0,3),Ty=7"]
+012 ->  010 [label="(0,0),Ty=7"]
+013 ->  014 [label="(0,1),Ty=5"]
+014 ->  OUT00 [label="(1,1),Ty=7"]
+014 ->  010 [label="(1,1),Ty=7"]
+015 ->  016 [label="(0,1),Ty=5"]
+016 ->  OUT00 [label="(2,2),Ty=7"]
+016 ->  010 [label="(2,2),Ty=7"]
+017 ->  020 [label="(1,0),Ty=7"]
+017 ->  022 [label="(1,0),Ty=7"]
+017 ->  024 [label="(1,0),Ty=7"]
+019 ->  020 [label="(0,1),Ty=5"]
+020 ->  018 [label="(0,0),Ty=7"]
+021 ->  022 [label="(0,1),Ty=5"]
+022 ->  018 [label="(1,1),Ty=7"]
+023 ->  024 [label="(0,1),Ty=5"]
+024 ->  018 [label="(2,2),Ty=7"]}
