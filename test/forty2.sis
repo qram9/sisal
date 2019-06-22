@@ -1,6 +1,6 @@
 define main
 
-function main(returns integer)
+function main(X,y,z:INTEGER returns integer)
   if x < Y then
   3+42*5
   elseif x > Y then

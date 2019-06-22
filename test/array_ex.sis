@@ -1,8 +1,8 @@
 define main
 type aareal = array[real]
 function Main (returns aareal) 
-let rh : REAL := array[1:1.18,7.23,3.18,10.6] in
-let ph : REAL := array[1:2.18,4.23,6.18,12.6] in
+let rh : aareal := array[1:1.18,7.23,3.18,10.6] in
+let ph : aareal := array[1:2.18,4.23,6.18,12.6] in
 rh[1:rh[2];2:rh[3]] || ph
 end let
 end let

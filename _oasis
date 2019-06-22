@@ -23,3 +23,20 @@ Library ir
   Path: src/ir
   Modules: Ast, If1, To_if1
   BuildDepends: unix
+
+AlphaFeatures: ocamlbuild_more_args
+Document "api"
+  Type:             ocamlbuild (0.4)
+  BuildTools:       ocamldoc
+  Title:            API reference for OCaml-Inotify
+
+  XOCamlbuildPath:      .
+  XOCamlbuildExtraArgs: "-docflags '-colorize-code -short-functors -charset utf-8'"
+  XOCamlbuildLibraries: fe, ir
+
+
+SourceRepository "master"
+  Type: git
+  Location: https://github.com/qram9/sisal.git
+  Branch: master
+  Browser: https://github.com/qram9/sisal

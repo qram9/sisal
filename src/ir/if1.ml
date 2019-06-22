@@ -1,3 +1,47 @@
+(** GRAPH is best to build inside out, due to the
+    language strictness that we need a node and ports
+    tuple. AST visitor builds the GRAPH inside out.
+
+    TESTS: we are able to look up nodes in IF1.NM
+    with an integer
+
+    TESTS: Edges are pairs of ints containing a
+    pair of ints (node-id,port-id) for head of edge
+    and one more pair for tail of edge. Finally all
+    edges are typed, and we have an additional int for
+    ty-id.
+
+    Nodes are either
+      | Simple of node-type (binary operators, for ex)
+        (and a port array, that may hold an adjacency-list)
+      | Compound nodes for subgraphs and graphs
+
+    Node numbers must be unique only inside Graphs to allow
+    for import/export.
+
+    Graphs boundaries have some special properties. TODO: Description.
+
+
+    Literal edges are 5 tuples:
+    | Literal of dest node, port, ref to type label, string, comment
+
+    TODO:
+
+      Provide depth or breadth first visitors.
+
+      Use adjacency lists on nodes for incoming/outgoing edges.
+
+      Test type-id on edges.
+
+      Add line number and file name for debug information.
+
+   Label Scoping:
+    TODO: Type must also be stored in the Top-level graph
+
+  TODO: Need to see why we need create_subgraph_symtab
+ *)
+
+
 open Ast
 open Format
 open Printf
@@ -134,15 +178,6 @@ exception List_is_found of int list
 exception Sem_error of string
 type ports = port array
 
-let rec find_port an_array curr_idx len elem =
-  if Array.get an_array curr_idx = elem
-  then curr_idx
-  else
-    if curr_idx + 1 = len then
-      raise (Node_not_found "in ports")
-    else
-      find_port an_array (curr_idx+1) len elem
-
 type pragmas = pragma list
 
 module N = struct
@@ -158,10 +193,10 @@ end
 
 type port_idx = int
 
+(**Edge module, to enable using Map and Set.
+ Because no Fan-ins possible, each edge gets to be unique. *)
 module E = struct
   type t = (N.t * port_idx) * (N.t * port_idx) * int
-  (** Because no Fan-ins possible
-      each edge gets to be unique **)
   let compare ((i,pi),(j,pj),_) ((k,pk),(m,pm),_) =
     let cv1 = compare i k in
     if cv1 = 0 then
@@ -178,6 +213,17 @@ module E = struct
     else
       cv1
 end
+
+let rec find_port an_array curr_idx len elem =
+  (** Look at an array of ints and locate elem in it.
+   Throw an error, if elem is not found.*)
+  if Array.get an_array curr_idx = elem
+  then curr_idx
+  else
+    if curr_idx + 1 = len then
+      raise (Node_not_found "Fail to find elem in array")
+    else
+      find_port an_array (curr_idx+1) len elem
 
 let cate_nicer a b c =
   match b with
@@ -213,6 +259,9 @@ module TM = Map.Make(T)
 
 module AStrSet = Set.Make(String)
 
+(** The graph datastructure used by If1: This record currently uses Map and Sets. I need to understand how this impacts performance to decide if other options like hashtab would be better. This record gets passed around heavily.
+
+ The symbol table is a pair of maps, one for current level and one for parent level. It may be better to number the entries based on the hierarchy. It looks like other options like that may be better here. *)
 type graph =
   {
     nmap : node NM.t;
@@ -222,6 +271,7 @@ type graph =
     w : int
   }
 
+(** Symbol table entry. *)
 and if1_value =
   {
     val_ty : int;
@@ -235,8 +285,13 @@ and node =
   | Compound of N.t * node_sym * label * pragmas * graph * N.t list
   | Literal of N.t * basic_code * string * ports
   | Boundary of (label * int * string ) list * (label * int) list * pragmas
-  | Rajathi
+  | Unknown_node
 
+(** Create an empty graph for a caller. Take an incoming
+    typemap and use that for the typemap. Make sure
+    that the typemap has essential types, BOOLEAN, REAL etc.
+    First symtab is current symtab and second for parent.
+ *)
 let rec get_empty_graph ty_blob =
   let nm = NM.add 0 (Boundary([],[],[]))  NM.empty in
   let in_gr =
@@ -267,8 +322,11 @@ and get_node_label n =
   | Compound (x,_,_,_,_,_) -> x
   | Literal (x,_,_,_) -> x
   | Boundary _ -> 0
-  | Rajathi -> 0
+  | Unknown_node ->
+     raise (Sem_error "Internal compiler error: unreachable @get_node_label")
 
+
+(** Lookup a record field by name. *)
 and get_record_field in_gr anum field_namen =
   let {nmap = _;eset = _;symtab = (_,_);
        typemap = (ti,tm,mm);w = _} = in_gr in
@@ -285,7 +343,7 @@ and get_record_field in_gr anum field_namen =
               get_record_field in_gr nft field_namen)
        | _ ->
           raise (Node_not_found
-                   ("could not locate record:" ^
+                   ("Could not locate record#:" ^
                       (string_of_int anum))))
    | false -> anum,0)
 
@@ -295,7 +353,8 @@ and get_graph_label
 and get_graph_from_label ii
 {nmap=nm;eset=_;symtab=(_,_);typemap=_;w=_} = match NM.find ii nm with
   | Compound (_,_,_,_,gg,_) -> gg
-  | _ -> raise (Sem_error "Lookup failed for compound")
+  | _ -> raise (Sem_error
+                  "Internal compiler error: expected compound node for label.")
 
 and has_node i
 {nmap=nm;eset =_;symtab=(_,_);typemap=_;w=_} = NM.mem i nm
@@ -303,37 +362,28 @@ and has_node i
 and get_node i
 {nmap=nm;eset=_;symtab=(_,_);typemap=_;w=_} = NM.find i nm
 
-and unify_syms
+(** Union cs into ps and set cs to empty. These things
+ take a graph and return a graph.*)
+and get_symtab_for_new_scope
 {nmap=nm;eset=es;symtab=(cs,ps);typemap=tm;w=i} =
   {nmap=nm;eset=es;
    symtab=(SM.empty,SM.fold (fun k v z -> SM.add k v z) cs ps);
    typemap=tm;w=i}
 
-and update_parent_syms
-{nmap=_;eset=_;symtab=(cs,ps);typemap=_;w=_}
-{nmap=nm;eset=es;symtab=(other_cs,other_ps);typemap=tm;w=i} =
-  (** Union ps, other_ps With curr
-      And Make It A New Parent Symtab *)
+(** Union other_ps, ps with other_cs.
+    Then make it the new parent symtab with cs unchanged. *)
+and inherit_parent_syms
+{nmap=_;eset=_;symtab=(other_cs,other_ps);typemap=_;w=_}
+{nmap=nm;eset=es;symtab=(cs,ps);typemap=tm;w=i} =
   {nmap=nm;eset=es;
-   symtab=(other_cs,
+   symtab=(cs,
            let kkk = fun k v z -> SM.add k v z in
-           (SM.fold kkk cs (SM.fold kkk ps other_ps)));
+           (SM.fold kkk other_cs (SM.fold kkk other_ps ps)));
    typemap=tm;w=i}
 
-and redirect_incoming_for_symbol
-{nmap=nm;eset=es;symtab=(cs,ps);typemap=tm;w=w} n1 p1 =
-  let new_cs =
-    let get_k_v =
-      SM.filter (
-          fun k {val_name=nn;
-                 val_ty=t1; val_def=ni;
-                 def_port=np} ->
-          ni = n1 && np = p1) cs in
-    let kkk = fun k v z -> SM.add k v z in
-    SM.fold kkk cs get_k_v in
-  {nmap=nm;eset=es;symtab=(new_cs,ps);typemap=tm;w=w}
-
-and copy_cs_syms_to_cs
+(** Weird case, where we copy local syms to other
+only if they are not parent syms in other. *)
+and create_subgraph_symtab
 {nmap=_;eset=es;symtab=(cs,ps);typemap=_;w=_}
 {nmap=nm;eset=es;symtab=(other_cs,other_ps);typemap=tm;w=i} =
   let {nmap=nm;eset=es;
@@ -372,17 +422,6 @@ and copy_cs_syms_to_cs
                 typemap = tm;w = i} in
   let in_gr = input_from_boundary boun_lis in_gr in
   in_gr
-
-and update_node n_int nnode in_gr =
-  match in_gr with
-    {nmap=nm;
-     eset=pe;
-     symtab=sm;
-     typemap=tm;
-     w=pi
-    } ->
-    { nmap=NM.add n_int nnode nm;
-      eset=pe;symtab=sm;typemap=tm;w=pi}
 
 and get_boundary_node {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} =
   NM.find 0 nm
@@ -502,9 +541,7 @@ and get_height cur map_pred h rev_h cur_gr =
          IntMap.add cur cur_h h,
          append_or_add rev_h cur cur_h)))
 
-and cse_trees es nm =
-  print_endline (String.concat ";" (string_of_node_map nm));
-  print_endline (String.concat ";" (string_of_edge_set es));
+and initialize_exp_info es nm =
   ES.fold
     (fun ((x,xp),(y,yp),ed_ty)
          (node_l,nm,init_height,map_succ,map_pred) ->
@@ -517,7 +554,7 @@ and cse_trees es nm =
       let xn = match xnm with
         | Simple (lab,n,_,_,_) -> n
         | Boundary _ -> BOUNDARY
-        | Rajathi ->
+        | Unknown_node ->
            raise (Sem_error "Internal, unreachable cse_height_xn")
         | Literal _ -> CONSTANT
         | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
@@ -526,7 +563,7 @@ and cse_trees es nm =
         | Simple (lab,n,_,_,_) -> n
         | Boundary _ -> BOUNDARY
         | Literal _ -> CONSTANT
-        | Rajathi ->
+        | Unknown_node ->
            raise (Sem_error "Internal, unreachable cse_height_yn")
         | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
 
@@ -601,6 +638,8 @@ and print_a_finished_one sentinel alis mymap =
         (List.map (string_of_int_pair) alis)) ^ "\n")
 
 and get_vn_table alis cur outm =
+  (** Each entry in alis is value-numbered to the
+      witness named cur. *)
   match alis with
   | (_,hd)::tl ->
      get_vn_table tl cur (IntMap.add hd cur outm)
@@ -626,12 +665,15 @@ and update_vns ablk vns new_mymap =
   | [] -> new_mymap
 
 and visit_block_list blks vns mymap =
+  (** This is the inner function that calls
+      visit_block for each blocks in the blks list
+      to see if they are finished. *)
   match blks with
   | ahd::atl ->
      let ff,capF =
        visit_block ahd (update_vns ahd vns mymap)
          (IntMap.empty, IntSet.empty) in
-     (* figure out the cases that finished
+     (** Figure out the cases that finished
         and cases that are still being updated. *)
      let not_yet_done,done_ones =
        IntMap.fold (fun ke valu (not_done,all_done) ->
@@ -661,6 +703,8 @@ and visit_block_list blks vns mymap =
   | [] -> vns
 
 and visit_by_height mymap height_list vns height_num =
+  (** We have a block list at each height. This function
+      traverses by height (0,N) and calls visit_block at each. *)
   match height_list with
   | alis::tl ->
      print_endline ("-------------------");
@@ -731,7 +775,7 @@ and cse_by_part in_gr =
              last_nm
           | Boundary _ ->
              last_nm
-          | Rajathi ->
+          | Unknown_node ->
              raise (Sem_error "Internal, unreachable cse_height_xn")
           | Literal _ -> last_nm
           | Compound (lab, sy, ty, pl, subgr, assoc) ->
@@ -739,7 +783,7 @@ and cse_by_part in_gr =
              NM.add lab
                (Compound (lab,sy,ty,pl,subgr,assoc)) last_nm in
         last_nm) nm nm in
-  let node_l,nm,init_height,map_succ,map_pred = cse_trees es nm in
+  let node_l,nm,init_height,map_succ,map_pred = initialize_exp_info es nm in
   let cur_gr = {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} in
   (*print_endline
     ("PRED_MAP:\n" ^
@@ -976,9 +1020,8 @@ and output_bound_names_for_subgraphs ?(start_port=0) alis in_gr =
 and output_to_boundary ?(start_port=0) alis in_gr =
   match alis with
   | (srcn,srcp,tyy)::tl ->
-     let srcn,srcp,tyy = find_incoming_regular_node (srcn,srcp,tyy) in_gr in
-     print_endline ("output_to_boundary:"^
-                      (string_of_triple_int (srcn,srcp,tyy)));
+     let srcn,srcp,tyy =
+       find_incoming_regular_node (srcn,srcp,tyy) in_gr in
      output_to_boundary tl
        (add_to_boundary_outputs ~start_port:start_port
           srcn srcp tyy in_gr)
@@ -989,13 +1032,10 @@ and output_to_boundary_with_none ?(start_port=0) alis in_gr =
   match alis with
   | (Some (srcn,srcp,tyy))::tl ->
      let srcn,srcp,tyy = find_incoming_regular_node (srcn,srcp,tyy) in_gr in
-     print_endline ("output_to_boundary:"^
-                      (string_of_triple_int (srcn,srcp,tyy)));
      output_to_boundary_with_none tl
        (add_to_boundary_outputs ~start_port:start_port
           srcn srcp tyy in_gr)
   | None::tl ->
-     print_endline "output_to_boundary (None)";
      output_to_boundary_with_none tl in_gr
   | [] -> in_gr
 
@@ -1024,7 +1064,7 @@ and set_out_port_str src_nod src_port dest_nn =
   | Compound (lab, sy, ty, pl, g, assoc) ->
      src_nod
   | Boundary (_,_,p) -> src_nod
-  | Rajathi -> src_nod
+  | Unknown_node -> src_nod
 
 and clear_port_str dst_nod =
   match dst_nod with
@@ -1038,7 +1078,7 @@ and clear_port_str dst_nod =
   | Compound (lab,sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
-  | Rajathi -> dst_nod
+  | Unknown_node -> dst_nod
 
 and set_in_port dst_nod dst_port src_nn =
   match dst_nod with
@@ -1052,7 +1092,7 @@ and set_in_port dst_nod dst_port src_nn =
   | Compound (lab, sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
-  | Rajathi -> dst_nod
+  | Unknown_node -> dst_nod
 
 and set_in_port_str dst_nod dst_port src_str =
   match dst_nod with
@@ -1063,7 +1103,7 @@ and set_in_port_str dst_nod dst_port src_str =
   | Compound (lab,sy,ty, pl, g, assoc) ->
      dst_nod
   | Boundary _ -> dst_nod
-  | Rajathi -> dst_nod
+  | Unknown_node -> dst_nod
 
 and set_literal dst_nod dst_port src_node =
   match src_node with
@@ -1078,24 +1118,28 @@ and set_literal dst_nod dst_port src_node =
       | Compound (lab, sy, ty, pl, g, assoc) ->
          dst_nod
       | Boundary _ -> dst_nod
-      | Rajathi -> dst_nod)
+      | Unknown_node -> dst_nod)
   | _ -> dst_nod
 
 and add_node nn
-{nmap = nm;eset = pe;symtab = sm;typemap = tm;w = pi} =
+{nmap = nm;eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi} =
   match nn with
   | `Simple (n,pin,pout,prag) ->
      {nmap = NM.add pi (Simple(pi,n,pin,pout,prag)) nm;
-      eset = pe;symtab = sm;typemap = tm;w = pi+1}
+      eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi+1}
   | `Compound (g,sy,ty,prag,alis) ->
+     let {nmap = _;eset = _;
+          symtab = (child_cs,child_ps);typemap = _;w = _} = g in
+     let par_ps = SM.fold (fun k v z -> SM.add k v z) child_ps par_ps in
      {nmap = NM.add pi (Compound(pi,sy,ty,prag,g,alis)) nm;
-      eset = pe;symtab = sm;typemap = get_types_from_graph g;w = pi+1}
+      eset = pe;symtab = (par_cs,par_ps);
+      typemap = get_types_from_graph g;w = pi+1}
   | `Literal (ty_lab,str,pout) ->
      {nmap = NM.add pi (Literal(pi,ty_lab,str,pout)) nm;
-      eset = pe;symtab = sm;typemap = tm;w = pi+1}
+      eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi+1}
   | `Boundary ->
      {nmap = NM.add 0 (Boundary([],[],[])) nm;
-      eset = pe;symtab = sm;typemap = tm;w = pi;}
+      eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi;}
 
 and lookup_tyid = function
   | BOOLEAN -> 1
@@ -1230,8 +1274,7 @@ and all_types_ending_at n2 in_gr res =
     ES.fold
       (fun ((x,xp),(y,yp),y_ty) acc ->
         if y=n2 then
-          (Format.printf "Ending:%d\n" n2;
-           IntMap.add yp y_ty acc) else acc) pe res in
+          (IntMap.add yp y_ty acc) else acc) pe res in
   map_tnem
 
 and connect_one_to_one in_lis to_n in_gr =
@@ -1273,7 +1316,7 @@ and cleanup_multiarity in_gr =
 
 
 and remove_edge n1 p1 n2 p2 ed_ty in_gr =
-  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
+  (*Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
   let {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
   {nmap = nm;
    eset = ES.remove ((n1,p1),(n2,p2),ed_ty) pe;
@@ -1307,11 +1350,8 @@ and find_incoming_regular_node (n1, p1, ed_ty) in_gr =
   | _ -> n1,p1,ed_ty
 
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
-  print_endline ("Inserting edge: " ^
-    (string_of_pair_int (n1,p1)) ^ (string_of_pair_int (n2,p2)) ^
-    (string_of_int ed_ty));
-  print_endline "Calltrace:";
-  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
+  (*print_endline "Calltrace:";
+  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
 
   let n1,p1,ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0
@@ -1343,11 +1383,6 @@ and outgoing_arity n1 in_gr =
 
 and fold_multiarity_edge n1 n2 in_gr =
   let edges = all_edges n1 n2 in_gr in
-  print_endline ("multiarity edges:" ^
-                   (cate_list (string_of_edge_set edges) ";"));
-  print_endline ("Ending at:" ^
-                   (cate_list (string_of_edge_set
-                                 (all_edges_ending_at n1 in_gr)) ";"));
   let ending_at = (all_edges_ending_at n1 in_gr) in
   let redir_set,_ = redirect_edges n2
                     (ES.diff ending_at edges) in
@@ -1606,13 +1641,9 @@ and add_sisal_type {nmap = nm;eset = pe;symtab = sm;
      | false ->
         let brr = string_of_graph in_gr in
         raise (Node_not_found ("typename being added:"^ty));
-
+(** Combine symtabs to initialize a new graph. **)
 and get_a_new_graph in_gr =
-  (** Combine symtabs to initialize
-      a new graph. **)
-  print_endline "Before creating a new graph";
-  print_endline (string_of_graph in_gr);
-  let in_gr = unify_syms in_gr in
+  let in_gr = get_symtab_for_new_scope in_gr in
   let {nmap=nm;eset=ne;symtab=(_,ps);
        typemap=tmmi;w=tail} = in_gr in
   let {nmap=nm;eset=ne;symtab=_;
@@ -1620,8 +1651,8 @@ and get_a_new_graph in_gr =
     get_empty_graph tmmi in
   let out_gr = {nmap=nm;eset=ne;symtab=(SM.empty,ps);
    typemap=tmn1;w=tail} in
-  print_endline "After creating a new graph";
-  print_endline (string_of_graph out_gr); out_gr
+  out_gr
+
 and num_to_node_sym = function
   |	0	->	   BOUNDARY
   |	1	->	   CONSTANT
@@ -1676,6 +1707,7 @@ and num_to_node_sym = function
   |	50	->	   FINALVALUE
   |	51	->	   MULTIARITY
   | _ -> raise (Sem_error  "Error looking up type")
+
 and node_sym_to_num = function
   | BOUNDARY	->	0
   | CONSTANT	->	1
@@ -1917,7 +1949,7 @@ and string_of_node_ty ?(offset=2) =
           (fun x y -> cate_nicer (string_of_int x) y ",")
         assoc "")
      " "
-  | Rajathi -> "Unknown"
+  | Unknown_node -> "Unknown"
   | Boundary (zz,yy,pp) ->
      let bb =
        (cate_nicer
@@ -1965,7 +1997,7 @@ and dot_of_node_ty id in_gr =
          (dot_of_graph (int_of_string
                           ((string_of_int id) ^ (string_of_int lab)))
             g) ^ "\n" ^ "}"
-  | Rajathi -> "Unknown"
+  | Unknown_node -> "Unknown"
   | Boundary (zz,yy,pp) ->
      "IN0" ^ (string_of_int id) ^ " [shape=rect;label=\"" ^
        (cate_list (string_of_symtab_gr_in in_gr) "\\n") ^ "\"];\n" ^
@@ -2198,7 +2230,6 @@ let get_symbol_id v in_gr =
         let {val_ty=t;val_name=vv_n;
              val_def=aa;def_port=p} =
           SM.find v ps in
-        print_endline ("Found name in PS:" ^ vv_n);
         let ap = boundary_in_port_count in_gr in
         let cs = SM.add v {val_ty=t;val_name=vv_n;
                            val_def=0;def_port=ap} cs in
@@ -2228,35 +2259,22 @@ let get_symbol_id_old v in_gr =
                    val_def=aa; def_port=p} cs in
        (aa,p,t),{nmap=nm;eset=es;symtab=(cs,ps);typemap=ii,tm,tmn;
                  w=i}
+     else if (SM.mem ("OLD " ^ v) ps = true) then
+       let {val_ty=t; val_name=_; val_def=aa; def_port=p} =
+         SM.find v ps in
+       (aa,p,t),in_gr
+     else if (SM.mem v ps = true) then
+       let {val_ty=t; val_name=vv; val_def=aa; def_port=p} =
+         SM.find v ps in
+       let ps = SM.add ("OLD " ^ vv)
+                  {val_ty=t; val_name=("OLD " ^ vv);
+                   val_def=aa; def_port=p} ps in
+       (aa,p,t),{nmap=nm;eset=es;symtab=(cs,ps);typemap=ii,tm,tmn;
+                 w=i}
      else
-       raise (Node_not_found ("Issue For Symbol: OLD " ^ v))
+       raise (Node_not_found (
+                  "Symbol not found in current or parent symtab: OLD " ^ v))
 
 let is_outer_var vv = function
     {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
     SM.mem vv ps
-   (** GRAPH is best to build inside out, due to the
-    language strictness that we need a node and ports
-    tuple
-    AST visitor may build the GRAPH inside out
-    TEST: we are able to look up nodes in IF1.NM
-    with an integer
-    TEST: Edges are pair of ints containing a
-    label (integer) and another integer
-    (which serves as an array-idx into a node's
-    port.  Nodes are either
-    | Simple of node-type (binary operators etc perhaps)
-    and a port array)
-    | Compound of a list of Graphs and port array
-    Node numbers must be unique only inside Graphs to allow
-    for import/export. Graphs boundaries have some special properties.
-    There may require to be depth or breadth first visitors among other.
-    There may require to be a node and adjacency list of incoming/outgoing edges,
-    probably another array like the port arrays. **)
-    (** Literal edge 5 tuple **)
-    (** Literal of dest node, port, ref to type label, string, comment **)
-    (** Edge:
-    Literal edge
-    type information
-    comment section that has line number and or name **)
-    (** Label Scoping: **)
-    (** Type must also be stored in the Top-level graph **)
