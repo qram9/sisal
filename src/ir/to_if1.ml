@@ -1,4 +1,4 @@
-m ou(*TODO:
+(*TODO:
 1: When we write dot-files, we need to
    be more descriptive.
 2: Need to provide a debug-msging mechanism
@@ -167,16 +167,16 @@ let rec array_builder_exp ?(inc_typ=0) in_gr = function
                   Array.make 1 "" ,[None])) in_gr in
          let in_gr = add_edge e p arrnum 0 t1 in_gr in
          let in_gr = add_each_edge exp_l arrnum 1 in_gr in
-         let t1 =
+         let t1,in_gr =
            if inc_typ = 0 then (
              try
                let aty =  Array_ty t1 in
-               find_ty_safe in_gr aty
+               find_ty_safe in_gr aty, in_gr
              with _ ->
                let aty =  Array_ty t1 in
                let _,in_gr = add_type_to_typemap aty in_gr in
-               find_ty_safe in_gr aty)
-           else inc_typ in
+               find_ty_safe in_gr aty, in_gr)
+           else inc_typ,in_gr in
          (arrnum,arrport,t1),in_gr)
 
 and add_each_edge edg_lis anode nn in_gr =
@@ -839,6 +839,11 @@ and do_forall inexp bodyexp retexp in_gr =
         (get_a_new_graph in_gr) in_gr in_gr in
     let xyz,gen_gr =
       do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
+    let gen_gr =
+      let {nmap=nmap;eset=eset;
+           symtab=(umap,vmap);typemap=tm;w=w} = gen_gr in
+      {nmap=nmap;eset=eset;
+       symtab=(umap,vmap);typemap=(get_merged_typeblob_gr in_gr gen_gr);w=w} in
     xyz,gen_gr in
 
   let rec build_forloop inexp bodyexp retexp in_gr =
@@ -860,7 +865,6 @@ and do_forall inexp bodyexp retexp in_gr =
                          body_gr gen_gr gen_gr in
 
          do_decldef_part body_gr bodyexp in
-
        (** Insert Expressions Inside Return Clauses To Body Graph. *)
        let body_gr,return_action_list,ret_tuple_list,mask_ty_list =
          do_returns_clause_list body_gr retexp [] [] [] in
@@ -1068,7 +1072,7 @@ and do_def in_gr = function
        | Exp ee ->
           let (mx,mp,mt),in_gr = do_exp in_gr (Exp ee) in
           let rec add_multiarity_to_gr (mx,mp,mt) bound_names
-     {nmap=nmap;eset=eset;
+                    {nmap=nmap;eset=eset;
                      symtab=(umap,vmap);typemap=tm;w=w} =
             match bound_names with
             | [] ->
@@ -1109,7 +1113,17 @@ and get_type_num in_gr = function
 and do_params_decl po in_gr z =
   match z with
   | Decl(x,y) ->
-     let type_num = get_type_num in_gr y in
+     let type_num_some =
+       try
+         Some (get_type_num in_gr y)
+       with Node_not_found _ ->
+         None in
+     let type_num,in_gr =
+       match type_num_some with
+       | Some c -> c,in_gr
+       | None ->
+          let (id_t,ii,tt),in_gr = add_sisal_type in_gr y in
+          id_t,in_gr in
      match in_gr with
      | {nmap=nmap;eset=eset;symtab=(u,v);typemap=tm; w=w} ->
         let rec add_all_to_sm umap xli p q =
@@ -1648,24 +1662,35 @@ and point_edges_to_boundary frm elp elt in_gr =
       symtab=sm;typemap=tm;w=pi}
   | _ -> add_edge frm elp 0 0 elt in_gr
 
+and create_bool_bin_op a b in_gr op =
+  let (nod_num,nod_po,nod_ty),in_gr =
+    bin_fun a b in_gr op in
+  (*Return 1 for BOOLEAN TYPE*)
+  (nod_num,nod_po,lookup_tyid BOOLEAN),in_gr
+
+and create_bool_unary_op nou a in_gr op =
+  let (nod_num,nod_po,nod_ty),in_gr =
+    unary_fun nou a in_gr op in
+  (nod_num,nod_po,lookup_tyid BOOLEAN),in_gr
+
 and do_simple_exp in_gr in_sim_ex =
   match in_sim_ex with
   | Constant x -> do_constant in_gr x
-  | Not e -> unary_fun 1 in_gr e NOT
   | Negate e -> unary_fun 1 in_gr e NEGATE
   | Pipe (a,b) -> bin_fun a b in_gr ACATENATE
-  | And (a,b) ->  bin_fun a b in_gr AND
   | Divide (a,b) -> bin_fun a b in_gr DIVIDE
   | Multiply (a,b) -> bin_fun a b in_gr TIMES
   | Subtract (a,b) -> bin_fun a b in_gr SUBTRACT
   | Add (a,b) -> bin_fun a b in_gr ADD
+  | And (a,b) ->  bin_fun a b in_gr AND
   | Or (a,b) -> bin_fun a b in_gr OR
-  | Not_equal (a,b) -> bin_fun a b in_gr NOT_EQUAL
-  | Equal (a,b) -> bin_fun a b in_gr EQUAL
-  | Lesser_equal (a,b) -> bin_fun a b in_gr LESSER_EQUAL
-  | Lesser (a,b) -> bin_fun a b in_gr LESSER
-  | Greater_equal (a,b) -> bin_fun a b in_gr GREATER_EQUAL
-  | Greater (a,b) -> bin_fun a b in_gr GREATER
+  | Not e -> unary_fun 1 in_gr e NOT
+  | Not_equal (a,b) -> create_bool_bin_op a b in_gr NOT_EQUAL
+  | Equal (a,b) -> create_bool_bin_op a b in_gr EQUAL
+  | Lesser_equal (a,b) -> create_bool_bin_op a b in_gr LESSER_EQUAL
+  | Lesser (a,b) -> create_bool_bin_op a b in_gr LESSER
+  | Greater_equal (a,b) -> create_bool_bin_op a b in_gr GREATER_EQUAL
+  | Greater (a,b) -> create_bool_bin_op a b in_gr GREATER
   | Invocation(fn,arg) ->
      (match fn with
       | Function_name f ->
@@ -1694,6 +1719,46 @@ and do_simple_exp in_gr in_sim_ex =
 	   	                ("Incorrect usage"^
 				 " for array_addh"))) in
              (n,0,tt),in_gr
+          | "ARRAY_LIMH" ->
+             let in_port_00 = Array.make (1) "" in
+             let out_port_00 = Array.make (1) "" in
+             let ((n,k,_),in_gr) =
+               add_node_2
+                 (`Simple (ALIMH, in_port_00,
+                           out_port_00, [])) in_gr in
+             let _,in_gr =
+               match arg with
+               | Arg aa ->
+                  match aa with
+                  | Exp aexps ->
+                     List.fold_right(
+                         fun x (cou,in_gr) ->
+                         let (l,m,tt),in_gr =
+                           do_simple_exp in_gr x in
+                         cou+1,add_edge l m n cou tt in_gr)
+                       aexps (0,in_gr)
+                  | _ -> 0,in_gr in
+             (n,0,lookup_tyid INTEGRAL),in_gr
+          | "ARRAY_LIML" ->
+             let in_port_00 = Array.make (1) "" in
+             let out_port_00 = Array.make (1) "" in
+             let ((n,k,_),in_gr) =
+               add_node_2
+                 (`Simple (ALIML, in_port_00,
+                           out_port_00, [])) in_gr in
+             let _,in_gr =
+               match arg with
+               | Arg aa ->
+                  match aa with
+                  | Exp aexps ->
+                     List.fold_right(
+                         fun x (cou,in_gr) ->
+                         let (l,m,tt),in_gr =
+                           do_simple_exp in_gr x in
+                         cou+1,add_edge l m n cou tt in_gr)
+                       aexps (0,in_gr)
+                  | _ -> 0,in_gr in
+             (n,0,lookup_tyid INTEGRAL),in_gr
           | "ARRAY_SIZE" ->
              let in_port_00 = Array.make (1) "" in
              let out_port_00 = Array.make (1) "" in
@@ -1713,7 +1778,7 @@ and do_simple_exp in_gr in_sim_ex =
                          cou+1,add_edge l m n cou tt in_gr)
                        aexps (0,in_gr)
                   | _ -> 0,in_gr in
-             (n,0,5),in_gr
+             (n,0,lookup_tyid INTEGRAL),in_gr
           | _ ->
          let prags = [Name f] in
          let expl,in_gr =
@@ -2376,7 +2441,14 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
                        Array.make(1) "",[None])) out_gr in
              (** Create a type for AGATHER HERE AND ADD ITS TYPE TO
                 output return_action_list **)
-             let what_ty = find_ty in_gr (Array_ty tt) in
+             let what_ty,out_gr =
+               try
+                 find_ty in_gr (Array_ty tt), out_gr
+               with _ ->
+                 let aty =  Array_ty tt in
+                 let (id_x,_,_),out_gr =
+                   add_type_to_typemap aty out_gr in
+                 id_x,out_gr in
              let out_gr = add_edge 0 0 dd 0 5
                             (*integer type for indx*) out_gr in
              let out_gr = add_edge 0 aa dd 1 tt out_gr in

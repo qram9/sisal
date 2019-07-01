@@ -384,7 +384,7 @@ and inherit_parent_syms
 (** Weird case, where we copy local syms to other
 only if they are not parent syms in other. *)
 and create_subgraph_symtab
-{nmap=_;eset=es;symtab=(cs,ps);typemap=_;w=_}
+{nmap=_;eset=es;symtab=(cs,ps);typemap=otm;w=_}
 {nmap=nm;eset=es;symtab=(other_cs,other_ps);typemap=tm;w=i} =
   let {nmap=nm;eset=es;
        symtab=(cs,ps); typemap=tm;w=i} =
@@ -419,7 +419,7 @@ and create_subgraph_symtab
   let boun_lis = make_a_small_lis 0 (SM.cardinal cs) [] in
   let in_gr =  {nmap = nm;eset = es;
                 symtab = (cs,ps);
-                typemap = tm;w = i} in
+                typemap = merge_typeblobs tm otm;w = i} in
   let in_gr = input_from_boundary boun_lis in_gr in
   in_gr
 
@@ -1128,12 +1128,14 @@ and add_node nn
      {nmap = NM.add pi (Simple(pi,n,pin,pout,prag)) nm;
       eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi+1}
   | `Compound (g,sy,ty,prag,alis) ->
-     let {nmap = _;eset = _;
-          symtab = (child_cs,child_ps);typemap = _;w = _} = g in
+     let {nmap = gnm;eset = ges;
+          symtab = (child_cs,child_ps);typemap = _;w = g_w} = g in
+     let g_tmn = get_types_from_graph g tm in
+     let g = {nmap = gnm; eset=ges;symtab = (child_cs,child_ps);
+              typemap=g_tmn;w=g_w} in
      let par_ps = SM.fold (fun k v z -> SM.add k v z) child_ps par_ps in
      {nmap = NM.add pi (Compound(pi,sy,ty,prag,g,alis)) nm;
-      eset = pe;symtab = (par_cs,par_ps);
-      typemap = get_types_from_graph g;w = pi+1}
+      eset = pe;symtab = (par_cs,par_ps);typemap = g_tmn;w = pi+1}
   | `Literal (ty_lab,str,pout) ->
      {nmap = NM.add pi (Literal(pi,ty_lab,str,pout)) nm;
       eset = pe;symtab = (par_cs,par_ps);typemap = tm;w = pi+1}
@@ -1194,11 +1196,16 @@ and add_node_2 nn
 	  (Simple(pi,n,pin,pout,prag)) nm;
       eset = pe;symtab = sm;typemap = tm;w = pi+1}
   | `Compound (g,sy,ty,prag,alis) ->
+     let g_tmn = get_types_from_graph g tm in
+     let {nmap = gnm; eset=ges;symtab = (child_cs,child_ps);
+          typemap=_;w=g_w} = g in
+     let g = {nmap = gnm; eset=ges;symtab = (child_cs,child_ps);
+              typemap=g_tmn;w=g_w} in
      (pi,0,0),
      {nmap =
         NM.add pi
 	  (Compound(pi,sy,ty,prag,g,alis)) nm;
-      eset = pe;symtab = sm;typemap = get_types_from_graph g;w = pi+1}
+      eset = pe;symtab = sm;typemap = g_tmn;w = pi+1}
   | `Literal (ty_lab,str,pout) ->
      (pi,0,lookup_tyid ty_lab),
      {nmap =
@@ -1353,6 +1360,9 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
   (*print_endline "Calltrace:";
   Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
 
+  if (ed_ty == 24) then
+    (outs_graph_with_msg "GOT 24" in_gr)
+  else ();
   let n1,p1,ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0
   then
@@ -1440,9 +1450,62 @@ and add_each_in_list_to_node_and_get_types olis in_gr ex out_e ni appl =
      add_each_in_list_to_node_and_get_types (tt1::olis)
        in_gr_ tl out_e (ni+1) appl
 
-and get_types_from_graph g =
+and get_types_from_graph g inc_blob =
+  let g_ty_idx,g_tm,g_tmn =
     let {nmap=_;eset = _; symtab=_;
-         typemap=tyblob;w=_} = g in tyblob
+         typemap=tyblob;w=_} = g in tyblob in
+  let inc_blob_ty_idx,inc_block_tm,inc_blob_tmn = inc_blob in
+
+  let out_ty_idx =
+    if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
+  let merge_fn =
+    fun k xo yo -> match xo,yo with
+                   | Some x, Some y -> Some x
+                   | None, yo -> yo
+                   | xo, None -> xo in
+  let out_tm =
+    TM.merge merge_fn g_tm inc_block_tm in
+  let out_tmn =
+    MM.merge merge_fn g_tmn inc_blob_tmn in
+  (out_ty_idx, out_tm, out_tmn)
+
+
+and get_merged_typeblob_gr g1 g2 =
+  let g_ty_idx,g_tm,g_tmn =
+    let {nmap=_;eset = _; symtab=_;
+         typemap=tyblob;w=_} = g1 in tyblob in
+  let inc_blob_ty_idx,inc_block_tm,inc_blob_tmn =
+    let {nmap=_;eset = _; symtab=_;
+         typemap=tyblob;w=_} = g2 in tyblob in
+  let out_ty_idx =
+    if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
+  let merge_fn =
+    fun k xo yo -> match xo,yo with
+                   | Some x, Some y -> Some x
+                   | None, yo -> yo
+                   | xo, None -> xo in
+  let out_tm =
+    TM.merge merge_fn g_tm inc_block_tm in
+  let out_tmn =
+    MM.merge merge_fn g_tmn inc_blob_tmn in
+  (out_ty_idx, out_tm, out_tmn)
+
+and merge_typeblobs tyblob1 tyblob2 =
+  let g_ty_idx,g_tm,g_tmn = tyblob1 in
+  let inc_blob_ty_idx,inc_block_tm,inc_blob_tmn = tyblob2 in
+  let out_ty_idx =
+    if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
+  let merge_fn =
+    fun k xo yo -> match xo,yo with
+                   | Some x, Some y ->
+                      Some x
+                   | None, yo -> yo
+                   | xo, None -> xo in
+  let out_tm =
+    TM.merge merge_fn g_tm inc_block_tm in
+  let out_tmn =
+    MM.merge merge_fn g_tmn inc_blob_tmn in
+  (out_ty_idx, out_tm, out_tmn)
 
 and add_type_to_typemap ood
 {nmap = nm;eset=pe;symtab=sm;typemap =(id,tm,tmn);w=pi} =
@@ -1649,6 +1712,7 @@ and get_a_new_graph in_gr =
   let {nmap=nm;eset=ne;symtab=_;
        typemap=tmn1;w=tail} =
     get_empty_graph tmmi in
+  let tmn1 = merge_typeblobs tmn1 tmmi in
   let out_gr = {nmap=nm;eset=ne;symtab=(SM.empty,ps);
    typemap=tmn1;w=tail} in
   out_gr
@@ -2192,10 +2256,11 @@ and int_map_printer fmt inmap =
           fun ke valu old ->
           (string_of_int ke) ^ " : " ^ (string_of_int valu) ^ "\n" ^ old))
        inmap "")
-
 and outs_graph gr =
   graph_printer Format.std_formatter gr
-
+and outs_graph_with_msg msg gr =
+  print_endline msg;
+  outs_graph gr
 and node_printer fmt ii in_gr =
   Format.fprintf fmt "------\n%s\n" (string_of_node ii in_gr)
 
