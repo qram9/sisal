@@ -2186,6 +2186,13 @@ and string_of_graph2 (ii,gr) = string_of_graph gr
 and graph_printer fmt gr =
   Format.fprintf fmt "-------\n%s\n" (string_of_graph gr)
 
+and int_map_printer fmt inmap =
+  Format.fprintf fmt "-------\n%s\n"
+    ((IntMap.fold (
+          fun ke valu old ->
+          (string_of_int ke) ^ " : " ^ (string_of_int valu) ^ "\n" ^ old))
+       inmap "")
+
 and outs_graph gr =
   graph_printer Format.std_formatter gr
 

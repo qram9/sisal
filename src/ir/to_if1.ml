@@ -1,4 +1,4 @@
-(*TODO:
+m ou(*TODO:
 1: When we write dot-files, we need to
    be more descriptive.
 2: Need to provide a debug-msging mechanism
@@ -1420,7 +1420,7 @@ and tag_typecheck_fail vn_n in_gr jj prev =
     )
 
 and check_tag_types vn_n jj prev in_gr =
-  if jj = prev then ""
+  if jj = prev then true
   else raise (Sem_error ("Output types do not match for:"
                          ^ vn_n))
 
@@ -1455,7 +1455,12 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
          get the types and compare
          them to make sure that they are the same
          as for each earlier tag-case match *)
-     let _ = check_tag_types vn_n jj prev_out_types tagcase_gr_ in
+     let _ =
+       if (IntMap.is_empty prev_out_types)
+       then
+         true
+       else
+         (check_tag_types vn_n jj prev_out_types tagcase_gr_) in
      let (ii,_,_),tagcase_g =
        add_node_2 (`Compound(
                        tagcase_gr_i,INTERNAL,0,prags,[])) tagcase_g in
