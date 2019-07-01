@@ -5,7 +5,7 @@ type IntList = union[Empty: null;Full: record[Mote: integer; Next:IntList]]
 function Main(level: REAL returns REAL)
 let x,y : REAL := level + 1.0,level+1.2 in
 let z : REAL := level-4.3 in
-tempFun(x*y+2.2*3.1*z,x*z + 2.3*3.5*y)
+x*y+2.2*3.1*z+x*z + 2.3*3.5*y
 end let
 end let
 end function
