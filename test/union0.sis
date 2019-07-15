@@ -1,11 +1,27 @@
+
 define main
 type ar		= array[integer];
-type un		= union[a : integer; b : real; c : double; d : ar];
-function ucreate(a : integer; b : real; c : double; d : ar returns
-     un,un,un,un)
+
+type un		= union[a : integer; b : real; d : ar];
+
+
+type double = double_real;
+type OneD   = array[double];
+
+
+%------------------------------------------------------------
+function ucreate(a : integer; b : real; d : ar returns
+     un,un,un)
      union un[a : a],
      union un[b : b],
-     union un[c : c],
      union un[d : d]
+end function
+function utag(u : un returns boolean,boolean,boolean)
+     is a(u),
+     is d(u),
+     is b(u)
+end function
+function Main( x:integer; y: real; z : ar returns boolean,boolean,boolean)
+is a(union un[a:x]),is b(union un[b:y]),is d(union un[d:z])
 end function
 
