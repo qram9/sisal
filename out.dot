@@ -1,0 +1,100 @@
+digraph R {
+newrank=true;
+IN00 [shape=rect;label=""];
+OUT00 [shape=rect;label="[]"];
+subgraph cluster_01 {
+label="1 ";
+IN01 [shape=rect;label="ARRAY 5;D;(0,2)\nREAL;B;(0,1)\nINTEGRAL;A;(0,0)"];
+OUT01 [shape=rect;label="[(3,0);(2,0);(1,0)]%na=UCREATE"];
+11 [shape=rect;label="1 RBUILD"];
+12 [shape=rect;label="2 RBUILD"];
+13 [shape=rect;label="3 RBUILD"]
+IN01 ->  11 [label="(0,0),Ty=5"]
+IN01 ->  12 [label="(1,0),Ty=3"]
+IN01 ->  13 [label="(2,0),Ty=7"]
+11 ->  OUT01 [label="(0,0),Ty=11"]
+12 ->  OUT01 [label="(0,1),Ty=11"]
+13 ->  OUT01 [label="(0,2),Ty=11"]
+};
+subgraph cluster_02 {
+label="2 ";
+IN02 [shape=rect;label="UNION {Type label:0; Next tag:10; %na=};U;(0,0)"];
+OUT02 [shape=rect;label="[(6,0);(4,0);(2,0)]%na=UTAG"];
+subgraph cluster_22 {
+label="2 %na=IS_SUBGRAPH11";
+IN022 [shape=rect;label=""];
+OUT022 [shape=rect;label="[(2,0);(1,0)]"];
+221 [shape=plaintext;label="False"];
+222 [shape=plaintext;label="True"]
+221 ->  OUT022 [label="(0,0),Ty=1"]
+222 ->  OUT022 [label="(0,1),Ty=1"]
+};
+subgraph cluster_24 {
+label="4 %na=IS_SUBGRAPH11";
+IN024 [shape=rect;label=""];
+OUT024 [shape=rect;label="[(2,0);(1,0)]"];
+241 [shape=plaintext;label="False"];
+242 [shape=plaintext;label="True"]
+241 ->  OUT024 [label="(0,0),Ty=1"]
+242 ->  OUT024 [label="(0,1),Ty=1"]
+};
+subgraph cluster_26 {
+label="6 %na=IS_SUBGRAPH11";
+IN026 [shape=rect;label=""];
+OUT026 [shape=rect;label="[(2,0);(1,0)]"];
+261 [shape=plaintext;label="False"];
+262 [shape=plaintext;label="True"]
+261 ->  OUT026 [label="(0,0),Ty=1"]
+262 ->  OUT026 [label="(0,1),Ty=1"]
+}
+IN02 ->  22 [label="(0,0),Ty=11"]
+IN02 ->  24 [label="(0,0),Ty=11"]
+IN02 ->  26 [label="(0,0),Ty=11"]
+22 ->  OUT02 [label="(0,0),Ty=1"]
+24 ->  OUT02 [label="(0,1),Ty=1"]
+26 ->  OUT02 [label="(0,2),Ty=1"]
+};
+subgraph cluster_03 {
+label="3 ";
+IN03 [shape=rect;label="ARRAY 5;Z;(0,2)\nREAL;Y;(0,1)\nINTEGRAL;X;(0,0)"];
+OUT03 [shape=rect;label="[(9,0);(6,0);(3,0)]%na=MAIN"];
+31 [shape=rect;label="1 RBUILD"];
+subgraph cluster_33 {
+label="3 %na=IS_SUBGRAPH11";
+IN033 [shape=rect;label=""];
+OUT033 [shape=rect;label="[(2,0);(1,0)]"];
+331 [shape=plaintext;label="False"];
+332 [shape=plaintext;label="True"]
+331 ->  OUT033 [label="(0,0),Ty=1"]
+332 ->  OUT033 [label="(0,1),Ty=1"]
+};
+34 [shape=rect;label="4 RBUILD"];
+subgraph cluster_36 {
+label="6 %na=IS_SUBGRAPH11";
+IN036 [shape=rect;label=""];
+OUT036 [shape=rect;label="[(2,0);(1,0)]"];
+361 [shape=plaintext;label="False"];
+362 [shape=plaintext;label="True"]
+361 ->  OUT036 [label="(0,0),Ty=1"]
+362 ->  OUT036 [label="(0,1),Ty=1"]
+};
+37 [shape=rect;label="7 RBUILD"];
+subgraph cluster_39 {
+label="9 %na=IS_SUBGRAPH11";
+IN039 [shape=rect;label=""];
+OUT039 [shape=rect;label="[(2,0);(1,0)]"];
+391 [shape=plaintext;label="False"];
+392 [shape=plaintext;label="True"]
+391 ->  OUT039 [label="(0,0),Ty=1"]
+392 ->  OUT039 [label="(0,1),Ty=1"]
+}
+IN03 ->  31 [label="(0,0),Ty=5"]
+IN03 ->  34 [label="(1,0),Ty=3"]
+IN03 ->  37 [label="(2,0),Ty=7"]
+31 ->  33 [label="(0,0),Ty=11"]
+33 ->  OUT03 [label="(0,0),Ty=1"]
+34 ->  36 [label="(0,0),Ty=11"]
+36 ->  OUT03 [label="(0,1),Ty=1"]
+37 ->  39 [label="(0,0),Ty=11"]
+39 ->  OUT03 [label="(0,2),Ty=1"]
+}}

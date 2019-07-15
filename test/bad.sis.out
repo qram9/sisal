@@ -1,0 +1,414 @@
+DEFINE MAIN
+TYPE INFO = ARRAY [INTEGER]
+FUNCTION MAIN (DATA:INFO RETURNS INFO)
+  FUNCTION SPLIT (DATA:INFO RETURNS INFO,INFO,INFO)
+    FOR E IN DATA
+      RETURNS
+        ARRAY OF E WHEN E < DATA[1]
+        ARRAY OF E WHEN E = DATA[1]
+        ARRAY OF E WHEN E > DATA[1]
+    END FOR
+  END FUNCTION
+  IF ARRAY_SIZE(DATA) > 2 THEN
+LET
+      L,MIDDLE,R := SPLIT(DATA) IN
+    MAIN(L) || MIDDLE || MAIN(R)
+    END LET
+  ELSE DATA
+  END IF
+END FUNCTION
+-------------------
+At Height:1
+WITNESS:0
+-------------------
+At Height:2
+SIZE 1 :- (1,0 aka [0; 1; 0; 0; 7; 0; 2; 0; 1; 7; 0; 3; 0; 2; 7; -1])
+SIZE 1 :- (13,3 aka [34; 0; 0; 0; 5; 34; 0; 1; 1; 5; 34; 0; 2; 2; 5; -1])
+WITNESS:3
+SIZE 1 :- (13,2 aka [34; 0; 0; 0; 5; 34; 0; 1; 1; 5; 34; 0; 3; 2; 5; -1])
+WITNESS:2
+SIZE 1 :- (13,1 aka [34; 0; 0; 0; 5; 34; 0; 1; 1; 5; 34; 0; 4; 2; 5; -1])
+WITNESS:1
+Val-nums
+3 -> 3
+2 -> 2
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-155079.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 1; 0; 1; 5; -1])
+WITNESS:0
+-------------------
+At Height:2
+SIZE 1 :- (1,1 aka [41; 0; 0; 0; 7; -1])
+WITNESS:1
+Val-nums
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-9bdf8c.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 0; 1; 0; 5; 0; 0; 1; 1; 5; 0; 0; 1; 2; 5; 0; 9; 0; 3; 5; 0; 6; 0; 4; 5; 0; 3; 0; 5; 5; -1])
+WITNESS:0
+SIZE 1 :- (1,1 aka [1; -1])
+WITNESS:1
+SIZE 1 :- (1,4 aka [4; -1])
+WITNESS:4
+SIZE 1 :- (1,7 aka [7; -1])
+WITNESS:7
+-------------------
+At Height:2
+SIZE 1 :- (7,2 aka [32; 0; 0; 0; 7; 32; 1; 0; 1; 5; -1])
+WITNESS:2
+SIZE 1 :- (7,5 aka [32; 0; 0; 0; 7; 32; 4; 0; 1; 5; -1])
+WITNESS:5
+SIZE 1 :- (7,8 aka [32; 0; 0; 0; 7; 32; 7; 0; 1; 5; -1])
+WITNESS:8
+-------------------
+At Height:3
+SIZE 1 :- (1,6 aka [16; 0; 1; 0; 5; 16; 5; 0; 1; 5; -1])
+WITNESS:6
+SIZE 1 :- (1,3 aka [18; 0; 1; 0; 5; 18; 2; 0; 1; 5; -1])
+WITNESS:3
+SIZE 1 :- (1,9 aka [20; 0; 1; 0; 5; 20; 8; 0; 1; 5; -1])
+WITNESS:9
+Val-nums
+9 -> 9
+8 -> 8
+7 -> 7
+6 -> 6
+5 -> 5
+4 -> 4
+3 -> 3
+2 -> 2
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-d38334.dot
+Val-nums
+Output Dot in /tmp/graph-d9e395.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 0; 0; 0; 7; -1])
+WITNESS:0
+Val-nums
+0 -> 0
+Output Dot in /tmp/graph-f9f4d6.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 9; 0; 0; 7; -1])
+WITNESS:0
+-------------------
+At Height:2
+SIZE 1 :- (1,1 aka [5; 0; 0; 0; 7; -1])
+WITNESS:1
+-------------------
+At Height:3
+SIZE 1 :- (3,7 aka [5; 1; 0; 0; 7; -1])
+WITNESS:7
+SIZE 1 :- (3,4 aka [5; 1; 2; 0; 7; -1])
+WITNESS:4
+-------------------
+At Height:4
+SIZE 1 :- (1,6 aka [8; 4; 0; 0; 7; 8; 1; 1; 1; 7; -1])
+WITNESS:6
+-------------------
+At Height:5
+SIZE 1 :- (1,9 aka [8; 6; 0; 0; 7; 8; 7; 0; 1; 7; -1])
+WITNESS:9
+Val-nums
+9 -> 9
+7 -> 7
+6 -> 6
+4 -> 4
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-123c81.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 3; 0; 0; 5; -1])
+WITNESS:0
+SIZE 1 :- (1,2 aka [2; -1])
+WITNESS:2
+-------------------
+At Height:2
+SIZE 1 :- (1,1 aka [43; 0; 0; 0; 7; -1])
+WITNESS:1
+-------------------
+At Height:3
+SIZE 1 :- (1,3 aka [20; 1; 0; 0; 5; 20; 2; 0; 1; 5; -1])
+WITNESS:3
+Val-nums
+3 -> 3
+2 -> 2
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-0094cd.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; -1])
+WITNESS:0
+SIZE 1 :- (1,1 aka [1; -1])
+WITNESS:1
+SIZE 1 :- (1,2 aka [2; -1])
+WITNESS:2
+SIZE 1 :- (1,3 aka [3; -1])
+WITNESS:3
+Val-nums
+3 -> 3
+2 -> 2
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-3d83d5.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 4; 0; 0; 7; 0; 6; 1; 1; 7; 0; 8; 2; 2; 7; -1])
+WITNESS:0
+SIZE 1 :- (1,1 aka [1; -1])
+WITNESS:1
+SIZE 1 :- (1,9 aka [9; -1])
+WITNESS:9
+-------------------
+At Height:2
+(REACHED SENTINEL) WITNESS:3 FOR 3 TREES :- (6,3 aka [36; 0; 0; 0; 7; -1]);(6,5 aka [36; 0; 0; 0; 7; -1]);(6,7 aka [36; 0; 0; 0; 7; -1])
+-------------------
+At Height:3
+(REACHED SENTINEL) WITNESS:4 FOR 3 TREES :- (6,4 aka [42; 3; 0; 1; 5; -1]);(6,6 aka [42; 5; 0; 1; 5; -1]);(6,8 aka [42; 7; 0; 1; 5; -1])
+Val-nums
+9 -> 9
+8 -> 4
+7 -> 3
+6 -> 4
+5 -> 3
+4 -> 4
+3 -> 3
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-4afca0.dot
+Val-nums
+Output Dot in /tmp/graph-29666d.dot
+Result graph
+Graph {
+----NODES----
+1 0
+  Graph {
+  ----NODES----
+  9 0 %na=SELECT
+    Graph {
+    ----NODES----
+    3 0 %na=PREDICATE0
+      Graph {
+      ----NODES----
+      3 GREATER [||] [||]
+      2 "2"
+      1 ASIZE [||] [||]
+      BOUNDARY [[(0,0,DATA)], []]
+      ----EDGES----
+      3:0 -> 0:0 5
+      2:0 -> 3:1 5
+      1:0 -> 3:0 5
+      0:0 -> 1:0 7
+      GLOBAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      LOCAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      } 5
+    2 0 %na=BODY0
+      Graph {
+      ----NODES----
+      9 ACATENATE [||] [|0|]
+      7 INVOCATION [||] [||] %na=MAIN
+      6 ACATENATE [||] [||]
+      4 INVOCATION [||] [||] %na=MAIN
+      1 INVOCATION [||] [||] %na=SPLIT
+      BOUNDARY [[(0,0,DATA)], [(9,0)]]
+      ----EDGES----
+      9:0 -> 0:0 7
+      7:0 -> 9:1 7
+      6:0 -> 9:0 7
+      4:0 -> 6:0 7
+      1:0 -> 7:0 7
+      1:1 -> 6:1 7
+      1:2 -> 4:0 7
+      0:0 -> 1:0 7
+      GLOBAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      } 12
+    1 0 %na=ELSE0
+      Graph {
+      ----NODES----
+      BOUNDARY [[(0,0,DATA)], []]
+      ----EDGES----
+      0:0 -> 0:0 7
+      GLOBAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      LOCAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      } 2
+    BOUNDARY [[(0,1,);(0,0,)], [(2,0);(1,0);(3,0)]]
+    ----EDGES----
+    3:0 -> 0:0 5
+    2:0 -> 0:2 7
+    1:0 -> 0:1 7
+    0:0 -> 3:0 7
+    0:1 -> 2:0 7
+    0:0 -> 1:0 7
+    GLOBAL-SYM: 
+    ARRAY 5;DATA;(0,0)
+    } 4 3,2,1,3
+  8 ASETL [||] [|0|]
+  7 ALIML [||] [||] %na=ALimL
+  6 ASETL [||] [|0|]
+  5 ALIML [||] [||] %na=ALimL
+  4 ASETL [||] [|0|]
+  3 ALIML [||] [||] %na=ALimL
+  1 0 %na=FORALL
+    Graph {
+    ----NODES----
+    3 0 %na=BODY
+      Graph {
+      ----NODES----
+      9 GREATER [||] [|0|]
+      8 AELEMENT [||] [||]
+      7 "1"
+      6 EQUAL [||] [|0|]
+      5 AELEMENT [||] [||]
+      4 "1"
+      3 LESSER [||] [|0|]
+      2 AELEMENT [||] [||]
+      1 "1"
+      BOUNDARY [[(0,1,E);(0,0,DATA)], [(3,0);(6,0);(9,0);(0,1);(0,1);(0,1)]]
+      ----EDGES----
+      9:0 -> 0:3 5
+      8:0 -> 9:1 5
+      7:0 -> 8:1 5
+      6:0 -> 0:4 5
+      5:0 -> 6:1 5
+      4:0 -> 5:1 5
+      3:0 -> 0:5 5
+      2:0 -> 3:1 5
+      1:0 -> 2:1 5
+      0:1 -> 9:0 5
+      0:0 -> 8:0 7
+      0:1 -> 6:0 5
+      0:0 -> 5:0 7
+      0:1 -> 3:0 5
+      0:0 -> 2:0 7
+      0:1 -> 0:2 5
+      0:1 -> 0:1 5
+      0:1 -> 0:0 5
+      GLOBAL-SYM: 
+      INTEGRAL;E;(1,0)
+      ARRAY 5;DATA;(0,0)
+      LOCAL-SYM: 
+      INTEGRAL;E;(0,1)
+      ARRAY 5;DATA;(0,0)
+      } 10
+    2 0 %na=GENERATOR
+      Graph {
+      ----NODES----
+      1 ASCATTER [||] [|0|]
+      BOUNDARY [[(0,0,DATA)], [(1,0)]]
+      ----EDGES----
+      1:0 -> 0:1 5
+      0:0 -> 1:0 7
+      GLOBAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      LOCAL-SYM: 
+      INTEGRAL;E;(1,0)
+      ARRAY 5;DATA;(0,0)
+      } 2
+    1 0 %na=RETURN
+      Graph {
+      ----NODES----
+      3 AGATHER [||] [|0|]
+      2 AGATHER [||] [|0|]
+      1 AGATHER [||] [|0|]
+      BOUNDARY [[(0,2,);(0,3,);(0,4,);(0,1,);(0,0,)], [(3,0);(2,0);(1,0)]]
+      ----EDGES----
+      3:0 -> 0:2 7
+      2:0 -> 0:1 7
+      1:0 -> 0:0 7
+      0:2 -> 3:2 5
+      0:1 -> 3:1 5
+      0:0 -> 3:0 5
+      0:3 -> 2:2 5
+      0:1 -> 2:1 5
+      0:0 -> 2:0 5
+      0:4 -> 1:2 5
+      0:1 -> 1:1 5
+      0:0 -> 1:0 5
+      GLOBAL-SYM: 
+      ARRAY 5;DATA;(0,0)
+      } 4
+    BOUNDARY [[(0,0,DATA)], []]
+    GLOBAL-SYM: 
+    ARRAY 5;DATA;(0,0)
+    LOCAL-SYM: 
+    ARRAY 5;DATA;(0,0)
+    } 4 3,2,3,1
+  BOUNDARY [[(0,0,)], [(9,0);(8,2);(6,1);(4,0)], %na=SPLIT ,%na=MAIN]
+  ----EDGES----
+  9:0 -> 0:3 7
+  4:2 -> 0:2 7
+  4:1 -> 0:1 7
+  4:0 -> 0:0 7
+  3:0 -> 8:1 5
+  3:0 -> 6:1 5
+  3:0 -> 4:1 5
+  1:1 -> 8:0 7
+  1:1 -> 6:0 7
+  1:1 -> 4:0 7
+  0:0 -> 7:0 7
+  0:0 -> 5:0 7
+  0:0 -> 3:0 7
+  0:0 -> 1:0 7
+  LOCAL-SYM: 
+  ARRAY 5;DATA;(0,0)
+  } 11
+BOUNDARY [[], []]
+----TYPEMAP----
+15 FUNCTION_TYPE SPLIT (ARGS: 14) (RETURNS:13)
+14 TUPLE {Type label:7; Next label:0}
+13 TUPLE {Type label:7; Next label:12}
+12 TUPLE {Type label:7; Next label:11}
+11 TUPLE {Type label:7; Next label:0}
+10 FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:8)
+9 TUPLE {Type label:7; Next label:0}
+8 TUPLE {Type label:7; Next label:0}
+7 ARRAY 5
+6 NULL
+5 INTEGRAL
+4 DOUBLE
+3 REAL
+2 CHARACTER
+1 BOOLEAN
+----TYPENAMES----
+REAL:3
+NULL:6
+INTEGRAL:5
+INFO:7
+DOUBLE:4
+CHARACTER:2
+BOOLEAN:1
+} 2
+DEFINE MAIN
+TYPE INFO = ARRAY [INTEGER]
+FUNCTION MAIN (DATA:INFO RETURNS INFO)
+  FUNCTION SPLIT (DATA:INFO RETURNS INFO,INFO,INFO)
+    FOR E IN DATA
+      RETURNS
+        ARRAY OF E WHEN E < DATA[1]
+        ARRAY OF E WHEN E = DATA[1]
+        ARRAY OF E WHEN E > DATA[1]
+    END FOR
+  END FUNCTION
+  IF ARRAY_SIZE(DATA) > 2 THEN
+LET
+      L,MIDDLE,R := SPLIT(DATA) IN
+    MAIN(L) || MIDDLE || MAIN(R)
+    END LET
+  ELSE DATA
+  END IF
+END FUNCTION
+Output Dot in out.dot

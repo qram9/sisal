@@ -1,0 +1,108 @@
+ocaml setup.ml -build -cflag -g
+/home/ram/.opam/system/bin/ocamlfind ocamldep -package unix -modules src/ir/if1.ml > src/ir/if1.ml.depends
+/home/ram/.opam/system/bin/ocamlfind ocamlc -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/if1.cmo src/ir/if1.ml
+/home/ram/.opam/system/bin/ocamlfind ocamlc -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/to_if1.cmo src/ir/to_if1.ml
++ /home/ram/.opam/system/bin/ocamlfind ocamlc -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/to_if1.cmo src/ir/to_if1.ml
+File "src/ir/to_if1.ml", line 228, characters 33-151:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Tag_name _
+File "src/ir/to_if1.ml", line 696, characters 20-374:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+In_exp (_, Empty)
+File "src/ir/to_if1.ml", line 1330, characters 22-145:
+Warning 5: this function application is partial,
+maybe some arguments are missing.
+File "src/ir/to_if1.ml", line 1333, characters 3-21:
+Warning 10: this expression should have type unit.
+File "src/ir/to_if1.ml", line 1596, characters 22-37:
+Warning 10: this expression should have type unit.
+File "src/ir/to_if1.ml", line 240, characters 6-9:
+Warning 26: unused variable tty.
+File "src/ir/to_if1.ml", line 249, characters 19-20:
+Warning 11: this match case is unused.
+File "src/ir/to_if1.ml", line 292, characters 22-23:
+Warning 11: this match case is unused.
+File "src/ir/to_if1.ml", line 297, characters 9-14:
+Warning 26: unused variable hdt1y.
+File "src/ir/to_if1.ml", line 559, characters 9-10:
+Warning 26: unused variable f.
+File "src/ir/to_if1.ml", line 567, characters 9-11:
+Warning 26: unused variable fn.
+File "src/ir/to_if1.ml", line 1205, characters 14-20:
+Warning 26: unused variable in_gri.
+File "src/ir/to_if1.ml", line 1205, characters 9-13:
+Warning 26: unused variable alis.
+File "src/ir/to_if1.ml", line 1222, characters 9-10:
+Warning 26: unused variable f.
+File "src/ir/to_if1.ml", line 1392, characters 6-17:
+Warning 26: unused variable tagcase_gr_.
+File "src/ir/to_if1.ml", line 1481, characters 9-23:
+Warning 26: unused variable bound_nodes_TC.
+File "src/ir/to_if1.ml", line 1643, characters 9-15:
+Warning 26: unused variable in_str.
+File "src/ir/to_if1.ml", line 1963, characters 9-11:
+Warning 26: unused variable tn.
+File "src/ir/to_if1.ml", line 1969, characters 9-11:
+Warning 26: unused variable tn.
+File "src/ir/to_if1.ml", line 2056, characters 13-27:
+Warning 26: unused variable bound_nodes_TC.
+File "src/ir/to_if1.ml", line 2063, characters 9-11:
+Warning 26: unused variable tn.
+/home/ram/.opam/system/bin/ocamlfind ocamlc -a -I src/ir src/ir/ast.cmo src/ir/if1.cmo src/ir/to_if1.cmo -o src/ir/ir.cma
+/home/ram/.opam/system/bin/ocamlfind ocamlopt -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/if1.cmx src/ir/if1.ml
+/home/ram/.opam/system/bin/ocamlfind ocamlopt -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/to_if1.cmx src/ir/to_if1.ml
++ /home/ram/.opam/system/bin/ocamlfind ocamlopt -c -g -g -annot -bin-annot -package unix -I src/ir -o src/ir/to_if1.cmx src/ir/to_if1.ml
+File "src/ir/to_if1.ml", line 228, characters 33-151:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+Tag_name _
+File "src/ir/to_if1.ml", line 696, characters 20-374:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+In_exp (_, Empty)
+File "src/ir/to_if1.ml", line 1330, characters 22-145:
+Warning 5: this function application is partial,
+maybe some arguments are missing.
+File "src/ir/to_if1.ml", line 1333, characters 3-21:
+Warning 10: this expression should have type unit.
+File "src/ir/to_if1.ml", line 1596, characters 22-37:
+Warning 10: this expression should have type unit.
+File "src/ir/to_if1.ml", line 240, characters 6-9:
+Warning 26: unused variable tty.
+File "src/ir/to_if1.ml", line 249, characters 19-20:
+Warning 11: this match case is unused.
+File "src/ir/to_if1.ml", line 292, characters 22-23:
+Warning 11: this match case is unused.
+File "src/ir/to_if1.ml", line 297, characters 9-14:
+Warning 26: unused variable hdt1y.
+File "src/ir/to_if1.ml", line 559, characters 9-10:
+Warning 26: unused variable f.
+File "src/ir/to_if1.ml", line 567, characters 9-11:
+Warning 26: unused variable fn.
+File "src/ir/to_if1.ml", line 1205, characters 14-20:
+Warning 26: unused variable in_gri.
+File "src/ir/to_if1.ml", line 1205, characters 9-13:
+Warning 26: unused variable alis.
+File "src/ir/to_if1.ml", line 1222, characters 9-10:
+Warning 26: unused variable f.
+File "src/ir/to_if1.ml", line 1392, characters 6-17:
+Warning 26: unused variable tagcase_gr_.
+File "src/ir/to_if1.ml", line 1481, characters 9-23:
+Warning 26: unused variable bound_nodes_TC.
+File "src/ir/to_if1.ml", line 1643, characters 9-15:
+Warning 26: unused variable in_str.
+File "src/ir/to_if1.ml", line 1963, characters 9-11:
+Warning 26: unused variable tn.
+File "src/ir/to_if1.ml", line 1969, characters 9-11:
+Warning 26: unused variable tn.
+File "src/ir/to_if1.ml", line 2056, characters 13-27:
+Warning 26: unused variable bound_nodes_TC.
+File "src/ir/to_if1.ml", line 2063, characters 9-11:
+Warning 26: unused variable tn.
+/home/ram/.opam/system/bin/ocamlfind ocamlopt -a -I src/ir src/ir/ast.cmx src/ir/if1.cmx src/ir/to_if1.cmx -o src/ir/ir.cmxa
+/home/ram/.opam/system/bin/ocamlfind ocamlopt -shared -I src/ir src/ir/ir.cmxa src/ir/ast.cmx src/ir/if1.cmx src/ir/to_if1.cmx -o src/ir/ir.cmxs
+/home/ram/.opam/system/bin/ocamlfind ocamlopt -shared -I src/fe src/fe/fe.cmxa src/fe/parse.cmx src/fe/lex.cmx -o src/fe/fe.cmxs
+/home/ram/.opam/system/bin/ocamlfind ocamlc -c -g -g -annot -bin-annot -I src/ir -I src/fe -package unix -I src -I src/fe -I src/ir -o src/main.cmo src/main.ml
+/home/ram/.opam/system/bin/ocamlfind ocamlc -g -linkpkg -package unix -I src/ir -I src/fe -I src src/ir/ir.cma src/fe/fe.cma src/main.cmo -o src/main.byte

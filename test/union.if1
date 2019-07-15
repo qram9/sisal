@@ -1,0 +1,33 @@
+T 1 1 0    %na=Boolean
+T 2 1 1    %na=Character
+T 3 1 2    %na=Double
+T 4 1 3    %na=Integer
+T 5 1 4    %na=Null
+T 6 1 5    %na=Real
+T 7 1 6    %na=WildBasic
+T 8 10
+T 9 9	10    %na=intlist
+T 10 7	5	14    %na=empty
+T 11 2	9	0    %na=next
+T 12 2	4	11    %na=mote
+T 13 5	12
+T 14 7	13	0    %na=full
+T 15 8	7	0
+T 16 3	0	15
+T 17 2	6	0    %na=y
+T 18 2	6	17    %na=x
+T 19 5	18
+C$  F Livermore Frontend   Version1.8
+X	16	"Main"	%sl=6	%sf=test/union.sis
+N 1	143	%sl=7	%sf=test/union.sis
+L		1 1	6 "4.2"	%mk=V
+L		1 2	6 "3.1"	%mk=V
+N 2	144	%sl=8	%sf=test/union.sis
+E	1 1	2 1	19	 %na=origin	%mk=V	%sl=8
+N 3	152	%sl=8	%sf=test/union.sis
+E	2 1	3 1	6	%mk=V
+L		3 2	6 "2.0"	%mk=V
+N 4	145
+E	1 1	4 1	19	 %na=origin	%mk=V	%sl=9
+E	3 1	4 3	6	 %na=xx	%mk=V	%sl=9
+E	4 1	0 1	19	 %na=home	%mk=V
