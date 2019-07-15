@@ -1360,9 +1360,6 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
   (*print_endline "Calltrace:";
   Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
 
-  if (ed_ty == 24) then
-    (outs_graph_with_msg "GOT 24" in_gr)
-  else ();
   let n1,p1,ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0
   then

@@ -1,0 +1,30 @@
+DEFINE MAIN
+TYPE ONEDIM = ARRAY [INTEGER]
+FUNCTION BUBBLE (N:INTEGER;AIN:ONEDIM RETURNS ONEDIM)
+  FOR INITIAL      A,LIMIT := AIN,N
+    WHILE LIMIT > 1
+      REPEAT
+      LIMIT := OLD LIMIT - 1;
+      A := FOR INITIAL              J := 0;
+        A1 := OLD A
+            WHILE J < LIMIT
+              REPEAT
+          J := OLD J + 1;
+          A1 := IF OLD A1[J] > OLD A1[J + 1] THEN
+OLD A1 [ J:OLD A1[J + 1],OLD A1[J] ]
+          ELSE OLD A1
+          END IF
+      RETURNS VALUE OF A1
+            END FOR
+  RETURNS VALUE OF A
+    END FOR
+END FUNCTION
+FUNCTION MAIN (A:ONEDIM RETURNS ONEDIM)
+  BUBBLE(ARRAY_SIZE(A),A)
+END FUNCTION
+LIMIT
+ of type:7
+1
+ of type:5
+Output Dot in /tmp/graph-10fb9f.dot
+Unexpected: "" in file: bubble.sis (line 40: char 0..0)

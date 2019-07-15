@@ -1,0 +1,131 @@
+digraph R {
+newrank=true;
+IN00 [shape=rect;label=""];
+OUT00 [shape=rect;label="[]"];
+subgraph cluster_01 {
+label="1 ";
+IN01 [shape=rect;label="ARRAY 4;Z;(0,5)\nARRAY 4;Y;(0,4)\nDOUBLE;T;(0,3)\nDOUBLE;R;(0,2)\nDOUBLE;Q;(0,1)\nINTEGRAL;N;(0,0)"];
+OUT01 [shape=rect;label="[(4,0)]%na=LOOP1"];
+subgraph cluster_11 {
+label="1 %na=FORALL";
+IN011 [shape=rect;label="ARRAY 4;Z;(0,5)\nARRAY 4;Y;(0,2)\nDOUBLE;T;(0,6)\nDOUBLE;R;(0,4)\nDOUBLE;Q;(0,1)\nINTEGRAL;N;(0,0)"];
+OUT011 [shape=rect;label="[]"];
+subgraph cluster_111 {
+label="1 %na=RETURN";
+IN0111 [shape=rect;label=""];
+OUT0111 [shape=rect;label="[(1,0)]"];
+1111 [shape=rect;label="1 AGATHER"]
+IN0111 ->  1111 [label="(0,0),Ty=5"]
+IN0111 ->  1111 [label="(1,1),Ty=4"]
+1111 ->  OUT0111 [label="(0,0),Ty=7"]
+};
+subgraph cluster_112 {
+label="2 %na=GENERATOR";
+IN0112 [shape=rect;label="INTEGRAL;N;(0,0)"];
+OUT0112 [shape=rect;label="{INTEGRAL;K;(2,0)}[(2,0)]"];
+1121 [shape=plaintext;label="1"];
+1122 [shape=rect;label="2 RANGEGEN"]
+IN0112 ->  1122 [label="(0,1),Ty=5"]
+1121 ->  1122 [label="(0,0),Ty=5"]
+1122 ->  OUT0112 [label="(0,1),Ty=5"]
+};
+subgraph cluster_113 {
+label="3 %na=BODY";
+IN0113 [shape=rect;label="ARRAY 4;Z;(0,5)\nARRAY 4;Y;(0,2)\nDOUBLE;T;(0,6)\nDOUBLE;R;(0,4)\nDOUBLE;Q;(0,1)\nINTEGRAL;N;(0,0)\nINTEGRAL;K;(0,3)"];
+OUT0113 [shape=rect;label="{DOUBLE;X;(14,0)}[(14,0)]"];
+1131 [shape=rect;label="1 AELEMENT"];
+1132 [shape=plaintext;label="10"];
+1133 [shape=rect;label="3 ADD"];
+1134 [shape=rect;label="4 AELEMENT"];
+1135 [shape=rect;label="5 TIMES"];
+1136 [shape=plaintext;label="11"];
+1137 [shape=rect;label="7 ADD"];
+1138 [shape=rect;label="8 AELEMENT"];
+1139 [shape=rect;label="9 TIMES"];
+11310 [shape=rect;label="10 ADD"];
+11312 [shape=rect;label="12 TIMES"];
+11314 [shape=rect;label="14 ADD"]
+IN0113 ->  1131 [label="(2,0),Ty=7"]
+IN0113 ->  1131 [label="(3,1),Ty=5"]
+IN0113 ->  1133 [label="(3,0),Ty=5"]
+IN0113 ->  1134 [label="(5,0),Ty=7"]
+IN0113 ->  1135 [label="(4,0),Ty=4"]
+IN0113 ->  1137 [label="(3,0),Ty=5"]
+IN0113 ->  1138 [label="(5,0),Ty=7"]
+IN0113 ->  1139 [label="(6,0),Ty=4"]
+IN0113 ->  11314 [label="(1,0),Ty=4"]
+1131 ->  11312 [label="(0,0),Ty=4"]
+1132 ->  1133 [label="(0,1),Ty=5"]
+1133 ->  1134 [label="(0,1),Ty=5"]
+1134 ->  1135 [label="(0,1),Ty=4"]
+1135 ->  11310 [label="(0,0),Ty=4"]
+1136 ->  1137 [label="(0,1),Ty=5"]
+1137 ->  1138 [label="(0,1),Ty=5"]
+1138 ->  1139 [label="(0,1),Ty=4"]
+1139 ->  11310 [label="(0,1),Ty=4"]
+11310 ->  11312 [label="(0,1),Ty=4"]
+11312 ->  11314 [label="(0,1),Ty=4"]
+11314 ->  OUT0113 [label="(0,0),Ty=4"]
+}
+};
+13 [shape=plaintext;label="1"];
+14 [shape=rect;label="4 ASETL"]
+IN01 ->  11 [label="(0,0),Ty=5"]
+IN01 ->  11 [label="(1,1),Ty=4"]
+IN01 ->  11 [label="(2,4),Ty=4"]
+IN01 ->  11 [label="(3,6),Ty=4"]
+IN01 ->  11 [label="(4,2),Ty=7"]
+IN01 ->  11 [label="(5,5),Ty=7"]
+11 ->  14 [label="(1,0),Ty=7"]
+13 ->  14 [label="(0,0),Ty=7"]
+14 ->  OUT01 [label="(0,0),Ty=7"]
+};
+subgraph cluster_02 {
+label="2 ";
+IN02 [shape=rect;label="ARRAY 4;Z;(0,6)\nARRAY 4;Y;(0,5)\nDOUBLE;T;(0,4)\nINTEGRAL;REP;(0,0)\nDOUBLE;R;(0,3)\nDOUBLE;Q;(0,2)\nINTEGRAL;N;(0,1)"];
+OUT02 [shape=rect;label="[(1,1)]%na=MAIN"];
+subgraph cluster_21 {
+label="1 %na=FORALL";
+IN021 [shape=rect;label="ARRAY 4;Z;(0,6)\nARRAY 4;Y;(0,5)\nDOUBLE;T;(0,4)\nINTEGRAL;REP;(0,0)\nDOUBLE;R;(0,3)\nDOUBLE;Q;(0,2)\nINTEGRAL;N;(0,1)"];
+OUT021 [shape=rect;label="[]"];
+subgraph cluster_211 {
+label="1 %na=RETURN";
+IN0211 [shape=rect;label=""];
+OUT0211 [shape=rect;label="[(1,0)]"];
+2111 [shape=rect;label="1 FINALVALUE"]
+IN0211 ->  2111 [label="(1,0),Ty=7"]
+2111 ->  OUT0211 [label="(0,0),Ty=7"]
+};
+subgraph cluster_212 {
+label="2 %na=GENERATOR";
+IN0212 [shape=rect;label="INTEGRAL;REP;(0,0)"];
+OUT0212 [shape=rect;label="{INTEGRAL;I;(2,0)}[(2,0)]"];
+2121 [shape=plaintext;label="1"];
+2122 [shape=rect;label="2 RANGEGEN"]
+IN0212 ->  2122 [label="(0,1),Ty=5"]
+2121 ->  2122 [label="(0,0),Ty=5"]
+2122 ->  OUT0212 [label="(0,1),Ty=5"]
+};
+subgraph cluster_213 {
+label="3 %na=BODY";
+IN0213 [shape=rect;label="ARRAY 4;Z;(0,6)\nARRAY 4;Y;(0,5)\nDOUBLE;T;(0,4)\nINTEGRAL;REP;(0,0)\nDOUBLE;R;(0,3)\nDOUBLE;Q;(0,2)\nINTEGRAL;N;(0,1)"];
+OUT0213 [shape=rect;label="{ARRAY 4;X;(1,0)}[(1,0)]"];
+2131 [shape=rect;label="1 INVOCATION:%na=LOOP1"]
+IN0213 ->  2131 [label="(1,0),Ty=5"]
+IN0213 ->  2131 [label="(2,1),Ty=4"]
+IN0213 ->  2131 [label="(3,2),Ty=4"]
+IN0213 ->  2131 [label="(4,3),Ty=4"]
+IN0213 ->  2131 [label="(5,4),Ty=7"]
+IN0213 ->  2131 [label="(6,5),Ty=7"]
+2131 ->  OUT0213 [label="(0,0),Ty=7"]
+}
+}
+IN02 ->  21 [label="(0,0),Ty=5"]
+IN02 ->  21 [label="(1,1),Ty=5"]
+IN02 ->  21 [label="(2,2),Ty=4"]
+IN02 ->  21 [label="(3,3),Ty=4"]
+IN02 ->  21 [label="(4,4),Ty=4"]
+IN02 ->  21 [label="(5,5),Ty=7"]
+IN02 ->  21 [label="(6,6),Ty=7"]
+21 ->  OUT02 [label="(1,0),Ty=7"]
+}}

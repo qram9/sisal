@@ -1,0 +1,30 @@
+digraph R {
+newrank=true;
+IN00 [shape=rect;label=""];
+OUT00 [shape=rect;label="[]"];
+subgraph cluster_01 {
+label="1 ";
+IN01 [shape=rect;label="ARRAY 5;D;(0,3)\nDOUBLE;C;(0,2)\nREAL;B;(0,1)\nINTEGRAL;A;(0,0)"];
+OUT01 [shape=rect;label="[(4,0);(3,0);(2,0);(1,0)]%na=UCREATE"];
+11 [shape=rect;label="1 RBUILD"];
+12 [shape=rect;label="2 RBUILD"];
+13 [shape=rect;label="3 RBUILD"];
+14 [shape=rect;label="4 RBUILD"]
+IN01 ->  11 [label="(0,0),Ty=5"]
+IN01 ->  12 [label="(1,0),Ty=3"]
+IN01 ->  13 [label="(2,0),Ty=4"]
+IN01 ->  14 [label="(3,0),Ty=7"]
+11 ->  OUT01 [label="(0,0),Ty=12"]
+12 ->  OUT01 [label="(0,1),Ty=12"]
+13 ->  OUT01 [label="(0,2),Ty=12"]
+14 ->  OUT01 [label="(0,3),Ty=12"]
+};
+subgraph cluster_02 {
+label="2 ";
+IN02 [shape=rect;label="UNION {Type label:0; Next tag:11; %na=};U;(0,0)"];
+OUT02 [shape=rect;label="[(0,0);(0,0);(0,0);(0,0)]%na=UTAG"]
+IN02 ->  OUT02 [label="(0,0),Ty=12"]
+IN02 ->  OUT02 [label="(0,1),Ty=12"]
+IN02 ->  OUT02 [label="(0,2),Ty=12"]
+IN02 ->  OUT02 [label="(0,3),Ty=12"]
+}}

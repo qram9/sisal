@@ -1,6 +1,5 @@
 (*TODO:
-1: When we write dot-files, we need to
-   be more descriptive.
+1: Dot-files must be more descriptive.
 2: Need to provide a debug-msging mechanism
    for each pass- like CSE for instance.
 3: Each visitor could have a debug flag
@@ -22,7 +21,8 @@
 (* TO_TEST: inputs to select do not seem to get from outer scope *)
 (* TODO: forall do not seem to pull inputs from outside *)
 (* many boundary boxes are empty *)
-
+(* TODO (15july2019): Most compiler warnings that remain in this file are
+   in the tagcase/union lowering. *)
 (** Ideas here mostly come from the single paper:
     "IF1, AN INTERMEDIATE FORM FOR APPLICATIVE LANGUAGES,
     JULY 31, 1985 VERSION 1.0".
@@ -245,8 +245,7 @@ and union_builder in_gr utags iornone =
          |  Emp ->
              (let bar xx lt =
                 (match xx,lt with
-                 | hdf,hd -> Som k
-                 | _ -> z) in
+                 | hdf,hd -> Som k) in
               match v with
               | Union (lt,_,xx) -> bar xx lt
               | _ -> z)
@@ -288,13 +287,12 @@ and check_rec_ty tty_lis tm outlis =
                 (let bar xx lt =
                    (match xx,lt with
                     | hdf,hd ->
-                       Som k
-                    | _ -> z) in
+                       Som k) in
                  match v with
                  | Record (lt,_,xx) -> bar xx lt
                  | _ -> z)
             | _ -> z)) tm Emp in
-     let hdt1y = match hdty with
+     let _ = match hdty with
        | Som anum -> anum
        | Emp -> raise (Node_not_found
                          "unknown field in a record") in
@@ -701,10 +699,12 @@ and get_lower_lim = function
   | At_exp (ie,_) ->
      raise (Sem_error "Cannot be used in a forall context")
   | In_exp (vn,Exp e) ->
-     try
+     (try
        List.hd e
      with _ ->
-       raise (Sem_error "Error while obtaining lower_lim for forall")
+       raise (Sem_error "Error while obtaining lower_lim for forall"))
+  | _ ->
+     raise (Sem_error "Error while obtaining lower_lim for forall")
 
 and build_alim in_gr =
   (** Helper function to build an ALim node *)
@@ -1327,11 +1327,14 @@ and check_subgr_tys in_gr jj prev =
          let snd = IntMap.find curr prev in
          if fst != snd then
            raise (Sem_error (
+                      let _ =
                       Format.printf "%d:%d %d:%d\n"
+                        curr
                         (IntMap.find curr jj)
+                        curr
                         (IntMap.find curr prev);
-			"Mismatched types";
-			"Loop bug"))
+		      "Mismatched types" in
+		      "Loop bug"))
          else
            ((*Format.printf "Matches: %d:%d %d:%d\n"
               curr fst curr snd;*)
@@ -1585,15 +1588,16 @@ and bin_fun a b in_gr node_tag =
             ((z,0,qq1),out_gr))
         | false ->
            raise (Sem_error (
-                      let kkk =
-                        cate_list
-                          [str_simple_exp ~offset:2 a;
-                           " of type:" ^ (string_of_int qq1);
-                           str_simple_exp ~offset:2 b;
-                           " of type:" ^ (string_of_int qq2)]
-                          "\n" in
-                      print_endline kkk;
-                      dot_graph in_gr;
+                      let _ =
+                        let kkk =
+                          cate_list
+                            [str_simple_exp ~offset:2 a;
+                             " of type:" ^ (string_of_int qq1);
+                             str_simple_exp ~offset:2 b;
+                             " of type:" ^ (string_of_int qq2)]
+                            "\n" in
+                        print_endline kkk;
+                        dot_graph in_gr in
                       ("ERROR: Bad type in binary exp---")))) in
   base_case_bin a b node_tag in_gr
 
@@ -1640,20 +1644,6 @@ and point_edges_to_boundary frm elp elt in_gr =
        = in_gr in
      let unwanted_edges
        = (all_edges_ending_at frm in_gr) in
-     let in_str = ES.fold
-                    (fun hde res ->
-                      let (x,xp),(y,yp),yt = hde in
-                      ("(" ^ (string_of_int x) ^ "," ^
-                         (string_of_int xp) ^
-                           ") -> (" ^
-                             (string_of_int y) ^
-                               "," ^
-                                 (string_of_int yp) ^
-                                   ") of type: " ^
-                                     (string_of_int yt)
-                                     ^ "\n") ^ res)
-                    unwanted_edges "" in
-     (*let nes = ES.diff pe unwanted_edges in*)
      let nes = pe in
      let red_nes,_ = redirect_edges 0
                        unwanted_edges in
@@ -2059,9 +2049,52 @@ and do_simple_exp in_gr in_sim_ex =
                            tagcase_gr out_gr fin_node in
          (fin_node,fin_por,fin_tyy),tagcase_g)
 
-  | Is (tn,e) ->
-     let tn = tn in
-     do_exp in_gr e
+  | Is (tag_nam,e) ->
+     (** In addition to the true and false literals
+         that are returned by Is, we may also need to
+         return an error ty. This might be for cases
+         when the expected tag does not match with
+         any of the tags of the union ty- we will have
+         to do this later on. *)
+     let {nmap=_;eset=_;symtab=_;typemap=(_,tm,_);w=_} = in_gr in
+     let tn_ty =
+       match (find_matching_union_str tag_nam tm) with
+       | Emp ->
+          raise (Node_not_found
+                   "Unknown tag in an union")
+       | Som k -> k in
+     let (un_num,un_po,un_ty),in_gr =
+       do_exp in_gr e in
+     let (un_num,un_po,un_ty) =
+       find_incoming_regular_node
+         (un_num,un_po,un_ty) in_gr in
+     let tag_nums = enumerate_union_tags un_ty in_gr in
+     let tag_nums =
+       List.map (fun c -> if c = tn_ty then 1 else 0) tag_nums in
+     let test_graph = get_a_new_graph in_gr in
+     let false_lit,test_graph =
+       add_node_2 (
+           `Literal
+             (BOOLEAN,"False",out_port_1)) test_graph in
+     let true_lit,test_graph =
+       add_node_2 (
+           `Literal
+             (BOOLEAN,"True",out_port_1)) test_graph in
+     let test_graph =
+       output_to_boundary
+         [false_lit;true_lit]
+         test_graph in
+     let (co_num,co_po,_),in_gr =
+       add_node_2
+         (`Compound(
+              test_graph,
+              INTERNAL,0,
+              [Name ("IS_SUBGRAPH"^
+                       (string_of_int
+                          un_ty))],
+              tag_nums)) in_gr in
+     let in_gr = add_edge un_num un_po co_num co_po un_ty in_gr in
+     (co_num,co_po,lookup_tyid BOOLEAN),in_gr
 
   | Prefix_operation (pn,e) ->
      let (n,p,_),in_gr = do_prefix_name in_gr pn in

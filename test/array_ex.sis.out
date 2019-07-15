@@ -1,0 +1,175 @@
+DEFINE MAIN
+TYPE AAREAL = ARRAY [REAL]
+FUNCTION MAIN (RETURNS AAREAL)
+  LET
+    RH:AAREAL := ARRAY  [1:1.18,7.23,3.18,10.6] IN
+  LET
+    PH:AAREAL := ARRAY  [1:2.18,4.23,6.18,12.6] IN
+  RH [ 1:RH[2];2:RH[3] ] || PH
+  END LET
+  END LET
+END FUNCTION
+-------------------
+At Height:1
+WITNESS:1
+WITNESS:2
+SIZE 1 :- (1,1 aka [1; -1])
+SIZE 1 :- (1,2 aka [2; -1])
+SIZE 1 :- (1,3 aka [3; -1])
+WITNESS:3
+SIZE 1 :- (1,4 aka [4; -1])
+WITNESS:4
+SIZE 1 :- (1,5 aka [5; -1])
+WITNESS:5
+SIZE 1 :- (1,7 aka [7; -1])
+WITNESS:7
+SIZE 1 :- (1,8 aka [8; -1])
+WITNESS:8
+SIZE 1 :- (1,9 aka [9; -1])
+WITNESS:9
+SIZE 1 :- (1,10 aka [10; -1])
+WITNESS:10
+SIZE 1 :- (1,11 aka [11; -1])
+WITNESS:11
+SIZE 1 :- (1,13 aka [13; -1])
+WITNESS:13
+SIZE 1 :- (1,15 aka [15; -1])
+WITNESS:15
+SIZE 1 :- (1,17 aka [17; -1])
+WITNESS:17
+SIZE 1 :- (1,19 aka [19; -1])
+WITNESS:19
+-------------------
+At Height:2
+SIZE 1 :- (2,6 aka [31; 1; 0; 0; 5; 31; 2; 0; 1; 3; 31; 3; 0; 2; 3; 31; 4; 0; 3; 3; 31; 5; 0; 4; 3; -1])
+WITNESS:6
+SIZE 1 :- (2,12 aka [31; 7; 0; 0; 5; 31; 8; 0; 1; 3; 31; 9; 0; 2; 3; 31; 10; 0; 3; 3; 31; 11; 0; 4; 3; -1])
+WITNESS:12
+-------------------
+At Height:3
+SIZE 1 :- (7,14 aka [32; 6; 0; 0; 7; 32; 13; 0; 1; 5; -1])
+WITNESS:14
+SIZE 1 :- (7,18 aka [32; 6; 0; 0; 7; 32; 17; 0; 1; 5; -1])
+WITNESS:18
+-------------------
+At Height:4
+SIZE 1 :- (1,16 aka [38; 6; 0; 0; 7; 38; 15; 0; 1; 5; 38; 14; 0; 2; 3; -1])
+WITNESS:16
+-------------------
+At Height:5
+SIZE 1 :- (1,20 aka [38; 16; 0; 0; 7; 38; 19; 0; 1; 5; 38; 18; 0; 2; 3; -1])
+WITNESS:20
+-------------------
+At Height:6
+SIZE 1 :- (1,21 aka [8; 20; 0; 0; 7; 8; 12; 0; 1; 7; -1])
+WITNESS:21
+Val-nums
+21 -> 21
+20 -> 20
+19 -> 19
+18 -> 18
+17 -> 17
+16 -> 16
+15 -> 15
+14 -> 14
+13 -> 13
+12 -> 12
+11 -> 11
+10 -> 10
+9 -> 9
+8 -> 8
+7 -> 7
+6 -> 6
+5 -> 5
+4 -> 4
+3 -> 3
+2 -> 2
+1 -> 1
+Output Dot in /tmp/graph-585186.dot
+Val-nums
+Output Dot in /tmp/graph-079784.dot
+Result graph
+Graph {
+----NODES----
+1 0
+  Graph {
+  ----NODES----
+  21 ACATENATE [||] [|0|]
+  20 AREPLACE [||] [||]
+  19 "2"
+  18 AELEMENT [||] [||]
+  17 "3"
+  16 AREPLACE [||] [||]
+  15 "1"
+  14 AELEMENT [||] [||]
+  13 "2"
+  12 ABUILD [||] [||]
+  11 "12.6"
+  10 "6.18"
+  9 "4.23"
+  8 "2.18"
+  7 "1"
+  6 ABUILD [||] [||]
+  5 "10.6"
+  4 "3.18"
+  3 "7.23"
+  2 "1.18"
+  1 "1"
+  BOUNDARY [[], [(21,0)]]
+  ----EDGES----
+  21:0 -> 0:0 7
+  20:0 -> 21:0 7
+  19:0 -> 20:1 5
+  18:0 -> 20:2 3
+  17:0 -> 18:1 5
+  16:0 -> 20:0 7
+  15:0 -> 16:1 5
+  14:0 -> 16:2 3
+  13:0 -> 14:1 5
+  12:0 -> 21:1 7
+  11:0 -> 12:4 3
+  10:0 -> 12:3 3
+  9:0 -> 12:2 3
+  8:0 -> 12:1 3
+  7:0 -> 12:0 5
+  6:0 -> 18:0 7
+  6:0 -> 16:0 7
+  6:0 -> 14:0 7
+  5:0 -> 6:4 3
+  4:0 -> 6:3 3
+  3:0 -> 6:2 3
+  2:0 -> 6:1 3
+  1:0 -> 6:0 5
+  } 24
+BOUNDARY [[], []]
+----TYPEMAP----
+9 FUNCTION_TYPE  (ARGS: 0) (RETURNS:8)
+8 TUPLE {Type label:7; Next label:0}
+7 ARRAY 3
+6 NULL
+5 INTEGRAL
+4 DOUBLE
+3 REAL
+2 CHARACTER
+1 BOOLEAN
+----TYPENAMES----
+REAL:3
+NULL:6
+INTEGRAL:5
+DOUBLE:4
+CHARACTER:2
+BOOLEAN:1
+AAREAL:7
+} 2
+DEFINE MAIN
+TYPE AAREAL = ARRAY [REAL]
+FUNCTION MAIN (RETURNS AAREAL)
+  LET
+    RH:AAREAL := ARRAY  [1:1.18,7.23,3.18,10.6] IN
+  LET
+    PH:AAREAL := ARRAY  [1:2.18,4.23,6.18,12.6] IN
+  RH [ 1:RH[2];2:RH[3] ] || PH
+  END LET
+  END LET
+END FUNCTION
+Output Dot in out.dot
