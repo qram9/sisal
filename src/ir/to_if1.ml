@@ -255,6 +255,7 @@ and union_builder in_gr utags iornone =
     | Som anum -> hdty
     | Emp -> raise (Node_not_found
                       "unknown field in an union") in
+  outs_graph in_gr;
   let aout =
     (match iornone with
      | Emp ->
@@ -279,24 +280,34 @@ and check_rec_ty tty_lis tm outlis =
   (** beef this up **)
   match tty_lis with
   | (hdf,hd)::tl ->
+     print_string " LOOK FOR ";
+     print_string hdf; print_string " ";
+     print_int hd; print_endline "";
      let hdty =
        TM.fold
          (fun k v z ->
            (match z with
             |  Emp ->
                 (let bar xx lt =
-                   (match xx,lt with
-                    | hdf,hd ->
-                       Som k) in
+                   (if xx=hdf && lt==hd
+                    then
+                      (print_string " FOUND ";
+                       print_string hdf; print_string " ";
+                       print_int hd; print_endline "";
+                       Som k)
+                    else z) in
                  match v with
-                 | Record (lt,_,xx) -> bar xx lt
+                 | Record (lt,_,xx) ->
+                    bar xx lt
                  | _ -> z)
             | _ -> z)) tm Emp in
      let _ = match hdty with
-       | Som anum -> anum
+       | Som anum ->
+     print_string " ANUM "; print_int anum; print_endline "";
+          anum
        | Emp -> raise (Node_not_found
                          "unknown field in a record") in
-     check_rec_ty tl tm (hdty::outlis)
+     hdty::(check_rec_ty tl tm outlis)
   | [] -> outlis
 
 and find_matching_record eee tm =
@@ -306,7 +317,8 @@ and find_matching_record eee tm =
            (match v with
             | Record (lt,nxt,xx) ->
                (match nxt = eee with
-                | true -> Som k
+                | true ->
+                   Som k
                 | false -> z)
             | _ -> z)
        | _ -> z)) tm Emp
@@ -543,11 +555,6 @@ and add_exp in_gr ex lasti ret_lis =
      let (lasti,pp,tt1),in_gr_ = do_simple_exp in_gr hde in
      add_exp in_gr_ tl lasti
        (ret_lis@[(lasti,pp,tt1)])
-
-and do_exp_pair in_gr = function
-  | Expr_pair (e,f) ->
-     let (e,p,t1),in_gr =
-       do_exp in_gr e in do_exp in_gr f
 
 and do_field_name in_gr = function
   | Field_name f -> ((0,0,0), in_gr)
@@ -1040,63 +1047,6 @@ and do_decldef_part in_gr = function
        add_each_in_list in_gr f 0 do_decldef
      in xyz,in_gr
 
-and do_def in_gr = function
-  | Def (bound_names,y) ->
-     (* Things get confusing, no doubt:
-     LET
-     X := 1;
-     Y,Z :=
-       LET
-         X := 2;
-         Y := 3 IN
-       X + Y,X - Y
-       END LET
-     IN
-     X * Y + Z
-     END LET
-
-     x * y + z for
-               (x for x = 1;
-               y,z = ( x+y,x-y ) for x = 2, y = 3)
-     The exp above without any paren - that is the outer
-     one. That use 1 for x, (2+3) for y and (2-3) for z.
-     We specify bound values before specifying the
-     function's body. Names are shared all over.
-     That is all going to add to confusion.
-     The numbering technique is not used in this lowering.
-     I think it may help.
-      *)
-
-     (** WHY ARE MULTIARITY EDGES HERE MISSING TYPES **)
-     let named_exp = match y with
-       | Exp ee ->
-          let (mx,mp,mt),in_gr = do_exp in_gr (Exp ee) in
-          let rec add_multiarity_to_gr (mx,mp,mt) bound_names
-                    {nmap=nmap;eset=eset;
-                     symtab=(umap,vmap);typemap=tm;w=w} =
-            match bound_names with
-            | [] ->
-               (mx,mp,mt),
-               {nmap=nmap;eset=eset;
-                symtab=(umap,vmap);typemap=tm;w=w}
-            | bound_name::tl_names ->
-               let in_gr2 = {nmap=nmap;eset=eset;
-                     symtab=(umap,vmap);typemap=tm;w=w} in
-               let n1,p1,ed_ty =
-                 find_incoming_regular_node (mx, mp, mt) in_gr2 in
-               add_multiarity_to_gr
-                 (mx,mp+1,mt) tl_names
-                 {nmap=nmap;eset=eset;
-                  symtab=(
-                    SM.add bound_name
-                      {val_name=bound_name;val_ty=ed_ty;
-                       val_def=n1;def_port=p1}
-                      umap,vmap);typemap=tm;w=w} in
-          add_multiarity_to_gr (mx,mp,mt) bound_names in_gr
-       | _ ->
-          (0,0,0),in_gr in
-     named_exp
-
 and get_type_num in_gr = function
   | Ast.Type_name yy ->
      lookup_by_typename in_gr yy
@@ -1112,109 +1062,133 @@ and get_type_num in_gr = function
 
 and do_params_decl po in_gr z =
   match z with
-  | Decl(x,y) ->
-     let type_num_some =
-       try
-         Some (get_type_num in_gr y)
-       with Node_not_found _ ->
-         None in
-     let type_num,in_gr =
-       match type_num_some with
-       | Some c -> c,in_gr
-       | None ->
-          let (id_t,ii,tt),in_gr = add_sisal_type in_gr y in
-          id_t,in_gr in
-     match in_gr with
-     | {nmap=nmap;eset=eset;symtab=(u,v);typemap=tm; w=w} ->
-        let rec add_all_to_sm umap xli p q =
-          match xli with
-          | hdx::tlx ->
-             let sm_v =
-               {val_name=hdx;val_ty=type_num;
-                val_def=0;def_port=p+po} in
-             add_all_to_sm (SM.add hdx sm_v umap) tlx (p+1) (hdx::q)
-          | [] -> p,q,umap in
-        let p,q,u = add_all_to_sm u x 0 [] in
-        ((p+po,q,type_num),
-         {nmap=nmap;eset=eset;symtab=(u,v);typemap=tm; w=w})
+  | Decl_some (x,y) ->
+     (let type_num, in_gr =
+        (try
+           get_type_num in_gr y, in_gr
+         with Node_not_found _ ->
+           let (id_t,ii,tt),in_gr = add_sisal_type in_gr y in
+           id_t,in_gr) in
+      match in_gr with
+      | {nmap=nmap;eset=eset;symtab=(u,v);typemap=tm; w=w} ->
+         let rec add_all_to_sm umap xli p q =
+           match xli with
+           | (Decl_name hdx)::tlx ->
+              let sm_v =
+                {val_name=hdx;val_ty=type_num;
+                 val_def=0;def_port=p+po} in
+              print_endline ("Adding name: " ^ hdx);
+              add_all_to_sm (SM.add hdx sm_v umap) tlx (p+1) (hdx::q)
+           | (Decl_func funx)::tlx ->
+              raise (Sem_error "Function_header by assign TODO")
+           | [] -> p,q,umap in
+         let p,q,u = add_all_to_sm u x 0 []
+         in
+         ((p+po,q,type_num),
+          {nmap=nmap;eset=eset;symtab=(u,v);typemap=tm; w=w}))
+  | Decl_none x ->
+     raise (Sem_error "Declaration must provide a type")
 
 and do_decl in_gr z =
-  match z with
-  | Decl(x,y) ->
-     let type_num = get_type_num in_gr y in
-     match in_gr with
-     | {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w} ->
-        let rec add_all_to_sm umap xli =
-          match xli with
-          | hdx::tlx ->
-             let sm_v =
-               {val_name=hdx;val_ty=type_num;val_def=0;def_port=0} in
-             add_all_to_sm (SM.add hdx sm_v umap) tlx
-          | [] -> umap in
-        let u = add_all_to_sm u x in
+  match in_gr with
+  | {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w} ->
+     let rec add_all_to_sm umap xli type_num =
+       match xli with
+       | (Decl_name hdx)::tlx ->
+          let sm_v =
+            {val_name=hdx;val_ty=type_num;val_def=0;def_port=0} in
+          add_all_to_sm (SM.add hdx sm_v umap) tlx type_num
+       | (Decl_func hdx)::tlx ->
+          raise (Sem_error "Function_header by assign TODO")
+       | [] -> umap in
+     match z with
+     | Decl_some (x,y) ->
+        let type_num = get_type_num in_gr y in
+        let u = add_all_to_sm u x type_num in
         ((0,0,type_num),
          {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w})
+     | Decl_none x ->
+        let u = add_all_to_sm u x 0 (* unknown type *) in
+        (0,0,0),
+        {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w}
 
 and extract_types_from_decl_list dl =
   List.fold_left (
       fun dlz dlx ->
-      dlz @ (match dlx with
-               Decl(x,aty) ->
-               List.map (fun x -> aty) x)) [] dl
+      dlz @ (
+        (match dlx with
+         | Decl_some (x, aty) ->
+            List.map (fun x -> aty) x
+         | Decl_none _ ->
+            raise
+              (Sem_error
+                 "Declaration without a type spec is not allowed in this context"))))
+    [] dl
 
-and do_decl_helper in_gr ex1 xl =
-  match in_gr with
-  | {nmap=nmap;eset=eset;symtab=(umap,v);typemap=tm;w=w} ->
-     let umap =
-       let existing_rec = SM.find xl umap in
-       match existing_rec
-       with {val_name=xl;val_ty=aty;val_def=_;def_port=_;} ->
-         (SM.add xl
-            {val_name=xl;val_ty=aty;val_def=ex1;def_port=0;} umap) in
-     umap
-
-and do_decldef in_gr =
-  function
-  | Decl_def x ->
-     do_def in_gr x
-  | Decl_decl x ->
-     do_decl in_gr x
-  | Decldef (x,y) ->
-     (* this goes inside out *)
-     let rec name_list xx =
-       match xx with
-       | Decl(xxh,xxy)::tlx -> xxh @(name_list tlx)
-       | [] -> [] in
-     let named_exp =
-       match y with
-       | Exp ee -> zipem (name_list x) ee
-       | _ -> [] in
-     let rec add_decl_exp xlis in_gr =
-       match xlis with
-       | (x,ey)::tl ->
-          let (num_node,po,t1), in_gr =
-            do_simple_exp in_gr ey in
-          (match in_gr with
-           | {nmap=nb;eset=eb;symtab=(u,v);typemap=tm;w=w} ->
-              add_decl_exp tl
-                ({nmap=nb;eset=eb;
-                  symtab=(do_decl_helper in_gr num_node x, v);
-                  typemap=tm;w=w})
-          )
-       | [] -> in_gr in
-     let alis,in_gri =
-       let rec add_all_loc in_gr blis olis =
-         match blis with
-         | x::tl ->
-            let ijk,in_gr = do_decl in_gr x in
-            add_all_loc in_gr tl (ijk::olis)
-         | [] -> olis,in_gr in
-       add_all_loc in_gr x [] in
-     let (_,_,typenum),in_gr =
-       add_each_in_list in_gr x 0 do_decl in
-     let ret_val =
-       ((0,0,typenum),add_decl_exp named_exp in_gr)
-     in ret_val
+and do_decldef in_gr delc =
+  let rec bind_decls_to_exp in_gr nodeid dec curportnum =
+    match dec with
+    | (Decl_name dechd)::dectl ->
+       let {nmap = nodemap; eset = edgeset;
+            symtab = (localsyms, globsyms);
+            typemap = tymap; w = curw} = in_gr in
+       let (incoming_node, incoming_port), (_,_), incoming_type =
+         List.hd (ES.elements
+                    (ES.filter (fun ((x, xp), (y, yp), y_ty) ->
+                         yp = curportnum && y = nodeid) edgeset)) in
+       bind_decls_to_exp
+         {nmap = nodemap; eset = edgeset;
+          symtab = (
+            SM.add dechd
+              {val_name = dechd;
+               val_ty = incoming_type;
+               val_def = incoming_node;
+               def_port = incoming_port} localsyms, globsyms);
+          typemap = tymap; w = curw}
+         nodeid dectl (curportnum + 1)
+    | (Decl_func dechd)::dectl ->
+       raise (Sem_error "Function_header by assign TODO")
+    | [] -> in_gr in
+  match delc with
+  | Decldef adecldef ->
+     match adecldef with
+      | (Decl_some (decls, atype), exps) ->
+         let (expnum, expport, expty), in_gr = do_exp in_gr exps in
+         let expty =
+           (match(get_node expnum in_gr) with
+            | Simple (nodeid, MULTIARITY, _, _, _) ->
+               first_incoming_type_to_multiarity expnum in_gr
+            | _ ->
+               raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL")) in
+         let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
+         if (typenum != expty)
+         then
+           (raise (
+                outs_graph in_gr;
+                print_endline (str_exp exps);
+                print_string " Inferred type: ";print_int expty;
+                print_string " Expected type: "; print_int typenum;
+                print_endline "";
+                print_endline (str_sisal_type atype);
+                Sem_error
+                  " Incorrect expression type bound to declaration"))
+         else
+           (match (get_node expnum in_gr) with
+            | Simple (nodeid, MULTIARITY, _, _, _) ->
+               let in_gr =  bind_decls_to_exp in_gr nodeid decls 0 in
+               (0, 0, 0), in_gr
+            | _ ->
+               raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL");
+               (0,0,0), in_gr)
+      | (Decl_none decls, exps) ->
+         let (expnum, expport, expty), in_gr = do_exp in_gr exps in
+         match (get_node expnum in_gr) with
+         | Simple (nodeid, MULTIARITY, _, _, _) ->
+            let in_gr =  bind_decls_to_exp in_gr nodeid decls 0 in
+            (0, 0, 0), in_gr
+         | _ ->
+            raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL");
+            (0,0,0), in_gr
 
 and do_function_name in_gr = function
   | Function_name f ->
@@ -1914,7 +1888,9 @@ and do_simple_exp in_gr in_sim_ex =
      (bb,pp,tt2),(add_edge ain apo bb 1 tt1 in_gr)
 
   | Record_generator_primary (e,fdle) ->
-     let (e,p,tt),in_gr = do_simple_exp in_gr e in
+     let (e,p,inctt),in_gr = do_simple_exp in_gr e in
+     Format.printf ("After adding simple exp: NodeNum:%d DefPort: %d Type:%d\n") e p inctt;
+     outs_graph in_gr;
      let rec do_each_field ((a,b,tt),in_gr) = function
        | Field_exp (Field fi,se)::tl ->
           let (aseb,asep,finaltt),in_gr = do_simple_exp in_gr se in
@@ -1928,18 +1904,21 @@ and do_simple_exp in_gr in_sim_ex =
                        `Simple (
                            RREPLACE,in_porst,
                            Array.make 1 "",[None])) in_gr in
-                 (bb,bp,tt),add_edge fe ff bb 0 tt in_gr in
+                 (bb,bp,tt),add_edge fe ff bb 0 inctt in_gr in
                let t1,t2 = get_record_field in_gr tt fna in
                (** Below tt must be field name's id **)
                do_field_chain ((bb,bp,t1),in_gr) tll
             | [] -> (fe,ff,finaltt),
                     add_edge aseb asep fe 2 finaltt in_gr in
           do_each_field (do_field_chain ((a,b,tt),in_gr) fi) tl
-       | [] -> (a,b,tt),in_gr in
-     do_each_field ((e,p,tt),in_gr) fdle
+       | [] -> (a,b,inctt),in_gr in
+     do_each_field ((e,p,inctt),in_gr) fdle
 
   | Record_generator_unnamed (fdl) ->
-     record_builder in_gr fdl Emp
+     let (i,j,k), in_gr = record_builder in_gr fdl Emp in
+     Format.printf ("After building record: NodeNum:%d DefPort: %d Type:%d\n") i j k;
+     outs_graph in_gr;
+     (i,j,k), in_gr
 
   | Record_generator_named (tn,fdl) ->
      (** We can look up tn against known types.
@@ -2684,9 +2663,12 @@ and do_compilation_unit = function
      xyz, cse_by_part in_gr
 
 and do_type_def in_gr = function
-  | Type_def(n,t) ->
+  | Type_def(n, t) ->
+     let id_,in_gr = add_sisal_typename in_gr n 0 in
      let (id_t,ii,tt),in_gr = add_sisal_type in_gr t in
      let id_,in_gr = add_sisal_typename in_gr n tt in
+     print_endline ("Lower type def");
+     print_endline (str_type_def (Type_def (n, t)));
      ((id_t,ii,id_),in_gr)
 
 and do_internals iin_gr f =
@@ -2729,7 +2711,7 @@ and do_function_header in_gr = function
   | Function_header_nodec (fn, tl) ->
      let fn,in_gr = do_function_name in_gr fn in
      add_sisal_type in_gr (Compound_type (Sisal_function_type ("",[],tl)))
-  | Function_header (Function_name fn, decls,tl) ->
+  | Function_header (Function_name fn, decls, tl) ->
      let {nmap=nm;eset=es;symtab=(cs,ps);
           typemap=yy,tm,tmn;w=i;} = in_gr in
      let nm = NM.add 0

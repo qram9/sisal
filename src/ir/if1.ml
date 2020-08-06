@@ -182,13 +182,13 @@ type pragmas = pragma list
 
 module N = struct
   type t = label
-  let compare = Pervasives.compare
+  let compare = Stdlib.compare
 end
 
 module T = struct
   type t = label
   let compare =
-    Pervasives.compare
+    Stdlib.compare
 end
 
 type port_idx = int
@@ -1412,7 +1412,8 @@ and add_each_in_list in_gr ex lasti appl =
   match ex with
   | [] -> ((lasti,0,0),in_gr)
   | hde::tl ->
-     let (lasti,pp,tt1),in_gr_ = (appl in_gr hde) in
+     let (lasti,pp,tt1),in_gr_ =
+       (appl in_gr hde) in
      add_each_in_list in_gr_ tl lasti appl
 
 and range a b =
@@ -1574,7 +1575,7 @@ and add_compound_type in_gr =
   | Sisal_record rrr ->
      let (rec_fst,ign,_),in_gr =
        List.fold_right
-         (fun (Field_spec(rec_names_l,rec_ty)) y ->
+         (fun (rec_names_l,rec_ty) y ->
            List.fold_right
              add_a_field
              (List.map (fun namen -> (namen,rec_ty,0)) rec_names_l) y)
@@ -1646,7 +1647,7 @@ and find_ty
                       typemap = (id,tm,tmn);
                       w = pi;
                     }; in
-          "Type not found by find_ty in typemap: " ^ (string_of_if1_ty aty)))
+          "Type not found byf ind_ty in typemap: " ^ (string_of_if1_ty aty)))
   else lookin_vals
 
 and add_sisal_typename
@@ -1697,10 +1698,13 @@ and add_sisal_type {nmap = nm;eset = pe;symtab = sm;
                         w = pi;} ct
   | Ast.Type_name ty ->
      match MM.mem ty tmn with
-     | true -> (MM.find ty tmn,0, MM.find ty tmn), in_gr
+     | true -> (MM.find ty tmn, 0, MM.find ty tmn), in_gr
      | false ->
         let brr = string_of_graph in_gr in
-        raise (Node_not_found ("typename being added:"^ty));
+          raise
+          (Printexc.print_raw_backtrace stdout
+             (Printexc.get_callstack 150);
+           (Node_not_found ("typename being looked up:" ^ ty)));
 (** Combine symtabs to initialize a new graph. **)
 and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
@@ -2310,7 +2314,10 @@ let get_symbol_id v in_gr =
         (aa,ap,t),add_to_boundary_inputs ~namen:v 0 ap in_gr
       ) else (
         print_endline v;
-        raise (Node_not_found ( "Symbol lookup failed for name: " ^ v));
+        outs_syms in_gr;
+        raise (Printexc.print_raw_backtrace stdout
+                 (Printexc.get_callstack 150);
+               Node_not_found ( "Symbol lookup failed for name: " ^ v));
       )
 
 let get_symbol_id_old v in_gr =

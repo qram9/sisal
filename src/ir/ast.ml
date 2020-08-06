@@ -1,13 +1,9 @@
-type field_spec =
-  Field_spec of string list * sisal_type
-and
-field = Field of field_name list
+type field = Field of field_name list
 and field_name = Field_name of string
 and
   field_exp = Field_exp of field * simple_exp
 and
   field_def = Field_def of field_name * simple_exp
-and expr_pair = Expr_pair of exp * exp
 and sexpr_pair = SExpr_pair of simple_exp * exp
 and type_def = Type_def of type_name * sisal_type
 and tag_exp = | Tag_name of tag_name | Tag_exp of tag_name * simple_exp
@@ -16,11 +12,9 @@ and iterator_terminator =
   | Termination_iterator of termination_test * iterator
 and iterator = Repeat of decldef_part
 and termination_test = While of exp | Until of exp
-and def = Def of string list * exp
-and decl = Decl of string list * sisal_type
-and decldef = Decl_def of def
-            | Decl_decl of decl
-            | Decldef of decl list * exp
+and decl = Decl_some of decl_id list * sisal_type
+         | Decl_none of decl_id list
+and decl_id = Decl_name of string | Decl_func of function_header
 and simple_exp =
   Constant of sisal_constant
 | Old of value_name
@@ -82,6 +76,7 @@ and function_leaf = Function_single of (function_header * (type_def list) * (fun
 and define = Define of function_name list
 and compilation_unit = Compilation_unit of define * (type_def list) * (function_header list) * function_def list
 and fun_returns = Returns of sisal_type list
+and decldef = Decldef of (decl * exp)
 and decldef_part = Decldef_part of decldef list
 and reduction_op = Sum | Product | Least | Greatest | Catenate | No_red
 and direction_op = Left | Right | Tree | No_dir
@@ -118,7 +113,7 @@ and
   compound_type =
   Sisal_array  of sisal_type
 | Sisal_stream of sisal_type
-| Sisal_record of (field_spec list)
+| Sisal_record of (string list * sisal_type) list
 | Sisal_union  of (string list * sisal_type) list
 | Sisal_function_type of (string * sisal_type list * sisal_type list)
 | Sisal_union_enum  of (string list)
@@ -206,8 +201,8 @@ and str_tagcase_exp = function
   | Tagcase_exp (exp) -> "TAGCASE " ^ (str_simple_exp exp)
 and str_otherwise = function
   | Otherwise e -> "OTHERWISE " ^ (str_exp e)
-and str_field_spec = function
-  | Field_spec (sl,s) -> (comma_fold sl) ^ ":" ^ (str_sisal_type s)
+and str_colon_spec = function
+  | (sl,s) -> (comma_fold sl) ^ ":" ^ (str_sisal_type s)
 and str_compound_type = function
   | Sisal_array s -> "ARRAY [" ^ str_sisal_type s ^ "]"
   | Sisal_stream s -> "STREAM [" ^ str_sisal_type s ^ "]"
@@ -219,7 +214,7 @@ and str_compound_type = function
              union_ty_v [])) ^ "]"
   (*(space_cate ("UNION [" ^ (comma_fold stl)) (str_sisal_type s) ":") ^ "]"*)
   | Sisal_union_enum  (stl) -> "UNION [" ^ (comma_fold stl) ^ "]"
-  | Sisal_record ff -> "RECORD [" ^ (semicolon_fold (List.map str_field_spec ff)) ^ "]"
+  | Sisal_record ff -> "RECORD [" ^ (semicolon_fold (List.map str_colon_spec ff)) ^ "]"
   | Sisal_function_type (fn_name,tyargs,tyres) ->
      fn_name ^ "(" ^ (comma_fold (List.map (fun x -> str_sisal_type x) tyargs))
      ^ " returns " ^  (comma_fold (List.map (fun x -> str_sisal_type x)
@@ -259,9 +254,6 @@ and
   function
   | Exp e -> comma_fold (List.map (str_simple_exp ~offset:offset) e)
   | Empty -> ""
-and
-  str_exp_pair = function
-  | Expr_pair (e,f) -> (str_exp e) ^ ":" ^ (str_exp f)
 and  str_sexp_pair = function
   | SExpr_pair (e,f) -> (str_simple_exp e) ^ ":" ^ (str_exp f)
 and str_field_name = function
@@ -294,22 +286,22 @@ and str_prefix_name = function
   | Double_prefix -> "DOUBLE"
   | Integer_prefix -> "INTEGER"
   | Real_prefix -> "REAL"
+and str_decldef ?(offset=0) = function
+  | Decldef (deca, expn) ->
+    (str_decl deca) ^ " := " ^ (str_exp expn)
 and str_decldef_part ?(offset=0) = function
   | Decldef_part f ->
-     semicolon_newline_fold
-       ~offset:(offset)
-       (List.map (str_decldef ~offset:(offset)) f)
-and str_def ?(offset=0) = function
-  | Def (x,y) ->
-     (comma_fold x) ^ " := " ^ (str_exp ~offset:(offset) y)
-and str_decl = function
-  | Decl(x,y) -> (comma_fold x) ^ ":" ^ (str_sisal_type y)
-and str_decldef ?(offset=0) = function
-  | Decl_def x -> str_def ~offset:(offset) x
-  | Decl_decl x -> str_decl x
-  | Decldef (x,y) ->
-     (comma_fold (List.map str_decl x)) ^
-       " := " ^ ((str_exp ~offset:(offset)) y)
+     semicolon_fold (List.map (str_decldef ~offset:(offset)) f)
+and str_decl_id ?(offset=0) = function
+  | Decl_name nam -> nam
+  | Decl_func func -> str_function_header func
+and str_decl ?(offset=0) = function
+  | Decl_some (x,y) ->
+     (comma_fold
+        (List.map (str_decl_id ~offset:(offset)) x))
+     ^ ":" ^ (str_sisal_type y)
+  | Decl_none x ->
+     (comma_fold (List.map (str_decl_id ~offset:(offset)) x))
 and str_function_name = function
   | Function_name f -> f
 and str_arg = function | Arg e -> str_exp e
@@ -374,8 +366,8 @@ and str_simple_exp ?(offset=0) =
              (mypad1 offset "END LET") **)
      ("LET\n" ) ^
        (str_decldef_part ~offset:(offset+2) dp) ^ " IN\n" ^
-           (mypad1 (offset) (str_exp ~offset:(offset) e)) ^ "\n" ^
-             (mypad1 offset "END LET")
+         (mypad1 (offset) (str_exp ~offset:(offset) e)) ^ "\n" ^
+           (mypad1 offset "END LET")
   | Tagcase (ae,tc,o) ->
      newline_fold [str_tagcase_exp ae; str_taglist_list tc; str_otherwise o]
   | If (cl, el) ->
@@ -453,7 +445,7 @@ and str_function_header = function
      space_fold
        [(str_function_name fun_name);
         paren ("RETURNS " ^  (str_type_list tl))]
-  | Function_header (fun_name,decls,tl) ->
+  | Function_header (fun_name, decls, tl) ->
      space_fold
        [str_function_name fun_name;
         paren ((semicolon_fold (List.map str_decl decls))
