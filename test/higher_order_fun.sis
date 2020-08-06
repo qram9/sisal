@@ -1,0 +1,7 @@
+Define  Main
+
+function Main( n,m:integer returns integer )
+  let Increase(x : integer returns integer) := x + 1
+  in Increase(n) * Increase(m)
+  end let
+end function

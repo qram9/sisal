@@ -1,12 +1,12 @@
 
 define Main
 
-type Cart = record[X,Y:real]
+type Cart = record[X:integer; Y:real]
 
 function Main(returns Cart)
-let Origin : Cart := record[X:4.2;Y:3.1] in
-let XX : REAL := Origin.X * 2.0 in
-let HOME : Cart := Origin replace [Y:XX] in
+let Origin : Cart := record[X:42;Y:3.0] in
+let XX : INTEGER := Origin.X * 2 in
+let HOME : Cart := Origin replace [X:XX] in
 HOME
 end let
 end let

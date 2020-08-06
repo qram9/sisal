@@ -285,21 +285,11 @@ function_header :
       let t:Ast.function_header =
         Function_header_nodec ($1,$4) in t
     }
-| function_name LPAREN decl_list_semi RETURNS type_list RPAREN
+| function_name LPAREN declids_spec_list RETURNS type_list RPAREN
   {
     let t:Ast.function_header =
-      Function_header ($1,$3,$5) in t
-  }
-;
-
-decl_list_semi:
-  decl
-  {
-    [$1]
-  }
-| decl_list_semi SEMICOLON decl
-  {
-    $1@[$3]
+      let wrapped = List.map (fun (x,y) -> Decl_some (x,y) ) $3 in
+      Function_header ($1,wrapped,$5) in t
   }
 ;
 
@@ -550,26 +540,8 @@ array_generator :
   }
 ;
 
-expr_pair_list :
-  expr_pair
-    {
-      [$1]
-    }
-|   expr_pair_list SEMICOLON expr_pair
-  {
-    $1@[$3]
-  }
-;
-
-expr_pair :
-  expression COLON expression
-    {
-      let t:(Ast.expr_pair) = Expr_pair ($1,$3) in t
-    }
-;
-
-  simple_expr_pair_list :
-  simple_expr_pair
+simple_expr_pair_list :
+simple_expr_pair
     {
       [$1]
     }
@@ -702,7 +674,7 @@ tag_list_colon_expression
   {
         [$1]
   }
-|tag_list_colon_expression_list  tag_list_colon_expression
+| tag_list_colon_expression_list  tag_list_colon_expression
   {
     $1@[$2]
   }
@@ -994,64 +966,6 @@ reduction_op:
   }
 ;
 
-let_in_exp :
-  LET decldef_part IN expression END LET
-    {
-      let t:Ast.simple_exp = Let (Decldef_part $2,$4) in t
-    }
-;
-
-decldef_part :
-  decldef
-    {
-      [$1]
-    }
-|   decldef_part SEMICOLON decldef
-  {
-    $1@[$3]
-  }
-;
-
-decldef :
-  decl
-    {
-      Decl_decl $1
-    }
-|   def
-  {
-    Decl_def $1
-  }
-|   decl_list ASSIGN expression
-  {
-    let t:(Ast.decldef) = Decldef ($1,$3) in t
-  }
-;
-
-decl_list :
-  decl
-    {
-      [$1]
-    }
-|   decl_list COMMA decl
-  {
-    $1@[$3]
-  }
-;
-
-decl :
-  names COLON type_spec
-    {
-      Decl ($1,$3)
-    }
-;
-
-def :
-  names ASSIGN expression
-    {
-      Def ($1,$3)
-    }
-;
-
 conditional_exp:
   conditional_ifexp conditional_else END IF
   {
@@ -1238,6 +1152,27 @@ basic_type_spec :
   }
 ;
 
+names : names COMMA NAME
+  {
+    $1@[$3]
+  }
+|   NAME
+  {
+    [$1]
+  }
+;
+
+declids_spec_list :
+  | declids_spec_list SEMICOLON declids COLON type_spec
+      {
+        $1@[($3, $5)]
+      }
+  | declids COLON type_spec
+      {
+        [($1, $3)]
+      }
+;
+
 compound_type_spec :
   ARRAY LBRACK type_spec RBRACK
     {
@@ -1247,7 +1182,7 @@ compound_type_spec :
   {
       let k:Ast.compound_type = Sisal_stream $3 in k
   }
-|   RECORD LBRACK field_spec_list RBRACK
+|   RECORD LBRACK tag_spec_list RBRACK
   {
       let k:Ast.compound_type = Sisal_record $3 in k
   }
@@ -1261,50 +1196,62 @@ compound_type_spec :
   }
 ;
 
-field_spec_list:
-  field_spec
-    {
-      [$1]
-    }
-| field_spec_list SEMICOLON field_spec
-  {
-    $1@[$3]
-  }
-;
-
-field_spec :
-  names COLON type_spec
-    {
-      let k:Ast.field_spec =
-      Field_spec ($1,$3) in k
-    }
-;
-
-names : names COMMA NAME
-    {
-      $1@[$3]
-    }
-|   NAME
-  {
-    [$1]
-  }
-;
-
 tag_spec_list :
-  tag_spec
-    {
-      [$1]
-    }
-| tag_spec_list SEMICOLON tag_spec
+  | tag_spec_list SEMICOLON names COLON type_spec
       {
-        $1@[$3]
+        $1@[($3, $5)]
+      }
+  | names COLON type_spec
+      {
+        [($1, $3)]
       }
 ;
 
-tag_spec :
-  names COLON type_spec
+declids :
+ function_header
     {
-      ($1,$3)
+      [Decl_func $1]
+    }
+| NAME
+    {
+      [Decl_name $1]
+    }
+| declids COMMA NAME
+    {
+      $1@[Decl_name $3]
+    }
+| declids COMMA function_header
+    {
+      $1@[Decl_func $3]
+    }
+;
+
+decldef :
+  declids COLON type_spec ASSIGN expression
+    {
+      let t:(Ast.decldef) = Decldef (Decl_some ($1, $3), $5) in t
+    }
+  | declids ASSIGN expression
+      {
+        Decldef (Decl_none $1, $3)
+      }
+;
+
+decldef_part :
+  decldef
+    {
+      [$1]
+    }
+  | decldef_part SEMICOLON decldef
+    {
+      $1@[$3]
+    }
+;
+
+let_in_exp :
+  LET decldef_part IN expression END LET
+    {
+      let t:Ast.simple_exp = Let (Decldef_part $2, $4) in t
     }
 ;
 
