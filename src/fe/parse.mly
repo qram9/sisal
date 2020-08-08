@@ -1227,13 +1227,29 @@ declids :
 ;
 
 decldef :
-  declids COLON type_spec ASSIGN expression
+  declids_list ASSIGN expression
     {
-      let t:(Ast.decldef) = Decldef (Decl_some ($1, $3), $5) in t
+      (*TODO decldef can contain a list of declids COLON type_specs*)
+      let t:(Ast.decldef) = Decldef ($1, $3) in t
     }
-  | declids ASSIGN expression
+;
+
+declids_list :
+  | declids_list COMMA declids COLON type_spec
       {
-        Decldef (Decl_none $1, $3)
+        $1@[Decl_some ($3, $5)]
+      }
+  | declids_list COMMA declids
+      {
+        $1@[Decl_none $3]
+      }
+  | declids COLON type_spec
+      {
+        (Decl_some ($1, $3))::[]
+      }
+  | declids
+      {
+        (Decl_none $1)::[]
       }
 ;
 

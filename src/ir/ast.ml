@@ -76,7 +76,7 @@ and function_leaf = Function_single of (function_header * (type_def list) * (fun
 and define = Define of function_name list
 and compilation_unit = Compilation_unit of define * (type_def list) * (function_header list) * function_def list
 and fun_returns = Returns of sisal_type list
-and decldef = Decldef of (decl * exp)
+and decldef = Decldef of (decl list * exp)
 and decldef_part = Decldef_part of decldef list
 and reduction_op = Sum | Product | Least | Greatest | Catenate | No_red
 and direction_op = Left | Right | Tree | No_dir
@@ -288,7 +288,8 @@ and str_prefix_name = function
   | Real_prefix -> "REAL"
 and str_decldef ?(offset=0) = function
   | Decldef (deca, expn) ->
-    (str_decl deca) ^ " := " ^ (str_exp expn)
+     (comma_fold
+       (List.map (str_decl ~offset:(offset)) deca)) ^ " := " ^ (str_exp expn)
 and str_decldef_part ?(offset=0) = function
   | Decldef_part f ->
      semicolon_fold (List.map (str_decldef ~offset:(offset)) f)

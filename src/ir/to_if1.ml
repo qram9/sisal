@@ -168,12 +168,13 @@ let rec array_builder_exp ?(inc_typ=0) in_gr = function
          let in_gr = add_edge e p arrnum 0 t1 in_gr in
          let in_gr = add_each_edge exp_l arrnum 1 in_gr in
          let t1,in_gr =
+           let _, _, ofty = List.hd exp_l in
            if inc_typ = 0 then (
              try
-               let aty =  Array_ty t1 in
+               let aty =  Array_ty ofty in
                find_ty_safe in_gr aty, in_gr
              with _ ->
-               let aty =  Array_ty t1 in
+               let aty =  Array_ty ofty in
                let _,in_gr = add_type_to_typemap aty in_gr in
                find_ty_safe in_gr aty, in_gr)
            else inc_typ,in_gr in
@@ -1013,7 +1014,7 @@ and do_prefix_name in_gr = function
 
 and do_decldef_part in_gr = function
   | Decldef_part f ->
-  (** A list of variable bindings in a LET expression.
+     (** A list of variable bindings in a LET expression.
       For example,
       LET
       X := 1;
@@ -1042,7 +1043,7 @@ and do_decldef_part in_gr = function
                        Exp [Constant (Int 3)]))],
                 Exp [Add (Val (Value_name "X"), Val (Value_name "Y"));
                      Subtract (Val (Value_name "X"), Val (Value_name "Y")
-      )])]))] *)
+      )])]))] **)
      let xyz, in_gr =
        add_each_in_list in_gr f 0 do_decldef
      in xyz,in_gr
@@ -1089,29 +1090,6 @@ and do_params_decl po in_gr z =
   | Decl_none x ->
      raise (Sem_error "Declaration must provide a type")
 
-and do_decl in_gr z =
-  match in_gr with
-  | {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w} ->
-     let rec add_all_to_sm umap xli type_num =
-       match xli with
-       | (Decl_name hdx)::tlx ->
-          let sm_v =
-            {val_name=hdx;val_ty=type_num;val_def=0;def_port=0} in
-          add_all_to_sm (SM.add hdx sm_v umap) tlx type_num
-       | (Decl_func hdx)::tlx ->
-          raise (Sem_error "Function_header by assign TODO")
-       | [] -> umap in
-     match z with
-     | Decl_some (x,y) ->
-        let type_num = get_type_num in_gr y in
-        let u = add_all_to_sm u x type_num in
-        ((0,0,type_num),
-         {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w})
-     | Decl_none x ->
-        let u = add_all_to_sm u x 0 (* unknown type *) in
-        (0,0,0),
-        {nmap=nmap; eset=eset; symtab=(u,v); typemap=tm; w=w}
-
 and extract_types_from_decl_list dl =
   List.fold_left (
       fun dlz dlx ->
@@ -1126,69 +1104,123 @@ and extract_types_from_decl_list dl =
     [] dl
 
 and do_decldef in_gr delc =
-  let rec bind_decls_to_exp in_gr nodeid dec curportnum =
-    match dec with
-    | (Decl_name dechd)::dectl ->
-       let {nmap = nodemap; eset = edgeset;
-            symtab = (localsyms, globsyms);
-            typemap = tymap; w = curw} = in_gr in
-       let (incoming_node, incoming_port), (_,_), incoming_type =
-         List.hd (ES.elements
-                    (ES.filter (fun ((x, xp), (y, yp), y_ty) ->
-                         yp = curportnum && y = nodeid) edgeset)) in
-       bind_decls_to_exp
-         {nmap = nodemap; eset = edgeset;
-          symtab = (
-            SM.add dechd
-              {val_name = dechd;
-               val_ty = incoming_type;
-               val_def = incoming_node;
-               def_port = incoming_port} localsyms, globsyms);
-          typemap = tymap; w = curw}
-         nodeid dectl (curportnum + 1)
-    | (Decl_func dechd)::dectl ->
-       raise (Sem_error "Function_header by assign TODO")
-    | [] -> in_gr in
   match delc with
-  | Decldef adecldef ->
-     match adecldef with
-      | (Decl_some (decls, atype), exps) ->
-         let (expnum, expport, expty), in_gr = do_exp in_gr exps in
-         let expty =
-           (match(get_node expnum in_gr) with
-            | Simple (nodeid, MULTIARITY, _, _, _) ->
-               first_incoming_type_to_multiarity expnum in_gr
-            | _ ->
-               raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL")) in
-         let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
-         if (typenum != expty)
-         then
-           (raise (
-                outs_graph in_gr;
-                print_endline (str_exp exps);
-                print_string " Inferred type: ";print_int expty;
-                print_string " Expected type: "; print_int typenum;
-                print_endline "";
-                print_endline (str_sisal_type atype);
-                Sem_error
-                  " Incorrect expression type bound to declaration"))
-         else
-           (match (get_node expnum in_gr) with
-            | Simple (nodeid, MULTIARITY, _, _, _) ->
-               let in_gr =  bind_decls_to_exp in_gr nodeid decls 0 in
-               (0, 0, 0), in_gr
-            | _ ->
-               raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL");
-               (0,0,0), in_gr)
-      | (Decl_none decls, exps) ->
-         let (expnum, expport, expty), in_gr = do_exp in_gr exps in
-         match (get_node expnum in_gr) with
-         | Simple (nodeid, MULTIARITY, _, _, _) ->
-            let in_gr =  bind_decls_to_exp in_gr nodeid decls 0 in
-            (0, 0, 0), in_gr
-         | _ ->
-            raise (Sem_error " REQUIRE MULTIARITY WHEN BINDING TO DECL");
-            (0,0,0), in_gr
+  | Decldef (alldecls, Exp exps) ->
+     (** Decldef:
+     First component in a Decldef is a list of
+     lists of declids. Each list is either a
+     Decl_some type-spec or Decl_none.
+
+     Second component in a Decldef is
+     an exp-list. There is no one-one
+     correspondance between each decl
+     and each exp. Only after an exp is
+     lowered do we have one-one connectivity. **)
+     let rec do_each_decl alldecls exps expl in_gr =
+       let rec bind_exp_to_decl expl exps decls atyp in_gr =
+         match decls with
+         | dechd::dectl ->
+            (let expl, exps, in_gr =
+               let (expnum, expport, expty), exps, expl, in_gr =
+                 try
+                   List.hd expl, exps, List.tl expl, in_gr
+                 with _ ->
+                   (let exphhd = List.hd exps
+                    in
+                    let (expnum, expport, expty), in_gr =
+                      do_simple_exp in_gr exphhd
+                    in
+                    let expty =
+                      (match(get_node expnum in_gr) with
+                       | Simple (nodeid, MULTIARITY, _, _, _) ->
+                          first_incoming_type_to_multiarity expnum in_gr
+                       | _ -> expty) in
+                    (** When the expression produces a multiarity,
+                     each output port and output type is added to
+                     the expression stack, so that the recursive
+                     visitor will match the next decl with the top
+                     of the stack. **)
+                    let expl =
+                      match (get_node expnum in_gr) with
+                      | Simple (nodeid, MULTIARITY, _, _, _) ->
+                         (let port_type_map =
+                            all_types_ending_at expnum in_gr IntMap.empty
+                          in
+                          let howmany = (
+                              IntMap.map
+                                (fun ke va -> Format.printf " PorKey: %d PorVal:%d" ke va)
+                                port_type_map;
+                              IntMap.cardinal port_type_map)
+                          in
+                          let rec add_to_curr_expl
+                                    cur_count howmany port_type_map nodeid expl =
+                            (if (cur_count < howmany)
+                             then
+                               ((nodeid, cur_count, IntMap.find cur_count port_type_map)::
+                                  (add_to_curr_expl
+                                     (cur_count + 1) howmany port_type_map nodeid expl))
+                             else
+                               (expl)) in
+                          add_to_curr_expl 0 howmany port_type_map expnum expl)
+                      | _ ->
+                         (expnum, expport, expty)::expl
+                    in
+                    List.hd expl, List.tl exps, List.tl expl, in_gr) in
+               (* ending let (expnum, expport, ...) *)
+               let check_type =
+                 (match atyp
+                  with
+                  | Some atype ->
+                     let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
+                     if (typenum != expty)
+                     then
+                       (raise (
+                            outs_graph in_gr;
+                            print_string " Inferred type: "; print_int expty;
+                            print_string " Expected type: "; print_int typenum;
+                            print_endline "";
+                            print_endline (str_sisal_type atype);
+                            Sem_error
+                              " Incorrect expression type bound to declaration"))
+                     else ()
+                  | None ->
+                     ()) (* let check_type *)
+               in
+               let {nmap = nodemap; eset = edgeset;
+                    symtab = (localsyms, globsyms);
+                    typemap = tymap; w = curw} = in_gr in
+               (match dechd with
+                | Decl_name dechd ->
+                   check_type;
+                   expl, exps, {nmap = nodemap; eset = edgeset;
+                                symtab = (
+                                  SM.add dechd
+                                    {val_name = dechd;
+                                     val_ty = expty;
+                                     val_def = expnum;
+                                     def_port = expport} localsyms, globsyms);
+                                typemap = tymap; w = curw}
+                | Decl_func dechd ->
+                   raise (Sem_error "TODO Func decl"))
+             in (* let expl, exps, in_gr *)
+             bind_exp_to_decl expl exps dectl atyp in_gr)
+         | [] ->
+            expl, exps, in_gr
+       in
+       match alldecls with
+       | (Decl_some (decls, atype))::decllist_tail ->
+          let expl, exps, in_gr =
+            bind_exp_to_decl expl exps decls (Some atype) in_gr
+          in
+          do_each_decl decllist_tail exps expl in_gr
+       | (Decl_none decls)::decllist_tail ->
+          let expl, exps, in_gr =
+            bind_exp_to_decl expl exps decls None in_gr
+          in
+          do_each_decl decllist_tail exps expl in_gr
+       | [] -> in_gr
+     in
+     (0,0,0), do_each_decl alldecls exps [] in_gr
 
 and do_function_name in_gr = function
   | Function_name f ->
@@ -1412,8 +1444,9 @@ and tag_typecheck_fail vn_n in_gr jj prev =
 
 and check_tag_types vn_n jj prev in_gr =
   if jj = prev then true
-  else raise (Sem_error ("Output types do not match for:"
-                         ^ vn_n))
+  else raise (
+           Sem_error ("Output types do not match for:"
+                      ^ vn_n))
 
 and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
   (** A recursive visitor that builds subgraphs for each variant
@@ -1549,30 +1582,32 @@ and bin_fun a b in_gr node_tag =
     | Simple (la,MULTIARITY,_,_,_) ->
       first_incoming_triple_to_multiarity c i_gr
     | _ -> c,pi1,qq1) in
-    let d,pi2,qq2 = (match (get_node d i_gr) with
-    | Simple (la,MULTIARITY,_,_,_) ->
-      first_incoming_triple_to_multiarity d i_gr
-    | _ -> d,pi2,qq2) in
-    (match qq1 = qq2
-     with true ->
-           (let out_gr =
-              add_edge c pi1 z 0 qq1 out_gr in
-            let out_gr =
-              add_edge d pi2 z 1 qq2 out_gr in
-            ((z,0,qq1),out_gr))
-        | false ->
-           raise (Sem_error (
-                      let _ =
-                        let kkk =
-                          cate_list
-                            [str_simple_exp ~offset:2 a;
-                             " of type:" ^ (string_of_int qq1);
-                             str_simple_exp ~offset:2 b;
-                             " of type:" ^ (string_of_int qq2)]
-                            "\n" in
-                        print_endline kkk;
-                        dot_graph in_gr in
-                      ("ERROR: Bad type in binary exp---")))) in
+    let d,pi2,qq2 =
+      (match (get_node d i_gr) with
+       | Simple (la,MULTIARITY,_,_,_) ->
+          first_incoming_triple_to_multiarity d i_gr
+       | _ -> d,pi2,qq2) in
+    (match qq1 = qq2 with
+     | true ->
+        (let out_gr =
+           add_edge c pi1 z 0 qq1 out_gr in
+         let out_gr =
+           add_edge d pi2 z 1 qq2 out_gr in
+         ((z,0,qq1),out_gr))
+     | false ->
+        raise (
+            Sem_error (
+                let _ =
+                  let kkk =
+                    cate_list
+                      [str_simple_exp ~offset:2 a;
+                       " of type:" ^ (string_of_int qq1);
+                       str_simple_exp ~offset:2 b;
+                       " of type:" ^ (string_of_int qq2)]
+                      "\n" in
+                  print_endline kkk;
+                  outs_graph in_gr in
+                ("ERROR: Bad type in binary exp---")))) in
   base_case_bin a b node_tag in_gr
 
 and organize_ret_info return_action_list mask_ty_list =
@@ -1613,7 +1648,7 @@ and point_edges_to_boundary frm elp elt in_gr =
   match get_node frm in_gr with
   | Simple (_,MULTIARITY,_,_,_) ->
      (*In case frm is a MULTIARITY, redirect
-                  incoming edges to the boundary node.*)
+       incoming edges to the boundary node.*)
      let  {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi}
        = in_gr in
      let unwanted_edges
