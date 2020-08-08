@@ -5,11 +5,11 @@ type double = double_real;
 type ThreeD   = array[array[array[double]]];
 
 function Main( n,m:integer; Y:ThreeD returns integer, integer )
-let x := 1;
-    y,z := let x := 2;
-             y := 3
-         in  x + y + x * y, x * y + x * y
-         end let
-in x * y + z, x * y - z
+let x := 1; y, z:INTEGER, w :=
+  let x := 2; y := 3; z := 4
+  in
+  x + y + x * y, x * y + x * y, x * y + x * y
+end let
+in x * y + z, x * y + z
 end let
 end function
