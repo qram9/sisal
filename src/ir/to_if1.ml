@@ -256,7 +256,6 @@ and union_builder in_gr utags iornone =
     | Som anum -> hdty
     | Emp -> raise (Node_not_found
                       "unknown field in an union") in
-  outs_graph in_gr;
   let aout =
     (match iornone with
      | Emp ->
@@ -491,7 +490,7 @@ and first_incoming_triple_to_multiarity e in_gr =
   let (x,xp),(y,yp),aty =
   try
    List.hd (ES.elements edges) with _ ->
-   raise ((print_endline "Error with incoming triple lookup for graph:";
+   raise ((Format.printf "Error with incoming triple lookup for graph: %d" e;
            print_endline (string_of_graph in_gr);
            Printexc.print_raw_backtrace stdout
            (Printexc.get_callstack 150));
@@ -1014,39 +1013,59 @@ and do_prefix_name in_gr = function
 
 and do_decldef_part in_gr = function
   | Decldef_part f ->
-     (** A list of variable bindings in a LET expression.
-      For example,
-      LET
-      X := 1;
-      Y,Z := LET
-      X := 2;
-      Y := 3 IN
-      X + Y,X - Y
-      END LET IN
-      X * Y + Z
-      END LET
-      'f' will have an AST looking like:
-      f: Ast.decldef list =
-      [Decl_def (
-           Def (["X"],
-           Exp [Constant (Int 1)])
-           );
-       Decl_def (
-           Def (["Y"; "Z"],
-           Exp [Let
-               (Decldef_part
-                  [Decl_def (
-                       Def (["X"],
-                       Exp [Constant (Int 2)]));
-                   Decl_def (
-                       Def (["Y"],
-                       Exp [Constant (Int 3)]))],
-                Exp [Add (Val (Value_name "X"), Val (Value_name "Y"));
-                     Subtract (Val (Value_name "X"), Val (Value_name "Y")
-      )])]))] **)
      let xyz, in_gr =
-       add_each_in_list in_gr f 0 do_decldef
+       let rec process_each_in_list f xyz in_gr =
+         match f with
+         | decldef_hd::decldefs_tl ->
+            let xyz, in_gr =
+              do_decldef in_gr decldef_hd in
+            process_each_in_list decldefs_tl xyz in_gr
+         | [] -> xyz, in_gr in
+       process_each_in_list f (0, 0, 0) in_gr
      in xyz,in_gr
+
+and do_decldef_part2 in_gr = function
+  | Decldef_part f ->
+     let xyz, expl_rev, decl_rev, in_gr =
+       let rec process_each_in_list f xyz expl_rev decl_rev in_gr =
+         match f with
+         | decldef_hd::decldefs_tl ->
+            let xyz, expl_rev, decl_rev, in_gr =
+              do_decldef2 in_gr decldef_hd expl_rev decl_rev
+            in
+            process_each_in_list decldefs_tl xyz expl_rev decl_rev in_gr
+         | [] -> xyz, expl_rev, decl_rev, in_gr in
+       process_each_in_list f (0, 0, 0) [] [] in_gr
+     in
+     (*let _, _, _, _ =
+       List.map
+         (fun (x, y, z) ->
+           Format.printf (" expl: %d %d %d\n") x y z)
+         expl_rev,
+       List.map
+         (Format.printf (" decl: %s\n"))
+         decl_rev,
+       outs_graph_with_msg "After doing decldef_part" in_gr,
+       print_endline ""
+     in*)
+     let {nmap=nm;eset=es;symtab=(cs,ps);typemap=ttt;w=i} =
+       in_gr
+     in
+     let zipped_decl_exp =
+       zipem decl_rev expl_rev
+     in
+     let cs =
+       List.fold_right
+         (fun (x, (y, p, t)) z  ->
+           SM.add x {val_name = x;
+                     val_ty = t;
+                     val_def = y;
+                     def_port = p} z)
+         zipped_decl_exp cs
+     in
+     let in_gr =
+       {nmap=nm;eset=es;symtab=(cs,ps);typemap=ttt;w=i}
+     in xyz, in_gr
 
 and get_type_num in_gr = function
   | Ast.Type_name yy ->
@@ -1104,6 +1123,121 @@ and extract_types_from_decl_list dl =
     [] dl
 
 and do_decldef in_gr delc =
+  let rec check_decl_type atyp expty in_gr =
+    (match atyp
+     with
+     | Some atype ->
+        let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
+        if (typenum != expty)
+        then
+          (raise (
+               outs_graph in_gr;
+               print_string " Inferred type: "; print_int expty;
+               print_string " Expected type: "; print_int typenum;
+               print_endline "";
+               print_endline (str_sisal_type atype);
+               Sem_error
+                 " Incorrect expression type bound to declaration"))
+        else in_gr
+     | None ->
+        in_gr) (* let check_decl_type *)
+  and do_each_decl alldecls exps expl in_gr =
+    match alldecls with
+    | (Decl_some (decls, atype))::decllist_tail ->
+       let expl, exps, in_gr =
+         bind_exp_to_decl expl exps decls (Some atype) in_gr
+       in
+       do_each_decl decllist_tail exps expl in_gr
+    | (Decl_none decls)::decllist_tail ->
+       let expl, exps, in_gr =
+         bind_exp_to_decl expl exps decls None in_gr
+       in
+       do_each_decl decllist_tail exps expl in_gr
+    | [] -> in_gr
+  and pop_or_push_to_exp_stack expl exps in_gr =
+    try
+      List.hd expl, exps, List.tl expl, in_gr
+    with _ ->
+      (let exphhd = List.hd exps
+       in
+       let (expnum, expport, expty), in_gr =
+         do_simple_exp in_gr exphhd
+       in
+       let expty =
+         (match(get_node expnum in_gr) with
+          | Simple (nodeid, MULTIARITY, _, _, _) ->
+             first_incoming_type_to_multiarity expnum in_gr
+          | _ -> expty) in
+       (** When the expression produces a multiarity,
+           each output port and output type is added to
+           the expression stack, so that the recursive
+           visitor will match the next decl with the top
+           of the stack. **)
+       let expl =
+         match (get_node expnum in_gr) with
+         | Simple (nodeid, MULTIARITY, _, _, _) ->
+            (let port_type_map =
+               all_types_ending_at expnum in_gr IntMap.empty
+             in
+             let howmany = (
+                 IntMap.map
+                   (fun ke va -> Format.printf " PorKey: %d PorVal:%d" ke va)
+                   port_type_map;
+                 IntMap.cardinal port_type_map)
+             in
+             let rec add_to_curr_expl
+                       cur_count howmany port_type_map nodeid expl =
+               (if (cur_count < howmany)
+                then
+                  ((nodeid, cur_count, IntMap.find cur_count port_type_map)::
+                     (add_to_curr_expl
+                        (cur_count + 1) howmany port_type_map nodeid expl))
+                else
+                  (expl)) in
+             add_to_curr_expl 0 howmany port_type_map expnum expl)
+         | _ ->
+            (expnum, expport, expty)::expl
+       in
+       List.hd expl, List.tl exps, List.tl expl, in_gr)
+  and bind_exp_to_decl expl exps decls atyp in_gr =
+    match decls with
+    | dechd::dectl ->
+       (* ending let (expnum, expport, ...) *)
+       let expl, exps, in_gr =
+         match dechd with
+         | Decl_name dechd ->
+            let (expnum, expport, expty), exps, expl, in_gr =
+              pop_or_push_to_exp_stack expl exps in_gr in
+            let in_gr = check_decl_type atyp expty in_gr in
+            let {nmap = nodemap; eset = edgeset;
+                 symtab = (localsyms, globsyms);
+                 typemap = tymap; w = curw} = in_gr in
+            expl, exps, {nmap = nodemap; eset = edgeset;
+                         symtab = (
+                           SM.add dechd
+                             {val_name = dechd;
+                              val_ty = expty;
+                              val_def = expnum;
+                              def_port = expport} localsyms, globsyms);
+                         typemap = tymap; w = curw}
+         | Decl_func dechd ->
+            let (header,hp,t1),in_gr_ =
+              do_function_header (get_a_new_graph in_gr) dechd in
+            let Function_header (Function_name fn, _, _) = dechd in
+            let (expnum, expport, expty), exps, expl, in_gr_ =
+              pop_or_push_to_exp_stack expl exps in_gr_ in
+            let in_gr_ = check_decl_type atyp expty in_gr_ in
+            let in_gr_ = graph_clean_multiarity in_gr_ in
+            let _, in_gr =
+              add_node_2 (`Compound (in_gr_,
+                                     INTERNAL,
+                                     0, [Name fn], [])) in_gr in
+            expl, exps, in_gr
+       in
+       bind_exp_to_decl expl exps dectl atyp in_gr
+    | [] ->
+       expl, exps, in_gr
+  in
   match delc with
   | Decldef (alldecls, Exp exps) ->
      (** Decldef:
@@ -1116,111 +1250,134 @@ and do_decldef in_gr delc =
      correspondance between each decl
      and each exp. Only after an exp is
      lowered do we have one-one connectivity. **)
-     let rec do_each_decl alldecls exps expl in_gr =
-       let rec bind_exp_to_decl expl exps decls atyp in_gr =
-         match decls with
-         | dechd::dectl ->
-            (let expl, exps, in_gr =
-               let (expnum, expport, expty), exps, expl, in_gr =
-                 try
-                   List.hd expl, exps, List.tl expl, in_gr
-                 with _ ->
-                   (let exphhd = List.hd exps
-                    in
-                    let (expnum, expport, expty), in_gr =
-                      do_simple_exp in_gr exphhd
-                    in
-                    let expty =
-                      (match(get_node expnum in_gr) with
-                       | Simple (nodeid, MULTIARITY, _, _, _) ->
-                          first_incoming_type_to_multiarity expnum in_gr
-                       | _ -> expty) in
-                    (** When the expression produces a multiarity,
-                     each output port and output type is added to
-                     the expression stack, so that the recursive
-                     visitor will match the next decl with the top
-                     of the stack. **)
-                    let expl =
-                      match (get_node expnum in_gr) with
-                      | Simple (nodeid, MULTIARITY, _, _, _) ->
-                         (let port_type_map =
-                            all_types_ending_at expnum in_gr IntMap.empty
-                          in
-                          let howmany = (
-                              IntMap.map
-                                (fun ke va -> Format.printf " PorKey: %d PorVal:%d" ke va)
-                                port_type_map;
-                              IntMap.cardinal port_type_map)
-                          in
-                          let rec add_to_curr_expl
-                                    cur_count howmany port_type_map nodeid expl =
-                            (if (cur_count < howmany)
-                             then
-                               ((nodeid, cur_count, IntMap.find cur_count port_type_map)::
-                                  (add_to_curr_expl
-                                     (cur_count + 1) howmany port_type_map nodeid expl))
-                             else
-                               (expl)) in
-                          add_to_curr_expl 0 howmany port_type_map expnum expl)
-                      | _ ->
-                         (expnum, expport, expty)::expl
-                    in
-                    List.hd expl, List.tl exps, List.tl expl, in_gr) in
-               (* ending let (expnum, expport, ...) *)
-               let check_type =
-                 (match atyp
-                  with
-                  | Some atype ->
-                     let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
-                     if (typenum != expty)
-                     then
-                       (raise (
-                            outs_graph in_gr;
-                            print_string " Inferred type: "; print_int expty;
-                            print_string " Expected type: "; print_int typenum;
-                            print_endline "";
-                            print_endline (str_sisal_type atype);
-                            Sem_error
-                              " Incorrect expression type bound to declaration"))
-                     else ()
-                  | None ->
-                     ()) (* let check_type *)
-               in
-               let {nmap = nodemap; eset = edgeset;
-                    symtab = (localsyms, globsyms);
-                    typemap = tymap; w = curw} = in_gr in
-               (match dechd with
-                | Decl_name dechd ->
-                   check_type;
-                   expl, exps, {nmap = nodemap; eset = edgeset;
-                                symtab = (
-                                  SM.add dechd
-                                    {val_name = dechd;
-                                     val_ty = expty;
-                                     val_def = expnum;
-                                     def_port = expport} localsyms, globsyms);
-                                typemap = tymap; w = curw}
-                | Decl_func dechd ->
-                   raise (Sem_error "TODO Func decl"))
-             in (* let expl, exps, in_gr *)
-             bind_exp_to_decl expl exps dectl atyp in_gr)
-         | [] ->
-            expl, exps, in_gr
-       in
-       match alldecls with
-       | (Decl_some (decls, atype))::decllist_tail ->
-          let expl, exps, in_gr =
-            bind_exp_to_decl expl exps decls (Some atype) in_gr
-          in
-          do_each_decl decllist_tail exps expl in_gr
-       | (Decl_none decls)::decllist_tail ->
-          let expl, exps, in_gr =
-            bind_exp_to_decl expl exps decls None in_gr
-          in
-          do_each_decl decllist_tail exps expl in_gr
-       | [] -> in_gr
-     in
      (0,0,0), do_each_decl alldecls exps [] in_gr
+
+and do_decldef2 in_gr delc expl_rev decl_rev =
+  let rec check_decl_type atyp expty in_gr =
+    (match atyp
+     with
+     | Some atype ->
+        let (_,_,typenum), in_gr =  add_sisal_type in_gr atype in
+        if (typenum != expty)
+        then
+          (raise (
+               outs_graph in_gr;
+               print_string " Inferred type: "; print_int expty;
+               print_string " Expected type: "; print_int typenum;
+               print_endline "";
+               print_endline (str_sisal_type atype);
+               Sem_error
+                 " Incorrect expression type bound to declaration"))
+        else in_gr
+     | None ->
+        in_gr) (* let check_decl_type *)
+  and do_each_decl2 alldecls exps expl expl_rev decl_rev in_gr =
+    match alldecls with
+    | (Decl_some (decls, atype))::decllist_tail ->
+       let expl, expl_rev, decl_rev, exps, in_gr =
+         do_exp_for_decl expl expl_rev decl_rev exps decls (Some atype) in_gr
+       in
+       do_each_decl2 decllist_tail exps expl expl_rev decl_rev in_gr
+    | (Decl_none decls)::decllist_tail ->
+       let expl, expl_rev, decl_rev, exps, in_gr =
+         do_exp_for_decl expl expl_rev decl_rev exps decls None in_gr
+       in
+       do_each_decl2 decllist_tail exps expl expl_rev decl_rev in_gr
+    | [] -> expl_rev, decl_rev, in_gr
+  and pop_or_push_to_exp_stack2 expl expl_in_rev exps in_gr =
+    try
+      List.hd expl, exps, List.tl expl, in_gr, (List.hd expl)::expl_in_rev
+    with _ ->
+      (let exphhd = List.hd exps
+       in
+       let (expnum, expport, expty), in_gr =
+         do_simple_exp in_gr exphhd
+       in
+       let expty =
+         (match(get_node expnum in_gr) with
+          | Simple (nodeid, MULTIARITY, _, _, _) ->
+             first_incoming_type_to_multiarity expnum in_gr
+          | _ -> expty) in
+       (** When the expression produces a multiarity,
+           each output port and output type is added to
+           the expression stack, so that the recursive
+           visitor will match the next decl with the top
+           of the stack. **)
+       let expl =
+         match (get_node expnum in_gr) with
+         | Simple (nodeid, MULTIARITY, _, _, _) ->
+            (let port_type_map =
+               all_types_ending_at expnum in_gr IntMap.empty
+             in
+             let howmany = (
+                 IntMap.map
+                   (fun ke va -> Format.printf " PorKey: %d PorVal:%d" ke va)
+                   port_type_map;
+                 IntMap.cardinal port_type_map)
+             in
+             let rec add_to_curr_expl
+                       cur_count howmany port_type_map nodeid expl =
+               (if (cur_count < howmany)
+                then
+                  ((nodeid, cur_count, IntMap.find cur_count port_type_map)::
+                     (add_to_curr_expl
+                        (cur_count + 1) howmany port_type_map nodeid expl))
+                else
+                  (expl)) in
+             add_to_curr_expl 0 howmany port_type_map expnum expl)
+         | _ ->
+            (expnum, expport, expty)::expl
+       in
+       List.hd expl, List.tl exps,
+       List.tl expl, in_gr, (List.hd expl)::expl_in_rev)
+
+  and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
+    match decls with
+    | dechd::dectl ->
+       (* ending let (expnum, expport, ...) *)
+       let expl, expl_rev, decl_rev, exps, in_gr =
+         match dechd with
+         | Decl_name dechd ->
+            let (expnum, expport, expty), exps, expl, in_gr, expl_rev =
+              pop_or_push_to_exp_stack2 expl expl_rev exps in_gr in
+            let in_gr = check_decl_type atyp expty in_gr in
+            let {nmap = nodemap; eset = edgeset;
+                 symtab = (localsyms, globsyms);
+                 typemap = tymap; w = curw} = in_gr in
+            expl, expl_rev, dechd::decl_rev, exps, in_gr
+         | Decl_func dechd ->
+            let Function_header (Function_name fn, decls, _) = dechd in
+            let (expnum, expport, expty) ,in_gr_ =
+              do_function_header (get_a_new_graph in_gr) dechd in
+            let (expnum, expport, expty), exps, expl, in_gr_, expl_rev =
+              pop_or_push_to_exp_stack2 expl expl_rev exps in_gr_ in
+            let in_gr_ = check_decl_type atyp expty in_gr_ in
+            let in_gr_ = graph_clean_multiarity in_gr_ in
+            let (expnum, expport, expty), in_gr =
+              add_node_2 (`Compound (in_gr_,
+                                     INTERNAL,
+                                     0, [Name fn], [])) in_gr in
+            expl, (expnum, expport, expty)::expl_rev, fn::decl_rev, exps, in_gr
+       in
+       do_exp_for_decl expl expl_rev decl_rev exps dectl atyp in_gr
+    | [] ->
+       expl, expl_rev, decl_rev, exps, in_gr
+  in
+  match delc with
+  | Decldef (alldecls, Exp exps) ->
+     (** Decldef:
+     First component in a Decldef is a list of
+     lists of declids. Each list is either a
+     Decl_some type-spec or Decl_none.
+
+     Second component in a Decldef is
+     an exp-list. There is no one-one
+     correspondance between each decl
+     and each exp. Only after an exp is
+     lowered do we have one-one connectivity. **)
+     let rev_expl, decl_rev, in_gr =
+       do_each_decl2 alldecls exps [] expl_rev decl_rev in_gr in
+     (0,0,0), rev_expl, decl_rev, in_gr
 
 and do_function_name in_gr = function
   | Function_name f ->
@@ -1779,39 +1936,53 @@ and do_simple_exp in_gr in_sim_ex =
                   | _ -> 0,in_gr in
              (n,0,lookup_tyid INTEGRAL),in_gr
           | _ ->
-         let prags = [Name f] in
-         let expl,in_gr =
-           (match arg with
-            | Arg aa ->
-               match aa with
-               | Exp aexps ->
-                  map_exp in_gr aexps [] do_simple_exp
-               | Empty -> ([],in_gr)
-           ) in
-         let in_port_00 =
-           Array.make (List.length expl) "" in
-         let ((n,k,_),in_gr) =
-           add_node_2
-             (`Simple (INVOCATION, in_port_00,
-                       out_port_0, prags))
-             in_gr in
-         let tml = lookup_fn_ty f in_gr in
-         let _,mmm = List.fold_right
-           (fun ae (lev,re) ->
-		(lev-1,(n,lev,ae)::re))
-	   (List.rev tml) ((List.length tml)-1,[]) in
-         let k123 = mmm in
-         let in_gr = add_edges_in_list expl n 0 in_gr in
-         let ((n1,k1,_),in_gr) =
-           let in_port_01 =
-             Array.make (List.length tml) "" in
-           let out_port_01 =
-             Array.make (List.length tml) "" in
-           add_node_2
-             (`Simple (MULTIARITY, in_port_01,
-                       out_port_01, prags)) in_gr in
-	 let in_gr = add_edges_in_list k123 n1 0 in_gr in
-         (n1,0,0), in_gr))
+             let _ =
+               let {nmap=_;eset=_;symtab=(cs, ps); typemap=_; w=_} =
+                 in_gr
+               in
+               try
+                 SM.find f cs
+               with Not_found ->
+                 (try
+                    SM.find f ps
+                  with Not_found ->
+                    raise (outs_graph in_gr;
+                           Sem_error ("Trying to call an unknown function: " ^ f))
+                 )
+             in
+             let prags = [Name f] in
+             let expl,in_gr =
+               (match arg with
+                | Arg aa ->
+                   match aa with
+                   | Exp aexps ->
+                      map_exp in_gr aexps [] do_simple_exp
+                   | Empty -> ([],in_gr)
+               ) in
+             let in_port_00 =
+               Array.make (List.length expl) "" in
+             let ((n,k,_),in_gr) =
+               add_node_2
+                 (`Simple (INVOCATION, in_port_00,
+                           out_port_0, prags))
+                 in_gr in
+             let tml = lookup_fn_ty f in_gr in
+             let _,mmm = List.fold_right
+                           (fun ae (lev,re) ->
+		                     (lev-1,(n,lev,ae)::re))
+	                       (List.rev tml) ((List.length tml)-1,[]) in
+             let k123 = mmm in
+             let in_gr = add_edges_in_list expl n 0 in_gr in
+             let ((n1,k1,_),in_gr) =
+               let in_port_01 =
+                 Array.make (List.length tml) "" in
+               let out_port_01 =
+                 Array.make (List.length tml) "" in
+               add_node_2
+                 (`Simple (MULTIARITY, in_port_01,
+                           out_port_01, prags)) in_gr in
+	         let in_gr = add_edges_in_list k123 n1 0 in_gr in
+             (n1,0,0), in_gr))
   | Array_ref (ar_a,ar_b) ->
      let (arr_node,arr_port,att),in_gr = do_simple_exp in_gr ar_a in
      let (res_node,res_port,tt),in_gr_res =
@@ -1844,8 +2015,65 @@ and do_simple_exp in_gr in_sim_ex =
      ((res_node,res_port,tt),in_gr_res)
 
   | Let (dp,e) ->
+     (** SISAL Let expressions are like ocaml let, except for
+      some small differences. In Ocaml we use 'and' for parallel
+      binding. For example let x = foo and y = bar.
+      In SISAL there is no 'and' but instead SEMI (;) is used.
+      In ocaml there is not 'end let'. Here there is one.
+      Declarations need not be typed in either SISAL or Ocaml.
+      The assignment operator is := in SISAL and = in Ocaml.
+      For my version of SISAL I am thinking of introducing
+      functions by assigned.
+      An example,
+      let Increase (X : INTEGER return INTEGER) := X + 1
+      end let
+      Here X is the parameter - so we got to provide that name
+      to the function body, consisting here of X + 1.
+      In Ocaml the syntax is different and uses the Currying
+      style "let foo arg1 arg2 = ...".
+      Also, recursion and mutual recursions are possible using
+      'let rec' along with 'and'. I am looking to
+      introduce both 'and' and 'let rec'. I think there is
+      not much to it and because there is no Hindley-Milner
+      type inference in this compiler, things may be easier.
+      The type for each function is required in the format
+      above.
+      We need to provide parameters like ML.
+      Following is going to be the approach:
+      let rec foo (foo_args ...) = rhs_foo
+      and (or semi)
+      bar (barargs ...) = rhs_bar
+      Rec will be a new keyword to be added to the lexer,
+      and let rec to be parsed just like in ocaml. Then there
+      would be a new AST type called Letrec, which will require
+      lowering. There is going to be but one fundamental
+      difference only.
+      We will make foo and bar available in the symtab
+      before lowering rhs_foo and rhs_bar to if1. This will
+      only apply for let rec.
+      For Let, we will make neither foo, bar
+      available to the rhs. The subgraph of rhs_foo will
+      be able to access fooargs...
+      exclusively and likewise for barargs in either
+      letrec or let.
+
+      To fill up the symtabs before processing rhs,
+      we need to collect all names from the decls
+      to add to the symtab. But in a typical Let,
+      types may not be provided, except for
+      function declarations. We cannot just introduce several names
+      in anticipation, without an idea of the types for them.
+      This is not going to work without a type-inference step -
+      we do type check and inference
+      right at creating each if1 node and not after. Like there may
+      be -A, without an idea of A's type, we do not know if it is
+      an INT or FLOAT negate etc. So basically we may need to force
+      types to be given when let rec style is used.
+      Alternatively, a forward declaration would make
+      foo and bar available to both without let-rec style of writing
+      coding. That would be an alternative way to do the same thing. **)
      let {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
-     let x,in_gr = do_decldef_part in_gr dp in
+     let x,in_gr = do_decldef_part2 in_gr dp in
      let (xx,xy,xz),in_gr = do_exp in_gr e in
      let {nmap=nm;eset=pe;symtab=_;typemap=tm;w=pi} = in_gr in
      let in_gr = {nmap=nm;eset=pe;symtab=sm;typemap=tm;w=pi} in
@@ -1924,8 +2152,6 @@ and do_simple_exp in_gr in_sim_ex =
 
   | Record_generator_primary (e,fdle) ->
      let (e,p,inctt),in_gr = do_simple_exp in_gr e in
-     Format.printf ("After adding simple exp: NodeNum:%d DefPort: %d Type:%d\n") e p inctt;
-     outs_graph in_gr;
      let rec do_each_field ((a,b,tt),in_gr) = function
        | Field_exp (Field fi,se)::tl ->
           let (aseb,asep,finaltt),in_gr = do_simple_exp in_gr se in
@@ -1951,8 +2177,6 @@ and do_simple_exp in_gr in_sim_ex =
 
   | Record_generator_unnamed (fdl) ->
      let (i,j,k), in_gr = record_builder in_gr fdl Emp in
-     Format.printf ("After building record: NodeNum:%d DefPort: %d Type:%d\n") i j k;
-     outs_graph in_gr;
      (i,j,k), in_gr
 
   | Record_generator_named (tn,fdl) ->

@@ -45,6 +45,7 @@ let parse_msg level fmt =
 %token<string> PREDEF_FN
 %token<int> INT
 %token<float> FLOAT
+%token ANDKW
 %token ARRAY
 %token AT
 %token BOOLEAN
@@ -115,6 +116,7 @@ let parse_msg level fmt =
 %token MAX
 %token MIN
 %token MOD
+%token REC
 %token STREAM_APPEND
 %token STREAM_EMPTY
 %token STREAM_FIRST
@@ -1209,7 +1211,8 @@ tag_spec_list :
 
 declids :
  function_header
-    {
+   {
+     (*TODO*)
       [Decl_func $1]
     }
 | NAME
@@ -1232,6 +1235,11 @@ decldef :
       (*TODO decldef can contain a list of declids COLON type_specs*)
       let t:(Ast.decldef) = Decldef ($1, $3) in t
     }
+  |
+    declids ASSIGN expression
+      {
+        let t:(Ast.decldef) = Decldef ([Decl_none $1], $3) in t
+      }
 ;
 
 declids_list :
@@ -1239,18 +1247,12 @@ declids_list :
       {
         $1@[Decl_some ($3, $5)]
       }
-  | declids_list COMMA declids
-      {
-        $1@[Decl_none $3]
-      }
+
   | declids COLON type_spec
       {
         (Decl_some ($1, $3))::[]
       }
-  | declids
-      {
-        (Decl_none $1)::[]
-      }
+
 ;
 
 decldef_part :
@@ -1262,12 +1264,20 @@ decldef_part :
     {
       $1@[$3]
     }
+  | decldef_part ANDKW decldef
+      {
+        $1@[$3]
+      }
 ;
 
 let_in_exp :
   LET decldef_part IN expression END LET
     {
       let t:Ast.simple_exp = Let (Decldef_part $2, $4) in t
+    }
+  | LET REC decldef_part IN expression END LET
+    {
+      let t:Ast.simple_exp = Let (Decldef_part $3, $5) in t
     }
 ;
 

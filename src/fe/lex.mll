@@ -2,29 +2,29 @@
 open Parse
 open Lexing
 exception LexErr of string
-let error msg start finish = 
-  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum 
+let error msg start finish =
+  Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum
     (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
   (*raise (Error msg)*)
-let lex_error lexbuf = 
+let lex_error lexbuf =
   raise ( LexErr (error (lexeme lexbuf) (lexeme_start_p lexbuf) (lexeme_end_p lexbuf)))
 
 let return x = fun map -> x (* returns the value x *)
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
 let debug_level = ref 3
-let padded_lex_msg level fmt = 
-  let print_at_level str 
-    = if !debug_level >= level 
+let padded_lex_msg level fmt =
+  let print_at_level str
+    = if !debug_level >= level
     then print_string ("              <Matched" ^ str) in
   Format.ksprintf print_at_level fmt
 
 let rec mycou strin last pres cou =
   (match compare pres last with
    | 0 -> cou
-   | _ -> (match compare (String.get strin pres) '\n' with 
+   | _ -> (match compare (String.get strin pres) '\n' with
        | 0 -> mycou strin last (pres+1) (cou+1)
-       | _ -> mycou strin last (pres+1) cou)) 
+       | _ -> mycou strin last (pres+1) cou))
 
 module KeywordTable =
   Map.Make(struct
@@ -37,7 +37,8 @@ let keyword_table =
   List.fold_left
     (fun last (k,v) -> (KeywordTable.add k v last))
     KeywordTable.empty
-    [ ("ARRAY",ARRAY);
+    [ ("AND", ANDKW);
+      ("ARRAY",ARRAY);
       ("AT",AT);
       ("BOOLEAN",BOOLEAN);
       ("CATENATE",CATENATE);
@@ -63,6 +64,7 @@ let keyword_table =
       ("INITIAL",INITIAL);
       ("LEFT",LEFT);
       ("LET",LET);
+      ("REC", REC);
       ("NIL",NIL);
       ("NULL",NULL);
       ("OF",OF);
@@ -126,58 +128,58 @@ let digit = ['0'-'9']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
 let dec = digit+
             (*            let flonum = (['+' '-']?)*)
-            let flonum = ['0'-'9']+ 
-             '.' 
+            let flonum = ['0'-'9']+
+             '.'
              ['0'-'9']*
              (['e' 'E']?
              ['+' '-']?
              ['0'-'9']+)*
-               
+
                let negnum = '-'? dec
 let negflonum = '-'? flonum
 
 let alpha = ['a'-'z' 'A'-'Z']
-let id = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '_' '0'-'9']* 
+let id = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '_' '0'-'9']*
          let match_char = '\'' ['a'-'z'] '\''
 
 let string_chars =  (
-  ['a'-'z' 'A'-'Z' 
-   '0'-'9' '%' 
+  ['a'-'z' 'A'-'Z'
+   '0'-'9' '%'
          '^' '&' '*' '/'
          '(' ')' '~'
-         '#' '$' '\"' 
+         '#' '$' '\"'
          '\'' ':' ';'
          '`' '@' '-'
-         '_' '+' '=' 
+         '_' '+' '='
          '?' '<' '>'
-         '|' '{' '}' '[' ']' 
-         '!' '.' ',' 
+         '|' '{' '}' '[' ']'
+         '!' '.' ','
          ' ' '\t' '\r'])
 
-let special_chars = 
-  ('\\' '\\') | ('\\' '\"') | ('\\' 'b') | ('\\' 'f')    
+let special_chars =
+  ('\\' '\\') | ('\\' '\"') | ('\\' 'b') | ('\\' 'f')
   | ('\\' 'n') | ('\\' 'r') | ('\\' 't') | ('\\')
-  | ('\\' ['0'-'9'] ['0'-'9'] ['0'-'9']) (* Octal num *) 
+  | ('\\' ['0'-'9'] ['0'-'9'] ['0'-'9']) (* Octal num *)
 
-let match_string = ( string_chars 
-                   | special_chars | ('\\' string_chars ))+ 
+let match_string = ( string_chars
+                   | special_chars | ('\\' string_chars ))+
 
-rule sisal_lex = parse eof { 
+rule sisal_lex = parse eof {
   EOF
 }
 | '%' (match_string)? {
-  padded_lex_msg 5 "_cmts:>\n"; 
+  padded_lex_msg 5 "_cmts:>\n";
   sisal_lex lexbuf
   }
-| '\"' (match_string as st) '\"' 
+| '\"' (match_string as st) '\"'
 {
-  padded_lex_msg 5 "_string: %s>\n" st; 
+  padded_lex_msg 5 "_string: %s>\n" st;
   STRING st
 }
-| match_char as ch 
+| match_char as ch
 {
-  padded_lex_msg 5 "_char: %s>\n" ch; 
-  CHAR ch 
+  padded_lex_msg 5 "_char: %s>\n" ch;
+  CHAR ch
 }
 | ([' ' '\t'])+ as spaces {
   padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
@@ -198,7 +200,7 @@ rule sisal_lex = parse eof {
 }
 | id+ as ident_or_kw {
   try
-    let k = 
+    let k =
     KeywordTable.find ident_or_kw keyword_table
     in padded_lex_msg 5 ": Keyword:%s>\n" (String.uppercase ident_or_kw);
     k
@@ -238,7 +240,7 @@ rule sisal_lex = parse eof {
 | '~' {padded_lex_msg 5 " ~ >\n"; NOT}
 | '&' {padded_lex_msg 5 " & >\n"; AND}
 | [';'] {
-  padded_lex_msg 5 " ; >\n"; 
+  padded_lex_msg 5 " ; >\n";
   SEMICOLON
 } | _ {  lex_error lexbuf }
 {
