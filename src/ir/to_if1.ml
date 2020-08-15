@@ -303,7 +303,6 @@ and check_rec_ty tty_lis tm outlis =
             | _ -> z)) tm Emp in
      let _ = match hdty with
        | Som anum ->
-     print_string " ANUM "; print_int anum; print_endline "";
           anum
        | Emp -> raise (Node_not_found
                          "unknown field in a record") in
@@ -1097,7 +1096,6 @@ and do_params_decl po in_gr z =
               let sm_v =
                 {val_name=hdx;val_ty=type_num;
                  val_def=0;def_port=p+po} in
-              print_endline ("Adding name: " ^ hdx);
               add_all_to_sm (SM.add hdx sm_v umap) tlx (p+1) (hdx::q)
            | (Decl_func funx)::tlx ->
               raise (Sem_error "Function_header by assign TODO")
@@ -1348,7 +1346,8 @@ and do_decldef2 in_gr delc expl_rev decl_rev =
          | Decl_func dechd ->
             let Function_header (Function_name fn, decls, _) = dechd in
             let (expnum, expport, expty) ,in_gr_ =
-              do_function_header (get_a_new_graph in_gr) dechd in
+              do_function_header
+                (inherit_parent_syms in_gr (get_a_new_graph in_gr)) dechd in
             let (expnum, expport, expty), exps, expl, in_gr_, expl_rev =
               pop_or_push_to_exp_stack2 expl expl_rev exps in_gr_ in
             let in_gr_ = check_decl_type atyp expty in_gr_ in
@@ -2926,43 +2925,104 @@ and do_type_def in_gr = function
      let id_,in_gr = add_sisal_typename in_gr n 0 in
      let (id_t,ii,tt),in_gr = add_sisal_type in_gr t in
      let id_,in_gr = add_sisal_typename in_gr n tt in
-     print_endline ("Lower type def");
-     print_endline (str_type_def (Type_def (n, t)));
      ((id_t,ii,id_),in_gr)
 
 and do_internals iin_gr f =
-  let ii, in_gr = iin_gr in
+  let names, in_gr = iin_gr in
   match f with
   | [] -> iin_gr
   | (Function_single (header, tdefs, nest,e))::tl ->
-     let (header,hp,t1),in_gr =
-       do_function_header in_gr header in
-     let (t,tp,_),in_gr =
-       add_each_in_list in_gr tdefs 0 do_type_def in
-     let _,in_gr =
-       do_internals ((t,tp,t1)::ii,in_gr) nest in
-     let jj,in_gr = match e with
+     let fn_name = match header with
+       | Function_header_nodec (Function_name fn, _) -> fn
+       | Function_header (Function_name fn, _, _) -> fn
+     in
+     let (header,hp,fn_ty), new_fun_gr_ =
+       do_function_header (get_a_new_graph in_gr) header
+     in
+     let {nmap = nodemap; eset = edgeset;
+          symtab = (localsyms, globsyms);
+          typemap = tymap; w = curw} = in_gr in
+     let in_gr =
+       {nmap = nodemap; eset = edgeset;
+        symtab = (
+          SM.add fn_name
+            {val_name = fn_name;
+             val_ty = fn_ty;
+             val_def = 0; (* these are unknown at this time *)
+             def_port = 0} localsyms, globsyms);
+        typemap = tymap; w = curw} in
+     let {nmap = nodemap; eset = edgeset;
+          symtab = (localsyms, globsyms);
+         typemap = tymap; w = curw} = new_fun_gr_ in
+     let new_fun_gr_ =
+       {nmap = nodemap; eset = edgeset;
+        symtab = (localsyms,
+                  SM.add fn_name
+                    {val_name = fn_name;
+                     val_ty = fn_ty;
+                     val_def = 0; (* these are unknown at this time *)
+                     def_port = 0}  globsyms);
+        typemap = tymap; w = curw} in
+     let (t,tp,_), new_fun_gr_ =
+       add_each_in_list new_fun_gr_ tdefs 0 do_type_def
+     in
+     let _, new_fun_gr_ =
+       do_internals ([], new_fun_gr_) nest
+     in
+     let jj,new_fun_gr_ = match e with
        | Exp elis ->
-          let olis,in_gr = add_each_in_list_to_node []
-          in_gr elis 0 0 do_simple_exp in
-          (olis,in_gr)
-       | Empty -> [],in_gr in
-     do_internals (ii@jj,in_gr) tl
+          let olis,new_fun_gr_ = add_each_in_list_to_node []
+          new_fun_gr_ elis 0 0 do_simple_exp in
+          (olis, new_fun_gr_)
+       | Empty -> [], new_fun_gr_
+     in
+     let rec connect_to_boundary olis new_fun_gr_ curport =
+       match olis with
+       | (hdnum, hdport, hdty)::olistl ->
+          let new_fun_gr_ =
+            (match get_node hdnum new_fun_gr_ with
+             | Simple(_, MULTIARITY,_,_,_) ->
+                let inc_edges =
+                  all_nodes_incoming hdnum new_fun_gr_
+                in
+                let _, new_fun_gr_ = List.fold_right
+                                 (fun (x, y, z) (curnum, new_fun_gr_) ->
+                                   curnum + 1,
+                                   add_edge x y 0 curnum z new_fun_gr_)
+                                 inc_edges (0, new_fun_gr_)
+                in
+                new_fun_gr_
+             | _ -> add_edge hdnum hdport 0 curport hdty new_fun_gr_)
+          in
+          connect_to_boundary olistl new_fun_gr_ (curport + 1)
+       | [] -> new_fun_gr_
+     in
+     let new_fun_gr_ =  connect_to_boundary jj new_fun_gr_ 0 in
+     let new_fun_gr_ = graph_clean_multiarity new_fun_gr_ in
+     let (aa,bb,_), in_gr =
+       add_node_2 (
+           `Compound(new_fun_gr_, INTERNAL, 0, [Name fn_name],[]))
+         in_gr in
+     let in_gr =
+       (let {nmap = nodemap; eset = edgeset;
+             symtab = (localsyms, globsyms);
+             typemap = tymap; w = curw} = in_gr in
+        {nmap = nodemap; eset = edgeset;
+         symtab = (
+           SM.add fn_name
+             {val_name = fn_name;
+              val_ty = fn_ty;
+              val_def = aa;
+              def_port = bb} localsyms, globsyms);
+         typemap = tymap; w = curw})
+     in
+     do_internals (names@[fn_name], in_gr) tl
 
 and do_function_def in_gr  = function
   | Ast.Function f ->
-     let ii,in_gr_ =
-       do_internals ([],get_a_new_graph in_gr) f in
-     let in_gr_ = graph_clean_multiarity in_gr_ in
-     let jj,kk,ll =
-     try
-     List.hd ii with _ ->
-     raise (Sem_error ("Issue lowering function_def")) in
-     let (aa,bb,cc),yyy =
-       add_node_2 (
-           `Compound(in_gr_,INTERNAL,ll,[],[]))
-         in_gr in
-     (aa,bb,cc),yyy
+     let names, in_gr_ =
+       do_internals ([], in_gr) f in
+     (0, 0, 0), in_gr_
   | Forward_function f ->
      do_function_header in_gr f
 

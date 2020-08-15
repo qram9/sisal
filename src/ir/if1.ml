@@ -362,15 +362,15 @@ and has_node i
 and get_node i
 {nmap=nm;eset=_;symtab=(_,_);typemap=_;w=_} = NM.find i nm
 
-(** Union cs into ps and set cs to empty. These things
+(** Union ps, cs and set cs to empty. These things
  take a graph and return a graph.*)
 and get_symtab_for_new_scope
 {nmap=nm;eset=es;symtab=(cs,ps);typemap=tm;w=i} =
   {nmap=nm;eset=es;
-   symtab=(SM.empty,SM.fold (fun k v z -> SM.add k v z) cs ps);
+   symtab=(SM.empty, SM.fold (fun k v z -> SM.add k v z) cs ps);
    typemap=tm;w=i}
 
-(** Union other_ps, ps with other_cs.
+(** Union other_ps, ps and other_cs.
     Then make it the new parent symtab with cs unchanged. *)
 and inherit_parent_syms
 {nmap=_;eset=_;symtab=(other_cs,other_ps);typemap=_;w=_}
@@ -1267,7 +1267,15 @@ and all_edges_ending_at_ports_types n2 in_gr =
                   y=n2) pe in
   ES.fold (fun ((x,xp),(y,yp),y_ty) z -> (xp,y_ty)::z) edges []
 
-and all_nodes_joining_at (n2,np,ed_ty) in_gr =
+and all_nodes_joining_at (n2,_,_) in_gr =
+  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let edges = ES.filter
+                (fun ((x,xp),(y,yp),y_ty) ->
+                  y=n2) pe in
+  List.fold_right (fun ((x,xp),(y,yp),y_ty) zz ->
+      (x,xp,y_ty)::zz) (ES.elements edges) []
+
+and all_nodes_incoming n2 in_gr =
   let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
   let edges = ES.filter
                 (fun ((x,xp),(y,yp),y_ty) ->
@@ -1706,8 +1714,22 @@ and add_sisal_type {nmap = nm;eset = pe;symtab = sm;
           (Printexc.print_raw_backtrace stdout
              (Printexc.get_callstack 150);
            (Node_not_found ("typename being looked up:" ^ ty)));
-(** Combine symtabs to initialize a new graph. **)
+
+and add_local_sym
+{nmap = nm;eset = pe;symtab = (cs, ps);
+ typemap = (id,tm,tmn);  w = pi;}
+sym_name
+(sym_def, def_port, def_ty) =
+  let cs =
+    SM.add sym_name {val_name = sym_name;
+              val_ty = def_ty;
+              val_def = sym_def;
+              def_port = def_port} cs in
+  {nmap = nm;eset = pe;symtab = (cs, ps);
+   typemap = (id,tm,tmn);  w = pi;}
+
 and get_a_new_graph in_gr =
+(** Combine symtabs to initialize a new graph. **)
   let in_gr = get_symtab_for_new_scope in_gr in
   let {nmap=nm;eset=ne;symtab=(_,ps);
        typemap=tmmi;w=tail} = in_gr in
@@ -2250,7 +2272,7 @@ and string_of_graph ?(offset=0)
 and string_of_graph2 (ii,gr) = string_of_graph gr
 
 and graph_printer fmt gr =
-  Format.fprintf fmt "-------\n%s\n" (string_of_graph gr)
+  Format.fprintf fmt "-------\n%s\n" (string_of_graph ~offset:(2) gr)
 
 and int_map_printer fmt inmap =
   Format.fprintf fmt "-------\n%s\n"
