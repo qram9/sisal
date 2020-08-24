@@ -1277,7 +1277,7 @@ let_in_exp :
     }
   | LET REC decldef_part IN expression END LET
     {
-      let t:Ast.simple_exp = Let (Decldef_part $3, $5) in t
+      let t:Ast.simple_exp = Let_rec (Decldef_part $3, $5) in t
     }
 ;
 

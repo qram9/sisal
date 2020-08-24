@@ -1,7 +1,7 @@
 Define  Main
 
 function Main( n,m:integer returns integer )
-  let Increase(x : integer returns integer) := x + 1
+  let rec Increase(x : integer returns integer) := x + 1
   and IncreaseX(x: integer returns integer) := Increase( x) * 2 
   in Increase(n) * IncreaseX(m)
   end let
