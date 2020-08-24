@@ -1,182 +1,250 @@
 DEFINE MAIN
-TYPE DOUBLE = DOUBLE_REAL;
-TYPE THREED = ARRAY [ARRAY [ARRAY [DOUBLE]]]
-FUNCTION MAIN (N,M:INTEGER;Y:THREED RETURNS INTEGER,INTEGER)
-  LET
-X := 1;Y,Z := LET
-X := 2;Y := 3 IN
-X + Y + X * Y,X * Y + X * Y
-END LET IN
-  X * Y + Z,X * Y + Z
+FUNCTION MAIN (N,M:INTEGER RETURNS INTEGER)
+  LET REC
+INCREASE (X:INTEGER RETURNS INTEGER) := X + 1;INCREASEX (X:INTEGER RETURNS INTEGER) := INCREASE(X) * 2 IN
+  INCREASE(N) * INCREASEX(M)
   END LET
 END FUNCTION
-Before calling:
+ I AM TH
 -------
+  Graph {
+  ----NODES----
+  BOUNDARY [[], []]
+  } 1
+-------
+  Graph {
+  ----NODES----
+  BOUNDARY [[], [], %na=MAIN]
+  GLOBAL-SYM: 
+  FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+  LOCAL-SYM: 
+  INTEGRAL;N;(0,0)
+  INTEGRAL;M;(0,1)
+  FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+  } 1
+ I AM OUT OF IT
+ I AM TH
+-------
+  Graph {
+  ----NODES----
+  1 0 %na=INCREASE
+    Graph {
+    ----NODES----
+    2 ADD [||] [||]
+    1 "1"
+    BOUNDARY [[(0,0,)], [], %na=INCREASE]
+    ----EDGES----
+    1:0 -> 2:1 5
+    0:0 -> 2:0 5
+    GLOBAL-SYM: 
+    INTEGRAL;N;(0,0)
+    FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+    INTEGRAL;M;(0,1)
+    FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+    LOCAL-SYM: 
+    INTEGRAL;X;(0,0)
+    } 3
+  BOUNDARY [[], [], %na=MAIN]
+  GLOBAL-SYM: 
+  FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+  LOCAL-SYM: 
+  INTEGRAL;N;(0,0)
+  INTEGRAL;M;(0,1)
+  FUNCTION_TYPE INCREASEX (ARGS: 18) (RETURNS:17);INCREASEX;(0,0)
+  FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+  } 2
+ I AM OUT OF IT
+-------
+  Graph {
+  ----NODES----
+  1 0 %na=MAIN
+    Graph {
+    ----NODES----
+    7 TIMES [||] [|0,0|]
+    5 INVOCATION [||] [||] %na=INCREASEX
+    3 INVOCATION [||] [||] %na=INCREASE
+    2 0 %na=INCREASEX
+      Graph {
+      ----NODES----
+      4 TIMES [||] [||]
+      3 "2"
+      1 INVOCATION [||] [||] %na=INCREASE
+      BOUNDARY [[(0,0,)], [], %na=INCREASEX]
+      ----EDGES----
+      3:0 -> 4:1 5
+      1:0 -> 4:0 5
+      0:0 -> 1:0 5
+      GLOBAL-SYM: 
+      INTEGRAL;N;(0,0)
+      FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+      INTEGRAL;M;(0,1)
+      FUNCTION_TYPE INCREASEX (ARGS: 18) (RETURNS:17);INCREASEX;(0,0)
+      FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+      LOCAL-SYM: 
+      INTEGRAL;X;(0,0)
+      } 5
+    1 0 %na=INCREASE
+      Graph {
+      ----NODES----
+      2 ADD [||] [||]
+      1 "1"
+      BOUNDARY [[(0,0,)], [], %na=INCREASE]
+      ----EDGES----
+      1:0 -> 2:1 5
+      0:0 -> 2:0 5
+      GLOBAL-SYM: 
+      INTEGRAL;N;(0,0)
+      FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+      INTEGRAL;M;(0,1)
+      FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+      LOCAL-SYM: 
+      INTEGRAL;X;(0,0)
+      } 3
+    BOUNDARY [[(0,1,);(0,0,)], [(7,0);(7,0)], %na=MAIN]
+    ----EDGES----
+    7:0 -> 0:1 5
+    7:0 -> 0:0 5
+    5:0 -> 7:1 5
+    3:0 -> 7:0 5
+    0:1 -> 5:0 5
+    0:0 -> 3:0 5
+    GLOBAL-SYM: 
+    FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+    LOCAL-SYM: 
+    INTEGRAL;N;(0,0)
+    INTEGRAL;M;(0,1)
+    } 9
+  BOUNDARY [[], []]
+  LOCAL-SYM: 
+  FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(1,0)
+  } 2
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; -1])
+WITNESS:0
+SIZE 1 :- (1,1 aka [1; -1])
+WITNESS:1
+Val-nums
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-7f61c7.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; -1])
+WITNESS:0
+SIZE 1 :- (1,3 aka [3; -1])
+WITNESS:3
+-------------------
+At Height:2
+SIZE 1 :- (1,1 aka [5; 0; 0; 0; 5; -1])
+WITNESS:1
+Val-nums
+3 -> 3
+1 -> 1
+0 -> 0
+Output Dot in /tmp/graph-315435.dot
+-------------------
+At Height:1
+SIZE 1 :- (1,0 aka [0; 7; 0; 0; 5; 0; 7; 0; 1; 5; -1])
+WITNESS:0
+-------------------
+At Height:2
+SIZE 1 :- (3,3 aka [5; 0; 0; 0; 5; -1])
+WITNESS:3
+SIZE 1 :- (3,5 aka [5; 0; 1; 0; 5; -1])
+WITNESS:5
+-------------------
+At Height:3
+SIZE 1 :- (1,7 aka [11; 3; 0; 0; 5; 11; 5; 0; 1; 5; -1])
+WITNESS:7
+Val-nums
+7 -> 7
+5 -> 5
+3 -> 3
+0 -> 0
+Output Dot in /tmp/graph-b01b25.dot
+Val-nums
+Output Dot in /tmp/graph-7f6bd7.dot
+Result graph
 Graph {
 ----NODES----
+1 0 %na=MAIN
+  Graph {
+  ----NODES----
+  7 TIMES [||] [|0,0|]
+  5 INVOCATION [||] [||] %na=INCREASEX
+  3 INVOCATION [||] [||] %na=INCREASE
+  2 0 %na=INCREASEX
+    Graph {
+    ----NODES----
+    4 TIMES [||] [||]
+    3 "2"
+    1 INVOCATION [||] [||] %na=INCREASE
+    BOUNDARY [[(0,0,)], [], %na=INCREASEX]
+    ----EDGES----
+    3:0 -> 4:1 5
+    1:0 -> 4:0 5
+    0:0 -> 1:0 5
+    GLOBAL-SYM: 
+    INTEGRAL;N;(0,0)
+    FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+    INTEGRAL;M;(0,1)
+    FUNCTION_TYPE INCREASEX (ARGS: 18) (RETURNS:17);INCREASEX;(0,0)
+    FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+    LOCAL-SYM: 
+    INTEGRAL;X;(0,0)
+    } 5
+  1 0 %na=INCREASE
+    Graph {
+    ----NODES----
+    2 ADD [||] [||]
+    1 "1"
+    BOUNDARY [[(0,0,)], [], %na=INCREASE]
+    ----EDGES----
+    1:0 -> 2:1 5
+    0:0 -> 2:0 5
+    GLOBAL-SYM: 
+    INTEGRAL;N;(0,0)
+    FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+    INTEGRAL;M;(0,1)
+    FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11);INCREASE;(0,0)
+    LOCAL-SYM: 
+    INTEGRAL;X;(0,0)
+    } 3
+  BOUNDARY [[(0,1,);(0,0,)], [(7,0);(7,0)], %na=MAIN]
+  ----EDGES----
+  7:0 -> 0:1 5
+  7:0 -> 0:0 5
+  5:0 -> 7:1 5
+  3:0 -> 7:0 5
+  0:1 -> 5:0 5
+  0:0 -> 3:0 5
+  GLOBAL-SYM: 
+  FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(0,0)
+  LOCAL-SYM: 
+  INTEGRAL;N;(0,0)
+  INTEGRAL;M;(0,1)
+  } 9
 BOUNDARY [[], []]
-----TYPEMAP----
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-In the middle of it
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-Before calling:
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-In the middle of it
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-Before calling:
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-In the middle of it
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-Before calling:
--------
-Graph {
-----NODES----
-BOUNDARY [[], []]
-----TYPEMAP----
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 1
-Before calling:
--------
-Graph {
-----NODES----
-BOUNDARY [[], [], %na=MAIN]
 LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
+FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7);MAIN;(1,0)
 ----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
+22 FUNCTION_TYPE INCREASEX (ARGS: 21) (RETURNS:20)
+21 TUPLE {Type label:5; Next label:0}
+20 TUPLE {Type label:5; Next label:0}
+19 FUNCTION_TYPE INCREASEX (ARGS: 18) (RETURNS:17)
+18 TUPLE {Type label:5; Next label:0}
+17 TUPLE {Type label:5; Next label:0}
+16 FUNCTION_TYPE INCREASE (ARGS: 15) (RETURNS:14)
+15 TUPLE {Type label:5; Next label:0}
+14 TUPLE {Type label:5; Next label:0}
+13 FUNCTION_TYPE INCREASE (ARGS: 12) (RETURNS:11)
+12 TUPLE {Type label:5; Next label:0}
+11 TUPLE {Type label:5; Next label:0}
+10 FUNCTION_TYPE MAIN (ARGS: 9) (RETURNS:7)
+9 TUPLE {Type label:5; Next label:8}
+8 TUPLE {Type label:5; Next label:0}
+7 TUPLE {Type label:5; Next label:0}
 6 NULL
 5 INTEGRAL
 4 DOUBLE
@@ -184,433 +252,18 @@ INTEGRAL;M;(0,1)
 2 CHARACTER
 1 BOOLEAN
 ----TYPENAMES----
-THREED:9
 REAL:3
 NULL:6
 INTEGRAL:5
 DOUBLE:4
 CHARACTER:2
 BOOLEAN:1
-} 1
-Meshi
-X
-Bind via a multiarity:
--------
-Graph {
-----NODES----
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;X;(1,0)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 3
-In the middle of it
--------
-Graph {
-----NODES----
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 3
-Before calling:
--------
-Graph {
-----NODES----
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 3
-Before calling:
--------
-Graph {
-----NODES----
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 3
-Meshi
-X
-Bind via a multiarity:
--------
-Graph {
-----NODES----
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;X;(3,0)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 5
-In the middle of it
--------
-Graph {
-----NODES----
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 5
-Before calling:
--------
-Graph {
-----NODES----
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 5
-Meshi
-Y
-Bind via a multiarity:
--------
-Graph {
-----NODES----
-6 MULTIARITY [||] [||] %na=LET
-5 "3"
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-5:0 -> 6:0 5
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-INTEGRAL;Y;(5,0)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 7
-In the middle of it
--------
-Graph {
-----NODES----
-6 MULTIARITY [||] [||] %na=LET
-5 "3"
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-5:0 -> 6:0 5
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 7
-After decldef_part for X := 2;Y := 3
--------
-Graph {
-----NODES----
-6 MULTIARITY [||] [||] %na=LET
-5 "3"
-4 MULTIARITY [||] [||] %na=LET
-3 "2"
-2 MULTIARITY [||] [||] %na=LET
-1 "1"
-BOUNDARY [[], [], %na=MAIN]
-----EDGES----
-5:0 -> 6:0 5
-3:0 -> 4:0 5
-1:0 -> 2:0 5
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-----TYPEMAP----
-15 FUNCTION_TYPE MAIN (ARGS: 14) (RETURNS:11)
-14 TUPLE {Type label:5; Next label:13}
-13 TUPLE {Type label:5; Next label:12}
-12 TUPLE {Type label:9; Next label:0}
-11 TUPLE {Type label:5; Next label:10}
-10 TUPLE {Type label:5; Next label:0}
-9 ARRAY 8
-8 ARRAY 7
-7 ARRAY 4
-6 NULL
-5 INTEGRAL
-4 DOUBLE
-3 REAL
-2 CHARACTER
-1 BOOLEAN
-----TYPENAMES----
-THREED:9
-REAL:3
-NULL:6
-INTEGRAL:5
-DOUBLE:4
-CHARACTER:2
-BOOLEAN:1
-} 7
-X
-----------
-LOCAL-SYM: 
-ARRAY 8;Y;(0,2)
-INTEGRAL;N;(0,0)
-INTEGRAL;M;(0,1)
-Unexpected: "" in file: test/tst.sis (line 18: char 0..0)
+} 2
+DEFINE MAIN
+FUNCTION MAIN (N,M:INTEGER RETURNS INTEGER)
+  LET REC
+INCREASE (X:INTEGER RETURNS INTEGER) := X + 1;INCREASEX (X:INTEGER RETURNS INTEGER) := INCREASE(X) * 2 IN
+  INCREASE(N) * INCREASEX(M)
+  END LET
+END FUNCTION
+Output Dot in out.dot

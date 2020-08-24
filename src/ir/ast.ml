@@ -38,6 +38,7 @@ and simple_exp =
 | Is_error of exp
 | Prefix_operation of prefix_name * exp
 | If of (cond list) * last_else
+| Let_rec of decldef_part * exp
 | Let of decldef_part * exp
 | Tagcase of
     tagassign_exp * tagnames_colon_exp list * otherwise
@@ -358,13 +359,12 @@ and str_simple_exp ?(offset=0) =
      space_fold ["UNION"; tn; "["; str_tag_exp te; "]"]
   | Prefix_operation (pn,e) -> (str_prefix_name pn) ^ "(" ^ (str_exp e) ^ ")"
   | Is_error e -> "IS ERROR (" ^ (str_exp e) ^ ")"
+  | Let_rec (dp,e) ->
+     ("LET REC\n" ) ^
+       (str_decldef_part ~offset:(offset+2) dp) ^ " IN\n" ^
+         (mypad1 (offset) (str_exp ~offset:(offset) e)) ^ "\n" ^
+           (mypad1 offset "END LET")
   | Let (dp,e) ->
-     (**
-     ("LET\n" ) ^
-       (str_decldef_part ~offset:(offset+2) dp) ^ "\n" ^
-         (mypad1 offset "IN") ^ "\n" ^
-           (mypad1 (offset+2) (str_exp ~offset:(offset+2) e)) ^ "\n" ^
-             (mypad1 offset "END LET") **)
      ("LET\n" ) ^
        (str_decldef_part ~offset:(offset+2) dp) ^ " IN\n" ^
          (mypad1 (offset) (str_exp ~offset:(offset) e)) ^ "\n" ^

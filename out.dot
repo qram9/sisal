@@ -1,56 +1,265 @@
 digraph R {
 newrank=true;
 IN00 [shape=rect;label=""];
-OUT00 [shape=rect;label="{FUNCTION_TYPE MAIN (ARGS: 10) (RETURNS:8);MAIN;(1,0)}[]"];
+OUT00 [shape=rect;label="{FUNCTION_TYPE MAIN (ARGS: 15) (RETURNS:14);MAIN;(2,0)}\n{FUNCTION_TYPE IN_CHECK (ARGS: 12) (RETURNS:9);IN_CHECK;(1,0)}[]"];
 subgraph cluster_01 {
-label="1 %na=MAIN";
-IN01 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)"];
-OUT01 [shape=rect;label="[(4,0);(4,0)]%na=MAIN"];
+label="1 %na=IN_CHECK";
+IN01 [shape=rect;label="INTEGRAL;R;(0,0)\nARRAY 5;QUEENS;(0,2)\nINTEGRAL;C;(0,1)"];
+OUT01 [shape=rect;label="[(1,1)]%na=IN_CHECK"];
 subgraph cluster_11 {
 label="1 %na=FORALL";
-IN011 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)"];
+IN011 [shape=rect;label="INTEGRAL;R;(0,1)\nARRAY 5;QUEENS;(0,0)\nINTEGRAL;C;(0,4)"];
 OUT011 [shape=rect;label="[]"];
 subgraph cluster_111 {
 label="1 %na=RETURN";
 IN0111 [shape=rect;label=""];
 OUT0111 [shape=rect;label="[(1,0)]"];
-1111 [shape=rect;label="1 AGATHER"]
-IN0111 ->  1111 [label="(0,0),Ty=5"]
-IN0111 ->  1111 [label="(1,1),Ty=4"]
-1111 ->  OUT0111 [label="(0,0),Ty=7"]
+1111 [shape=rect;label="1 REDUCE"];
+1112 [shape=plaintext;label="sum"]
+IN0111 ->  1111 [label="(1,1),Ty=1"]
+1111 ->  OUT0111 [label="(0,0),Ty=1"]
+1112 ->  1111 [label="(0,0),Ty=2"]
 };
 subgraph cluster_112 {
 label="2 %na=GENERATOR";
-IN0112 [shape=rect;label="INTEGRAL;N;(0,0)"];
-OUT0112 [shape=rect;label="{INTEGRAL;I;(2,0)}[(2,0)]"];
-1121 [shape=plaintext;label="1"];
-1122 [shape=rect;label="2 RANGEGEN"]
-IN0112 ->  1122 [label="(0,1),Ty=5"]
-1121 ->  1122 [label="(0,0),Ty=5"]
-1122 ->  OUT0112 [label="(0,1),Ty=5"]
+IN0112 [shape=rect;label="ARRAY 5;QUEENS;(0,0)"];
+OUT0112 [shape=rect;label="{INTEGRAL;ROW;(1,0)}\n{INTEGRAL;COLUMN;(1,1)}[(1,1);(1,0)]"];
+1121 [shape=rect;label="1 ASCATTER"]
+IN0112 ->  1121 [label="(0,0),Ty=7"]
+1121 ->  OUT0112 [label="(0,1),Ty=5"]
+1121 ->  OUT0112 [label="(1,1),Ty=5"]
 };
 subgraph cluster_113 {
 label="3 %na=BODY";
-IN0113 [shape=rect;label="ARRAY 4;Y;(0,1)\nINTEGRAL;N;(0,0)\nINTEGRAL;I;(0,2)"];
-OUT0113 [shape=rect;label="[(3,0)]"];
-1131 [shape=rect;label="1 AELEMENT"];
-1132 [shape=rect;label="2 AELEMENT"];
-1133 [shape=rect;label="3 TIMES"]
-IN0113 ->  1131 [label="(1,0),Ty=7"]
+IN0113 [shape=rect;label="INTEGRAL;ROW;(0,2)\nINTEGRAL;R;(0,1)\nARRAY 5;QUEENS;(0,0)\nINTEGRAL;COLUMN;(0,3)\nINTEGRAL;C;(0,4)"];
+OUT0113 [shape=rect;label="[(16,0)]"];
+1131 [shape=rect;label="1 EQUAL"];
+1133 [shape=rect;label="3 ADD"];
+1135 [shape=rect;label="5 ADD"];
+1137 [shape=rect;label="7 EQUAL"];
+1139 [shape=rect;label="9 OR"];
+11310 [shape=rect;label="10 SUBTRACT"];
+11312 [shape=rect;label="12 SUBTRACT"];
+11314 [shape=rect;label="14 EQUAL"];
+11316 [shape=rect;label="16 OR"]
+IN0113 ->  1131 [label="(1,0),Ty=5"]
 IN0113 ->  1131 [label="(2,1),Ty=5"]
-IN0113 ->  1132 [label="(1,0),Ty=7"]
-IN0113 ->  1132 [label="(2,1),Ty=5"]
-1132 ->  1133 [label="(0,0),Ty=4"]
-1132 ->  1133 [label="(0,1),Ty=4"]
-1133 ->  OUT0113 [label="(0,0),Ty=4"]
+IN0113 ->  1133 [label="(2,0),Ty=5"]
+IN0113 ->  1133 [label="(3,1),Ty=5"]
+IN0113 ->  1135 [label="(1,0),Ty=5"]
+IN0113 ->  1135 [label="(4,1),Ty=5"]
+IN0113 ->  11310 [label="(2,0),Ty=5"]
+IN0113 ->  11310 [label="(3,1),Ty=5"]
+IN0113 ->  11312 [label="(1,0),Ty=5"]
+IN0113 ->  11312 [label="(4,1),Ty=5"]
+1131 ->  1139 [label="(0,0),Ty=1"]
+1133 ->  1137 [label="(0,0),Ty=5"]
+1135 ->  1137 [label="(0,1),Ty=5"]
+1137 ->  1139 [label="(0,1),Ty=1"]
+1139 ->  11316 [label="(0,0),Ty=1"]
+11310 ->  11314 [label="(0,0),Ty=5"]
+11312 ->  11314 [label="(0,1),Ty=5"]
+11314 ->  11316 [label="(0,1),Ty=1"]
+11316 ->  OUT0113 [label="(0,0),Ty=1"]
+}
+}
+IN01 ->  11 [label="(0,1),Ty=5"]
+IN01 ->  11 [label="(1,4),Ty=5"]
+IN01 ->  11 [label="(2,0),Ty=7"]
+11 ->  OUT01 [label="(1,0),Ty=1"]
+};
+subgraph cluster_02 {
+label="2 %na=MAIN";
+IN02 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT02 [shape=rect;label="[(1,0)]%na=MAIN"];
+subgraph cluster_21 {
+label="1 %na=SELECT";
+IN021 [shape=rect;label=""];
+OUT021 [shape=rect;label="[(2,0);(1,1);(3,0)]"];
+subgraph cluster_211 {
+label="1 %na=ELSE0";
+IN0211 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT0211 [shape=rect;label="[(1,1)]"];
+subgraph cluster_2111 {
+label="1 %na=FORALL";
+IN02111 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT02111 [shape=rect;label="[]"];
+subgraph cluster_21111 {
+label="1 %na=RETURN";
+IN021111 [shape=rect;label=""];
+OUT021111 [shape=rect;label="[(1,0)]"];
+211111 [shape=rect;label="1 REDUCE"];
+211112 [shape=plaintext;label="catenate"]
+IN021111 ->  211111 [label="(1,1),Ty=8"]
+211111 ->  OUT021111 [label="(0,0),Ty=8"]
+211112 ->  211111 [label="(0,0),Ty=2"]
+};
+subgraph cluster_21112 {
+label="2 %na=GENERATOR";
+IN021112 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT021112 [shape=rect;label="{ARRAY 5;PARTIAL_ASSIGNMENT;(5,0)}[(5,0)]"];
+211121 [shape=plaintext;label="1"];
+211122 [shape=rect;label="2 SUBTRACT"];
+211123 [shape=rect;label="3 INVOCATION:%na=MAIN"];
+211125 [shape=rect;label="5 ASCATTER"]
+IN021112 ->  211122 [label="(0,0),Ty=5"]
+211121 ->  211122 [label="(0,1),Ty=5"]
+211122 ->  211123 [label="(0,0),Ty=5"]
+211123 ->  211125 [label="(0,0),Ty=8"]
+211125 ->  OUT021112 [label="(0,1),Ty=7"]
+};
+subgraph cluster_21113 {
+label="3 %na=BODY";
+IN021113 [shape=rect;label="ARRAY 5;PARTIAL_ASSIGNMENT;(0,1)\nINTEGRAL;LEVEL;(0,0)"];
+OUT021113 [shape=rect;label="{ARRAY 7;NEW_ASSIGNMENT;(4,0)}\n{INTEGRAL;COLUMN;(2,0)}[(6,0)]"];
+211131 [shape=plaintext;label="1"];
+211132 [shape=rect;label="2 ADD"];
+subgraph cluster_211133 {
+label="3 %na=FORALL";
+IN0211133 [shape=rect;label="ARRAY 5;PARTIAL_ASSIGNMENT;(0,3)\nINTEGRAL;LEVEL;(0,0)\nINTEGRAL;COLUMN;(0,2)"];
+OUT0211133 [shape=rect;label="[]"];
+subgraph cluster_2111331 {
+label="1 %na=RETURN";
+IN02111331 [shape=rect;label=""];
+OUT02111331 [shape=rect;label="[(1,0)]"];
+21113311 [shape=rect;label="1 AGATHER"]
+IN02111331 ->  21113311 [label="(0,0),Ty=5"]
+IN02111331 ->  21113311 [label="(1,1),Ty=7"]
+IN02111331 ->  21113311 [label="(2,2),Ty=1"]
+21113311 ->  OUT02111331 [label="(0,0),Ty=8"]
+};
+subgraph cluster_2111332 {
+label="2 %na=GENERATOR";
+IN02111332 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT02111332 [shape=rect;label="{INTEGRAL;ROW;(3,0)}[(3,0)]"];
+21113321 [shape=plaintext;label="1"];
+21113322 [shape=plaintext;label="8"];
+21113323 [shape=rect;label="3 RANGEGEN"]
+21113321 ->  21113323 [label="(0,0),Ty=5"]
+21113322 ->  21113323 [label="(0,1),Ty=5"]
+21113323 ->  OUT02111332 [label="(0,1),Ty=5"]
+};
+subgraph cluster_2111333 {
+label="3 %na=BODY";
+IN02111333 [shape=rect;label="INTEGRAL;ROW;(0,1)\nARRAY 5;PARTIAL_ASSIGNMENT;(0,3)\nINTEGRAL;LEVEL;(0,0)\nINTEGRAL;COLUMN;(0,2)"];
+OUT02111333 [shape=rect;label="{BOOLEAN;ISCHECK;(2,0)}\n{ARRAY 5;ASSIGNMENT;(4,0)}[(5,0);(3,0)]"];
+21113331 [shape=rect;label="1 INVOCATION:%na=IN_CHECK"];
+subgraph cluster_21113333 {
+label="3 %na=SELECT";
+IN021113333 [shape=rect;label=""];
+OUT021113333 [shape=rect;label="[(2,0);(1,0);(3,0)]"];
+subgraph cluster_211133331 {
+label="1 %na=ELSE0";
+IN0211133331 [shape=rect;label=""];
+OUT0211133331 [shape=rect;label="[(1,0)]"];
+2111333311 [shape=rect;label="1 ABUILD"]
+2111333311 ->  OUT0211133331 [label="(0,0),Ty=7"]
+};
+subgraph cluster_211133332 {
+label="2 %na=BODY0";
+IN0211133332 [shape=rect;label=""];
+OUT0211133332 [shape=rect;label="[(1,0)]"];
+2111333321 [shape=rect;label="1 ABUILD"]
+2111333321 ->  OUT0211133332 [label="(0,0),Ty=7"]
+};
+subgraph cluster_211133333 {
+label="3 %na=PREDICATE0";
+IN0211133333 [shape=rect;label="BOOLEAN;ISCHECK;(0,0)"];
+OUT0211133333 [shape=rect;label="[]"]
+IN0211133333 ->  OUT0211133333 [label="(0,0),Ty=1"]
+}
+IN021113333 ->  211133333 [label="(1,0),Ty=5"]
+IN021113333 ->  211133333 [label="(1,1),Ty=16"]
+211133331 ->  OUT021113333 [label="(0,1),Ty=7"]
+211133332 ->  OUT021113333 [label="(0,2),Ty=7"]
+211133333 ->  OUT021113333 [label="(0,0),Ty=1"]
+};
+21113335 [shape=rect;label="5 NOT"]
+IN02111333 ->  21113331 [label="(1,0),Ty=5"]
+IN02111333 ->  21113331 [label="(2,1),Ty=5"]
+IN02111333 ->  21113331 [label="(3,2),Ty=7"]
+21113331 ->  21113335 [label="(0,0),Ty=1"]
+21113333 ->  OUT02111333 [label="(0,0),Ty=7"]
+21113335 ->  OUT02111333 [label="(0,1),Ty=1"]
 }
 };
-13 [shape=plaintext;label="1"];
-14 [shape=rect;label="4 ASETL"]
-IN01 ->  11 [label="(0,0),Ty=5"]
-IN01 ->  11 [label="(1,1),Ty=7"]
-11 ->  14 [label="(1,0),Ty=7"]
-13 ->  14 [label="(0,0),Ty=7"]
-14 ->  OUT01 [label="(0,0),Ty=7"]
-14 ->  OUT01 [label="(0,1),Ty=7"]
+211135 [shape=plaintext;label="1"];
+211136 [shape=rect;label="6 ASETL"]
+IN021113 ->  211132 [label="(0,1),Ty=5"]
+IN021113 ->  211133 [label="(0,0),Ty=5"]
+IN021113 ->  211133 [label="(1,3),Ty=7"]
+211131 ->  211132 [label="(0,0),Ty=5"]
+211132 ->  211133 [label="(0,2),Ty=5"]
+211133 ->  211136 [label="(1,0),Ty=8"]
+211135 ->  211136 [label="(0,0),Ty=8"]
+211136 ->  OUT021113 [label="(0,0),Ty=8"]
+}
+}
+IN0211 ->  2111 [label="(0,0),Ty=5"]
+2111 ->  OUT0211 [label="(1,0),Ty=8"]
+};
+subgraph cluster_212 {
+label="2 %na=BODY0";
+IN0212 [shape=rect;label=""];
+OUT0212 [shape=rect;label="[(4,0)]"];
+subgraph cluster_2121 {
+label="1 %na=FORALL";
+IN02121 [shape=rect;label=""];
+OUT02121 [shape=rect;label="[]"];
+subgraph cluster_21211 {
+label="1 %na=RETURN";
+IN021211 [shape=rect;label=""];
+OUT021211 [shape=rect;label="[(1,0)]"];
+212111 [shape=rect;label="1 AGATHER"]
+IN021211 ->  212111 [label="(0,0),Ty=5"]
+IN021211 ->  212111 [label="(1,1),Ty=7"]
+212111 ->  OUT021211 [label="(0,0),Ty=8"]
+};
+subgraph cluster_21212 {
+label="2 %na=GENERATOR";
+IN021212 [shape=rect;label=""];
+OUT021212 [shape=rect;label="{INTEGRAL;ROW;(3,0)}[(3,0)]"];
+212121 [shape=plaintext;label="1"];
+212122 [shape=plaintext;label="4"];
+212123 [shape=rect;label="3 RANGEGEN"]
+212121 ->  212123 [label="(0,0),Ty=5"]
+212122 ->  212123 [label="(0,1),Ty=5"]
+212123 ->  OUT021212 [label="(0,0),Ty=5"]
+};
+subgraph cluster_21213 {
+label="3 %na=BODY";
+IN021213 [shape=rect;label="INTEGRAL;ROW;(0,0)"];
+OUT021213 [shape=rect;label="{ARRAY 5;ASSIGNMENT;(2,0)}[(2,0)]"];
+212131 [shape=plaintext;label="1"];
+212132 [shape=rect;label="2 ABUILD"]
+IN021213 ->  212132 [label="(0,1),Ty=5"]
+212131 ->  212132 [label="(0,0),Ty=5"]
+212132 ->  OUT021213 [label="(0,0),Ty=7"]
+}
+};
+2123 [shape=plaintext;label="1"];
+2124 [shape=rect;label="4 ASETL"]
+2121 ->  2124 [label="(1,0),Ty=8"]
+2123 ->  2124 [label="(0,0),Ty=8"]
+2124 ->  OUT0212 [label="(0,0),Ty=8"]
+};
+subgraph cluster_213 {
+label="3 %na=PREDICATE0";
+IN0213 [shape=rect;label="INTEGRAL;LEVEL;(0,0)"];
+OUT0213 [shape=rect;label="[]"];
+2131 [shape=plaintext;label="1"];
+2132 [shape=rect;label="2 EQUAL"]
+IN0213 ->  2132 [label="(0,0),Ty=5"]
+2131 ->  2132 [label="(0,1),Ty=5"]
+2132 ->  OUT0213 [label="(0,0),Ty=1"]
+}
+IN021 ->  211 [label="(0,0),Ty=5"]
+IN021 ->  211 [label="(1,1),Ty=16"]
+IN021 ->  213 [label="(0,0),Ty=5"]
+IN021 ->  213 [label="(1,1),Ty=16"]
+211 ->  OUT021 [label="(1,1),Ty=8"]
+212 ->  OUT021 [label="(0,2),Ty=8"]
+213 ->  OUT021 [label="(0,0),Ty=1"]
+}
+21 ->  OUT02 [label="(0,0),Ty=8"]
 }}

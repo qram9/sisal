@@ -1422,7 +1422,6 @@ and add_each_in_list in_gr ex lasti appl =
   | hde::tl ->
      let (lasti,pp,tt1),in_gr_ =
        (appl in_gr hde) in
-     outs_graph in_gr_;
      add_each_in_list in_gr_ tl lasti appl
 
 and range a b =
