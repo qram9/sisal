@@ -142,27 +142,27 @@ let parse_msg level fmt =
                         %%
 compilation_unit : def_func_name_list
     function_def_list EOF
-    { Compilation_unit (Using [], $1,[],[], (List.rev $2))  }
+    { Compilation_unit (Using (List.rev []), $1,[],[],  List.rev $2)  }
 | def_func_name_list
     type_def_part
     function_def_list EOF
-  { Compilation_unit (Using [], $1, List.rev $2,[],$3)  }
+  { Compilation_unit (Using (List.rev []), $1, List.rev $2,[], List.rev $3)  }
 | def_func_name_list
     type_def_part
     global_header_list
     function_def_list EOF
-  { Compilation_unit (Using [], $1,$2,$3,$4) }
+  { Compilation_unit (Using (List.rev []), $1,List.rev $2,List.rev $3, List.rev $4) }
 | def_func_name_list
     type_def_part
     SEMICOLON
     function_def_list EOF
-  { Compilation_unit (Using [], $1,$2,[],$4) }
+  { Compilation_unit (Using (List.rev []),$1,List.rev $2,[], List.rev $4) }
 | def_func_name_list
     type_def_part
     SEMICOLON
     global_header_list
     function_def_list EOF
-  { Compilation_unit (Using [], $1,$2,$4,$5) }
+  { Compilation_unit (Using (List.rev []), $1,List.rev $2,List.rev $4, List.rev $5) }
   ;
 
 global_header_list :
