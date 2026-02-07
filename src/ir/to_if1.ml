@@ -782,7 +782,7 @@ and tie_outer_scope_to_inner from_gr to_gr to_node =
          add_edge xx xy to_node yp xt o_gr) in_port_lis to_gr
   | _ -> to_gr
 
-and do_forall inexp bodyexp retexp in_gr =
+and do_for_all inexp bodyexp retexp in_gr =
   (* Use Array input's dimensions to
       set Array output's dimensions*)
   let rec get_cross_exp_lis inexp retl =
@@ -867,7 +867,7 @@ and do_forall inexp bodyexp retexp in_gr =
          build_gen_graph curr_lev in_gr gen_exp_inner in
 
        (* Put The Decldefs (Loop Code) In The Body. *)
-       let (_,_,_),body_gr =
+       let _,body_gr =
          (* Create Body Graph Based On In_Gr. *)
          let body_gr = inherit_parent_syms gen_gr
                          (get_a_new_graph gen_gr) in
@@ -2085,7 +2085,7 @@ and do_simple_exp in_gr in_sim_ex =
                  (try
                     SM.find (String.concat "." f) ps
                   with Not_found ->
-                    raise (outs_graph in_gr;
+                    raise (outs_syms in_gr;
                            Sem_error ("Trying to call an unknown function: " ^ (String.concat "." f)))
                  )
              in
@@ -2623,7 +2623,7 @@ and do_simple_exp in_gr in_sim_ex =
          then we add the body/returns in it. Perhaps
          we could do this easily... i am not sure yet *)
      let (fx,fy,fz),_,in_gr =
-       do_forall i d r in_gr in
+       do_for_all i d r in_gr in
      (* TODO: Need To Check Vs If1, Add Assoc List *)
      (* How Do We Tie Up Results To Calling Function
          Or To A Let Var *)
