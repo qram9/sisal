@@ -1,0 +1,10 @@
+(library
+ (name fe)
+ (public_name sisal.fe)
+ (libraries unix ir)
+ (modules lex parse))
+
+; These lines tell Dune to run ocamllex and menhir
+(ocamllex lex)
+(menhir
+ (modules parse))

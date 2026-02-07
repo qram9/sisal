@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name sisal)
+ (libraries fe ir unix))
+

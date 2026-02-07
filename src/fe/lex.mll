@@ -8,8 +8,9 @@ let error msg start finish =
   (*raise (Error msg)*)
 let lex_error lexbuf =
   raise ( LexErr (error (lexeme lexbuf) (lexeme_start_p lexbuf) (lexeme_end_p lexbuf)))
+let include_stack = ref []
 
-let return x = fun map -> x (* returns the value x *)
+let return x = fun _ -> x (* returns the value x *)
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
 let debug_level = ref 3
@@ -30,7 +31,7 @@ module KeywordTable =
   Map.Make(struct
     type t = string
     let compare a b =
-      String.(compare (lowercase a) (lowercase b))
+      String.(compare (lowercase_ascii a) (lowercase_ascii b))
   end)
 
 let keyword_table =
@@ -45,7 +46,6 @@ let keyword_table =
       ("CHARACTER",CHARACTER);
       ("CROSS",CROSS);
       ("DEFINE",DEFINE);
-      ("DOT",DOT);
       ("DOUBLE_REAL",DOUBLE_REAL);
       ("ELSE",ELSE);
       ("ELSEIF",ELSEIF);
@@ -164,18 +164,31 @@ let special_chars =
 let match_string = ( string_chars
                    | special_chars | ('\\' string_chars ))+
 
-rule sisal_lex = parse eof {
+rule read_comment = parse
+| '\n' { Lexing.new_line lexbuf; sisal_lex lexbuf }
+| eof  { EOF }
+| _    { read_comment lexbuf }
+
+and
+read_string buf = parse
+| '\"'       { STRING buf }  (* Return the token with the buffer *)
+| '\\' '\"'  { read_string (buf ^ "\"") lexbuf } (* Handle escaped quote *)
+| '\\' 'n'   { read_string (buf ^ "\n") lexbuf } (* Handle escaped newline *)
+| [^ '\"' '\\']+ as text { read_string (buf ^ text) lexbuf } (* Normal text *)
+| eof        { raise (LexErr "String not terminated") }
+| _          { raise (LexErr "Illegal character in string") }
+
+and sisal_lex = parse eof {
   EOF
 }
-| '%' (match_string)? {
+| '%' {
   padded_lex_msg 5 "_cmts:>\n";
-  sisal_lex lexbuf
+  read_comment lexbuf
   }
-| '\"' (match_string as st) '\"'
-{
-  padded_lex_msg 5 "_string: %s>\n" st;
-  STRING st
-}
+| '\"' { 
+    padded_lex_msg 5 "_string: starting recursive read...>\n";
+    read_string "" lexbuf 
+  }
 | match_char as ch
 {
   padded_lex_msg 5 "_char: %s>\n" ch;
@@ -186,7 +199,7 @@ rule sisal_lex = parse eof {
   sisal_lex lexbuf
 }
 | ('\n')  as mynewlines {
-    padded_lex_msg 5 ": EOL>\n";
+    padded_lex_msg 5 ": newline %c>\n" mynewlines;
     Lexing.new_line lexbuf;
   sisal_lex lexbuf
 }
@@ -198,22 +211,39 @@ rule sisal_lex = parse eof {
   padded_lex_msg 5 ": %s>\n" d;
   INT (int_of_string d)
 }
-| id+ as ident_or_kw {
-  try
-    let k =
-    KeywordTable.find ident_or_kw keyword_table
-    in padded_lex_msg 5 ": Keyword:%s>\n" (String.uppercase ident_or_kw);
-    k
-  with Not_found ->
+
+| "INCLUDE" { 
+    padded_lex_msg 5 "_include_start:>\n";
+    (* Use our 'Bucket' worker to get the filename! *)
+    match read_string "" lexbuf with
+    | STRING file -> 
+        let chan = open_in file in
+        let new_lb = Lexing.from_channel chan in
+        (* Tell the new belt its name for error messages *)
+        new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
+        include_stack := (lexbuf, chan) :: !include_stack;
+        sisal_lex new_lb (* Teleport! *)
+    | _ -> lex_error lexbuf
+  }
+
+| id as ident_or_kw {
+    let lookup_name = String.uppercase_ascii ident_or_kw in
     try
-      (*let k =
-        KeywordTable.find ident_or_kw predef_fn_table
-      in padded_lex_msg 5 ": Predef_fn:%s>\n" (String.uppercase ident_or_kw);
-      k*)
-      NAME (String.uppercase ident_or_kw)
+      (* 1. Check the primary keyword table (IF, LET, etc.) *)
+      let k = KeywordTable.find lookup_name keyword_table in
+      padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
+      k
     with Not_found ->
-      padded_lex_msg 5 ": NAME:%s>\n" (String.uppercase ident_or_kw);
-      NAME (String.uppercase ident_or_kw)
+      try
+        (* 2. Check the predefined functions (ABS, MAX, MIN) *)
+        let f = KeywordTable.find lookup_name predef_fn_table in
+        padded_lex_msg 5 ": Predef_fn:%s>\n" lookup_name;
+        (* Ensure your parser token for this is PREDEF_FN or the specific token *)
+        f 
+      with Not_found ->
+        (* 3. It's a user-defined variable name *)
+        padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
+        NAME lookup_name
 }
 | ',' {padded_lex_msg 5 " , >\n"; COMMA}
 | '.' {padded_lex_msg 5 " . >\n"; DOTSTOP}

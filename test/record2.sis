@@ -1,0 +1,5 @@
+define TestDot
+type rec0 = record [ a, b: integer ]
+function Test(R: rec0 returns integer)
+  R.a + R.b
+end function
