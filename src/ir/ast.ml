@@ -59,6 +59,7 @@ and simple_exp =
 | Lesser of simple_exp * simple_exp
 | Greater_equal of simple_exp * simple_exp
 | Greater of simple_exp * simple_exp
+| Lambda of function_header * exp
 and exp = Exp of simple_exp list | Empty
 and cond = Cond of exp * exp
 and last_else = Else of exp
@@ -67,15 +68,16 @@ and tagassign_exp = Assign of value_name * simple_exp | Tagcase_exp of simple_ex
 and tagnames = Tagnames of string list
 and tagnames_colon_exp = Tag_list of tagnames * exp
 and arg = Arg of exp
-and function_name = Function_name of string
+and function_name = Function_name of string list
 and function_header =
   Function_header of function_name * decl list * sisal_type list
 | Function_header_nodec of function_name * sisal_type list
 and function_def = Forward_function of function_header
                  | Function of function_leaf list
 and function_leaf = Function_single of (function_header * (type_def list) * (function_leaf list) * exp)
+and using = Using of string list
 and define = Define of function_name list
-and compilation_unit = Compilation_unit of define * (type_def list) * (function_header list) * function_def list
+and compilation_unit = Compilation_unit of using * define * (type_def list) * (function_header list) * function_def list
 and fun_returns = Returns of sisal_type list
 and decldef = Decldef of (decl list * exp)
 and decldef_part = Decldef_part of decldef list
@@ -85,7 +87,7 @@ and in_exp = In_exp of value_name * exp
            | At_exp of in_exp * value_names
            | Dot of in_exp * in_exp
            | Cross of in_exp * in_exp
-and value_name = Value_name of string
+and value_name = Value_name of string list
 and value_names = Value_names of string list
 and return_exp = Value_of of direction_op * reduction_op * simple_exp
                | Array_of of simple_exp | Stream_of of simple_exp
@@ -238,7 +240,11 @@ and
   | String st -> "\"" ^ st ^ "\""
   | Error st -> "ERROR [" ^ (str_sisal_type st) ^ "]"
 and
-  str_val = function | Value_name v -> v
+  str_val = function | Value_name vl -> String.concat "." vl
+and str_using = function
+  | Using [] -> ""
+  | Using files -> 
+      "USING " ^ (comma_fold (List.map (fun s -> "\"" ^ s ^ "\"") files)) 
 and
   str_val_names = function
   | Value_names v ->
@@ -294,18 +300,18 @@ and str_decldef ?(offset=0) = function
 and str_decldef_part ?(offset=0) = function
   | Decldef_part f ->
      semicolon_fold (List.map (str_decldef ~offset:(offset)) f)
-and str_decl_id ?(offset=0) = function
+and str_decl_id ?(_offset=0) = function
   | Decl_name nam -> nam
   | Decl_func func -> str_function_header func
 and str_decl ?(offset=0) = function
   | Decl_some (x,y) ->
      (comma_fold
-        (List.map (str_decl_id ~offset:(offset)) x))
+        (List.map (str_decl_id ~_offset:(offset)) x))
      ^ ":" ^ (str_sisal_type y)
   | Decl_none x ->
-     (comma_fold (List.map (str_decl_id ~offset:(offset)) x))
+     (comma_fold (List.map (str_decl_id ~_offset:(offset)) x))
 and str_function_name = function
-  | Function_name f -> f
+  | Function_name lf -> String.concat "." lf
 and str_arg = function | Arg e -> str_exp e
 and str_simple_exp ?(offset=0) =
   function
@@ -315,6 +321,10 @@ and str_simple_exp ?(offset=0) =
   | Paren e -> "(" ^ str_exp e ^ ")"
   | Invocation(fn,arg) ->
      (str_function_name fn) ^ "(" ^ (str_arg arg) ^ ")"
+  | Lambda (header, e) ->
+      "LAMBDA " ^ (str_function_header header) ^ "\n" ^
+      (mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)) ^ "\n" ^
+      (mypad1 offset "END LAMBDA")
   | Not e -> "~" ^ (str_simple_exp e)
   | Negate e -> "-" ^ (str_simple_exp e)
   | Pipe (a,b) -> (str_simple_exp a) ^ " || " ^ (str_simple_exp b)
@@ -411,7 +421,7 @@ and str_defines = function
   | Define dn -> "DEFINE " ^ comma_fold (List.map str_function_name dn)
 and str_global f = "GLOBAL " ^ (str_function_header f)
 and str_compilation_unit = function
-  | Compilation_unit (defines,type_defs,globals,fdefs) ->
+  | Compilation_unit (_, defines,type_defs,globals,fdefs) ->
      newline_fold
        [str_defines defines;
         semicolon_newline_fold ~offset:0 (List.map str_type_def type_defs);
@@ -451,3 +461,4 @@ and str_function_header = function
        [str_function_name fun_name;
         paren ((semicolon_fold (List.map str_decl decls))
                ^ " RETURNS "  ^ (str_type_list tl))]
+

@@ -1,14 +1,15 @@
-open Unix
-open Lex
+module Lex = Fe.Lex
 open Lexing
-open Parse
-open Ast
-open If1
-open To_if1
+module Parse = Fe.Parse
+module Ast = Ir.Ast
+module If1 = Ir.If1
+module To_if1 = Ir.To_if1
+(*
 let help =
   [ "usage: sisal_it -help prints this message"
   ; "       sisal_it -debug prints debug messages"
   ]
+  *)
 let error msg lexbuf =
   let start = (Lexing.lexeme_start_p lexbuf) in
   let finish = (Lexing.lexeme_end_p lexbuf) in
@@ -26,7 +27,7 @@ let main () =
     if Array.length Sys.argv > 1
     then
       Lexing.from_channel (open_in Sys.argv.(1))
-    else get_lex_buf
+    else Lex.get_lex_buf
   in
   try
     let set_filename (fname:string) (lexbuf:Lexing.lexbuf)  =
@@ -34,15 +35,14 @@ let main () =
           { lexbuf.lex_curr_p with Lexing.pos_fname = fname }
       ; lexbuf
       ) in
-    let mashi = (Parse.main Lex.sisal_lex
+    let lisal = (Parse.main Lex.sisal_lex
                    (set_filename (Sys.argv.(1)) lexbuf)) in
-    print_endline (str_compilation_unit mashi);
-    let z,ou = do_compilation_unit mashi in
+    print_endline (Ast.str_compilation_unit lisal);
+    let _,ou = To_if1.do_compilation_unit lisal in
     print_endline "Result graph";
-    print_endline (string_of_graph ou);
-    print_endline (str_compilation_unit mashi);
-    print_endline (write_dot_file ou);
-    "Done"
+    print_endline (If1.string_of_graph ou);
+    print_endline (Ast.str_compilation_unit lisal);
+    If1.write_dot_file ou
   with
     e ->
     let msg = Printexc.to_string e

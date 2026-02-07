@@ -1,0 +1,4 @@
+(library
+ (name ir)
+ (public_name sisal.ir)
+ (libraries unix))

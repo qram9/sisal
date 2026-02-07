@@ -45,7 +45,6 @@
 open Ast
 open Format
 open Printf
-open Filename
 
 (** TODO: FOLDING OF MULTIARITY SEEMS IFFY **)
 
@@ -214,9 +213,9 @@ module E = struct
       cv1
 end
 
-let rec find_port an_array curr_idx len elem =
-  (** Look at an array of ints and locate elem in it.
+(* Look at an array of ints and locate elem in it.
    Throw an error, if elem is not found.*)
+let rec find_port an_array curr_idx len elem =
   if Array.get an_array curr_idx = elem
   then curr_idx
   else
@@ -329,7 +328,7 @@ and get_node_label n =
 (** Lookup a record field by name. *)
 and get_record_field in_gr anum field_namen =
   let {nmap = _;eset = _;symtab = (_,_);
-       typemap = (ti,tm,mm);w = _} = in_gr in
+       typemap = (_,tm,_);w = _} = in_gr in
   let hasit = TM.mem anum tm in
   (match hasit with
    | true ->
@@ -384,7 +383,7 @@ and inherit_parent_syms
 (** Weird case, where we copy local syms to other
 only if they are not parent syms in other. *)
 and create_subgraph_symtab
-{nmap=_;eset=es;symtab=(cs,ps);typemap=otm;w=_}
+{nmap=_;eset=_;symtab=(cs,_);typemap=otm;w=_}
 {nmap=nm;eset=es;symtab=(other_cs,other_ps);typemap=tm;w=i} =
   let {nmap=nm;eset=es;
        symtab=(cs,ps); typemap=tm;w=i} =
@@ -423,7 +422,7 @@ and create_subgraph_symtab
   let in_gr = input_from_boundary boun_lis in_gr in
   in_gr
 
-and get_boundary_node {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} =
+and get_boundary_node {nmap=nm;eset=_;symtab=_;typemap=_;w=_} =
   NM.find 0 nm
 
 and string_of_list_of_list alist_lis out_s =
@@ -552,20 +551,20 @@ and initialize_exp_info es nm =
       let xnm = NM.find x nm in
       let ynm = NM.find y nm in
       let xn = match xnm with
-        | Simple (lab,n,_,_,_) -> n
+        | Simple (_,n,_,_,_) -> n
         | Boundary _ -> BOUNDARY
         | Unknown_node ->
            raise (Sem_error "Internal, unreachable cse_height_xn")
         | Literal _ -> CONSTANT
-        | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+        | Compound (_, _, _, _, _, _) -> GRAPH in
 
       let yn = match ynm with
-        | Simple (lab,n,_,_,_) -> n
+        | Simple (_,n,_,_,_) -> n
         | Boundary _ -> BOUNDARY
         | Literal _ -> CONSTANT
         | Unknown_node ->
            raise (Sem_error "Internal, unreachable cse_height_yn")
-        | Compound (lab, sy, ty, pl, g, assoc) -> GRAPH in
+        | Compound (_, _, _, _, _, _) -> GRAPH in
 
       if xn != GRAPH && yn != GRAPH
       then
@@ -637,9 +636,9 @@ and print_a_finished_one sentinel alis mymap =
      (String.concat ";"
         (List.map (string_of_int_pair) alis)) ^ "\n")
 
-and get_vn_table alis cur outm =
   (** Each entry in alis is value-numbered to the
       witness named cur. *)
+and get_vn_table alis cur outm =
   match alis with
   | (_,hd)::tl ->
      get_vn_table tl cur (IntMap.add hd cur outm)
@@ -654,7 +653,7 @@ and update_a_list ahd vns =
 
 and update_vns ablk vns new_mymap =
   match ablk with
-  | (cur_pos,ahd)::atl ->
+  | (_,ahd)::atl ->
      let updated_map = (* output map *)
        IntMap.add
          ahd (* key *)
@@ -664,16 +663,16 @@ and update_vns ablk vns new_mymap =
      update_vns atl vns updated_map
   | [] -> new_mymap
 
-and visit_block_list blks vns mymap =
   (** This is the inner function that calls
       visit_block for each blocks in the blks list
       to see if they are finished. *)
+and visit_block_list blks vns mymap =
   match blks with
   | ahd::atl ->
-     let ff,capF =
+     let ff,_ =
        visit_block ahd (update_vns ahd vns mymap)
          (IntMap.empty, IntSet.empty) in
-     (** Figure out the cases that finished
+     (* Figure out the cases that finished
         and cases that are still being updated. *)
      let not_yet_done,done_ones =
        IntMap.fold (fun ke valu (not_done,all_done) ->
@@ -702,9 +701,9 @@ and visit_block_list blks vns mymap =
      visit_block_list to_follow done_ones mymap
   | [] -> vns
 
-and visit_by_height mymap height_list vns height_num =
   (** We have a block list at each height. This function
       traverses by height (0,N) and calls visit_block at each. *)
+and visit_by_height mymap height_list vns height_num =
   match height_list with
   | alis::tl ->
      print_endline ("-------------------");
@@ -714,8 +713,7 @@ and visit_by_height mymap height_list vns height_num =
      visit_by_height mymap tl vns (height_num+1)
   | [] -> vns
 
-and cse_by_part in_gr =
-  (* Each edge starts at a node,port and
+  (** Each edge starts at a node,port and
      ends at another node,port.
       (x,xp) -> (y,yp), with type ed_ty:
       (x,xp,y,yp,ed_ty).
@@ -766,12 +764,13 @@ and cse_by_part in_gr =
       at the incremented height,
       the vn table must be checked and
       current lists updated.*)
+and cse_by_part in_gr =
   let {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} = in_gr in
   let nm =
     NM.fold
-      (fun lab nod last_nm ->
+      (fun _ nod last_nm ->
         let last_nm = match nod with
-          | Simple (lab,n,_,_,_) ->
+          | Simple (_,_,_,_,_) ->
              last_nm
           | Boundary _ ->
              last_nm
@@ -783,7 +782,7 @@ and cse_by_part in_gr =
              NM.add lab
                (Compound (lab,sy,ty,pl,subgr,assoc)) last_nm in
         last_nm) nm nm in
-  let node_l,nm,init_height,map_succ,map_pred = initialize_exp_info es nm in
+  let node_l,nm,_,_,map_pred = initialize_exp_info es nm in
   let cur_gr = {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} in
   (*print_endline
     ("PRED_MAP:\n" ^
@@ -807,7 +806,7 @@ and cse_by_part in_gr =
                       cate_nicer
                         (string_of_5_ints x) y ",")
                     ed ""))) map_succ ""));*)
-  let height_map,rev_height_map =
+  let _,rev_height_map =
     List.fold_left
       (fun (height_map,rev_h) cur ->
         get_height cur map_pred height_map rev_h cur_gr)
@@ -823,14 +822,14 @@ and cse_by_part in_gr =
     IntMap.bindings rev_height_map in
   let my_lis_lis =
     (List.fold_right
-       (fun (x,set) last_lis ->
+       (fun (_,set) last_lis ->
          [(List.map
              (fun x -> (0,x))
              (IntSet.elements set))]::last_lis)
        nodes_by_height []) in
   let mymap =
     IntMap.fold
-      (fun x h last_m ->
+      (fun _ h last_m ->
         IntSet.fold
           (fun cur last_map ->
             IntMap.add cur
@@ -858,7 +857,7 @@ and cse_by_part in_gr =
                         yy "\n     "))
                    h "") ^ "\n" ^ z)
           rev_height_map ""));*)
-  let rev_height_map_folded =
+  let _ =
     IntMap.fold (
         fun nod ed z ->
         IntMap.add nod
@@ -906,7 +905,7 @@ and cse_by_part in_gr =
       es ES.empty in
   let res_gr =
     {nmap=nm;eset=es;symtab=sm;typemap=tm;w=pi} in
-  let ll = dot_graph res_gr in
+  let _ = dot_graph res_gr in
   res_gr
 
 and add_to_boundary_outputs ?(start_port=0) srcn srcp tty in_gr =
@@ -937,14 +936,14 @@ and add_to_boundary_outputs ?(start_port=0) srcn srcp tty in_gr =
 
 and get_named_input_ports in_gr =
   match get_boundary_node in_gr with
-  |  (Boundary (in_port_list,out_port_list,boundary_p)) ->
+  |  (Boundary (in_port_list,_,_)) ->
       in_port_list
   | _ -> []
 
 and get_named_input_port_map in_gr =
   match get_boundary_node in_gr with
-  |  (Boundary (in_port_list,out_port_list,boundary_p)) ->
-      List.fold_right (fun (xx,yy,zz) output_map ->
+  |  (Boundary (in_port_list,_,_)) ->
+      List.fold_right (fun (_,yy,zz) output_map ->
           StringMap.add zz yy output_map) in_port_list StringMap.empty
   | _ -> StringMap.empty
 
@@ -954,12 +953,12 @@ and add_to_boundary_inputs ?(namen="") n p in_gr =
      let lookin_lis n p =
        try
          List.fold_right (
-             fun (x,y,z) res ->
+             fun (x,y,_) res ->
              if n = x && p = y
              then
                raise (Val_is_found x)
              else res) in_port_list false
-       with Val_is_found x -> true in
+       with Val_is_found _ -> true in
 
      if (lookin_lis n p) = true then in_gr
      else
@@ -974,37 +973,37 @@ and add_to_boundary_inputs ?(namen="") n p in_gr =
 
 and boundary_in_port_count in_gr =
   match get_boundary_node in_gr with
-  | (Boundary (in_port_list,out_port_list,boundary_p)) ->
+  | (Boundary (in_port_list,_,_)) ->
      List.length in_port_list
   | _ -> 0
 
 and boundary_out_port_count in_gr =
   match get_boundary_node in_gr with
-  | (Boundary (in_port_list,out_port_list,boundary_p)) ->
+  | (Boundary (_,out_port_list,_)) ->
      List.length out_port_list
   | _ -> 0
 
 and get_old_var_port vv =
   function
-    {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
+    {nmap=_;eset=_;symtab=(cs,_);typemap = _,_,_;w = _} ->
     let old_name =  ("OLD " ^ vv) in
     if SM.mem old_name cs = true then
-      let {val_name=vn;val_ty=tt;
-           val_def=def;def_port=cou} =
+      let {val_name=_;val_ty=_;
+           val_def=_;def_port=cou} =
         (SM.find old_name cs) in
       `Found_one cou
     else `Not_there
 
 and defs_of_bound_names =
   function
-    {nmap=nm;eset=pe;symtab=(cs,ps);typemap=tm;w=pi} ->
+    {nmap=_;eset=_;symtab=(cs,_);typemap=_;w=_} ->
     SM.fold
       (fun k
-           {val_name=vn;val_ty=tt;
-            val_def=def;def_port=cou} xx ->
+           {val_name=_;val_ty=_;
+            val_def=def;def_port=_} xx ->
         IntMap.add def k xx) cs IntMap.empty
 
-and output_bound_names_for_subgraphs ?(start_port=0) alis in_gr =
+and output_bound_names_for_subgraphs ?(_start_port=0) alis in_gr =
   let bound_ports = defs_of_bound_names in_gr in
   let alis,in_gr =
     List.fold_right
@@ -1061,46 +1060,46 @@ and set_out_port_str src_nod src_port dest_nn =
      Literal (lab,ty,str,safe_set_arr dest_nn src_port pout)
   | Simple (lab,n,pin,pout,prag) ->
      Simple (lab,n,pin,safe_set_arr dest_nn src_port pout,prag)
-  | Compound (lab, sy, ty, pl, g, assoc) ->
+  | Compound (_, _, _, _, _, _) ->
      src_nod
-  | Boundary (_,_,p) -> src_nod
+  | Boundary (_,_,_) -> src_nod
   | Unknown_node -> src_nod
 
 and clear_port_str dst_nod =
   match dst_nod with
-  | Literal (lab,ty,str,pout) ->
+  | Literal (lab,ty,str,_) ->
      let kk = Array.make 1 "" in
      Literal (lab,ty,str,kk)
-  | Simple (lab,n,pin,pout,prag) ->
+  | Simple (lab,n,_,_,prag) ->
      let kk = Array.make 1 "" in
      let ll = Array.make 1 "" in
      Simple (lab,n,kk,ll,prag)
-  | Compound (lab,sy,ty, pl, g, assoc) ->
+  | Compound (_,_,_, _, _, _) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Unknown_node -> dst_nod
 
 and set_in_port dst_nod dst_port src_nn =
   match dst_nod with
-  | Literal (lab,ty,str,pout) ->
+  | Literal (_,_,_,_) ->
      dst_nod
   | Simple (lab,n,pin,pout,prag) ->
      if pin.(dst_port) != "" then
        raise (Node_not_found "in_port set already")
      else
        Simple (lab,n,safe_set_arr src_nn dst_port pin,pout,prag)
-  | Compound (lab, sy,ty, pl, g, assoc) ->
+  | Compound (_, _,_, _, _, _) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Unknown_node -> dst_nod
 
 and set_in_port_str dst_nod dst_port src_str =
   match dst_nod with
-  | Literal (lab,ty,str,pout) ->
+  | Literal (_,_,_,_) ->
      dst_nod
   | Simple (lab,n,pin,pout,prag) ->
      Simple (lab,n,safe_set_arr src_str dst_port pin,pout,prag)
-  | Compound (lab,sy,ty, pl, g, assoc) ->
+  | Compound (_,_,_, _, _, _) ->
      dst_nod
   | Boundary _ -> dst_nod
   | Unknown_node -> dst_nod
@@ -1109,13 +1108,13 @@ and set_literal dst_nod dst_port src_node =
   match src_node with
   | Literal (_,_,str_,_) ->
      (match dst_nod with
-      | Literal (lab,ty,str,pout) ->
+      | Literal (_,_,_,_) ->
          dst_nod
       | Simple (lab,n,pin,pout,prag) ->
          Simple (lab,n,
                  (pin.(dst_port) <- "Literal:" ^ str_;pin),
                  pout,prag)
-      | Compound (lab, sy, ty, pl, g, assoc) ->
+      | Compound (_, _, _, _, _, _) ->
          dst_nod
       | Boundary _ -> dst_nod
       | Unknown_node -> dst_nod)
@@ -1162,13 +1161,13 @@ and rev_lookup_ty_name = function
   | _ -> "UNKNOWN"
 
 and lookup_fn_ty fff in_gr =
-  let { nmap = nm; eset = pe; symtab = sm;
-        typemap = (id,tm,tmn); w = pi; } =  in_gr in
+  let { nmap = _; eset = _; symtab = _;
+        typemap = (_,tm,_); w = _; } =  in_gr in
   try
     TM.fold
-      (fun ke va z ->
+      (fun _ va z ->
         match va with
-        | Function_ty (args_ty,ret_ty,fn_name) ->
+        | Function_ty (_,ret_ty,fn_name) ->
            (if fn_name = fff then
               (
                 let tm_l =
@@ -1231,7 +1230,7 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
          raise (Sem_error "Incoming problem")
        else
          (let nending_at =
-            ES.fold (fun ((x,xp),(y,yp),y_ty) res ->
+            ES.fold (fun ((x,xp),(_,_),y_ty) res ->
                 ES.add ((x,xp),(n2,p2),y_ty) res)
               ending_at ES.empty in
           ES.union
@@ -1241,53 +1240,53 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
   | _ -> in_gr
 
 and all_edges n1 n2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((x,_),(y,_),_) ->
                   x=n1 && y=n2) pe in edges
 
 and all_edges_ending_at_port n2 p2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((_,_),(y,yp),_) ->
                   y=n2 && yp = p2) pe in
   edges
 
 and all_edges_ending_at n2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((_,_),(y,_),_) ->
                   y=n2) pe in
   edges
 
 and all_edges_ending_at_ports_types n2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((_,_),(y,_),_) ->
                   y=n2) pe in
-  ES.fold (fun ((x,xp),(y,yp),y_ty) z -> (xp,y_ty)::z) edges []
+  ES.fold (fun ((_,xp),(_,_),y_ty) z -> (xp,y_ty)::z) edges []
 
 and all_nodes_joining_at (n2,_,_) in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((_,_),(y,_),_) ->
                   y=n2) pe in
-  List.fold_right (fun ((x,xp),(y,yp),y_ty) zz ->
+  List.fold_right (fun ((x,xp),(_,_),y_ty) zz ->
       (x,xp,y_ty)::zz) (ES.elements edges) []
 
 and all_nodes_incoming n2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((_,_),(y,_),_) ->
                   y=n2) pe in
-  List.fold_right (fun ((x,xp),(y,yp),y_ty) zz ->
+  List.fold_right (fun ((x,xp),(_,_),y_ty) zz ->
       (x,xp,y_ty)::zz) (ES.elements edges) []
 
 and all_types_ending_at n2 in_gr res =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let map_tnem =
     ES.fold
-      (fun ((x,xp),(y,yp),y_ty) acc ->
+      (fun ((_,_),(y,yp),y_ty) acc ->
         if y=n2 then
           (IntMap.add yp y_ty acc) else acc) pe res in
   map_tnem
@@ -1301,14 +1300,14 @@ and connect_one_to_one in_lis to_n in_gr =
   in_gr
 
 and all_edges_starting_at n1 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = _;eset=pe;symtab=_;typemap=_;w=_} = in_gr in
   let edges = ES.filter
-                (fun ((x,xp),(y,yp),y_ty) ->
+                (fun ((x,_),(_,_),_) ->
                   x=n1) pe in
   edges
 
 and check_for_multiarity n1 n2 in_gr =
-  let {nmap = nm;eset=pe;symtab=sm;typemap=tm;w=pi} = in_gr in
+  let {nmap = nm;eset=_;symtab=_;typemap=_;w=_} = in_gr in
   match (NM.find n1 nm) with
   | Simple(_,MULTIARITY,_,_,_) ->
      (match (NM.find n2 nm) with
@@ -1325,7 +1324,7 @@ and cleanup_multiarity in_gr =
                    NM.add x (Compound(pi,sy,ty,prag,
                              cleanup_multiarity g,alis)) z
                | _ -> NM.add x y z) nm NM.empty in
-  let new_edges = ES.filter (fun ((x,xp),(y,yp),y_ty) ->
+  let new_edges = ES.filter (fun ((_,_),(y,_),_) ->
                   NM.mem y new_nm = true) es in
   {nmap=new_nm;eset=new_edges;symtab=sm;typemap=tm;w=pi}
 
@@ -1346,7 +1345,7 @@ and node_incoming_at_port n1 p in_gr =
     raise (Sem_error ("Only one fan-in being violated"))
   else
     try
-      let (x,y),(u,v),ty = List.hd edges in (x,y,ty)
+      let (x,y),(_,_),ty = List.hd edges in (x,y,ty)
     with _ ->
       write_any_dot_file "ERROR.dot" in_gr;
       print_string ("Error when looking up node incoming to port");
@@ -1385,7 +1384,7 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
 
 and redirect_edges n2 es =
   ES.fold (fun hde (res,p2) ->
-      let (x,xp),(y,yp),yt = hde in
+      let (x,xp),(_,_),yt = hde in
       (ES.add ((x,xp),(n2,p2),yt) res),p2+1) es (ES.empty,0)
 
 and incoming_arity n1 in_gr =
@@ -1401,11 +1400,9 @@ and fold_multiarity_edge n1 n2 in_gr =
   let ending_at = (all_edges_ending_at n1 in_gr) in
   let redir_set,_ = redirect_edges n2
                     (ES.diff ending_at edges) in
-  let { nmap = nm;
-        eset = es;
-        symtab = sm;typemap = tm;w = pi; } = in_gr in
-  let es = ES.union
-             redir_set in
+  let { nmap = _;
+        eset = _;
+        symtab = _;typemap = _;w = _; } = in_gr in
   let  { nmap = nm; eset = es;
          symtab = sm;typemap = tm;w = pi; } =
     ES.fold (
@@ -1420,7 +1417,7 @@ and add_each_in_list in_gr ex lasti appl =
   match ex with
   | [] -> ((lasti,0,0),in_gr)
   | hde::tl ->
-     let (lasti,pp,tt1),in_gr_ =
+     let (lasti,_,_),in_gr_ =
        (appl in_gr hde) in
      add_each_in_list in_gr_ tl lasti appl
 
@@ -1465,8 +1462,8 @@ and get_types_from_graph g inc_blob =
   let out_ty_idx =
     if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
   let merge_fn =
-    fun k xo yo -> match xo,yo with
-                   | Some x, Some y -> Some x
+    fun _ xo yo -> match xo,yo with
+                   | Some x, Some _ -> Some x
                    | None, yo -> yo
                    | xo, None -> xo in
   let out_tm =
@@ -1486,8 +1483,8 @@ and get_merged_typeblob_gr g1 g2 =
   let out_ty_idx =
     if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
   let merge_fn =
-    fun k xo yo -> match xo,yo with
-                   | Some x, Some y -> Some x
+    fun _ xo yo -> match xo,yo with
+                   | Some x, Some _ -> Some x
                    | None, yo -> yo
                    | xo, None -> xo in
   let out_tm =
@@ -1502,8 +1499,8 @@ and merge_typeblobs tyblob1 tyblob2 =
   let out_ty_idx =
     if (g_ty_idx >= inc_blob_ty_idx) then g_ty_idx else inc_blob_ty_idx in
   let merge_fn =
-    fun k xo yo -> match xo,yo with
-                   | Some x, Some y ->
+    fun _ xo yo -> match xo,yo with
+                   | Some x, Some _ ->
                       Some x
                    | None, yo -> yo
                    | xo, None -> xo in
@@ -1545,16 +1542,16 @@ and map_exp in_gr in_explist expl appl =
      let (lasti,pp,tt),in_gr = (appl in_gr hde) in
      map_exp in_gr tl (expl@[(lasti,pp,tt)]) appl
 
-and add_a_tag (namen,tagty,ss) ((id,p,q),in_gr) =
-  let (tt_id,ii,_),in_gr = add_sisal_type in_gr tagty in
+and add_a_tag (namen,tagty,_) ((id,_,_),in_gr) =
+  let (tt_id,_,_),in_gr = add_sisal_type in_gr tagty in
   add_type_to_typemap (Union (tt_id,id,namen)) in_gr
 
-and add_a_field (namen,tag_ty,ss) ((id,p,q),in_gr) =
-  let (tt_id,ii,_),in_gr = add_sisal_type in_gr tag_ty in
+and add_a_field (namen,tag_ty,_) ((id,_,_),in_gr) =
+  let (tt_id,_,_),in_gr = add_sisal_type in_gr tag_ty in
   add_type_to_typemap (Record (tt_id,id,namen)) in_gr
 
-and add_a_tuple_entry tup_ty ((id,p,q),in_gr) =
-  let (tt_id,ii,_),in_gr = add_sisal_type in_gr tup_ty in
+and add_a_tuple_entry tup_ty ((id,_,_),in_gr) =
+  let (tt_id,_,_),in_gr = add_sisal_type in_gr tup_ty in
   add_type_to_typemap (Tuple_ty (tt_id,id)) in_gr
 
 and add_tag_spec (strlis,tl,_) in_gr =
@@ -1563,15 +1560,15 @@ and add_tag_spec (strlis,tl,_) in_gr =
 and add_compound_type in_gr =
   function
   | Sisal_array s ->
-     let (iii,iid,_), in_gr =
+     let (iii,_,_), in_gr =
        add_sisal_type in_gr s in
      add_type_to_typemap (Array_ty iii) in_gr
   | Sisal_stream s ->
-     let (iii,iid,_), in_gr =
+     let (iii,_,_), in_gr =
        add_sisal_type in_gr s in
      add_type_to_typemap (Stream iii) in_gr
   | Sisal_union rrr ->
-     let (tag_fst,ign,_),in_gr =
+     let (tag_fst,_,_),in_gr =
        List.fold_right
          (fun (tag_names_l,tag_ty) y ->
            List.fold_right
@@ -1581,7 +1578,7 @@ and add_compound_type in_gr =
          ((0,0,0),in_gr) in
      add_type_to_typemap (Union (0,tag_fst,"")) in_gr
   | Sisal_record rrr ->
-     let (rec_fst,ign,_),in_gr =
+     let (rec_fst,_,_),in_gr =
        List.fold_right
          (fun (rec_names_l,rec_ty) y ->
            List.fold_right
@@ -1604,7 +1601,7 @@ and add_compound_type in_gr =
      raise (Node_not_found "In compound type")
 
 and lookup_ty ij in_gr =
-  let { nmap = nm; eset = pe; symtab = sm; typemap = (id,tm,tmn); w = pi; } =  in_gr in
+  let { nmap = _; eset = _; symtab = _; typemap = (_,tm,_); w = _; } =  in_gr in
   try
     TM.find ij tm
   with _ ->
@@ -1614,11 +1611,11 @@ and lookup_ty ij in_gr =
 
 and find_ty_safe
 {
-  nmap = nm;
-  eset = pe;
-  symtab = sm;
-  typemap = (id,tm,tmn);
-  w = pi;
+  nmap = _;
+  eset = _;
+  symtab = _;
+  typemap = (_,tm,_);
+  w = _;
 } aty =
   let lookin_vals =
     try
@@ -1677,12 +1674,12 @@ and add_sisal_typename
 
 and lookup_by_typename
 {
-  nmap = nm;
-  eset = pe;
-  symtab = sm;
-  typemap = (id,tm,tmn);
+  nmap = _;
+  eset = _;
+  symtab = _;
+  typemap = (_,_,tmn);
 
-  w = pi;
+  w = _;
 } namen =
   try
     MM.find namen tmn
@@ -1708,7 +1705,7 @@ and add_sisal_type {nmap = nm;eset = pe;symtab = sm;
      match MM.mem ty tmn with
      | true -> (MM.find ty tmn, 0, MM.find ty tmn), in_gr
      | false ->
-        let brr = string_of_graph in_gr in
+        let _ = string_of_graph in_gr in
           raise
           (Printexc.print_raw_backtrace stdout
              (Printexc.get_callstack 150);
@@ -1727,11 +1724,11 @@ sym_name
   {nmap = nm;eset = pe;symtab = (cs, ps);
    typemap = (id,tm,tmn);  w = pi;}
 
-and get_a_new_graph in_gr =
 (** Combine symtabs to initialize a new graph. **)
+and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
-  let {nmap=nm;eset=ne;symtab=(_,ps);
-       typemap=tmmi;w=tail} = in_gr in
+  let {nmap=_;eset=_;symtab=(_,ps);
+       typemap=tmmi;w=_} = in_gr in
   let {nmap=nm;eset=ne;symtab=_;
        typemap=tmn1;w=tail} =
     get_empty_graph tmmi in
@@ -2008,7 +2005,7 @@ and string_of_pair_list_final_string zz =
 and string_of_node_ty ?(offset=2) =
   fun n ->
   match n with
-  | Literal (lab,ty,str,pout) ->
+  | Literal (lab,_,str,_) ->
      (string_of_int lab) (*^ " " ^ (string_of_if1_basic_ty ty)*)
      ^ " \"" ^ str  ^ "\"" (*^ (string_of_ports pout)*)
   | Simple (lab,n,pin,pout,prag) ->
@@ -2068,16 +2065,16 @@ and string_of_edge_set ne =
 and dot_of_node_ty id in_gr =
   fun n ->
   match n with
-  | Literal (lab,ty,str,pout) ->
+  | Literal (lab,_,str,_) ->
      (string_of_int id) ^ (string_of_int lab) ^
        " [shape=plaintext;label=\"" ^ str  ^ "\"]"
-  | Simple (lab,n,pin,pout,prag) ->
+  | Simple (lab,n,_,_,prag) ->
      (string_of_int id) ^ (string_of_int lab) ^
        " [shape=rect;label=\""^
        (string_of_int lab)^ " "  ^
          (cate_nicer (string_of_node_sym n)
             (string_of_pragmas prag) ":") ^ "\"]"
-  | Compound (lab,sy,ty_lab,pl,g,assoc) ->
+  | Compound (lab,_,_,pl,g,_) ->
      "subgraph cluster_"^ (string_of_int id) ^ (string_of_int lab) ^
        " {\n" ^"label=\"" ^ (string_of_int lab) ^ " "
        ^ (string_of_pragmas pl) ^ "\";\n" ^
@@ -2085,7 +2082,7 @@ and dot_of_node_ty id in_gr =
                           ((string_of_int id) ^ (string_of_int lab)))
             g) ^ "\n" ^ "}"
   | Unknown_node -> "Unknown"
-  | Boundary (zz,yy,pp) ->
+  | Boundary (_,yy,pp) ->
      "IN0" ^ (string_of_int id) ^ " [shape=rect;label=\"" ^
        (cate_list (string_of_symtab_gr_in in_gr) "\\n") ^ "\"];\n" ^
          "OUT0" ^  (string_of_int id) ^
@@ -2098,7 +2095,7 @@ and graph_clean_multiarity in_gr =
 
 and dot_of_node_map id mn in_gr =
   NM.fold
-     (fun k v z ->
+     (fun _ v z ->
        (cate_nicer z (dot_of_node_ty id in_gr v) ";\n")) mn ""
 
 and dot_of_edge id ((n1,p1),(n2,p2),tt) =
@@ -2121,7 +2118,7 @@ and dot_of_edge_set id ne =
 
 and dot_of_graph id in_gr =
 let
-  {nmap=nm;eset=ne;symtab=sm;typemap=(t,tm,tmn);w=tail} = in_gr in
+  {nmap=nm;eset=ne;symtab=_;typemap=(_,_,_);w=_} = in_gr in
 cate_nicer
   (dot_of_node_map id nm in_gr) (dot_of_edge_set id ne) "\n"
 
@@ -2138,19 +2135,18 @@ and dot_graph in_gr =
     ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
   close_out oc;
 
-  print_endline  ( "Output Dot in " ^ na); ""
+  print_endline  ( "Output Dot in " ^ na); ()
 
 and write_any_dot_file sss in_gr =
   let oc = open_out sss in
   fprintf oc
     "%s" ("digraph R {\nnewrank=true;\n" ^ ( dot_of_graph 0 in_gr) ^ "}");
-  close_out oc;
-  "Output Dot in"
+  close_out oc;()
 
 and string_of_node_map ?(offset=2) mn =
   let nn =
     (NM.fold
-       (fun k v z ->
+       (fun _ v z ->
          ((string_of_node_ty ~offset:(offset) v)::z)) mn [])
   in match nn with
      | [] -> []
@@ -2193,13 +2189,13 @@ and string_of_if1_value_out tm = function
 and string_of_symtab (ls, gs) tm =
   let ls =
     (SM.fold
-       (fun k v z -> ((string_of_if1_value tm v)::z)) ls []) in
+       (fun _ v z -> ((string_of_if1_value tm v)::z)) ls []) in
   let ls =
     match ls with
     | [] -> []
     | _ -> "LOCAL-SYM: "::ls in
   let gs = SM.fold
-             (fun k v z ->
+             (fun _ v z ->
                ((string_of_if1_value tm v):: z)) gs [] in
   let gs =
     match gs with
@@ -2208,21 +2204,21 @@ and string_of_symtab (ls, gs) tm =
 
 and string_of_symtab_gr in_gr =
   let
-    {nmap=nm;eset=ne;symtab=(ls,gs);typemap=(t,tm,tmn);w=tail} = in_gr in
+    {nmap=_;eset=_;symtab=(ls,_);typemap=(_,tm,_);w=_} = in_gr in
   (SM.fold
-     (fun k v z -> ((string_of_if1_value tm v)::z)) ls [])
+     (fun _ v z -> ((string_of_if1_value tm v)::z)) ls [])
 
 and string_of_symtab_gr_in in_gr =
   let
-    {nmap=nm;eset=ne;symtab=(ls,gs);typemap=(t,tm,tmn);w=tail} = in_gr in
+    {nmap=_;eset=_;symtab=(ls,_);typemap=(_,tm,_);w=_} = in_gr in
   (SM.fold
-     (fun k v z -> ((string_of_if1_value_in tm v)::z)) ls [])
+     (fun _ v z -> ((string_of_if1_value_in tm v)::z)) ls [])
 
 and string_of_symtab_gr_out in_gr =
   let
-    {nmap=nm;eset=ne;symtab=(ls,gs);typemap=(t,tm,tmn);w=tail} = in_gr in
+    {nmap=_;eset=_;symtab=(ls,_);typemap=(_,tm,_);w=_} = in_gr in
   (SM.fold
-     (fun k v z -> ((string_of_if1_value_out tm v)::z)) ls [])
+     (fun _ v z -> ((string_of_if1_value_out tm v)::z)) ls [])
 
 and string_of_typenames tmn =
   let tmn =
@@ -2256,7 +2252,7 @@ and string_of_triple_int_list zz =
   List.fold_left (fun zz (i,j,k) -> zz ^ (string_of_triple_int (i,j,k))) "" zz
 
 and string_of_graph ?(offset=0)
-{nmap=nm;eset=ne;symtab=sm;typemap=(t,tm,tmn);w=tail} =
+{nmap=nm;eset=ne;symtab=sm;typemap=(_,tm,tmn);w=tail} =
   cate_list_pad offset
     ("Graph {"::
        (string_of_node_map ~offset:(offset) nm)
@@ -2268,7 +2264,7 @@ and string_of_graph ?(offset=0)
         else [])
      @ ["} " ^ (string_of_int tail)]) "\n"
 
-and string_of_graph2 (ii,gr) = string_of_graph gr
+and string_of_graph2 (_,gr) = string_of_graph gr
 
 and graph_printer fmt gr =
   Format.fprintf fmt "-------\n%s\n" (string_of_graph ~offset:(2) gr)
@@ -2295,13 +2291,13 @@ and nmap_printer fmt nm =
     (cate_list (string_of_node_map nm) "\n")
 
 and outs_nmap
-  {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} =
+  {nmap=nm;eset=_;symtab=(_,_);typemap = _,_,_;w = _} =
   nmap_printer Format.std_formatter nm
 
 and symtab_printer fmt (cs,ps,tm) =
   Format.fprintf fmt "----------\n%s\n" (cate_list (string_of_symtab (cs,ps) tm) "\n")
 
-and outs_syms {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} =
+and outs_syms {nmap=_;eset=_;symtab=(cs,ps);typemap = _,tm,_;w = _} =
   symtab_printer Format.std_formatter (cs,ps,tm)
 
 let bind_name nam (n,p,ty) in_gr =
@@ -2323,7 +2319,7 @@ let get_symbol_id v in_gr =
     else
       if (SM.mem v ps = true) then (
         let {val_ty=t;val_name=vv_n;
-             val_def=aa;def_port=p} =
+             val_def=_;def_port=_} =
           SM.find v ps in
         let ap = boundary_in_port_count in_gr in
         let cs = SM.add v {val_ty=t;val_name=vv_n;
@@ -2331,7 +2327,7 @@ let get_symbol_id v in_gr =
         let in_gr = {nmap=nm;eset=es;symtab=(cs,ps);
                      typemap=ii,tm,tmn;w=i} in
         let {val_ty=t; val_name=_;
-             val_def=aa; def_port=p} =
+             val_def=aa; def_port=_} =
           SM.find v cs in
         (aa,ap,t),add_to_boundary_inputs ~namen:v 0 ap in_gr
       ) else (
@@ -2374,5 +2370,5 @@ let get_symbol_id_old v in_gr =
                   "Symbol not found in current or parent symtab: OLD " ^ v))
 
 let is_outer_var vv = function
-    {nmap=nm;eset=es;symtab=(cs,ps);typemap = ii,tm,tmn;w = i} ->
+    {nmap=_;eset=_;symtab=(_,ps);typemap =_ ;w = _} ->
     SM.mem vv ps
