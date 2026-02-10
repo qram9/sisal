@@ -1,5 +1,5 @@
 (executable
  (name main)
  (public_name sisal)
- (libraries fe ir unix))
+ (libraries fe ir to_if1 unix))
 
