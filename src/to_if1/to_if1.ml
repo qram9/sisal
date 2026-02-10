@@ -215,15 +215,7 @@ and union_builder in_gr utags iornone =
     | _ -> raise (If1.Sem_error "Internal compiler error")
   in
   let lll, in_gr = union_builder_impl in_gr utags in
-  let {
-    If1.nmap = _;
-    If1.eset = _;
-    If1.symtab = _;
-    If1.typemap = _, tm, _;
-    If1.w = _;
-  } =
-    in_gr
-  in
+  let tm = If1.get_typemap_tm in_gr in
   let hdty =
     If1.TM.fold
       (fun k v z ->
@@ -314,15 +306,7 @@ and record_builder in_gr fdl iornone =
   in
   (*field name must be matched *)
   let lll, in_gr = record_builder_impl ([], in_gr) fdl in
-  let {
-    If1.nmap = _;
-    If1.eset = _;
-    If1.symtab = _;
-    If1.typemap = _, tm, _;
-    If1.w = _;
-  } =
-    in_gr
-  in
+  let tm = If1.get_typemap_tm in_gr in
   let tty = get_tys lll [] in
   let aout = check_rec_ty tty tm [] in
   let aout =
@@ -390,30 +374,22 @@ and do_val_internal in_gr v =
       an 'old v' which may be used in
       for_initial bodies to keep copies
       from the previous iteration. *)
-  match in_gr with
-  | {
-   If1.nmap = _;
-   If1.eset = _;
-   If1.symtab = _, _;
-   If1.typemap = _, _, _;
-   If1.w = _;
-  } ->
-      let (nn, np, nty), in_gr =
-        match v with
-        | `Std10 v -> If1.get_symbol_id v in_gr
-        | `OldMob v -> If1.get_symbol_id_old v in_gr
-      in
-      let nn, np, nty =
-        match If1.get_node nn in_gr with
-        (* If the defining node is If1.MULTIARITY
+  let (nn, np, nty), in_gr =
+    match v with
+    | `Std10 v -> If1.get_symbol_id v in_gr
+    | `OldMob v -> If1.get_symbol_id_old v in_gr
+  in
+  let nn, np, nty =
+    match If1.get_node nn in_gr with
+    (* If the defining node is If1.MULTIARITY
           type, propagate its operand instead.
           Not recursive right now.*)
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            let nn, np, nty = If1.node_incoming_at_port nn np in_gr in
-            (nn, np, nty)
-        | _ -> (nn, np, nty)
-      in
-      ((nn, np, nty), in_gr)
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        let nn, np, nty = If1.node_incoming_at_port nn np in_gr in
+        (nn, np, nty)
+    | _ -> (nn, np, nty)
+  in
+  ((nn, np, nty), in_gr)
 
 and do_val in_gr = function
   (* Look up the node defining a variable *)
@@ -431,15 +407,7 @@ and extr_types in_gr = function
   (* Look up type of If1.MULTIARITY *)
   | (xx, yy, zz), res ->
       let res, in_gr =
-        let {
-          If1.nmap = nm;
-          If1.eset = _;
-          If1.symtab = _;
-          If1.typemap = _;
-          If1.w = _;
-        } =
-          in_gr
-        in
+        let nm = in_gr.If1.nmap in
         let myn = If1.NM.find xx nm in
         match myn with
         | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
@@ -452,15 +420,7 @@ and extr_types in_gr = function
       (res, in_gr)
 
 and first_incoming_type_to_multiarity e in_gr =
-  let {
-    If1.nmap = _;
-    If1.eset = pe;
-    If1.symtab = _;
-    If1.typemap = _;
-    If1.w = _;
-  } =
-    in_gr
-  in
+  let pe = in_gr.If1.eset in
   let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
   let _, _, t1 =
     try List.hd (If1.ES.elements edges)
@@ -470,15 +430,7 @@ and first_incoming_type_to_multiarity e in_gr =
   t1
 
 and first_incoming_triple_to_multiarity e in_gr =
-  let {
-    If1.nmap = _;
-    If1.eset = pe;
-    If1.symtab = _;
-    If1.typemap = _;
-    If1.w = _;
-  } =
-    in_gr
-  in
+  let pe = in_gr.If1.eset in
   let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
   let (x, xp), (_, _), aty =
     try List.hd (If1.ES.elements edges)
@@ -517,15 +469,8 @@ and add_exp in_gr ex _ ret_lis =
             (`Simple (If1.MULTIARITY, in_port_1, out_port_1, [ If1.Name "LET" ]))
             in_gr
         in
-        let {
-          If1.nmap = nm;
-          If1.eset = _;
-          If1.symtab = _, _;
-          If1.typemap = _;
-          If1.w = _;
-        } =
-          in_gr
-        in
+
+        let nm = in_gr.If1.nmap in
         let rec fold_away_multiarity_nodes alis oth_lis =
           (* Move CAR from alis to oth_lis, but only
              when CAR is non-If1.MULTIARITY *)
@@ -605,7 +550,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
             | [ hd; tl ] ->
                 (* Add each element in the exp to
                 a range generator graph.\n*)
-                bin_fun hd tl in_gr If1.RANGEGEN
+                bin_exp hd tl in_gr If1.RANGEGEN
             | [ hd ] ->
                 let (e, pi, t1), in_gr = do_simple_exp in_gr hd in
                 let (scatter, _, _), in_gr =
@@ -653,29 +598,24 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                 ^ " comma separated bounds.\n"))
       in
       let in_gr =
-        match in_gr with
-        | { If1.nmap; If1.eset; If1.symtab = sm, pm; If1.typemap = tm; If1.w }
-          -> (
-            match vn with
-            | Ast.Value_name vl ->
-                let v = String.concat "." vl in
+        let cs, ps = in_gr.If1.symtab in
+        match vn with
+        | Ast.Value_name vl ->
+            let v = String.concat "." vl in
 
-                {
-                  If1.nmap;
-                  If1.eset;
-                  If1.symtab =
-                    ( If1.SM.add v
-                        {
-                          If1.val_name = v;
-                          If1.val_ty = cc;
-                          If1.val_def = aa;
-                          If1.def_port = bb;
-                        }
-                        sm,
-                      pm );
-                  If1.typemap = tm;
-                  If1.w;
-                })
+            {
+              in_gr with
+              If1.symtab =
+                ( If1.SM.add v
+                    {
+                      If1.val_name = v;
+                      If1.val_ty = cc;
+                      If1.val_def = aa;
+                      If1.def_port = bb;
+                    }
+                    cs,
+                  ps );
+            }
       in
       let in_gr =
         If1.output_to_boundary
@@ -696,28 +636,23 @@ and do_in_exp ?(curr_level = 1) in_gr = function
         names in the index list. *)
       let (aa, bb, cc), in_gr = do_in_exp ~curr_level in_gr ie in
       let in_gr =
-        match in_gr with
-        | { If1.nmap; If1.eset; If1.symtab = sm, pm; If1.typemap = tm; If1.w }
-          -> (
-            match vns with
-            | Value_names v ->
-                {
-                  If1.nmap;
-                  If1.eset;
-                  If1.symtab =
-                    (let vv = List.nth v (curr_level - 1) in
-                     ( If1.SM.add vv
-                         {
-                           If1.val_name = vv;
-                           If1.val_ty = 5;
-                           If1.val_def = aa;
-                           If1.def_port = bb + 1;
-                         }
-                         sm,
-                       pm ));
-                  If1.typemap = tm;
-                  If1.w;
-                })
+        let cs, ps = in_gr.If1.symtab in
+        match vns with
+        | Value_names v ->
+            {
+              in_gr with
+              If1.symtab =
+                (let vv = List.nth v (curr_level - 1) in
+                 ( If1.SM.add vv
+                     {
+                       If1.val_name = vv;
+                       If1.val_ty = 5;
+                       If1.val_def = aa;
+                       If1.def_port = bb + 1;
+                     }
+                     cs,
+                   ps ));
+            }
       in
       let in_gr =
         If1.output_to_boundary
@@ -786,15 +721,7 @@ and get_ports_unified of_gr basis_gr parent_gr =
       List.fold_right
         (fun (_, xp, xn) f_gr ->
           if If1.is_outer_var xn parent_gr = true then
-            let {
-              If1.nmap = nm;
-              If1.eset = es;
-              If1.symtab = cs, ps;
-              If1.typemap = ttt;
-              If1.w = i;
-            } =
-              f_gr
-            in
+            let cs, ps = f_gr.If1.symtab in
             if If1.SM.mem xn ps = true then
               let {
                 If1.val_ty = t;
@@ -806,8 +733,7 @@ and get_ports_unified of_gr basis_gr parent_gr =
               in
               let f_gr =
                 {
-                  If1.nmap = nm;
-                  If1.eset = es;
+                  f_gr with
                   If1.symtab =
                     ( If1.SM.add xn
                         {
@@ -818,8 +744,6 @@ and get_ports_unified of_gr basis_gr parent_gr =
                         }
                         cs,
                       ps );
-                  If1.typemap = ttt;
-                  If1.w = i;
                 }
               in
               If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr
@@ -862,14 +786,7 @@ and do_for_all inexp bodyexp retexp in_gr =
         (1, aie) :: retl
   in
 
-  let generator_array_lowlim
-      {
-        If1.nmap = nm;
-        If1.eset = _;
-        If1.symtab = _, _;
-        If1.typemap = _;
-        If1.w = _;
-      } =
+  let generator_array_lowlim in_gr =
     (* Check if we have an If1.ASCATTER or
         Counted loop in the generator *)
     try
@@ -880,7 +797,7 @@ and do_for_all inexp bodyexp retexp in_gr =
              | If1.Simple (lab, If1.ASCATTER, _, _, _) ->
                  raise (If1.Val_is_found lab)
              | _ -> ooo)
-           nm 0)
+           in_gr.If1.nmap 0)
     with If1.Val_is_found xyz -> `AScatt xyz
   in
 
@@ -915,22 +832,7 @@ and do_for_all inexp bodyexp retexp in_gr =
     let gen_gr = get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr in
     let xyz, gen_gr = do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
     let gen_gr =
-      let {
-        If1.nmap;
-        If1.eset;
-        If1.symtab = umap, vmap;
-        If1.typemap = _;
-        If1.w;
-      } =
-        gen_gr
-      in
-      {
-        If1.nmap;
-        If1.eset;
-        If1.symtab = (umap, vmap);
-        If1.typemap = If1.get_merged_typeblob_gr in_gr gen_gr;
-        If1.w;
-      }
+      { gen_gr with If1.typemap = If1.get_merged_typeblob_gr in_gr gen_gr }
     in
     (xyz, gen_gr)
   in
@@ -1173,35 +1075,32 @@ and get_type_num in_gr = function
 
 and do_params_decl po in_gr z =
   match z with
-  | Ast.Decl_some (x, y) -> (
+  | Ast.Decl_some (x, y) ->
       let type_num, in_gr =
         try (get_type_num in_gr y, in_gr)
         with If1.Node_not_found _ ->
           let (id_t, _, _), in_gr = If1.add_sisal_type in_gr y in
           (id_t, in_gr)
       in
-      match in_gr with
-      | { If1.nmap; If1.eset; If1.symtab = u, v; If1.typemap = tm; If1.w } ->
-          let rec add_all_to_sm umap xli p q =
-            match xli with
-            | Ast.Decl_name hdx :: tlx ->
-                let sm_v =
-                  {
-                    If1.val_name = hdx;
-                    If1.val_ty = type_num;
-                    If1.val_def = 0;
-                    If1.def_port = p + po;
-                  }
-                in
-                add_all_to_sm (If1.SM.add hdx sm_v umap) tlx (p + 1) (hdx :: q)
-            | Decl_func _ :: _ ->
-                raise (If1.Sem_error "Ast.Function_header by assign TODO")
-            | [] -> (p, q, umap)
-          in
-          let p, q, u = add_all_to_sm u x 0 [] in
-          ( (p + po, q, type_num),
-            { If1.nmap; If1.eset; If1.symtab = (u, v); If1.typemap = tm; If1.w }
-          ))
+      let u, v = in_gr.If1.symtab in
+      let rec add_all_to_sm umap xli p q =
+        match xli with
+        | Ast.Decl_name hdx :: tlx ->
+            let sm_v =
+              {
+                If1.val_name = hdx;
+                If1.val_ty = type_num;
+                If1.val_def = 0;
+                If1.def_port = p + po;
+              }
+            in
+            add_all_to_sm (If1.SM.add hdx sm_v umap) tlx (p + 1) (hdx :: q)
+        | Decl_func _ :: _ ->
+            raise (If1.Sem_error "Ast.Function_header by assign TODO")
+        | [] -> (p, q, umap)
+      in
+      let p, q, u = add_all_to_sm u x 0 [] in
+      ((p + po, q, type_num), { in_gr with If1.symtab = (u, v) })
   | Decl_none _ -> raise (If1.Sem_error "Declaration must provide a type")
 
 and extract_types_from_decl_list dl =
@@ -1292,20 +1191,11 @@ and do_decldef in_gr delc =
                 pop_or_push_to_exp_stack expl exps in_gr
               in
               let in_gr = check_decl_type atyp expty in_gr in
-              let {
-                If1.nmap = nodemap;
-                If1.eset = edgeset;
-                If1.symtab = localsyms, globsyms;
-                If1.typemap = tymap;
-                If1.w = curw;
-              } =
-                in_gr
-              in
+              let localsyms, globsyms = in_gr.If1.symtab in
               ( expl,
                 exps,
                 {
-                  If1.nmap = nodemap;
-                  If1.eset = edgeset;
+                  in_gr with
                   If1.symtab =
                     ( If1.SM.add dechd
                         {
@@ -1316,8 +1206,6 @@ and do_decldef in_gr delc =
                         }
                         localsyms,
                       globsyms );
-                  If1.typemap = tymap;
-                  If1.w = curw;
                 } )
           | Decl_func dechd ->
               let (_, _, _), in_gr_ =
@@ -1403,15 +1291,7 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
               pop_or_push_to_exp_stack2 expl expl_rev exps in_gr
             in
             let in_gr = check_decl_type atyp expty in_gr in
-            let {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = localsyms, globsyms;
-              If1.typemap = tymap;
-              If1.w = curw;
-            } =
-              in_gr
-            in
+            let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add dechd
                 {
@@ -1422,15 +1302,7 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
                 }
                 localsyms
             in
-            let in_gr =
-              {
-                If1.nmap = nodemap;
-                If1.eset = edgeset;
-                If1.symtab = (localsyms, globsyms);
-                If1.typemap = tymap;
-                If1.w = curw;
-              }
-            in
+            let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
             (expl, expl_rev, dechd :: decl_rev, exps, in_gr)
         | Decl_func dechd ->
             let fn, _ =
@@ -1455,15 +1327,7 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
                 (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
                 in_gr
             in
-            let {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = localsyms, globsyms;
-              If1.typemap = tymap;
-              If1.w = curw;
-            } =
-              in_gr
-            in
+            let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add fn
                 {
@@ -1474,15 +1338,7 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
                 }
                 localsyms
             in
-            let in_gr =
-              {
-                If1.nmap = nodemap;
-                If1.eset = edgeset;
-                If1.symtab = (localsyms, globsyms);
-                If1.typemap = tymap;
-                If1.w = curw;
-              }
-            in
+            let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
             ( expl,
               (expnum, funport, funty) :: expl_rev,
               fn :: decl_rev,
@@ -1564,15 +1420,8 @@ and map_names_to_type decls atyp in_gr =
                   raise
                     (If1.Sem_error "Require types to be specified in let rec")
             in
-            let {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = localsyms, globsyms;
-              If1.typemap = tymap;
-              If1.w = curw;
-            } =
-              in_gr
-            in
+
+            let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add dechd
                 {
@@ -1584,13 +1433,7 @@ and map_names_to_type decls atyp in_gr =
                 }
                 localsyms
             in
-            {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = (localsyms, globsyms);
-              If1.typemap = tymap;
-              If1.w = curw;
-            }
+            { in_gr with If1.symtab = (localsyms, globsyms) }
         | Decl_func dechd ->
             let _ =
               match atyp with
@@ -1613,15 +1456,8 @@ and map_names_to_type decls atyp in_gr =
               If1.add_sisal_type in_gr
                 (Ast.Compound_type (Ast.Sisal_function_type (fn_name, tyy, tl)))
             in
-            let {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = localsyms, globsyms;
-              If1.typemap = tymap;
-              If1.w = curw;
-            } =
-              in_gr
-            in
+
+            let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add fn_name
                 {
@@ -1633,13 +1469,7 @@ and map_names_to_type decls atyp in_gr =
                 }
                 localsyms
             in
-            {
-              If1.nmap = nodemap;
-              If1.eset = edgeset;
-              If1.symtab = (localsyms, globsyms);
-              If1.typemap = tymap;
-              If1.w = curw;
-            }
+            { in_gr with If1.symtab = (localsyms, globsyms) }
       in
       map_names_to_type dectl atyp in_gr
   | [] -> in_gr
@@ -1694,26 +1524,14 @@ and do_function_name in_gr = function
 
 and do_arg in_gr = function Ast.Arg e -> do_exp in_gr e
 
-and find_an_union_ty iiee
-    {
-      If1.nmap = _;
-      If1.eset = _;
-      If1.symtab = _;
-      If1.typemap = _, tmn, _;
-      If1.w = _;
-    } =
+and find_an_union_ty iiee in_gr =
+  let tmn = If1.get_typemap_tm in_gr in
   match If1.TM.find iiee tmn with
   | If1.Union (lt, _, _) -> lt
   | _ -> raise (If1.Node_not_found "If1.Union type expected")
 
-and enumerate_union_tags iiee
-    {
-      If1.nmap = _;
-      If1.eset = _;
-      If1.symtab = _;
-      If1.typemap = _, tmn, _;
-      If1.w = _;
-    } =
+and enumerate_union_tags iiee in_gr =
+  let tmn = If1.get_typemap_tm in_gr in
   let rec lookup_tags mmm tmn tag_l =
     match If1.TM.find mmm tmn with
     | If1.Union (_, nxt, _) ->
@@ -1721,16 +1539,6 @@ and enumerate_union_tags iiee
     | _ -> raise (If1.Node_not_found "If1.Union type expected")
   in
   lookup_tags iiee tmn []
-
-and find_any_ty iii
-    {
-      If1.nmap = _;
-      If1.eset = _;
-      If1.symtab = _;
-      If1.typemap = _, tmn, _;
-      If1.w = _;
-    } =
-  If1.TM.find iii tmn
 
 and find_matching_union_str eee tm =
   If1.TM.fold
@@ -1745,15 +1553,8 @@ and find_matching_union_str eee tm =
     tm If1.Emp
 
 and get_new_tagcase_graph in_gr vntt e =
-  let {
-    If1.nmap = nmm;
-    If1.eset = ees;
-    If1.symtab = cs, ps;
-    If1.typemap = tyblob;
-    If1.w = tail;
-  } =
-    If1.get_a_new_graph in_gr
-  in
+  let tagcase_gr_n = If1.get_a_new_graph in_gr in
+  let cs, ps = tagcase_gr_n.If1.symtab in
   (* We can only add the tagcase If1.Name
       to matched variants. Otherwise
       cannot have access to the union's
@@ -1763,8 +1564,7 @@ and get_new_tagcase_graph in_gr vntt e =
     match vntt with
     | `AnyTag (vn_n, uniontt, _) ->
         {
-          If1.nmap = nmm;
-          If1.eset = ees;
+          tagcase_gr_n with
           If1.symtab =
             ( If1.SM.add vn_n
                 {
@@ -1775,17 +1575,8 @@ and get_new_tagcase_graph in_gr vntt e =
                 }
                 cs,
               ps );
-          If1.typemap = tyblob;
-          If1.w = tail;
         }
-    | `OtherwiseTag ->
-        {
-          If1.nmap = nmm;
-          If1.eset = ees;
-          If1.symtab = (cs, ps);
-          If1.typemap = tyblob;
-          If1.w = tail;
-        }
+    | `OtherwiseTag -> tagcase_gr_n
   in
   (* There may be an expression list
       returning multiple values in the
@@ -1852,14 +1643,9 @@ and check_subgr_tys _ jj prev =
   in
   do_in_loop 0 (If1.IntMap.cardinal jj) jj prev
 
-and boundary_node_lookup
-    {
-      If1.nmap = _;
-      If1.eset = pe;
-      If1.symtab = _, ps;
-      If1.typemap = _;
-      If1.w = _;
-    } =
+and boundary_node_lookup in_gr =
+  let pe = in_gr.If1.eset in
+  let ps = snd in_gr.If1.symtab in
   let in_lists =
     If1.ES.fold
       (fun ((x, p), (_, _), _) y -> if x = 0 then (x, p) :: y else y)
@@ -1909,24 +1695,11 @@ and new_graph_for_tag_case vn_n t1 in_gr =
       into the parent If1.symtab to initialize
       a new graph. *)
   let tagcase_gr_ = If1.get_symtab_for_new_scope in_gr in
-  let {
-    If1.nmap = _;
-    If1.eset = _;
-    If1.symtab = cs, ps;
-    If1.typemap = tmm;
-    If1.w = _;
-  } =
-    tagcase_gr_
-  in
-  let {
-    If1.nmap = nm;
-    If1.eset = ne;
-    If1.symtab = _;
-    If1.typemap = _;
-    If1.w = tail;
-  } =
-    If1.get_a_new_graph tagcase_gr_
-  in
+
+  let cs, ps = tagcase_gr_.symtab in
+  let tmm = tagcase_gr_.typemap in
+
+  let a_new_gr = If1.get_a_new_graph tagcase_gr_ in
   (* add the tagcase's variable name, for example:
       tagcase "P", add P *)
   (* need a new graph here in a compound node *)
@@ -1940,13 +1713,7 @@ and new_graph_for_tag_case vn_n t1 in_gr =
       }
       cs
   in
-  {
-    If1.nmap = nm;
-    If1.eset = ne;
-    If1.symtab = (cs, ps);
-    If1.typemap = tmm;
-    If1.w = tail;
-  }
+  { a_new_gr with If1.symtab = (cs, ps); If1.typemap = tmm }
 
 and lookup_tag_nums tagn tm outs =
   match tagn with
@@ -1996,15 +1763,7 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
       let jj, prags, tagcase_gr_i, nums =
         match hde with
         | Ast.Tag_list (Tagnames tns, e) ->
-            let {
-              If1.nmap = _;
-              If1.eset = _;
-              If1.symtab = _;
-              If1.typemap = _, tm, _;
-              If1.w = _;
-            } =
-              tagcase_g
-            in
+            let tm = If1.get_typemap_tm tagcase_g in
             let nums = lookup_tag_nums tns tm [] in
             (* tag labels that are being matched *)
             let a_tag_ty =
@@ -2115,11 +1874,11 @@ and unary_internal nou e pi t1 in_gr node_tag =
   let in_gr = If1.add_edge e pi z 0 t1 in_gr in
   ((z, 0, t1), in_gr)
 
-and unary_fun nou in_gr e node_tag =
+and unary_exp nou in_gr e node_tag =
   let (e, pi, t1), in_gr = do_simple_exp in_gr e in
   unary_internal nou e pi t1 in_gr node_tag
 
-and bin_fun a b in_gr node_tag =
+and bin_exp a b in_gr node_tag =
   let get_simple_bin in_gr node_tag =
     let in_port_2 =
       let in_array = Array.make 2 "" in
@@ -2214,53 +1973,36 @@ and point_edges_to_boundary frm elp elt in_gr =
   | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
       (*In case frm is a If1.MULTIARITY, redirect
       incoming edges to the boundary node.*)
-      let {
-        If1.nmap = nm;
-        If1.eset = pe;
-        If1.symtab = sm;
-        If1.typemap = tm;
-        If1.w = pi;
-      } =
-        in_gr
-      in
+      let pe = in_gr.If1.eset in
       let unwanted_edges = If1.all_edges_ending_at frm in_gr in
       let nes = pe in
       let red_nes, _ = If1.redirect_edges 0 unwanted_edges in
       let nes = If1.ES.union nes red_nes in
-      let in_gr =
-        {
-          If1.nmap = nm;
-          If1.eset = nes;
-          If1.symtab = sm;
-          If1.typemap = tm;
-          If1.w = pi;
-        }
-      in
-      in_gr
+      { in_gr with If1.eset = nes }
   | _ -> If1.add_edge frm elp 0 0 elt in_gr
 
 and create_bool_bin_op a b in_gr op =
-  let (nod_num, nod_po, _), in_gr = bin_fun a b in_gr op in
+  let (nod_num, nod_po, _), in_gr = bin_exp a b in_gr op in
   (*Return 1 for If1.BOOLEAN TYPE*)
   ((nod_num, nod_po, If1.lookup_tyid If1.BOOLEAN), in_gr)
 
 and create_bool_unary_op nou a in_gr op =
-  let (nod_num, nod_po, _), in_gr = unary_fun nou a in_gr op in
+  let (nod_num, nod_po, _), in_gr = unary_exp nou a in_gr op in
   ((nod_num, nod_po, If1.lookup_tyid If1.BOOLEAN), in_gr)
 
 and do_simple_exp in_gr in_sim_ex =
   match in_sim_ex with
   | Constant x -> do_constant in_gr x
-  | Negate e -> unary_fun 1 in_gr e NEGATE
-  | Pipe (a, b) -> bin_fun a b in_gr ACATENATE
-  | Divide (a, b) -> bin_fun a b in_gr DIVIDE
+  | Negate e -> unary_exp 1 in_gr e NEGATE
+  | Pipe (a, b) -> bin_exp a b in_gr ACATENATE
+  | Divide (a, b) -> bin_exp a b in_gr DIVIDE
   | Lambda _ -> raise (If1.Sem_error "TBD LAMBDA ")
-  | Multiply (a, b) -> bin_fun a b in_gr TIMES
-  | Subtract (a, b) -> bin_fun a b in_gr SUBTRACT
-  | Add (a, b) -> bin_fun a b in_gr ADD
-  | And (a, b) -> bin_fun a b in_gr AND
-  | Or (a, b) -> bin_fun a b in_gr OR
-  | Not e -> unary_fun 1 in_gr e NOT
+  | Multiply (a, b) -> bin_exp a b in_gr TIMES
+  | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
+  | Add (a, b) -> bin_exp a b in_gr ADD
+  | And (a, b) -> bin_exp a b in_gr AND
+  | Or (a, b) -> bin_exp a b in_gr OR
+  | Not e -> unary_exp 1 in_gr e NOT
   | Not_equal (a, b) -> create_bool_bin_op a b in_gr NOT_EQUAL
   | Equal (a, b) -> create_bool_bin_op a b in_gr EQUAL
   | Lesser_equal (a, b) -> create_bool_bin_op a b in_gr LESSER_EQUAL
@@ -2363,15 +2105,7 @@ and do_simple_exp in_gr in_sim_ex =
               ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
           | _ ->
               let _ =
-                let {
-                  If1.nmap = _;
-                  If1.eset = _;
-                  If1.symtab = cs, ps;
-                  If1.typemap = _;
-                  If1.w = _;
-                } =
-                  in_gr
-                in
+                let cs, ps = in_gr.If1.symtab in
                 try If1.SM.find (String.concat "." f) cs
                 with Not_found -> (
                   try If1.SM.find (String.concat "." f) ps
@@ -2701,15 +2435,7 @@ and do_simple_exp in_gr in_sim_ex =
         when the expected tag does not match with
         any of the tags of the If1.union ty- we will have
         to do this later on. *)
-      let {
-        If1.nmap = _;
-        If1.eset = _;
-        If1.symtab = _;
-        If1.typemap = _, tm, _;
-        If1.w = _;
-      } =
-        in_gr
-      in
+      let tm = If1.get_typemap_tm in_gr in
       let tn_ty =
         match find_matching_union_str tag_nam tm with
         | If1.Emp -> raise (If1.Node_not_found "Unknown tag in an If1.union")
@@ -2868,18 +2594,11 @@ and do_simple_exp in_gr in_sim_ex =
           if_builder cl (0, 0, 0) regar el 0 []
         in
         let boundary_ooo =
-          match regar with
-          | {
-           If1.nmap = nm;
-           If1.eset = _;
-           If1.symtab = _;
-           If1.typemap = _;
-           If1.w = _;
-          } -> (
-              match If1.NM.find 0 nm with
-              | If1.Boundary (_, [ (pn, _); (else_n, _); (then_n, _) ], _) ->
-                  [ 3; pn; else_n; then_n ]
-              | _ -> [])
+          let nm = regar.If1.nmap in
+          match If1.NM.find 0 nm with
+          | If1.Boundary (_, [ (pn, _); (else_n, _); (then_n, _) ], _) ->
+              [ 3; pn; else_n; then_n ]
+          | _ -> []
         in
         let (sn, _, _), in_gr =
           If1.add_node_2
@@ -2909,15 +2628,7 @@ and do_simple_exp in_gr in_sim_ex =
         in
         let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
         let _, out_gr =
-          let {
-            If1.nmap = _;
-            If1.eset = _;
-            If1.symtab = cs, _;
-            If1.typemap = _;
-            If1.w = _;
-          } =
-            out_gr
-          in
+          let cs = fst out_gr.If1.symtab in
           If1.SM.fold
             (fun _
                  {
@@ -3069,29 +2780,23 @@ and do_simple_exp in_gr in_sim_ex =
       loopAOrB i in_gr
 
 and find_in_graph_from_pragma in_gr namen =
-  match in_gr with
-  | {
-   If1.nmap = nm;
-   If1.eset = _;
-   If1.symtab = _;
-   If1.typemap = _, _, _;
-   If1.w = tail;
-  } ->
-      let rec gen_gr tl =
-        if tl = tail then `Nth
-        else
-          let agr = If1.NM.find tl nm in
-          match agr with
-          | Compound (lab, sy, _, pl, g, assoc) ->
-              if
-                (try List.hd pl
-                 with _ -> raise (If1.Sem_error "Error lowering for pragma"))
-                = If1.Name namen
-              then `Found_one (lab, sy, pl, g, assoc)
-              else gen_gr (tl + 1)
-          | _ -> gen_gr (tl + 1)
-      in
-      gen_gr 0
+  let tail = in_gr.If1.w in
+  let nm = in_gr.If1.nmap in
+  let rec gen_gr tl =
+    if tl = tail then `Nth
+    else
+      let agr = If1.NM.find tl nm in
+      match agr with
+      | Compound (lab, sy, _, pl, g, assoc) ->
+          if
+            (try List.hd pl
+             with _ -> raise (If1.Sem_error "Error lowering for pragma"))
+            = If1.Name namen
+          then `Found_one (lab, sy, pl, g, assoc)
+          else gen_gr (tl + 1)
+      | _ -> gen_gr (tl + 1)
+  in
+  gen_gr 0
 
 and do_return_exp in_gr = function
   | Ast.Value_of (reduc_dir, reduc_name, expn) ->
@@ -3480,19 +3185,10 @@ and do_internals iin_gr f =
       let (_, _, fn_ty), new_fun_gr_ =
         do_function_header (If1.get_a_new_graph in_gr) header
       in
-      let {
-        If1.nmap = nodemap;
-        If1.eset = edgeset;
-        If1.symtab = localsyms, globsyms;
-        If1.typemap = tymap;
-        If1.w = curw;
-      } =
-        in_gr
-      in
+      let localsyms, globsyms = If1.get_symtab in_gr in
       let in_gr =
         {
-          If1.nmap = nodemap;
-          If1.eset = edgeset;
+          in_gr with
           If1.symtab =
             ( If1.SM.add
                 (String.concat "." fn_name)
@@ -3505,23 +3201,12 @@ and do_internals iin_gr f =
                 }
                 localsyms,
               globsyms );
-          If1.typemap = tymap;
-          If1.w = curw;
         }
       in
-      let {
-        If1.nmap = nodemap;
-        If1.eset = edgeset;
-        If1.symtab = localsyms, globsyms;
-        If1.typemap = tymap;
-        If1.w = curw;
-      } =
-        new_fun_gr_
-      in
+      let localsyms, globsyms = If1.get_symtab new_fun_gr_ in
       let new_fun_gr_ =
         {
-          If1.nmap = nodemap;
-          If1.eset = edgeset;
+          new_fun_gr_ with
           If1.symtab =
             ( localsyms,
               If1.SM.add
@@ -3534,14 +3219,17 @@ and do_internals iin_gr f =
                   If1.def_port = 0;
                 }
                 globsyms );
-          If1.typemap = tymap;
-          If1.w = curw;
         }
       in
       let (_, _, _), new_fun_gr_ =
         If1.add_each_in_list new_fun_gr_ tdefs 0 do_type_def
       in
       let _, new_fun_gr_ = do_internals ([], new_fun_gr_) nest in
+      print_endline
+        ("LOCAL and GLOBAL for each fun " ^ Ast.str_function_header header);
+      If1.outs_syms new_fun_gr_;
+      print_endline "ORIGIN SYMS";
+      If1.outs_syms in_gr;
       let _, new_fun_gr_ =
         match e with
         | Ast.Exp elis ->
@@ -3563,18 +3251,9 @@ and do_internals iin_gr f =
           in_gr
       in
       let in_gr =
-        let {
-          If1.nmap = nodemap;
-          If1.eset = edgeset;
-          If1.symtab = localsyms, globsyms;
-          If1.typemap = tymap;
-          If1.w = curw;
-        } =
-          in_gr
-        in
+        let localsyms, globsyms = If1.get_symtab in_gr in
         {
-          If1.nmap = nodemap;
-          If1.eset = edgeset;
+          in_gr with
           If1.symtab =
             ( If1.SM.add
                 (String.concat "." fn_name)
@@ -3586,8 +3265,6 @@ and do_internals iin_gr f =
                 }
                 localsyms,
               globsyms );
-          If1.typemap = tymap;
-          If1.w = curw;
         }
       in
       do_internals (names @ [ fn_name ], in_gr) tl
@@ -3604,15 +3281,7 @@ and do_function_header in_gr = function
       If1.add_sisal_type in_gr
         (Ast.Compound_type (Ast.Sisal_function_type ("", [], tl)))
   | Ast.Function_header (Ast.Function_name fn, decls, tl) ->
-      let {
-        If1.nmap = nm;
-        If1.eset = es;
-        If1.symtab = cs, ps;
-        If1.typemap = yy, tm, tmn;
-        If1.w = i;
-      } =
-        in_gr
-      in
+      let nm = in_gr.If1.nmap in
       let nm =
         If1.NM.add 0
           (let bound_node = If1.NM.find 0 nm in
@@ -3622,15 +3291,7 @@ and do_function_header in_gr = function
            | _ -> bound_node)
           nm
       in
-      let in_gr =
-        {
-          If1.nmap = nm;
-          If1.eset = es;
-          If1.symtab = (cs, ps);
-          If1.typemap = (yy, tm, tmn);
-          If1.w = i;
-        }
-      in
+      let in_gr = { in_gr with If1.nmap = nm } in
       let tyy = extract_types_from_decl_list decls in
       let _, (_, _, _), in_gr =
         let rec addeach_decl in_gr decls lasti bi q =
