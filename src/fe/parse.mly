@@ -1,25 +1,15 @@
 %{
-        (*
-exception ParseErr of string
-*)
 
 open Ir.Ast
      (*open Lexing*)
      (*open Parsing*)
-
-    (*
-let debug_level = ref 3
-let error msg start finish =
-        Printf.sprintf "(line %d: char %d..%d): %s" start.pos_lnum
-    (start.pos_cnum -start.pos_bol) (finish.pos_cnum - finish.pos_bol) msg
+  let debug_level = ref 3
 
 let parse_msg level fmt =
-        let print_at_level str
-    = if !debug_level >= level
-    then print_string str in
+  let print_at_level str = 
+    if !debug_level >= level then (print_string str; print_newline ()) 
+  in
   Format.ksprintf print_at_level fmt
-  *)
-
      %}
 
 %token AS
@@ -48,7 +38,15 @@ let parse_msg level fmt =
 %token SHR
 %token<string> PREDEF_FN
 %token<int> INT
+%token<int> BYTE
+%token<int> UBYTE
+%token<int> UCHAR
+%token<int> UINT
+%token<int> SHORT
+%token<int> USHORT
 %token<float> FLOAT
+%token<float> DOUBLE
+%token<float> HALF
 %token ANDKW
 %token ARRAY
 %token AT
@@ -82,6 +80,12 @@ let parse_msg level fmt =
 %token OF
 %token OLD
 %token OTHERWISE
+%token UINT_TY
+%token BYTE_TY
+%token HALF_TY
+%token SHORT_TY
+%token USHORT_TY
+%token UBYTE_TY
 %token REAL
 %token RECORD
 %token REPEAT
@@ -134,10 +138,66 @@ let parse_msg level fmt =
 %token PLUS
 %token MINUS
 %token STAR
+%token<string> SWIZZLE
 %token DIVIDE
+%token BYTE2_TY
+%token CHAR2_TY
+%token HALF2_TY
+%token SHORT2_TY
+%token INT2_TY
+%token FLOAT2_TY
+%token DOUBLE2_TY
+%token UINT2_TY
+%token UBYTE2_TY
+%token USHORT2_TY
+%token BYTE3_TY
+%token CHAR3_TY
+%token HALF3_TY
+%token SHORT3_TY
+%token INT3_TY
+%token FLOAT3_TY
+%token DOUBLE3_TY
+%token UINT3_TY
+%token UBYTE3_TY
+%token USHORT3_TY
+%token BYTE4_TY
+%token CHAR4_TY
+%token HALF4_TY
+%token SHORT4_TY
+%token INT4_TY
+%token FLOAT4_TY
+%token DOUBLE4_TY
+%token UINT4_TY
+%token UBYTE4_TY
+%token USHORT4_TY
+%token BYTE8_TY
+%token CHAR8_TY
+%token HALF8_TY
+%token SHORT8_TY
+%token INT8_TY
+%token FLOAT8_TY
+%token DOUBLE8_TY
+%token UINT8_TY
+%token UBYTE8_TY
+%token USHORT8_TY
+%token BYTE16_TY
+%token CHAR16_TY
+%token HALF16_TY
+%token SHORT16_TY
+%token INT16_TY
+%token FLOAT16_TY
+%token DOUBLE16_TY
+%token UINT16_TY
+%token UBYTE16_TY
+%token USHORT16_TY
+%token MAT2_TY
+%token MAT3_TY
+%token MAT4_TY
 %left LT GT EQ NE LE GE PIPE AND OR
 %left PLUS MINUS
 %left STAR DIVIDE
+%left DOT
+%left SWIZZLE
 %nonassoc UMINUS
 %type <Ir.Ast.compilation_unit> main
 %start main
@@ -330,6 +390,35 @@ function_name_list :
       { $1 }
 |  array_ref
     { $1 }
+|   e = primary_part2 s = SWIZZLE 
+      { Swizzle(e, s) }
+  /* --- 2. Vector & Matrix Constructors --- */
+
+| v = vec_type LPAREN e = expression RPAREN 
+    { 
+      let args_list = match e with
+        | Exp el -> el
+        | Empty  -> 
+            let _ = parse_msg 1 "Error: Vector/Matrix constructors cannot be empty" in
+            raise Parsing.Parse_error 
+      in
+      (* Convert simple_exp list to exp list by wrapping each in Exp container *)
+      let boxed_args = List.map (fun s -> Exp [s]) args_list in
+      Vec(v, boxed_args)
+    }
+
+| m = mat_type LPAREN e = expression RPAREN 
+    { 
+      let args_list = match e with
+        | Exp el -> el
+        | Empty  -> 
+            let _ = parse_msg 1 "Error: Matrix constructors cannot be empty" in
+            raise Parsing.Parse_error 
+      in
+      let boxed_args = List.map (fun s -> Exp [s]) args_list in
+      Mat(m, boxed_args)
+    }
+
 |   array_generator
     { $1 }
 |   stream_generator
@@ -679,8 +768,20 @@ constant : FALSE
   { Int $1 }
 | FLOAT
   { Float $1 }
+| UINT
+  { Uint $1 }
+| BYTE
+  { Byte $1 }
+| UBYTE
+  { Ubyte $1}
+| SHORT
+  { Short $1}
+| USHORT
+   { Ushort $1 }
 | CHAR
   { Char $1 }
+| UCHAR
+  { Uchar $1 }
 | STRING
   { String $1 }
 | ERROR LBRACK type_spec RBRACK
@@ -701,26 +802,60 @@ type_spec : basic_type_spec
   { Compound_type $1 }
 |   type_name
   { Type_name $1  }
+|   v = vec_type 
+    { Vec_ty v }
+|   m = mat_type 
+    { Mat_ty m }
 ;
+
 type_name : NAME
     { $1  }
 ;
 
 basic_type_spec :
-  BOOLEAN
-    { Boolean }
-| CHARACTER
-  { Character }
-| DOUBLE_REAL
-  { Double_real }
-| INTEGER
-  { Integer }
-| NULL
-  { Null }
-| REAL
-  { Real }
+  BOOLEAN         { Boolean }
+| CHARACTER       { Character }
+| DOUBLE_REAL     { Double_real }
+| INTEGER         { Integer }
+| NULL            { Null }
+| REAL            { Real }
+| BYTE_TY            { Byte_ty}
+| HALF_TY            { Half_ty }
+| UINT_TY            { Uint_ty }
+| SHORT_TY           { Short_ty }
+| USHORT_TY          { Ushort_ty }
+| UBYTE_TY           { Ubyte_ty }
+| DOUBLE          { Double_real } 
 ;
 
+mat_type:
+        | MAT2_TY { Mat2 }
+        | MAT3_TY { Mat3}
+        | MAT4_TY { Mat4}
+;
+
+vec_type:
+  | BYTE2_TY    { Byte2 }   | BYTE3_TY    { Byte3 }   | BYTE4_TY    { Byte4 }
+  | BYTE8_TY    { Byte8 }   | BYTE16_TY   { Byte16 }
+  | CHAR2_TY    { Char2 }   | CHAR3_TY    { Char3 }   | CHAR4_TY    { Char4 }
+  | CHAR8_TY    { Char8 }   | CHAR16_TY   { Char16 }
+  | HALF2_TY    { Half2 }   | HALF3_TY    { Half3 }   | HALF4_TY    { Half4 }
+  | HALF8_TY    { Half8 }   | HALF16_TY   { Half16 }
+  | SHORT2_TY   { Short2 }  | SHORT3_TY   { Short3 }  | SHORT4_TY   { Short4 }
+  | SHORT8_TY   { Short8 }  | SHORT16_TY  { Short16 }
+  | INT2_TY     { Int2 }    | INT3_TY     { Int3 }    | INT4_TY     { Int4 }
+  | INT8_TY     { Int8 }    | INT16_TY    { Int16 }
+  | FLOAT2_TY   { Float2 }  | FLOAT3_TY   { Float3 }  | FLOAT4_TY   { Float4 }
+  | FLOAT8_TY   { Float8 }  | FLOAT16_TY  { Float16 }
+  | DOUBLE2_TY  { Double2 } | DOUBLE3_TY  { Double3 } | DOUBLE4_TY  { Double4 }
+  | DOUBLE8_TY  { Double8 } | DOUBLE16_TY { Double16 }
+  | UINT2_TY    { Uint2 }   | UINT3_TY    { Uint3 }   | UINT4_TY    { Uint4 }
+  | UINT8_TY    { Uint8 }   | UINT16_TY   { Uint16 }
+  | UBYTE2_TY   { Ubyte2 }  | UBYTE3_TY   { Ubyte3 }  | UBYTE4_TY   { Ubyte4 }
+  | UBYTE8_TY   { Ubyte8 }  | UBYTE16_TY  { Ubyte16 }
+  | USHORT2_TY  { Ushort2 } | USHORT3_TY  { Ushort3 } | USHORT4_TY  { Ushort4 }
+  | USHORT8_TY  { Ushort8 } | USHORT16_TY { Ushort16 }
+;
 names : names COMMA NAME
     { $3 :: $1 }
 |   NAME

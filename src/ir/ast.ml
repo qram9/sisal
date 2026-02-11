@@ -16,6 +16,10 @@ and decl = Decl_some of decl_id list * sisal_type | Decl_none of decl_id list
 and decl_id = Decl_name of string | Decl_func of function_header
 
 and simple_exp =
+  (* Graphics Vector Constructor vec4(1.0, 2.0, 3.0, 1.0) *)
+  | Vec of vec_type * exp list
+  | Mat of mat_type * exp list
+  | Swizzle of simple_exp * string
   | Constant of sisal_constant
   | Old of value_name
   | Val of value_name
@@ -120,8 +124,16 @@ and sisal_constant =
   | False
   | Nil
   | True
+  | Uint of int
+  | Short of int
+  | Ushort of int
+  | Byte of int
+  | Uchar of int
+  | Ubyte of int
   | Int of int
+  | Half of float
   | Float of float
+  | Double of float
   | Char of string
   | String of string
   | Error of sisal_type
@@ -135,8 +147,33 @@ and sisal_type =
   | Integer
   | Null
   | Real
+  | Uint_ty (* 32-bit *)
+  | Short_ty
+  | Ushort_ty (* 16-bit *)
+  | Byte_ty
+  | Ubyte_ty (* 8-bit  *)
+  | Half_ty
+  | Uchar_ty
   | Compound_type of compound_type
   | Type_name of type_name
+  | Vec_ty of vec_type
+  | Mat_ty of mat_type
+
+and vec_type =
+  (* Basic vector types *)
+  | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
+  | Uint2 | Ushort2 | Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3
+  | Uchar3 | Uint3 | Ubyte3 | Ushort3 | Byte4 | Char4 | Half4 | Short4 | Int4
+  | Float4 | Double4 | Uint4 | Ubyte4 | Uchar4 | Ushort4 | Byte8 | Char8 | Half8
+  | Short8 | Int8 | Float8 | Double8 | Uchar8 | Uint8 | Ubyte8 | Ushort8 | Byte16
+  | Char16 | Half16 | Short16 | Int16 | Float16 | Double16 | Uint16 | Uchar16
+ | Ubyte16 | Ushort16
+
+and mat_type =
+  (* --- Matrices --- *)
+  | Mat2
+  | Mat3
+  | Mat4
 
 and compound_type =
   | Sisal_array of sisal_type
@@ -272,17 +309,93 @@ and str_sisal_type = function
   | Integer -> "INTEGER"
   | Null -> "NULL"
   | Real -> "REAL"
+  | Byte_ty -> "BYTE"
+  | Half_ty -> "HALF"
+  | Uint_ty -> "UINT"
+  | Ushort_ty -> "USHORT"
+  | Short_ty -> "SHORT"
+  | Ubyte_ty -> "UBYTE"
+  | Uchar_ty -> "UCHAR"
   | Compound_type ct -> str_compound_type ct
   | Type_name ty -> ty
+  | Vec_ty vec_t -> str_vec_type vec_t
+  | Mat_ty mat_t -> str_mat_type mat_t
+
+and str_mat_type = function Mat2 -> "MAT2" | Mat3 -> "MAT3" | Mat4 -> "MAT4"
+
+and str_vec_type = function
+  | Byte2 -> "BYTE2"
+  | Half2 -> "HALF2"
+  | Short2 -> "SHORT2"
+  | Int2 -> "INT2"
+  | Float2 -> "FLOAT2"
+  | Double2 -> "DOUBLE2"
+  | Uint2 -> "UINT2"
+  | Ubyte2 -> "UBYTE2"
+  | Ushort2 -> "USHORT2"
+  | Byte3 -> "BYTE3"
+  | Half3 -> "HALF3"
+  | Short3 -> "SHORT3"
+  | Int3 -> "INT3"
+  | Float3 -> "FLOAT3"
+  | Double3 -> "DOUBLE3"
+  | Uint3 -> "UINT3"
+  | Ubyte3 -> "UBYTE3"
+  | Ushort3 -> "USHORT3"
+  | Byte4 -> "BYTE4"
+  | Half4 -> "HALF4"
+  | Short4 -> "SHORT4"
+  | Int4 -> "INT4"
+  | Float4 -> "FLOAT4"
+  | Double4 -> "DOUBLE4"
+  | Uint4 -> "UINT4"
+  | Ubyte4 -> "UBYTE4"
+  | Ushort4 -> "USHORT4"
+  | Byte8 -> "BYTE8"
+  | Half8 -> "HALF8"
+  | Short8 -> "SHORT8"
+  | Int8 -> "INT8"
+  | Float8 -> "FLOAT8"
+  | Double8 -> "DOUBLE8"
+  | Uint8 -> "UINT8"
+  | Ubyte8 -> "UBYTE8"
+  | Ushort8 -> "USHORT8"
+  | Byte16 -> "BYTE16"
+  | Half16 -> "HALF16"
+  | Short16 -> "SHORT16"
+  | Int16 -> "INT16"
+  | Float16 -> "FLOAT16"
+  | Double16 -> "DOUBLE16"
+  | Uint16 -> "UINT16"
+  | Ubyte16 -> "UBYTE16"
+  | Ushort16 -> "USHORT16"
+  | Char2 -> "CHAR2"
+  | Uchar2 -> "UCHAR2"
+  | Char3 -> "CHAR3"
+  | Uchar3 -> "UCHAR3"
+  | Char4 -> "CHAR4"
+  | Uchar4 -> "UCHAR4"
+  | Char8 -> "CHAR8"
+  | Uchar8 -> "UCHAR8"
+  | Char16 -> "CHAR16"
+  | Uchar16 -> "UCHAR16"
 
 and str_constant = function
   | False -> "FALSE"
   | Nil -> "NIL"
   | True -> "TRUE"
+  | Half h -> string_of_float h ^ "h"
   | Int i -> string_of_int i
-  | Float f -> string_of_float f
+  | Float f -> string_of_float f ^ "f"
   | Char st -> "\"" ^ st ^ "\""
   | String st -> "\"" ^ st ^ "\""
+  | Double d -> string_of_float d ^ "d"
+  | Uchar i -> string_of_int i 
+  | Uint i -> string_of_int i
+  | Short s -> string_of_int s
+  | Ushort s -> "0s" ^ string_of_int s
+  | Byte b -> "0b" ^ string_of_int b
+  | Ubyte b -> "0ub" ^ string_of_int b
   | Error st -> "ERROR [" ^ str_sisal_type st ^ "]"
 
 and str_val = function Value_name vl -> String.concat "." vl
@@ -336,10 +449,10 @@ and str_prefix_name = function
 
 and str_decldef ?(offset = 0) = function
   | Decldef (deca, expn) ->
-      comma_fold (List.map (str_decl ~offset) deca) ^ " := " ^ str_exp expn
+      (mypad1 offset (comma_fold (List.map (str_decl ~offset:(offset)) deca))) ^ " := " ^ str_exp expn
 
 and str_decldef_part ?(offset = 0) = function
-  | Decldef_part f -> semicolon_fold (List.map (str_decldef ~offset) f)
+  | Decldef_part f -> semicolon_newline_fold (List.map (str_decldef ~offset:(offset+2)) f)
 
 and str_decl_id ?(_offset = 0) = function
   | Decl_name nam -> nam
@@ -354,6 +467,20 @@ and str_decl ?(offset = 0) = function
 and str_function_name = function Function_name lf -> String.concat "." lf
 and str_arg = function Arg e -> str_exp e
 
+and str_vec_len = function
+| Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 
+| Uchar2 | Ushort2 | Uint2 -> "2"
+| Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3
+| Ubyte3 | Uchar3 | Ushort3 | Uint3 -> "3"
+| Byte4 | Char4 | Half4 | Short4 | Int4 -> "4"
+| Float4 | Double4 | Ubyte4 | Uchar4 | Ushort4 | Uint4 -> "4"
+| Byte8 | Char8 | Half8 | Short8 | Int8 | Float8 | Double8
+| Ubyte8 | Uchar8 | Ushort8 | Uint8 -> "8"
+| Byte16 | Char16 | Half16 | Short16 | Int16 | Float16 
+| Double16 | Ubyte16 | Uchar16 | Ushort16 | Uint16 -> "16"
+
+and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
+
 and str_simple_exp ?(offset = 0) = function
   | Constant x -> str_constant x
   | Old v -> "OLD " ^ str_val v
@@ -364,6 +491,11 @@ and str_simple_exp ?(offset = 0) = function
       "LAMBDA " ^ str_function_header header ^ "\n"
       ^ mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)
       ^ "\n" ^ mypad1 offset "END LAMBDA"
+  | Vec (vect, exp) ->
+      "VEC" ^ str_vec_len vect ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
+  | Mat (mat_t, exp) ->
+      "MAT" ^ str_mat_len mat_t ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
+  | Swizzle (exp, st) -> (str_simple_exp exp) ^ "." ^ st
   | Not e -> "~" ^ str_simple_exp e
   | Negate e -> "-" ^ str_simple_exp e
   | Pipe (a, b) -> str_simple_exp a ^ " || " ^ str_simple_exp b
@@ -424,7 +556,7 @@ and str_simple_exp ?(offset = 0) = function
   | Let (dp, e) ->
       "LET\n"
       ^ str_decldef_part ~offset:(offset + 2) dp
-      ^ " IN\n"
+      ^ "\n" ^ (mypad1 (offset+2) "IN\n")
       ^ mypad1 offset (str_exp ~offset e)
       ^ "\n" ^ mypad1 offset "END LET"
   | Tagcase (ae, tc, o) ->

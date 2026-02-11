@@ -127,6 +127,7 @@ let predef_fn_table =
     ]
 }
 let digit = ['0'-'9']
+let swizzle_chars = ['x' 'y' 'z' 'w' 'r' 'g' 'b' 'a' 's' 't' 'p' 'q' '0'-'9' 'a'-'f' 'A'-'F']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
           let dec = digit+
                     (*            let flonum = (['+' '-']?)*)
@@ -173,6 +174,7 @@ let match_string = ( string_chars
 
 and
   read_string buf = parse
+
                   | '\"'       { STRING buf }  (* Return the token with the buffer *)
                   | '\\' '\"'  { read_string (buf ^ "\"") lexbuf } (* Handle escaped quote *)
                   | '\\' 'n'   { read_string (buf ^ "\n") lexbuf } (* Handle escaped newline *)
@@ -183,70 +185,88 @@ and
 and sisal_lex = parse eof {
     EOF
   }
+              (* --- 1. Literal Suffixes --- *)
+              | digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ '.' digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ 'd' as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ 'h' as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+
+              (* --- 2. Swizzle Regex --- *)
+              (* Only matches if it starts with '.' and is followed by valid swizzle/OpenCL chars *)
+              | '.' (swizzle_chars+) as s { SWIZZLE(String.sub s 1 (String.length s - 1)) }
+
+              (* --- 3. Vector/Matrix Keywords --- *)
+              | "float2" { FLOAT2_TY } | "float3" { FLOAT3_TY } | "float4" { FLOAT4_TY }
+              | "char2"  { CHAR2_TY }  | "char3"  { CHAR3_TY }  | "char4"  { CHAR4_TY }
+              | "half2"  { HALF2_TY }  | "half4"  { HALF4_TY }  | "half8"  { HALF8_TY }
+              | "mat2"   { MAT2_TY }   | "mat3"   { MAT3_TY }   | "mat4"   { MAT4_TY }
+              (* Add other uint, byte, short, double variants here similarly *)
+
+
               | '%' {
                   padded_lex_msg 5 "_cmts:>\n";
                   read_comment lexbuf
                 }
               | '\"' { 
-                  padded_lex_msg 5 "_string: starting recursive read...>\n";
-                  read_string "" lexbuf 
-                }
+                padded_lex_msg 5 "_string: starting recursive read...>\n";
+                read_string "" lexbuf 
+              }
               | match_char as ch
-                {
-                  padded_lex_msg 5 "_char: %s>\n" ch;
-                  CHAR ch
-                }
+              {
+                padded_lex_msg 5 "_char: %s>\n" ch;
+                CHAR ch
+              }
               | ([' ' '\t'])+ as spaces {
                   padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
                   sisal_lex lexbuf
                 }
               | ('\n')  as mynewlines {
-                  padded_lex_msg 5 ": newline %c>\n" mynewlines;
-                  Lexing.new_line lexbuf;
-                  sisal_lex lexbuf
-                }
+                padded_lex_msg 5 ": newline %c>\n" mynewlines;
+                Lexing.new_line lexbuf;
+                sisal_lex lexbuf
+              }
               | flonum as f {
-                  padded_lex_msg 5 ": %s>\n" f;
-                  FLOAT (float_of_string f)
-                }
+                padded_lex_msg 5 ": %s>\n" f;
+                FLOAT (float_of_string f)
+              }
               | dec as d {
-                  padded_lex_msg 5 ": %s>\n" d;
-                  INT (int_of_string d)
-                }
+                padded_lex_msg 5 ": %s>\n" d;
+                INT (int_of_string d)
+              }
 
               | "INCLUDE" { 
-                  padded_lex_msg 5 "_include_start:>\n";
-                  (* Use our 'Bucket' worker to get the filename! *)
-                  match read_string "" lexbuf with
-                  | STRING file -> 
-                    let chan = open_in file in
-                    let new_lb = Lexing.from_channel chan in
-                    (* Tell the new belt its name for error messages *)
-                    new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
-                    include_stack := (lexbuf, chan) :: !include_stack;
-                    sisal_lex new_lb (* Teleport! *)
-                  | _ -> lex_error lexbuf
-                }
+                padded_lex_msg 5 "_include_start:>\n";
+                (* Use our 'Bucket' worker to get the filename! *)
+                match read_string "" lexbuf with
+                | STRING file -> 
+                  let chan = open_in file in
+                  let new_lb = Lexing.from_channel chan in
+                  (* Tell the new belt its name for error messages *)
+                  new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
+                  include_stack := (lexbuf, chan) :: !include_stack;
+                  sisal_lex new_lb (* Teleport! *)
+                | _ -> lex_error lexbuf
+              }
 
               | id as ident_or_kw {
-                  let lookup_name = String.uppercase_ascii ident_or_kw in
-                  try
-                    (* 1. Check the primary keyword table (IF, LET, etc.) *)
-                    let k = KeywordTable.find lookup_name keyword_table in
-                    padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
-                    k
-                  with Not_found ->
-                  try
-                    (* 2. Check the predefined functions (ABS, MAX, MIN) *)
-                    let f = KeywordTable.find lookup_name predef_fn_table in
-                    padded_lex_msg 5 ": Predef_fn:%s>\n" lookup_name;
-                    (* Ensure your parser token for this is PREDEF_FN or the specific token *)
-                    f 
-                  with Not_found ->
-                    (* 3. It's a user-defined variable name *)
-                    padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
-                    NAME lookup_name
-                }
+                let lookup_name = String.uppercase_ascii ident_or_kw in
+                try
+                  (* 1. Check the primary keyword table (IF, LET, etc.) *)
+                  let k = KeywordTable.find lookup_name keyword_table in
+                  padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
+                  k
+                with Not_found ->
+                try
+                  (* 2. Check the predefined functions (ABS, MAX, MIN) *)
+                  let f = KeywordTable.find lookup_name predef_fn_table in
+                  padded_lex_msg 5 ": Predef_fn:%s>\n" lookup_name;
+                  (* Ensure your parser token for this is PREDEF_FN or the specific token *)
+                  f 
+                with Not_found ->
+                  (* 3. It's a user-defined variable name *)
+                  padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
+                  NAME lookup_name
+              }
               | ',' {padded_lex_msg 5 " , >\n"; COMMA}
               | '"' ([^ '"']* as s) '"' { STRING s }
               | '.' {padded_lex_msg 5 " . >\n"; DOTSTOP}
@@ -273,9 +293,9 @@ and sisal_lex = parse eof {
               | '~' {padded_lex_msg 5 " ~ >\n"; NOT}
               | '&' {padded_lex_msg 5 " & >\n"; AND}
               | [';'] {
-                  padded_lex_msg 5 " ; >\n";
-                  SEMICOLON
-                } | _ {  lex_error lexbuf }
+                padded_lex_msg 5 " ; >\n";
+                SEMICOLON
+              } | _ {  lex_error lexbuf }
                 {
                   let get_lex_buf = Lexing.from_channel stdin
                 }
