@@ -1,0 +1,6 @@
+Define Main
+
+
+FUNCTION Main(MyPos : float4 returns float3)
+	MyPos.ywz
+	END FUNCTION

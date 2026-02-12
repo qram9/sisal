@@ -295,7 +295,7 @@ function_name_list :
     function_name LPAREN RETURNS type_list RPAREN
       { Function_header_nodec ($1, List.rev $4) }
 | function_name LPAREN declids_spec_list RETURNS type_list RPAREN
-    { let wrapped = List.map (fun (x,y) -> Decl_some (x,y) ) (List.rev $3) in
+    { let wrapped = List.map (fun (x,y) -> Decl_with_type (x,y) ) (List.rev $3) in
       Function_header ($1, wrapped, List.rev $5) }
   ;
 
@@ -907,15 +907,15 @@ decldef :
       Decldef ($1, $3) }
 |
 declids ASSIGN expression
-  { Decldef ([Decl_none $1], $3) }
+  { Decldef ([Decl_no_type (List.rev $1)], $3) }
 ;
 
 declids_list :
   | declids_list COMMA declids COLON type_spec
-    { Decl_some (List.rev $3, $5) :: (List.rev $1) }
+    { Decl_with_type (List.rev $3, $5) :: (List.rev $1) }
 
 | declids COLON type_spec
-  { [Decl_some (List.rev $1, $3)] }
+  { [Decl_with_type (List.rev $1, $3)] }
 
 ;
 
