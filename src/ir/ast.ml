@@ -12,7 +12,11 @@ and iterator_terminator =
 
 and iterator = Repeat of decldef_part
 and termination_test = While of exp | Until of exp
-and decl = Decl_some of decl_id list * sisal_type | Decl_none of decl_id list
+
+and decl =
+  | Decl_with_type of decl_id list * sisal_type
+  | Decl_no_type of decl_id list
+
 and decl_id = Decl_name of string | Decl_func of function_header
 
 and simple_exp =
@@ -161,13 +165,61 @@ and sisal_type =
 
 and vec_type =
   (* Basic vector types *)
-  | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
-  | Uint2 | Ushort2 | Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3
-  | Uchar3 | Uint3 | Ubyte3 | Ushort3 | Byte4 | Char4 | Half4 | Short4 | Int4
-  | Float4 | Double4 | Uint4 | Ubyte4 | Uchar4 | Ushort4 | Byte8 | Char8 | Half8
-  | Short8 | Int8 | Float8 | Double8 | Uchar8 | Uint8 | Ubyte8 | Ushort8 | Byte16
-  | Char16 | Half16 | Short16 | Int16 | Float16 | Double16 | Uint16 | Uchar16
- | Ubyte16 | Ushort16
+  | Byte2
+  | Char2
+  | Half2
+  | Short2
+  | Int2
+  | Float2
+  | Double2
+  | Ubyte2
+  | Uchar2
+  | Uint2
+  | Ushort2
+  | Byte3
+  | Char3
+  | Half3
+  | Short3
+  | Int3
+  | Float3
+  | Double3
+  | Uchar3
+  | Uint3
+  | Ubyte3
+  | Ushort3
+  | Byte4
+  | Char4
+  | Half4
+  | Short4
+  | Int4
+  | Float4
+  | Double4
+  | Uint4
+  | Ubyte4
+  | Uchar4
+  | Ushort4
+  | Byte8
+  | Char8
+  | Half8
+  | Short8
+  | Int8
+  | Float8
+  | Double8
+  | Uchar8
+  | Uint8
+  | Ubyte8
+  | Ushort8
+  | Byte16
+  | Char16
+  | Half16
+  | Short16
+  | Int16
+  | Float16
+  | Double16
+  | Uint16
+  | Uchar16
+  | Ubyte16
+  | Ushort16
 
 and mat_type =
   (* --- Matrices --- *)
@@ -390,7 +442,7 @@ and str_constant = function
   | Char st -> "\"" ^ st ^ "\""
   | String st -> "\"" ^ st ^ "\""
   | Double d -> string_of_float d ^ "d"
-  | Uchar i -> string_of_int i 
+  | Uchar i -> string_of_int i
   | Uint i -> string_of_int i
   | Short s -> string_of_int s
   | Ushort s -> "0s" ^ string_of_int s
@@ -449,35 +501,43 @@ and str_prefix_name = function
 
 and str_decldef ?(offset = 0) = function
   | Decldef (deca, expn) ->
-      (mypad1 offset (comma_fold (List.map (str_decl ~offset:(offset)) deca))) ^ " := " ^ str_exp expn
+      let chars_with_colon_eq =
+        mypad1 offset (comma_fold (List.map (str_decl ~offset) deca)) ^ " := "
+      in
+      chars_with_colon_eq ^ str_exp ~offset expn
 
 and str_decldef_part ?(offset = 0) = function
-  | Decldef_part f -> semicolon_newline_fold (List.map (str_decldef ~offset:(offset+2)) f)
+  | Decldef_part f ->
+      semicolon_newline_fold (List.map (str_decldef ~offset:(offset + 2)) f)
 
 and str_decl_id ?(_offset = 0) = function
   | Decl_name nam -> nam
   | Decl_func func -> str_function_header func
 
 and str_decl ?(offset = 0) = function
-  | Decl_some (x, y) ->
+  | Decl_with_type (x, y) ->
       comma_fold (List.map (str_decl_id ~_offset:offset) x)
       ^ ":" ^ str_sisal_type y
-  | Decl_none x -> comma_fold (List.map (str_decl_id ~_offset:offset) x)
+  | Decl_no_type x -> comma_fold (List.map (str_decl_id ~_offset:offset) x)
 
 and str_function_name = function Function_name lf -> String.concat "." lf
 and str_arg = function Arg e -> str_exp e
 
 and str_vec_len = function
-| Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 
-| Uchar2 | Ushort2 | Uint2 -> "2"
-| Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3
-| Ubyte3 | Uchar3 | Ushort3 | Uint3 -> "3"
-| Byte4 | Char4 | Half4 | Short4 | Int4 -> "4"
-| Float4 | Double4 | Ubyte4 | Uchar4 | Ushort4 | Uint4 -> "4"
-| Byte8 | Char8 | Half8 | Short8 | Int8 | Float8 | Double8
-| Ubyte8 | Uchar8 | Ushort8 | Uint8 -> "8"
-| Byte16 | Char16 | Half16 | Short16 | Int16 | Float16 
-| Double16 | Ubyte16 | Uchar16 | Ushort16 | Uint16 -> "16"
+  | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
+  | Ushort2 | Uint2 ->
+      "2"
+  | Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3 | Ubyte3 | Uchar3
+  | Ushort3 | Uint3 ->
+      "3"
+  | Byte4 | Char4 | Half4 | Short4 | Int4 -> "4"
+  | Float4 | Double4 | Ubyte4 | Uchar4 | Ushort4 | Uint4 -> "4"
+  | Byte8 | Char8 | Half8 | Short8 | Int8 | Float8 | Double8 | Ubyte8 | Uchar8
+  | Ushort8 | Uint8 ->
+      "8"
+  | Byte16 | Char16 | Half16 | Short16 | Int16 | Float16 | Double16 | Ubyte16
+  | Uchar16 | Ushort16 | Uint16 ->
+      "16"
 
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
 
@@ -495,7 +555,7 @@ and str_simple_exp ?(offset = 0) = function
       "VEC" ^ str_vec_len vect ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
   | Mat (mat_t, exp) ->
       "MAT" ^ str_mat_len mat_t ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
-  | Swizzle (exp, st) -> (str_simple_exp exp) ^ "." ^ st
+  | Swizzle (exp, st) -> str_simple_exp exp ^ "." ^ st
   | Not e -> "~" ^ str_simple_exp e
   | Negate e -> "-" ^ str_simple_exp e
   | Pipe (a, b) -> str_simple_exp a ^ " || " ^ str_simple_exp b
@@ -548,7 +608,7 @@ and str_simple_exp ?(offset = 0) = function
   | Prefix_operation (pn, e) -> str_prefix_name pn ^ "(" ^ str_exp e ^ ")"
   | Is_error e -> "IS ERROR (" ^ str_exp e ^ ")"
   | Let_rec (dp, e) ->
-      "LET REC\n"
+      "LET_REC\n"
       ^ str_decldef_part ~offset:(offset + 2) dp
       ^ " IN\n"
       ^ mypad1 offset (str_exp ~offset e)
@@ -556,7 +616,8 @@ and str_simple_exp ?(offset = 0) = function
   | Let (dp, e) ->
       "LET\n"
       ^ str_decldef_part ~offset:(offset + 2) dp
-      ^ "\n" ^ (mypad1 (offset+2) "IN\n")
+      ^ "\n"
+      ^ mypad1 (offset + 2) "IN\n"
       ^ mypad1 offset (str_exp ~offset e)
       ^ "\n" ^ mypad1 offset "END LET"
   | Tagcase (ae, tc, o) ->

@@ -247,6 +247,16 @@ and union_builder in_gr utags iornone =
   let in_gr = If1.add_edge edghd edgp bb t1 tty in_gr in
   ((bb, pp, aout), in_gr)
 
+and crack_swizzle_mask mask =
+  let char_to_int = function
+    | 'x' | 'r' | 's' | '0' -> 0
+    | 'y' | 'g' | 't' | '1' -> 1
+    | 'z' | 'b' | 'p' | '2' -> 2
+    | 'w' | 'a' | 'q' | '3' -> 3
+    | c -> failwith ("Invalid swizzle component: " ^ String.make 1 c)
+  in
+  List.init (String.length mask) (fun i -> char_to_int mask.[i])
+
 and check_rec_ty tty_lis tm outlis =
   (* Do a type check recursively *)
   (* beef this up *)
@@ -368,6 +378,24 @@ and do_constant in_gr xx =
       If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
   | Ast.Error _ ->
       raise (If1.Node_not_found "Error type- don't know what to do")
+  | Ast.Short s ->
+      If1.add_node_2 (`Literal (If1.SHORT, string_of_int s, out_port_1)) in_gr
+  | Ast.Ushort s ->
+      If1.add_node_2 (`Literal (If1.USHORT, string_of_int s, out_port_1)) in_gr
+  | Ast.Ubyte s ->
+      If1.add_node_2 (`Literal (If1.UBYTE, string_of_int s, out_port_1)) in_gr
+  | Ast.Byte s ->
+      If1.add_node_2 (`Literal (If1.BYTE, string_of_int s, out_port_1)) in_gr
+  | Ast.Uchar s ->
+      If1.add_node_2 (`Literal (If1.UCHAR, string_of_int s, out_port_1)) in_gr
+  | Ast.Uint s ->
+      If1.add_node_2 (`Literal (If1.UINT, string_of_int s, out_port_1)) in_gr
+  | Ast.Half f ->
+      If1.add_node_2 (`Literal (If1.HALF, string_of_float f, out_port_1)) in_gr
+  | Ast.Double f ->
+      If1.add_node_2
+        (`Literal (If1.DOUBLE, string_of_float f, out_port_1))
+        in_gr
 
 and do_val_internal in_gr v =
   (* 'v' may be a name of a variable or
@@ -1075,7 +1103,7 @@ and get_type_num in_gr = function
 
 and do_params_decl po in_gr z =
   match z with
-  | Ast.Decl_some (x, y) ->
+  | Ast.Decl_with_type (x, y) ->
       let type_num, in_gr =
         try (get_type_num in_gr y, in_gr)
         with If1.Node_not_found _ ->
@@ -1101,7 +1129,7 @@ and do_params_decl po in_gr z =
       in
       let p, q, u = add_all_to_sm u x 0 [] in
       ((p + po, q, type_num), { in_gr with If1.symtab = (u, v) })
-  | Decl_none _ -> raise (If1.Sem_error "Declaration must provide a type")
+  | Decl_no_type _ -> raise (If1.Sem_error "Declaration must provide a type")
 
 and extract_types_from_decl_list dl =
   List.fold_left
@@ -1109,8 +1137,8 @@ and extract_types_from_decl_list dl =
       dlz
       @
       match dlx with
-      | Ast.Decl_some (x, aty) -> List.map (fun _ -> aty) x
-      | Decl_none _ ->
+      | Ast.Decl_with_type (x, aty) -> List.map (fun _ -> aty) x
+      | Decl_no_type _ ->
           raise
             (If1.Sem_error
                "Declaration without a type spec is not allowed in this context"))
@@ -1136,12 +1164,12 @@ and do_decldef in_gr delc =
   (* let check_decl_type *)
   and do_each_decl alldecls exps expl in_gr =
     match alldecls with
-    | Ast.Decl_some (decls, atype) :: decllist_tail ->
+    | Ast.Decl_with_type (decls, atype) :: decllist_tail ->
         let expl, exps, in_gr =
           bind_exp_to_decl expl exps decls (Some atype) in_gr
         in
         do_each_decl decllist_tail exps expl in_gr
-    | Decl_none decls :: decllist_tail ->
+    | Decl_no_type decls :: decllist_tail ->
         let expl, exps, in_gr = bind_exp_to_decl expl exps decls None in_gr in
         do_each_decl decllist_tail exps expl in_gr
     | [] -> in_gr
@@ -1238,7 +1266,7 @@ and do_decldef in_gr delc =
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
-       Ast.Decl_some type-spec or Decl_none.
+       Ast.Decl_with_type type-spec or Decl_no_type.
 
        Second component in a Ast.Decldef is
        an exp-list. There is no one-one
@@ -1268,12 +1296,12 @@ and check_decl_type atyp expty in_gr =
 
 and do_each_decl2 alldecls exps expl expl_rev decl_rev in_gr =
   match alldecls with
-  | Ast.Decl_some (decls, atype) :: decllist_tail ->
+  | Ast.Decl_with_type (decls, atype) :: decllist_tail ->
       let expl, expl_rev, decl_rev, exps, in_gr =
         do_exp_for_decl expl expl_rev decl_rev exps decls (Some atype) in_gr
       in
       do_each_decl2 decllist_tail exps expl expl_rev decl_rev in_gr
-  | Decl_none decls :: decllist_tail ->
+  | Decl_no_type decls :: decllist_tail ->
       let expl, expl_rev, decl_rev, exps, in_gr =
         do_exp_for_decl expl expl_rev decl_rev exps decls None in_gr
       in
@@ -1393,7 +1421,7 @@ and do_decldef2 in_gr delc expl_rev decl_rev =
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
-       Ast.Decl_some type-spec or Decl_none.
+       Ast.Decl_with_type type-spec or Decl_no_type.
 
        Second component in a Ast.Decldef is
        an exp-list. There is no one-one
@@ -1476,9 +1504,9 @@ and map_names_to_type decls atyp in_gr =
 
 and add_symbols_before_exp alldecls in_gr =
   match alldecls with
-  | Ast.Decl_some (decls, atype) :: _ ->
+  | Ast.Decl_with_type (decls, atype) :: _ ->
       map_names_to_type decls (`A atype) in_gr
-  | Ast.Decl_none decls :: _ -> map_names_to_type decls `None in_gr
+  | Ast.Decl_no_type decls :: _ -> map_names_to_type decls `None in_gr
   | [] -> in_gr
 
 and do_decldef_let_rec_symbols in_gr delc =
@@ -1487,7 +1515,7 @@ and do_decldef_let_rec_symbols in_gr delc =
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
-       Ast.Decl_some type-spec or Decl_none.
+       Ast.Decl_with_type type-spec or Decl_no_type.
 
        Second component in a Ast.Decldef is
        an exp-list. There is no one-one
@@ -1504,7 +1532,7 @@ and do_decldef_let_rec in_gr delc expl_rev decl_rev =
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
-       Ast.Decl_some type-spec or Decl_none.
+       Ast.Decl_with_type type-spec or Decl_no_type.
 
        Second component in a Ast.Decldef is
        an exp-list. There is no one-one
@@ -2009,6 +2037,58 @@ and do_simple_exp in_gr in_sim_ex =
   | Lesser (a, b) -> create_bool_bin_op a b in_gr LESSER
   | Greater_equal (a, b) -> create_bool_bin_op a b in_gr GREATER_EQUAL
   | Greater (a, b) -> create_bool_bin_op a b in_gr GREATER
+  | Swizzle (e, mask_str) ->
+      (* 1. Lower the source expression (e.g., the float4 variable) *)
+      let indices = crack_swizzle_mask mask_str in
+
+      let (lx, lp, lt), in_gr =
+        let out_port_1 =
+          let out_array = Array.make 1 "" in
+          out_array
+        in
+        If1.add_node_2
+          (`Literal
+             ( If1.CHARACTER,
+               List.fold_left
+                 (fun k x -> k ^ x)
+                 ""
+                 (List.map string_of_int indices),
+               out_port_1 ))
+          in_gr
+      in
+      let (en, ep, _), in_gr = do_simple_exp in_gr e in
+      let (sn, sp, st), in_gr =
+        If1.add_node_2
+          (`Simple
+             ( If1.SWIZZLE,
+               Array.make (List.length indices + 1) "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
+          in_gr
+      in
+      ( (sn, sp, st),
+        If1.add_edge lx lp sn 1 lt (If1.add_edge en ep sn 0 st in_gr) )
+  | Vec _ (*v_ty, el*) ->
+      (*
+      (* 1. Lower all component expressions *)
+      let component_ports = List.map (gen_exp baton) el in
+
+      (* 2. Detect Splat vs. Full Init *)
+      if List.length component_ports = 1 then
+        (* M4 Max: Use VDUP (Duplicate) to fill all lanes *)
+        If1.emit_node baton ~op:If1.Op_VecSplat ~inputs:component_ports
+      else
+        (* M4 Max: Use VLD (Vector Load) or Build-Vector *)
+        If1.emit_node baton ~op:If1.Op_VecBuild ~inputs:component_ports
+        *)
+      raise (If1.Sem_error "da")
+  | Mat _ (*m_ty, el*) ->
+      raise (If1.Sem_error "da")
+      (*
+      (* Lower 16 components for mat4, etc. *)
+      let component_ports = List.map (gen_exp baton) el in
+      If1.emit_node baton ~op:If1.Op_MatBuild ~inputs:component_ports
+      *)
   | Invocation (fn, arg) -> (
       match fn with
       | Ast.Function_name f -> (

@@ -111,6 +111,9 @@ type node_sym =
   | STREAM
   | FINALVALUE
   | MULTIARITY
+  | VEC
+  | MAT
+  | SWIZZLE
 
 type comment = C of string | CDollar of string
 
@@ -125,6 +128,71 @@ type basic_code =
   | RECORD
   | UNION
   | STREAM
+  | UINT
+  | SHORT
+  | USHORT
+  | BYTE
+  | UBYTE
+  | HALF
+  | UCHAR
+  | BYTE2
+  | HALF2
+  | SHORT2
+  | INT2
+  | FLOAT2
+  | DOUBLE2
+  | UINT2
+  | UBYTE2
+  | USHORT2
+  | BYTE3
+  | HALF3
+  | SHORT3
+  | INT3
+  | FLOAT3
+  | DOUBLE3
+  | UINT3
+  | UBYTE3
+  | USHORT3
+  | BYTE4
+  | HALF4
+  | SHORT4
+  | INT4
+  | FLOAT4
+  | DOUBLE4
+  | UINT4
+  | UBYTE4
+  | USHORT4
+  | BYTE8
+  | HALF8
+  | SHORT8
+  | INT8
+  | FLOAT8
+  | DOUBLE8
+  | UINT8
+  | UBYTE8
+  | USHORT8
+  | BYTE16
+  | HALF16
+  | SHORT16
+  | INT16
+  | FLOAT16
+  | DOUBLE16
+  | UINT16
+  | UBYTE16
+  | USHORT16
+  | CHAR2
+  | UCHAR2
+  | CHAR3
+  | UCHAR3
+  | CHAR4
+  | UCHAR4
+  | CHAR8
+  | UCHAR8
+  | CHAR16
+  | UCHAR16
+  | MAT2
+  | MAT3
+  | MAT4
 
 type label = int
 
@@ -258,6 +326,154 @@ and node =
 (** Create an empty graph for a caller. Take an incoming typemap and use that
     for the typemap. Make sure that the typemap has essential types, BOOLEAN,
     REAL etc. First symtab is current symtab and second for parent. *)
+
+let basic_types =
+  [
+    (1, Basic BOOLEAN);
+    (2, Basic CHARACTER);
+    (3, Basic DOUBLE);
+    (4, Basic INTEGRAL);
+    (5, Basic NULL);
+    (6, Basic REAL);
+    (7, Basic BYTE);
+    (8, Basic UCHAR);
+    (9, Basic HALF);
+    (10, Basic SHORT);
+    (11, Basic USHORT);
+    (12, Basic UINT);
+    (13, Basic UBYTE);
+    (14, Basic BYTE2);
+    (15, Basic HALF2);
+    (16, Basic SHORT2);
+    (17, Basic INT2);
+    (18, Basic FLOAT2);
+    (19, Basic DOUBLE2);
+    (20, Basic UINT2);
+    (21, Basic UBYTE2);
+    (22, Basic USHORT2);
+    (23, Basic BYTE3);
+    (24, Basic HALF3);
+    (25, Basic SHORT3);
+    (26, Basic INT3);
+    (27, Basic FLOAT3);
+    (28, Basic DOUBLE3);
+    (29, Basic UINT3);
+    (30, Basic UBYTE3);
+    (31, Basic USHORT3);
+    (32, Basic BYTE4);
+    (33, Basic HALF4);
+    (34, Basic SHORT4);
+    (35, Basic INT4);
+    (36, Basic FLOAT4);
+    (37, Basic DOUBLE4);
+    (38, Basic UINT4);
+    (39, Basic UBYTE4);
+    (40, Basic USHORT4);
+    (41, Basic BYTE8);
+    (42, Basic HALF8);
+    (43, Basic SHORT8);
+    (44, Basic INT8);
+    (45, Basic FLOAT8);
+    (46, Basic DOUBLE8);
+    (47, Basic UINT8);
+    (48, Basic UBYTE8);
+    (49, Basic USHORT8);
+    (50, Basic BYTE16);
+    (51, Basic HALF16);
+    (52, Basic SHORT16);
+    (53, Basic INT16);
+    (54, Basic FLOAT16);
+    (55, Basic DOUBLE16);
+    (56, Basic UINT16);
+    (57, Basic UBYTE16);
+    (58, Basic USHORT16);
+    (59, Basic CHAR2);
+    (60, Basic UCHAR2);
+    (61, Basic CHAR3);
+    (62, Basic UCHAR3);
+    (63, Basic CHAR4);
+    (64, Basic UCHAR4);
+    (65, Basic CHAR8);
+    (66, Basic UCHAR8);
+    (67, Basic CHAR16);
+    (68, Basic UCHAR16);
+  ]
+
+let basic_map =
+  [
+    (1, Basic BOOLEAN);
+    (2, Basic CHARACTER);
+    (3, Basic DOUBLE);
+    (4, Basic INTEGRAL);
+    (5, Basic NULL);
+    (6, Basic REAL);
+    (7, Basic BYTE);
+    (8, Basic UCHAR);
+    (9, Basic HALF);
+    (10, Basic SHORT);
+    (11, Basic USHORT);
+    (12, Basic UINT);
+    (13, Basic UBYTE);
+    (14, Basic BYTE2);
+    (15, Basic HALF2);
+    (16, Basic SHORT2);
+    (17, Basic INT2);
+    (18, Basic FLOAT2);
+    (19, Basic DOUBLE2);
+    (20, Basic UINT2);
+    (21, Basic UBYTE2);
+    (22, Basic USHORT2);
+    (23, Basic BYTE3);
+    (24, Basic HALF3);
+    (25, Basic SHORT3);
+    (26, Basic INT3);
+    (27, Basic FLOAT3);
+    (28, Basic DOUBLE3);
+    (29, Basic UINT3);
+    (30, Basic UBYTE3);
+    (31, Basic USHORT3);
+    (32, Basic BYTE4);
+    (33, Basic HALF4);
+    (34, Basic SHORT4);
+    (35, Basic INT4);
+    (36, Basic FLOAT4);
+    (37, Basic DOUBLE4);
+    (38, Basic UINT4);
+    (39, Basic UBYTE4);
+    (40, Basic USHORT4);
+    (41, Basic BYTE8);
+    (42, Basic HALF8);
+    (43, Basic SHORT8);
+    (44, Basic INT8);
+    (45, Basic FLOAT8);
+    (46, Basic DOUBLE8);
+    (47, Basic UINT8);
+    (48, Basic UBYTE8);
+    (49, Basic USHORT8);
+    (50, Basic BYTE16);
+    (51, Basic HALF16);
+    (52, Basic SHORT16);
+    (53, Basic INT16);
+    (54, Basic FLOAT16);
+    (55, Basic DOUBLE16);
+    (56, Basic UINT16);
+    (57, Basic UBYTE16);
+    (58, Basic USHORT16);
+    (59, Basic CHAR2);
+    (60, Basic UCHAR2);
+    (61, Basic CHAR3);
+    (62, Basic UCHAR3);
+    (63, Basic CHAR4);
+    (64, Basic UCHAR4);
+    (65, Basic CHAR8);
+    (66, Basic UCHAR8);
+    (67, Basic CHAR16);
+    (68, Basic UCHAR16);
+    (69, Basic MAT2);
+    (70, Basic MAT3);
+    (71, Basic MAT4);
+  ]
+
 let rec get_empty_graph ty_blob =
   let nm = NM.add 0 (Boundary ([], [], [])) NM.empty in
   let in_gr =
@@ -269,13 +485,14 @@ let rec get_empty_graph ty_blob =
       w = 1;
     }
   in
-  let _, in_gr = add_type_to_typemap (Basic BOOLEAN) in_gr in
-  let _, in_gr = add_type_to_typemap (Basic REAL) in_gr in
-  let _, in_gr = add_type_to_typemap (Basic CHARACTER) in_gr in
-  let _, in_gr = add_type_to_typemap (Basic DOUBLE) in_gr in
-  let _, in_gr = add_type_to_typemap (Basic INTEGRAL) in_gr in
-  let _, in_gr = add_type_to_typemap (Basic NULL) in_gr in
-  in_gr
+  let add_em in_gr (n, t) =
+    let _, td, tm = in_gr.typemap in
+    {
+      in_gr with
+      typemap = (68, TM.add n t td, MM.add (rev_lookup_ty_name n) n tm);
+    }
+  in
+  List.fold_left add_em in_gr basic_types
 
 and get_node_label n =
   match n with
@@ -1060,11 +1277,76 @@ and add_node nn in_gr =
 and lookup_tyid = function
   | BOOLEAN -> 1
   | CHARACTER -> 2
-  | REAL -> 3
   | DOUBLE -> 4
   | INTEGRAL -> 5
   | NULL -> 6
-  | _ -> 7
+  | REAL -> 3
+  | UINT -> 7
+  | SHORT -> 8
+  | USHORT -> 9
+  | BYTE -> 10
+  | UBYTE -> 11
+  | HALF -> 12
+  | UCHAR -> 13
+  | BYTE2 -> 14
+  | HALF2 -> 15
+  | SHORT2 -> 16
+  | INT2 -> 17
+  | FLOAT2 -> 18
+  | DOUBLE2 -> 19
+  | UINT2 -> 20
+  | UBYTE2 -> 21
+  | USHORT2 -> 22
+  | BYTE3 -> 23
+  | HALF3 -> 24
+  | SHORT3 -> 25
+  | INT3 -> 26
+  | FLOAT3 -> 27
+  | DOUBLE3 -> 28
+  | UINT3 -> 29
+  | UBYTE3 -> 30
+  | USHORT3 -> 31
+  | BYTE4 -> 32
+  | HALF4 -> 33
+  | SHORT4 -> 34
+  | INT4 -> 35
+  | FLOAT4 -> 36
+  | DOUBLE4 -> 37
+  | UINT4 -> 38
+  | UBYTE4 -> 39
+  | USHORT4 -> 40
+  | BYTE8 -> 41
+  | HALF8 -> 42
+  | SHORT8 -> 43
+  | INT8 -> 44
+  | FLOAT8 -> 45
+  | DOUBLE8 -> 46
+  | UINT8 -> 47
+  | UBYTE8 -> 48
+  | USHORT8 -> 49
+  | BYTE16 -> 50
+  | HALF16 -> 51
+  | SHORT16 -> 52
+  | INT16 -> 53
+  | FLOAT16 -> 54
+  | DOUBLE16 -> 55
+  | UINT16 -> 56
+  | UBYTE16 -> 57
+  | USHORT16 -> 58
+  | CHAR2 -> 59
+  | UCHAR2 -> 60
+  | CHAR3 -> 61
+  | UCHAR3 -> 62
+  | CHAR4 -> 63
+  | UCHAR4 -> 64
+  | CHAR8 -> 65
+  | UCHAR8 -> 66
+  | CHAR16 -> 67
+  | UCHAR16 -> 68
+  | MAT2 -> 69
+  | MAT3 -> 70
+  | MAT4 -> 71
+  | _ -> 72
 
 and rev_lookup_ty_name = function
   | 1 -> "BOOLEAN"
@@ -1073,6 +1355,71 @@ and rev_lookup_ty_name = function
   | 4 -> "DOUBLE"
   | 5 -> "INTEGRAL"
   | 6 -> "NULL"
+  | 7 -> "UINT"
+  | 8 -> "SHORT"
+  | 9 -> "USHORT"
+  | 10 -> "BYTE"
+  | 11 -> "UBYTE"
+  | 12 -> "HALF"
+  | 13 -> "UCHAR"
+  | 14 -> "BYTE2"
+  | 15 -> "HALF2"
+  | 16 -> "SHORT2"
+  | 17 -> "INT2"
+  | 18 -> "FLOAT2"
+  | 19 -> "DOUBLE2"
+  | 20 -> "UINT2"
+  | 21 -> "UBYTE2"
+  | 22 -> "USHORT2"
+  | 23 -> "BYTE3"
+  | 24 -> "HALF3"
+  | 25 -> "SHORT3"
+  | 26 -> "INT3"
+  | 27 -> "FLOAT3"
+  | 28 -> "DOUBLE3"
+  | 29 -> "UINT3"
+  | 30 -> "UBYTE3"
+  | 31 -> "USHORT3"
+  | 32 -> "BYTE4"
+  | 33 -> "HALF4"
+  | 34 -> "SHORT4"
+  | 35 -> "INT4"
+  | 36 -> "FLOAT4"
+  | 37 -> "DOUBLE4"
+  | 38 -> "UINT4"
+  | 39 -> "UBYTE4"
+  | 40 -> "USHORT4"
+  | 41 -> "BYTE8"
+  | 42 -> "HALF8"
+  | 43 -> "SHORT8"
+  | 44 -> "INT8"
+  | 45 -> "FLOAT8"
+  | 46 -> "DOUBLE8"
+  | 47 -> "UINT8"
+  | 48 -> "UBYTE8"
+  | 49 -> "USHORT8"
+  | 50 -> "BYTE16"
+  | 51 -> "HALF16"
+  | 52 -> "SHORT16"
+  | 53 -> "INT16"
+  | 54 -> "FLOAT16"
+  | 55 -> "DOUBLE16"
+  | 56 -> "UINT16"
+  | 57 -> "UBYTE16"
+  | 58 -> "USHORT16"
+  | 59 -> "CHAR2"
+  | 60 -> "UCHAR2"
+  | 61 -> "CHAR3"
+  | 62 -> "UCHAR3"
+  | 63 -> "CHAR4"
+  | 64 -> "UCHAR4"
+  | 65 -> "CHAR8"
+  | 66 -> "UCHAR8"
+  | 67 -> "CHAR16"
+  | 68 -> "UCHAR16"
+  | 69 -> "MAT2"
+  | 70 -> "MAT3"
+  | 71 -> "MAT4"
   | _ -> "UNKNOWN"
 
 and lookup_fn_ty in_fn_name in_gr =
@@ -1605,6 +1952,78 @@ and add_sisal_type
   | Integer -> add_type_to_typemap (Basic INTEGRAL) in_gr
   | Null -> add_type_to_typemap (Basic NULL) in_gr
   | Real -> add_type_to_typemap (Basic REAL) in_gr
+  | Byte_ty -> add_type_to_typemap (Basic BYTE) in_gr
+  | Half_ty -> add_type_to_typemap (Basic HALF) in_gr
+  | Ubyte_ty -> add_type_to_typemap (Basic UBYTE) in_gr
+  | Uchar_ty -> add_type_to_typemap (Basic UCHAR) in_gr
+  | Uint_ty -> add_type_to_typemap (Basic UINT) in_gr
+  | Ushort_ty -> add_type_to_typemap (Basic USHORT) in_gr
+  | Short_ty -> add_type_to_typemap (Basic SHORT) in_gr
+  | Vec_ty vx ->
+      let g =
+        match vx with
+        | Byte2 -> BYTE2
+        | Half2 -> HALF2
+        | Short2 -> SHORT2
+        | Int2 -> INT2
+        | Float2 -> FLOAT2
+        | Double2 -> DOUBLE2
+        | Uint2 -> UINT2
+        | Ubyte2 -> UBYTE2
+        | Ushort2 -> USHORT2
+        | Byte3 -> BYTE3
+        | Half3 -> HALF3
+        | Short3 -> SHORT3
+        | Int3 -> INT3
+        | Float3 -> FLOAT3
+        | Double3 -> DOUBLE3
+        | Uint3 -> UINT3
+        | Ubyte3 -> UBYTE3
+        | Ushort3 -> USHORT3
+        | Byte4 -> BYTE4
+        | Half4 -> HALF4
+        | Short4 -> SHORT4
+        | Int4 -> INT4
+        | Float4 -> FLOAT4
+        | Double4 -> DOUBLE4
+        | Uint4 -> UINT4
+        | Ubyte4 -> UBYTE4
+        | Ushort4 -> USHORT4
+        | Byte8 -> BYTE8
+        | Half8 -> HALF8
+        | Short8 -> SHORT8
+        | Int8 -> INT8
+        | Float8 -> FLOAT8
+        | Double8 -> DOUBLE8
+        | Uint8 -> UINT8
+        | Ubyte8 -> UBYTE8
+        | Ushort8 -> USHORT8
+        | Byte16 -> BYTE16
+        | Half16 -> HALF16
+        | Short16 -> SHORT16
+        | Int16 -> INT16
+        | Float16 -> FLOAT16
+        | Double16 -> DOUBLE16
+        | Uint16 -> UINT16
+        | Ubyte16 -> UBYTE16
+        | Ushort16 -> USHORT16
+        | Char2 -> CHAR2
+        | Uchar2 -> UCHAR2
+        | Char3 -> CHAR3
+        | Uchar3 -> UCHAR3
+        | Char4 -> CHAR4
+        | Uchar4 -> UCHAR4
+        | Char8 -> CHAR8
+        | Uchar8 -> UCHAR8
+        | Char16 -> CHAR16
+        | Uchar16 -> UCHAR16
+      in
+      add_type_to_typemap (Basic g) in_gr
+  | Mat_ty x -> (
+      match x with
+      | Mat2 -> add_type_to_typemap (Basic MAT2) in_gr
+      | Mat3 -> add_type_to_typemap (Basic MAT3) in_gr
+      | Mat4 -> add_type_to_typemap (Basic MAT4) in_gr)
   | Compound_type ct ->
       add_compound_type
         { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
@@ -1701,6 +2120,9 @@ and num_to_node_sym = function
   | 49 -> STREAM
   | 50 -> FINALVALUE
   | 51 -> MULTIARITY
+  | 52 -> SWIZZLE
+  | 53 -> VEC
+  | 54 -> MAT
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -1756,6 +2178,9 @@ and node_sym_to_num = function
   | STREAM -> 49
   | FINALVALUE -> 50
   | MULTIARITY -> 51
+  | SWIZZLE -> 52
+  | MAT -> 53
+  | VEC -> 54
 
 and string_of_node_sym = function
   | BOUNDARY -> "BOUNDARY"
@@ -1810,6 +2235,9 @@ and string_of_node_sym = function
   | STREAM -> "STREAM"
   | FINALVALUE -> "FINALVALUE"
   | MULTIARITY -> "MULTIARITY"
+  | VEC -> "VEC"
+  | MAT -> "MAT"
+  | SWIZZLE -> "SWIZZLE"
 
 and string_of_pragmas p =
   List.fold_right
@@ -1886,10 +2314,75 @@ and string_of_if1_basic_ty bc =
   | INTEGRAL -> "INTEGRAL"
   | NULL -> "NULL"
   | REAL -> "REAL"
+  | UINT -> "UINT"
+  | SHORT -> "SHORT"
+  | USHORT -> "USHORT"
+  | UCHAR -> "UCHAR"
+  | BYTE -> "BYTE"
+  | UBYTE -> "UBYTE"
+  | HALF -> "HALF"
   | UNION -> "UNION"
   | STREAM -> "STREAM"
   | ARRAY -> "ARRAY"
   | RECORD -> "RECORD"
+  | BYTE2 -> "BYTE2"
+  | HALF2 -> "HALF2"
+  | SHORT2 -> "SHORT2"
+  | INT2 -> "INT2"
+  | FLOAT2 -> "FLOAT2"
+  | DOUBLE2 -> "DOUBLE2"
+  | UINT2 -> "UINT2"
+  | UBYTE2 -> "UBYTE2"
+  | USHORT2 -> "USHORT2"
+  | BYTE3 -> "BYTE3"
+  | HALF3 -> "HALF3"
+  | SHORT3 -> "SHORT3"
+  | INT3 -> "INT3"
+  | FLOAT3 -> "FLOAT3"
+  | DOUBLE3 -> "DOUBLE3"
+  | UINT3 -> "UINT3"
+  | UBYTE3 -> "UBYTE3"
+  | USHORT3 -> "USHORT3"
+  | BYTE4 -> "BYTE4"
+  | HALF4 -> "HALF4"
+  | SHORT4 -> "SHORT4"
+  | INT4 -> "INT4"
+  | FLOAT4 -> "FLOAT4"
+  | DOUBLE4 -> "DOUBLE4"
+  | UINT4 -> "UINT4"
+  | UBYTE4 -> "UBYTE4"
+  | USHORT4 -> "USHORT4"
+  | BYTE8 -> "BYTE8"
+  | HALF8 -> "HALF8"
+  | SHORT8 -> "SHORT8"
+  | INT8 -> "INT8"
+  | FLOAT8 -> "FLOAT8"
+  | DOUBLE8 -> "DOUBLE8"
+  | UINT8 -> "UINT8"
+  | UBYTE8 -> "UBYTE8"
+  | USHORT8 -> "USHORT8"
+  | BYTE16 -> "BYTE16"
+  | HALF16 -> "HALF16"
+  | SHORT16 -> "SHORT16"
+  | INT16 -> "INT16"
+  | FLOAT16 -> "FLOAT16"
+  | DOUBLE16 -> "DOUBLE16"
+  | UINT16 -> "UINT16"
+  | UBYTE16 -> "UBYTE16"
+  | USHORT16 -> "USHORT16"
+  | CHAR2 -> "CHAR2"
+  | UCHAR2 -> "UCHAR2"
+  | CHAR3 -> "CHAR3"
+  | UCHAR3 -> "UCHAR3"
+  | CHAR4 -> "CHAR4"
+  | UCHAR4 -> "UCHAR4"
+  | CHAR8 -> "CHAR8"
+  | UCHAR8 -> "UCHAR8"
+  | CHAR16 -> "CHAR16"
+  | UCHAR16 -> "UCHAR16"
+  | MAT2 -> "MAT2"
+  | MAT3 -> "MAT3"
+  | MAT4 -> "MAT4"
 
 and string_of_ports pa =
   "[|" ^ Array.fold_right (fun x y -> cate_nicer x y ",") pa "" ^ "|]"

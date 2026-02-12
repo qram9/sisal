@@ -2,10 +2,8 @@ module Lex = Fe.Lex
 open Lexing
 module Parse = Fe.Parse
 module Ast = Ir.Ast
-(*
 module If1 = Ir.If1
 module To_if1_ = To_if1
-*)
 
 let error msg lexbuf =
   let start = Lexing.lexeme_start_p lexbuf in
@@ -32,12 +30,11 @@ let main () =
       Parse.main Lex.sisal_lex (set_filename Sys.argv.(1) lexbuf)
     in
     print_endline (Ast.str_compilation_unit sisal_ast);
-    (*
     let ou = To_if1_.do_compilation_unit sisal_ast in
     print_endline "Result graph";
     print_endline (If1.string_of_graph ou);
 (*    print_endline (Ast.str_compilation_unit sisal_ast); *)
-    If1.write_dot_file ou*)
+    If1.write_dot_file ou
   with e ->
     let msg = Printexc.to_string e and stack = Printexc.get_backtrace () in
     Printf.eprintf "there was an error: %s%s\n" msg stack;
