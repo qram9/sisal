@@ -1,0 +1,13 @@
+define Main
+
+type double	= double_real;
+type ar		= array[integer];
+type st		= stream[integer];
+type reco	= record[a : integer; b : real; c : double; d : ar];
+type brec	= record[a : integer; b : real; c : double];
+type arec	= array[brec];
+type un		= union[a : integer; b : real; c : double; d : ar];
+function iadd(a,b : integer returns integer) a+b end function
+
+function berr(x : boolean returns boolean) is error(x) end function
+

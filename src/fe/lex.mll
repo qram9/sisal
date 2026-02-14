@@ -47,6 +47,7 @@ let keyword_table =
       ("CHARACTER",CHARACTER);
       ("CROSS",CROSS);
       ("DEFINE",DEFINE);
+      ("DOT", DOT);
       ("DOUBLE_REAL",DOUBLE_REAL);
       ("ELSE",ELSE);
       ("ELSEIF",ELSEIF);
@@ -93,6 +94,18 @@ let keyword_table =
       ("VALUE",VALUE);
       ("WHILE",WHILE);
       ("WHEN",WHEN);
+      ("FLOAT2", FLOAT2_TY); 
+      ("FLOAT3", FLOAT3_TY); 
+      ("FLOAT4", FLOAT4_TY); 
+      ("CHAR2", CHAR2_TY);  
+      ("CHAR3", CHAR3_TY);  
+      ("CHAR4", CHAR4_TY);  
+      ("HALF2", HALF2_TY);  
+      ("HALF4", HALF4_TY);  
+      ("HALF8", HALF8_TY);  
+      ("MAT2", MAT2_TY);   
+      ("MAT3", MAT3_TY);   
+      ("MAT4", MAT4_TY);   
     ]
 
 let predef_fn_table =
@@ -194,14 +207,6 @@ and sisal_lex = parse eof {
               (* --- 2. Swizzle Regex --- *)
               (* Only matches if it starts with '.' and is followed by valid swizzle/OpenCL chars *)
               | '.' (swizzle_chars+) as s { SWIZZLE(String.sub s 1 (String.length s - 1)) }
-
-              (* --- 3. Vector/Matrix Keywords --- *)
-              | "float2" { FLOAT2_TY } | "float3" { FLOAT3_TY } | "float4" { FLOAT4_TY }
-              | "char2"  { CHAR2_TY }  | "char3"  { CHAR3_TY }  | "char4"  { CHAR4_TY }
-              | "half2"  { HALF2_TY }  | "half4"  { HALF4_TY }  | "half8"  { HALF8_TY }
-              | "mat2"   { MAT2_TY }   | "mat3"   { MAT3_TY }   | "mat4"   { MAT4_TY }
-              (* Add other uint, byte, short, double variants here similarly *)
-
 
               | '%' {
                   padded_lex_msg 5 "_cmts:>\n";

@@ -793,7 +793,7 @@ type_def_part: type_def
 |   type_def_part SEMICOLON type_def
   { $3 :: $1 }
 ;
-type_def : TYPE type_name EQ type_spec
+type_def : TYPE type_name EQ type_spec opt_semicolon
     { Type_def ($2, $4) }
 ;
 type_spec : basic_type_spec

@@ -1,0 +1,9 @@
+Define Main
+
+FUNCTION MAIN (SCALAR:REAL RETURNS MAT2, MAT2)
+  % Case 1: Splatting a single float into all 4 slots of a 2x2
+  MAT2(SCALAR), 
+  
+  % Case 2: Explicitly building a 2x2 matrix (4 elements)
+  MAT2(1.0f, 0.0f, 0.0f, 1.0f)
+END FUNCTION

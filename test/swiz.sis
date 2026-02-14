@@ -1,6 +1,5 @@
 Define Main
 
-
-FUNCTION Main(MyPos : float4 returns float3)
-	MyPos.ywz
+FUNCTION Main(MyPos : float4 returns float3, float2, float4)
+	Float3 (4.4).yzz, float2(0.2, 1.2), float4(2.2, 3, 4.4, 5.5)
 	END FUNCTION
