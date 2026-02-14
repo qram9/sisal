@@ -138,7 +138,6 @@ let parse_msg level fmt =
 %token PLUS
 %token MINUS
 %token STAR
-%token<string> SWIZZLE
 %token DIVIDE
 %token BYTE2_TY
 %token CHAR2_TY
@@ -196,8 +195,7 @@ let parse_msg level fmt =
 %left LT GT EQ NE LE GE PIPE AND OR
 %left PLUS MINUS
 %left STAR DIVIDE
-%left DOT
-%left SWIZZLE
+%left DOTSTOP
 %nonassoc UMINUS
 %type <Ir.Ast.compilation_unit> main
 %start main
@@ -390,8 +388,6 @@ function_name_list :
       { $1 }
 |  array_ref
     { $1 }
-|   e = primary_part2 s = SWIZZLE 
-      { Swizzle(e, s) }
   /* --- 2. Vector & Matrix Constructors --- */
 
 | v = vec_type LPAREN e = expression RPAREN 
@@ -553,9 +549,9 @@ function_name_list :
 |   value_name
     {Val (Value_name [$1]) }
 |   LPAREN expression RPAREN
-    { Paren $2  }
+    { print_endline ("this? " ^ (str_exp $2));Paren $2  }
 |   invocation
-    { $1 }
+    {  $1 }
   ;
 
   iteration_exp:

@@ -1175,134 +1175,233 @@ and input_from_boundary alis in_gr =
       input_from_boundary tl (add_to_boundary_inputs ~namen:nam srcn srcp in_gr)
   | [] -> in_gr
 
-and get_element_type vect = match vect with
-| Basic vv -> Basic (get_element_type_impl vv)
-| _ -> 
-    print_endline (Printexc.get_backtrace ()) ;
-    failwith(Printf.sprintf "Cannot get element type for %s, only for vector types" (string_of_if1_ty vect))
+and get_element_type vect =
+  match vect with
+  | Basic vv -> Basic (get_element_type_impl vv)
+  | _ ->
+      print_endline (Printexc.get_backtrace ());
+      failwith
+        (Printf.sprintf "Cannot get element type for %s, only for vector types"
+           (string_of_if1_ty vect))
 
 (* Helper to extract the scalar "flavor" and the width *)
-and get_element_type_impl vect = match vect with
-| BYTE2 | BYTE3 | BYTE4 | BYTE8 | BYTE16  -> BYTE
-| CHAR2 | CHAR3 | CHAR4 | CHAR8 | CHAR16  -> CHARACTER
-| HALF2 | HALF3 | HALF4 | HALF8 | HALF16  -> HALF
-| SHORT2 | SHORT3 | SHORT4 | SHORT8 | SHORT16  -> SHORT
-| INT2 | INT3 | INT4 | INT8 | INT16  -> INTEGRAL
-| FLOAT2 | FLOAT3 | FLOAT4 | FLOAT8 | FLOAT16  -> REAL
-| DOUBLE2 | DOUBLE3 | DOUBLE4 | DOUBLE8 | DOUBLE16  -> DOUBLE
-| UBYTE2 | UBYTE3 | UBYTE4 | UBYTE8 | UBYTE16  -> UBYTE
-| UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16  -> UCHAR
-| USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16  -> USHORT
-| UINT2 | UINT3 | UINT4 | UINT8 | UINT16  -> UINT
-| _ -> failwith (Printf.sprintf "Not a vector type %s" (string_of_if1_basic_ty vect))
+and get_element_type_impl vect =
+  match vect with
+  | BYTE2 | BYTE3 | BYTE4 | BYTE8 | BYTE16 -> BYTE
+  | CHAR2 | CHAR3 | CHAR4 | CHAR8 | CHAR16 -> CHARACTER
+  | HALF2 | HALF3 | HALF4 | HALF8 | HALF16 -> HALF
+  | SHORT2 | SHORT3 | SHORT4 | SHORT8 | SHORT16 -> SHORT
+  | INT2 | INT3 | INT4 | INT8 | INT16 -> INTEGRAL
+  | FLOAT2 | FLOAT3 | FLOAT4 | FLOAT8 | FLOAT16 -> REAL
+  | DOUBLE2 | DOUBLE3 | DOUBLE4 | DOUBLE8 | DOUBLE16 -> DOUBLE
+  | UBYTE2 | UBYTE3 | UBYTE4 | UBYTE8 | UBYTE16 -> UBYTE
+  | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 -> UCHAR
+  | USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16 -> USHORT
+  | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 -> UINT
+  | _ ->
+      failwith
+        (Printf.sprintf "Not a vector type %s" (string_of_if1_basic_ty vect))
 
-and get_byte_vec_type l = match l with
-| 2 -> BYTE2
-| 3 -> BYTE3
-| 4 -> BYTE4
-| 8 -> BYTE8
-| 16 -> BYTE16
-|_ -> failwith (Printf.sprintf "Type error: vector type for byte can only be 2, 3, 4, 8 or 16, got %d"  l)
+and is_vector_type = function
+  | Basic ty -> (
+      match ty with
+      | BYTE2 | BYTE3 | BYTE4 | BYTE8 | BYTE16 | CHAR2 | CHAR3 | CHAR4 | CHAR8
+      | CHAR16 | HALF2 | HALF3 | HALF4 | HALF8 | HALF16 | SHORT2 | SHORT3
+      | SHORT4 | SHORT8 | SHORT16 | INT2 | INT3 | INT4 | INT8 | INT16 | FLOAT2
+      | FLOAT3 | FLOAT4 | FLOAT8 | FLOAT16 | DOUBLE2 | DOUBLE3 | DOUBLE4
+      | DOUBLE8 | DOUBLE16 | UBYTE2 | UBYTE3 | UBYTE4 | UBYTE8 | UBYTE16
+      | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 | USHORT2 | USHORT3
+      | USHORT4 | USHORT8 | USHORT16 | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 ->
+          True
+      | _ -> False)
+  | _ -> False
 
-and get_char_vec_type l = match l with
-| 2 -> CHAR2
-| 3 -> CHAR3
-| 4 -> CHAR4
-| 8 -> CHAR8
-| 16 -> CHAR16
-|_ -> failwith (Printf.sprintf "Type error: vector type for char can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_byte_vec_type l =
+  match l with
+  | 2 -> BYTE2
+  | 3 -> BYTE3
+  | 4 -> BYTE4
+  | 8 -> BYTE8
+  | 16 -> BYTE16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for byte can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
 
-and get_half_vec_type l = match l with
-| 2 -> HALF2
-| 3 -> HALF3
-| 4 -> HALF4
-| 8 -> HALF8
-| 16 -> HALF16
-|_ -> failwith (Printf.sprintf "Type error: vector type for half can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_char_vec_type l =
+  match l with
+  | 2 -> CHAR2
+  | 3 -> CHAR3
+  | 4 -> CHAR4
+  | 8 -> CHAR8
+  | 16 -> CHAR16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for char can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
 
-and get_short_vec_type l = match l with
-| 2 -> SHORT2
-| 3 -> SHORT3
-| 4 -> SHORT4
-| 8 -> SHORT8
-| 16 -> SHORT16
-|_ -> failwith (Printf.sprintf "Type error: vector type for short can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_half_vec_type l =
+  match l with
+  | 2 -> HALF2
+  | 3 -> HALF3
+  | 4 -> HALF4
+  | 8 -> HALF8
+  | 16 -> HALF16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for half can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
 
-and get_int_vec_type l = match l with
-| 2 -> INT2
-| 3 -> INT3
-| 4 -> INT4
-| 8 -> INT8
-| 16 -> INT16
-|_ -> failwith (Printf.sprintf "Type error: vector type for int can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_short_vec_type l =
+  match l with
+  | 2 -> SHORT2
+  | 3 -> SHORT3
+  | 4 -> SHORT4
+  | 8 -> SHORT8
+  | 16 -> SHORT16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for short can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_float_vec_type l = match l with
-| 2 -> FLOAT2
-| 3 -> FLOAT3
-| 4 -> FLOAT4
-| 8 -> FLOAT8
-| 16 -> FLOAT16
-|_ -> failwith (Printf.sprintf "Type error: vector type for float can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_int_vec_type l =
+  match l with
+  | 2 -> INT2
+  | 3 -> INT3
+  | 4 -> INT4
+  | 8 -> INT8
+  | 16 -> INT16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for int can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
 
-and get_double_vec_type l = match l with
-| 2 -> DOUBLE2
-| 3 -> DOUBLE3
-| 4 -> DOUBLE4
-| 8 -> DOUBLE8
-| 16 -> DOUBLE16
-|_ -> failwith (Printf.sprintf "Type error: vector type for double can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_float_vec_type l =
+  match l with
+  | 2 -> FLOAT2
+  | 3 -> FLOAT3
+  | 4 -> FLOAT4
+  | 8 -> FLOAT8
+  | 16 -> FLOAT16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for float can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_ubyte_vec_type l = match l with
-| 2 -> UBYTE2
-| 3 -> UBYTE3
-| 4 -> UBYTE4
-| 8 -> UBYTE8
-| 16 -> UBYTE16
-|_ -> failwith (Printf.sprintf "Type error: vector type for ubyte can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_double_vec_type l =
+  match l with
+  | 2 -> DOUBLE2
+  | 3 -> DOUBLE3
+  | 4 -> DOUBLE4
+  | 8 -> DOUBLE8
+  | 16 -> DOUBLE16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for double can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_uchar_vec_type l = match l with
-| 2 -> UCHAR2
-| 3 -> UCHAR3
-| 4 -> UCHAR4
-| 8 -> UCHAR8
-| 16 -> UCHAR16
-|_ -> failwith (Printf.sprintf "Type error: vector type for uchar can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_ubyte_vec_type l =
+  match l with
+  | 2 -> UBYTE2
+  | 3 -> UBYTE3
+  | 4 -> UBYTE4
+  | 8 -> UBYTE8
+  | 16 -> UBYTE16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for ubyte can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_ushort_vec_type l = match l with
-| 2 -> USHORT2
-| 3 -> USHORT3
-| 4 -> USHORT4
-| 8 -> USHORT8
-| 16 -> USHORT16
-|_ -> failwith (Printf.sprintf "Type error: vector type for ushort can only be 2, 3, 4, 8 or 16, got %d"  l)
+and get_uchar_vec_type l =
+  match l with
+  | 2 -> UCHAR2
+  | 3 -> UCHAR3
+  | 4 -> UCHAR4
+  | 8 -> UCHAR8
+  | 16 -> UCHAR16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for uchar can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_uint_vec_type l = match l with
-| 2 -> UINT2
-| 3 -> UINT3
-| 4 -> UINT4
-| 8 -> UINT8
-| 16 -> UINT16
-|_ -> failwith (Printf.sprintf "Type error: vector type for uint can only be 2, 3, 4, 8 or 16, got %d" l)
+and get_ushort_vec_type l =
+  match l with
+  | 2 -> USHORT2
+  | 3 -> USHORT3
+  | 4 -> USHORT4
+  | 8 -> USHORT8
+  | 16 -> USHORT16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for ushort can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
 
-and get_vec_len tt = match tt with
-| BYTE2 | CHAR2 | HALF2 | SHORT2 | INT2 | FLOAT2
-| DOUBLE2 | UBYTE2 | UCHAR2 | USHORT2 | UINT2  -> 2
-| BYTE3 | CHAR3 | HALF3 | SHORT3 | INT3 | FLOAT3
-| DOUBLE3 | UBYTE3 | UCHAR3 | USHORT3 | UINT3  -> 3
-| BYTE4 | CHAR4 | HALF4 | SHORT4 | INT4 | FLOAT4
-| DOUBLE4 | UBYTE4 | UCHAR4 | USHORT4 | UINT4  -> 4
-| BYTE8 | CHAR8 | HALF8 | SHORT8 | INT8 | FLOAT8
-| DOUBLE8 | UBYTE8 | UCHAR8 | USHORT8 | UINT8  -> 8
-| BYTE16 | CHAR16 | HALF16 | SHORT16 | INT16
-| FLOAT16 | DOUBLE16 | UBYTE16 | UCHAR16
-| USHORT16 | UINT16  -> 16
-| _ -> failwith (Printf.sprintf "Not a vector type: %s for getting vector length" (string_of_if1_basic_ty tt))
+and get_uint_vec_type l =
+  match l with
+  | 2 -> UINT2
+  | 3 -> UINT3
+  | 4 -> UINT4
+  | 8 -> UINT8
+  | 16 -> UINT16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for uint can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
 
-and build_vector_of_type ty width = match ty with
-| Basic b -> Basic (build_vector_of_type_impl width b)
-| _ -> failwith (Printf.sprintf "Cannot build vector types for Type: %s" (string_of_if1_ty ty))
+and get_vec_len tt =
+  match tt with
+  | BYTE2 | CHAR2 | HALF2 | SHORT2 | INT2 | FLOAT2 | DOUBLE2 | UBYTE2 | UCHAR2
+  | USHORT2 | UINT2 ->
+      2
+  | BYTE3 | CHAR3 | HALF3 | SHORT3 | INT3 | FLOAT3 | DOUBLE3 | UBYTE3 | UCHAR3
+  | USHORT3 | UINT3 ->
+      3
+  | BYTE4 | CHAR4 | HALF4 | SHORT4 | INT4 | FLOAT4 | DOUBLE4 | UBYTE4 | UCHAR4
+  | USHORT4 | UINT4 ->
+      4
+  | BYTE8 | CHAR8 | HALF8 | SHORT8 | INT8 | FLOAT8 | DOUBLE8 | UBYTE8 | UCHAR8
+  | USHORT8 | UINT8 ->
+      8
+  | BYTE16 | CHAR16 | HALF16 | SHORT16 | INT16 | FLOAT16 | DOUBLE16 | UBYTE16
+  | UCHAR16 | USHORT16 | UINT16 ->
+      16
+  | _ ->
+      failwith
+        (Printf.sprintf "Not a vector type: %s for getting vector length"
+           (string_of_if1_basic_ty tt))
 
-and build_vector_of_type_impl width ty = match ty with
+and build_vector_of_type ty width =
+  match ty with
+  | Basic b -> Basic (build_vector_of_type_impl width b)
+  | _ ->
+      failwith
+        (Printf.sprintf "Cannot build vector types for Type: %s"
+           (string_of_if1_ty ty))
+
+and build_vector_of_type_impl width ty =
+  match ty with
   | BYTE -> get_byte_vec_type width
   | CHARACTER -> get_char_vec_type width
   | HALF -> get_half_vec_type width
@@ -1314,9 +1413,11 @@ and build_vector_of_type_impl width ty = match ty with
   | UCHAR -> get_uchar_vec_type width
   | USHORT -> get_ushort_vec_type width
   | UINT -> get_uint_vec_type width
-  | _ -> failwith (Printf.sprintf "Type error: vector type not possible for %s"
-                  (string_of_if1_basic_ty ty))
-  
+  | _ ->
+      failwith
+        (Printf.sprintf "Type error: vector type not possible for %s"
+           (string_of_if1_basic_ty ty))
+
 and string_of_pair_int (x, y) =
   "(" ^ string_of_int x ^ "," ^ string_of_int y ^ ")"
 
@@ -1423,7 +1524,8 @@ and add_node nn in_gr =
         symtab = (par_cs, par_ps);
       }
 
-and lookup_tyid gg = match gg with
+and lookup_tyid gg =
+  match gg with
   | BOOLEAN -> 1
   | CHARACTER -> 2
   | DOUBLE -> 4
@@ -1495,7 +1597,10 @@ and lookup_tyid gg = match gg with
   | MAT2 -> 69
   | MAT3 -> 70
   | MAT4 -> 71
-  | _ -> failwith (Printf.sprintf "Can only look up native types with lookup_tyid, not %s" (string_of_if1_basic_ty gg))
+  | _ ->
+      failwith
+        (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
+           (string_of_if1_basic_ty gg))
 
 and rev_lookup_ty_name = function
   | 1 -> "BOOLEAN"
@@ -2091,61 +2196,61 @@ and lookup_by_typename in_gr namen =
 
 and ast_if1_type aty =
   match aty with
-        | Byte2 -> BYTE2
-        | Half2 -> HALF2
-        | Short2 -> SHORT2
-        | Int2 -> INT2
-        | Float2 -> FLOAT2
-        | Double2 -> DOUBLE2
-        | Uint2 -> UINT2
-        | Ubyte2 -> UBYTE2
-        | Ushort2 -> USHORT2
-        | Byte3 -> BYTE3
-        | Half3 -> HALF3
-        | Short3 -> SHORT3
-        | Int3 -> INT3
-        | Float3 -> FLOAT3
-        | Double3 -> DOUBLE3
-        | Uint3 -> UINT3
-        | Ubyte3 -> UBYTE3
-        | Ushort3 -> USHORT3
-        | Byte4 -> BYTE4
-        | Half4 -> HALF4
-        | Short4 -> SHORT4
-        | Int4 -> INT4
-        | Float4 -> FLOAT4
-        | Double4 -> DOUBLE4
-        | Uint4 -> UINT4
-        | Ubyte4 -> UBYTE4
-        | Ushort4 -> USHORT4
-        | Byte8 -> BYTE8
-        | Half8 -> HALF8
-        | Short8 -> SHORT8
-        | Int8 -> INT8
-        | Float8 -> FLOAT8
-        | Double8 -> DOUBLE8
-        | Uint8 -> UINT8
-        | Ubyte8 -> UBYTE8
-        | Ushort8 -> USHORT8
-        | Byte16 -> BYTE16
-        | Half16 -> HALF16
-        | Short16 -> SHORT16
-        | Int16 -> INT16
-        | Float16 -> FLOAT16
-        | Double16 -> DOUBLE16
-        | Uint16 -> UINT16
-        | Ubyte16 -> UBYTE16
-        | Ushort16 -> USHORT16
-        | Char2 -> CHAR2
-        | Uchar2 -> UCHAR2
-        | Char3 -> CHAR3
-        | Uchar3 -> UCHAR3
-        | Char4 -> CHAR4
-        | Uchar4 -> UCHAR4
-        | Char8 -> CHAR8
-        | Uchar8 -> UCHAR8
-        | Char16 -> CHAR16
-        | Uchar16 -> UCHAR16
+  | Byte2 -> BYTE2
+  | Half2 -> HALF2
+  | Short2 -> SHORT2
+  | Int2 -> INT2
+  | Float2 -> FLOAT2
+  | Double2 -> DOUBLE2
+  | Uint2 -> UINT2
+  | Ubyte2 -> UBYTE2
+  | Ushort2 -> USHORT2
+  | Byte3 -> BYTE3
+  | Half3 -> HALF3
+  | Short3 -> SHORT3
+  | Int3 -> INT3
+  | Float3 -> FLOAT3
+  | Double3 -> DOUBLE3
+  | Uint3 -> UINT3
+  | Ubyte3 -> UBYTE3
+  | Ushort3 -> USHORT3
+  | Byte4 -> BYTE4
+  | Half4 -> HALF4
+  | Short4 -> SHORT4
+  | Int4 -> INT4
+  | Float4 -> FLOAT4
+  | Double4 -> DOUBLE4
+  | Uint4 -> UINT4
+  | Ubyte4 -> UBYTE4
+  | Ushort4 -> USHORT4
+  | Byte8 -> BYTE8
+  | Half8 -> HALF8
+  | Short8 -> SHORT8
+  | Int8 -> INT8
+  | Float8 -> FLOAT8
+  | Double8 -> DOUBLE8
+  | Uint8 -> UINT8
+  | Ubyte8 -> UBYTE8
+  | Ushort8 -> USHORT8
+  | Byte16 -> BYTE16
+  | Half16 -> HALF16
+  | Short16 -> SHORT16
+  | Int16 -> INT16
+  | Float16 -> FLOAT16
+  | Double16 -> DOUBLE16
+  | Uint16 -> UINT16
+  | Ubyte16 -> UBYTE16
+  | Ushort16 -> USHORT16
+  | Char2 -> CHAR2
+  | Uchar2 -> UCHAR2
+  | Char3 -> CHAR3
+  | Uchar3 -> UCHAR3
+  | Char4 -> CHAR4
+  | Uchar4 -> UCHAR4
+  | Char8 -> CHAR8
+  | Uchar8 -> UCHAR8
+  | Char16 -> CHAR16
+  | Uchar16 -> UCHAR16
 
 and add_sisal_type
     { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi } aty =
@@ -2808,13 +2913,18 @@ and string_of_symtab_gr_out in_gr =
   SM.fold (fun _ v z -> string_of_if1_value_out tm v :: z) ls []
 
 and string_of_typenames tmn =
-  let tmn = MM.fold (fun k v z -> (if v > 69 then k ^ ":" ^ string_of_int v else "") :: z) tmn [] in
+  let tmn =
+    MM.fold
+      (fun k v z -> (if v > 69 then k ^ ":" ^ string_of_int v else "") :: z)
+      tmn []
+  in
   match tmn with [] -> [] | _ -> "----TYPENAMES----" :: tmn
 
 and string_of_typemap tm =
   let tm =
     TM.fold
-      (fun k v z -> (if k > 0 then string_of_int k ^ " " ^ string_of_if1_ty v else "" ) :: z)
+      (fun k v z ->
+        (if k > 0 then string_of_int k ^ " " ^ string_of_if1_ty v else "") :: z)
       tm []
   in
   match tm with [] -> [] | _ -> "----TYPEMAP----" :: tm

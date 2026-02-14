@@ -23,7 +23,6 @@ and simple_exp =
   (* Graphics Vector Constructor vec4(1.0, 2.0, 3.0, 1.0) *)
   | Vec of vec_type * exp list
   | Mat of mat_type * exp list
-  | Swizzle of simple_exp * string
   | Constant of sisal_constant
   | Old of value_name
   | Val of value_name
@@ -522,9 +521,7 @@ and str_decl ?(offset = 0) = function
 
 and str_function_name = function Function_name lf -> String.concat "." lf
 and str_arg = function Arg e -> str_exp e
-
-and get_vec_len x =
-  int_of_string (str_vec_len x)
+and get_vec_len x = int_of_string (str_vec_len x)
 
 and str_vec_len = function
   | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
@@ -543,7 +540,6 @@ and str_vec_len = function
       "16"
 
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
-
 and get_mat_dim = function Mat2 -> 2 | Mat3 -> 3 | Mat4 -> 4
 
 and str_simple_exp ?(offset = 0) = function
@@ -560,7 +556,6 @@ and str_simple_exp ?(offset = 0) = function
       "VEC" ^ str_vec_len vect ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
   | Mat (mat_t, exp) ->
       "MAT" ^ str_mat_len mat_t ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
-  | Swizzle (exp, st) -> str_simple_exp exp ^ "." ^ st
   | Not e -> "~" ^ str_simple_exp e
   | Negate e -> "-" ^ str_simple_exp e
   | Pipe (a, b) -> str_simple_exp a ^ " || " ^ str_simple_exp b
