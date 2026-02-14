@@ -1,0 +1,435 @@
+define Main
+
+type double	= double_real;
+type ar		= array[integer];
+type st		= stream[integer];
+type reco	= record[a : integer; b : real; c : double; d : ar];
+type brec	= record[a : integer; b : real; c : double];
+type arec	= array[brec];
+type un		= union[a : integer; b : real; c : double; d : ar];
+
+function berr(x : boolean returns boolean) is error(x) end function
+function cerr(x : character returns boolean) is error(x) end function
+function derr(x : double returns boolean) is error(x) end function
+function ierr(x : integer returns boolean) is error(x) end function
+function nerr(x : null returns boolean) is error(x) end function
+function rerr(x : real returns boolean) is error(x) end function
+function arerr(x : ar returns boolean) is error(x) end function
+function sterr(x : st returns boolean) is error(x) end function
+function recerr(x : reco returns boolean) is error(x) end function
+function arecerr(x : arec returns boolean) is error(x) end function
+function unerr(x : un returns boolean) is error(x) end function
+
+%------------------------------------------------------------
+function bband(a,b : boolean returns boolean) a & b end function
+function bbor(a,b : boolean returns boolean) a | b end function
+function bnot(a : boolean returns boolean) ~a end function
+function bequal(a,b : boolean returns boolean) a = b end function
+function bnotequal(a,b : boolean returns boolean) a ~= b end function
+
+%------------------------------------------------------------
+function iadd(a,b : integer returns integer) a+b end function
+function isub(a,b : integer returns integer) a-b end function
+function imul(a,b : integer returns integer) a*b end function
+function idiv(a,b : integer returns integer) a/b end function
+function ineg(a : integer returns integer) -a end function
+function inotequal(a,b : integer returns boolean) a~=b end function
+function iequal(a,b : integer returns boolean) a=b end function
+function igreater(a,b : integer returns boolean) a>b end function
+function iless(a,b : integer returns boolean) a<b end function
+function igreateq(a,b : integer returns boolean) a>=b end function
+function ilesseq(a,b : integer returns boolean) a<=b end function
+function radd(a,b : real returns real) a + b end function
+function rsub(a,b : real returns real) a - b end function
+function rmul(a,b : real returns real) a * b end function
+function rdiv(a,b : real returns real) a / b end function
+function rneg(a : real returns real) -a end function
+
+function requal(a,b : real returns boolean) a = b end function
+function rnotequal(a,b : real returns boolean) a ~= b end function
+function rgreater(a,b : real returns boolean) a > b end function
+function rless(a,b : real returns boolean) a < b end function
+function rgreateq(a,b : real returns boolean) a >= b end function
+function rlesseq(a,b : real returns boolean) a <= b end function
+
+%------------------------------------------------------------
+function dadd(a,b : double returns double) a + b end function
+function dsub(a,b : double returns double) a - b end function
+function dmul(a,b : double returns double) a * b end function
+function ddiv(a,b : double returns double) a / b end function
+
+function dneg(a : double returns double) -a end function
+function dequal(a,b : double returns boolean) a = b end function
+function dnotequal(a,b : double returns boolean) a ~= b end function
+function dgreater(a,b : double returns boolean) a > b end function
+function dless(a,b : double returns boolean) a < b end function
+function dgreateq(a,b : double returns boolean) a >= b end function
+function dlesseq(a,b : double returns boolean) a <= b end function
+function cequal(a,b : character returns boolean) a = b end function
+function cnotequal(a,b : character returns boolean) a ~= b end function
+function cgreater(a,b : character returns boolean) a > b end function
+function cless(a,b : character returns boolean) a < b end function
+function cgreateq(a,b : character returns boolean) a >= b end function
+function clesseq(a,b : character returns boolean) a <= b end function
+
+
+
+% BROKEN DUE TO KEYWORD function imod(a,b : integer returns integer) mod(a,b) end function
+% BROKEN DUE TO KEYWORD function iiexp(a,b : integer returns integer) exp(a,b) end function
+% BROKEN DUE TO KEYWORD function iabs(a : integer returns integer) abs(a) end function
+% BROKEN DUE TO KEYWORD function imax(a,b : integer returns integer) max(a,b) end function
+% BROKEN DUE TO KEYWORD function imin(a,b : integer returns integer) min(a,b) end function
+% BROKEN DUE TO KEYWORD 
+%------------------------------------------------------------
+% BROKEN DUE TO KEYWORD function rrexp(a,b : real returns real) exp(a , b) end function
+% BROKEN DUE TO KEYWORD function riexp(a : real; b : integer returns real) exp(a , b) end function
+% BROKEN DUE TO KEYWORD function rabs(a : real returns real) abs(a) end function
+% BROKEN DUE TO KEYWORD function rmax(a,b : real returns real) max(a , b) end function
+% BROKEN DUE TO KEYWORD function rmin(a,b : real returns real) min(a , b) end function
+% BROKEN DUE TO KEYWORD 
+% BROKEN DUE TO KEYWORD function ddexp(a,b : double returns double) exp(a , b) end function
+% BROKEN DUE TO KEYWORD function diexp(a : double; b : integer returns double) exp(a , b) end function
+% BROKEN DUE TO KEYWORD function dabs(a : double returns double) abs(a) end function
+% BROKEN DUE TO KEYWORD function dmax(a,b : double returns double) max(a , b) end function
+% BROKEN DUE TO KEYWORD function dmin(a,b : double returns double) min(a , b) end function
+% BROKEN DUE TO KEYWORD function afill(lo,hi,v : integer returns ar) array_fill(lo,hi,v) end function
+% function ahigh(a : ar returns integer) array_limh(a) end function
+% function alow(a : ar returns integer) array_liml(a) end function
+%------------------------------------------------------------
+%------------------------------------------------------------
+function acreate(returns ar) array ar[] end function
+function acrelmt(a,b,c : integer returns ar) array ar[a: b,c] end function
+function aselect(a : ar; j : integer returns integer) a[j] end function
+function arepl(a : ar; j,v : integer returns ar) a[j:v] end function
+function aconc(a,b : ar returns ar) a ||b end function
+% function asize(a : ar returns integer) array_size(a) end function
+% function aprefix(a : ar returns integer) array_prefixsize(a) end function
+% function aset(a: ar; lo,hi : integer returns ar) array_adjust(a,lo,hi) end function
+% function aaddh(a : ar; v : integer returns ar) array_addh(a,v) end function
+% function aaddl(a : ar; v : integer returns ar) array_addl(a,v) end function
+% function aremh(a : ar returns ar) array_remh(a) end function
+% function areml(a : ar returns ar) array_reml(a) end function
+% function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
+
+%------------------------------------------------------------
+%function screate(returns st) stream st[] end function
+%function screlmt(a,b,c : integer returns st) stream st[a, b,c] end function
+%function sappend(g : st; v : integer returns st) stream_append(g,v) end function
+%function sfirst(g : st returns integer) stream_first(g) end function
+%function srest(g : st returns st) stream_rest(g) end function
+%function sempty(g : st returns boolean) stream_empty(g) end function
+%function ssize(g : st returns integer) stream_size(g) end function
+%function sprefix(g : st returns integer) stream_prefixsize(g) end function
+%function sconc(g,h : st returns st) g || h end function
+
+%------------------------------------------------------------
+function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
+     record reco[a : av; b : bv; c : cv; d: dv]
+end function
+function rsel(r : reco returns integer,real,double,ar)
+     r.a, r.b, r.c, r.d
+end function
+function rrepl(r : reco; newa : integer returns reco)
+     r replace[a: newa]
+end function
+
+function arcreate(av : integer; bv : real; cv : double returns arec)
+     array arec[1: record brec[a : av; b : bv; c : cv],
+                   record brec[a : av; b : bv; c : cv]]
+end function
+function arsel(ele: integer; r : arec returns integer,real,double)
+     r[ele].a+r[ele-1].a, r[ele].b-r[ele-1].b, r[ele].c
+end function
+
+%------------------------------------------------------------
+function ucreate(a : integer; b : real; c : double; d : ar returns
+     un,un,un,un)
+     union un[a : a],
+     union un[b : b],
+     union un[c : c],
+     union un[d : d]
+end function
+function utag(u : un returns boolean,boolean,boolean,boolean)
+     is a(u),
+     is b(u),
+     is c(u),
+     is d(u)
+end function
+
+%------------------------------------------------------------
+% function rfloor(x : real returns integer) floor(x) end function
+% function dfloor(x : double returns integer) floor(x) end function
+function rinteger(x : real returns integer) integer(x) end function
+function dinteger(x : double returns integer) integer(x) end function
+% function rtrunc(x : real returns integer) trunc(x) end function
+% function dtrunc(x : double returns integer) trunc(x) end function
+function ireal(x : integer returns real) real(x) end function
+function idouble(x : integer returns double) double_real(x) end function
+function dreal(x : double returns real) real(x) end function
+function rdouble(x : real returns double) double_real(x) end function
+function cinteger(x : character returns integer) integer(x) end function
+function icharacter(x : integer returns character) character(x) end function
+
+function main(
+%%%%%%%%%% Section 5.3
+a,b : array[boolean];
+
+%%%%%%%%%% Section 5.4
+c,d : array[integer];
+
+%%%%%%%%%% Section 5.5
+e,f : array[real]; g : array[integer];
+h,i : array[double_real]; j : array[integer];
+
+%%%%%%%%%% Section 5.6
+k,l : array[character];
+
+%%%%%%%%%% Section 5.7
+m,n,o : array[integer];
+p,q   : array[array[integer]];
+
+%%%%%%%%%% Section 5.8
+
+%%%%%%%%%% Section 5.9
+r : reco;
+
+%%%%%%%%%% Section 5.10
+u0,u1,u2,u3 : un;
+
+%%%%%%%%%% Section 5.11
+v : array[real];
+w : array[double_real];
+x : array[integer];
+y : array[character];
+
+%%%%%%%%%% Pass through
+pass: integer
+% ------------------------------------------------------------
+  returns
+
+%%%%%%%%%% Section 5.3 [1]
+array[character],
+array[boolean], array[boolean], array[boolean], array[boolean], array[boolean],
+
+%%%%%%%%%% Section 5.4 [6]
+array[character],
+array[integer], array[integer], array[integer], array[integer],
+array[integer], array[integer], array[integer], array[integer],
+array[integer], array[integer], array[boolean], array[boolean],
+array[boolean], array[boolean], array[boolean], array[boolean],
+
+%%%%%%%%%% Section 5.5 [22]
+array[character],
+array[real], array[real], array[real], array[real],
+array[real], array[real], array[real], array[real],
+array[real], array[real],
+array[boolean], array[boolean], array[boolean], array[boolean],
+array[boolean], array[boolean],
+array[double_real], array[double_real], array[double_real], array[double_real],
+array[double_real], array[double_real], array[double_real], array[double_real],
+array[double_real], array[double_real],
+array[boolean], array[boolean], array[boolean], array[boolean],
+array[boolean], array[boolean],
+
+%%%%%%%%%% Section 5.6 [54]
+array[character],
+array[boolean],array[boolean],array[boolean],
+array[boolean],array[boolean],array[boolean],
+
+%%%%%%%%%% Section 5.7 [60]
+array[character],
+array[array[integer]], array[array[integer]], array[array[integer]], 
+array[integer], array[array[integer]], array[array[integer]], 
+array[integer], array[integer], array[integer], array[integer], 
+array[array[integer]], array[array[integer]], array[array[integer]], 
+array[array[integer]], array[array[integer]], array[array[integer]], 
+
+%%%%%%%%%% Section 5.8 [76]
+
+%%%%%%%%%% Section 5.9 [76]
+array[character],
+reco,integer,real,double_real,ar,reco,
+arec,integer,real,double_real,
+
+%%%%%%%%%% Section 5.10 [82]
+array[character],
+un,un,un,un,
+boolean,boolean,boolean,boolean,
+boolean,boolean,boolean,boolean,
+boolean,boolean,boolean,boolean,
+boolean,boolean,boolean,boolean,
+
+%%%%%%%%%% Section 5.11 [102]
+array[character],
+array[integer],array[integer],array[integer],
+array[integer],array[integer],array[integer],
+array[real],array[double_real],array[character],
+array[integer],
+
+%%%%%%%%%% Pass through
+integer
+)
+
+%%%%%%%%%% Section 5.3
+"Section 5.3",
+for ael in a dot bel in b
+returns
+  array of bband(ael,bel)
+  array of bbor(ael,bel)
+  array of bnot(ael)
+  array of bequal(ael,bel)
+  array of bnotequal(ael,bel)
+end for,
+
+%%%%%%%%%% Section 5.4
+"Section 5.4",
+for cel in c dot del in d
+returns
+  array of iadd(cel,del)
+  array of isub(cel,del)
+  array of imul(cel,del)
+  array of if ( del = 0 ) then 0 else idiv(cel,del) end if
+
+  array of if ( del = 0 ) then 0 else imod(cel,del) end if
+  array of if ( del <= 0 ) then 0 else iiexp(cel,del) end if
+  array of ineg(cel)
+  array of iabs(cel)
+
+  array of imax(cel,del)
+  array of imin(cel,del)
+  array of iequal(cel,del)
+  array of inotequal(cel,del)
+
+  array of igreater(cel,del)
+  array of iless(cel,del)
+  array of igreateq(cel,del)
+  array of ilesseq(cel,del)
+end for,
+
+%%%%%%%%%% Section 5.5
+"Section 5.5",
+for eel in e dot fel in f dot gel in g
+returns
+  array of radd(eel,fel)
+  array of rsub(eel,fel)
+  array of rmul(eel,fel)
+  array of if ( fel = 0.0 ) then 0.0 else rdiv(eel,fel) end if
+
+  array of if eel < 0.0 | fel <= 0.0 then 0.0 else rrexp(eel,fel) end if
+  array of if gel = 0 | (eel <= 0.0 & gel <0) then 0.0 else riexp(eel,gel) end if
+  array of rneg(eel)
+  array of rabs(eel)
+
+  array of rmax(eel,fel)
+  array of rmin(eel,fel)
+  array of requal(eel,fel)
+  array of rnotequal(eel,fel)
+
+  array of rgreater(eel,fel)
+  array of rless(eel,fel)
+  array of rgreateq(eel,fel)
+  array of rlesseq(eel,fel)
+end for,
+for hel in h dot iel in i dot jel in j
+returns
+  array of dadd(hel,iel)
+  array of dsub(hel,iel)
+  array of dmul(hel,iel)
+  array of if ( iel = double_real(0) ) then double_real(0) else ddiv(hel,iel) end if
+
+  array of if hel < double_real(0) | iel <= double_real(0) then double_real(0) else ddexp(hel,iel) end if
+  array of if jel = 0 | (hel <= double_real(0) & jel <0) then double_real(0) else diexp(hel,jel) end if
+  
+  array of dneg(hel)
+  array of dabs(hel)
+
+  array of dmax(hel,iel)
+  array of dmin(hel,iel)
+  array of dequal(hel,iel)
+  array of dnotequal(hel,iel)
+
+  array of dgreater(hel,iel)
+  array of dless(hel,iel)
+  array of dgreateq(hel,iel)
+  array of dlesseq(hel,iel)
+end for,
+
+%%%%%%%%%% Section 5.6
+"Section 5.6",
+for kel in k dot lel in l
+returns
+  array of cequal(kel,lel)
+  array of cnotequal(kel,lel)
+  array of cgreater(kel,lel)
+  array of cless(kel,lel)
+  array of cgreateq(kel,lel)
+  array of clesseq(kel,lel)
+end for,
+
+%%%%%%%%%% Section 5.7
+"Section 5.7",
+for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
+returns
+  array of acreate()
+  array of acrelmt(mel,nel,oel)
+  array of afill(mel,nel,oel)
+  array of aselect(pel,mel)
+  array of arepl(pel,mel,nel)
+  array of aconc(pel,qel)
+  array of ahigh(pel)
+  array of alow(pel)
+  array of asize(pel)
+  array of aprefix(pel)
+  array of aset(pel,mel,nel)
+  array of aaddh(pel,mel)
+  array of aaddl(pel,mel)
+  array of aremh(pel)
+  array of areml(pel)
+  array of asetl(pel,mel)
+end for,
+
+%%%%%%%%%% Section 5.9
+"Section 5.9",
+rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
+rsel(r),
+rrepl(r,9999),
+arcreate(11,1.0,double_real(2.0)),
+arsel(2, arcreate(11,1.0,double_real(2.0))),
+
+%%%%%%%%%% Section 5.10
+"Section 5.10",
+ucreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
+utag(u0),
+utag(u1),
+utag(u2),
+utag(u3),
+
+%%%%%%%%%% Section 5.11
+"Section 5.11",
+for vel in v
+returns
+  array of rfloor(vel)
+  array of rinteger(vel)
+  array of rtrunc(vel)
+end for,
+for wel in w
+returns
+  array of dfloor(wel)
+  array of dinteger(wel)
+  array of dtrunc(wel)
+end for,
+for xel in x
+returns
+  array of ireal(xel)
+  array of idouble(xel)
+  array of icharacter(xel)
+end for,
+for yel in y
+returns
+  array of cinteger(yel)
+end for,
+
+%%%%%%%%%% Pass through
+pass
+
+end function

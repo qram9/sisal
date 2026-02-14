@@ -523,6 +523,9 @@ and str_decl ?(offset = 0) = function
 and str_function_name = function Function_name lf -> String.concat "." lf
 and str_arg = function Arg e -> str_exp e
 
+and get_vec_len x =
+  int_of_string (str_vec_len x)
+
 and str_vec_len = function
   | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
   | Ushort2 | Uint2 ->
@@ -540,6 +543,8 @@ and str_vec_len = function
       "16"
 
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
+
+and get_mat_dim = function Mat2 -> 2 | Mat3 -> 3 | Mat4 -> 4
 
 and str_simple_exp ?(offset = 0) = function
   | Constant x -> str_constant x

@@ -1,4 +1,5 @@
 (*TODO:
+
   1: Dot-files must be more descriptive.
   2: Need to provide a debug-msging mechanism
    for each pass- like CSE for instance.
@@ -497,7 +498,6 @@ and add_exp in_gr ex _ ret_lis =
             (`Simple (If1.MULTIARITY, in_port_1, out_port_1, [ If1.Name "LET" ]))
             in_gr
         in
-
         let nm = in_gr.If1.nmap in
         let rec fold_away_multiarity_nodes alis oth_lis =
           (* Move CAR from alis to oth_lis, but only
@@ -519,11 +519,13 @@ and add_exp in_gr ex _ ret_lis =
           | [] -> ((mo, mp, mt), in_gr)
           | (hdn, hdp, hdt) :: tl ->
               add_all_edges_to_multiarity
-                (mo, mp + 1, mt)
+                (mo, mp + 1, hdt)
                 (If1.add_edge hdn hdp mo mp hdt in_gr)
                 tl
         in
-        let _, in_gr = add_all_edges_to_multiarity (oo, op, ot) in_gr ret_lis in
+        let (_, _, ot), in_gr =
+          add_all_edges_to_multiarity (oo, op, ot) in_gr ret_lis
+        in
         ((oo, 0, ot), in_gr)
       else ((0, 0, 0), in_gr)
   | hde :: tl ->
@@ -1882,6 +1884,7 @@ and add_edges_to_boundary a_gr outer_gr to_node =
   gr
 
 and get_simple_unary nou in_gr node_tag =
+  let (z, _, _), in_gr =
   let in_port_1 =
     let in_array = Array.make 1 "" in
     in_array
@@ -1890,7 +1893,6 @@ and get_simple_unary nou in_gr node_tag =
     let out_array = Array.make nou "" in
     out_array
   in
-  let (z, _, _), in_gr =
     If1.add_node_2
       (`Simple (node_tag, in_port_1, out_port_1, [ If1.No_pragma ]))
       in_gr
@@ -2037,8 +2039,52 @@ and do_simple_exp in_gr in_sim_ex =
   | Lesser (a, b) -> create_bool_bin_op a b in_gr LESSER
   | Greater_equal (a, b) -> create_bool_bin_op a b in_gr GREATER_EQUAL
   | Greater (a, b) -> create_bool_bin_op a b in_gr GREATER
+  | Vec (vect, el) ->
+      (* 1. Determine expected width from the AST type *)
+      let expected_len = Ast.get_vec_len vect in
+      (* Ensure this helper exists in Ast *)
+      let actual_len = List.length el in
+
+      (* 2. Validate: Must be 1 (Splat) or exactly the Vector Width (Build) *)
+      if actual_len <> 1 && actual_len <> expected_len then
+        failwith
+          (Printf.sprintf "Type Error: %s expects 1 or %d args, got %d"
+             (Ast.str_vec_type vect) expected_len actual_len);
+
+      (* 3. Process elements into ports *)
+      let ports_info, in_gr =
+        List.fold_left
+          (fun (acc, g) e ->
+            let p, g' = do_exp g e in
+            (p :: acc, g'))
+          ([], in_gr) el
+      in
+      let ports_info = List.rev ports_info in
+
+      (* 4. Determine Opcode *)
+      let opcode = if actual_len = 1 then If1.VECSPLAT else If1.VECBUILD in
+
+      (* 5. Create Node and Edges *)
+      let (vn, vp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             ( opcode,
+               Array.make (List.length ports_info) "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
+          in_gr
+      in
+      let vt = If1.lookup_tyid (If1.ast_if1_type vect) in
+      let in_gr =
+        List.fold_left2
+          (fun g i (en, ep, et) -> If1.add_edge en ep vn i et g)
+          in_gr
+          (List.init (List.length ports_info) (fun x -> x))
+          ports_info
+      in
+      ((vn, vp, vt), in_gr)
+      (*
   | Swizzle (e, mask_str) ->
-      (* 1. Lower the source expression (e.g., the float4 variable) *)
       let indices = crack_swizzle_mask mask_str in
 
       let (lx, lp, lt), in_gr =
@@ -2056,8 +2102,7 @@ and do_simple_exp in_gr in_sim_ex =
                out_port_1 ))
           in_gr
       in
-      let (en, ep, _), in_gr = do_simple_exp in_gr e in
-      let (sn, sp, st), in_gr =
+      let (sn, sp, _), in_gr =
         If1.add_node_2
           (`Simple
              ( If1.SWIZZLE,
@@ -2066,38 +2111,118 @@ and do_simple_exp in_gr in_sim_ex =
                [ If1.No_pragma ] ))
           in_gr
       in
+      let (en, ep, input_ty), in_gr = do_simple_exp in_gr e in
+      let st =
+        If1.find_ty in_gr
+          (If1.build_vector_of_type
+             (If1.get_element_type (If1.lookup_ty input_ty in_gr))
+             (List.length indices))
+      in
       ( (sn, sp, st),
         If1.add_edge lx lp sn 1 lt (If1.add_edge en ep sn 0 st in_gr) )
-  | Vec _ (*v_ty, el*) ->
-      (*
-      (* 1. Lower all component expressions *)
-      let component_ports = List.map (gen_exp baton) el in
-
-      (* 2. Detect Splat vs. Full Init *)
-      if List.length component_ports = 1 then
-        (* M4 Max: Use VDUP (Duplicate) to fill all lanes *)
-        If1.emit_node baton ~op:If1.Op_VecSplat ~inputs:component_ports
-      else
-        (* M4 Max: Use VLD (Vector Load) or Build-Vector *)
-        If1.emit_node baton ~op:If1.Op_VecBuild ~inputs:component_ports
         *)
-      raise (If1.Sem_error "da")
-  | Mat _ (*m_ty, el*) ->
-      raise (If1.Sem_error "da")
-      (*
-      (* Lower 16 components for mat4, etc. *)
-      let component_ports = List.map (gen_exp baton) el in
-      If1.emit_node baton ~op:If1.Op_MatBuild ~inputs:component_ports
-      *)
+| Swizzle (e, mask_str) ->
+    (* 1. Identify indices and basic types *)
+    let indices = crack_swizzle_mask mask_str in
+    let (en, ep, input_ty), in_gr = do_simple_exp in_gr e in
+    let mask_len = List.length indices in
+
+    (* 2. Replace the Literal Node with an ABUILD sequence *)
+    (* This avoids the "122" string ambiguity *)
+    let (mask_ports, in_gr) = List.fold_left (fun (acc, g) idx ->
+        let (ln, lp, lt), g' = If1.add_node_2 (
+          `Literal (If1.INTEGRAL, string_of_int idx, [|""|])
+        ) g in
+        ((ln, lp, lt) :: acc, g')
+    ) ([], in_gr) indices in
+    let mask_ports = List.rev mask_ports in
+
+    (* 3. Create the ABUILD Node to hold the mask *)
+    let (an, ap, at), in_gr = If1.add_node_2 (
+      `Simple (If1.ABUILD, Array.make mask_len "", Array.make 1 "", [])
+    ) in_gr in
+
+    (* 4. Wire Literal indices into ABUILD *)
+    let in_gr = List.fold_left2 (fun g i (ln, lp, lt) ->
+        If1.add_edge ln lp an i lt g
+    ) in_gr (List.init mask_len (fun x -> x)) mask_ports in
+
+    (* 5. Determine Correct Return Type using your Weaver *)
+    let st = 
+      let flavor = If1.get_element_type (If1.lookup_ty input_ty in_gr) in
+      let res_struct = if mask_len = 1 then flavor else If1.build_vector_of_type flavor mask_len in
+      If1.find_ty in_gr res_struct
+    in
+
+    (* 6. Create SWIZZLE Node (2 Inputs: 0=Vector, 1=Mask) *)
+    let (sn, sp, _), in_gr =
+      If1.add_node_2
+        (`Simple (If1.SWIZZLE, [| ""; "" |], [| "" |], []))
+        in_gr
+    in
+
+    (* 7. Final Wiring with corrected edge types *)
+    ( (sn, sp, st),
+      in_gr 
+      |> If1.add_edge an ap sn 1 at        (* Mask goes to Port 1 *)
+      |> If1.add_edge en ep sn 0 input_ty  (* Data goes to Port 0 (uses input_ty) *)
+    )
+
+
+  | Mat (mat_t, el) ->
+      (* 1. Determine dimension (e.g., Mat4 -> 4, so 16 elements total) *)
+      let dim = Ast.get_mat_dim mat_t in
+      let expected_len = dim * dim in
+      let actual_len = List.length el in
+
+      (* 2. Validate *)
+      if actual_len <> 1 && actual_len <> expected_len then
+        failwith
+          (Printf.sprintf "Type Error: %s expects 1 or %d args, got %d"
+             (Ast.str_mat_type mat_t) expected_len actual_len);
+
+      (* 3. Process elements *)
+      let ports_info, in_gr =
+        List.fold_left
+          (fun (acc, g) e ->
+            let p, g' = do_exp g e in
+            (p :: acc, g'))
+          ([], in_gr) el
+      in
+      let ports_info = List.rev ports_info in
+
+      (* 4. Opcode (MATSPLAT vs MATBUILD) *)
+      let opcode = if actual_len = 1 then If1.MATSPLAT else If1.MATBUILD in
+
+      (* 5. Create Node and Edges *)
+      let (mn, mp, mt), in_gr =
+        If1.add_node_2
+          (`Simple
+             ( opcode,
+               Array.make (List.length ports_info) "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
+          in_gr
+      in
+
+      let in_gr =
+        List.fold_left2
+          (fun g i (en, ep, et) -> If1.add_edge en ep mn i et g)
+          in_gr
+          (List.init (List.length ports_info) (fun x -> x))
+          ports_info
+      in
+
+      ((mn, mp, mt), in_gr)
   | Invocation (fn, arg) -> (
       match fn with
       | Ast.Function_name f -> (
           match String.concat "." f with
           (*TODO: More libs *)
           | "ARRAY_ADDH" ->
-              let in_port_00 = Array.make 1 "" in
-              let out_port_00 = Array.make 1 "" in
               let (n, _, _), in_gr =
+                let in_port_00 = Array.make 1 "" in
+                let out_port_00 = Array.make 1 "" in
                 If1.add_node_2
                   (`Simple (If1.AADDH, in_port_00, out_port_00, []))
                   in_gr
@@ -2121,9 +2246,9 @@ and do_simple_exp in_gr in_sim_ex =
               in
               ((n, 0, tt), in_gr)
           | "ARRAY_LIMH" ->
-              let in_port_00 = Array.make 1 "" in
-              let out_port_00 = Array.make 1 "" in
               let (n, _, _), in_gr =
+                let in_port_00 = Array.make 1 "" in
+                let out_port_00 = Array.make 1 "" in
                 If1.add_node_2
                   (`Simple (If1.ALIMH, in_port_00, out_port_00, []))
                   in_gr
@@ -2767,10 +2892,12 @@ and do_simple_exp in_gr in_sim_ex =
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
-      let add_comp_node to_gr in_gr namen =
+      let add_comp_node in_gr namen to_gr =
+        let _, on =
         If1.add_node_2
           (`Compound (in_gr, If1.INTERNAL, 0, [ If1.Name namen ], []))
           to_gr
+        in on
       in
 
       let loopAOrB i in_gr =
@@ -2784,9 +2911,9 @@ and do_simple_exp in_gr in_sim_ex =
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
             in
-            let (_, _, _), for_gr = add_comp_node for_gr body_gr "BODY" in
-            let (_, _, _), for_gr = add_comp_node for_gr test_gr "TEST" in
-            let (_, _, _), for_gr = add_comp_node for_gr decl_gr "INIT" in
+            let for_gr = add_comp_node body_gr "BODY" for_gr in
+            let for_gr = add_comp_node test_gr "TEST" for_gr in
+            let for_gr = add_comp_node decl_gr "INIT" for_gr in
             let for_gr = get_ports_unified for_gr body_gr decl_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
@@ -2825,9 +2952,9 @@ and do_simple_exp in_gr in_sim_ex =
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
             in
-            let (_, _, _), for_gr = add_comp_node for_gr body_gr "BODY" in
-            let (_, _, _), for_gr = add_comp_node for_gr test_gr "TEST" in
-            let (_, _, _), for_gr = add_comp_node for_gr decl_gr "INIT" in
+            let for_gr = add_comp_node body_gr "BODY" for_gr in
+            let for_gr = add_comp_node test_gr "TEST" for_gr in
+            let for_gr = add_comp_node decl_gr "INIT" for_gr in
             let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
@@ -2902,7 +3029,7 @@ and do_return_exp in_gr = function
       else (`Reduce (reduc_dir, reduc_name), (val_of, val_po, val_ty), in_gr)
   | Ast.Array_of e ->
       (* AGATHER GETS HERE *)
-      (* TODO HERE I NEED TO BUILD A ARRAY TYPE *)
+      (* TODO HERE I NEED TO BUILD AN ARRAY TYPE *)
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       (`Array_of, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
