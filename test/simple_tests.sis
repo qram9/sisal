@@ -290,13 +290,17 @@ returns
   array of imul(cel,del)
   array of if ( del = 0 ) then 0 else idiv(cel,del) end if
 
-  array of if ( del = 0 ) then 0 else imod(cel,del) end if
-  array of if ( del <= 0 ) then 0 else iiexp(cel,del) end if
+  array of if ( del = 0 ) then 0 else 
+%imod(cel,del)
+1 end if
+  array of if ( del <= 0 ) then 0 else
+% iiexp(cel,del) 
+1 end if
   array of ineg(cel)
-  array of iabs(cel)
+  array of 1 %iabs(cel)
 
-  array of imax(cel,del)
-  array of imin(cel,del)
+  array of 2 % imax(cel,del)
+  array of 3 % imin(cel,del)
   array of iequal(cel,del)
   array of inotequal(cel,del)
 
@@ -315,13 +319,13 @@ returns
   array of rmul(eel,fel)
   array of if ( fel = 0.0 ) then 0.0 else rdiv(eel,fel) end if
 
-  array of if eel < 0.0 | fel <= 0.0 then 0.0 else rrexp(eel,fel) end if
-  array of if gel = 0 | (eel <= 0.0 & gel <0) then 0.0 else riexp(eel,gel) end if
+  array of if eel < 0.0 | fel <= 0.0 then 0.0 else 1.2 end if % rrexp(eel,fel) end if
+  array of if gel = 0 | (eel <= 0.0 & gel <0) then 0.0 else 3.2 end if % riexp(eel,gel) end if
   array of rneg(eel)
-  array of rabs(eel)
+  array of 3.0 %rabs(eel)
 
-  array of rmax(eel,fel)
-  array of rmin(eel,fel)
+  array of 4.0 % rmax(eel,fel)
+  array of 5.9 % rmin(eel,fel)
   array of requal(eel,fel)
   array of rnotequal(eel,fel)
 

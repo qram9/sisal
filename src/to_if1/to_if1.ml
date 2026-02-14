@@ -1632,14 +1632,15 @@ and get_new_tagcase_graph in_gr vntt e =
       pragmas and updated graph likewise *)
   (outs_, prags_sth, in_gr_)
 
-and check_subgr_tys _ jj prev =
-  (*Format.printf "FIRST:%s\nNEXT:%s\n"
+and check_subgr_tys _ msg jj prev =
+  (*  Format.printf "FIRST:%s\nNEXT:%s\n"
     (
       If1.IntMap.fold
         (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) jj "")
     (
       If1.IntMap.fold
-        (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) prev "");*)
+        (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) prev "");
+        *)
   let rec do_in_loop curr last jj prev =
     if curr < last then
       if If1.IntMap.mem curr prev = false then
@@ -1656,15 +1657,10 @@ and check_subgr_tys _ jj prev =
         let fst = If1.IntMap.find curr jj in
         let snd = If1.IntMap.find curr prev in
         if fst != snd then
-          raise
-            (If1.Sem_error
-               (let _ =
-                  Format.printf "%d:%d %d:%d\n" curr (If1.IntMap.find curr jj)
-                    curr
-                    (If1.IntMap.find curr prev);
-                  "Mismatched types"
-                in
-                "Loop bug"))
+          failwith
+            (Printf.sprintf "Mismatched types "
+            ^ If1.rev_lookup_ty_name fst ^ " " ^ If1.rev_lookup_ty_name snd
+            ^ " AT " ^ msg)
         else
           (*Format.printf "Matches: %d:%d %d:%d\n"
               curr fst curr snd;*)
@@ -1951,9 +1947,11 @@ and bin_exp a b in_gr node_tag =
                   If1.cate_list
                     [
                       Ast.str_simple_exp ~offset:2 a;
-                      " of type:" ^ string_of_int qq1;
+                      " of type:" ^ string_of_int qq1 ^ " maps to "
+                      ^ If1.rev_lookup_ty_name qq1;
                       Ast.str_simple_exp ~offset:2 b;
-                      " of type:" ^ string_of_int qq2;
+                      " of type:" ^ string_of_int qq2 ^ " maps to "
+                      ^ If1.rev_lookup_ty_name qq2;
                     ]
                     "\n"
                 in
@@ -2711,7 +2709,11 @@ and do_simple_exp in_gr in_sim_ex =
             in
 
             let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_n in
-            let _ = check_subgr_tys in_gr_if ty_lis_then ty_lis_else in
+            let _ =
+              check_subgr_tys in_gr_if
+                (Ast.str_cond (Ast.Cond (predicate, body)))
+                ty_lis_then ty_lis_else
+            in
 
             let pred_out, predicate_gr =
               do_exp (If1.get_a_new_graph in_gr_if) predicate
