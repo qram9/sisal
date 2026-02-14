@@ -192,11 +192,15 @@ let parse_msg level fmt =
 %token MAT2_TY
 %token MAT3_TY
 %token MAT4_TY
-%left LT GT EQ NE LE GE PIPE AND OR
-%left PLUS MINUS
-%left STAR DIVIDE
-%left DOTSTOP
-%nonassoc UMINUS
+/* Lowest Precedence */
+%left PIPE OR           /* Logical OR / Bitwise OR */
+%left AND               /* Logical AND / Bitwise AND */
+%left LT GT EQ NE LE GE /* Comparisons must happen AFTER arithmetic but BEFORE logic */
+%left PLUS MINUS        /* Addition/Subtraction */
+%left STAR DIVIDE       /* Multiplication/Division */
+%left UMINUS            /* Unary Minus (e.g., -eel) */
+%left DOTSTOP           /* Swizzle/Record Access */
+/* Highest Precedence */
 %type <Ir.Ast.compilation_unit> main
 %start main
 %%
@@ -478,7 +482,7 @@ function_name_list :
   ;
 
   record_ref :
-    primary DOTSTOP field_name
+    simple_expression DOTSTOP field_name
       { Record_ref ($1,$3) }
 | record_ref DOTSTOP field_name { Record_ref($1, $3) }
   ;
