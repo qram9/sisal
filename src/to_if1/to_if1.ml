@@ -1885,14 +1885,14 @@ and add_edges_to_boundary a_gr outer_gr to_node =
 
 and get_simple_unary nou in_gr node_tag =
   let (z, _, _), in_gr =
-  let in_port_1 =
-    let in_array = Array.make 1 "" in
-    in_array
-  in
-  let out_port_1 =
-    let out_array = Array.make nou "" in
-    out_array
-  in
+    let in_port_1 =
+      let in_array = Array.make 1 "" in
+      in_array
+    in
+    let out_port_1 =
+      let out_array = Array.make nou "" in
+      out_array
+    in
     If1.add_node_2
       (`Simple (node_tag, in_port_1, out_port_1, [ If1.No_pragma ]))
       in_gr
@@ -2083,92 +2083,6 @@ and do_simple_exp in_gr in_sim_ex =
           ports_info
       in
       ((vn, vp, vt), in_gr)
-      (*
-  | Swizzle (e, mask_str) ->
-      let indices = crack_swizzle_mask mask_str in
-
-      let (lx, lp, lt), in_gr =
-        let out_port_1 =
-          let out_array = Array.make 1 "" in
-          out_array
-        in
-        If1.add_node_2
-          (`Literal
-             ( If1.CHARACTER,
-               List.fold_left
-                 (fun k x -> k ^ x)
-                 ""
-                 (List.map string_of_int indices),
-               out_port_1 ))
-          in_gr
-      in
-      let (sn, sp, _), in_gr =
-        If1.add_node_2
-          (`Simple
-             ( If1.SWIZZLE,
-               Array.make (List.length indices + 1) "",
-               Array.make 1 "",
-               [ If1.No_pragma ] ))
-          in_gr
-      in
-      let (en, ep, input_ty), in_gr = do_simple_exp in_gr e in
-      let st =
-        If1.find_ty in_gr
-          (If1.build_vector_of_type
-             (If1.get_element_type (If1.lookup_ty input_ty in_gr))
-             (List.length indices))
-      in
-      ( (sn, sp, st),
-        If1.add_edge lx lp sn 1 lt (If1.add_edge en ep sn 0 st in_gr) )
-        *)
-| Swizzle (e, mask_str) ->
-    (* 1. Identify indices and basic types *)
-    let indices = crack_swizzle_mask mask_str in
-    let (en, ep, input_ty), in_gr = do_simple_exp in_gr e in
-    let mask_len = List.length indices in
-
-    (* 2. Replace the Literal Node with an ABUILD sequence *)
-    (* This avoids the "122" string ambiguity *)
-    let (mask_ports, in_gr) = List.fold_left (fun (acc, g) idx ->
-        let (ln, lp, lt), g' = If1.add_node_2 (
-          `Literal (If1.INTEGRAL, string_of_int idx, [|""|])
-        ) g in
-        ((ln, lp, lt) :: acc, g')
-    ) ([], in_gr) indices in
-    let mask_ports = List.rev mask_ports in
-
-    (* 3. Create the ABUILD Node to hold the mask *)
-    let (an, ap, at), in_gr = If1.add_node_2 (
-      `Simple (If1.ABUILD, Array.make mask_len "", Array.make 1 "", [])
-    ) in_gr in
-
-    (* 4. Wire Literal indices into ABUILD *)
-    let in_gr = List.fold_left2 (fun g i (ln, lp, lt) ->
-        If1.add_edge ln lp an i lt g
-    ) in_gr (List.init mask_len (fun x -> x)) mask_ports in
-
-    (* 5. Determine Correct Return Type using your Weaver *)
-    let st = 
-      let flavor = If1.get_element_type (If1.lookup_ty input_ty in_gr) in
-      let res_struct = if mask_len = 1 then flavor else If1.build_vector_of_type flavor mask_len in
-      If1.find_ty in_gr res_struct
-    in
-
-    (* 6. Create SWIZZLE Node (2 Inputs: 0=Vector, 1=Mask) *)
-    let (sn, sp, _), in_gr =
-      If1.add_node_2
-        (`Simple (If1.SWIZZLE, [| ""; "" |], [| "" |], []))
-        in_gr
-    in
-
-    (* 7. Final Wiring with corrected edge types *)
-    ( (sn, sp, st),
-      in_gr 
-      |> If1.add_edge an ap sn 1 at        (* Mask goes to Port 1 *)
-      |> If1.add_edge en ep sn 0 input_ty  (* Data goes to Port 0 (uses input_ty) *)
-    )
-
-
   | Mat (mat_t, el) ->
       (* 1. Determine dimension (e.g., Mat4 -> 4, so 16 elements total) *)
       let dim = Ast.get_mat_dim mat_t in
@@ -2478,17 +2392,79 @@ and do_simple_exp in_gr in_sim_ex =
       let (oa, oup), in_gr = do_array_replace ((sn, sp), in_gr) epl in
       ((oa, oup, arr_type), in_gr)
   | Ast.Record_ref (e, fn) ->
-      let fn = match fn with Ast.Field_name fn -> fn in
       let (ain, apo, tt1), in_gr = do_simple_exp in_gr e in
-      let _, tt2 = If1.get_record_field in_gr tt1 fn in
-      let (bb, pp, _), in_gr =
-        let in_porst = Array.make 2 "" in
-        in_porst.(0) <- fn;
-        If1.add_node_2
-          (`Simple (If1.RELEMENTS, in_porst, Array.make 1 "", [ If1.No_pragma ]))
+      if If1.is_vector_type (If1.lookup_ty tt1 in_gr) = True then
+        let fn = Ast.str_field_name fn in
+        let indices = crack_swizzle_mask (String.lowercase_ascii fn) in
+        let (en, ep, input_ty), in_gr = ((ain, apo, tt1), in_gr) in
+        let mask_len = List.length indices in
+
+        (* 2. Replace the Literal Node with an ABUILD sequence *)
+        (* This avoids the "122" string ambiguity *)
+        let mask_ports, in_gr =
+          List.fold_left
+            (fun (acc, g) idx ->
+              let (ln, lp, lt), g' =
+                If1.add_node_2
+                  (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |]))
+                  g
+              in
+              ((ln, lp, lt) :: acc, g'))
+            ([], in_gr) indices
+        in
+        let mask_ports = List.rev mask_ports in
+
+        (* 3. Create the ABUILD Node to hold the mask *)
+        let (an, ap, at), in_gr =
+          If1.add_node_2
+            (`Simple (If1.ABUILD, Array.make mask_len "", Array.make 1 "", []))
+            in_gr
+        in
+
+        (* 4. Wire Literal indices into ABUILD *)
+        let in_gr =
+          List.fold_left2
+            (fun g i (ln, lp, lt) -> If1.add_edge ln lp an i lt g)
+            in_gr
+            (List.init mask_len (fun x -> x))
+            mask_ports
+        in
+
+        (* 5. Determine Correct Return Type using your Weaver *)
+        let st =
+          let flavor = If1.get_element_type (If1.lookup_ty input_ty in_gr) in
+          let res_struct =
+            if mask_len = 1 then flavor
+            else If1.build_vector_of_type flavor mask_len
+          in
+          If1.find_ty in_gr res_struct
+        in
+
+        (* 6. Create SWIZZLE Node (2 Inputs: 0=Vector, 1=Mask) *)
+        let (sn, sp, _), in_gr =
+          If1.add_node_2
+            (`Simple (If1.SWIZZLE, [| ""; "" |], [| "" |], []))
+            in_gr
+        in
+
+        (* 7. Final Wiring with corrected edge types *)
+        ( (sn, sp, st),
           in_gr
-      in
-      ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
+          |> If1.add_edge an ap sn 1 at (* Mask goes to Port 1 *)
+          |> If1.add_edge en ep sn 0
+               input_ty (* Data goes to Port 0 (uses input_ty) *) )
+      else
+        let fn = match fn with Ast.Field_name fn -> fn in
+        let _, tt2 = If1.get_record_field in_gr tt1 fn in
+        let (bb, pp, _), in_gr =
+          let in_porst = Array.make 2 "" in
+          in_porst.(0) <- fn;
+          If1.add_node_2
+            (`Simple
+               (If1.RELEMENTS, in_porst, Array.make 1 "", [ If1.No_pragma ]))
+            in_gr
+        in
+        ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
   | Ast.Record_generator_primary (e, fdle) ->
       let (e, p, inctt), in_gr = do_simple_exp in_gr e in
       let rec do_each_field ((a, b, tt), in_gr) = function
@@ -2894,10 +2870,11 @@ and do_simple_exp in_gr in_sim_ex =
 
       let add_comp_node in_gr namen to_gr =
         let _, on =
-        If1.add_node_2
-          (`Compound (in_gr, If1.INTERNAL, 0, [ If1.Name namen ], []))
-          to_gr
-        in on
+          If1.add_node_2
+            (`Compound (in_gr, If1.INTERNAL, 0, [ If1.Name namen ], []))
+            to_gr
+        in
+        on
       in
 
       let loopAOrB i in_gr =

@@ -1,58 +1,59 @@
 digraph R {
 newrank=true;
 IN00 [shape=rect;label=""];
-OUT00 [shape=rect;label="{FUNCTION_TYPE MAIN (ARGS: 74) (RETURNS:72);MAIN;(1,0)}[]"];
+OUT00 [shape=rect;label="{FUNCTION_TYPE MAIN (ARGS: 80) (RETURNS:78);MAIN;(1,0)}[]"];
 subgraph cluster_01 {
 label="1 %na=MAIN";
-IN01 [shape=rect;label="NULL;N;(0,0)\nNULL;M;(0,1)"];
-OUT01 [shape=rect;label="[(1,1);(1,0)]%na=MAIN"];
-subgraph cluster_11 {
-label="1 %na=LET_NON_REC";
-IN011 [shape=rect;label=""];
-OUT011 [shape=rect;label="{NULL;Z;(3,1)}\n{NULL;Y;(3,0)}\n{NULL;X;(1,0)}[]"];
-111 [shape=plaintext;label="1"];
-subgraph cluster_112 {
-label="2 %na=LET_NON_REC";
-IN0112 [shape=rect;label=""];
-OUT0112 [shape=rect;label="{NULL;Y;(2,0)}\n{NULL;X;(1,0)}[]"];
-1121 [shape=plaintext;label="2"];
-1122 [shape=plaintext;label="3"];
-1123 [shape=rect;label="3 ADD"];
-1124 [shape=rect;label="4 TIMES"];
-1125 [shape=rect;label="5 ADD"];
-1126 [shape=rect;label="6 TIMES"];
-1127 [shape=rect;label="7 TIMES"];
-1128 [shape=rect;label="8 ADD"]
-1121 ->  1123 [label="(0,0),Ty=5"]
-1121 ->  1124 [label="(0,0),Ty=5"]
-1121 ->  1126 [label="(0,0),Ty=5"]
-1121 ->  1127 [label="(0,0),Ty=5"]
-1122 ->  1123 [label="(0,1),Ty=5"]
-1122 ->  1124 [label="(0,1),Ty=5"]
-1122 ->  1126 [label="(0,1),Ty=5"]
-1122 ->  1127 [label="(0,1),Ty=5"]
-1123 ->  1125 [label="(0,0),Ty=5"]
-1124 ->  1125 [label="(0,1),Ty=5"]
-1125 ->  OUT0112 [label="(0,0),Ty=5"]
-1126 ->  1128 [label="(0,0),Ty=5"]
-1127 ->  1128 [label="(0,1),Ty=5"]
-1128 ->  OUT0112 [label="(0,1),Ty=5"]
-};
-114 [shape=rect;label="4 TIMES"];
-115 [shape=rect;label="5 ADD"];
-116 [shape=rect;label="6 TIMES"];
-117 [shape=rect;label="7 SUBTRACT"]
-111 ->  114 [label="(0,0),Ty=5"]
-111 ->  116 [label="(0,0),Ty=5"]
-112 ->  114 [label="(0,1),Ty=5"]
-112 ->  115 [label="(1,1),Ty=5"]
-112 ->  116 [label="(0,1),Ty=5"]
-112 ->  117 [label="(1,1),Ty=5"]
-114 ->  115 [label="(0,0),Ty=5"]
-115 ->  OUT011 [label="(0,0),Ty=5"]
-116 ->  117 [label="(0,0),Ty=5"]
-117 ->  OUT011 [label="(0,1),Ty=5"]
-}
-11 ->  OUT01 [label="(0,0),Ty=5"]
-11 ->  OUT01 [label="(1,1),Ty=5"]
+IN01 [shape=rect;label="FLOAT4;MYPOS;(0,0)"];
+OUT01 [shape=rect;label="[(35,0);(19,0);(9,0)]%na=MAIN"];
+11 [shape=plaintext;label="4.4"];
+13 [shape=rect;label="3 VECSPLAT"];
+15 [shape=plaintext;label="1"];
+16 [shape=plaintext;label="2"];
+17 [shape=plaintext;label="2"];
+18 [shape=rect;label="8 ABUILD"];
+19 [shape=rect;label="9 SWIZZLE"];
+110 [shape=plaintext;label="0.2"];
+112 [shape=plaintext;label="1.2"];
+114 [shape=rect;label="14 VECBUILD"];
+116 [shape=plaintext;label="1"];
+117 [shape=plaintext;label="0"];
+118 [shape=rect;label="18 ABUILD"];
+119 [shape=rect;label="19 SWIZZLE"];
+120 [shape=plaintext;label="2.2"];
+122 [shape=plaintext;label="3"];
+124 [shape=plaintext;label="4.4"];
+126 [shape=plaintext;label="5.5"];
+128 [shape=rect;label="28 VECBUILD"];
+130 [shape=plaintext;label="2"];
+131 [shape=plaintext;label="0"];
+132 [shape=plaintext;label="1"];
+133 [shape=plaintext;label="3"];
+134 [shape=rect;label="34 ABUILD"];
+135 [shape=rect;label="35 SWIZZLE"]
+11 ->  13 [label="(0,0),Ty=3"]
+13 ->  19 [label="(0,0),Ty=27"]
+15 ->  18 [label="(0,0),Ty=5"]
+16 ->  18 [label="(0,1),Ty=5"]
+17 ->  18 [label="(0,2),Ty=5"]
+18 ->  19 [label="(0,1),Ty=0"]
+19 ->  OUT01 [label="(0,0),Ty=27"]
+110 ->  114 [label="(0,0),Ty=3"]
+112 ->  114 [label="(0,1),Ty=3"]
+114 ->  119 [label="(0,0),Ty=18"]
+116 ->  118 [label="(0,0),Ty=5"]
+117 ->  118 [label="(0,1),Ty=5"]
+118 ->  119 [label="(0,1),Ty=0"]
+119 ->  OUT01 [label="(0,1),Ty=18"]
+120 ->  128 [label="(0,0),Ty=3"]
+122 ->  128 [label="(0,1),Ty=5"]
+124 ->  128 [label="(0,2),Ty=3"]
+126 ->  128 [label="(0,3),Ty=3"]
+128 ->  135 [label="(0,0),Ty=36"]
+130 ->  134 [label="(0,0),Ty=5"]
+131 ->  134 [label="(0,1),Ty=5"]
+132 ->  134 [label="(0,2),Ty=5"]
+133 ->  134 [label="(0,3),Ty=5"]
+134 ->  135 [label="(0,1),Ty=0"]
+135 ->  OUT01 [label="(0,2),Ty=36"]
 }}

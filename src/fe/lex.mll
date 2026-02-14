@@ -140,7 +140,6 @@ let predef_fn_table =
     ]
 }
 let digit = ['0'-'9']
-let swizzle_chars = ['x' 'y' 'z' 'w' 'r' 'g' 'b' 'a' 's' 't' 'p' 'q' '0'-'9' 'a'-'f' 'A'-'F']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
           let dec = digit+
                     (*            let flonum = (['+' '-']?)*)
@@ -203,10 +202,6 @@ and sisal_lex = parse eof {
               | digit+ '.' digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
               | digit+ 'd' as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
               | digit+ 'h' as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-
-              (* --- 2. Swizzle Regex --- *)
-              (* Only matches if it starts with '.' and is followed by valid swizzle/OpenCL chars *)
-              | '.' (swizzle_chars+) as s { SWIZZLE(String.sub s 1 (String.length s - 1)) }
 
               | '%' {
                   padded_lex_msg 5 "_cmts:>\n";
