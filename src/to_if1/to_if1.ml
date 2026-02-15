@@ -691,9 +691,10 @@ and do_in_exp ?(curr_level = 1) in_gr = function
           in_gr
       in
       ((aa, bb, cc), in_gr)
-  | Dot (ie1, ie2) ->
+  | Ast.Dot (ie1, ie2) ->
       let _, in_gr = do_in_exp in_gr ie1 in
-      do_in_exp in_gr ie2
+      let (x, y, z), in_gr = do_in_exp in_gr ie2 in
+      ((x, y, z), in_gr)
   | Ast.Cross (_, _) -> raise (If1.Sem_error "Need to be in a forall context")
 
 and get_lower_lim = function
@@ -798,6 +799,7 @@ and tie_outer_scope_to_inner from_gr to_gr to_node =
 and do_for_all inexp bodyexp retexp in_gr =
   (* Use Array input's dimensions to
       set Array output's dimensions*)
+  let inc_inexp, inc_bodyexp, inc_retexp = (inexp, bodyexp, retexp) in
   let rec get_cross_exp_lis inexp retl =
     (* Create a list of index expressions.
         Ast.Cross would be for nested loops and so would At.*)
@@ -890,6 +892,12 @@ and do_for_all inexp bodyexp retexp in_gr =
           do_returns_clause_list body_gr retexp [] [] []
         in
 
+        print_endline "RETURN CLAUSE!!!\n";
+        print_endline (Ast.newline_fold (List.map Ast.str_return_clause retexp));
+        print_endline "RETURN CLAUSE DONE\n";
+        print_endline "BODY GRAPH";
+        If1.outs_graph body_gr;
+        print_endline "BODY DONE";
         (* Connect Results To Body's If1.Boundary *)
         let body_gr = If1.output_to_boundary ret_tuple_list body_gr in
         (* Connect Results To Body's If1.Boundary *)
@@ -1033,14 +1041,13 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
 
   let in_gr = tie_outer_scope_to_inner forall_gr in_gr fx in
+  print_endline
+    ("LOWERED AST FOR ALL "
+    ^ Ast.str_simple_exp ~offset:0
+        (Ast.For_all (inc_inexp, inc_bodyexp, inc_retexp)));
+  print_endline "Resulting graph is ";
+  If1.outs_graph in_gr;
   ((mul_n, mul_p, mul_t), return_action_list, in_gr)
-
-and do_prefix_name in_gr = function
-  (* TODO *)
-  | Ast.Char_prefix -> ((0, 0, 0), in_gr)
-  | Ast.Double_prefix -> ((0, 0, 0), in_gr)
-  | Ast.Integer_prefix -> ((0, 0, 0), in_gr)
-  | Ast.Real_prefix -> ((0, 0, 0), in_gr)
 
 and do_decldef_part in_gr = function
   | Ast.Decldef_part f ->
@@ -1093,24 +1100,12 @@ and do_decldef_part2 kind in_gr = function
       in
       (xyz, in_gr)
 
-and get_type_num in_gr = function
-  | Ast.Type_name yy -> If1.lookup_by_typename in_gr yy
-  | Ast.Boolean -> 1
-  | Ast.Character -> 2
-  | Ast.Real -> 3
-  | Ast.Double_real -> 4
-  | Ast.Integer -> 5
-  | Ast.Null -> 6
-  | _ -> raise (If1.Node_not_found "Unexpected Decl, must never be here")
-
 and do_params_decl po in_gr z =
   match z with
   | Ast.Decl_with_type (x, y) ->
       let type_num, in_gr =
-        try (get_type_num in_gr y, in_gr)
-        with If1.Node_not_found _ ->
-          let (id_t, _, _), in_gr = If1.add_sisal_type in_gr y in
-          (id_t, in_gr)
+        let (id_t, _, _), in_gr = If1.add_sisal_type in_gr y in
+        (id_t, in_gr)
       in
       let u, v = in_gr.If1.symtab in
       let rec add_all_to_sm umap xli p q =
@@ -1632,8 +1627,9 @@ and get_new_tagcase_graph in_gr vntt e =
       pragmas and updated graph likewise *)
   (outs_, prags_sth, in_gr_)
 
-and check_subgr_tys _ msg jj prev =
-  (*  Format.printf "FIRST:%s\nNEXT:%s\n"
+and check_subgr_tys ingr msg jj prev =
+  (*
+  Format.printf "FIRST:%s\nNEXT:%s\n"
     (
       If1.IntMap.fold
         (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) jj "")
@@ -1658,9 +1654,10 @@ and check_subgr_tys _ msg jj prev =
         let snd = If1.IntMap.find curr prev in
         if fst != snd then
           failwith
-            (Printf.sprintf "Mismatched types "
-            ^ If1.rev_lookup_ty_name fst ^ " " ^ If1.rev_lookup_ty_name snd
-            ^ " AT " ^ msg)
+            (If1.outs_graph ingr;
+             Printf.sprintf "Mismatched types "
+             ^ If1.rev_lookup_ty_name fst ^ " " ^ If1.rev_lookup_ty_name snd
+             ^ " AT " ^ msg)
         else
           (*Format.printf "Matches: %d:%d %d:%d\n"
               curr fst curr snd;*)
@@ -2284,7 +2281,8 @@ and do_simple_exp in_gr in_sim_ex =
                 | If1.Array_ty ij -> ij
                 | _ ->
                     raise
-                      (If1.Sem_error
+                      (If1.outs_graph in_gr;
+                       If1.Sem_error
                          ("Situation:"
                          ^ If1.string_of_if1_ty (If1.lookup_ty att in_gr)))
               in
@@ -2500,8 +2498,8 @@ and do_simple_exp in_gr in_sim_ex =
   | Ast.Record_generator_named (tn, fdl) ->
       (* We can look up tn against known types.
         Following that we may have to thread in
-        the If1.record type to the builder to check that the
-        return types are correct. *)
+        the If1.record type to the builder to
+        check that the return types are correct. *)
       let xx = If1.lookup_by_typename in_gr tn in
       record_builder in_gr fdl (If1.Som xx)
   | Ast.Stream_generator _ ->
@@ -2649,8 +2647,20 @@ and do_simple_exp in_gr in_sim_ex =
       let in_gr = If1.add_edge un_num un_po co_num co_po un_ty in_gr in
       ((co_num, co_po, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | Prefix_operation (pn, e) ->
-      let (_, _, _), in_gr = do_prefix_name in_gr pn in
-      do_exp in_gr e
+      let (typecast_arg_node, typecast_arg_out_port, typecast_arg_type), in_gr =
+        do_exp in_gr e
+      in
+      let typecast_out_type = If1.lookup_tyid (If1.get_typecast_type pn) in
+      let (typecast_node, typecast_out_port, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             (If1.TYPECAST, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      ( (typecast_node, typecast_out_port, typecast_out_type),
+        in_gr
+        |> If1.add_edge typecast_arg_node typecast_arg_out_port typecast_node 0
+             typecast_arg_type )
   | Is_error e -> do_exp in_gr e
   | If (cl, Else el) ->
       (* Work an example with [1,2]
@@ -2742,9 +2752,9 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
-            (*write_any_dot_file "if.dot" in_gr_if;
-           write_any_dot_file "then.dot" then_gr;
-           write_any_dot_file "else.dot" else_gr;*)
+            If1.write_any_dot_file "if.dot" in_gr_if;
+            If1.write_any_dot_file "then.dot" then_gr;
+            If1.write_any_dot_file "else.dot" else_gr;
             let in_gr_if =
               If1.output_to_boundary
                 [
@@ -3305,7 +3315,7 @@ and redeem_and_merge_library current_gr voucher_info =
 and do_compilation_unit = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
-      let in_gr = If1.get_empty_graph (7, If1.TM.empty, If1.MM.empty) in
+      let in_gr = If1.get_empty_graph 72 in
 
       (* Our Chronological Sweep: This is where 'Lexical Reach' is born *)
       let final_gr =
@@ -3411,11 +3421,6 @@ and do_internals iin_gr f =
         If1.add_each_in_list new_fun_gr_ tdefs 0 do_type_def
       in
       let _, new_fun_gr_ = do_internals ([], new_fun_gr_) nest in
-      print_endline
-        ("LOCAL and GLOBAL for each fun " ^ Ast.str_function_header header);
-      If1.outs_syms new_fun_gr_;
-      print_endline "ORIGIN SYMS";
-      If1.outs_syms in_gr;
       let _, new_fun_gr_ =
         match e with
         | Ast.Exp elis ->

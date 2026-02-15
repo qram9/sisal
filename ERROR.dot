@@ -1,0 +1,50 @@
+digraph R {
+newrank=true;
+IN00 [shape=rect;label="ARRAY INTEGRAL;QEL;(0,9)\nARRAY 361;Q;(0,4)\nARRAY INTEGRAL;PEL;(0,8)\nARRAY 361;P;(0,3)\nINTEGRAL;OEL;(0,7)\nARRAY INTEGRAL;O;(0,2)\nINTEGRAL;NEL;(0,6)\nARRAY INTEGRAL;N;(0,1)\nINTEGRAL;MEL;(0,5)\nARRAY INTEGRAL;M;(0,0)"];
+OUT00 [shape=rect;label="[]"];
+01 [shape=rect;label="1 INVOCATION:%na=ACREATE"];
+02 [shape=rect;label="2 MULTIARITY:%na=ACREATE"];
+03 [shape=rect;label="3 INVOCATION:%na=ACRELMT"];
+04 [shape=rect;label="4 MULTIARITY:%na=ACRELMT"];
+05 [shape=rect;label="5 INVOCATION:%na=ACREATE"];
+06 [shape=rect;label="6 MULTIARITY:%na=ACREATE"];
+07 [shape=rect;label="7 INVOCATION:%na=ASELECT"];
+08 [shape=rect;label="8 MULTIARITY:%na=ASELECT"];
+09 [shape=rect;label="9 INVOCATION:%na=AREPL"];
+010 [shape=rect;label="10 MULTIARITY:%na=AREPL"];
+011 [shape=rect;label="11 INVOCATION:%na=ACONC"];
+012 [shape=rect;label="12 MULTIARITY:%na=ACONC"];
+013 [shape=rect;label="13 INVOCATION:%na=ACREATE"];
+014 [shape=rect;label="14 MULTIARITY:%na=ACREATE"];
+015 [shape=rect;label="15 INVOCATION:%na=ACREATE"];
+016 [shape=rect;label="16 MULTIARITY:%na=ACREATE"];
+017 [shape=rect;label="17 INVOCATION:%na=ACREATE"];
+018 [shape=rect;label="18 MULTIARITY:%na=ACREATE"];
+019 [shape=rect;label="19 INVOCATION:%na=ACREATE"];
+020 [shape=rect;label="20 MULTIARITY:%na=ACREATE"];
+021 [shape=rect;label="21 INVOCATION:%na=ACREATE"];
+022 [shape=rect;label="22 MULTIARITY:%na=ACREATE"];
+023 [shape=rect;label="23 INVOCATION:%na=ACREATE"];
+024 [shape=rect;label="24 MULTIARITY:%na=ACREATE"];
+025 [shape=rect;label="25 INVOCATION:%na=ACREATE"];
+026 [shape=rect;label="26 MULTIARITY:%na=ACREATE"];
+027 [shape=rect;label="27 INVOCATION:%na=ACREATE"];
+028 [shape=rect;label="28 MULTIARITY:%na=ACREATE"];
+029 [shape=rect;label="29 INVOCATION:%na=ACREATE"];
+030 [shape=rect;label="30 MULTIARITY:%na=ACREATE"];
+031 [shape=rect;label="31 INVOCATION:%na=ACREATE"];
+032 [shape=rect;label="32 MULTIARITY:%na=ACREATE"]
+IN00 ->  03 [label="(5,0),Ty=4"]
+IN00 ->  03 [label="(6,1),Ty=4"]
+IN00 ->  03 [label="(7,2),Ty=4"]
+IN00 ->  07 [label="(5,1),Ty=4"]
+IN00 ->  07 [label="(8,0),Ty=361"]
+IN00 ->  09 [label="(5,1),Ty=4"]
+IN00 ->  09 [label="(6,2),Ty=4"]
+IN00 ->  09 [label="(8,0),Ty=361"]
+IN00 ->  011 [label="(8,0),Ty=361"]
+IN00 ->  011 [label="(9,1),Ty=361"]
+03 ->  04 [label="(0,0),Ty=72"]
+07 ->  08 [label="(0,0),Ty=4"]
+09 ->  010 [label="(0,0),Ty=72"]
+011 ->  012 [label="(0,0),Ty=72"]}

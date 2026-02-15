@@ -553,7 +553,7 @@ function_name_list :
 |   value_name
     {Val (Value_name [$1]) }
 |   LPAREN expression RPAREN
-    { print_endline ("this? " ^ (str_exp $2));Paren $2  }
+    { Paren $2  }
 |   invocation
     {  $1 }
   ;
@@ -756,6 +756,13 @@ prefix_name :
   { Integer_prefix }
 | REAL
   { Real_prefix }
+        | UINT {Uint_prefix }
+        | SHORT {Short_prefix }
+        | USHORT {Ushort_prefix }
+        | BYTE {Byte_prefix}
+        | UBYTE {Ubyte_prefix}
+        | HALF {Half_prefix}
+        | UCHAR {Uchar_prefix}
 ;
 
 constant : FALSE

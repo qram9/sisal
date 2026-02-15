@@ -123,23 +123,23 @@ function aconc(a,b : ar returns ar) a ||b end function
 %function sconc(g,h : st returns st) g || h end function
 
 %------------------------------------------------------------
-function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
-     record reco[a : av; b : bv; c : cv; d: dv]
-end function
-function rsel(r : reco returns integer,real,double,ar)
-     r.a, r.b, r.c, r.d
-end function
-function rrepl(r : reco; newa : integer returns reco)
-     r replace[a: newa]
-end function
+%function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
+%     record reco[a : av; b : bv; c : cv; d: dv]
+%end function
+%function rsel(r : reco returns integer,real,double,ar)
+%     r.a, r.b, r.c, r.d
+%end function
+%function rrepl(r : reco; newa : integer returns reco)
+%     r replace[a: newa]
+%end function
 
-function arcreate(av : integer; bv : real; cv : double returns arec)
-     array arec[1: record brec[a : av; b : bv; c : cv],
-                   record brec[a : av; b : bv; c : cv]]
-end function
-function arsel(ele: integer; r : arec returns integer,real,double)
-     r[ele].a+r[ele-1].a, r[ele].b-r[ele-1].b, r[ele].c
-end function
+%function arcreate(av : integer; bv : real; cv : double returns arec)
+%     array arec[1: record brec[a : av; b : bv; c : cv],
+%                   record brec[a : av; b : bv; c : cv]]
+%end function
+%function arsel(ele: integer; r : arec returns integer,real,double)
+%     r[ele].a+r[ele-1].a, r[ele].b-r[ele-1].b, r[ele].c
+%end function
 
 %------------------------------------------------------------
 function ucreate(a : integer; b : real; c : double; d : ar returns
@@ -341,14 +341,14 @@ returns
   array of dmul(hel,iel)
   array of if ( iel = double_real(0) ) then double_real(0) else ddiv(hel,iel) end if
 
-  array of if hel < double_real(0) | iel <= double_real(0) then double_real(0) else ddexp(hel,iel) end if
-  array of if jel = 0 | (hel <= double_real(0) & jel <0) then double_real(0) else diexp(hel,jel) end if
+  array of if hel < double_real(0) | iel <= double_real(0) then double_real(0) else double_real(1) end if %ddexp(hel,iel) end if
+  array of if jel = 0 | (hel <= double_real(0) & jel <0) then double_real(0) else double_real(1) end if % diexp(hel,jel) end if
   
-  array of dneg(hel)
-  array of dabs(hel)
+  array of hel % dneg(hel)
+  array of hel % dabs(hel)
 
-  array of dmax(hel,iel)
-  array of dmin(hel,iel)
+  array of hel % dmax(hel,iel)
+  array of hel % dmin(hel,iel)
   array of dequal(hel,iel)
   array of dnotequal(hel,iel)
 
@@ -376,20 +376,20 @@ for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
 returns
   array of acreate()
   array of acrelmt(mel,nel,oel)
-  array of afill(mel,nel,oel)
+  array of acreate() % afill(mel,nel,oel)
   array of aselect(pel,mel)
   array of arepl(pel,mel,nel)
   array of aconc(pel,qel)
-  array of ahigh(pel)
-  array of alow(pel)
-  array of asize(pel)
-  array of aprefix(pel)
-  array of aset(pel,mel,nel)
-  array of aaddh(pel,mel)
-  array of aaddl(pel,mel)
-  array of aremh(pel)
-  array of areml(pel)
-  array of asetl(pel,mel)
+  array of acreate() % ahigh(pel)
+  array of acreate() % alow(pel)
+  array of acreate() % asize(pel)
+  array of acreate() % aprefix(pel)
+  array of acreate() % aset(pel,mel,nel)
+  array of acreate() % aaddh(pel,mel)
+  array of acreate() % aaddl(pel,mel)
+  array of acreate() % aremh(pel)
+  array of acreate() % areml(pel)
+  array of acreate() % asetl(pel,mel)
 end for,
 
 %%%%%%%%%% Section 5.9
