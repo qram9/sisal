@@ -1,59 +1,50 @@
 digraph R {
 newrank=true;
 IN00 [shape=rect;label=""];
-OUT00 [shape=rect;label="{FUNCTION_TYPE MAIN (ARGS: 80) (RETURNS:78);MAIN;(1,0)}[]"];
+OUT00 [shape=rect;label="{FUNCTION_TYPE DOUB (ARGS: 73) (RETURNS:72);DOUB;(1,0)}[]"];
 subgraph cluster_01 {
-label="1 %na=MAIN";
-IN01 [shape=rect;label="FLOAT4;MYPOS;(0,0)"];
-OUT01 [shape=rect;label="[(33,0);(18,0);(9,0)]%na=MAIN"];
-11 [shape=plaintext;label="4.4"];
-13 [shape=rect;label="3 VECSPLAT"];
-15 [shape=plaintext;label="1"];
-16 [shape=plaintext;label="2"];
-17 [shape=plaintext;label="2"];
-18 [shape=rect;label="8 ABUILD"];
-19 [shape=rect;label="9 SWIZZLE"];
-110 [shape=plaintext;label="0.2"];
-112 [shape=plaintext;label="1.2"];
-114 [shape=rect;label="14 VECBUILD"];
-115 [shape=plaintext;label="1"];
-116 [shape=plaintext;label="0"];
-117 [shape=rect;label="17 ABUILD"];
-118 [shape=rect;label="18 SWIZZLE"];
-119 [shape=plaintext;label="2.2"];
-121 [shape=plaintext;label="3"];
-123 [shape=plaintext;label="4.4"];
-125 [shape=plaintext;label="5.5"];
-127 [shape=rect;label="27 VECBUILD"];
-128 [shape=plaintext;label="2"];
-129 [shape=plaintext;label="0"];
-130 [shape=plaintext;label="1"];
-131 [shape=plaintext;label="3"];
-132 [shape=rect;label="32 ABUILD"];
-133 [shape=rect;label="33 SWIZZLE"]
-11 ->  13 [label="(0,0),Ty=3"]
-13 ->  19 [label="(0,0),Ty=27"]
-15 ->  18 [label="(0,0),Ty=5"]
-16 ->  18 [label="(0,1),Ty=5"]
-17 ->  18 [label="(0,2),Ty=5"]
-18 ->  19 [label="(0,1),Ty=0"]
-19 ->  OUT01 [label="(0,0),Ty=27"]
-110 ->  114 [label="(0,0),Ty=3"]
-112 ->  114 [label="(0,1),Ty=3"]
-114 ->  118 [label="(0,0),Ty=18"]
-115 ->  117 [label="(0,0),Ty=5"]
-116 ->  117 [label="(0,1),Ty=5"]
-117 ->  118 [label="(0,1),Ty=0"]
-118 ->  OUT01 [label="(0,1),Ty=18"]
-119 ->  127 [label="(0,0),Ty=3"]
-121 ->  127 [label="(0,1),Ty=5"]
-123 ->  127 [label="(0,2),Ty=3"]
-125 ->  127 [label="(0,3),Ty=3"]
-127 ->  133 [label="(0,0),Ty=36"]
-128 ->  132 [label="(0,0),Ty=5"]
-129 ->  132 [label="(0,1),Ty=5"]
-130 ->  132 [label="(0,2),Ty=5"]
-131 ->  132 [label="(0,3),Ty=5"]
-132 ->  133 [label="(0,1),Ty=0"]
-133 ->  OUT01 [label="(0,2),Ty=36"]
+label="1 %na=DOUB";
+IN01 [shape=rect;label="DOUBLE;K;(0,0)"];
+OUT01 [shape=rect;label="[(1,0)]%na=DOUB"];
+subgraph cluster_11 {
+label="1 %na=SELECT";
+IN011 [shape=rect;label=""];
+OUT011 [shape=rect;label="[(2,0);(1,0);(3,0)]"];
+subgraph cluster_111 {
+label="1 %na=ELSE0";
+IN0111 [shape=rect;label=""];
+OUT0111 [shape=rect;label="[(3,0)]"];
+1111 [shape=plaintext;label="9"];
+1113 [shape=rect;label="3 TYPECAST"]
+1111 ->  1113 [label="(0,0),Ty=4"]
+1113 ->  OUT0111 [label="(0,0),Ty=3"]
+};
+subgraph cluster_112 {
+label="2 %na=BODY0";
+IN0112 [shape=rect;label=""];
+OUT0112 [shape=rect;label="[(3,0)]"];
+1121 [shape=plaintext;label="0"];
+1123 [shape=rect;label="3 TYPECAST"]
+1121 ->  1123 [label="(0,0),Ty=4"]
+1123 ->  OUT0112 [label="(0,0),Ty=3"]
+};
+subgraph cluster_113 {
+label="3 %na=PREDICATE0";
+IN0113 [shape=rect;label="DOUBLE;K;(0,0)"];
+OUT0113 [shape=rect;label="[]"];
+1131 [shape=plaintext;label="0"];
+1133 [shape=rect;label="3 TYPECAST"];
+1134 [shape=rect;label="4 GREATER"]
+IN0113 ->  1134 [label="(0,0),Ty=3"]
+1131 ->  1133 [label="(0,0),Ty=4"]
+1133 ->  1134 [label="(0,1),Ty=3"]
+1134 ->  OUT0113 [label="(0,0),Ty=1"]
+}
+IN011 ->  113 [label="(0,1),Ty=3"]
+IN011 ->  113 [label="(1,0),Ty=74"]
+111 ->  OUT011 [label="(0,1),Ty=3"]
+112 ->  OUT011 [label="(0,2),Ty=3"]
+113 ->  OUT011 [label="(0,0),Ty=1"]
+}
+11 ->  OUT01 [label="(0,0),Ty=3"]
 }}

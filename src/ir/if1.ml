@@ -32,6 +32,12 @@
 
     TODO: Need to see why we need create_subgraph_symtab *)
 
+(* to get call stack to debug use
+  let stack = Printexc.get_callstack 4 in
+  (* Capture top 20 frames *)
+  print_endline (Printexc.raw_backtrace_to_string stack);
+  *)
+
 open Ast
 open Format
 open Printf
@@ -118,6 +124,7 @@ type node_sym =
   | VECBUILD
   | MATSPLAT
   | MATBUILD
+  | TYPECAST
 
 type comment = C of string | CDollar of string
 
@@ -481,25 +488,28 @@ let basic_map =
     (71, Basic MAT4);
   ]
 
-let rec get_empty_graph ty_blob =
+let basic_map_tyid inc_map =
+  List.fold_left (fun mm (x, y) -> IntMap.add x y mm) inc_map basic_types
+
+let rec get_empty_graph n =
   let nm = NM.add 0 (Boundary ([], [], [])) NM.empty in
   let in_gr =
     {
       nmap = nm;
       eset = ES.empty;
       symtab = (SM.empty, SM.empty);
-      typemap = ty_blob;
+      typemap = (n, TM.empty, MM.empty);
       w = 1;
     }
   in
-  let add_em in_gr (n, t) =
+  let add_basic_types in_gr (n, t) =
     let _, td, tm = in_gr.typemap in
     {
       in_gr with
       typemap = (72, TM.add n t td, MM.add (rev_lookup_ty_name n) n tm);
     }
   in
-  List.fold_left add_em in_gr basic_types
+  List.fold_left add_basic_types in_gr basic_types
 
 and get_node_label n =
   match n with
@@ -896,7 +906,8 @@ and visit_by_height mymap height_list vns height_num =
     value numbers to each of the unique trees at a current height. Height is
     incremented, but before processing the nodes at the incremented height, the
     vn table must be checked and current lists updated.*)
-and cse_by_part in_gr =
+and cse_by_part in_gr = in_gr
+(*
   let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
   let nm =
     NM.fold
@@ -1039,6 +1050,7 @@ and cse_by_part in_gr =
   let res_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
   let _ = dot_graph res_gr in
   res_gr
+  *)
 
 and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
@@ -1524,21 +1536,99 @@ and add_node nn in_gr =
         symtab = (par_cs, par_ps);
       }
 
+and lookup_tyid_triple gg =
+  match gg with
+  | BOOLEAN -> (1, 0, 1)
+  | CHARACTER -> (2, 0, 2)
+  | DOUBLE -> (3, 0, 3)
+  | INTEGRAL -> (4, 0, 4)
+  | NULL -> (5, 0, 5)
+  | REAL -> (6, 0, 6)
+  | BYTE -> (7, 0, 7)
+  | UCHAR -> (8, 0, 8)
+  | HALF -> (9, 0, 9)
+  | SHORT -> (10, 0, 10)
+  | USHORT -> (11, 0, 11)
+  | UINT -> (12, 0, 12)
+  | UBYTE -> (13, 0, 13)
+  | BYTE2 -> (14, 0, 14)
+  | HALF2 -> (15, 0, 15)
+  | SHORT2 -> (16, 0, 16)
+  | INT2 -> (17, 0, 17)
+  | FLOAT2 -> (18, 0, 18)
+  | DOUBLE2 -> (19, 0, 19)
+  | UINT2 -> (20, 0, 20)
+  | UBYTE2 -> (21, 0, 21)
+  | USHORT2 -> (22, 0, 22)
+  | BYTE3 -> (23, 0, 23)
+  | HALF3 -> (24, 0, 24)
+  | SHORT3 -> (25, 0, 25)
+  | INT3 -> (26, 0, 26)
+  | FLOAT3 -> (27, 0, 27)
+  | DOUBLE3 -> (28, 0, 28)
+  | UINT3 -> (29, 0, 29)
+  | UBYTE3 -> (30, 0, 30)
+  | USHORT3 -> (31, 0, 31)
+  | BYTE4 -> (32, 0, 32)
+  | HALF4 -> (33, 0, 33)
+  | SHORT4 -> (34, 0, 34)
+  | INT4 -> (35, 0, 35)
+  | FLOAT4 -> (36, 0, 36)
+  | DOUBLE4 -> (37, 0, 37)
+  | UINT4 -> (38, 0, 38)
+  | UBYTE4 -> (39, 0, 39)
+  | USHORT4 -> (40, 0, 40)
+  | BYTE8 -> (41, 0, 41)
+  | HALF8 -> (42, 0, 42)
+  | SHORT8 -> (43, 0, 43)
+  | INT8 -> (44, 0, 44)
+  | FLOAT8 -> (45, 0, 45)
+  | DOUBLE8 -> (46, 0, 46)
+  | UINT8 -> (47, 0, 47)
+  | UBYTE8 -> (48, 0, 48)
+  | USHORT8 -> (49, 0, 49)
+  | BYTE16 -> (50, 0, 50)
+  | HALF16 -> (51, 0, 51)
+  | SHORT16 -> (52, 0, 52)
+  | INT16 -> (53, 0, 53)
+  | FLOAT16 -> (54, 0, 54)
+  | DOUBLE16 -> (55, 0, 55)
+  | UINT16 -> (56, 0, 56)
+  | UBYTE16 -> (57, 0, 57)
+  | USHORT16 -> (58, 0, 58)
+  | CHAR2 -> (59, 0, 59)
+  | UCHAR2 -> (60, 0, 60)
+  | CHAR3 -> (61, 0, 61)
+  | UCHAR3 -> (62, 0, 62)
+  | CHAR4 -> (63, 0, 63)
+  | UCHAR4 -> (64, 0, 64)
+  | CHAR8 -> (65, 0, 65)
+  | UCHAR8 -> (66, 0, 66)
+  | CHAR16 -> (67, 0, 67)
+  | UCHAR16 -> (68, 0, 68)
+  | MAT2 -> (69, 0, 69)
+  | MAT3 -> (70, 0, 70)
+  | MAT4 -> (71, 0, 71)
+  | _ ->
+      failwith
+        (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
+           (string_of_if1_basic_ty gg))
+
 and lookup_tyid gg =
   match gg with
   | BOOLEAN -> 1
   | CHARACTER -> 2
-  | DOUBLE -> 4
-  | INTEGRAL -> 5
-  | NULL -> 6
-  | REAL -> 3
-  | UINT -> 7
-  | SHORT -> 8
-  | USHORT -> 9
-  | BYTE -> 10
-  | UBYTE -> 11
-  | HALF -> 12
-  | UCHAR -> 13
+  | DOUBLE -> 3
+  | INTEGRAL -> 4
+  | NULL -> 5
+  | REAL -> 6
+  | BYTE -> 7
+  | UCHAR -> 8
+  | HALF -> 9
+  | SHORT -> 10
+  | USHORT -> 11
+  | UINT -> 12
+  | UBYTE -> 13
   | BYTE2 -> 14
   | HALF2 -> 15
   | SHORT2 -> 16
@@ -1605,17 +1695,17 @@ and lookup_tyid gg =
 and rev_lookup_ty_name = function
   | 1 -> "BOOLEAN"
   | 2 -> "CHARACTER"
-  | 3 -> "REAL"
-  | 4 -> "DOUBLE"
-  | 5 -> "INTEGRAL"
-  | 6 -> "NULL"
-  | 7 -> "UINT"
-  | 8 -> "SHORT"
-  | 9 -> "USHORT"
-  | 10 -> "BYTE"
-  | 11 -> "UBYTE"
-  | 12 -> "HALF"
-  | 13 -> "UCHAR"
+  | 3 -> "DOUBLE"
+  | 4 -> "INTEGRAL"
+  | 5 -> "NULL"
+  | 6 -> "REAL"
+  | 7 -> "BYTE"
+  | 8 -> "UCHAR"
+  | 9 -> "HALF"
+  | 10 -> "SHORT"
+  | 11 -> "USHORT"
+  | 12 -> "UINT"
+  | 13 -> "UBYTE"
   | 14 -> "BYTE2"
   | 15 -> "HALF2"
   | 16 -> "SHORT2"
@@ -1851,7 +1941,7 @@ and add_from_edge ((n1, p1), (n2, p2), ed_ty) in_gr =
 and node_incoming_at_port n1 p in_gr =
   let edges = ES.elements (all_edges_ending_at_port n1 p in_gr) in
   if List.length edges > 1 then
-    raise (Sem_error "Only one fan-in being violated")
+    raise (Sem_error "Only one fan-in rule being violated")
   else
     try
       let (x, y), (_, _), ty = List.hd edges in
@@ -1888,7 +1978,7 @@ and inject_vouchers_into_symtab in_gr usings =
           | None -> path (* e.g., "math.sis" from USING "math.sis" *)
         in
 
-        (* 2. Create the "Ominous" Proxy String (Our Voucher) 
+        (* 2. Create the "Ominous" Proxy String (Our Voucher)
        Format: LINK#<path>#<member>#AS#<alias>
        We use '*' for the member to mean 'Full File Access' for now. *)
         let proxy = "LINK#" ^ path ^ "#*#AS#" ^ handle in
@@ -2046,30 +2136,8 @@ and merge_typeblobs tyblob1 tyblob2 =
 
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
-  match ood with
-  | Basic BOOLEAN ->
-      ( (1, 0, 1),
-        let tmn = get_typename_map in_gr in
-        { in_gr with typemap = (id, TM.add 1 ood tm, MM.add "BOOLEAN" 1 tmn) }
-      )
-  | Basic CHARACTER ->
-      ( (2, 0, 2),
-        { in_gr with typemap = (id, TM.add 2 ood tm, MM.add "CHARACTER" 2 tmn) }
-      )
-  | Basic REAL ->
-      ( (3, 0, 3),
-        { in_gr with typemap = (id, TM.add 3 ood tm, MM.add "REAL" 3 tmn) } )
-  | Basic DOUBLE ->
-      ( (4, 0, 4),
-        { in_gr with typemap = (id, TM.add 4 ood tm, MM.add "DOUBLE" 4 tmn) } )
-  | Basic INTEGRAL ->
-      ( (5, 0, 5),
-        { in_gr with typemap = (id, TM.add 5 ood tm, MM.add "INTEGRAL" 5 tmn) }
-      )
-  | Basic NULL ->
-      ( (6, 0, 6),
-        { in_gr with typemap = (id, TM.add 6 ood tm, MM.add "NULL" 6 tmn) } )
-  | _ -> ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
+
+  ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
 and map_exp in_gr in_explist expl appl =
   match in_explist with
@@ -2252,25 +2320,39 @@ and ast_if1_type aty =
   | Char16 -> CHAR16
   | Uchar16 -> UCHAR16
 
+and get_typecast_type = function
+  | Boolean_prefix -> BOOLEAN
+  | Char_prefix -> CHARACTER
+  | Double_prefix -> DOUBLE
+  | Integer_prefix -> INTEGRAL
+  | Real_prefix -> REAL
+  | Uint_prefix -> UINT
+  | Short_prefix -> SHORT
+  | Ushort_prefix -> USHORT
+  | Byte_prefix -> BYTE
+  | Ubyte_prefix -> UBYTE
+  | Half_prefix -> HALF
+  | Uchar_prefix -> UCHAR
+
 and add_sisal_type
     { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi } aty =
   let in_gr =
     { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
   in
   match aty with
-  | Boolean -> add_type_to_typemap (Basic BOOLEAN) in_gr
-  | Character -> add_type_to_typemap (Basic CHARACTER) in_gr
-  | Double_real -> add_type_to_typemap (Basic DOUBLE) in_gr
-  | Integer -> add_type_to_typemap (Basic INTEGRAL) in_gr
-  | Null -> add_type_to_typemap (Basic NULL) in_gr
-  | Real -> add_type_to_typemap (Basic REAL) in_gr
-  | Byte_ty -> add_type_to_typemap (Basic BYTE) in_gr
-  | Half_ty -> add_type_to_typemap (Basic HALF) in_gr
-  | Ubyte_ty -> add_type_to_typemap (Basic UBYTE) in_gr
-  | Uchar_ty -> add_type_to_typemap (Basic UCHAR) in_gr
-  | Uint_ty -> add_type_to_typemap (Basic UINT) in_gr
-  | Ushort_ty -> add_type_to_typemap (Basic USHORT) in_gr
-  | Short_ty -> add_type_to_typemap (Basic SHORT) in_gr
+  | Boolean -> (lookup_tyid_triple BOOLEAN, in_gr)
+  | Character -> (lookup_tyid_triple CHARACTER, in_gr)
+  | Double_real -> (lookup_tyid_triple DOUBLE, in_gr)
+  | Integer -> (lookup_tyid_triple INTEGRAL, in_gr)
+  | Null -> (lookup_tyid_triple NULL, in_gr)
+  | Real -> (lookup_tyid_triple REAL, in_gr)
+  | Byte_ty -> (lookup_tyid_triple BYTE, in_gr)
+  | Half_ty -> (lookup_tyid_triple HALF, in_gr)
+  | Ubyte_ty -> (lookup_tyid_triple UBYTE, in_gr)
+  | Uchar_ty -> (lookup_tyid_triple UCHAR, in_gr)
+  | Uint_ty -> (lookup_tyid_triple UINT, in_gr)
+  | Ushort_ty -> (lookup_tyid_triple USHORT, in_gr)
+  | Short_ty -> (lookup_tyid_triple SHORT, in_gr)
   | Vec_ty vx ->
       let g =
         match vx with
@@ -2330,12 +2412,12 @@ and add_sisal_type
         | Char16 -> CHAR16
         | Uchar16 -> UCHAR16
       in
-      add_type_to_typemap (Basic g) in_gr
+      (lookup_tyid_triple g, in_gr)
   | Mat_ty x -> (
       match x with
-      | Mat2 -> add_type_to_typemap (Basic MAT2) in_gr
-      | Mat3 -> add_type_to_typemap (Basic MAT3) in_gr
-      | Mat4 -> add_type_to_typemap (Basic MAT4) in_gr)
+      | Mat2 -> (lookup_tyid_triple MAT2, in_gr)
+      | Mat3 -> (lookup_tyid_triple MAT3, in_gr)
+      | Mat4 -> (lookup_tyid_triple MAT4, in_gr))
   | Compound_type ct ->
       add_compound_type
         { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
@@ -2374,7 +2456,7 @@ and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
   let ps = get_parent_symtab in_gr in
   let tmmi = get_typemap in_gr in
-  let out_gr = get_empty_graph tmmi in
+  let out_gr = get_empty_graph 72 in
   let tmn1 = get_typemap out_gr in
   let tmn1 = merge_typeblobs tmn1 tmmi in
   { out_gr with symtab = (SM.empty, ps); typemap = tmn1 }
@@ -2439,6 +2521,7 @@ and num_to_node_sym = function
   | 56 -> VECBUILD
   | 57 -> MATSPLAT
   | 58 -> MATBUILD
+  | 59 -> TYPECAST
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -2501,6 +2584,7 @@ and node_sym_to_num = function
   | VECBUILD -> 56
   | MATSPLAT -> 57
   | MATBUILD -> 58
+  | TYPECAST -> 59
 
 and string_of_node_sym = function
   | BOUNDARY -> "BOUNDARY"
@@ -2560,6 +2644,7 @@ and string_of_node_sym = function
   | VECBUILD -> "VECBUILD"
   | MATSPLAT -> "MATSPLAT"
   | MATBUILD -> "MATBUILD"
+  | TYPECAST -> "TYPECAST"
   | MAT -> "MAT"
   | SWIZZLE -> "SWIZZLE"
 
@@ -2585,9 +2670,12 @@ and string_of_pragmas p =
       cate_nicer l q " ,")
     p ""
 
+and quick_lookup_native_type a =
+  if a < 72 then rev_lookup_ty_name a else string_of_int a
+
 and string_of_if1_ty ity =
   match ity with
-  | Array_ty a -> "ARRAY " ^ string_of_int a
+  | Array_ty a -> "ARRAY " ^ quick_lookup_native_type a
   | Basic bc -> string_of_if1_basic_ty bc
   | Function_ty (if1l, if2l, fn_name) ->
       "FUNCTION_TYPE " ^ fn_name ^ " (ARGS: " ^ string_of_int if1l
@@ -2597,8 +2685,8 @@ and string_of_if1_ty ity =
       "RECORD {"
       ^ cate_list
           [
-            "Type label:" ^ string_of_int fty;
-            "Next field:" ^ string_of_int nfty;
+            "Type label:" ^ quick_lookup_native_type fty;
+            "Next field:" ^ quick_lookup_native_type nfty;
             "%na=" ^ namen;
           ]
           "; "
@@ -2608,7 +2696,8 @@ and string_of_if1_ty ity =
       "TUPLE {"
       ^ cate_list
           [
-            "Type label:" ^ string_of_int fty; "Next label:" ^ string_of_int nty;
+            "Type label:" ^ quick_lookup_native_type fty;
+            "Next label:" ^ quick_lookup_native_type nty;
           ]
           "; "
       ^ "}"
@@ -2616,7 +2705,7 @@ and string_of_if1_ty ity =
       "UNION {"
       ^ cate_list
           [
-            "Type label:" ^ string_of_int lab1;
+            "Type label:" ^ quick_lookup_native_type lab1;
             "Next tag:" ^ string_of_int lab2;
             "%na=" ^ namen;
           ]
@@ -2912,19 +3001,59 @@ and string_of_symtab_gr_out in_gr =
   in
   SM.fold (fun _ v z -> string_of_if1_value_out tm v :: z) ls []
 
+and typenames_to_string typemap =
+  Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
+    (fun ppf map ->
+      let margin = 80 in
+      Format.pp_set_margin ppf margin;
+      MM.iter
+        (fun name type_num ->
+          (* Use @  to hint at a break point for the 80-char limit *)
+          Format.fprintf ppf "  [%s:%d]@ " name type_num)
+        map)
+    typemap
+
 and string_of_typenames tmn =
-  let tmn =
-    MM.fold
-      (fun k v z -> (if v > 69 then k ^ ":" ^ string_of_int v else "") :: z)
-      tmn []
-  in
-  match tmn with [] -> [] | _ -> "----TYPENAMES----" :: tmn
+  if tmn == MM.empty then []
+  else "-----TYPENAMES----" :: [ typenames_to_string tmn ]
+
+and print_typemap typemap =
+  let open Format in
+  (* Set the margin to 80 characters *)
+  set_margin 80;
+
+  printf "@[<v 0>--- TYPEMAP ---@,";
+  printf "@[<hov 2>";
+
+  (* hov box: breaks lines if they don't fit *)
+  IntMap.iter
+    (fun id v ->
+      let type_str = string_of_if1_ty v in
+      let entry = sprintf "[%d:%s]" id type_str in
+
+      (* @  is a "hint" to the formatter: "You can break here if needed" *)
+      printf "%s@ " entry)
+    typemap;
+
+  printf "@]@,--- END TYPEMAP ---@]@."
+
+and typemap_to_string typemap =
+  Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
+    (fun ppf map ->
+      let margin = 80 in
+      Format.pp_set_margin ppf margin;
+      TM.iter
+        (fun id v ->
+          let type_str = string_of_if1_ty v in
+          (* Use @  to hint at a break point for the 80-char limit *)
+          Format.fprintf ppf "  [%d:%s]@ " id type_str)
+        map)
+    typemap
 
 and string_of_typemap tm =
   let tm =
     TM.fold
-      (fun k v z ->
-        (if k > 0 then string_of_int k ^ " " ^ string_of_if1_ty v else "") :: z)
+      (fun k v z -> (string_of_int k ^ " " ^ string_of_if1_ty v) :: z)
       tm []
   in
   match tm with [] -> [] | _ -> "----TYPEMAP----" :: tm
@@ -2946,7 +3075,7 @@ and string_of_graph ?(offset = 0)
   cate_list_pad offset
     (("Graph {" :: string_of_node_map ~offset nm)
     @ string_of_edge_set ne @ string_of_symtab sm tm
-    @ (if offset = 0 then string_of_typemap tm @ string_of_typenames tmn else [])
+    @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
     @ [ "} " ^ string_of_int tail ])
     "\n"
 

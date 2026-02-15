@@ -141,7 +141,19 @@ and sisal_constant =
   | String of string
   | Error of sisal_type
 
-and prefix_name = Char_prefix | Double_prefix | Integer_prefix | Real_prefix
+and prefix_name =
+  | Boolean_prefix
+  | Char_prefix
+  | Double_prefix
+  | Integer_prefix
+  | Real_prefix
+  | Uint_prefix
+  | Short_prefix
+  | Ushort_prefix
+  | Byte_prefix
+  | Ubyte_prefix
+  | Half_prefix
+  | Uchar_prefix
 
 and sisal_type =
   | Boolean
@@ -493,10 +505,18 @@ and str_tag_exp = function
   | Tag_exp (tn, sexp) -> tn ^ ":" ^ str_simple_exp sexp
 
 and str_prefix_name = function
-  | Char_prefix -> "CHARACTER"
-  | Double_prefix -> "DOUBLE"
+  | Boolean_prefix -> "BOOLEAN"
+  | Char_prefix -> "CHAR"
+  | Double_prefix -> "DOUBLE_REAL"
   | Integer_prefix -> "INTEGER"
   | Real_prefix -> "REAL"
+  | Uint_prefix -> "UINT"
+  | Short_prefix -> "SHORT"
+  | Ushort_prefix -> "USHORT"
+  | Byte_prefix -> "BYTE"
+  | Ubyte_prefix -> "UBYTE"
+  | Half_prefix -> "HALF"
+  | Uchar_prefix -> "UCHAR"
 
 and str_decldef ?(offset = 0) = function
   | Decldef (deca, expn) ->
