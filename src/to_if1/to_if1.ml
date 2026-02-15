@@ -799,7 +799,6 @@ and tie_outer_scope_to_inner from_gr to_gr to_node =
 and do_for_all inexp bodyexp retexp in_gr =
   (* Use Array input's dimensions to
       set Array output's dimensions*)
-  let inc_inexp, inc_bodyexp, inc_retexp = (inexp, bodyexp, retexp) in
   let rec get_cross_exp_lis inexp retl =
     (* Create a list of index expressions.
         Ast.Cross would be for nested loops and so would At.*)
@@ -892,12 +891,6 @@ and do_for_all inexp bodyexp retexp in_gr =
           do_returns_clause_list body_gr retexp [] [] []
         in
 
-        print_endline "RETURN CLAUSE!!!\n";
-        print_endline (Ast.newline_fold (List.map Ast.str_return_clause retexp));
-        print_endline "RETURN CLAUSE DONE\n";
-        print_endline "BODY GRAPH";
-        If1.outs_graph body_gr;
-        print_endline "BODY DONE";
         (* Connect Results To Body's If1.Boundary *)
         let body_gr = If1.output_to_boundary ret_tuple_list body_gr in
         (* Connect Results To Body's If1.Boundary *)
@@ -1041,12 +1034,6 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
 
   let in_gr = tie_outer_scope_to_inner forall_gr in_gr fx in
-  print_endline
-    ("LOWERED AST FOR ALL "
-    ^ Ast.str_simple_exp ~offset:0
-        (Ast.For_all (inc_inexp, inc_bodyexp, inc_retexp)));
-  print_endline "Resulting graph is ";
-  If1.outs_graph in_gr;
   ((mul_n, mul_p, mul_t), return_action_list, in_gr)
 
 and do_decldef_part in_gr = function
@@ -2128,6 +2115,16 @@ and do_simple_exp in_gr in_sim_ex =
       | Ast.Function_name f -> (
           match String.concat "." f with
           (*TODO: More libs *)
+          | "ACREATE" ->
+                let in_port_00 = Array.make 1 "" in
+                let out_port_00 = Array.make 1 "" in
+                let (n, p, _), in_gr =
+                If1.add_node_2
+                  (`Simple (If1.ACREATE, in_port_00, out_port_00, []))
+                  in_gr
+                in let (_, _, arr_typ), in_gr =
+                  (If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null))
+                in (n, p, arr_typ), in_gr
           | "ARRAY_ADDH" ->
               let (n, _, _), in_gr =
                 let in_port_00 = Array.make 1 "" in
@@ -2994,7 +2991,8 @@ and find_in_graph_from_pragma in_gr namen =
   in
   gen_gr 0
 
-and do_return_exp in_gr = function
+and do_return_exp in_gr ggg = 
+match ggg with
   | Ast.Value_of (reduc_dir, reduc_name, expn) ->
       let reduc_dir =
         match reduc_dir with

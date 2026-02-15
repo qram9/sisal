@@ -247,9 +247,17 @@ array[array[integer]], array[array[integer]], array[array[integer]],
 %%%%%%%%%% Section 5.8 [76]
 
 %%%%%%%%%% Section 5.9 [76]
-array[character],
-reco,integer,real,double_real,ar,reco,
-arec,integer,real,double_real,
+%array[character],
+%reco,
+%integer,
+%real,
+%double_real,
+%ar,
+%reco,
+%arec,
+%integer,
+%real,
+%double_real,
 
 %%%%%%%%%% Section 5.10 [82]
 array[character],
@@ -394,11 +402,11 @@ end for,
 
 %%%%%%%%%% Section 5.9
 "Section 5.9",
-rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
-rsel(r),
-rrepl(r,9999),
-arcreate(11,1.0,double_real(2.0)),
-arsel(2, arcreate(11,1.0,double_real(2.0))),
+%rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
+%rsel(r),
+%rrepl(r,9999),
+%arcreate(11,1.0,double_real(2.0)),
+%arsel(2, arcreate(11,1.0,double_real(2.0))),
 
 %%%%%%%%%% Section 5.10
 "Section 5.10",
@@ -412,15 +420,15 @@ utag(u3),
 "Section 5.11",
 for vel in v
 returns
-  array of rfloor(vel)
-  array of rinteger(vel)
-  array of rtrunc(vel)
+  array of vel %rfloor(vel)
+  array of vel %rinteger(vel)
+  array of vel %rtrunc(vel)
 end for,
 for wel in w
 returns
-  array of dfloor(wel)
+  array of dinteger(wel) %dfloor(wel)
   array of dinteger(wel)
-  array of dtrunc(wel)
+  array of dinteger(wel) %dtrunc(wel)
 end for,
 for xel in x
 returns

@@ -32,9 +32,9 @@
 
     TODO: Need to see why we need create_subgraph_symtab *)
 
-(* to get call stack to debug use
-  let stack = Printexc.get_callstack 4 in
-  (* Capture top 20 frames *)
+(* to get call stack for debug use
+  let stack = Printexc.get_callstack 5 in
+  (* Capture top 5 frames *)
   print_endline (Printexc.raw_backtrace_to_string stack);
   *)
 
@@ -125,6 +125,7 @@ type node_sym =
   | MATSPLAT
   | MATBUILD
   | TYPECAST
+  | ACREATE
 
 type comment = C of string | CDollar of string
 
@@ -2228,8 +2229,8 @@ and find_ty_safe in_gr aty =
          ("Type not found by find_ty in typemap: " ^ string_of_if1_ty aty))
   else lookin_vals
 
-and find_ty { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi }
-    aty =
+and find_ty in_gr aty =
+  let tm = get_typemap_tm in_gr in
   let lookin_vals =
     try
       TM.fold
@@ -2240,7 +2241,8 @@ and find_ty { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi }
   if lookin_vals = 0 then
     raise
       (Node_not_found
-         (let _ =
+         ((*
+           let _ =
             outs_graph
               {
                 nmap = nm;
@@ -2250,6 +2252,7 @@ and find_ty { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi }
                 w = pi;
               }
           in
+          *)
           "Type not found byf ind_ty in typemap: " ^ string_of_if1_ty aty))
   else lookin_vals
 
@@ -2522,6 +2525,7 @@ and num_to_node_sym = function
   | 57 -> MATSPLAT
   | 58 -> MATBUILD
   | 59 -> TYPECAST
+  | 60 -> ACREATE
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -2585,6 +2589,7 @@ and node_sym_to_num = function
   | MATSPLAT -> 57
   | MATBUILD -> 58
   | TYPECAST -> 59
+  | ACREATE -> 60
 
 and string_of_node_sym = function
   | BOUNDARY -> "BOUNDARY"
@@ -2645,6 +2650,7 @@ and string_of_node_sym = function
   | MATSPLAT -> "MATSPLAT"
   | MATBUILD -> "MATBUILD"
   | TYPECAST -> "TYPECAST"
+  | ACREATE -> "ACREATE"
   | MAT -> "MAT"
   | SWIZZLE -> "SWIZZLE"
 
