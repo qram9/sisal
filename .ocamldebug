@@ -1,4 +1,0 @@
-load_printer _build/src/ir/ir.cma
-install_printer If1.graph_printer
-install_printer If1.nmap_printer
-install_printer If1.int_map_printer

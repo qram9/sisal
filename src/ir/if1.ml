@@ -304,6 +304,23 @@ module MM = Map.Make (String)
 module TM = Map.Make (T)
 module AStrSet = Set.Make (String)
 
+let type_trace : (int * string * string) list ref = ref []
+
+let str_type_trace () =
+  List.fold_left
+    (fun acc (id, desc, stack) ->
+      let entry =
+        Printf.sprintf
+          "--------------------------\nID: %d | Type: %s\nSource Trace:\n%s\n"
+          id desc stack
+      in
+      acc ^ entry (* Concatenate current entry to the accumulator *))
+    "=== SISAL TYPE HISTORY DUMP ===\n" (List.rev !type_trace)
+
+let get_stack_trace n =
+  let raw_stack = Printexc.get_callstack n in
+  Printexc.raw_backtrace_to_string raw_stack
+
 type graph = {
   nmap : node NM.t;
   eset : ES.t;
@@ -533,10 +550,8 @@ and get_record_field in_gr anum field_namen =
           match String.equal namen field_namen with
           | true -> (anum, ff)
           | false -> get_record_field in_gr nft field_namen)
-      | _ ->
-          raise
-            (Node_not_found ("Could not locate record#:" ^ string_of_int anum)))
-  | false -> (anum, 0)
+      | _ -> (anum, anum))
+  | false -> (anum, anum)
 
 and get_graph_label in_gr = in_gr.w
 
@@ -2135,9 +2150,17 @@ and merge_typeblobs tyblob1 tyblob2 =
   let out_tmn = MM.merge merge_fn g_tmn inc_blob_tmn in
   (out_ty_idx, out_tm, out_tmn)
 
+and is_record_ty = function Record _ -> true | _ -> false
+
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
-
+  let _ =
+    if is_record_ty ood then
+      let stack = get_stack_trace 5 in
+      let desc = string_of_if1_ty ood in
+      type_trace := (id, desc, stack) :: !type_trace
+    else ()
+  in
   ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
 and map_exp in_gr in_explist expl appl =
@@ -3032,7 +3055,7 @@ and print_typemap typemap =
   printf "@[<hov 2>";
 
   (* hov box: breaks lines if they don't fit *)
-  IntMap.iter
+  TM.iter
     (fun id v ->
       let type_str = string_of_if1_ty v in
       let entry = sprintf "[%d:%s]" id type_str in

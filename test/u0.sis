@@ -1,3 +1,4 @@
+% here
 define main
 type ar		= array[integer];
 type un		= union[a : integer; b : real; c : double; d : ar];

@@ -73,6 +73,13 @@
 module Ast = Ir.Ast
 module If1 = Ir.If1
 module Slurper = Utils.Slurper
+(*
+let str_type_trace () =
+  let buf = Buffer.create 1024 in
+  List.iter (fun (id, name, trace) ->
+    Printf.bprintf buf "id %d Name %s Trace:\n%s\n" id name trace
+  ) (List.rev !type_trace);
+  Buffer.contents buf *)
 
 let in_port_1 =
   (* memory allocate arrays *)
@@ -258,16 +265,46 @@ and crack_swizzle_mask mask =
   in
   List.init (String.length mask) (fun i -> char_to_int mask.[i])
 
+and new_check_rec_ty field_type_list tm out_acc =
+  match field_type_list with
+  | (f_name, f_type_idx) :: tl ->
+      (* Find the type index (k) where the record definition matches our field *)
+      let found_type =
+        If1.TM.fold
+          (fun k v acc ->
+            match (acc, v) with
+            | If1.Emp, If1.Record (actual_type, _, actual_name) ->
+                if actual_name = f_name && actual_type == f_type_idx then (
+                  Printf.printf " FOUND FIELD: %s (Type Index: %d)\n" f_name
+                    f_type_idx;
+                  If1.Som k)
+                else acc
+            | _ -> acc)
+          tm If1.Emp
+      in
+
+      (* Validation: Ensure the field is actually registered in the IF1 Typemap *)
+      let validated_type =
+        match found_type with
+        | If1.Som idx -> idx
+        | If1.Emp ->
+            let msg =
+              Printf.sprintf
+                "Type Error: Field '%s' with type %d not found in Typemap"
+                f_name f_type_idx
+            in
+            raise (If1.Node_not_found msg)
+      in
+
+      (* Recurse and accumulate the list of validated type indices *)
+      If1.Som validated_type :: check_rec_ty tl tm out_acc
+  | [] -> out_acc
+
 and check_rec_ty tty_lis tm outlis =
   (* Do a type check recursively *)
   (* beef this up *)
   match tty_lis with
   | (hdf, hd) :: tl ->
-      print_string " LOOK FOR ";
-      print_string hdf;
-      print_string " ";
-      print_int hd;
-      print_endline "";
       let hdty =
         If1.TM.fold
           (fun k v z ->
@@ -307,37 +344,55 @@ and find_matching_record eee tm =
       | _ -> z)
     tm If1.Emp
 
-and record_builder in_gr fdl iornone =
-  (* TODO: SORT THIS OUT *)
-  let rec record_builder_impl (aa, in_gr) = function
-    | Ast.Field_def (Ast.Field_name fn, ex1) :: tl ->
-        let exp_l, in_gr = do_simple_exp in_gr ex1 in
-        record_builder_impl ((fn, exp_l) :: aa, in_gr) tl
-    | [] -> (aa, in_gr)
+and record_builder in_gr field_defs io_type =
+  (* 1. Accumulate fields and update Graph state *)
+  let fields, in_gr =
+    List.fold_left
+      (fun (acc, g) (Ast.Field_def (Ast.Field_name fn, ex1)) ->
+        let exp_l, g' = do_simple_exp g ex1 in
+        ((fn, exp_l) :: acc, g'))
+      ([], in_gr) field_defs
   in
-  (*field name must be matched *)
-  let lll, in_gr = record_builder_impl ([], in_gr) fdl in
+
+  (* 2. Type Resolution & Validation *)
   let tm = If1.get_typemap_tm in_gr in
-  let tty = get_tys lll [] in
-  let aout = check_rec_ty tty tm [] in
+  let field_types = get_tys fields [] in
+  let resolved_types = check_rec_ty field_types tm [] in
+
+  (* Determine the output type index (aout) *)
   let aout =
-    match iornone with
-    | If1.Emp -> (
-        let eee = match List.hd aout with If1.Som x -> x | _ -> 0 in
-        match find_matching_record eee tm with If1.Som ii -> ii | _ -> 0)
+    match io_type with
     | If1.Som ii -> ii
+    | If1.Emp -> begin
+        match resolved_types with
+        | If1.Som head_type :: _ -> (
+            match find_matching_record head_type tm with
+            | If1.Som ii -> ii
+            | If1.Emp ->
+                failwith
+                  "Record_builder: No matching record type found in Typemap")
+        | _ -> failwith "Record_builder: Could not resolve field types"
+      end
   in
-  let (bb, pp, t1), in_gr =
-    If1.add_node_2
-      (`Simple
-         ( If1.RBUILD,
-           Array.make (List.length fdl + 1) "",
-           Array.make 1 "",
-           [ If1.No_pragma ] ))
-      in_gr
+
+  (* 3. Node Generation *)
+  let num_fields = List.length field_defs in
+  let node_config =
+    `Simple
+      ( If1.RBUILD,
+        Array.make (num_fields + 1) "",
+        (* Input ports: fields + optional base *)
+        Array.make 1 "",
+        (* Output ports *)
+        [ If1.No_pragma ] )
   in
-  let in_gr = add_edges_for_fields lll bb t1 in_gr in
-  ((bb, pp, aout), in_gr)
+
+  let (node_id, port_id, _), in_gr = If1.add_node_2 node_config in_gr in
+
+  (* 4. Edge Wiring *)
+  let in_gr = add_edges_for_fields fields node_id port_id in_gr in
+
+  ((node_id, port_id, aout), in_gr)
 
 and add_edges_in_list exp_list anode portnum in_gr =
   (* Add edges from anode, starting at portnum and
@@ -1267,6 +1322,7 @@ and check_decl_type atyp expty in_gr =
       if typenum != expty then
         raise
           (If1.outs_graph in_gr;
+           print_endline (If1.str_type_trace ());
            print_string " Inferred type: ";
            print_int expty;
            print_string " Expected type: ";
@@ -2116,15 +2172,17 @@ and do_simple_exp in_gr in_sim_ex =
           match String.concat "." f with
           (*TODO: More libs *)
           | "ACREATE" ->
-                let in_port_00 = Array.make 1 "" in
-                let out_port_00 = Array.make 1 "" in
-                let (n, p, _), in_gr =
+              let in_port_00 = Array.make 1 "" in
+              let out_port_00 = Array.make 1 "" in
+              let (n, p, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.ACREATE, in_port_00, out_port_00, []))
                   in_gr
-                in let (_, _, arr_typ), in_gr =
-                  (If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null))
-                in (n, p, arr_typ), in_gr
+              in
+              let (_, _, arr_typ), in_gr =
+                If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null)
+              in
+              ((n, p, arr_typ), in_gr)
           | "ARRAY_ADDH" ->
               let (n, _, _), in_gr =
                 let in_port_00 = Array.make 1 "" in
@@ -2991,8 +3049,8 @@ and find_in_graph_from_pragma in_gr namen =
   in
   gen_gr 0
 
-and do_return_exp in_gr ggg = 
-match ggg with
+and do_return_exp in_gr ggg =
+  match ggg with
   | Ast.Value_of (reduc_dir, reduc_name, expn) ->
       let reduc_dir =
         match reduc_dir with
