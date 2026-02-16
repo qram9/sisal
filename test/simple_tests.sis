@@ -74,25 +74,23 @@ function clesseq(a,b : character returns boolean) a <= b end function
 
 
 
-% BROKEN DUE TO KEYWORD function imod(a,b : integer returns integer) mod(a,b) end function
-% BROKEN DUE TO KEYWORD function iiexp(a,b : integer returns integer) exp(a,b) end function
-% BROKEN DUE TO KEYWORD function iabs(a : integer returns integer) abs(a) end function
-% BROKEN DUE TO KEYWORD function imax(a,b : integer returns integer) max(a,b) end function
-% BROKEN DUE TO KEYWORD function imin(a,b : integer returns integer) min(a,b) end function
-% BROKEN DUE TO KEYWORD 
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function imod(a,b : integer returns integer) mod(a,b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function iiexp(a,b : integer returns integer) exp(a,b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function iabs(a : integer returns integer) abs(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function imax(a,b : integer returns integer) max(a,b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function imin(a,b : integer returns integer) min(a,b) end function
 %------------------------------------------------------------
-% BROKEN DUE TO KEYWORD function rrexp(a,b : real returns real) exp(a , b) end function
-% BROKEN DUE TO KEYWORD function riexp(a : real; b : integer returns real) exp(a , b) end function
-% BROKEN DUE TO KEYWORD function rabs(a : real returns real) abs(a) end function
-% BROKEN DUE TO KEYWORD function rmax(a,b : real returns real) max(a , b) end function
-% BROKEN DUE TO KEYWORD function rmin(a,b : real returns real) min(a , b) end function
-% BROKEN DUE TO KEYWORD 
-% BROKEN DUE TO KEYWORD function ddexp(a,b : double returns double) exp(a , b) end function
-% BROKEN DUE TO KEYWORD function diexp(a : double; b : integer returns double) exp(a , b) end function
-% BROKEN DUE TO KEYWORD function dabs(a : double returns double) abs(a) end function
-% BROKEN DUE TO KEYWORD function dmax(a,b : double returns double) max(a , b) end function
-% BROKEN DUE TO KEYWORD function dmin(a,b : double returns double) min(a , b) end function
-% BROKEN DUE TO KEYWORD function afill(lo,hi,v : integer returns ar) array_fill(lo,hi,v) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function rrexp(a,b : real returns real) exp(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function riexp(a : real; b : integer returns real) exp(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function rabs(a : real returns real) abs(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function rmax(a,b : real returns real) max(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function rmin(a,b : real returns real) min(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function ddexp(a,b : double returns double) exp(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function diexp(a : double; b : integer returns double) exp(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function dabs(a : double returns double) abs(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function dmax(a,b : double returns double) max(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function dmin(a,b : double returns double) min(a , b) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function afill(lo,hi,v : integer returns ar) array_fill(lo,hi,v) end function
 % function ahigh(a : ar returns integer) array_limh(a) end function
 % function alow(a : ar returns integer) array_liml(a) end function
 %------------------------------------------------------------
@@ -102,14 +100,14 @@ function acrelmt(a,b,c : integer returns ar) array ar[a: b,c] end function
 function aselect(a : ar; j : integer returns integer) a[j] end function
 function arepl(a : ar; j,v : integer returns ar) a[j:v] end function
 function aconc(a,b : ar returns ar) a ||b end function
-% function asize(a : ar returns integer) array_size(a) end function
-% function aprefix(a : ar returns integer) array_prefixsize(a) end function
-% function aset(a: ar; lo,hi : integer returns ar) array_adjust(a,lo,hi) end function
-% function aaddh(a : ar; v : integer returns ar) array_addh(a,v) end function
-% function aaddl(a : ar; v : integer returns ar) array_addl(a,v) end function
-% function aremh(a : ar returns ar) array_remh(a) end function
-% function areml(a : ar returns ar) array_reml(a) end function
-% function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function asize(a : ar returns integer) array_size(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function aprefix(a : ar returns integer) array_prefixsize(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function aset(a: ar; lo,hi : integer returns ar) array_adjust(a,lo,hi) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function aaddh(a : ar; v : integer returns ar) array_addh(a,v) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function aaddl(a : ar; v : integer returns ar) array_addl(a,v) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function aremh(a : ar returns ar) array_remh(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function areml(a : ar returns ar) array_reml(a) end function
+% BROKEN DUE TO UNSUPPORTED NATIVE FN function function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
 
 %------------------------------------------------------------
 %function screate(returns st) stream st[] end function
@@ -123,23 +121,23 @@ function aconc(a,b : ar returns ar) a ||b end function
 %function sconc(g,h : st returns st) g || h end function
 
 %------------------------------------------------------------
-%function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
-%     record reco[a : av; b : bv; c : cv; d: dv]
-%end function
-%function rsel(r : reco returns integer,real,double,ar)
-%     r.a, r.b, r.c, r.d
-%end function
-%function rrepl(r : reco; newa : integer returns reco)
-%     r replace[a: newa]
-%end function
+function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
+     record reco[a : av; b : bv; c : cv; d: dv]
+end function
+function rsel(r : reco returns integer,real,double,ar)
+     r.a, r.b, r.c, r.d
+end function
+function rrepl(r : reco; newa : integer returns reco)
+     r replace[a: newa]
+end function
 
-%function arcreate(av : integer; bv : real; cv : double returns arec)
-%     array arec[1: record brec[a : av; b : bv; c : cv],
-%                   record brec[a : av; b : bv; c : cv]]
-%end function
-%function arsel(ele: integer; r : arec returns integer,real,double)
-%     r[ele].a+r[ele-1].a, r[ele].b-r[ele-1].b, r[ele].c
-%end function
+function arcreate(av : integer; bv : real; cv : double returns arec)
+     array arec[1: record brec[a : av; b : bv; c : cv],
+                   record brec[a : av; b : bv; c : cv]]
+end function
+function arsel(ele: integer; r : arec returns integer,real,double)
+     r[ele].a+r[ele-1].a, r[ele].b-r[ele-1].b, r[ele].c
+end function
 
 %------------------------------------------------------------
 function ucreate(a : integer; b : real; c : double; d : ar returns
@@ -247,17 +245,17 @@ array[array[integer]], array[array[integer]], array[array[integer]],
 %%%%%%%%%% Section 5.8 [76]
 
 %%%%%%%%%% Section 5.9 [76]
-%array[character],
-%reco,
-%integer,
-%real,
-%double_real,
-%ar,
-%reco,
-%arec,
-%integer,
-%real,
-%double_real,
+array[character],
+reco,
+integer,
+real,
+double_real,
+ar,
+reco,
+arec,
+integer,
+real,
+double_real,
 
 %%%%%%%%%% Section 5.10 [82]
 array[character],
@@ -402,11 +400,11 @@ end for,
 
 %%%%%%%%%% Section 5.9
 "Section 5.9",
-%rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
-%rsel(r),
-%rrepl(r,9999),
-%arcreate(11,1.0,double_real(2.0)),
-%arsel(2, arcreate(11,1.0,double_real(2.0))),
+rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
+rsel(r),
+rrepl(r,9999),
+arcreate(11,1.0,double_real(2.0)),
+arsel(2, arcreate(11,1.0,double_real(2.0))),
 
 %%%%%%%%%% Section 5.10
 "Section 5.10",

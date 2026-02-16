@@ -1,0 +1,11 @@
+
+
+define Main
+
+type CharTree = record [ S:real;L: record [R : real]]
+
+function Main(returns Chartree)
+let bb : CharTree := Record[S:3.14;L:record[R:0.2]] in
+bb replace [l.r:3.2;s:1.23]
+end let
+end function

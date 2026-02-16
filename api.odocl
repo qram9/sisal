@@ -1,8 +1,0 @@
-# OASIS_START
-# DO NOT EDIT (digest: a347bab8869bf072b0410a2ef1cf0f34)
-src/fe/Lex
-src/fe/Parse
-src/ir/Ast
-src/ir/If1
-src/ir/To_if1
-# OASIS_STOP
