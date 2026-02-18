@@ -803,7 +803,7 @@ and get_ports_unified of_gr basis_gr parent_gr =
         scope variables.*)
   let bin = If1.get_boundary_node basis_gr in
   match bin with
-  | If1.Boundary (in_port_lis, _, _) ->
+  | If1.Boundary (in_port_lis, _, _, _) ->
       List.fold_right
         (fun (_, xp, xn) f_gr ->
           if If1.is_outer_var xn parent_gr = true then
@@ -843,7 +843,7 @@ and tie_outer_scope_to_inner from_gr to_gr to_node =
       input ports. *)
   let bin = If1.get_boundary_node from_gr in
   match bin with
-  | If1.Boundary (in_port_lis, _, _) ->
+  | If1.Boundary (in_port_lis, _, _, _) ->
       List.fold_right
         (fun (_, yp, xn) o_gr ->
           let (xx, xy, xt), o_gr = If1.get_symbol_id xn o_gr in
@@ -2883,7 +2883,7 @@ and do_simple_exp in_gr in_sim_ex =
         let boundary_ooo =
           let nm = regar.If1.nmap in
           match If1.NM.find 0 nm with
-          | If1.Boundary (_, [ (pn, _); (else_n, _); (then_n, _) ], _) ->
+          | If1.Boundary (_, [ (pn, _); (else_n, _); (then_n, _) ], _, _) ->
               [ 3; pn; else_n; then_n ]
           | _ -> []
         in
@@ -3572,8 +3572,8 @@ and do_function_header in_gr = function
         If1.NM.add 0
           (let bound_node = If1.NM.find 0 nm in
            match bound_node with
-           | If1.Boundary (k, j, p) ->
-               If1.Boundary (k, j, If1.Name (String.concat "." fn) :: p)
+           | If1.Boundary (k, j, e, p) ->
+               If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
            | _ -> bound_node)
           nm
       in

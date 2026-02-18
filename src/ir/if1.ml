@@ -221,6 +221,7 @@ type if1_ty =
   | If1Type_name of label
   | Field of label list
   | Tag of label list
+  | ERROR of string
 
 type port = string
 
@@ -349,7 +350,11 @@ and node =
   | Simple of N.t * node_sym * ports * ports * pragmas
   | Compound of N.t * node_sym * label * pragmas * graph * N.t list
   | Literal of N.t * basic_code * string * ports
-  | Boundary of (label * int * string) list * (label * int) list * pragmas
+  | Boundary of
+      (label * int * string) list
+      * (label * int) list
+      * (label * int) list
+      * pragmas
   | Unknown_node
 
 (** Create an empty graph for a caller. Take an incoming typemap and use that
@@ -511,7 +516,7 @@ let basic_map_tyid inc_map =
 
 let rec get_empty_graph n =
   (* 1. Initialize the base graph *)
-  let nm = NM.add 0 (Boundary ([], [], [])) NM.empty in
+  let nm = NM.add 0 (Boundary ([], [], [], [])) NM.empty in
   let initial_gr =
     {
       nmap = nm;
@@ -1204,7 +1209,7 @@ and cse_by_part in_gr = in_gr
 
 and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, out_port_list, boundary_p) ->
+  | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
       let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
       let annod = NM.find srcn nm in
       let annod =
@@ -1222,7 +1227,11 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
         {
           nmap =
             NM.add 0
-              (Boundary (in_port_list, (srcn, srcp) :: out_port_list, boundary_p))
+              (Boundary
+                 ( in_port_list,
+                   (srcn, srcp) :: out_port_list,
+                   err_ports,
+                   boundary_p ))
               (NM.add srcn annod nm);
           eset = es;
           symtab = sm;
@@ -1233,12 +1242,12 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
 
 and get_named_input_ports in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, _, _) -> in_port_list
+  | Boundary (in_port_list, _, _, _) -> in_port_list
   | _ -> []
 
 and get_named_input_port_map in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, _, _) ->
+  | Boundary (in_port_list, _, _, _) ->
       List.fold_right
         (fun (_, yy, zz) output_map -> StringMap.add zz yy output_map)
         in_port_list StringMap.empty
@@ -1246,7 +1255,7 @@ and get_named_input_port_map in_gr =
 
 and add_to_boundary_inputs ?(namen = "") n p in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, out_port_list, boundary_p) ->
+  | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
       let lookin_lis n p =
         try
           List.fold_right
@@ -1264,19 +1273,22 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
           nmap =
             NM.add 0
               (Boundary
-                 ((n, p, namen) :: in_port_list, out_port_list, boundary_p))
+                 ( (n, p, namen) :: in_port_list,
+                   out_port_list,
+                   err_ports,
+                   boundary_p ))
               nm;
         }
   | _ -> in_gr
 
 and boundary_in_port_count in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, _, _) -> List.length in_port_list
+  | Boundary (in_port_list, _, _, _) -> List.length in_port_list
   | _ -> 0
 
 and boundary_out_port_count in_gr =
   match get_boundary_node in_gr with
-  | Boundary (_, out_port_list, _) -> List.length out_port_list
+  | Boundary (_, out_port_list, _, _) -> List.length out_port_list
   | _ -> 0
 
 and get_old_var_port vv in_gr =
@@ -1596,7 +1608,7 @@ and set_out_port_str src_nod src_port dest_nn =
   | Simple (lab, n, pin, pout, prag) ->
       Simple (lab, n, pin, safe_set_arr dest_nn src_port pout, prag)
   | Compound (_, _, _, _, _, _) -> src_nod
-  | Boundary (_, _, _) -> src_nod
+  | Boundary (_, _, _, _) -> src_nod
   | Unknown_node -> src_nod
 
 and clear_port_str dst_nod =
@@ -1682,7 +1694,7 @@ and add_node nn in_gr =
   | `Boundary ->
       {
         in_gr with
-        nmap = NM.add 0 (Boundary ([], [], [])) nm;
+        nmap = NM.add 0 (Boundary ([], [], [], [])) nm;
         symtab = (par_cs, par_ps);
       }
 
@@ -2044,7 +2056,11 @@ and add_node_2 nn in_gr =
         } )
   | `Boundary ->
       ( (pi, 0, 0),
-        { in_gr with nmap = NM.add 0 (Boundary ([], [], [])) nm; w = pi + 1 } )
+        {
+          in_gr with
+          nmap = NM.add 0 (Boundary ([], [], [], [])) nm;
+          w = pi + 1;
+        } )
 
 and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let pe = get_edge_set in_gr in
@@ -2573,6 +2589,7 @@ and add_sisal_type
     { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
   in
   match aty with
+  | Error_ty e -> add_type_to_typemap (ERROR e) in_gr
   | Boolean -> (lookup_tyid_triple BOOLEAN, in_gr)
   | Character -> (lookup_tyid_triple CHARACTER, in_gr)
   | Double_real -> (lookup_tyid_triple DOUBLE, in_gr)
@@ -2954,6 +2971,7 @@ and string_of_if1_ty ity =
   | Tag if1li ->
       "Tags " ^ List.fold_right (fun x y -> string_of_int x ^ "; " ^ y) if1li ""
   | If1Type_name tt -> "TYPENAME " ^ string_of_int tt
+  | ERROR e -> "ERROR " ^ e
 
 and string_of_if1_basic_ty bc =
   match bc with
@@ -3083,7 +3101,7 @@ and string_of_node_ty ?(offset = 2) =
            assoc "")
         " "
   | Unknown_node -> "Unknown"
-  | Boundary (zz, yy, pp) ->
+  | Boundary (zz, yy, _, pp) ->
       let bb =
         cate_nicer
           (cate_nicer
@@ -3095,14 +3113,29 @@ and string_of_node_ty ?(offset = 2) =
 
 and string_of_node n_int g = string_of_node_ty (get_node n_int g)
 
-and string_of_edge ((n1, p1), (n2, p2), tt) =
-  cate_nicer
-    (string_of_int n1 ^ ":" ^ string_of_int p1 ^ " -> " ^ string_of_int n2 ^ ":"
-   ^ string_of_int p2)
-    (string_of_int tt) " "
+and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
+  let _, tm, _ = in_gr.typemap in
 
-and string_of_edge_set ne =
-  let ee = ES.fold (fun x y -> string_of_edge x :: y) ne [] in
+  (* 1. Lookup the type definition to see if it's a "Panic" signal *)
+  let is_error, type_desc =
+    match TM.find_opt tt tm with
+    | Some (ERROR s) -> (true, "ERR:" ^ s)
+    | Some t -> (false, string_of_if1_ty t)
+    | None -> (false, "UNKNOWN")
+  in
+
+  (* 2. Use double-colon '::' for Railroad edges, single ':' for Math edges *)
+  let sep1 = if is_error then "::" else ":" in
+  let sep2 = if is_error then "::" else ":" in
+
+  (* 3. Compose the final "Nicer" string *)
+  let connection = Printf.sprintf "%d%s%d -> %d%s%d" n1 sep1 p1 n2 sep2 p2 in
+  let metadata = Printf.sprintf "[ID:%d %s]" tt type_desc in
+
+  cate_nicer connection metadata " "
+
+and string_of_edge_set in_gr ne =
+  let ee = ES.fold (fun x y -> string_of_edge in_gr x :: y) ne [] in
   match ee with [] -> [] | _ -> "----EDGES----" :: ee
 
 and dot_of_node_ty id in_gr =
@@ -3122,7 +3155,7 @@ and dot_of_node_ty id in_gr =
       ^ dot_of_graph (int_of_string (string_of_int id ^ string_of_int lab)) g
       ^ "\n" ^ "}"
   | Unknown_node -> "Unknown"
-  | Boundary (_, yy, pp) ->
+  | Boundary (_, yy, _, pp) ->
       "IN0" ^ string_of_int id ^ " [shape=rect;label=\""
       ^ cate_list (string_of_symtab_gr_in in_gr) "\\n"
       ^ "\"];\n" ^ "OUT0" ^ string_of_int id ^ " [shape=rect;label=\""
@@ -3306,21 +3339,23 @@ and string_of_triple_int (i, j, k) =
 and string_of_triple_int_list zz =
   List.fold_left (fun zz (i, j, k) -> zz ^ string_of_triple_int (i, j, k)) "" zz
 
-and string_of_graph ?(offset = 0)
-    { nmap = nm; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
+and string_of_graph ?(offset = 0) in_gr =
+  let { nmap = nm; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
+    in_gr
+  in
   cate_list_pad offset
     (("Graph {" :: string_of_node_map ~offset nm)
-    @ string_of_edge_set ne @ string_of_symtab sm tm
+    @ string_of_edge_set in_gr ne
+    @ string_of_symtab sm tm
     @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
     @ [ "} " ^ string_of_int tail ])
     "\n"
 
-and string_of_graph_thin ?(offset = 0)
-    { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = tail } =
+and string_of_graph_thin ?(offset = 0) in_gr =
   cate_list_pad offset
-    (("Graph {" :: string_of_node_map ~offset nm)
-    @ string_of_edge_set ne
-    @ [ "} " ^ string_of_int tail ])
+    (("Graph {" :: string_of_node_map ~offset in_gr.nmap)
+    @ string_of_edge_set in_gr in_gr.eset
+    @ [ "} " ^ string_of_int in_gr.w ])
     "\n"
 
 and string_of_graph2 (_, gr) = string_of_graph gr
