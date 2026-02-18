@@ -2166,157 +2166,196 @@ and do_simple_exp in_gr in_sim_ex =
       in
 
       ((mn, mp, mt), in_gr)
-  | Invocation (fn, arg) -> (
-      match fn with
-      | Ast.Function_name f -> (
-          match String.concat "." f with
-          (*TODO: More libs *)
-          | "ACREATE" ->
-              let in_port_00 = Array.make 1 "" in
-              let out_port_00 = Array.make 1 "" in
-              let (n, p, _), in_gr =
-                If1.add_node_2
-                  (`Simple (If1.ACREATE, in_port_00, out_port_00, []))
-                  in_gr
-              in
-              let (_, _, arr_typ), in_gr =
-                If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null)
-              in
-              ((n, p, arr_typ), in_gr)
-          | "ARRAY_ADDH" ->
-              let (n, _, _), in_gr =
-                let in_port_00 = Array.make 1 "" in
-                let out_port_00 = Array.make 1 "" in
-                If1.add_node_2
-                  (`Simple (If1.AADDH, in_port_00, out_port_00, []))
-                  in_gr
-              in
-              let tt, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp [ fst_exp; last_exp ] ->
-                        let (l, m, tt), in_gr = do_simple_exp in_gr fst_exp in
-                        let (ii, jj, pp), in_gr =
-                          do_simple_exp in_gr last_exp
-                        in
-                        let in_gr = If1.add_edge l m n 0 tt in_gr in
-                        let in_gr = If1.add_edge ii jj n 1 pp in_gr in
-                        (tt, in_gr)
-                    | _ ->
-                        raise
-                          (If1.Sem_error ("Incorrect usage" ^ " for array_addh"))
-                    )
-              in
-              ((n, 0, tt), in_gr)
-          | "ARRAY_LIMH" ->
-              let (n, _, _), in_gr =
-                let in_port_00 = Array.make 1 "" in
-                let out_port_00 = Array.make 1 "" in
-                If1.add_node_2
-                  (`Simple (If1.ALIMH, in_port_00, out_port_00, []))
-                  in_gr
-              in
-              let _, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp aexps ->
-                        List.fold_right
-                          (fun x (cou, in_gr) ->
-                            let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                            (cou + 1, If1.add_edge l m n cou tt in_gr))
-                          aexps (0, in_gr)
-                    | _ -> (0, in_gr))
-              in
-              ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
-          | "ARRAY_LIML" ->
-              let in_port_00 = Array.make 1 "" in
-              let out_port_00 = Array.make 1 "" in
-              let (n, _, _), in_gr =
-                If1.add_node_2
-                  (`Simple (If1.ALIML, in_port_00, out_port_00, []))
-                  in_gr
-              in
-              let _, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp aexps ->
-                        List.fold_right
-                          (fun x (cou, in_gr) ->
-                            let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                            (cou + 1, If1.add_edge l m n cou tt in_gr))
-                          aexps (0, in_gr)
-                    | _ -> (0, in_gr))
-              in
-              ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
-          | "ARRAY_SIZE" ->
-              let in_port_00 = Array.make 1 "" in
-              let out_port_00 = Array.make 1 "" in
-              let (n, _, _), in_gr =
-                If1.add_node_2
-                  (`Simple (If1.ASIZE, in_port_00, out_port_00, []))
-                  in_gr
-              in
-              let _, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp aexps ->
-                        List.fold_right
-                          (fun x (cou, in_gr) ->
-                            let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                            (cou + 1, If1.add_edge l m n cou tt in_gr))
-                          aexps (0, in_gr)
-                    | _ -> (0, in_gr))
-              in
-              ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
-          | _ ->
-              let _ =
-                let cs, ps = in_gr.If1.symtab in
-                try If1.SM.find (String.concat "." f) cs
-                with Not_found -> (
-                  try If1.SM.find (String.concat "." f) ps
-                  with Not_found ->
+  | Invocation (Ast.Function_name fn, arg) -> (
+      (*
+          let find_mangled_intrinsic_inference in_gr func_name arg_types =
+            (* 1. Mangle only the Name and Arguments *)
+            (* Format becomes: _SMOD__V4FV4F__ *)
+            let target_prefix = Printf.sprintf "_S%s__%s__" (String.concat "." f) 
+    (String.concat "" (List.map Ast.get_type_code arg_types)) 
+            in
+
+  let (_, global_syms) = in_gr.symtab in
+
+  (* 2. Find the first entry in the Symbol Map that starts with this prefix *)
+          (* SM.iter or SM.to_seq allows us to peek at the keys *)
+          let result = SM.to_seq global_syms 
+      |> Seq.find (fun (name, _) -> String.starts_with ~prefix:target_prefix name)
+          in
+  match result with
+  | Some (mangled_full, symtab_entry) ->          
+      failwith("reachedn!!!")
+  | _ -> *)
+      let deref_fn = String.concat "." fn in
+      match deref_fn with
+      (*TODO: More libs *)
+      | "ACREATE" ->
+          let in_port_00 = Array.make 1 "" in
+          let out_port_00 = Array.make 1 "" in
+          let (n, p, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.ACREATE, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let (_, _, arr_typ), in_gr =
+            If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null)
+          in
+          ((n, p, arr_typ), in_gr)
+      | "ARRAY_ADDH" ->
+          let (n, _, _), in_gr =
+            let in_port_00 = Array.make 1 "" in
+            let out_port_00 = Array.make 1 "" in
+            If1.add_node_2
+              (`Simple (If1.AADDH, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let tt, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp [ fst_exp; last_exp ] ->
+                    let (l, m, tt), in_gr = do_simple_exp in_gr fst_exp in
+                    let (ii, jj, pp), in_gr = do_simple_exp in_gr last_exp in
+                    let in_gr = If1.add_edge l m n 0 tt in_gr in
+                    let in_gr = If1.add_edge ii jj n 1 pp in_gr in
+                    (tt, in_gr)
+                | _ ->
                     raise
-                      (If1.outs_syms in_gr;
-                       If1.Sem_error
-                         ("Trying to call an unknown function: "
-                        ^ String.concat "." f)))
-              in
-              let prags = [ If1.Name (String.concat "." f) ] in
-              let expl, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
-                    | Empty -> ([], in_gr))
-              in
-              let in_port_00 = Array.make (List.length expl) "" in
-              let (n, _, _), in_gr =
-                If1.add_node_2
-                  (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
-                  in_gr
-              in
-              let tml = If1.lookup_fn_ty (String.concat "." f) in_gr in
-              let _, mmm =
-                List.fold_right
-                  (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
-                  (List.rev tml)
-                  (List.length tml - 1, [])
-              in
-              let k123 = mmm in
-              let in_gr = add_edges_in_list expl n 0 in_gr in
-              let (n1, _, _), in_gr =
-                let in_port_01 = Array.make (List.length tml) "" in
-                let out_port_01 = Array.make (List.length tml) "" in
-                If1.add_node_2
-                  (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
-                  in_gr
-              in
-              let in_gr = add_edges_in_list k123 n1 0 in_gr in
-              ((n1, 0, 0), in_gr)))
+                      (If1.Sem_error ("Incorrect usage" ^ " for array_addh")))
+          in
+          ((n, 0, tt), in_gr)
+      | "ARRAY_LIMH" ->
+          let (n, _, _), in_gr =
+            let in_port_00 = Array.make 1 "" in
+            let out_port_00 = Array.make 1 "" in
+            If1.add_node_2
+              (`Simple (If1.ALIMH, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let _, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (cou, in_gr) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        (cou + 1, If1.add_edge l m n cou tt in_gr))
+                      aexps (0, in_gr)
+                | _ -> (0, in_gr))
+          in
+          ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "ARRAY_LIML" ->
+          let in_port_00 = Array.make 1 "" in
+          let out_port_00 = Array.make 1 "" in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.ALIML, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let _, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (cou, in_gr) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        (cou + 1, If1.add_edge l m n cou tt in_gr))
+                      aexps (0, in_gr)
+                | _ -> (0, in_gr))
+          in
+          ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "ARRAY_SIZE" ->
+          let in_port_00 = Array.make 1 "" in
+          let out_port_00 = Array.make 1 "" in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.ASIZE, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let _, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (cou, in_gr) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        (cou + 1, If1.add_edge l m n cou tt in_gr))
+                      aexps (0, in_gr)
+                | _ -> (0, in_gr))
+          in
+          ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | _ ->
+          let cs, ps = in_gr.If1.symtab in
+          let expl, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
+                | Empty -> ([], in_gr))
+          in
+          let arg_types = List.map (fun (_, _, t) -> t) expl in
+          let symtab_entry =
+            match If1.SM.find_opt deref_fn cs with
+            | Some id -> id
+            | None -> (
+                match If1.SM.find_opt deref_fn ps with
+                | Some id -> id
+                | None -> (
+                    (* 2. Only mangle if exact name lookup fails *)
+                    let target_prefix =
+                      Printf.sprintf "_S%s__%s__" deref_fn
+                        (String.concat ""
+                           (List.map If1.short_name_for_intrinsic arg_types))
+                    in
+                    (* 3. Optimize prefix lookup *)
+                    match If1.SM.find_opt target_prefix ps with
+                    | Some id -> id
+                    | None -> (
+                        (* 4. Final Fallback: The "Discovery" scan *)
+                        let discovered =
+                          If1.SM.to_seq ps
+                          |> Seq.find (fun (name, _) ->
+                              String.starts_with ~prefix:target_prefix name)
+                        in
+                        match discovered with
+                        | Some (_, id) -> id
+                        | None ->
+                            print_endline (If1.string_of_graph_thin in_gr);
+                            raise
+                              (If1.Sem_error ("Unknown function: " ^ deref_fn)))
+                    ))
+          in
+          let deref_fn = symtab_entry.val_name in
+
+          let in_port_00 = Array.make (List.length expl) "" in
+          let prags = [ If1.Name deref_fn ] in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
+              in_gr
+          in
+          let tml = If1.lookup_fn_ty deref_fn in_gr in
+          let _, mmm =
+            List.fold_right
+              (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
+              (List.rev tml)
+              (List.length tml - 1, [])
+          in
+
+          let k123 = mmm in
+          let in_gr = add_edges_in_list expl n 0 in_gr in
+          let (n1, _, _), in_gr =
+            let in_port_01 = Array.make (List.length tml) "" in
+            let out_port_01 = Array.make (List.length tml) "" in
+            If1.add_node_2
+              (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+              in_gr
+          in
+          let in_gr = add_edges_in_list k123 n1 0 in_gr in
+          ((n1, 0, 0), in_gr))
   | Array_ref (ar_a, ar_b) ->
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
       let (res_node, res_port, tt), in_gr_res =

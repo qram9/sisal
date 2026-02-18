@@ -256,14 +256,7 @@ and sisal_lex = parse eof {
                   padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
                   k
                 with Not_found ->
-                try
-                  (* 2. Check the predefined functions (ABS, MAX, MIN) *)
-                  let f = KeywordTable.find lookup_name predef_fn_table in
-                  padded_lex_msg 5 ": Predef_fn:%s>\n" lookup_name;
-                  (* Ensure your parser token for this is PREDEF_FN or the specific token *)
-                  f 
-                with Not_found ->
-                  (* 3. It's a user-defined variable name *)
+                  (* 2. It's a user-defined variable name *)
                   padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
                   NAME lookup_name
               }

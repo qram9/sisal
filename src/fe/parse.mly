@@ -253,8 +253,8 @@ def_func_name_list:
       { Define (List.rev $2) }
   ;
 function_name_list :
-    function_name_list NAME
-      { (Function_name [$2]) :: $1 }
+    function_name_list COMMA NAME
+      { (Function_name [$3]) :: $1 }
 | NAME
     { [Function_name [$1]] }
   ;
