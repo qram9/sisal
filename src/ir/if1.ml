@@ -510,8 +510,9 @@ let basic_map_tyid inc_map =
   List.fold_left (fun mm (x, y) -> IntMap.add x y mm) inc_map basic_types
 
 let rec get_empty_graph n =
+  (* 1. Initialize the base graph *)
   let nm = NM.add 0 (Boundary ([], [], [])) NM.empty in
-  let in_gr =
+  let initial_gr =
     {
       nmap = nm;
       eset = ES.empty;
@@ -520,14 +521,147 @@ let rec get_empty_graph n =
       w = 1;
     }
   in
-  let add_basic_types in_gr (n, t) =
-    let _, td, tm = in_gr.typemap in
+
+  (* 2. Helper to add basic types (Integer, Real, etc.) to the typemap *)
+  let add_basic_type_entry gr (id, t_def) =
+    let _, td, tm = gr.typemap in
     {
-      in_gr with
-      typemap = (72, TM.add n t td, MM.add (rev_lookup_ty_name n) n tm);
+      gr with
+      typemap = (72, TM.add id t_def td, MM.add (rev_lookup_ty_name id) id tm);
     }
   in
-  List.fold_left add_basic_types in_gr basic_types
+
+  (* 3. Add basic types first so they exist for the function signatures *)
+  let final_graph =
+    List.fold_left add_basic_type_entry initial_gr basic_types
+  in
+
+  (* 4. Create the function signature objects *)
+  let all_2_1_lib_funs =
+    List.map
+      (fun ty_id ->
+        Compound_type (Sisal_function_type ("", [ ty_id; ty_id ], [ ty_id ])))
+      basic_type_list
+  in
+  let float_1_1_lib_funs =
+    List.map
+      (fun ty_id ->
+        Compound_type (Sisal_function_type ("", [ ty_id; ty_id ], [ ty_id ])))
+      basic_float_list
+  in
+
+  let all_1_1_lib_funs =
+    List.map
+      (fun ty_id ->
+        Compound_type (Sisal_function_type ("", [ ty_id ], [ ty_id ])))
+      basic_type_list
+  in
+  (* 5. Register and Collect IDs *)
+  (* We use fold_left to thread the graph, but accumulate the resulting IDs *)
+  let final_graph, added_type_1_1_ids =
+    List.fold_left
+      (fun (gr, ids) func_ty ->
+        let (_, _, new_id), res_gr = add_sisal_type gr func_ty in
+        (res_gr, new_id :: ids))
+      (final_graph, []) all_1_1_lib_funs
+  in
+  let added_type_1_1_ids = List.rev added_type_1_1_ids in
+  let final_graph, added_type_2_1_ids =
+    List.fold_left
+      (fun (gr, ids) func_ty ->
+        let (_, _, new_id), res_gr = add_sisal_type gr func_ty in
+        (res_gr, new_id :: ids))
+      (final_graph, []) all_2_1_lib_funs
+  in
+  let added_type_2_1_ids = List.rev added_type_2_1_ids in
+  let final_graph, added_float_type_1_1_ids =
+    List.fold_left
+      (fun (gr, ids) func_ty ->
+        let (_, _, new_id), res_gr = add_sisal_type gr func_ty in
+        (res_gr, new_id :: ids))
+      (final_graph, []) float_1_1_lib_funs
+    (* reverse because fold_left/cons flips the order *)
+  in
+  let added_float_type_1_1_ids = List.rev added_float_type_1_1_ids in
+
+  let (_, _, spl_case_riexp), final_graph =
+    add_sisal_type final_graph
+      (Compound_type
+         (Sisal_function_type ("", [ Ast.Real; Ast.Integer ], [ Ast.Real ])))
+  in
+  let (_, _, spl_case_diexp), final_graph =
+    add_sisal_type final_graph
+      (Compound_type
+         (Sisal_function_type
+            ("", [ Ast.Double_real; Ast.Integer ], [ Ast.Double_real ])))
+  in
+  (* 6. Generate Mangled Names based on the same basic_type_list *)
+  let lib_registry =
+    List.combine
+      (List.map
+         (fun ty -> Ast.mangle_intrinsic "EXP" [ ty; ty ] [ ty ])
+         basic_type_list)
+      added_type_2_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "MOD" [ ty; ty ] [ ty ])
+           basic_type_list)
+        added_type_2_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "MAX" [ ty; ty ] [ ty ])
+           basic_type_list)
+        added_type_2_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "MIN" [ ty; ty ] [ ty ])
+           basic_type_list)
+        added_type_2_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "ABS" [ ty ] [ ty ])
+           basic_type_list)
+        added_type_1_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "TRUNC" [ ty ] [ ty ])
+           basic_float_list)
+        added_float_type_1_1_ids
+    @ List.combine
+        (List.map
+           (fun ty -> Ast.mangle_intrinsic "FLOOR" [ ty ] [ ty ])
+           basic_float_list)
+        added_float_type_1_1_ids
+    @ [
+        ( Ast.mangle_intrinsic "EXP" [ Ast.Real; Ast.Integer ] [ Ast.Real ],
+          spl_case_riexp );
+      ]
+    @ [
+        ( Ast.mangle_intrinsic "EXP"
+            [ Ast.Double_real; Ast.Integer ]
+            [ Ast.Double_real ],
+          spl_case_diexp );
+      ]
+  in
+  (* 7. Zip them together: (TypeID * MangledName) *)
+  let cs, ps = final_graph.symtab in
+  let id = final_graph.w in
+  let id, final_syms =
+    List.fold_left
+      (fun (id, local_symtab) (name, ty_id) ->
+        ( id + 1,
+          SM.add name
+            { val_name = name; val_ty = ty_id; val_def = -1; def_port = 0 }
+            local_symtab ))
+      (id, ps) lib_registry
+  in
+  let final_graph = { final_graph with symtab = (cs, final_syms); w = id } in
+  outs_graph final_graph;
+  final_graph
+
+(* 4. Generate the 'MOD' signatures for every numeric type in the basic list *)
+(* basic_type_list should contain the type IDs
+     like [Integer_ID; Real_ID; ...] *)
 
 and get_node_label n =
   match n with
@@ -1708,6 +1842,79 @@ and lookup_tyid gg =
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
            (string_of_if1_basic_ty gg))
 
+and short_name_for_intrinsic = function
+  | 1 -> "B"
+  | 2 -> "C"
+  | 3 -> "D"
+  | 4 -> "I"
+  | 6 -> "F"
+  | 7 -> "Y"
+  | 8 -> "UC"
+  | 9 -> "H"
+  | 10 -> "S"
+  | 11 -> "US"
+  | 12 -> "UI"
+  | 13 -> "UY"
+  | 14 -> "v2Y"
+  | 15 -> "v2H"
+  | 16 -> "v2S"
+  | 17 -> "v2I"
+  | 18 -> "v2F"
+  | 19 -> "v2D"
+  | 20 -> "v2UI"
+  | 21 -> "v2UY"
+  | 22 -> "v2US"
+  | 23 -> "v3Y"
+  | 24 -> "v3H"
+  | 25 -> "v3S"
+  | 26 -> "v3I"
+  | 27 -> "v3F"
+  | 28 -> "v3D"
+  | 29 -> "v3UI"
+  | 30 -> "v3UY"
+  | 31 -> "v3US"
+  | 32 -> "v4Y"
+  | 33 -> "v4H"
+  | 34 -> "v4S"
+  | 35 -> "v4I"
+  | 36 -> "v4F"
+  | 37 -> "v4D"
+  | 38 -> "v4UI"
+  | 39 -> "v4UY"
+  | 40 -> "v4US"
+  | 41 -> "v8Y"
+  | 42 -> "v8H"
+  | 43 -> "v8S"
+  | 44 -> "v8I"
+  | 45 -> "v8F"
+  | 46 -> "v8D"
+  | 47 -> "v8UI"
+  | 48 -> "v8UY"
+  | 49 -> "v8US"
+  | 50 -> "v16Y"
+  | 51 -> "v16H"
+  | 52 -> "v16S"
+  | 53 -> "v16I"
+  | 54 -> "v16F"
+  | 55 -> "v16D"
+  | 56 -> "v16UI"
+  | 57 -> "v16UY"
+  | 58 -> "v16US"
+  | 59 -> "v2C"
+  | 60 -> "v2UC"
+  | 61 -> "v3C"
+  | 62 -> "v3UC"
+  | 63 -> "v4C"
+  | 64 -> "v4UC"
+  | 65 -> "v8C"
+  | 66 -> "v8UC"
+  | 67 -> "v16C"
+  | 68 -> "v16UC"
+  | 69 -> "M2"
+  | 70 -> "M3"
+  | 71 -> "M$"
+  | _ -> "U"
+
 and rev_lookup_ty_name = function
   | 1 -> "BOOLEAN"
   | 2 -> "CHARACTER"
@@ -1783,7 +1990,7 @@ and rev_lookup_ty_name = function
   | _ -> "UNKNOWN"
 
 and lookup_fn_ty in_fn_name in_gr =
-  (* this look at the typemap table and return type for an id - this can do that in the local and the global ty tabs just like symtab does *)
+  (* this looks at the typemap table and return type for an id - this can do that in the local and the global ty tabs just like symtab does *)
   let tm = get_typemap_tm in_gr in
   try
     TM.fold
@@ -2178,11 +2385,11 @@ and add_a_field (namen, tag_ty, _) ((id, _, _), in_gr) =
   let (tt_id, _, _), in_gr = add_sisal_type in_gr tag_ty in
   add_type_to_typemap (Record (tt_id, id, namen)) in_gr
 
+and add_tag_spec (strlis, tl, _) in_gr = ((strlis, tl, 0), in_gr)
+
 and add_a_tuple_entry tup_ty ((id, _, _), in_gr) =
   let (tt_id, _, _), in_gr = add_sisal_type in_gr tup_ty in
   add_type_to_typemap (Tuple_ty (tt_id, id)) in_gr
-
-and add_tag_spec (strlis, tl, _) in_gr = ((strlis, tl, 0), in_gr)
 
 and add_compound_type in_gr = function
   | Sisal_array s ->
@@ -3105,6 +3312,14 @@ and string_of_graph ?(offset = 0)
     (("Graph {" :: string_of_node_map ~offset nm)
     @ string_of_edge_set ne @ string_of_symtab sm tm
     @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
+    @ [ "} " ^ string_of_int tail ])
+    "\n"
+
+and string_of_graph_thin ?(offset = 0)
+    { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = tail } =
+  cate_list_pad offset
+    (("Graph {" :: string_of_node_map ~offset nm)
+    @ string_of_edge_set ne
     @ [ "} " ^ string_of_int tail ])
     "\n"
 

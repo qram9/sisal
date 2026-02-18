@@ -38,7 +38,7 @@ ireal, idouble, dreal, rdouble, cinteger, icharacter
 type double	= double_real;
 type ar		= array[integer];
 type st		= stream[integer];
-type rec	= record[a : integer; b : real; c : double; d : ar];
+type reco	= record[a : integer; b : real; c : double; d : ar];
 type brec	= record[a : integer; b : real; c : double];
 type arec	= array[brec];
 type un		= union[a : integer; b : real; c : double; d : ar];
@@ -52,7 +52,7 @@ function nerr(x : null returns boolean) is error(x) end function
 function rerr(x : real returns boolean) is error(x) end function
 function arerr(x : ar returns boolean) is error(x) end function
 function sterr(x : st returns boolean) is error(x) end function
-function recerr(x : rec returns boolean) is error(x) end function
+function recerr(x : reco returns boolean) is error(x) end function
 function arecerr(x : arec returns boolean) is error(x) end function
 function unerr(x : un returns boolean) is error(x) end function
 
@@ -155,13 +155,13 @@ function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
 %function sconc(g,h : st returns st) g || h end function
 
 %------------------------------------------------------------
-function rcreate(av : integer; bv : real; cv : double; dv : ar returns rec)
-     record rec[a : av; b : bv; c : cv; d: dv]
+function rcreate(av : integer; bv : real; cv : double; dv : ar returns reco)
+     record reco[a : av; b : bv; c : cv; d: dv]
 end function
-function rsel(r : rec returns integer,real,double,ar)
+function rsel(r : reco returns integer,real,double,ar)
      r.a, r.b, r.c, r.d
 end function
-function rrepl(r : rec; newa : integer returns rec)
+function rrepl(r : reco; newa : integer returns reco)
      r replace[a: newa]
 end function
 
@@ -223,7 +223,7 @@ p,q   : array[array[integer]];
 %%%%%%%%%% Section 5.8
 
 %%%%%%%%%% Section 5.9
-r : rec;
+r : reco;
 
 %%%%%%%%%% Section 5.10
 u0,u1,u2,u3 : un;
@@ -280,7 +280,7 @@ array[array[integer]], array[array[integer]], array[array[integer]],
 
 %%%%%%%%%% Section 5.9 [76]
 array[character],
-rec,integer,real,double_real,ar,rec,
+reco,integer,real,double_real,ar,reco,
 arec,integer,real,double_real,
 
 %%%%%%%%%% Section 5.10 [82]
@@ -348,7 +348,7 @@ returns
   array of if ( fel = 0.0 ) then 0.0 else rdiv(eel,fel) end if
 
   array of if eel < 0.0 | fel <= 0.0 then 0.0 else rrexp(eel,fel) end if
-  array of if gel = 0 | (eel <= 0.0 & gel <0) then 0.0 else riexp(eel,gel) end if
+  array of if gel = 0 | (eel <= 0.0 & gel <0) then 0.0 else rrexp(eel,REAL(gel)) end if
   array of rneg(eel)
   array of rabs(eel)
 

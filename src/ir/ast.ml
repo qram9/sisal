@@ -280,6 +280,193 @@ let semicolon_newline_fold ?offset =
 let comma_fold = myfold ","
 let space_fold = myfold " "
 
+let basic_type_list =
+  [
+    Boolean;
+    Character;
+    Double_real;
+    Integer;
+    Null;
+    Real;
+    Uint_ty;
+    Short_ty;
+    Ushort_ty;
+    Byte_ty;
+    Ubyte_ty;
+    Half_ty;
+    Uchar_ty;
+    Vec_ty Byte2;
+    Vec_ty Char2;
+    Vec_ty Half2;
+    Vec_ty Short2;
+    Vec_ty Int2;
+    Vec_ty Float2;
+    Vec_ty Double2;
+    Vec_ty Ubyte2;
+    Vec_ty Uchar2;
+    Vec_ty Uint2;
+    Vec_ty Ushort2;
+    Vec_ty Byte3;
+    Vec_ty Char3;
+    Vec_ty Half3;
+    Vec_ty Short3;
+    Vec_ty Int3;
+    Vec_ty Float3;
+    Vec_ty Double3;
+    Vec_ty Uchar3;
+    Vec_ty Uint3;
+    Vec_ty Ubyte3;
+    Vec_ty Ushort3;
+    Vec_ty Byte4;
+    Vec_ty Char4;
+    Vec_ty Half4;
+    Vec_ty Short4;
+    Vec_ty Int4;
+    Vec_ty Float4;
+    Vec_ty Double4;
+    Vec_ty Uint4;
+    Vec_ty Ubyte4;
+    Vec_ty Uchar4;
+    Vec_ty Ushort4;
+    Vec_ty Byte8;
+    Vec_ty Char8;
+    Vec_ty Half8;
+    Vec_ty Short8;
+    Vec_ty Int8;
+    Vec_ty Float8;
+    Vec_ty Double8;
+    Vec_ty Uchar8;
+    Vec_ty Uint8;
+    Vec_ty Ubyte8;
+    Vec_ty Ushort8;
+    Vec_ty Byte16;
+    Vec_ty Char16;
+    Vec_ty Half16;
+    Vec_ty Short16;
+    Vec_ty Int16;
+    Vec_ty Float16;
+    Vec_ty Double16;
+    Vec_ty Uint16;
+    Vec_ty Uchar16;
+    Vec_ty Ubyte16;
+    Vec_ty Ushort16;
+    Mat_ty Mat2;
+    Mat_ty Mat3;
+    Mat_ty Mat4;
+  ]
+(* let map =
+  List.fold_left
+    (fun acc (k, v) -> StringMap.add k v acc)
+    StringMap.empty
+    [("a", 1); ("b", 2); ("c", 3)]*)
+
+let basic_float_list =
+  [
+    Double_real;
+    Real;
+    Half_ty;
+    Vec_ty Half2;
+    Vec_ty Float2;
+    Vec_ty Double2;
+    Vec_ty Half3;
+    Vec_ty Float3;
+    Vec_ty Double3;
+    Vec_ty Half4;
+    Vec_ty Float4;
+    Vec_ty Double4;
+    Vec_ty Half8;
+    Vec_ty Float8;
+    Vec_ty Double8;
+    Vec_ty Half16;
+    Vec_ty Float16;
+    Vec_ty Double16;
+    Mat_ty Mat2;
+    Mat_ty Mat3;
+    Mat_ty Mat4;
+  ]
+
+let basic_type_code =
+  [
+    (Boolean, "B");
+    (Character, "C");
+    (Double_real, "D");
+    (Integer, "I");
+    (Real, "F");
+    (Uint_ty, "U");
+    (Short_ty, "S");
+    (Ushort_ty, "US");
+    (Byte_ty, "Y");
+    (Ubyte_ty, "UY");
+    (Half_ty, "H");
+    (Uchar_ty, "UC");
+    (Vec_ty Byte2, "V2Y");
+    (Vec_ty Char2, "V2C");
+    (Vec_ty Half2, "V2H");
+    (Vec_ty Short2, "V2S");
+    (Vec_ty Int2, "V2I");
+    (Vec_ty Float2, "V2F");
+    (Vec_ty Double2, "V2D");
+    (Vec_ty Ubyte2, "V2UY");
+    (Vec_ty Uchar2, "V2UC");
+    (Vec_ty Uint2, "V2UI");
+    (Vec_ty Ushort2, "V2US");
+    (Vec_ty Byte3, "V3Y");
+    (Vec_ty Char3, "V3C");
+    (Vec_ty Half3, "V3H");
+    (Vec_ty Short3, "V3S");
+    (Vec_ty Int3, "V3I");
+    (Vec_ty Float3, "V3F");
+    (Vec_ty Double3, "V3D");
+    (Vec_ty Uchar3, "V3UC");
+    (Vec_ty Uint3, "V3UI");
+    (Vec_ty Ubyte3, "V3UY");
+    (Vec_ty Ushort3, "V3US");
+    (Vec_ty Byte4, "V4Y");
+    (Vec_ty Char4, "V4C");
+    (Vec_ty Half4, "V4H");
+    (Vec_ty Short4, "V4S");
+    (Vec_ty Int4, "V4I");
+    (Vec_ty Float4, "V4F");
+    (Vec_ty Double4, "V4D");
+    (Vec_ty Uint4, "V4UI");
+    (Vec_ty Ubyte4, "V4UY");
+    (Vec_ty Uchar4, "V4UC");
+    (Vec_ty Ushort4, "V4US");
+    (Vec_ty Byte8, "V8Y");
+    (Vec_ty Char8, "V8C");
+    (Vec_ty Half8, "V8H");
+    (Vec_ty Short8, "V8S");
+    (Vec_ty Int8, "V8I");
+    (Vec_ty Float8, "V8F");
+    (Vec_ty Double8, "V8D");
+    (Vec_ty Uchar8, "V8UC");
+    (Vec_ty Uint8, "V8UI");
+    (Vec_ty Ubyte8, "V8UY");
+    (Vec_ty Ushort8, "V8US");
+    (Vec_ty Byte16, "V16Y");
+    (Vec_ty Char16, "V16C");
+    (Vec_ty Half16, "V16H");
+    (Vec_ty Short16, "V16S");
+    (Vec_ty Int16, "V16I");
+    (Vec_ty Float16, "V16F");
+    (Vec_ty Double16, "V16D");
+    (Vec_ty Uint16, "V16UI");
+    (Vec_ty Uchar16, "V16UC");
+    (Vec_ty Ubyte16, "V16UY");
+    (Vec_ty Ushort16, "V16US");
+    (Mat_ty Mat2, "M2");
+    (Mat_ty Mat3, "M3");
+    (Mat_ty Mat4, "M4");
+  ]
+
+module T = struct
+  type t = string
+
+  let compare = Stdlib.compare
+end
+
+module TM = Map.Make (T)
+
 let newline_fold ?offset =
   let o = match offset with None -> 0 | Some r -> r in
   let k = String.make o ' ' in
@@ -291,6 +478,22 @@ let brack exp = "[" ^ exp ^ "]"
 let elseif_fold = myfold "\nELSE IF "
 
 let rec str_tagnames = function Tagnames tn -> comma_fold tn
+
+and mangle_intrinsic name args returns =
+  let sym_map =
+    List.fold_left
+      (fun acc (k, v) -> TM.add (str_sisal_type k) v acc)
+      TM.empty basic_type_code
+  in
+  let get_code t =
+    try TM.find (str_sisal_type t) sym_map
+    with Not_found -> "U" (* Default to 'U' for Unknown/User types *)
+  in
+  let arg_str = String.concat "" (List.map get_code args) in
+  let ret_str = String.concat "" (List.map get_code returns) in
+
+  (* Using double-underscore separator for "crackability" *)
+  Printf.sprintf "_S%s__%s__%s" name arg_str ret_str
 
 and str_direction = function
   | No_dir -> ""
