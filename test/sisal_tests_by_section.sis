@@ -18,7 +18,8 @@ dnotequal, dgreater, dless, dgreateq, dlesseq,
 cequal, cnotequal, cgreater, cless, cgreateq, clesseq,
 
 % Section 5.7
-acreate, acrelmt, afill, aselect, arepl, aconc, ahigh, alow,
+acreate, acrelmt, afill,
+ aselect, arepl, aconc, ahigh, alow,
 asize, aprefix, aset, aaddh, aaddl, aremh, areml, asetl,
 
 % Section 5.8
@@ -126,22 +127,22 @@ function cgreateq(a,b : character returns boolean) a >= b end function
 function clesseq(a,b : character returns boolean) a <= b end function
 
 %------------------------------------------------------------
-function acreate(returns ar) array ar[] end function
-function acrelmt(a,b,c : integer returns ar) array ar[a: b,c] end function
-function afill(lo,hi,v : integer returns ar) array_fill(lo,hi,v) end function
-function aselect(a : ar; j : integer returns integer) a[j] end function
-function arepl(a : ar; j,v : integer returns ar) a[j:v] end function
-function aconc(a,b : ar returns ar) a ||b end function
-function ahigh(a : ar returns integer) array_limh(a) end function
-function alow(a : ar returns integer) array_liml(a) end function
-function asize(a : ar returns integer) array_size(a) end function
-function aprefix(a : ar returns integer) array_prefixsize(a) end function
-function aset(a: ar; lo,hi : integer returns ar) array_adjust(a,lo,hi) end function
-function aaddh(a : ar; v : integer returns ar) array_addh(a,v) end function
-function aaddl(a : ar; v : integer returns ar) array_addl(a,v) end function
-function aremh(a : ar returns ar) array_remh(a) end function
-function areml(a : ar returns ar) array_reml(a) end function
-function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
+%function acreate(returns ar) array ar[] end function
+%function acrelmt(a,b,c : integer returns ar) array ar[a: b,c] end function
+%%function afill(lo,hi,v : integer returns ar) array_fill(lo,hi,v) end function
+%function aselect(a : ar; j : integer returns integer) a[j] end function
+%function arepl(a : ar; j,v : integer returns ar) a[j:v] end function
+%function aconc(a,b : ar returns ar) a ||b end function
+%function ahigh(a : ar returns integer) array_limh(a) end function
+%function alow(a : ar returns integer) array_liml(a) end function
+%%function asize(a : ar returns integer) array_size(a) end function
+%function aprefix(a : ar returns integer) array_prefixsize(a) end function
+%function aset(a: ar; lo,hi : integer returns ar) array_adjust(a,lo,hi) end function
+%function aaddh(a : ar; v : integer returns ar) array_addh(a,v) end function
+%function aaddl(a : ar; v : integer returns ar) array_addl(a,v) end function
+%function aremh(a : ar returns ar) array_remh(a) end function
+%function areml(a : ar returns ar) array_reml(a) end function
+%function asetl(a : ar; lo : integer returns ar) array_setl(a,lo) end function
 
 %------------------------------------------------------------
 %function screate(returns st) stream st[] end function
@@ -240,18 +241,18 @@ pass: integer
   returns
 
 %%%%%%%%%% Section 5.3 [1]
-array[character],
+%array[character],
 array[boolean], array[boolean], array[boolean], array[boolean], array[boolean],
 
 %%%%%%%%%% Section 5.4 [6]
-array[character],
+%array[character],
 array[integer], array[integer], array[integer], array[integer],
 array[integer], array[integer], array[integer], array[integer],
 array[integer], array[integer], array[boolean], array[boolean],
 array[boolean], array[boolean], array[boolean], array[boolean],
 
 %%%%%%%%%% Section 5.5 [22]
-array[character],
+%array[character],
 array[real], array[real], array[real], array[real],
 array[real], array[real], array[real], array[real],
 array[real], array[real],
@@ -264,27 +265,27 @@ array[boolean], array[boolean], array[boolean], array[boolean],
 array[boolean], array[boolean],
 
 %%%%%%%%%% Section 5.6 [54]
-array[character],
+%array[character],
 array[boolean],array[boolean],array[boolean],
 array[boolean],array[boolean],array[boolean],
 
 %%%%%%%%%% Section 5.7 [60]
-array[character],
-array[array[integer]], array[array[integer]], array[array[integer]], 
-array[integer], array[array[integer]], array[array[integer]], 
-array[integer], array[integer], array[integer], array[integer], 
-array[array[integer]], array[array[integer]], array[array[integer]], 
-array[array[integer]], array[array[integer]], array[array[integer]], 
-
+%array[character],
+%array[array[integer]], array[array[integer]], array[array[integer]], 
+%array[integer], array[array[integer]], array[array[integer]], 
+%array[integer], array[integer], array[integer], array[integer], 
+%array[array[integer]], array[array[integer]], array[array[integer]], 
+%array[array[integer]], array[array[integer]], array[array[integer]], 
+%
 %%%%%%%%%% Section 5.8 [76]
 
 %%%%%%%%%% Section 5.9 [76]
-array[character],
+%array[character],
 reco,integer,real,double_real,ar,reco,
 arec,integer,real,double_real,
 
 %%%%%%%%%% Section 5.10 [82]
-array[character],
+%array[character],
 un,un,un,un,
 boolean,boolean,boolean,boolean,
 boolean,boolean,boolean,boolean,
@@ -292,7 +293,7 @@ boolean,boolean,boolean,boolean,
 boolean,boolean,boolean,boolean,
 
 %%%%%%%%%% Section 5.11 [102]
-array[character],
+%array[character],
 array[integer],array[integer],array[integer],
 array[integer],array[integer],array[integer],
 array[real],array[double_real],array[character],
@@ -303,7 +304,7 @@ integer
 )
 
 %%%%%%%%%% Section 5.3
-"Section 5.3",
+%"Section 5.3",
 for ael in a dot bel in b
 returns
   array of bband(ael,bel)
@@ -314,7 +315,7 @@ returns
 end for,
 
 %%%%%%%%%% Section 5.4
-"Section 5.4",
+%"Section 5.4",
 for cel in c dot del in d
 returns
   array of iadd(cel,del)
@@ -339,7 +340,7 @@ returns
 end for,
 
 %%%%%%%%%% Section 5.5
-"Section 5.5",
+%"Section 5.5",
 for eel in e dot fel in f dot gel in g
 returns
   array of radd(eel,fel)
@@ -387,7 +388,7 @@ returns
 end for,
 
 %%%%%%%%%% Section 5.6
-"Section 5.6",
+%"Section 5.6",
 for kel in k dot lel in l
 returns
   array of cequal(kel,lel)
@@ -399,29 +400,29 @@ returns
 end for,
 
 %%%%%%%%%% Section 5.7
-"Section 5.7",
-for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
-returns
-  array of acreate()
-  array of acrelmt(mel,nel,oel)
-  array of afill(mel,nel,oel)
-  array of aselect(pel,mel)
-  array of arepl(pel,mel,nel)
-  array of aconc(pel,qel)
-  array of ahigh(pel)
-  array of alow(pel)
-  array of asize(pel)
-  array of aprefix(pel)
-  array of aset(pel,mel,nel)
-  array of aaddh(pel,mel)
-  array of aaddl(pel,mel)
-  array of aremh(pel)
-  array of areml(pel)
-  array of asetl(pel,mel)
-end for,
+%"Section 5.7",
+%for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
+%returns
+%  array of acreate()
+%  array of acrelmt(mel,nel,oel)
+%  array of afill(mel,nel,oel)
+%  array of aselect(pel,mel)
+%  array of arepl(pel,mel,nel)
+%  array of aconc(pel,qel)
+%  array of ahigh(pel)
+%  array of alow(pel)
+%  array of asize(pel)
+%  array of aprefix(pel)
+%  array of aset(pel,mel,nel)
+%  array of aaddh(pel,mel)
+%  array of aaddl(pel,mel)
+%  array of aremh(pel)
+%  array of areml(pel)
+%  array of asetl(pel,mel)
+%end for,
 
 %%%%%%%%%% Section 5.9
-"Section 5.9",
+%"Section 5.9",
 rcreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
 rsel(r),
 rrepl(r,9999),
@@ -429,7 +430,7 @@ arcreate(11,1.0,double_real(2.0)),
 arsel(2, arcreate(11,1.0,double_real(2.0))),
 
 %%%%%%%%%% Section 5.10
-"Section 5.10",
+%"Section 5.10",
 ucreate(11,1.0,double_real(2.0),array [1: 11, 22, 33]),
 utag(u0),
 utag(u1),
@@ -437,7 +438,7 @@ utag(u2),
 utag(u3),
 
 %%%%%%%%%% Section 5.11
-"Section 5.11",
+%"Section 5.11",
 for vel in v
 returns
   array of rfloor(vel)

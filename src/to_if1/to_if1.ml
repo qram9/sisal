@@ -2063,7 +2063,54 @@ and do_simple_exp in_gr in_sim_ex =
   | Constant x -> do_constant in_gr x
   | Negate e -> unary_exp 1 in_gr e NEGATE
   | Pipe (a, b) -> bin_exp a b in_gr ACATENATE
-  | Divide (a, b) -> bin_exp a b in_gr DIVIDE
+  | Divide (left, right) ->
+      let (div_node, div_port, div_ty), in_gr =
+        bin_exp left right in_gr If1.FDIVIDE
+      in
+      let opcode =
+        let incoming_type = If1.lookup_ty div_ty in_gr in
+        if If1.is_real_type incoming_type = true then If1.FDIVIDE
+        else if If1.is_integral_type incoming_type = true then If1.IDIVIDE
+        else failwith "Only integral or real valued types can be divided"
+      in
+      let nmap_update =
+        match If1.get_node div_node in_gr with
+        | Simple (lab, _, pin, pout, prag) ->
+            If1.NM.add div_node
+              (If1.Simple (lab, opcode, pin, pout, prag))
+              in_gr.nmap
+        | _ -> failwith "Error looking up divide operation"
+      in
+      let in_gr = { in_gr with nmap = nmap_update } in
+
+      (* 3. Register the "DIV0" Error Type in the Typemap *)
+      let (_, _, err_ty_id), in_gr =
+        If1.add_sisal_type in_gr (Ast.Error_ty "DIV0")
+      in
+
+      (* 4. The Railroad Wiring: Append port to Boundary's 3rd list and wire it *)
+      let in_gr =
+        match If1.get_node_map in_gr |> If1.NM.find 0 with
+        | If1.Boundary (ins, outs, errs, prags) ->
+            let next_err_port = List.length errs + 1 in
+
+            (* Update Boundary with the new error-return slot *)
+            let in_gr =
+              {
+                in_gr with
+                nmap =
+                  If1.NM.add 0
+                    (If1.Boundary
+                       (ins, outs, errs @ [ (div_node, err_ty_id) ], prags))
+                    in_gr.nmap;
+              }
+            in
+
+            (* Wire the Railroad Edge: Src:Port2 -> Boundary:next_err_port *)
+            If1.add_edge div_node 2 0 next_err_port err_ty_id in_gr
+        | _ -> in_gr
+      in
+      ((div_node, div_port, div_ty), in_gr)
   | Lambda _ -> raise (If1.Sem_error "TBD LAMBDA ")
   | Multiply (a, b) -> bin_exp a b in_gr TIMES
   | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
@@ -2756,7 +2803,7 @@ and do_simple_exp in_gr in_sim_ex =
         |> If1.add_edge typecast_arg_node typecast_arg_out_port typecast_node 0
              typecast_arg_type )
   | Is_error e -> do_exp in_gr e
-  | If (cl, Else el) ->
+  | If (cl, Else el) as ifp ->
       (* Work an example with [1,2]
         and [1,2,3] and [1,2,3,4] *)
       (* How are outputs tied to the
@@ -2878,6 +2925,7 @@ and do_simple_exp in_gr in_sim_ex =
       let sai, gai =
         let ty_lis, _, regar =
           let regar = If1.get_a_new_graph in_gr in
+      print_endline (Ast.str_simple_exp ifp);
           if_builder cl (0, 0, 0) regar el 0 []
         in
         let boundary_ooo =
@@ -2896,10 +2944,11 @@ and do_simple_exp in_gr in_sim_ex =
         add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT"
       in
       (sai, gai)
-  | For_all (i, d, r) ->
+  | For_all (i, d, r) as ff->
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
+      print_endline ("DO FOR ALL " ^ (Ast.str_simple_exp ff));
       let (fx, fy, fz), _, in_gr = do_for_all i d r in_gr in
       (* TODO: Need To Check Vs If1, Add Assoc List *)
       (* How Do We Tie Up Results To Calling Function
@@ -3122,7 +3171,11 @@ and do_return_exp in_gr ggg =
       (`Stream_of, (sn, sp, st), in_gr)
 
 and add_return_gr in_gr body_gr return_action_list mask_ty_list =
-  let ret_gr = If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr) in
+  let ret_gr = 
+    try
+    If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
+    with _ -> failwith("create subgraph symtab")
+      in
   let ret_gr = get_ports_unified ret_gr in_gr in_gr in
   (* NEED TO ADD STREAM RETURN *)
   let do_reduc ((rdx, red_fn), tt, aa) _ in_gr =
@@ -3240,7 +3293,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
 
   let xyz, in_gr =
     If1.add_node_2
-      (`Compound (ret_gr, If1.INTERNAL, 0, [ If1.Name "RETURN" ], []))
+        (`Compound (ret_gr, If1.INTERNAL, 0, [ If1.Name "RETURN" ], []))
       in_gr
   in
   (xyz, in_gr, out_lis)
@@ -3473,6 +3526,7 @@ and do_internals iin_gr f =
         | Ast.Function_header_nodec (Ast.Function_name fn, _) -> fn
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
+      print_endline ("DO FUNCTION " ^ (String.concat "." fn_name));
       let (_, _, fn_ty), new_fun_gr_ =
         do_function_header (If1.get_a_new_graph in_gr) header
       in

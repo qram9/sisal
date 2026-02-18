@@ -32,7 +32,7 @@ let main () =
     print_endline (Ast.str_compilation_unit sisal_ast);
     let ou = To_if1_.do_compilation_unit sisal_ast in
     print_endline "Result graph";
-    print_endline (If1.string_of_graph ou);
+    print_endline (If1.string_of_graph_thin ou);
 (*    print_endline (Ast.str_compilation_unit sisal_ast); *)
     If1.write_dot_file ou
   with e ->
