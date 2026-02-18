@@ -75,7 +75,8 @@ type node_sym =
   | NEGATE
   | ACATENATE
   | AND
-  | DIVIDE
+  | IDIVIDE
+  | FDIVIDE
   | TIMES
   | SUBTRACT
   | ADD
@@ -661,7 +662,6 @@ let rec get_empty_graph n =
       (id, ps) lib_registry
   in
   let final_graph = { final_graph with symtab = (cs, final_syms); w = id } in
-  outs_graph final_graph;
   final_graph
 
 (* 4. Generate the 'MOD' signatures for every numeric type in the basic list *)
@@ -695,14 +695,19 @@ and get_record_field in_gr anum field_namen =
 and get_graph_label in_gr = in_gr.w
 
 and get_graph_from_label ii ingr =
+  try 
   match NM.find ii (get_node_map ingr) with
   | Compound (_, _, _, _, gg, _) -> gg
   | _ ->
       raise
         (Sem_error "Internal compiler error: expected compound node for label.")
+  with _ -> failwith ("get_graph_from_label")
 
 and has_node i ingr = NM.mem i (get_node_map ingr)
-and get_node i ingr = NM.find i (get_node_map ingr)
+and get_node i ingr = try
+  NM.find i (get_node_map ingr)
+with _ -> failwith(
+  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10); " ISSUE WITH NODE LOOK UP")
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
 and get_node_map in_gr = in_gr.nmap
@@ -1357,7 +1362,14 @@ and get_element_type vect =
       failwith
         (Printf.sprintf "Cannot get element type for %s, only for vector types"
            (string_of_if1_ty vect))
-
+and get_element_type_code vect =
+  match vect with
+  | Basic vv -> get_element_type_impl vv
+  | _ ->
+      print_endline (Printexc.get_backtrace ());
+      failwith
+        (Printf.sprintf "Cannot get element type for %s, only for vector types"
+           (string_of_if1_ty vect))
 (* Helper to extract the scalar "flavor" and the width *)
 and get_element_type_impl vect =
   match vect with
@@ -1372,6 +1384,10 @@ and get_element_type_impl vect =
   | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 -> UCHAR
   | USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16 -> USHORT
   | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 -> UINT
+  | HALF -> HALF | DOUBLE -> DOUBLE | REAL -> REAL
+  | UINT -> UINT | UCHAR -> UCHAR | CHARACTER -> CHARACTER
+  | BYTE -> BYTE | UBYTE -> UBYTE | INTEGRAL -> INTEGRAL
+  | SHORT -> SHORT | USHORT -> USHORT
   | _ ->
       failwith
         (Printf.sprintf "Not a vector type %s" (string_of_if1_basic_ty vect))
@@ -1697,7 +1713,27 @@ and add_node nn in_gr =
         nmap = NM.add 0 (Boundary ([], [], [], [])) nm;
         symtab = (par_cs, par_ps);
       }
-
+and is_real_type gg=
+  match gg with | Basic _ ->
+  (match get_element_type_code gg with
+  | REAL | DOUBLE | HALF -> true
+  | _ -> false)
+  | _ -> false 
+ 
+and is_integral_type gg = 
+  match gg with
+  | Basic _ ->
+(match get_element_type_code gg with
+  | BOOLEAN ->  true
+  | CHARACTER ->  true
+  | INTEGRAL ->  true
+  | BYTE ->  true
+  | UCHAR ->  true
+  | SHORT ->  true
+  | USHORT ->  true
+  | UINT ->  true
+  | UBYTE ->  true
+ | _ -> false) | _ -> false 
 and lookup_tyid_triple gg =
   match gg with
   | BOOLEAN -> (1, 0, 1)
@@ -2722,7 +2758,7 @@ and num_to_node_sym = function
   | 7 -> NEGATE
   | 8 -> ACATENATE
   | 9 -> AND
-  | 10 -> DIVIDE
+  | 10 -> IDIVIDE
   | 11 -> TIMES
   | 12 -> SUBTRACT
   | 13 -> ADD
@@ -2773,6 +2809,7 @@ and num_to_node_sym = function
   | 58 -> MATBUILD
   | 59 -> TYPECAST
   | 60 -> ACREATE
+  | 61 -> FDIVIDE
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -2786,7 +2823,7 @@ and node_sym_to_num = function
   | NEGATE -> 7
   | ACATENATE -> 8
   | AND -> 9
-  | DIVIDE -> 10
+  | IDIVIDE -> 10
   | TIMES -> 11
   | SUBTRACT -> 12
   | ADD -> 13
@@ -2837,6 +2874,7 @@ and node_sym_to_num = function
   | MATBUILD -> 58
   | TYPECAST -> 59
   | ACREATE -> 60
+  | FDIVIDE -> 61
 
 and string_of_node_sym = function
   | BOUNDARY -> "BOUNDARY"
@@ -2849,7 +2887,8 @@ and string_of_node_sym = function
   | NEGATE -> "NEGATE"
   | ACATENATE -> "ACATENATE"
   | AND -> "AND"
-  | DIVIDE -> "DIVIDE"
+  | IDIVIDE -> "IDIVIDE"
+  | FDIVIDE -> "FDIVIDE"
   | TIMES -> "TIMES"
   | SUBTRACT -> "SUBTRACT"
   | ADD -> "ADD"
@@ -2971,7 +3010,7 @@ and string_of_if1_ty ity =
   | Tag if1li ->
       "Tags " ^ List.fold_right (fun x y -> string_of_int x ^ "; " ^ y) if1li ""
   | If1Type_name tt -> "TYPENAME " ^ string_of_int tt
-  | ERROR e -> "ERROR " ^ e
+  | ERROR e -> "PANIC[" ^ e ^ "]"
 
 and string_of_if1_basic_ty bc =
   match bc with
@@ -3072,8 +3111,7 @@ and string_of_pair_list_final_string zz =
       zz ""
   ^ "]"
 
-and string_of_node_ty ?(offset = 2) =
- fun n ->
+and string_of_node_ty ?(offset = 2) in_gr n =
   match n with
   | Literal (lab, _, str, _) ->
       string_of_int lab (*^ " " ^ (string_of_if1_basic_ty ty)*)
@@ -3101,17 +3139,25 @@ and string_of_node_ty ?(offset = 2) =
            assoc "")
         " "
   | Unknown_node -> "Unknown"
-  | Boundary (zz, yy, _, pp) ->
+  | Boundary (zz, yy, errs, pp) ->
+    let str_errs =  List.fold_left (fun acc (lab, ty_id) -> 
+      let _, tm, _ = in_gr.typemap in
+      let desc = match TM.find_opt ty_id tm with 
+        | Some (ERROR s) -> "PANIC:" ^ s 
+        | _ -> "TY:" ^ (string_of_int ty_id) 
+      in
+      acc ^ (Printf.sprintf "(%s,%d)" desc lab)
+    ) "" errs in
       let bb =
-        cate_nicer
+        cate_nicer (cate_nicer
           (cate_nicer
              (string_of_pair_list_final_string zz)
              (string_of_pair_list yy) ", ")
-          (string_of_pragmas pp) ", "
+          (string_of_pragmas pp) ", ") str_errs ", "
       in
       "BOUNDARY [" ^ bb ^ "]"
 
-and string_of_node n_int g = string_of_node_ty (get_node n_int g)
+and string_of_node n_int g = string_of_node_ty g (get_node n_int g)
 
 and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
   let _, tm, _ = in_gr.typemap in
@@ -3207,8 +3253,9 @@ and write_any_dot_file sss in_gr =
   close_out oc;
   ()
 
-and string_of_node_map ?(offset = 2) mn =
-  let nn = NM.fold (fun _ v z -> string_of_node_ty ~offset v :: z) mn [] in
+and string_of_node_map ?(offset = 2) in_gr =
+  let mn = in_gr.nmap in
+  let nn = NM.fold (fun _ v z -> string_of_node_ty in_gr ~offset v :: z) mn [] in
   match nn with [] -> [] | _ -> "----NODES----" :: nn
 
 and string_of_if1_value tm = function
@@ -3340,11 +3387,11 @@ and string_of_triple_int_list zz =
   List.fold_left (fun zz (i, j, k) -> zz ^ string_of_triple_int (i, j, k)) "" zz
 
 and string_of_graph ?(offset = 0) in_gr =
-  let { nmap = nm; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
+  let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
     in_gr
   in
   cate_list_pad offset
-    (("Graph {" :: string_of_node_map ~offset nm)
+    (("Graph {" :: string_of_node_map ~offset in_gr)
     @ string_of_edge_set in_gr ne
     @ string_of_symtab sm tm
     @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
@@ -3353,7 +3400,7 @@ and string_of_graph ?(offset = 0) in_gr =
 
 and string_of_graph_thin ?(offset = 0) in_gr =
   cate_list_pad offset
-    (("Graph {" :: string_of_node_map ~offset in_gr.nmap)
+    (("Graph {" :: string_of_node_map ~offset in_gr)
     @ string_of_edge_set in_gr in_gr.eset
     @ [ "} " ^ string_of_int in_gr.w ])
     "\n"
@@ -3369,7 +3416,9 @@ and int_map_printer fmt inmap =
           string_of_int ke ^ " : " ^ string_of_int valu ^ "\n" ^ old))
        inmap "")
 
-and outs_graph gr = graph_printer Format.std_formatter gr
+and outs_graph gr = 
+         Printexc.print_raw_backtrace stdout (Printexc.get_callstack 5);
+  graph_printer Format.std_formatter gr
 
 and outs_graph_with_msg msg gr =
   print_endline msg;
@@ -3380,11 +3429,11 @@ and node_printer fmt ii in_gr =
 
 and outs_node ii gr = node_printer Format.std_formatter ii gr
 
-and nmap_printer fmt nm =
-  Format.fprintf fmt "------\n%s\n" (cate_list (string_of_node_map nm) "\n")
+and nmap_printer fmt in_gr =
+  Format.fprintf fmt "------\n%s\n" (cate_list (string_of_node_map in_gr) "\n")
 
-and outs_nmap { nmap = nm; eset = _; symtab = _, _; typemap = _, _, _; w = _ } =
-  nmap_printer Format.std_formatter nm
+and outs_nmap in_gr =
+  nmap_printer Format.std_formatter in_gr
 
 and symtab_printer fmt (cs, ps, tm) =
   Format.fprintf fmt "----------\n%s\n"
