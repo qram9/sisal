@@ -173,6 +173,7 @@ and sisal_type =
   | Type_name of type_name
   | Vec_ty of vec_type
   | Mat_ty of mat_type
+  | Error_ty of string
 
 and vec_type =
   (* Basic vector types *)
@@ -586,6 +587,7 @@ and str_sisal_type = function
   | Type_name ty -> ty
   | Vec_ty vec_t -> str_vec_type vec_t
   | Mat_ty mat_t -> str_mat_type mat_t
+  | Error_ty ss -> "ERROR " ^ ss
 
 and str_mat_type = function Mat2 -> "MAT2" | Mat3 -> "MAT3" | Mat4 -> "MAT4"
 
