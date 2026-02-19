@@ -157,12 +157,12 @@ function utag(u : un returns boolean,boolean,boolean,boolean)
 end function
 
 %------------------------------------------------------------
-% function rfloor(x : real returns integer) floor(x) end function
-% function dfloor(x : double returns integer) floor(x) end function
+function rfloor(x : real returns integer) floor(x) end function
+function dfloor(x : double returns integer) floor(x) end function
 function rinteger(x : real returns integer) integer(x) end function
 function dinteger(x : double returns integer) integer(x) end function
-% function rtrunc(x : real returns integer) trunc(x) end function
-% function dtrunc(x : double returns integer) trunc(x) end function
+function rtrunc(x : real returns integer) trunc(x) end function
+function dtrunc(x : double returns integer) trunc(x) end function
 function ireal(x : integer returns real) real(x) end function
 function idouble(x : integer returns double) double_real(x) end function
 function dreal(x : double returns real) real(x) end function
@@ -237,12 +237,12 @@ array[boolean],array[boolean],array[boolean],
 array[boolean],array[boolean],array[boolean],
 
 %%%%%%%%%% Section 5.7 [60]
-array[character],
-array[array[integer]], array[array[integer]], array[array[integer]], 
-array[integer], array[array[integer]], array[array[integer]], 
-array[integer], array[integer], array[integer], array[integer], 
-array[array[integer]], array[array[integer]], array[array[integer]], 
-array[array[integer]], array[array[integer]], array[array[integer]], 
+%array[character],
+%array[array[integer]], array[array[integer]], array[array[integer]], 
+%array[integer], array[array[integer]], array[array[integer]], 
+%array[integer], array[integer], array[integer], array[integer], 
+%array[array[integer]], array[array[integer]], array[array[integer]], 
+%array[array[integer]], array[array[integer]], array[array[integer]], 
 
 %%%%%%%%%% Section 5.8 [76]
 
@@ -367,26 +367,26 @@ returns
 end for,
 
 %%%%%%%%%% Section 5.7
-"Section 5.7",
-for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
-returns
-  array of acreate()
-  array of acrelmt(mel,nel,oel)
-  array of afill(mel,nel,oel)
-  array of aselect(pel,mel)
-  array of arepl(pel,mel,nel)
-  array of aconc(pel,qel)
-  array of ahigh(pel)
-  array of alow(pel)
-  array of asize(pel)
-  array of aprefix(pel)
-  array of aset(pel,mel,nel)
-  array of aaddh(pel,mel)
-  array of aaddl(pel,mel)
-  array of aremh(pel)
-  array of areml(pel)
-  array of asetl(pel,mel)
-end for,
+%"Section 5.7",
+%for mel in m dot nel in n dot oel in o dot pel in p dot qel in q
+%returns
+%  array of acreate()
+%  array of acrelmt(mel,nel,oel)
+%  array of afill(mel,nel,oel)
+%  array of aselect(pel,mel)
+%  array of arepl(pel,mel,nel)
+%  array of aconc(pel,qel)
+%  array of ahigh(pel)
+%  array of alow(pel)
+%  array of asize(pel)
+%  array of aprefix(pel)
+%  array of aset(pel,mel,nel)
+%  array of aaddh(pel,mel)
+%  array of aaddl(pel,mel)
+%  array of aremh(pel)
+%  array of areml(pel)
+%  array of asetl(pel,mel)
+%end for,
 
 %%%%%%%%%% Section 5.9
 "Section 5.9",
