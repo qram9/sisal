@@ -2358,14 +2358,12 @@ and do_simple_exp in_gr in_sim_ex =
                            (List.map If1.short_name_for_intrinsic arg_types))
                     in
                     (* 3. Optimize prefix lookup *)
-                    match If1.SM.find_opt target_prefix ps with
+                    match If1.lookup_mangled_name target_prefix with
                     | Some id -> id
                     | None -> (
                         (* 4. Final Fallback: The "Discovery" scan *)
                         let discovered =
-                          If1.SM.to_seq ps
-                          |> Seq.find (fun (name, _) ->
-                              String.starts_with ~prefix:target_prefix name)
+                          If1.lookup_partial_mangled_name target_prefix
                         in
                         match discovered with
                         | Some (_, id) -> id
@@ -2925,7 +2923,7 @@ and do_simple_exp in_gr in_sim_ex =
       let sai, gai =
         let ty_lis, _, regar =
           let regar = If1.get_a_new_graph in_gr in
-      print_endline (Ast.str_simple_exp ifp);
+          print_endline (Ast.str_simple_exp ifp);
           if_builder cl (0, 0, 0) regar el 0 []
         in
         let boundary_ooo =
@@ -2944,11 +2942,11 @@ and do_simple_exp in_gr in_sim_ex =
         add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT"
       in
       (sai, gai)
-  | For_all (i, d, r) as ff->
+  | For_all (i, d, r) as ff ->
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
-      print_endline ("DO FOR ALL " ^ (Ast.str_simple_exp ff));
+      print_endline ("DO FOR ALL " ^ Ast.str_simple_exp ff);
       let (fx, fy, fz), _, in_gr = do_for_all i d r in_gr in
       (* TODO: Need To Check Vs If1, Add Assoc List *)
       (* How Do We Tie Up Results To Calling Function
@@ -3124,7 +3122,13 @@ and find_in_graph_from_pragma in_gr namen =
   let rec gen_gr tl =
     if tl = tail then `Nth
     else
-      let agr = If1.NM.find tl nm in
+      let agr =
+        try If1.NM.find tl nm
+        with _ ->
+          failwith
+            (print_endline (String.concat "." (If1.string_of_node_map in_gr));
+             "Fail here in find_in_graph_from_pragma " ^ string_of_int tl)
+      in
       match agr with
       | Compound (lab, sy, _, pl, g, assoc) ->
           if
@@ -3171,11 +3175,10 @@ and do_return_exp in_gr ggg =
       (`Stream_of, (sn, sp, st), in_gr)
 
 and add_return_gr in_gr body_gr return_action_list mask_ty_list =
-  let ret_gr = 
-    try
-    If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
-    with _ -> failwith("create subgraph symtab")
-      in
+  let ret_gr =
+    try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
+    with _ -> failwith "create subgraph symtab"
+  in
   let ret_gr = get_ports_unified ret_gr in_gr in_gr in
   (* NEED TO ADD STREAM RETURN *)
   let do_reduc ((rdx, red_fn), tt, aa) _ in_gr =
@@ -3293,7 +3296,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
 
   let xyz, in_gr =
     If1.add_node_2
-        (`Compound (ret_gr, If1.INTERNAL, 0, [ If1.Name "RETURN" ], []))
+      (`Compound (ret_gr, If1.INTERNAL, 0, [ If1.Name "RETURN" ], []))
       in_gr
   in
   (xyz, in_gr, out_lis)
@@ -3463,7 +3466,7 @@ and redeem_and_merge_library current_gr voucher_info =
 and do_compilation_unit = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
-      let in_gr = If1.get_empty_graph 72 in
+      let in_gr = If1.get_empty_graph 1 72 in
 
       (* Our Chronological Sweep: This is where 'Lexical Reach' is born *)
       let final_gr =
@@ -3526,7 +3529,7 @@ and do_internals iin_gr f =
         | Ast.Function_header_nodec (Ast.Function_name fn, _) -> fn
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
-      print_endline ("DO FUNCTION " ^ (String.concat "." fn_name));
+      print_endline ("DO FUNCTION " ^ String.concat "." fn_name);
       let (_, _, fn_ty), new_fun_gr_ =
         do_function_header (If1.get_a_new_graph in_gr) header
       in
