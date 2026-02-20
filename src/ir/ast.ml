@@ -124,113 +124,129 @@ and return_clause =
   | Old_ret of return_exp * masking_clause
 
 and sisal_constant =
-  | False
-  | Nil
-  | True
-  | Uint of int
-  | Short of int
-  | Ushort of int
   | Byte of int
-  | Uchar of int
-  | Ubyte of int
-  | Int of int
-  | Half of float
-  | Float of float
-  | Double of float
   | Char of string
-  | String of string
+  | Double of float
   | Error of sisal_type
+  | False
+  | Float of float
+  | Half of float
+  | Int of int
+  | Long of int
+  | Nil
+  | Short of int
+  | String of string
+  | True
+  | Ubyte of int
+  | Uchar of int
+  | Uint of int
+  | Ulong of int
+  | Ushort of int
 
 and prefix_name =
   | Boolean_prefix
+  | Byte_prefix
   | Char_prefix
   | Double_prefix
-  | Integer_prefix
-  | Real_prefix
-  | Uint_prefix
-  | Short_prefix
-  | Ushort_prefix
-  | Byte_prefix
-  | Ubyte_prefix
   | Half_prefix
+  | Integer_prefix
+  | Long_prefix
+  | Real_prefix
+  | Short_prefix
+  | Ubyte_prefix
   | Uchar_prefix
+  | Uint_prefix
+  | Ulong_prefix
+  | Ushort_prefix
 
 and sisal_type =
   | Boolean
+  | Byte_ty
   | Character
+  | Compound_type of compound_type
   | Double_real
+  | Error_ty of string
+  | Half_ty
   | Integer
+  | Long_ty
+  | Mat_ty of mat_type
   | Null
   | Real
-  | Uint_ty (* 32-bit *)
   | Short_ty
-  | Ushort_ty (* 16-bit *)
-  | Byte_ty
-  | Ubyte_ty (* 8-bit  *)
-  | Half_ty
-  | Uchar_ty
-  | Compound_type of compound_type
   | Type_name of type_name
+  | Ubyte_ty (* 8-bit  *)
+  | Uchar_ty
+  | Uint_ty (* 32-bit *)
+  | Ulong_ty
+  | Ushort_ty (* 16-bit *)
   | Vec_ty of vec_type
-  | Mat_ty of mat_type
-  | Error_ty of string
 
 and vec_type =
   (* Basic vector types *)
   | Byte2
-  | Char2
-  | Half2
-  | Short2
-  | Int2
-  | Float2
-  | Double2
-  | Ubyte2
-  | Uchar2
-  | Uint2
-  | Ushort2
   | Byte3
-  | Char3
-  | Half3
-  | Short3
-  | Int3
-  | Float3
-  | Double3
-  | Uchar3
-  | Uint3
-  | Ubyte3
-  | Ushort3
   | Byte4
-  | Char4
-  | Half4
-  | Short4
-  | Int4
-  | Float4
-  | Double4
-  | Uint4
-  | Ubyte4
-  | Uchar4
-  | Ushort4
   | Byte8
-  | Char8
-  | Half8
-  | Short8
-  | Int8
-  | Float8
-  | Double8
-  | Uchar8
-  | Uint8
-  | Ubyte8
-  | Ushort8
   | Byte16
+  | Char2
+  | Char3
+  | Char4
+  | Char8
   | Char16
-  | Half16
-  | Short16
-  | Int16
-  | Float16
+  | Double2
+  | Double3
+  | Double4
+  | Double8
   | Double16
-  | Uint16
-  | Uchar16
+  | Float2
+  | Float3
+  | Float4
+  | Float8
+  | Float16
+  | Half2
+  | Half3
+  | Half4
+  | Half8
+  | Half16
+  | Int2
+  | Int3
+  | Int4
+  | Int8
+  | Int16
+  | Long2
+  | Long3
+  | Long4
+  | Long8
+  | Long16
+  | Short2
+  | Short3
+  | Short4
+  | Short8
+  | Short16
+  | Ubyte2
+  | Ubyte3
+  | Ubyte4
+  | Ubyte8
   | Ubyte16
+  | Uchar2
+  | Uchar3
+  | Uchar4
+  | Uchar8
+  | Uchar16
+  | Uint2
+  | Uint3
+  | Uint4
+  | Uint8
+  | Uint16
+  | Ulong2
+  | Ulong3
+  | Ulong4
+  | Ulong8
+  | Ulong16
+  | Ushort2
+  | Ushort3
+  | Ushort4
+  | Ushort8
   | Ushort16
 
 and mat_type =
@@ -284,76 +300,87 @@ let space_fold = myfold " "
 let basic_type_list =
   [
     Boolean;
+    Byte_ty;
     Character;
     Double_real;
-    Integer;
-    Null;
-    Real;
-    Uint_ty;
-    Short_ty;
-    Ushort_ty;
-    Byte_ty;
-    Ubyte_ty;
     Half_ty;
+    Integer;
+    Long_ty;
+    Real;
+    Short_ty;
+    Ubyte_ty;
     Uchar_ty;
-    Vec_ty Byte2;
-    Vec_ty Char2;
-    Vec_ty Half2;
-    Vec_ty Short2;
-    Vec_ty Int2;
-    Vec_ty Float2;
-    Vec_ty Double2;
-    Vec_ty Ubyte2;
-    Vec_ty Uchar2;
-    Vec_ty Uint2;
-    Vec_ty Ushort2;
-    Vec_ty Byte3;
-    Vec_ty Char3;
-    Vec_ty Half3;
-    Vec_ty Short3;
-    Vec_ty Int3;
-    Vec_ty Float3;
-    Vec_ty Double3;
-    Vec_ty Uchar3;
-    Vec_ty Uint3;
-    Vec_ty Ubyte3;
-    Vec_ty Ushort3;
-    Vec_ty Byte4;
-    Vec_ty Char4;
-    Vec_ty Half4;
-    Vec_ty Short4;
-    Vec_ty Int4;
-    Vec_ty Float4;
-    Vec_ty Double4;
-    Vec_ty Uint4;
-    Vec_ty Ubyte4;
-    Vec_ty Uchar4;
-    Vec_ty Ushort4;
-    Vec_ty Byte8;
-    Vec_ty Char8;
-    Vec_ty Half8;
-    Vec_ty Short8;
-    Vec_ty Int8;
-    Vec_ty Float8;
-    Vec_ty Double8;
-    Vec_ty Uchar8;
-    Vec_ty Uint8;
-    Vec_ty Ubyte8;
-    Vec_ty Ushort8;
-    Vec_ty Byte16;
-    Vec_ty Char16;
-    Vec_ty Half16;
-    Vec_ty Short16;
-    Vec_ty Int16;
-    Vec_ty Float16;
-    Vec_ty Double16;
-    Vec_ty Uint16;
-    Vec_ty Uchar16;
-    Vec_ty Ubyte16;
-    Vec_ty Ushort16;
+    Uint_ty;
+    Ulong_ty;
+    Ushort_ty;
     Mat_ty Mat2;
     Mat_ty Mat3;
     Mat_ty Mat4;
+    Vec_ty Byte2;
+    Vec_ty Byte3;
+    Vec_ty Byte4;
+    Vec_ty Byte8;
+    Vec_ty Byte16;
+    Vec_ty Char2;
+    Vec_ty Char3;
+    Vec_ty Char4;
+    Vec_ty Char8;
+    Vec_ty Char16;
+    Vec_ty Double2;
+    Vec_ty Double3;
+    Vec_ty Double4;
+    Vec_ty Double8;
+    Vec_ty Double16;
+    Vec_ty Float2;
+    Vec_ty Float3;
+    Vec_ty Float4;
+    Vec_ty Float8;
+    Vec_ty Float16;
+    Vec_ty Half2;
+    Vec_ty Half3;
+    Vec_ty Half4;
+    Vec_ty Half8;
+    Vec_ty Half16;
+    Vec_ty Int2;
+    Vec_ty Int3;
+    Vec_ty Int4;
+    Vec_ty Int8;
+    Vec_ty Int16;
+    Vec_ty Long2;
+    Vec_ty Long3;
+    Vec_ty Long4;
+    Vec_ty Long8;
+    Vec_ty Long16;
+    Vec_ty Short2;
+    Vec_ty Short3;
+    Vec_ty Short4;
+    Vec_ty Short8;
+    Vec_ty Short16;
+    Vec_ty Ubyte2;
+    Vec_ty Ubyte3;
+    Vec_ty Ubyte4;
+    Vec_ty Ubyte8;
+    Vec_ty Ubyte16;
+    Vec_ty Uchar2;
+    Vec_ty Uchar3;
+    Vec_ty Uchar4;
+    Vec_ty Uchar8;
+    Vec_ty Uchar16;
+    Vec_ty Uint2;
+    Vec_ty Uint3;
+    Vec_ty Uint4;
+    Vec_ty Uint8;
+    Vec_ty Uint16;
+    Vec_ty Ulong2;
+    Vec_ty Ulong3;
+    Vec_ty Ulong4;
+    Vec_ty Ulong8;
+    Vec_ty Ulong16;
+    Vec_ty Ushort2;
+    Vec_ty Ushort3;
+    Vec_ty Ushort4;
+    Vec_ty Ushort8;
+    Vec_ty Ushort16;
   ]
 (* let map =
   List.fold_left
@@ -364,100 +391,112 @@ let basic_type_list =
 let basic_float_list =
   [
     Double_real;
-    Real;
     Half_ty;
-    Vec_ty Half2;
-    Vec_ty Float2;
-    Vec_ty Double2;
-    Vec_ty Half3;
-    Vec_ty Float3;
-    Vec_ty Double3;
-    Vec_ty Half4;
-    Vec_ty Float4;
-    Vec_ty Double4;
-    Vec_ty Half8;
-    Vec_ty Float8;
-    Vec_ty Double8;
-    Vec_ty Half16;
-    Vec_ty Float16;
-    Vec_ty Double16;
     Mat_ty Mat2;
     Mat_ty Mat3;
     Mat_ty Mat4;
+    Real;
+    Vec_ty Double2;
+    Vec_ty Double3;
+    Vec_ty Double4;
+    Vec_ty Double8;
+    Vec_ty Double16;
+    Vec_ty Float2;
+    Vec_ty Float3;
+    Vec_ty Float4;
+    Vec_ty Float8;
+    Vec_ty Float16;
+    Vec_ty Half2;
+    Vec_ty Half3;
+    Vec_ty Half4;
+    Vec_ty Half8;
+    Vec_ty Half16;
   ]
 
 let basic_type_code =
   [
     (Boolean, "B");
+    (Byte_ty, "Y");
     (Character, "C");
     (Double_real, "D");
-    (Integer, "I");
-    (Real, "F");
-    (Uint_ty, "U");
-    (Short_ty, "S");
-    (Ushort_ty, "US");
-    (Byte_ty, "Y");
-    (Ubyte_ty, "UY");
     (Half_ty, "H");
-    (Uchar_ty, "UC");
-    (Vec_ty Byte2, "V2Y");
-    (Vec_ty Char2, "V2C");
-    (Vec_ty Half2, "V2H");
-    (Vec_ty Short2, "V2S");
-    (Vec_ty Int2, "V2I");
-    (Vec_ty Float2, "V2F");
-    (Vec_ty Double2, "V2D");
-    (Vec_ty Ubyte2, "V2UY");
-    (Vec_ty Uchar2, "V2UC");
-    (Vec_ty Uint2, "V2UI");
-    (Vec_ty Ushort2, "V2US");
-    (Vec_ty Byte3, "V3Y");
-    (Vec_ty Char3, "V3C");
-    (Vec_ty Half3, "V3H");
-    (Vec_ty Short3, "V3S");
-    (Vec_ty Int3, "V3I");
-    (Vec_ty Float3, "V3F");
-    (Vec_ty Double3, "V3D");
-    (Vec_ty Uchar3, "V3UC");
-    (Vec_ty Uint3, "V3UI");
-    (Vec_ty Ubyte3, "V3UY");
-    (Vec_ty Ushort3, "V3US");
-    (Vec_ty Byte4, "V4Y");
-    (Vec_ty Char4, "V4C");
-    (Vec_ty Half4, "V4H");
-    (Vec_ty Short4, "V4S");
-    (Vec_ty Int4, "V4I");
-    (Vec_ty Float4, "V4F");
-    (Vec_ty Double4, "V4D");
-    (Vec_ty Uint4, "V4UI");
-    (Vec_ty Ubyte4, "V4UY");
-    (Vec_ty Uchar4, "V4UC");
-    (Vec_ty Ushort4, "V4US");
-    (Vec_ty Byte8, "V8Y");
-    (Vec_ty Char8, "V8C");
-    (Vec_ty Half8, "V8H");
-    (Vec_ty Short8, "V8S");
-    (Vec_ty Int8, "V8I");
-    (Vec_ty Float8, "V8F");
-    (Vec_ty Double8, "V8D");
-    (Vec_ty Uchar8, "V8UC");
-    (Vec_ty Uint8, "V8UI");
-    (Vec_ty Ubyte8, "V8UY");
-    (Vec_ty Ushort8, "V8US");
-    (Vec_ty Byte16, "V16Y");
-    (Vec_ty Char16, "V16C");
-    (Vec_ty Half16, "V16H");
-    (Vec_ty Short16, "V16S");
-    (Vec_ty Int16, "V16I");
-    (Vec_ty Float16, "V16F");
-    (Vec_ty Double16, "V16D");
-    (Vec_ty Uint16, "V16UI");
-    (Vec_ty Uchar16, "V16UC");
-    (Vec_ty Ubyte16, "V16UY");
-    (Vec_ty Ushort16, "V16US");
+    (Integer, "I");
+    (Long_ty, "L");
     (Mat_ty Mat2, "M2");
     (Mat_ty Mat3, "M3");
     (Mat_ty Mat4, "M4");
+    (Real, "F");
+    (Short_ty, "S");
+    (Ubyte_ty, "UY");
+    (Uchar_ty, "UC");
+    (Uint_ty, "U");
+    (Ulong_ty, "UL");
+    (Ushort_ty, "US");
+    (Vec_ty Byte2, "V2Y");
+    (Vec_ty Byte3, "V3Y");
+    (Vec_ty Byte4, "V4Y");
+    (Vec_ty Byte8, "V8Y");
+    (Vec_ty Byte16, "V16Y");
+    (Vec_ty Char2, "V2C");
+    (Vec_ty Char3, "V3C");
+    (Vec_ty Char4, "V4C");
+    (Vec_ty Char8, "V8C");
+    (Vec_ty Char16, "V16C");
+    (Vec_ty Double2, "V2D");
+    (Vec_ty Double3, "V3D");
+    (Vec_ty Double4, "V4D");
+    (Vec_ty Double8, "V8D");
+    (Vec_ty Double16, "V16D");
+    (Vec_ty Float2, "V2F");
+    (Vec_ty Float3, "V3F");
+    (Vec_ty Float4, "V4F");
+    (Vec_ty Float8, "V8F");
+    (Vec_ty Float16, "V16F");
+    (Vec_ty Half2, "V2H");
+    (Vec_ty Half3, "V3H");
+    (Vec_ty Half4, "V4H");
+    (Vec_ty Half8, "V8H");
+    (Vec_ty Half16, "V16H");
+    (Vec_ty Int2, "V2I");
+    (Vec_ty Int3, "V3I");
+    (Vec_ty Int4, "V4I");
+    (Vec_ty Int8, "V8I");
+    (Vec_ty Int16, "V16I");
+    (Vec_ty Long2, "V2L");
+    (Vec_ty Long3, "V3L");
+    (Vec_ty Long4, "V4L");
+    (Vec_ty Long8, "V8L");
+    (Vec_ty Long16, "V16L");
+    (Vec_ty Short2, "V2S");
+    (Vec_ty Short3, "V3S");
+    (Vec_ty Short4, "V4S");
+    (Vec_ty Short8, "V8S");
+    (Vec_ty Short16, "V16S");
+    (Vec_ty Ubyte2, "V2UY");
+    (Vec_ty Ubyte3, "V3UY");
+    (Vec_ty Ubyte4, "V4UY");
+    (Vec_ty Ubyte8, "V8UY");
+    (Vec_ty Ubyte16, "V16UY");
+    (Vec_ty Uchar2, "V2UC");
+    (Vec_ty Uchar3, "V3UC");
+    (Vec_ty Uchar4, "V4UC");
+    (Vec_ty Uchar8, "V8UC");
+    (Vec_ty Uchar16, "V16UC");
+    (Vec_ty Uint2, "V2UI");
+    (Vec_ty Uint3, "V3UI");
+    (Vec_ty Uint4, "V4UI");
+    (Vec_ty Uint8, "V8UI");
+    (Vec_ty Uint16, "V16UI");
+    (Vec_ty Ulong2, "V2UL");
+    (Vec_ty Ulong3, "V3UL");
+    (Vec_ty Ulong4, "V4UL");
+    (Vec_ty Ulong8, "V8UL");
+    (Vec_ty Ulong16, "V16UL");
+    (Vec_ty Ushort2, "V2US");
+    (Vec_ty Ushort3, "V3US");
+    (Vec_ty Ushort4, "V4US");
+    (Vec_ty Ushort8, "V8US");
+    (Vec_ty Ushort16, "V16US");
   ]
 
 module T = struct
@@ -583,6 +622,8 @@ and str_sisal_type = function
   | Short_ty -> "SHORT"
   | Ubyte_ty -> "UBYTE"
   | Uchar_ty -> "UCHAR"
+  | Ulong_ty -> "ULONG"
+  | Long_ty -> "LONG"
   | Compound_type ct -> str_compound_type ct
   | Type_name ty -> ty
   | Vec_ty vec_t -> str_vec_type vec_t
@@ -593,78 +634,90 @@ and str_mat_type = function Mat2 -> "MAT2" | Mat3 -> "MAT3" | Mat4 -> "MAT4"
 
 and str_vec_type = function
   | Byte2 -> "BYTE2"
-  | Half2 -> "HALF2"
-  | Short2 -> "SHORT2"
-  | Int2 -> "INT2"
-  | Float2 -> "FLOAT2"
-  | Double2 -> "DOUBLE2"
-  | Uint2 -> "UINT2"
-  | Ubyte2 -> "UBYTE2"
-  | Ushort2 -> "USHORT2"
   | Byte3 -> "BYTE3"
-  | Half3 -> "HALF3"
-  | Short3 -> "SHORT3"
-  | Int3 -> "INT3"
-  | Float3 -> "FLOAT3"
-  | Double3 -> "DOUBLE3"
-  | Uint3 -> "UINT3"
-  | Ubyte3 -> "UBYTE3"
-  | Ushort3 -> "USHORT3"
   | Byte4 -> "BYTE4"
-  | Half4 -> "HALF4"
-  | Short4 -> "SHORT4"
-  | Int4 -> "INT4"
-  | Float4 -> "FLOAT4"
-  | Double4 -> "DOUBLE4"
-  | Uint4 -> "UINT4"
-  | Ubyte4 -> "UBYTE4"
-  | Ushort4 -> "USHORT4"
   | Byte8 -> "BYTE8"
-  | Half8 -> "HALF8"
-  | Short8 -> "SHORT8"
-  | Int8 -> "INT8"
-  | Float8 -> "FLOAT8"
-  | Double8 -> "DOUBLE8"
-  | Uint8 -> "UINT8"
-  | Ubyte8 -> "UBYTE8"
-  | Ushort8 -> "USHORT8"
   | Byte16 -> "BYTE16"
-  | Half16 -> "HALF16"
-  | Short16 -> "SHORT16"
-  | Int16 -> "INT16"
-  | Float16 -> "FLOAT16"
-  | Double16 -> "DOUBLE16"
-  | Uint16 -> "UINT16"
-  | Ubyte16 -> "UBYTE16"
-  | Ushort16 -> "USHORT16"
   | Char2 -> "CHAR2"
-  | Uchar2 -> "UCHAR2"
   | Char3 -> "CHAR3"
-  | Uchar3 -> "UCHAR3"
   | Char4 -> "CHAR4"
-  | Uchar4 -> "UCHAR4"
   | Char8 -> "CHAR8"
-  | Uchar8 -> "UCHAR8"
   | Char16 -> "CHAR16"
+  | Double2 -> "DOUBLE2"
+  | Double3 -> "DOUBLE3"
+  | Double4 -> "DOUBLE4"
+  | Double8 -> "DOUBLE8"
+  | Double16 -> "DOUBLE16"
+  | Float2 -> "FLOAT2"
+  | Float3 -> "FLOAT3"
+  | Float4 -> "FLOAT4"
+  | Float8 -> "FLOAT8"
+  | Float16 -> "FLOAT16"
+  | Half2 -> "HALF2"
+  | Half3 -> "HALF3"
+  | Half4 -> "HALF4"
+  | Half8 -> "HALF8"
+  | Half16 -> "HALF16"
+  | Int2 -> "INT2"
+  | Int3 -> "INT3"
+  | Int4 -> "INT4"
+  | Int8 -> "INT8"
+  | Int16 -> "INT16"
+  | Long2 -> "LONG2"
+  | Long3 -> "LONG3"
+  | Long4 -> "LONG4"
+  | Long8 -> "LONG8"
+  | Long16 -> "LONG16"
+  | Short2 -> "SHORT2"
+  | Short3 -> "SHORT3"
+  | Short4 -> "SHORT4"
+  | Short8 -> "SHORT8"
+  | Short16 -> "SHORT16"
+  | Ubyte2 -> "UBYTE2"
+  | Ubyte3 -> "UBYTE3"
+  | Ubyte4 -> "UBYTE4"
+  | Ubyte8 -> "UBYTE8"
+  | Ubyte16 -> "UBYTE16"
+  | Uchar2 -> "UCHAR2"
+  | Uchar3 -> "UCHAR3"
+  | Uchar4 -> "UCHAR4"
+  | Uchar8 -> "UCHAR8"
   | Uchar16 -> "UCHAR16"
+  | Uint2 -> "UINT2"
+  | Uint3 -> "UINT3"
+  | Uint4 -> "UINT4"
+  | Uint8 -> "UINT8"
+  | Uint16 -> "UINT16"
+  | Ulong2 -> "ULONG2"
+  | Ulong3 -> "ULONG3"
+  | Ulong4 -> "ULONG4"
+  | Ulong8 -> "ULONG8"
+  | Ulong16 -> "ULONG16"
+  | Ushort2 -> "USHORT2"
+  | Ushort3 -> "USHORT3"
+  | Ushort4 -> "USHORT4"
+  | Ushort8 -> "USHORT8"
+  | Ushort16 -> "USHORT16"
 
 and str_constant = function
+  | Byte b -> "0b" ^ string_of_int b
+  | Char st -> "\"" ^ st ^ "\""
+  | Double d -> string_of_float d ^ "d"
+  | Error st -> "ERROR [" ^ str_sisal_type st ^ "]"
   | False -> "FALSE"
-  | Nil -> "NIL"
-  | True -> "TRUE"
+  | Float f -> string_of_float f ^ "f"
   | Half h -> string_of_float h ^ "h"
   | Int i -> string_of_int i
-  | Float f -> string_of_float f ^ "f"
-  | Char st -> "\"" ^ st ^ "\""
+  | Long s -> string_of_int s
+  | Nil -> "NIL"
+  | Short s -> string_of_int s
   | String st -> "\"" ^ st ^ "\""
-  | Double d -> string_of_float d ^ "d"
+  | True -> "TRUE"
+  | Ubyte b -> "0ub" ^ string_of_int b
   | Uchar i -> string_of_int i
   | Uint i -> string_of_int i
-  | Short s -> string_of_int s
+  | Ulong s -> string_of_int s
   | Ushort s -> "0s" ^ string_of_int s
-  | Byte b -> "0b" ^ string_of_int b
-  | Ubyte b -> "0ub" ^ string_of_int b
-  | Error st -> "ERROR [" ^ str_sisal_type st ^ "]"
 
 and str_val = function Value_name vl -> String.concat "." vl
 
@@ -711,17 +764,19 @@ and str_tag_exp = function
 
 and str_prefix_name = function
   | Boolean_prefix -> "BOOLEAN"
+  | Byte_prefix -> "BYTE"
   | Char_prefix -> "CHAR"
   | Double_prefix -> "DOUBLE_REAL"
-  | Integer_prefix -> "INTEGER"
-  | Real_prefix -> "REAL"
-  | Uint_prefix -> "UINT"
-  | Short_prefix -> "SHORT"
-  | Ushort_prefix -> "USHORT"
-  | Byte_prefix -> "BYTE"
-  | Ubyte_prefix -> "UBYTE"
   | Half_prefix -> "HALF"
+  | Integer_prefix -> "INTEGER"
+  | Long_prefix -> "LONG"
+  | Real_prefix -> "REAL"
+  | Short_prefix -> "SHORT"
+  | Ubyte_prefix -> "UBYTE"
   | Uchar_prefix -> "UCHAR"
+  | Uint_prefix -> "UINT"
+  | Ulong_prefix -> "ULONG"
+  | Ushort_prefix -> "USHORT"
 
 and str_decldef ?(offset = 0) = function
   | Decldef (deca, expn) ->
@@ -750,18 +805,18 @@ and get_vec_len x = int_of_string (str_vec_len x)
 
 and str_vec_len = function
   | Byte2 | Char2 | Half2 | Short2 | Int2 | Float2 | Double2 | Ubyte2 | Uchar2
-  | Ushort2 | Uint2 ->
+  | Ushort2 | Uint2 | Ulong2 | Long2 ->
       "2"
   | Byte3 | Char3 | Half3 | Short3 | Int3 | Float3 | Double3 | Ubyte3 | Uchar3
-  | Ushort3 | Uint3 ->
+  | Ushort3 | Uint3 | Ulong3 | Long3 ->
       "3"
-  | Byte4 | Char4 | Half4 | Short4 | Int4 -> "4"
+  | Byte4 | Char4 | Half4 | Short4 | Int4 | Long4 | Ulong4 -> "4"
   | Float4 | Double4 | Ubyte4 | Uchar4 | Ushort4 | Uint4 -> "4"
   | Byte8 | Char8 | Half8 | Short8 | Int8 | Float8 | Double8 | Ubyte8 | Uchar8
-  | Ushort8 | Uint8 ->
+  | Ulong8 | Long8 | Ushort8 | Uint8 ->
       "8"
   | Byte16 | Char16 | Half16 | Short16 | Int16 | Float16 | Double16 | Ubyte16
-  | Uchar16 | Ushort16 | Uint16 ->
+  | Ulong16 | Long16 | Uchar16 | Ushort16 | Uint16 ->
       "16"
 
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
