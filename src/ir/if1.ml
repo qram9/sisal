@@ -65,147 +65,159 @@ end)
 type label_or_none = Som of int | Emp
 
 type node_sym =
-  | BOUNDARY
-  | CONSTANT
-  | GRAPH
-  | OLD
-  | VAL
-  | INVOCATION
-  | NOT
-  | NEGATE
-  | ACATENATE
-  | AND
-  | IDIVIDE
-  | FDIVIDE
-  | TIMES
-  | SUBTRACT
-  | ADD
-  | OR
-  | NOT_EQUAL
-  | EQUAL
-  | LESSER_EQUAL
-  | LESSER
-  | GREATER_EQUAL
-  | GREATER
-  | RBUILD
-  | RELEMENTS
-  | RREPLACE
-  | SBUILD
-  | SAPPEND
-  | TAGCASE
-  | SELECT
-  | RANGEGEN
   | AADDH
   | AADDL
   | ABUILD
+  | ACATENATE
+  | ACREATE
+  | ADD
   | AELEMENT
   | AFILL
   | AGATHER
   | AISEMPTY
-  | ALIML
   | ALIMH
-  | AREPLACE
-  | AREML
+  | ALIML
+  | AND
   | AREMH
+  | AREML
+  | AREPLACE
   | ASCATTER
   | ASETL
   | ASIZE
+  | BOUNDARY
+  | CONSTANT
+  | EQUAL
+  | FDIVIDE
+  | FINALVALUE
+  | GRAPH
+  | GREATER
+  | GREATER_EQUAL
+  | IDIVIDE
   | INTERNAL
+  | INVOCATION
+  | LESSER
+  | LESSER_EQUAL
+  | MAT
+  | MATBUILD
+  | MATSPLAT
+  | MULTIARITY
+  | NEGATE
+  | NOT
+  | NOT_EQUAL
+  | OLD
+  | OR
+  | RANGEGEN
+  | RBUILD
   | REDUCE
   | REDUCELEFT
   | REDUCERIGHT
   | REDUCETREE
+  | RELEMENTS
+  | RREPLACE
+  | SAPPEND
+  | SBUILD
+  | SELECT
   | STREAM
-  | FINALVALUE
-  | MULTIARITY
-  | VEC
-  | MAT
+  | SUBTRACT
   | SWIZZLE
-  | VECSPLAT
-  | VECBUILD
-  | MATSPLAT
-  | MATBUILD
+  | TAGCASE
+  | TIMES
   | TYPECAST
-  | ACREATE
+  | VAL
+  | VEC
+  | VECBUILD
+  | VECSPLAT
 
 type comment = C of string | CDollar of string
 
 type basic_code =
   | BOOLEAN
+  | BYTE
   | CHARACTER
   | DOUBLE
-  | INTEGRAL
-  | NULL
-  | REAL
-  | ARRAY
-  | RECORD
-  | UNION
-  | STREAM
-  | UINT
-  | SHORT
-  | USHORT
-  | BYTE
-  | UBYTE
   | HALF
+  | INTEGRAL
+  | LONG
+  | REAL
+  | SHORT
+  | UBYTE
   | UCHAR
+  | UINT
+  | ULONG
+  | USHORT
   | BYTE2
-  | HALF2
-  | SHORT2
-  | INT2
-  | FLOAT2
-  | DOUBLE2
-  | UINT2
-  | UBYTE2
-  | USHORT2
   | BYTE3
-  | HALF3
-  | SHORT3
-  | INT3
-  | FLOAT3
-  | DOUBLE3
-  | UINT3
-  | UBYTE3
-  | USHORT3
   | BYTE4
-  | HALF4
-  | SHORT4
-  | INT4
-  | FLOAT4
-  | DOUBLE4
-  | UINT4
-  | UBYTE4
-  | USHORT4
   | BYTE8
-  | HALF8
-  | SHORT8
-  | INT8
-  | FLOAT8
-  | DOUBLE8
-  | UINT8
-  | UBYTE8
-  | USHORT8
   | BYTE16
-  | HALF16
-  | SHORT16
-  | INT16
-  | FLOAT16
-  | DOUBLE16
-  | UINT16
-  | UBYTE16
-  | USHORT16
   | CHAR2
-  | UCHAR2
   | CHAR3
-  | UCHAR3
   | CHAR4
-  | UCHAR4
   | CHAR8
-  | UCHAR8
   | CHAR16
+  | DOUBLE2
+  | DOUBLE3
+  | DOUBLE4
+  | DOUBLE8
+  | DOUBLE16
+  | FLOAT2
+  | FLOAT3
+  | FLOAT4
+  | FLOAT8
+  | FLOAT16
+  | HALF2
+  | HALF3
+  | HALF4
+  | HALF8
+  | HALF16
+  | INT2
+  | INT3
+  | INT4
+  | INT8
+  | INT16
+  | LONG2
+  | LONG3
+  | LONG4
+  | LONG8
+  | LONG16
+  | SHORT2
+  | SHORT3
+  | SHORT4
+  | SHORT8
+  | SHORT16
+  | UBYTE2
+  | UBYTE3
+  | UBYTE4
+  | UBYTE8
+  | UBYTE16
+  | UCHAR2
+  | UCHAR3
+  | UCHAR4
+  | UCHAR8
   | UCHAR16
+  | UINT2
+  | UINT3
+  | UINT4
+  | UINT8
+  | UINT16
+  | ULONG2
+  | ULONG3
+  | ULONG4
+  | ULONG8
+  | ULONG16
+  | USHORT2
+  | USHORT3
+  | USHORT4
+  | USHORT8
+  | USHORT16
   | MAT2
   | MAT3
   | MAT4
+  | NULL
+  | ARRAY
+  | RECORD
+  | STREAM
+  | UNION
 
 type label = int
 
@@ -365,151 +377,87 @@ and node =
 let basic_types =
   [
     (1, Basic BOOLEAN);
-    (2, Basic CHARACTER);
-    (3, Basic DOUBLE);
-    (4, Basic INTEGRAL);
-    (5, Basic NULL);
-    (6, Basic REAL);
-    (7, Basic BYTE);
-    (8, Basic UCHAR);
-    (9, Basic HALF);
-    (10, Basic SHORT);
-    (11, Basic USHORT);
+    (2, Basic BYTE);
+    (3, Basic CHARACTER);
+    (4, Basic DOUBLE);
+    (5, Basic HALF);
+    (6, Basic INTEGRAL);
+    (7, Basic LONG);
+    (8, Basic REAL);
+    (9, Basic SHORT);
+    (10, Basic UBYTE);
+    (11, Basic UCHAR);
     (12, Basic UINT);
-    (13, Basic UBYTE);
-    (14, Basic BYTE2);
-    (15, Basic HALF2);
-    (16, Basic SHORT2);
-    (17, Basic INT2);
-    (18, Basic FLOAT2);
-    (19, Basic DOUBLE2);
-    (20, Basic UINT2);
-    (21, Basic UBYTE2);
-    (22, Basic USHORT2);
-    (23, Basic BYTE3);
-    (24, Basic HALF3);
-    (25, Basic SHORT3);
-    (26, Basic INT3);
-    (27, Basic FLOAT3);
-    (28, Basic DOUBLE3);
-    (29, Basic UINT3);
-    (30, Basic UBYTE3);
-    (31, Basic USHORT3);
-    (32, Basic BYTE4);
-    (33, Basic HALF4);
-    (34, Basic SHORT4);
-    (35, Basic INT4);
-    (36, Basic FLOAT4);
-    (37, Basic DOUBLE4);
-    (38, Basic UINT4);
-    (39, Basic UBYTE4);
-    (40, Basic USHORT4);
-    (41, Basic BYTE8);
-    (42, Basic HALF8);
-    (43, Basic SHORT8);
-    (44, Basic INT8);
-    (45, Basic FLOAT8);
-    (46, Basic DOUBLE8);
-    (47, Basic UINT8);
-    (48, Basic UBYTE8);
-    (49, Basic USHORT8);
-    (50, Basic BYTE16);
-    (51, Basic HALF16);
-    (52, Basic SHORT16);
-    (53, Basic INT16);
-    (54, Basic FLOAT16);
-    (55, Basic DOUBLE16);
-    (56, Basic UINT16);
-    (57, Basic UBYTE16);
-    (58, Basic USHORT16);
-    (59, Basic CHAR2);
-    (60, Basic UCHAR2);
-    (61, Basic CHAR3);
-    (62, Basic UCHAR3);
-    (63, Basic CHAR4);
-    (64, Basic UCHAR4);
-    (65, Basic CHAR8);
-    (66, Basic UCHAR8);
-    (67, Basic CHAR16);
-    (68, Basic UCHAR16);
-    (69, Basic MAT2);
-    (70, Basic MAT3);
-    (71, Basic MAT4);
-  ]
-
-let basic_map =
-  [
-    (1, Basic BOOLEAN);
-    (2, Basic CHARACTER);
-    (3, Basic DOUBLE);
-    (4, Basic INTEGRAL);
-    (5, Basic NULL);
-    (6, Basic REAL);
-    (7, Basic BYTE);
-    (8, Basic UCHAR);
-    (9, Basic HALF);
-    (10, Basic SHORT);
-    (11, Basic USHORT);
-    (12, Basic UINT);
-    (13, Basic UBYTE);
-    (14, Basic BYTE2);
-    (15, Basic HALF2);
-    (16, Basic SHORT2);
-    (17, Basic INT2);
-    (18, Basic FLOAT2);
-    (19, Basic DOUBLE2);
-    (20, Basic UINT2);
-    (21, Basic UBYTE2);
-    (22, Basic USHORT2);
-    (23, Basic BYTE3);
-    (24, Basic HALF3);
-    (25, Basic SHORT3);
-    (26, Basic INT3);
-    (27, Basic FLOAT3);
-    (28, Basic DOUBLE3);
-    (29, Basic UINT3);
-    (30, Basic UBYTE3);
-    (31, Basic USHORT3);
-    (32, Basic BYTE4);
-    (33, Basic HALF4);
-    (34, Basic SHORT4);
-    (35, Basic INT4);
-    (36, Basic FLOAT4);
-    (37, Basic DOUBLE4);
-    (38, Basic UINT4);
-    (39, Basic UBYTE4);
-    (40, Basic USHORT4);
-    (41, Basic BYTE8);
-    (42, Basic HALF8);
-    (43, Basic SHORT8);
-    (44, Basic INT8);
-    (45, Basic FLOAT8);
-    (46, Basic DOUBLE8);
-    (47, Basic UINT8);
-    (48, Basic UBYTE8);
-    (49, Basic USHORT8);
-    (50, Basic BYTE16);
-    (51, Basic HALF16);
-    (52, Basic SHORT16);
-    (53, Basic INT16);
-    (54, Basic FLOAT16);
-    (55, Basic DOUBLE16);
-    (56, Basic UINT16);
-    (57, Basic UBYTE16);
-    (58, Basic USHORT16);
-    (59, Basic CHAR2);
-    (60, Basic UCHAR2);
-    (61, Basic CHAR3);
-    (62, Basic UCHAR3);
-    (63, Basic CHAR4);
-    (64, Basic UCHAR4);
-    (65, Basic CHAR8);
-    (66, Basic UCHAR8);
-    (67, Basic CHAR16);
-    (68, Basic UCHAR16);
-    (69, Basic MAT2);
-    (70, Basic MAT3);
-    (71, Basic MAT4);
+    (13, Basic ULONG);
+    (14, Basic USHORT);
+    (15, Basic BYTE2);
+    (16, Basic CHAR2);
+    (17, Basic DOUBLE2);
+    (18, Basic HALF2);
+    (19, Basic INT2);
+    (20, Basic LONG2);
+    (21, Basic FLOAT2);
+    (22, Basic SHORT2);
+    (23, Basic UBYTE2);
+    (24, Basic UCHAR2);
+    (25, Basic UINT2);
+    (26, Basic ULONG2);
+    (27, Basic USHORT2);
+    (28, Basic BYTE3);
+    (29, Basic CHAR3);
+    (30, Basic DOUBLE3);
+    (31, Basic HALF3);
+    (32, Basic INT3);
+    (33, Basic LONG3);
+    (34, Basic FLOAT3);
+    (35, Basic SHORT3);
+    (36, Basic UBYTE3);
+    (37, Basic UCHAR3);
+    (38, Basic UINT3);
+    (39, Basic ULONG3);
+    (40, Basic USHORT3);
+    (41, Basic BYTE4);
+    (42, Basic CHAR4);
+    (43, Basic DOUBLE4);
+    (44, Basic HALF4);
+    (45, Basic INT4);
+    (46, Basic LONG4);
+    (47, Basic FLOAT4);
+    (48, Basic SHORT4);
+    (49, Basic UBYTE4);
+    (50, Basic UCHAR4);
+    (51, Basic UINT4);
+    (52, Basic ULONG4);
+    (53, Basic USHORT4);
+    (54, Basic BYTE8);
+    (55, Basic CHAR8);
+    (56, Basic DOUBLE8);
+    (57, Basic HALF8);
+    (58, Basic INT8);
+    (59, Basic LONG8);
+    (60, Basic FLOAT8);
+    (61, Basic SHORT8);
+    (62, Basic UBYTE8);
+    (63, Basic UCHAR8);
+    (64, Basic UINT8);
+    (65, Basic ULONG8);
+    (66, Basic USHORT8);
+    (67, Basic BYTE16);
+    (68, Basic CHAR16);
+    (69, Basic DOUBLE16);
+    (70, Basic HALF16);
+    (71, Basic INT16);
+    (72, Basic LONG16);
+    (73, Basic FLOAT16);
+    (74, Basic SHORT16);
+    (75, Basic UBYTE16);
+    (76, Basic UCHAR16);
+    (77, Basic UINT16);
+    (78, Basic ULONG16);
+    (79, Basic USHORT16);
+    (80, Basic MAT2);
+    (81, Basic MAT3);
+    (82, Basic MAT4);
   ]
 
 let basic_map_tyid inc_map =
@@ -1264,12 +1212,14 @@ and get_element_type_impl vect =
   | HALF2 | HALF3 | HALF4 | HALF8 | HALF16 -> HALF
   | SHORT2 | SHORT3 | SHORT4 | SHORT8 | SHORT16 -> SHORT
   | INT2 | INT3 | INT4 | INT8 | INT16 -> INTEGRAL
+  | LONG2 | LONG3 | LONG4 | LONG8 | LONG16 -> LONG
   | FLOAT2 | FLOAT3 | FLOAT4 | FLOAT8 | FLOAT16 -> REAL
   | DOUBLE2 | DOUBLE3 | DOUBLE4 | DOUBLE8 | DOUBLE16 -> DOUBLE
   | UBYTE2 | UBYTE3 | UBYTE4 | UBYTE8 | UBYTE16 -> UBYTE
   | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 -> UCHAR
   | USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16 -> USHORT
   | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 -> UINT
+  | ULONG2 | ULONG3 | ULONG4 | ULONG8 | ULONG16 -> ULONG
   | HALF -> HALF
   | DOUBLE -> DOUBLE
   | REAL -> REAL
@@ -1294,7 +1244,9 @@ and is_vector_type = function
       | FLOAT3 | FLOAT4 | FLOAT8 | FLOAT16 | DOUBLE2 | DOUBLE3 | DOUBLE4
       | DOUBLE8 | DOUBLE16 | UBYTE2 | UBYTE3 | UBYTE4 | UBYTE8 | UBYTE16
       | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 | USHORT2 | USHORT3
-      | USHORT4 | USHORT8 | USHORT16 | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 ->
+      | USHORT4 | USHORT8 | USHORT16 | UINT2 | UINT3 | UINT4 | UINT8 | UINT16
+      | LONG2 | LONG3 | LONG4 | LONG8 | LONG16 | ULONG2 | ULONG3 | ULONG4
+      | ULONG8 | ULONG16 ->
           True
       | _ -> False)
   | _ -> False
@@ -1439,6 +1391,20 @@ and get_ushort_vec_type l =
             got %d"
            l)
 
+and get_long_vec_type l =
+  match l with
+  | 2 -> LONG2
+  | 3 -> LONG3
+  | 4 -> LONG4
+  | 8 -> LONG8
+  | 16 -> LONG16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for long can only be 2, 3, 4, 8 or 16, got \
+            %d"
+           l)
+
 and get_uint_vec_type l =
   match l with
   | 2 -> UINT2
@@ -1453,22 +1419,36 @@ and get_uint_vec_type l =
             %d"
            l)
 
+and get_ulong_vec_type l =
+  match l with
+  | 2 -> ULONG2
+  | 3 -> ULONG3
+  | 4 -> ULONG4
+  | 8 -> ULONG8
+  | 16 -> ULONG16
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Type error: vector type for ulong can only be 2, 3, 4, 8 or 16, \
+            got %d"
+           l)
+
 and get_vec_len tt =
   match tt with
   | BYTE2 | CHAR2 | HALF2 | SHORT2 | INT2 | FLOAT2 | DOUBLE2 | UBYTE2 | UCHAR2
-  | USHORT2 | UINT2 ->
+  | LONG2 | ULONG2 | USHORT2 | UINT2 ->
       2
   | BYTE3 | CHAR3 | HALF3 | SHORT3 | INT3 | FLOAT3 | DOUBLE3 | UBYTE3 | UCHAR3
-  | USHORT3 | UINT3 ->
+  | LONG3 | ULONG3 | USHORT3 | UINT3 ->
       3
   | BYTE4 | CHAR4 | HALF4 | SHORT4 | INT4 | FLOAT4 | DOUBLE4 | UBYTE4 | UCHAR4
-  | USHORT4 | UINT4 ->
+  | LONG4 | ULONG4 | USHORT4 | UINT4 ->
       4
-  | BYTE8 | CHAR8 | HALF8 | SHORT8 | INT8 | FLOAT8 | DOUBLE8 | UBYTE8 | UCHAR8
-  | USHORT8 | UINT8 ->
+  | BYTE8 | CHAR8 | HALF8 | SHORT8 | INT8 | FLOAT8 | LONG8 | DOUBLE8 | UBYTE8
+  | UCHAR8 | ULONG8 | USHORT8 | UINT8 ->
       8
-  | BYTE16 | CHAR16 | HALF16 | SHORT16 | INT16 | FLOAT16 | DOUBLE16 | UBYTE16
-  | UCHAR16 | USHORT16 | UINT16 ->
+  | BYTE16 | CHAR16 | HALF16 | SHORT16 | INT16 | LONG16 | FLOAT16 | DOUBLE16
+  | UBYTE16 | UCHAR16 | USHORT16 | UINT16 | ULONG16 ->
       16
   | _ ->
       failwith
@@ -1490,12 +1470,14 @@ and build_vector_of_type_impl width ty =
   | HALF -> get_half_vec_type width
   | SHORT -> get_short_vec_type width
   | INTEGRAL -> get_int_vec_type width
+  | LONG -> get_long_vec_type width
   | REAL -> get_float_vec_type width
   | DOUBLE -> get_double_vec_type width
   | UBYTE -> get_ubyte_vec_type width
   | UCHAR -> get_uchar_vec_type width
   | USHORT -> get_ushort_vec_type width
   | UINT -> get_uint_vec_type width
+  | ULONG -> get_ulong_vec_type width
   | _ ->
       failwith
         (Printf.sprintf "Type error: vector type not possible for %s"
@@ -1631,308 +1613,350 @@ and is_integral_type gg =
       | _ -> false)
   | _ -> false
 
-and lookup_tyid_triple gg =
-  match gg with
-  | BOOLEAN -> (1, 0, 1)
-  | CHARACTER -> (2, 0, 2)
-  | DOUBLE -> (3, 0, 3)
-  | INTEGRAL -> (4, 0, 4)
-  | NULL -> (5, 0, 5)
-  | REAL -> (6, 0, 6)
-  | BYTE -> (7, 0, 7)
-  | UCHAR -> (8, 0, 8)
-  | HALF -> (9, 0, 9)
-  | SHORT -> (10, 0, 10)
-  | USHORT -> (11, 0, 11)
-  | UINT -> (12, 0, 12)
-  | UBYTE -> (13, 0, 13)
-  | BYTE2 -> (14, 0, 14)
-  | HALF2 -> (15, 0, 15)
-  | SHORT2 -> (16, 0, 16)
-  | INT2 -> (17, 0, 17)
-  | FLOAT2 -> (18, 0, 18)
-  | DOUBLE2 -> (19, 0, 19)
-  | UINT2 -> (20, 0, 20)
-  | UBYTE2 -> (21, 0, 21)
-  | USHORT2 -> (22, 0, 22)
-  | BYTE3 -> (23, 0, 23)
-  | HALF3 -> (24, 0, 24)
-  | SHORT3 -> (25, 0, 25)
-  | INT3 -> (26, 0, 26)
-  | FLOAT3 -> (27, 0, 27)
-  | DOUBLE3 -> (28, 0, 28)
-  | UINT3 -> (29, 0, 29)
-  | UBYTE3 -> (30, 0, 30)
-  | USHORT3 -> (31, 0, 31)
-  | BYTE4 -> (32, 0, 32)
-  | HALF4 -> (33, 0, 33)
-  | SHORT4 -> (34, 0, 34)
-  | INT4 -> (35, 0, 35)
-  | FLOAT4 -> (36, 0, 36)
-  | DOUBLE4 -> (37, 0, 37)
-  | UINT4 -> (38, 0, 38)
-  | UBYTE4 -> (39, 0, 39)
-  | USHORT4 -> (40, 0, 40)
-  | BYTE8 -> (41, 0, 41)
-  | HALF8 -> (42, 0, 42)
-  | SHORT8 -> (43, 0, 43)
-  | INT8 -> (44, 0, 44)
-  | FLOAT8 -> (45, 0, 45)
-  | DOUBLE8 -> (46, 0, 46)
-  | UINT8 -> (47, 0, 47)
-  | UBYTE8 -> (48, 0, 48)
-  | USHORT8 -> (49, 0, 49)
-  | BYTE16 -> (50, 0, 50)
-  | HALF16 -> (51, 0, 51)
-  | SHORT16 -> (52, 0, 52)
-  | INT16 -> (53, 0, 53)
-  | FLOAT16 -> (54, 0, 54)
-  | DOUBLE16 -> (55, 0, 55)
-  | UINT16 -> (56, 0, 56)
-  | UBYTE16 -> (57, 0, 57)
-  | USHORT16 -> (58, 0, 58)
-  | CHAR2 -> (59, 0, 59)
-  | UCHAR2 -> (60, 0, 60)
-  | CHAR3 -> (61, 0, 61)
-  | UCHAR3 -> (62, 0, 62)
-  | CHAR4 -> (63, 0, 63)
-  | UCHAR4 -> (64, 0, 64)
-  | CHAR8 -> (65, 0, 65)
-  | UCHAR8 -> (66, 0, 66)
-  | CHAR16 -> (67, 0, 67)
-  | UCHAR16 -> (68, 0, 68)
-  | MAT2 -> (69, 0, 69)
-  | MAT3 -> (70, 0, 70)
-  | MAT4 -> (71, 0, 71)
-  | _ ->
-      failwith
-        (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
-           (string_of_if1_basic_ty gg))
-
-and lookup_tyid gg =
-  match gg with
+and lookup_tyid = function
   | BOOLEAN -> 1
-  | CHARACTER -> 2
-  | DOUBLE -> 3
-  | INTEGRAL -> 4
-  | NULL -> 5
-  | REAL -> 6
-  | BYTE -> 7
-  | UCHAR -> 8
-  | HALF -> 9
-  | SHORT -> 10
-  | USHORT -> 11
+  | BYTE -> 2
+  | CHARACTER -> 3
+  | DOUBLE -> 4
+  | HALF -> 5
+  | INTEGRAL -> 6
+  | LONG -> 7
+  | REAL -> 8
+  | SHORT -> 9
+  | UBYTE -> 10
+  | UCHAR -> 11
   | UINT -> 12
-  | UBYTE -> 13
-  | BYTE2 -> 14
-  | HALF2 -> 15
-  | SHORT2 -> 16
-  | INT2 -> 17
-  | FLOAT2 -> 18
-  | DOUBLE2 -> 19
-  | UINT2 -> 20
-  | UBYTE2 -> 21
-  | USHORT2 -> 22
-  | BYTE3 -> 23
-  | HALF3 -> 24
-  | SHORT3 -> 25
-  | INT3 -> 26
-  | FLOAT3 -> 27
-  | DOUBLE3 -> 28
-  | UINT3 -> 29
-  | UBYTE3 -> 30
-  | USHORT3 -> 31
-  | BYTE4 -> 32
-  | HALF4 -> 33
-  | SHORT4 -> 34
-  | INT4 -> 35
-  | FLOAT4 -> 36
-  | DOUBLE4 -> 37
-  | UINT4 -> 38
-  | UBYTE4 -> 39
-  | USHORT4 -> 40
-  | BYTE8 -> 41
-  | HALF8 -> 42
-  | SHORT8 -> 43
-  | INT8 -> 44
-  | FLOAT8 -> 45
-  | DOUBLE8 -> 46
-  | UINT8 -> 47
-  | UBYTE8 -> 48
-  | USHORT8 -> 49
-  | BYTE16 -> 50
-  | HALF16 -> 51
-  | SHORT16 -> 52
-  | INT16 -> 53
-  | FLOAT16 -> 54
-  | DOUBLE16 -> 55
-  | UINT16 -> 56
-  | UBYTE16 -> 57
-  | USHORT16 -> 58
-  | CHAR2 -> 59
-  | UCHAR2 -> 60
-  | CHAR3 -> 61
-  | UCHAR3 -> 62
-  | CHAR4 -> 63
-  | UCHAR4 -> 64
-  | CHAR8 -> 65
-  | UCHAR8 -> 66
-  | CHAR16 -> 67
-  | UCHAR16 -> 68
-  | MAT2 -> 69
-  | MAT3 -> 70
-  | MAT4 -> 71
-  | _ ->
+  | ULONG -> 13
+  | USHORT -> 14
+  | BYTE2 -> 15
+  | CHAR2 -> 16
+  | DOUBLE2 -> 17
+  | HALF2 -> 18
+  | INT2 -> 19
+  | LONG2 -> 20
+  | FLOAT2 -> 21
+  | SHORT2 -> 22
+  | UBYTE2 -> 23
+  | UCHAR2 -> 24
+  | UINT2 -> 25
+  | ULONG2 -> 26
+  | USHORT2 -> 27
+  | BYTE3 -> 28
+  | CHAR3 -> 29
+  | DOUBLE3 -> 30
+  | HALF3 -> 31
+  | INT3 -> 32
+  | LONG3 -> 33
+  | FLOAT3 -> 34
+  | SHORT3 -> 35
+  | UBYTE3 -> 36
+  | UCHAR3 -> 37
+  | UINT3 -> 38
+  | ULONG3 -> 39
+  | USHORT3 -> 40
+  | BYTE4 -> 41
+  | CHAR4 -> 42
+  | DOUBLE4 -> 43
+  | HALF4 -> 44
+  | INT4 -> 45
+  | LONG4 -> 46
+  | FLOAT4 -> 47
+  | SHORT4 -> 48
+  | UBYTE4 -> 49
+  | UCHAR4 -> 50
+  | UINT4 -> 51
+  | ULONG4 -> 52
+  | USHORT4 -> 53
+  | BYTE8 -> 54
+  | CHAR8 -> 55
+  | DOUBLE8 -> 56
+  | HALF8 -> 57
+  | INT8 -> 58
+  | LONG8 -> 59
+  | FLOAT8 -> 60
+  | SHORT8 -> 61
+  | UBYTE8 -> 62
+  | UCHAR8 -> 63
+  | UINT8 -> 64
+  | ULONG8 -> 65
+  | USHORT8 -> 66
+  | BYTE16 -> 67
+  | CHAR16 -> 68
+  | DOUBLE16 -> 69
+  | HALF16 -> 70
+  | INT16 -> 71
+  | LONG16 -> 72
+  | FLOAT16 -> 73
+  | SHORT16 -> 74
+  | UBYTE16 -> 75
+  | UCHAR16 -> 76
+  | UINT16 -> 77
+  | ULONG16 -> 78
+  | USHORT16 -> 79
+  | MAT2 -> 80
+  | MAT3 -> 81
+  | MAT4 -> 82
+  | _ as gg ->
       failwith
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
            (string_of_if1_basic_ty gg))
 
 and short_name_for_intrinsic = function
-  | 1 -> "B"
-  | 2 -> "C"
-  | 3 -> "D"
-  | 4 -> "I"
-  | 6 -> "F"
-  | 7 -> "Y"
-  | 8 -> "UC"
-  | 9 -> "H"
-  | 10 -> "S"
-  | 11 -> "US"
+  | 2 -> "Y"
+  | 3 -> "C"
+  | 4 -> "D"
+  | 5 -> "H"
+  | 6 -> "I"
+  | 7 -> "L"
+  | 8 -> "F"
+  | 9 -> "S"
+  | 10 -> "UY"
+  | 11 -> "UC"
   | 12 -> "UI"
-  | 13 -> "UY"
-  | 14 -> "v2Y"
-  | 15 -> "v2H"
-  | 16 -> "v2S"
-  | 17 -> "v2I"
-  | 18 -> "v2F"
-  | 19 -> "v2D"
-  | 20 -> "v2UI"
-  | 21 -> "v2UY"
-  | 22 -> "v2US"
-  | 23 -> "v3Y"
-  | 24 -> "v3H"
-  | 25 -> "v3S"
-  | 26 -> "v3I"
-  | 27 -> "v3F"
-  | 28 -> "v3D"
-  | 29 -> "v3UI"
-  | 30 -> "v3UY"
-  | 31 -> "v3US"
-  | 32 -> "v4Y"
-  | 33 -> "v4H"
-  | 34 -> "v4S"
-  | 35 -> "v4I"
-  | 36 -> "v4F"
-  | 37 -> "v4D"
-  | 38 -> "v4UI"
-  | 39 -> "v4UY"
-  | 40 -> "v4US"
-  | 41 -> "v8Y"
-  | 42 -> "v8H"
-  | 43 -> "v8S"
-  | 44 -> "v8I"
-  | 45 -> "v8F"
-  | 46 -> "v8D"
-  | 47 -> "v8UI"
-  | 48 -> "v8UY"
-  | 49 -> "v8US"
-  | 50 -> "v16Y"
-  | 51 -> "v16H"
-  | 52 -> "v16S"
-  | 53 -> "v16I"
-  | 54 -> "v16F"
-  | 55 -> "v16D"
-  | 56 -> "v16UI"
-  | 57 -> "v16UY"
-  | 58 -> "v16US"
-  | 59 -> "v2C"
-  | 60 -> "v2UC"
-  | 61 -> "v3C"
-  | 62 -> "v3UC"
-  | 63 -> "v4C"
-  | 64 -> "v4UC"
-  | 65 -> "v8C"
-  | 66 -> "v8UC"
-  | 67 -> "v16C"
-  | 68 -> "v16UC"
-  | 69 -> "M2"
-  | 70 -> "M3"
-  | 71 -> "M$"
+  | 13 -> "UL"
+  | 14 -> "US"
+  | 15 -> "V2Y"
+  | 16 -> "V2C"
+  | 17 -> "V2D"
+  | 18 -> "V2H"
+  | 19 -> "V2I"
+  | 20 -> "V2L"
+  | 21 -> "V2F"
+  | 22 -> "V2S"
+  | 23 -> "V2UY"
+  | 24 -> "V2UC"
+  | 25 -> "V2UI"
+  | 26 -> "V2UL"
+  | 27 -> "V2US"
+  | 28 -> "V3Y"
+  | 29 -> "V3C"
+  | 30 -> "V3D"
+  | 31 -> "V3H"
+  | 32 -> "V3I"
+  | 33 -> "V3L"
+  | 34 -> "V3F"
+  | 35 -> "V3S"
+  | 36 -> "V3UY"
+  | 37 -> "V3UC"
+  | 38 -> "V3UI"
+  | 39 -> "V3UL"
+  | 40 -> "V3US"
+  | 41 -> "V4Y"
+  | 42 -> "V4C"
+  | 43 -> "V4D"
+  | 44 -> "V4H"
+  | 45 -> "V4I"
+  | 46 -> "V4L"
+  | 47 -> "V4F"
+  | 48 -> "V4S"
+  | 49 -> "V4UY"
+  | 50 -> "V4UC"
+  | 51 -> "V4UI"
+  | 52 -> "V4UL"
+  | 53 -> "V4US"
+  | 54 -> "V8Y"
+  | 55 -> "V8C"
+  | 56 -> "V8D"
+  | 57 -> "V8H"
+  | 58 -> "V8I"
+  | 59 -> "V8L"
+  | 60 -> "V8F"
+  | 61 -> "V8S"
+  | 62 -> "V8UY"
+  | 63 -> "V8UC"
+  | 64 -> "V8UI"
+  | 65 -> "V8UL"
+  | 66 -> "V8US"
+  | 67 -> "V16Y"
+  | 68 -> "V16C"
+  | 69 -> "V16D"
+  | 70 -> "V16H"
+  | 71 -> "V16I"
+  | 72 -> "V16L"
+  | 73 -> "V16F"
+  | 74 -> "V16S"
+  | 75 -> "V16UY"
+  | 76 -> "V16UC"
+  | 77 -> "V16UI"
+  | 78 -> "V16UL"
+  | 79 -> "V16US"
+  | 80 -> "M2"
+  | 81 -> "M3"
+  | 82 -> "M4"
   | _ -> "U"
 
 and rev_lookup_ty_name = function
   | 1 -> "BOOLEAN"
-  | 2 -> "CHARACTER"
-  | 3 -> "DOUBLE"
-  | 4 -> "INTEGRAL"
-  | 5 -> "NULL"
-  | 6 -> "REAL"
-  | 7 -> "BYTE"
-  | 8 -> "UCHAR"
-  | 9 -> "HALF"
-  | 10 -> "SHORT"
-  | 11 -> "USHORT"
+  | 2 -> "BYTE"
+  | 3 -> "CHARACTER"
+  | 4 -> "DOUBLE"
+  | 5 -> "HALF"
+  | 6 -> "INTEGRAL"
+  | 7 -> "LONG"
+  | 8 -> "REAL"
+  | 9 -> "SHORT"
+  | 10 -> "UBYTE"
+  | 11 -> "UCHAR"
   | 12 -> "UINT"
-  | 13 -> "UBYTE"
-  | 14 -> "BYTE2"
-  | 15 -> "HALF2"
-  | 16 -> "SHORT2"
-  | 17 -> "INT2"
-  | 18 -> "FLOAT2"
-  | 19 -> "DOUBLE2"
-  | 20 -> "UINT2"
-  | 21 -> "UBYTE2"
-  | 22 -> "USHORT2"
-  | 23 -> "BYTE3"
-  | 24 -> "HALF3"
-  | 25 -> "SHORT3"
-  | 26 -> "INT3"
-  | 27 -> "FLOAT3"
-  | 28 -> "DOUBLE3"
-  | 29 -> "UINT3"
-  | 30 -> "UBYTE3"
-  | 31 -> "USHORT3"
-  | 32 -> "BYTE4"
-  | 33 -> "HALF4"
-  | 34 -> "SHORT4"
-  | 35 -> "INT4"
-  | 36 -> "FLOAT4"
-  | 37 -> "DOUBLE4"
-  | 38 -> "UINT4"
-  | 39 -> "UBYTE4"
-  | 40 -> "USHORT4"
-  | 41 -> "BYTE8"
-  | 42 -> "HALF8"
-  | 43 -> "SHORT8"
-  | 44 -> "INT8"
-  | 45 -> "FLOAT8"
-  | 46 -> "DOUBLE8"
-  | 47 -> "UINT8"
-  | 48 -> "UBYTE8"
-  | 49 -> "USHORT8"
-  | 50 -> "BYTE16"
-  | 51 -> "HALF16"
-  | 52 -> "SHORT16"
-  | 53 -> "INT16"
-  | 54 -> "FLOAT16"
-  | 55 -> "DOUBLE16"
-  | 56 -> "UINT16"
-  | 57 -> "UBYTE16"
-  | 58 -> "USHORT16"
-  | 59 -> "CHAR2"
-  | 60 -> "UCHAR2"
-  | 61 -> "CHAR3"
-  | 62 -> "UCHAR3"
-  | 63 -> "CHAR4"
-  | 64 -> "UCHAR4"
-  | 65 -> "CHAR8"
-  | 66 -> "UCHAR8"
-  | 67 -> "CHAR16"
-  | 68 -> "UCHAR16"
-  | 69 -> "MAT2"
-  | 70 -> "MAT3"
-  | 71 -> "MAT4"
+  | 13 -> "ULONG"
+  | 14 -> "USHORT"
+  | 15 -> "BYTE2"
+  | 16 -> "CHAR2"
+  | 17 -> "DOUBLE2"
+  | 18 -> "HALF2"
+  | 19 -> "INT2"
+  | 20 -> "LONG2"
+  | 21 -> "FLOAT2"
+  | 22 -> "SHORT2"
+  | 23 -> "UBYTE2"
+  | 24 -> "UCHAR2"
+  | 25 -> "UINT2"
+  | 26 -> "ULONG2"
+  | 27 -> "USHORT2"
+  | 28 -> "BYTE3"
+  | 29 -> "CHAR3"
+  | 30 -> "DOUBLE3"
+  | 31 -> "HALF3"
+  | 32 -> "INT3"
+  | 33 -> "LONG3"
+  | 34 -> "FLOAT3"
+  | 35 -> "SHORT3"
+  | 36 -> "UBYTE3"
+  | 37 -> "UCHAR3"
+  | 38 -> "UINT3"
+  | 39 -> "ULONG3"
+  | 40 -> "USHORT3"
+  | 41 -> "BYTE4"
+  | 42 -> "CHAR4"
+  | 43 -> "DOUBLE4"
+  | 44 -> "HALF4"
+  | 45 -> "INT4"
+  | 46 -> "LONG4"
+  | 47 -> "FLOAT4"
+  | 48 -> "SHORT4"
+  | 49 -> "UBYTE4"
+  | 50 -> "UCHAR4"
+  | 51 -> "UINT4"
+  | 52 -> "ULONG4"
+  | 53 -> "USHORT4"
+  | 54 -> "BYTE8"
+  | 55 -> "CHAR8"
+  | 56 -> "DOUBLE8"
+  | 57 -> "HALF8"
+  | 58 -> "INT8"
+  | 59 -> "LONG8"
+  | 60 -> "FLOAT8"
+  | 61 -> "SHORT8"
+  | 62 -> "UBYTE8"
+  | 63 -> "UCHAR8"
+  | 64 -> "UINT8"
+  | 65 -> "ULONG8"
+  | 66 -> "USHORT8"
+  | 67 -> "BYTE16"
+  | 68 -> "CHAR16"
+  | 69 -> "DOUBLE16"
+  | 70 -> "HALF16"
+  | 71 -> "INT16"
+  | 72 -> "LONG16"
+  | 73 -> "FLOAT16"
+  | 74 -> "SHORT16"
+  | 75 -> "UBYTE16"
+  | 76 -> "UCHAR16"
+  | 77 -> "UINT16"
+  | 78 -> "ULONG16"
+  | 79 -> "USHORT16"
+  | 80 -> "MAT2"
+  | 81 -> "MAT3"
+  | 82 -> "MAT4"
   | _ -> "UNKNOWN"
+
+and lookup_tyid_triple = function
+  | BOOLEAN -> (1, 0, 1)
+  | BYTE -> (2, 0, 2)
+  | CHARACTER -> (3, 0, 3)
+  | DOUBLE -> (4, 0, 4)
+  | HALF -> (5, 0, 5)
+  | INTEGRAL -> (6, 0, 6)
+  | LONG -> (7, 0, 7)
+  | REAL -> (8, 0, 8)
+  | SHORT -> (9, 0, 9)
+  | UBYTE -> (10, 0, 10)
+  | UCHAR -> (11, 0, 11)
+  | UINT -> (12, 0, 12)
+  | ULONG -> (13, 0, 13)
+  | USHORT -> (14, 0, 14)
+  | BYTE2 -> (15, 0, 15)
+  | CHAR2 -> (16, 0, 16)
+  | DOUBLE2 -> (17, 0, 17)
+  | HALF2 -> (18, 0, 18)
+  | INT2 -> (19, 0, 19)
+  | LONG2 -> (20, 0, 20)
+  | FLOAT2 -> (21, 0, 21)
+  | SHORT2 -> (22, 0, 22)
+  | UBYTE2 -> (23, 0, 23)
+  | UCHAR2 -> (24, 0, 24)
+  | UINT2 -> (25, 0, 25)
+  | ULONG2 -> (26, 0, 26)
+  | USHORT2 -> (27, 0, 27)
+  | BYTE3 -> (28, 0, 28)
+  | CHAR3 -> (29, 0, 29)
+  | DOUBLE3 -> (30, 0, 30)
+  | HALF3 -> (31, 0, 31)
+  | INT3 -> (32, 0, 32)
+  | LONG3 -> (33, 0, 33)
+  | FLOAT3 -> (34, 0, 34)
+  | SHORT3 -> (35, 0, 35)
+  | UBYTE3 -> (36, 0, 36)
+  | UCHAR3 -> (37, 0, 37)
+  | UINT3 -> (38, 0, 38)
+  | ULONG3 -> (39, 0, 39)
+  | USHORT3 -> (40, 0, 40)
+  | BYTE4 -> (41, 0, 41)
+  | CHAR4 -> (42, 0, 42)
+  | DOUBLE4 -> (43, 0, 43)
+  | HALF4 -> (44, 0, 44)
+  | INT4 -> (45, 0, 45)
+  | LONG4 -> (46, 0, 46)
+  | FLOAT4 -> (47, 0, 47)
+  | SHORT4 -> (48, 0, 48)
+  | UBYTE4 -> (49, 0, 49)
+  | UCHAR4 -> (50, 0, 50)
+  | UINT4 -> (51, 0, 51)
+  | ULONG4 -> (52, 0, 52)
+  | USHORT4 -> (53, 0, 53)
+  | BYTE8 -> (54, 0, 54)
+  | CHAR8 -> (55, 0, 55)
+  | DOUBLE8 -> (56, 0, 56)
+  | HALF8 -> (57, 0, 57)
+  | INT8 -> (58, 0, 58)
+  | LONG8 -> (59, 0, 59)
+  | FLOAT8 -> (60, 0, 60)
+  | SHORT8 -> (61, 0, 61)
+  | UBYTE8 -> (62, 0, 62)
+  | UCHAR8 -> (63, 0, 63)
+  | UINT8 -> (64, 0, 64)
+  | ULONG8 -> (65, 0, 65)
+  | USHORT8 -> (66, 0, 66)
+  | BYTE16 -> (67, 0, 67)
+  | CHAR16 -> (68, 0, 68)
+  | DOUBLE16 -> (69, 0, 69)
+  | HALF16 -> (70, 0, 70)
+  | INT16 -> (71, 0, 71)
+  | LONG16 -> (72, 0, 72)
+  | FLOAT16 -> (73, 0, 73)
+  | SHORT16 -> (74, 0, 74)
+  | UBYTE16 -> (75, 0, 75)
+  | UCHAR16 -> (76, 0, 76)
+  | UINT16 -> (77, 0, 77)
+  | ULONG16 -> (78, 0, 78)
+  | USHORT16 -> (79, 0, 79)
+  | MAT2 -> (80, 0, 80)
+  | MAT3 -> (81, 0, 81)
+  | MAT4 -> (82, 0, 82)
+  | _ as f ->
+      failwith
+        (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
+           (string_of_if1_basic_ty f))
 
 and lookup_fn_ty in_fn_name in_gr =
   (* this looks at the typemap table and return type for an id - this can do that in the local and the global ty tabs just like symtab does *)
@@ -2501,6 +2525,16 @@ and ast_if1_type aty =
   | Uchar8 -> UCHAR8
   | Char16 -> CHAR16
   | Uchar16 -> UCHAR16
+  | Long2 -> LONG2
+  | Long3 -> LONG3
+  | Long4 -> LONG4
+  | Long8 -> LONG8
+  | Long16 -> LONG16
+  | Ulong2 -> ULONG2
+  | Ulong3 -> ULONG3
+  | Ulong4 -> ULONG4
+  | Ulong8 -> ULONG8
+  | Ulong16 -> ULONG16
 
 and get_typecast_type = function
   | Boolean_prefix -> BOOLEAN
@@ -2515,6 +2549,8 @@ and get_typecast_type = function
   | Ubyte_prefix -> UBYTE
   | Half_prefix -> HALF
   | Uchar_prefix -> UCHAR
+  | Long_prefix -> LONG
+  | Ulong_prefix -> ULONG
 
 and add_sisal_type
     { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi } aty =
@@ -2536,6 +2572,8 @@ and add_sisal_type
   | Uint_ty -> (lookup_tyid_triple UINT, in_gr)
   | Ushort_ty -> (lookup_tyid_triple USHORT, in_gr)
   | Short_ty -> (lookup_tyid_triple SHORT, in_gr)
+  | Long_ty -> (lookup_tyid_triple LONG, in_gr)
+  | Ulong_ty -> (lookup_tyid_triple ULONG, in_gr)
   | Vec_ty vx ->
       let g =
         match vx with
@@ -2594,6 +2632,16 @@ and add_sisal_type
         | Uchar8 -> UCHAR8
         | Char16 -> CHAR16
         | Uchar16 -> UCHAR16
+        | Long2 -> LONG2
+        | Long3 -> LONG3
+        | Long4 -> LONG4
+        | Long8 -> LONG8
+        | Long16 -> LONG16
+        | Ulong2 -> ULONG2
+        | Ulong3 -> ULONG3
+        | Ulong4 -> ULONG4
+        | Ulong8 -> ULONG8
+        | Ulong16 -> ULONG16
       in
       (lookup_tyid_triple g, in_gr)
   | Mat_ty x -> (
@@ -2639,7 +2687,7 @@ and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
   let ps = get_parent_symtab in_gr in
   let tmmi = get_typemap in_gr in
-  let out_gr = get_empty_graph 1 72 in
+  let out_gr = get_empty_graph 1 88 in
   let tmn1 = get_typemap out_gr in
   let tmn1 = merge_typeblobs tmn1 tmmi in
   { out_gr with symtab = (SM.empty, ps); typemap = tmn1 }
@@ -2710,132 +2758,132 @@ and num_to_node_sym = function
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
-  | BOUNDARY -> 0
-  | CONSTANT -> 1
-  | GRAPH -> 2
-  | OLD -> 3
-  | VAL -> 4
-  | INVOCATION -> 5
-  | NOT -> 6
-  | NEGATE -> 7
-  | ACATENATE -> 8
-  | AND -> 9
-  | IDIVIDE -> 10
-  | TIMES -> 11
-  | SUBTRACT -> 12
-  | ADD -> 13
-  | OR -> 14
-  | NOT_EQUAL -> 15
-  | EQUAL -> 16
-  | LESSER_EQUAL -> 17
-  | LESSER -> 18
-  | GREATER_EQUAL -> 19
-  | GREATER -> 20
-  | RBUILD -> 21
-  | RELEMENTS -> 22
-  | RREPLACE -> 23
-  | SBUILD -> 24
-  | SAPPEND -> 25
-  | TAGCASE -> 26
-  | SELECT -> 27
-  | RANGEGEN -> 28
   | AADDH -> 29
   | AADDL -> 30
   | ABUILD -> 31
+  | ACATENATE -> 8
+  | ACREATE -> 60
+  | ADD -> 13
   | AELEMENT -> 32
   | AFILL -> 33
   | AGATHER -> 34
   | AISEMPTY -> 35
-  | ALIML -> 36
   | ALIMH -> 37
-  | AREPLACE -> 38
-  | AREML -> 39
+  | ALIML -> 36
+  | AND -> 9
   | AREMH -> 40
+  | AREML -> 39
+  | AREPLACE -> 38
   | ASCATTER -> 41
   | ASETL -> 42
   | ASIZE -> 43
+  | BOUNDARY -> 0
+  | CONSTANT -> 1
+  | EQUAL -> 16
+  | FDIVIDE -> 61
+  | FINALVALUE -> 50
+  | GRAPH -> 2
+  | GREATER -> 20
+  | GREATER_EQUAL -> 19
+  | IDIVIDE -> 10
   | INTERNAL -> 44
+  | INVOCATION -> 5
+  | LESSER -> 18
+  | LESSER_EQUAL -> 17
+  | MAT -> 53
+  | MATBUILD -> 58
+  | MATSPLAT -> 57
+  | MULTIARITY -> 51
+  | NEGATE -> 7
+  | NOT -> 6
+  | NOT_EQUAL -> 15
+  | OLD -> 3
+  | OR -> 14
+  | RANGEGEN -> 28
+  | RBUILD -> 21
   | REDUCE -> 45
   | REDUCELEFT -> 46
   | REDUCERIGHT -> 47
   | REDUCETREE -> 48
+  | RELEMENTS -> 22
+  | RREPLACE -> 23
+  | SAPPEND -> 25
+  | SBUILD -> 24
+  | SELECT -> 27
   | STREAM -> 49
-  | FINALVALUE -> 50
-  | MULTIARITY -> 51
+  | SUBTRACT -> 12
   | SWIZZLE -> 52
-  | MAT -> 53
-  | VEC -> 54
-  | VECSPLAT -> 55
-  | VECBUILD -> 56
-  | MATSPLAT -> 57
-  | MATBUILD -> 58
+  | TAGCASE -> 26
+  | TIMES -> 11
   | TYPECAST -> 59
-  | ACREATE -> 60
-  | FDIVIDE -> 61
+  | VAL -> 4
+  | VEC -> 54
+  | VECBUILD -> 56
+  | VECSPLAT -> 55
 
 and string_of_node_sym = function
-  | BOUNDARY -> "BOUNDARY"
-  | CONSTANT -> "CONSTANT"
-  | GRAPH -> "GRAPH"
-  | OLD -> "OLD"
-  | VAL -> "VAL"
-  | INVOCATION -> "INVOCATION"
-  | NOT -> "NOT"
-  | NEGATE -> "NEGATE"
-  | ACATENATE -> "ACATENATE"
-  | AND -> "AND"
-  | IDIVIDE -> "IDIVIDE"
-  | FDIVIDE -> "FDIVIDE"
-  | TIMES -> "TIMES"
-  | SUBTRACT -> "SUBTRACT"
-  | ADD -> "ADD"
-  | OR -> "OR"
-  | NOT_EQUAL -> "NOT_EQUAL"
-  | EQUAL -> "EQUAL"
-  | LESSER_EQUAL -> "LESSER_EQUAL"
-  | LESSER -> "LESSER"
-  | GREATER_EQUAL -> "GREATER_EQUAL"
-  | GREATER -> "GREATER"
-  | AELEMENT -> "AELEMENT"
-  | ABUILD -> "ABUILD"
-  | AFILL -> "AFILL"
-  | AREPLACE -> "AREPLACE"
-  | RBUILD -> "RBUILD"
-  | RELEMENTS -> "RELEMENTS"
-  | RREPLACE -> "RREPLACE"
-  | SBUILD -> "SBUILD"
-  | SAPPEND -> "SAPPEND"
-  | TAGCASE -> "TAGCASE"
-  | SELECT -> "SELECT"
-  | RANGEGEN -> "RANGEGEN"
-  | ASCATTER -> "ASCATTER"
-  | ASIZE -> "ASIZE"
   | AADDH -> "AADDH"
   | AADDL -> "AADDL"
-  | ASETL -> "ASETL"
-  | ALIML -> "ALIML"
+  | ABUILD -> "ABUILD"
+  | ACATENATE -> "ACATENATE"
+  | ACREATE -> "ACREATE"
+  | ADD -> "ADD"
+  | AELEMENT -> "AELEMENT"
+  | AFILL -> "AFILL"
+  | AGATHER -> "AGATHER"
+  | AISEMPTY -> "AISEMPTY"
   | ALIMH -> "ALIMH"
+  | ALIML -> "ALIML"
+  | AND -> "AND"
   | AREMH -> "AREMH"
   | AREML -> "AREML"
-  | AISEMPTY -> "AISEMPTY"
+  | AREPLACE -> "AREPLACE"
+  | ASCATTER -> "ASCATTER"
+  | ASETL -> "ASETL"
+  | ASIZE -> "ASIZE"
+  | BOUNDARY -> "BOUNDARY"
+  | CONSTANT -> "CONSTANT"
+  | EQUAL -> "EQUAL"
+  | FDIVIDE -> "FDIVIDE"
+  | FINALVALUE -> "FINALVALUE"
+  | GRAPH -> "GRAPH"
+  | GREATER -> "GREATER"
+  | GREATER_EQUAL -> "GREATER_EQUAL"
+  | IDIVIDE -> "IDIVIDE"
   | INTERNAL -> ""
-  | AGATHER -> "AGATHER"
+  | INVOCATION -> "INVOCATION"
+  | LESSER -> "LESSER"
+  | LESSER_EQUAL -> "LESSER_EQUAL"
+  | MAT -> "MAT"
+  | MATBUILD -> "MATBUILD"
+  | MATSPLAT -> "MATSPLAT"
+  | MULTIARITY -> "MULTIARITY"
+  | NEGATE -> "NEGATE"
+  | NOT -> "NOT"
+  | NOT_EQUAL -> "NOT_EQUAL"
+  | OLD -> "OLD"
+  | OR -> "OR"
+  | RANGEGEN -> "RANGEGEN"
+  | RBUILD -> "RBUILD"
   | REDUCE -> "REDUCE"
   | REDUCELEFT -> "REDUCELEFT"
   | REDUCERIGHT -> "REDUCERIGHT"
   | REDUCETREE -> "REDUCETREE"
+  | RELEMENTS -> "RELEMENTS"
+  | RREPLACE -> "RREPLACE"
+  | SAPPEND -> "SAPPEND"
+  | SBUILD -> "SBUILD"
+  | SELECT -> "SELECT"
   | STREAM -> "STREAM"
-  | FINALVALUE -> "FINALVALUE"
-  | MULTIARITY -> "MULTIARITY"
-  | VEC -> "VEC"
-  | VECSPLAT -> "VECSPLAT"
-  | VECBUILD -> "VECBUILD"
-  | MATSPLAT -> "MATSPLAT"
-  | MATBUILD -> "MATBUILD"
-  | TYPECAST -> "TYPECAST"
-  | ACREATE -> "ACREATE"
-  | MAT -> "MAT"
+  | SUBTRACT -> "SUBTRACT"
   | SWIZZLE -> "SWIZZLE"
+  | TAGCASE -> "TAGCASE"
+  | TIMES -> "TIMES"
+  | TYPECAST -> "TYPECAST"
+  | VAL -> "VAL"
+  | VEC -> "VEC"
+  | VECBUILD -> "VECBUILD"
+  | VECSPLAT -> "VECSPLAT"
 
 and string_of_pragmas p =
   List.fold_right
@@ -2860,7 +2908,7 @@ and string_of_pragmas p =
     p ""
 
 and quick_lookup_native_type a =
-  if a < 72 then rev_lookup_ty_name a else string_of_int a
+  if a < 88 then rev_lookup_ty_name a else string_of_int a
 
 and string_of_if1_ty ity =
   match ity with
@@ -2911,81 +2959,93 @@ and string_of_if1_ty ity =
 
 and string_of_if1_basic_ty bc =
   match bc with
+  | ARRAY -> "ARRAY"
   | BOOLEAN -> "BOOLEAN"
+  | BYTE -> "BYTE"
+  | BYTE16 -> "BYTE16"
+  | BYTE2 -> "BYTE2"
+  | BYTE3 -> "BYTE3"
+  | BYTE4 -> "BYTE4"
+  | BYTE8 -> "BYTE8"
+  | CHAR16 -> "CHAR16"
+  | CHAR2 -> "CHAR2"
+  | CHAR3 -> "CHAR3"
+  | CHAR4 -> "CHAR4"
+  | CHAR8 -> "CHAR8"
   | CHARACTER -> "CHARACTER"
   | DOUBLE -> "DOUBLE"
-  | INTEGRAL -> "INTEGRAL"
-  | NULL -> "NULL"
-  | REAL -> "REAL"
-  | UINT -> "UINT"
-  | SHORT -> "SHORT"
-  | USHORT -> "USHORT"
-  | UCHAR -> "UCHAR"
-  | BYTE -> "BYTE"
-  | UBYTE -> "UBYTE"
-  | HALF -> "HALF"
-  | UNION -> "UNION"
-  | STREAM -> "STREAM"
-  | ARRAY -> "ARRAY"
-  | RECORD -> "RECORD"
-  | BYTE2 -> "BYTE2"
-  | HALF2 -> "HALF2"
-  | SHORT2 -> "SHORT2"
-  | INT2 -> "INT2"
-  | FLOAT2 -> "FLOAT2"
-  | DOUBLE2 -> "DOUBLE2"
-  | UINT2 -> "UINT2"
-  | UBYTE2 -> "UBYTE2"
-  | USHORT2 -> "USHORT2"
-  | BYTE3 -> "BYTE3"
-  | HALF3 -> "HALF3"
-  | SHORT3 -> "SHORT3"
-  | INT3 -> "INT3"
-  | FLOAT3 -> "FLOAT3"
-  | DOUBLE3 -> "DOUBLE3"
-  | UINT3 -> "UINT3"
-  | UBYTE3 -> "UBYTE3"
-  | USHORT3 -> "USHORT3"
-  | BYTE4 -> "BYTE4"
-  | HALF4 -> "HALF4"
-  | SHORT4 -> "SHORT4"
-  | INT4 -> "INT4"
-  | FLOAT4 -> "FLOAT4"
-  | DOUBLE4 -> "DOUBLE4"
-  | UINT4 -> "UINT4"
-  | UBYTE4 -> "UBYTE4"
-  | USHORT4 -> "USHORT4"
-  | BYTE8 -> "BYTE8"
-  | HALF8 -> "HALF8"
-  | SHORT8 -> "SHORT8"
-  | INT8 -> "INT8"
-  | FLOAT8 -> "FLOAT8"
-  | DOUBLE8 -> "DOUBLE8"
-  | UINT8 -> "UINT8"
-  | UBYTE8 -> "UBYTE8"
-  | USHORT8 -> "USHORT8"
-  | BYTE16 -> "BYTE16"
-  | HALF16 -> "HALF16"
-  | SHORT16 -> "SHORT16"
-  | INT16 -> "INT16"
-  | FLOAT16 -> "FLOAT16"
   | DOUBLE16 -> "DOUBLE16"
-  | UINT16 -> "UINT16"
-  | UBYTE16 -> "UBYTE16"
-  | USHORT16 -> "USHORT16"
-  | CHAR2 -> "CHAR2"
-  | UCHAR2 -> "UCHAR2"
-  | CHAR3 -> "CHAR3"
-  | UCHAR3 -> "UCHAR3"
-  | CHAR4 -> "CHAR4"
-  | UCHAR4 -> "UCHAR4"
-  | CHAR8 -> "CHAR8"
-  | UCHAR8 -> "UCHAR8"
-  | CHAR16 -> "CHAR16"
-  | UCHAR16 -> "UCHAR16"
+  | DOUBLE2 -> "DOUBLE2"
+  | DOUBLE3 -> "DOUBLE3"
+  | DOUBLE4 -> "DOUBLE4"
+  | DOUBLE8 -> "DOUBLE8"
+  | FLOAT16 -> "FLOAT16"
+  | FLOAT2 -> "FLOAT2"
+  | FLOAT3 -> "FLOAT3"
+  | FLOAT4 -> "FLOAT4"
+  | FLOAT8 -> "FLOAT8"
+  | HALF -> "HALF"
+  | HALF16 -> "HALF16"
+  | HALF2 -> "HALF2"
+  | HALF3 -> "HALF3"
+  | HALF4 -> "HALF4"
+  | HALF8 -> "HALF8"
+  | INT16 -> "INT16"
+  | INT2 -> "INT2"
+  | INT3 -> "INT3"
+  | INT4 -> "INT4"
+  | INT8 -> "INT8"
+  | INTEGRAL -> "INTEGRAL"
+  | LONG -> "LONG"
+  | LONG16 -> "LONG16"
+  | LONG2 -> "LONG2"
+  | LONG3 -> "LONG3"
+  | LONG4 -> "LONG4"
+  | LONG8 -> "LONG8"
   | MAT2 -> "MAT2"
   | MAT3 -> "MAT3"
   | MAT4 -> "MAT4"
+  | NULL -> "NULL"
+  | REAL -> "REAL"
+  | RECORD -> "RECORD"
+  | SHORT -> "SHORT"
+  | SHORT16 -> "SHORT16"
+  | SHORT2 -> "SHORT2"
+  | SHORT3 -> "SHORT3"
+  | SHORT4 -> "SHORT4"
+  | SHORT8 -> "SHORT8"
+  | STREAM -> "STREAM"
+  | UBYTE -> "UBYTE"
+  | UBYTE16 -> "UBYTE16"
+  | UBYTE2 -> "UBYTE2"
+  | UBYTE3 -> "UBYTE3"
+  | UBYTE4 -> "UBYTE4"
+  | UBYTE8 -> "UBYTE8"
+  | UCHAR -> "UCHAR"
+  | UCHAR16 -> "UCHAR16"
+  | UCHAR2 -> "UCHAR2"
+  | UCHAR3 -> "UCHAR3"
+  | UCHAR4 -> "UCHAR4"
+  | UCHAR8 -> "UCHAR8"
+  | UINT -> "UINT"
+  | UINT16 -> "UINT16"
+  | UINT2 -> "UINT2"
+  | UINT3 -> "UINT3"
+  | UINT4 -> "UINT4"
+  | UINT8 -> "UINT8"
+  | ULONG -> "ULONG"
+  | ULONG16 -> "ULONG16"
+  | ULONG2 -> "ULONG2"
+  | ULONG3 -> "ULONG3"
+  | ULONG4 -> "ULONG4"
+  | ULONG8 -> "ULONG8"
+  | UNION -> "UNION"
+  | USHORT -> "USHORT"
+  | USHORT16 -> "USHORT16"
+  | USHORT2 -> "USHORT2"
+  | USHORT3 -> "USHORT3"
+  | USHORT4 -> "USHORT4"
+  | USHORT8 -> "USHORT8"
 
 and string_of_ports pa =
   "[|" ^ Array.fold_right (fun x y -> cate_nicer x y ",") pa "" ^ "|]"

@@ -448,6 +448,10 @@ and do_constant in_gr xx =
       If1.add_node_2 (`Literal (If1.UINT, string_of_int s, out_port_1)) in_gr
   | Ast.Half f ->
       If1.add_node_2 (`Literal (If1.HALF, string_of_float f, out_port_1)) in_gr
+  | Ast.Long s ->
+      If1.add_node_2 (`Literal (If1.LONG, string_of_int s, out_port_1)) in_gr
+  | Ast.Ulong s ->
+      If1.add_node_2 (`Literal (If1.ULONG, string_of_int s, out_port_1)) in_gr
   | Ast.Double f ->
       If1.add_node_2
         (`Literal (If1.DOUBLE, string_of_float f, out_port_1))
@@ -2214,25 +2218,6 @@ and do_simple_exp in_gr in_sim_ex =
 
       ((mn, mp, mt), in_gr)
   | Invocation (Ast.Function_name fn, arg) -> (
-      (*
-          let find_mangled_intrinsic_inference in_gr func_name arg_types =
-            (* 1. Mangle only the Name and Arguments *)
-            (* Format becomes: _SMOD__V4FV4F__ *)
-            let target_prefix = Printf.sprintf "_S%s__%s__" (String.concat "." f) 
-    (String.concat "" (List.map Ast.get_type_code arg_types)) 
-            in
-
-  let (_, global_syms) = in_gr.symtab in
-
-  (* 2. Find the first entry in the Symbol Map that starts with this prefix *)
-          (* SM.iter or SM.to_seq allows us to peek at the keys *)
-          let result = SM.to_seq global_syms 
-      |> Seq.find (fun (name, _) -> String.starts_with ~prefix:target_prefix name)
-          in
-  match result with
-  | Some (mangled_full, symtab_entry) ->          
-      failwith("reachedn!!!")
-  | _ -> *)
       let deref_fn = String.concat "." fn in
       match deref_fn with
       (*TODO: More libs *)
@@ -2401,7 +2386,7 @@ and do_simple_exp in_gr in_sim_ex =
           in
           let in_gr = add_edges_in_list k123 n1 0 in_gr in
           ((n1, 0, 0), in_gr))
-  | Array_ref (ar_a, ar_b) ->
+  | Array_ref (ar_a, ar_b) as aap ->
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
       let (res_node, res_port, tt), in_gr_res =
         match ar_b with
@@ -2421,6 +2406,9 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ ->
                     raise
                       (If1.outs_graph in_gr;
+                       print_endline
+                         (Ast.str_simple_exp aap ^ " Fails for "
+                        ^ string_of_int att);
                        If1.Sem_error
                          ("Situation:"
                          ^ If1.string_of_if1_ty (If1.lookup_ty att in_gr)))
@@ -3457,17 +3445,14 @@ and redeem_and_merge_library current_gr voucher_info =
         ( If1.SM.add local_name remapped_info (snd (If1.get_symtab current_gr)),
           snd (If1.get_symtab current_gr) );
       If1.typemap = (orig_t_num, upd_typemap, tmn);
-      (* do the type-name to typenum mapping as well *)
     }
   in
-
   (remapped_info, merged_gr)
 
 and do_compilation_unit = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
-      let in_gr = If1.get_empty_graph 1 72 in
-
+      let in_gr = If1.get_empty_graph 1 88 in
       (* Our Chronological Sweep: This is where 'Lexical Reach' is born *)
       let final_gr =
         List.fold_left
@@ -3529,10 +3514,11 @@ and do_internals iin_gr f =
         | Ast.Function_header_nodec (Ast.Function_name fn, _) -> fn
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
-      print_endline ("DO FUNCTION " ^ String.concat "." fn_name);
       let (_, _, fn_ty), new_fun_gr_ =
         do_function_header (If1.get_a_new_graph in_gr) header
       in
+      print_endline ("DO NEW FUNC " ^ String.concat "." fn_name);
+      print_endline (If1.string_of_graph new_fun_gr_);
       let localsyms, globsyms = If1.get_symtab in_gr in
       let in_gr =
         {
