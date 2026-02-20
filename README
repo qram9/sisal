@@ -22,14 +22,14 @@ there is Dr. Andrew Appel's excellent book on CPS.
 The list of articles of interest for this is quite long -- I would recommend going here to get
 the batch - http://kestrel.nmt.edu/~raymond/software/sisal
 
-If you are able to access ACM/IEEE Springer etc through your university or otherwise, do look for as many
+If you are able to access ACM/IEEE Springer etc through your university or otherwise, look for as many
 articles that you may find on SISAL, Id, Single assignment C, early papers about arrays in Haskell,
-several enhancements to add array comprehensions, better controlling SISAL for-all loops' output values,
-ideas for higher order functions, partial application etc. etc. etc. etc.
+several enhancements to add  array comprehensions, better controlling SISAL for-all loops' output values,
+ideas for higher order functions, partial application etc.
 
 My code is written in Ocaml. I could to a reasonable degree use Ocaml's lexer/parser kit
 and one thing lead to another and we are stuck with it.
-I haven't given much thought to the compiler's performance at this time. I have avoided
+I haven't given much thought to the compiler's performance at this time. I have for the most part avoided
 using references or hashtables etc at this time.
 
 I also support displaying with Graphviz- this gave a huge improvement to my productivity.
