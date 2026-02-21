@@ -20,12 +20,6 @@ let padded_lex_msg level fmt =
     then print_string ("              <Matched" ^ str) in
   Format.ksprintf print_at_level fmt
 
-let rec mycou strin last pres cou =
-  (match compare pres last with
-   | 0 -> cou
-   | _ -> (match compare (String.get strin pres) '\n' with
-       | 0 -> mycou strin last (pres+1) (cou+1)
-       | _ -> mycou strin last (pres+1) cou))
 
 module KeywordTable =
   Map.Make(struct
@@ -45,6 +39,8 @@ let keyword_table =
       ("BOOLEAN",BOOLEAN);
       ("CATENATE",CATENATE);
       ("CHARACTER",CHARACTER);
+      ("LONG", LONG_TY);
+      ("ULONG", ULONG_TY);
       ("CROSS",CROSS);
       ("DEFINE",DEFINE);
       ("DOT", DOT);
@@ -198,10 +194,13 @@ and sisal_lex = parse eof {
     EOF
   }
               (* --- 1. Literal Suffixes --- *)
-              | digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ '.' digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ 'd' as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ 'h' as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ ['f' 'F'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ '.' digit+ ['f' 'F'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ '.' digit+ ['d' 'D'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ ['d' 'D'] as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ ['h' 'H'] as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ ['l' 'L'] as lxm { LONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
+              | digit+ ['u' 'U'] ['L' 'l'] as lxm { ULONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
               | '%' {
                   padded_lex_msg 5 "_cmts:>\n";

@@ -132,7 +132,7 @@ and sisal_constant =
   | Float of float
   | Half of float
   | Int of int
-  | Long of int
+  | Long of int64
   | Nil
   | Short of int
   | String of string
@@ -140,7 +140,7 @@ and sisal_constant =
   | Ubyte of int
   | Uchar of int
   | Uint of int
-  | Ulong of int
+  | Ulong of int64
   | Ushort of int
 
 and prefix_name =
@@ -708,7 +708,7 @@ and str_constant = function
   | Float f -> string_of_float f ^ "f"
   | Half h -> string_of_float h ^ "h"
   | Int i -> string_of_int i
-  | Long s -> string_of_int s
+  | Long s -> Int64.to_string s
   | Nil -> "NIL"
   | Short s -> string_of_int s
   | String st -> "\"" ^ st ^ "\""
@@ -716,7 +716,7 @@ and str_constant = function
   | Ubyte b -> "0ub" ^ string_of_int b
   | Uchar i -> string_of_int i
   | Uint i -> string_of_int i
-  | Ulong s -> string_of_int s
+  | Ulong s -> Int64.to_string s
   | Ushort s -> "0s" ^ string_of_int s
 
 and str_val = function Value_name vl -> String.concat "." vl
