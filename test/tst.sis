@@ -1,7 +1,7 @@
 
 Define  Main
 
-function Main( n,m:integer returns integer)
+function Main( n,m:ulong2 returns ulong8)
 let x := 1;
     y,z := let x := 2;
              y := 3

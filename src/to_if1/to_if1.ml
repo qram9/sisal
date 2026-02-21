@@ -449,9 +449,9 @@ and do_constant in_gr xx =
   | Ast.Half f ->
       If1.add_node_2 (`Literal (If1.HALF, string_of_float f, out_port_1)) in_gr
   | Ast.Long s ->
-      If1.add_node_2 (`Literal (If1.LONG, string_of_int s, out_port_1)) in_gr
+      If1.add_node_2 (`Literal (If1.LONG, Int64.to_string s, out_port_1)) in_gr
   | Ast.Ulong s ->
-      If1.add_node_2 (`Literal (If1.ULONG, string_of_int s, out_port_1)) in_gr
+      If1.add_node_2 (`Literal (If1.ULONG, Int64.to_string s, out_port_1)) in_gr
   | Ast.Double f ->
       If1.add_node_2
         (`Literal (If1.DOUBLE, string_of_float f, out_port_1))

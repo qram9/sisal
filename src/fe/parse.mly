@@ -37,6 +37,8 @@ let parse_msg level fmt =
 %token SHL
 %token SHR
 %token<string> PREDEF_FN
+%token<int64> LONG
+%token<int64> ULONG
 %token<int> INT
 %token<int> BYTE
 %token<int> UBYTE
@@ -86,6 +88,8 @@ let parse_msg level fmt =
 %token SHORT_TY
 %token USHORT_TY
 %token UBYTE_TY
+%token LONG_TY
+%token ULONG_TY
 %token REAL
 %token RECORD
 %token REPEAT
@@ -763,6 +767,8 @@ prefix_name :
         | UBYTE {Ubyte_prefix}
         | HALF {Half_prefix}
         | UCHAR {Uchar_prefix}
+        | ULONG {Ulong_prefix}
+        | LONG {Long_prefix}
 ;
 
 constant : FALSE
@@ -789,6 +795,10 @@ constant : FALSE
   { Char $1 }
 | UCHAR
   { Uchar $1 }
+| LONG
+  { Long $1 }
+| ULONG
+  { Ulong $1 }
 | STRING
   { String $1 }
 | ERROR LBRACK type_spec RBRACK
@@ -826,12 +836,14 @@ basic_type_spec :
 | INTEGER         { Integer }
 | NULL            { Null }
 | REAL            { Real }
-| BYTE_TY            { Byte_ty}
-| HALF_TY            { Half_ty }
-| UINT_TY            { Uint_ty }
-| SHORT_TY           { Short_ty }
-| USHORT_TY          { Ushort_ty }
-| UBYTE_TY           { Ubyte_ty }
+| BYTE_TY         { Byte_ty}
+| HALF_TY         { Half_ty }
+| UINT_TY         { Uint_ty }
+| SHORT_TY        { Short_ty }
+| USHORT_TY       { Ushort_ty }
+| UBYTE_TY        { Ubyte_ty }
+| LONG_TY         { Long_ty }
+| ULONG_TY        { Ulong_ty }
 | DOUBLE          { Double_real } 
 ;
 

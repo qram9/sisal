@@ -1610,6 +1610,8 @@ and is_integral_type gg =
       | USHORT -> true
       | UINT -> true
       | UBYTE -> true
+      | LONG -> true
+      | ULONG -> true
       | _ -> false)
   | _ -> false
 
