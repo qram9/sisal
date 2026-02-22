@@ -82,15 +82,15 @@ let parse_msg level fmt =
 %token OF
 %token OLD
 %token OTHERWISE
+%token UCHAR_TY
 %token UINT_TY
 %token BYTE_TY
 %token HALF_TY
 %token SHORT_TY
 %token USHORT_TY
 %token UBYTE_TY
-%token LONG_TY
-%token ULONG_TY
 %token REAL
+%token FLOAT_TY
 %token RECORD
 %token REPEAT
 %token REPLACE
@@ -148,6 +148,18 @@ let parse_msg level fmt =
 %token HALF2_TY
 %token SHORT2_TY
 %token INT2_TY
+%token LONG_TY
+%token LONG2_TY
+%token LONG3_TY
+%token LONG4_TY
+%token LONG8_TY
+%token LONG16_TY
+%token ULONG_TY
+%token ULONG2_TY
+%token ULONG3_TY
+%token ULONG4_TY
+%token ULONG8_TY
+%token ULONG16_TY
 %token FLOAT2_TY
 %token DOUBLE2_TY
 %token UINT2_TY
@@ -751,24 +763,22 @@ prefix_operation :
   prefix_name LPAREN expression RPAREN
     { Prefix_operation ($1,$3) }
 ;
+
 prefix_name :
-  CHARACTER
-    { Char_prefix }
-| DOUBLE_REAL
-  { Double_prefix }
-| INTEGER
-  { Integer_prefix }
-| REAL
-  { Real_prefix }
-        | UINT {Uint_prefix }
-        | SHORT {Short_prefix }
-        | USHORT {Ushort_prefix }
-        | BYTE {Byte_prefix}
-        | UBYTE {Ubyte_prefix}
-        | HALF {Half_prefix}
-        | UCHAR {Uchar_prefix}
-        | ULONG {Ulong_prefix}
-        | LONG {Long_prefix}
+  CHARACTER   { Char_prefix }
+| DOUBLE_REAL { Double_prefix }
+| INTEGER     { Integer_prefix }
+| REAL        { Real_prefix }
+| FLOAT_TY    { Real_prefix }
+| UINT_TY     { Uint_prefix }
+| SHORT_TY    { Short_prefix }
+| USHORT_TY   { Ushort_prefix }
+| BYTE_TY     { Byte_prefix }
+| UBYTE_TY    { Ubyte_prefix }
+| HALF_TY     { Half_prefix }
+| UCHAR_TY    { Uchar_prefix }
+| ULONG_TY    { Ulong_prefix }
+| LONG_TY     { Long_prefix }
 ;
 
 constant : FALSE
@@ -781,6 +791,8 @@ constant : FALSE
   { Int $1 }
 | FLOAT
   { Float $1 }
+| DOUBLE
+  { Double $1 }
 | UINT
   { Uint $1 }
 | BYTE
@@ -845,6 +857,7 @@ basic_type_spec :
 | LONG_TY         { Long_ty }
 | ULONG_TY        { Ulong_ty }
 | DOUBLE          { Double_real } 
+| UCHAR_TY        { Uchar_ty }
 ;
 
 mat_type:
@@ -874,6 +887,10 @@ vec_type:
   | UBYTE8_TY   { Ubyte8 }  | UBYTE16_TY  { Ubyte16 }
   | USHORT2_TY  { Ushort2 } | USHORT3_TY  { Ushort3 } | USHORT4_TY  { Ushort4 }
   | USHORT8_TY  { Ushort8 } | USHORT16_TY { Ushort16 }
+  | LONG2_TY {Long2 } | LONG3_TY { Long3} | LONG4_TY { Long4 } | LONG8_TY { Long8 }
+  | LONG16_TY { Long16 }
+  | ULONG2_TY {Ulong2 } | ULONG3_TY { Ulong3} | ULONG4_TY { Ulong4 } | ULONG8_TY { Ulong8 }
+  | ULONG16_TY { Ulong16 }
 ;
 names : names COMMA NAME
     { $3 :: $1 }
