@@ -125,8 +125,8 @@ type node_sym =
   | TYPECAST
   | VAL
   | VEC
-  | VECBUILD
-  | VECSPLAT
+  | VBUILD
+  | VSPLAT
 
 type comment = C of string | CDollar of string
 
@@ -741,7 +741,7 @@ and initialize_exp_info es nm =
         | Compound (_, _, _, _, _, _) -> GRAPH
       in
 
-      if xn != GRAPH && yn != GRAPH then
+      if xn <> GRAPH && yn <> GRAPH then
         (* True body when xn and yn are not GRAPHS *)
         let map_succ =
           match IntMap.mem x map_succ with
@@ -1247,9 +1247,9 @@ and is_vector_type = function
       | USHORT4 | USHORT8 | USHORT16 | UINT2 | UINT3 | UINT4 | UINT8 | UINT16
       | LONG2 | LONG3 | LONG4 | LONG8 | LONG16 | ULONG2 | ULONG3 | ULONG4
       | ULONG8 | ULONG16 ->
-          True
-      | _ -> False)
-  | _ -> False
+          true
+      | _ -> false)
+  | _ -> false
 
 and get_byte_vec_type l =
   match l with
@@ -1519,7 +1519,7 @@ and set_in_port dst_nod dst_port src_nn =
   match dst_nod with
   | Literal (_, _, _, _) -> dst_nod
   | Simple (lab, n, pin, pout, prag) ->
-      if pin.(dst_port) != "" then raise (Node_not_found "in_port set already")
+      if pin.(dst_port) <> "" then raise (Node_not_found "in_port set already")
       else Simple (lab, n, safe_set_arr src_nn dst_port pin, pout, prag)
   | Compound (_, _, _, _, _, _) -> dst_nod
   | Boundary _ -> dst_nod
@@ -1610,6 +1610,8 @@ and is_integral_type gg =
       | USHORT -> true
       | UINT -> true
       | UBYTE -> true
+      | LONG -> true
+      | ULONG -> true
       | _ -> false)
   | _ -> false
 
@@ -2029,7 +2031,9 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
   | Simple (_, MULTIARITY, _, _, _) ->
       let ending_at = all_edges_ending_at_port n1 p1 in_gr in
       let nes =
-        if ES.cardinal ending_at != 1 then raise (Sem_error "Incoming problem")
+        if ES.cardinal ending_at <> 1 then
+          raise
+            (Sem_error "Incoming problem - all fan-ins must be exactly 1 or 0")
         else
           let nending_at =
             ES.fold
@@ -2245,16 +2249,26 @@ and add_each_in_list in_gr ex lasti appl =
       let (lasti, _, _), in_gr_ = appl in_gr hde in
       add_each_in_list in_gr_ tl lasti appl
 
+and is_multiarity nodenum in_gr =
+  match get_node nodenum in_gr with
+  | Simple (_, MULTIARITY, _, _, _) -> true
+  | _ -> false
+
 and range a b = if a >= b then [] else a :: range (a + 1) b
 
-and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
-  match get_node in_n in_gr with
-  | Simple (_, MULTIARITY, _, _, _) ->
-      let ll = range 0 (ES.cardinal (all_edges_ending_at in_n in_gr)) in
-      List.fold_right
-        (fun x igr -> add_edge in_n x out_n (out_p + x) tt1 igr)
-        (List.rev ll) in_gr
-  | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
+and incoming_type_at_port n2 p2 in_gr =
+  let pe = get_edge_set in_gr in
+  let edges = ES.filter (fun ((_, _), (y, yp), _) -> y = n2 && yp = p2) pe in
+
+  match ES.cardinal edges with
+  | 0 -> None
+  | 1 ->
+      let _, _, ty_id = ES.choose edges in
+      Some ty_id
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Fan-in violation: Multiple types reaching Node %d Port %d" n2 p2)
 
 and add_each_in_list_to_node olis in_gr ex out_e ni appl =
   match ex with
@@ -2262,17 +2276,34 @@ and add_each_in_list_to_node olis in_gr ex out_e ni appl =
   | hde :: tl ->
       let (lasti, pp, tt1), in_gr_ = appl in_gr hde in
       let in_gr_ = add_edge_multiarity lasti pp out_e ni tt1 in_gr_ in
-      add_each_in_list_to_node ((lasti, pp, tt1) :: olis) in_gr_ tl out_e
-        (ni + 1) appl
+      (* REFINED WIDTH: Check how many ports were actually wired forward *)
+      let width =
+        if is_multiarity lasti in_gr_ then
+          ES.cardinal (all_edges_ending_at lasti in_gr_)
+        else 1
+      in
 
-and add_each_in_list_to_node_and_get_types olis in_gr ex out_e ni appl =
-  match ex with
-  | [] -> (olis, in_gr)
-  | hde :: tl ->
-      let (lasti, pp, tt1), in_gr_ = appl in_gr hde in
-      let in_gr_ = add_edge lasti pp out_e ni tt1 in_gr_ in
-      add_each_in_list_to_node_and_get_types (tt1 :: olis) in_gr_ tl out_e
-        (ni + 1) appl
+      add_each_in_list_to_node ((lasti, pp, tt1) :: olis) in_gr_ tl out_e
+        (ni + width) appl
+
+and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
+  match get_node in_n in_gr with
+  | Simple (_, MULTIARITY, _, _, _) ->
+      let ll = range 0 (ES.cardinal (all_edges_ending_at in_n in_gr)) in
+      (* Use fold_left for naturally ordered port assignment *)
+      List.fold_left
+        (fun igr x ->
+          let inc_type =
+            match incoming_type_at_port in_n x igr with
+            | Some typ -> typ
+            | None ->
+                failwith
+                  ("Type stall: missing type at MULTIARITY port "
+                 ^ string_of_int x)
+          in
+          add_edge in_n x out_n (out_p + x) inc_type igr)
+        in_gr ll
+  | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
 
 (* this function just mixes up two typemaps together - in case of the local_tytab and global_tytab scenario it may just mix up the local ty tab and return *)
 and get_types_from_graph g inc_blob =
@@ -2417,20 +2448,20 @@ and lookup_ty ij in_gr =
     print_endline ("When looking up " ^ string_of_int ij);
     raise (Sem_error "Error looking up type")
 
+and find_ty_safe_opt in_gr aty =
+  let _, tm, _ = get_typemap in_gr in
+  match TM.to_seq tm |> Seq.find (fun (_, va) -> va = aty) with
+  | Some (id, _) -> Some id
+  | None -> None
+
 and find_ty_safe in_gr aty =
-  let tm = get_typemap_tm in_gr in
-  let lookin_vals =
-    try
-      TM.fold
-        (fun ke va z -> if aty = va then raise (Val_is_found ke) else z)
-        tm 0
-    with Val_is_found ke -> ke
-  in
-  if lookin_vals = 0 then
-    raise
-      (Node_not_found
-         ("Type not found by find_ty in typemap: " ^ string_of_if1_ty aty))
-  else lookin_vals
+  let _, tm, _ = get_typemap in_gr in
+  match TM.to_seq tm |> Seq.find (fun (_, va) -> va = aty) with
+  | Some (id, _) -> id
+  | None ->
+      raise
+        (Node_not_found
+           ("Type not found by find_ty in typemap: " ^ string_of_if1_ty aty))
 
 and find_ty in_gr aty =
   let tm = get_typemap_tm in_gr in
@@ -2748,8 +2779,8 @@ and num_to_node_sym = function
   | 52 -> SWIZZLE
   | 53 -> VEC
   | 54 -> MAT
-  | 55 -> VECSPLAT
-  | 56 -> VECBUILD
+  | 55 -> VSPLAT
+  | 56 -> VBUILD
   | 57 -> MATSPLAT
   | 58 -> MATBUILD
   | 59 -> TYPECAST
@@ -2818,8 +2849,8 @@ and node_sym_to_num = function
   | TYPECAST -> 59
   | VAL -> 4
   | VEC -> 54
-  | VECBUILD -> 56
-  | VECSPLAT -> 55
+  | VBUILD -> 56
+  | VSPLAT -> 55
 
 and string_of_node_sym = function
   | AADDH -> "AADDH"
@@ -2882,8 +2913,8 @@ and string_of_node_sym = function
   | TYPECAST -> "TYPECAST"
   | VAL -> "VAL"
   | VEC -> "VEC"
-  | VECBUILD -> "VECBUILD"
-  | VECSPLAT -> "VECSPLAT"
+  | VBUILD -> "VBUILD"
+  | VSPLAT -> "VSPLAT"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3252,7 +3283,7 @@ and string_of_if1_value_out tm = function
         | true -> string_of_if1_ty (TM.find ii tm)
         | false -> ""
       in
-      if jj != 0 then
+      if jj <> 0 then
         "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ","
         ^ string_of_int p ^ ")}"
       else ""
@@ -3406,6 +3437,40 @@ and symtab_printer fmt (cs, ps, tm) =
 and outs_syms { nmap = _; eset = _; symtab = cs, ps; typemap = _, tm, _; w = _ }
     =
   symtab_printer Format.std_formatter (cs, ps, tm)
+
+and string_of_triples_list in_gr triplets =
+  let _, tm, _ = in_gr.typemap in
+
+  let string_of_triple (n_idx, p_idx, t_idx) =
+    (* 1. Resolve Node Name (Opcode) *)
+    let node_name =
+      try
+        let node_data = NM.find n_idx in_gr.nmap in
+        match node_data with
+        | Simple (_, sym, _, _, _) -> string_of_node_sym sym
+        | Literal (_, _, val_str, _) -> "LITERAL(" ^ val_str ^ ")"
+        | Compound (_, sym, _, _, _, _) ->
+            "COMPOUND(" ^ string_of_node_sym sym ^ ")"
+        | Boundary _ -> "BOUNDARY"
+        | Unknown_node -> "UNKNOWN"
+      with Not_found -> "NODE_NOT_FOUND(" ^ string_of_int n_idx ^ ")"
+    in
+
+    (* 2. Resolve Type Name from Typemap *)
+    let type_name =
+      try
+        let ty_struct = TM.find t_idx tm in
+        string_of_if1_ty ty_struct
+      with Not_found -> "TYPE_NOT_FOUND(" ^ string_of_int t_idx ^ ")"
+    in
+
+    (* 3. Format the triple string *)
+    Printf.sprintf "[Node: %s (#%d) | Port: %d | Type: %s (#%d)]" node_name
+      n_idx p_idx type_name t_idx
+  in
+
+  (* Join all triples into a single block of text *)
+  String.concat "\n    " (List.map string_of_triple triplets)
 
 and bind_name nam (n, p, ty) in_gr =
   let cs, ps = get_symtab in_gr in

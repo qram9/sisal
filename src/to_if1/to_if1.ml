@@ -449,9 +449,9 @@ and do_constant in_gr xx =
   | Ast.Half f ->
       If1.add_node_2 (`Literal (If1.HALF, string_of_float f, out_port_1)) in_gr
   | Ast.Long s ->
-      If1.add_node_2 (`Literal (If1.LONG, string_of_int s, out_port_1)) in_gr
+      If1.add_node_2 (`Literal (If1.LONG, Int64.to_string s, out_port_1)) in_gr
   | Ast.Ulong s ->
-      If1.add_node_2 (`Literal (If1.ULONG, string_of_int s, out_port_1)) in_gr
+      If1.add_node_2 (`Literal (If1.ULONG, Int64.to_string s, out_port_1)) in_gr
   | Ast.Double f ->
       If1.add_node_2
         (`Literal (If1.DOUBLE, string_of_float f, out_port_1))
@@ -543,7 +543,7 @@ and add_exp in_gr ex _ ret_lis =
       If1.MULTIARITY. *)
   match ex with
   | [] ->
-      if List.length ret_lis != 0 then
+      if List.length ret_lis <> 0 then
         let in_port_1 =
           let in_array = Array.make (List.length ret_lis) "" in
           in_array
@@ -1192,7 +1192,7 @@ and do_decldef in_gr delc =
     match atyp with
     | Some atype ->
         let (_, _, typenum), in_gr = If1.add_sisal_type in_gr atype in
-        if typenum != expty then
+        if typenum <> expty then
           raise
             (If1.outs_graph in_gr;
              print_string " Inferred type: ";
@@ -1323,7 +1323,7 @@ and check_decl_type atyp expty in_gr =
   match atyp with
   | Some atype ->
       let (_, _, typenum), in_gr = If1.add_sisal_type in_gr atype in
-      if typenum != expty then
+      if typenum <> expty then
         raise
           (If1.outs_graph in_gr;
            print_endline (If1.str_type_trace ());
@@ -1699,7 +1699,7 @@ and check_subgr_tys ingr msg jj prev =
       else
         let fst = If1.IntMap.find curr jj in
         let snd = If1.IntMap.find curr prev in
-        if fst != snd then
+        if fst <> snd then
           failwith
             (If1.outs_graph ingr;
              Printf.sprintf "Mismatched types "
@@ -2151,7 +2151,7 @@ and do_simple_exp in_gr in_sim_ex =
       let ports_info = List.rev ports_info in
 
       (* 4. Determine Opcode *)
-      let opcode = if actual_len = 1 then If1.VECSPLAT else If1.VECBUILD in
+      let opcode = if actual_len = 1 then If1.VSPLAT else If1.VBUILD in
 
       (* 5. Create Node and Edges *)
       let (vn, vp, _), in_gr =
@@ -2516,7 +2516,8 @@ and do_simple_exp in_gr in_sim_ex =
       ((oa, oup, arr_type), in_gr)
   | Ast.Record_ref (e, fn) ->
       let (ain, apo, tt1), in_gr = do_simple_exp in_gr e in
-      if If1.is_vector_type (If1.lookup_ty tt1 in_gr) = True then
+      let input_type = If1.lookup_ty tt1 in_gr in
+      if If1.is_vector_type input_type = true then
         let fn = Ast.str_field_name fn in
         let indices = crack_swizzle_mask (String.lowercase_ascii fn) in
         let (en, ep, input_ty), in_gr = ((ain, apo, tt1), in_gr) in
@@ -2959,7 +2960,7 @@ and do_simple_exp in_gr in_sim_ex =
                    If1.val_def = dd;
                    If1.def_port = dp;
                  } (op, out_gr) ->
-              if dd != 0 then (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
+              if dd <> 0 then (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
               else (op, out_gr))
             cs
             (If1.boundary_in_port_count out_gr, out_gr)
@@ -3497,17 +3498,80 @@ and do_compilation_unit = function
       (* Return our finished graph containing all our IF1 subgraphs *)
       final_gr
 
+and verify_function_returns fn_ty_id in_gr =
+  let _, tm, _ = If1.get_typemap in_gr in
+
+  (* 1. Extract the Return Tuple ID from the Function Type *)
+  let ret_tuple_id =
+    match If1.TM.find_opt fn_ty_id tm with
+    | Some (Function_ty (_, r, _)) -> r
+    | _ ->
+        raise
+          (If1.Sem_error
+             "verify_function_returns: fn_ty_id is not a Function_ty")
+  in
+
+  (* 2. Flatten the Tuple into a list of expected Type IDs *)
+  let rec get_expected_ids tid =
+    if tid = 0 then [] (* End of tuple *)
+    else
+      match If1.TM.find_opt tid tm with
+      | Some (Tuple_ty (ty, next)) -> ty :: get_expected_ids next
+      | Some _ -> [ tid ] (* Single return value case *)
+      | None ->
+          raise
+            (If1.Sem_error
+               ("Missing tuple/type definition for ID: " ^ string_of_int tid))
+  in
+  let expected_ids = get_expected_ids ret_tuple_id in
+
+  (* 3. Get the actual edges reaching the boundary node (ID 0) *)
+  (* all_edges_ending_at_ports_types returns (port_idx * type_id) list *)
+  let actual_edges = If1.all_edges_ending_at_ports_types 0 in_gr in
+
+  (* Sort by port index to ensure we are matching in order *)
+  let actual_ids =
+    actual_edges
+    |> List.sort (fun (p1, _) (p2, _) -> compare p1 p2)
+    |> List.map snd
+  in
+
+  (* 4. THE VALIDATION CHECK *)
+  if List.length expected_ids <> List.length actual_ids then
+    raise
+      (If1.Sem_error
+         (Printf.sprintf
+            "Return Arity Mismatch: Header expects %d values, but graph \
+             returns %d"
+            (List.length expected_ids) (List.length actual_ids)))
+  else
+    List.iter2
+      (fun exp act ->
+        if exp <> act then
+          raise
+            (If1.Sem_error
+               (Printf.sprintf
+                  "Return Type Mismatch: Expected %s (#%d), but found %s (#%d)"
+                  (If1.rev_lookup_ty_name exp)
+                  exp
+                  (If1.rev_lookup_ty_name act)
+                  act)))
+      expected_ids actual_ids;
+
+  print_endline "VALIDATION SUCCESS: Function returns match signature."
+
 and do_type_def in_gr = function
   | Type_def (n, t) ->
-      let _, in_gr = If1.add_sisal_typename in_gr n 0 in
+      let _, in_gr = If1.add_sisal_typename in_gr n (-1) in
+      (* -1 is for not
+                                                               yet defined *)
       let (id_t, ii, tt), in_gr = If1.add_sisal_type in_gr t in
       let id_, in_gr = If1.add_sisal_typename in_gr n tt in
       ((id_t, ii, id_), in_gr)
 
-and do_internals iin_gr f =
-  let names, in_gr = iin_gr in
+and do_internals (names, in_gr) f =
   match f with
-  | [] -> iin_gr
+  | [] -> (names, in_gr)
   | Ast.Function_single (header, tdefs, nest, e) :: tl ->
       let fn_name =
         match header with
@@ -3515,10 +3579,10 @@ and do_internals iin_gr f =
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
       let (_, _, fn_ty), new_fun_gr_ =
-        do_function_header (If1.get_a_new_graph in_gr) header
+        do_function_header
+          (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
+          header
       in
-      print_endline ("DO NEW FUNC " ^ String.concat "." fn_name);
-      print_endline (If1.string_of_graph new_fun_gr_);
       let localsyms, globsyms = If1.get_symtab in_gr in
       let in_gr =
         {
@@ -3569,6 +3633,7 @@ and do_internals iin_gr f =
         | Empty -> ([], new_fun_gr_)
       in
       let new_fun_gr_ = If1.graph_clean_multiarity new_fun_gr_ in
+      let () = verify_function_returns fn_ty new_fun_gr_ in
       let (aa, bb, _), in_gr =
         If1.add_node_2
           (`Compound

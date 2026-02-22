@@ -20,12 +20,6 @@ let padded_lex_msg level fmt =
     then print_string ("              <Matched" ^ str) in
   Format.ksprintf print_at_level fmt
 
-let rec mycou strin last pres cou =
-  (match compare pres last with
-   | 0 -> cou
-   | _ -> (match compare (String.get strin pres) '\n' with
-       | 0 -> mycou strin last (pres+1) (cou+1)
-       | _ -> mycou strin last (pres+1) cou))
 
 module KeywordTable =
   Map.Make(struct
@@ -44,17 +38,22 @@ let keyword_table =
       ("AT",AT);
       ("BOOLEAN",BOOLEAN);
       ("CATENATE",CATENATE);
+      ("CHAR",CHARACTER);
       ("CHARACTER",CHARACTER);
+      ("LONG", LONG_TY);
+      ("ULONG", ULONG_TY);
       ("CROSS",CROSS);
       ("DEFINE",DEFINE);
       ("DOT", DOT);
       ("DOUBLE_REAL",DOUBLE_REAL);
+      ("DOUBLE",DOUBLE_REAL);
       ("ELSE",ELSE);
       ("ELSEIF",ELSEIF);
       ("END",END);
       ("ERROR",ERROR);
       ("FALSE",FALSE);
       ("FOR",FOR);
+      ("FLOAT", REAL);
       ("FORWARD",FORWARD);
       ("FUNCTION",FUNCTION);
       ("GLOBAL",GLOBAL);
@@ -106,6 +105,16 @@ let keyword_table =
       ("MAT2", MAT2_TY);   
       ("MAT3", MAT3_TY);   
       ("MAT4", MAT4_TY);   
+      ("LONG2", LONG2_TY);
+      ("ULONG2", ULONG2_TY);
+      ("LONG3", LONG3_TY);
+      ("ULONG3", ULONG3_TY);
+      ("LONG4", LONG4_TY);
+      ("ULONG4", ULONG4_TY);
+      ("LONG8", LONG8_TY);
+      ("ULONG8", ULONG8_TY);
+      ("LONG16", LONG16_TY);
+      ("ULONG16", ULONG16_TY);
     ]
 
 let predef_fn_table =
@@ -141,21 +150,16 @@ let predef_fn_table =
 }
 let digit = ['0'-'9']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
-          let dec = digit+
-                    (*            let flonum = (['+' '-']?)*)
-                    let flonum = ['0'-'9']+
-                                 '.'
-                                   ['0'-'9']*
-                                 (['e' 'E']?
-                                    ['+' '-']?
-                                    ['0'-'9']+)*
-
-                                 let negnum = '-'? dec
-let negflonum = '-'? flonum
+let dec = digit+
+let exp = ['e' 'E'] ['+' '-']? digit+
+let flonum = (digit+ '.' digit* | '.' digit+ | digit+) exp
+           | digit+ '.' digit*
+           | '.' digit+
+                        
 
 let alpha = ['a'-'z' 'A'-'Z']
 let id = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '_' '0'-'9']*
-         let match_char = '\'' ['a'-'z'] '\''
+let match_char = '\'' ['a'-'z'] '\''
 
 let string_chars =  (
   ['a'-'z' 'A'-'Z'
@@ -197,98 +201,115 @@ and
 and sisal_lex = parse eof {
     EOF
   }
-              (* --- 1. Literal Suffixes --- *)
-              | digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ '.' digit+ 'f' as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ 'd' as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-              | digit+ 'h' as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+ (* LONG: Handles -123L, 0x123L, -0x123L *)
+ |  digit+ ['l' 'L'] as lxm 
+   { LONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
+ | hex as h { INT (int_of_string h) }
+ | hex ['l' 'L'] as lxm 
+   { LONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
-              | '%' {
-                  padded_lex_msg 5 "_cmts:>\n";
-                  read_comment lexbuf
-                }
-              | '\"' { 
-                padded_lex_msg 5 "_string: starting recursive read...>\n";
-                read_string "" lexbuf 
-              }
-              | match_char as ch
-              {
-                padded_lex_msg 5 "_char: %s>\n" ch;
-                CHAR ch
-              }
-              | ([' ' '\t'])+ as spaces {
-                  padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
-                  sisal_lex lexbuf
-                }
-              | ('\n')  as mynewlines {
-                padded_lex_msg 5 ": newline %c>\n" mynewlines;
-                Lexing.new_line lexbuf;
-                sisal_lex lexbuf
-              }
-              | flonum as f {
-                padded_lex_msg 5 ": %s>\n" f;
-                FLOAT (float_of_string f)
-              }
-              | dec as d {
-                padded_lex_msg 5 ": %s>\n" d;
-                INT (int_of_string d)
-              }
+ (* ULONG: Strictly positive (Unsigned) *)
+ | (digit+ | hex) (['u' 'U'] ['l' 'L'] | ['l' 'L'] ['u' 'U']) as lxm
+   { ULONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 2))) }
 
-              | "INCLUDE" { 
-                padded_lex_msg 5 "_include_start:>\n";
-                (* Use our 'Bucket' worker to get the filename! *)
-                match read_string "" lexbuf with
-                | STRING file -> 
-                  let chan = open_in file in
-                  let new_lb = Lexing.from_channel chan in
-                  (* Tell the new belt its name for error messages *)
-                  new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
-                  include_stack := (lexbuf, chan) :: !include_stack;
-                  sisal_lex new_lb (* Teleport! *)
-                | _ -> lex_error lexbuf
-              }
+ (* DOUBLE: Handles -1.23D, -123D *)
+ | (digit+ ('.' digit*)? | '.' digit+) exp? ['d' 'D'] as lxm
+   { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
-              | id as ident_or_kw {
-                let lookup_name = String.uppercase_ascii ident_or_kw in
-                try
-                  (* 1. Check the primary keyword table (IF, LET, etc.) *)
-                  let k = KeywordTable.find lookup_name keyword_table in
-                  padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
-                  k
-                with Not_found ->
-                  (* 2. It's a user-defined variable name *)
-                  padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
-                  NAME lookup_name
-              }
-              | ',' {padded_lex_msg 5 " , >\n"; COMMA}
-              | '"' ([^ '"']* as s) '"' { STRING s }
-              | '.' {padded_lex_msg 5 " . >\n"; DOTSTOP}
-              | "<=" {padded_lex_msg 5 " <=\n"; LE}
-              | "<" {padded_lex_msg 5 " <=\n"; LT}
-              | ">=" {padded_lex_msg 5 " <=\n"; GE}
-              | ">" {padded_lex_msg 5 " <=\n"; GT}
-              | "<<" {padded_lex_msg 5 " << >\n"; SHL}
-              | ">>" {padded_lex_msg 5 " >> >\n"; SHR}
-              | '*' {padded_lex_msg 5 " * >\n"; STAR}
-              | '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
-              | '+' {padded_lex_msg 5 " + >\n"; PLUS}
-              | '-' {padded_lex_msg 5 " - >\n"; MINUS}
-              | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
-              | ')' {padded_lex_msg 5 " ) >\n"; RPAREN}
-              | '[' {padded_lex_msg 5 " [ >\n"; LBRACK}
-              | ']' {padded_lex_msg 5 " ] >\n"; RBRACK}
-              | '=' {padded_lex_msg 5 " ] >\n"; EQ}
-              | ":=" {padded_lex_msg 5 " := >\n"; ASSIGN}
-              | ':' {padded_lex_msg 5 " : >\n"; COLON}
-              | "||" {padded_lex_msg 5 " || >\n"; PIPE}
-              | '|' {padded_lex_msg 5 " | >\n"; OR}
-              | "~=" {padded_lex_msg 5 " ~ >\n"; NE}
-              | '~' {padded_lex_msg 5 " ~ >\n"; NOT}
-              | '&' {padded_lex_msg 5 " & >\n"; AND}
-              | [';'] {
-                padded_lex_msg 5 " ; >\n";
-                SEMICOLON
-              } | _ {  lex_error lexbuf }
-                {
-                  let get_lex_buf = Lexing.from_channel stdin
-                }
+ (* FLOAT: Handles -1.23F, -123F *)
+ | (digit+ ('.' digit*)? | '.' digit+) exp? ['f' 'F'] as lxm
+   { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+
+ (* HALF: Handles -1.23H, -123H *)
+ | (digit+ ('.' digit*)? | '.' digit+) exp? ['h' 'H'] as lxm(* DOUBLE: Handles -1.23D, -123D *)
+   { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
+
+ | '%' {
+     padded_lex_msg 5 "_cmts:>\n";
+     read_comment lexbuf
+   }
+ | '\"' { 
+     padded_lex_msg 5 "_string: starting recursive read...>\n";
+     read_string "" lexbuf 
+   }
+ | match_char as ch
+   {
+     padded_lex_msg 5 "_char: %s>\n" ch;
+     CHAR ch
+   }
+ | ([' ' '\t'])+ as spaces {
+     padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
+     sisal_lex lexbuf
+   }
+ | ('\n')  as mynewlines {
+     padded_lex_msg 5 ": newline %c>\n" mynewlines;
+     Lexing.new_line lexbuf;
+     sisal_lex lexbuf
+   }
+ |  flonum as f {
+     padded_lex_msg 5 ": %s>\n" f;
+     FLOAT (float_of_string f)
+   }
+ |  dec as d {
+     padded_lex_msg 5 ": %s>\n" d;
+     INT (int_of_string d)
+   }
+
+ | "INCLUDE" { 
+     padded_lex_msg 5 "_include_start:>\n";
+     (* Use our 'Bucket' worker to get the filename! *)
+     match read_string "" lexbuf with
+     | STRING file -> 
+       let chan = open_in file in
+       let new_lb = Lexing.from_channel chan in
+       (* Tell the new belt its name for error messages *)
+       new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
+       include_stack := (lexbuf, chan) :: !include_stack;
+       sisal_lex new_lb (* Teleport! *)
+     | _ -> lex_error lexbuf
+   }
+
+ | id as ident_or_kw {
+     let lookup_name = String.uppercase_ascii ident_or_kw in
+     try
+       (* 1. Check the primary keyword table (IF, LET, etc.) *)
+       let k = KeywordTable.find lookup_name keyword_table in
+       padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
+       k
+     with Not_found ->
+       (* 2. It's a user-defined variable name *)
+       padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
+       NAME lookup_name
+   }
+ | ',' {padded_lex_msg 5 " , >\n"; COMMA}
+ | '"' ([^ '"']* as s) '"' { STRING s }
+ | '.' {padded_lex_msg 5 " . >\n"; DOTSTOP}
+ | "<=" {padded_lex_msg 5 " <=\n"; LE}
+ | "<" {padded_lex_msg 5 " <=\n"; LT}
+ | ">=" {padded_lex_msg 5 " <=\n"; GE}
+ | ">" {padded_lex_msg 5 " <=\n"; GT}
+ | "<<" {padded_lex_msg 5 " << >\n"; SHL}
+ | ">>" {padded_lex_msg 5 " >> >\n"; SHR}
+ | '*' {padded_lex_msg 5 " * >\n"; STAR}
+ | '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
+ | '+' {padded_lex_msg 5 " + >\n"; PLUS}
+ | '-' {padded_lex_msg 5 " - >\n"; MINUS}
+ | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
+ | ')' {padded_lex_msg 5 " ) >\n"; RPAREN}
+ | '[' {padded_lex_msg 5 " [ >\n"; LBRACK}
+ | ']' {padded_lex_msg 5 " ] >\n"; RBRACK}
+ | '=' {padded_lex_msg 5 " ] >\n"; EQ}
+ | ":=" {padded_lex_msg 5 " := >\n"; ASSIGN}
+ | ':' {padded_lex_msg 5 " : >\n"; COLON}
+ | "||" {padded_lex_msg 5 " || >\n"; PIPE}
+ | '|' {padded_lex_msg 5 " | >\n"; OR}
+ | "~=" {padded_lex_msg 5 " ~ >\n"; NE}
+ | '~' {padded_lex_msg 5 " ~ >\n"; NOT}
+ | '&' {padded_lex_msg 5 " & >\n"; AND}
+ | [';'] {
+  padded_lex_msg 5 " ; >\n";
+  SEMICOLON
+} | _ {  lex_error lexbuf }
+{
+  let get_lex_buf = Lexing.from_channel stdin
+}
