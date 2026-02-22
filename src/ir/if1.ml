@@ -2031,7 +2031,9 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
   | Simple (_, MULTIARITY, _, _, _) ->
       let ending_at = all_edges_ending_at_port n1 p1 in_gr in
       let nes =
-        if ES.cardinal ending_at <> 1 then raise (Sem_error "Incoming problem - all fan-ins must be exactly 1 or 0")
+        if ES.cardinal ending_at <> 1 then
+          raise
+            (Sem_error "Incoming problem - all fan-ins must be exactly 1 or 0")
         else
           let nending_at =
             ES.fold
@@ -2247,7 +2249,6 @@ and add_each_in_list in_gr ex lasti appl =
       let (lasti, _, _), in_gr_ = appl in_gr hde in
       add_each_in_list in_gr_ tl lasti appl
 
-
 and is_multiarity nodenum in_gr =
   match get_node nodenum in_gr with
   | Simple (_, MULTIARITY, _, _, _) -> true
@@ -2258,14 +2259,16 @@ and range a b = if a >= b then [] else a :: range (a + 1) b
 and incoming_type_at_port n2 p2 in_gr =
   let pe = get_edge_set in_gr in
   let edges = ES.filter (fun ((_, _), (y, yp), _) -> y = n2 && yp = p2) pe in
-  
+
   match ES.cardinal edges with
   | 0 -> None
-  | 1 -> 
-      let (_, _, ty_id) = ES.choose edges in 
+  | 1 ->
+      let _, _, ty_id = ES.choose edges in
       Some ty_id
-  | _ -> 
-      failwith (Printf.sprintf "Fan-in violation: Multiple types reaching Node %d Port %d" n2 p2)
+  | _ ->
+      failwith
+        (Printf.sprintf
+           "Fan-in violation: Multiple types reaching Node %d Port %d" n2 p2)
 
 and add_each_in_list_to_node olis in_gr ex out_e ni appl =
   match ex with
@@ -2274,28 +2277,33 @@ and add_each_in_list_to_node olis in_gr ex out_e ni appl =
       let (lasti, pp, tt1), in_gr_ = appl in_gr hde in
       let in_gr_ = add_edge_multiarity lasti pp out_e ni tt1 in_gr_ in
       (* REFINED WIDTH: Check how many ports were actually wired forward *)
-      let width = if is_multiarity lasti in_gr_ 
-            then ES.cardinal (all_edges_ending_at lasti in_gr_) 
-            else 1 in
-            
+      let width =
+        if is_multiarity lasti in_gr_ then
+          ES.cardinal (all_edges_ending_at lasti in_gr_)
+        else 1
+      in
+
       add_each_in_list_to_node ((lasti, pp, tt1) :: olis) in_gr_ tl out_e
         (ni + width) appl
 
 and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
-    match get_node in_n in_gr with
-    | Simple (_, MULTIARITY, _, _, _) ->
+  match get_node in_n in_gr with
+  | Simple (_, MULTIARITY, _, _, _) ->
       let ll = range 0 (ES.cardinal (all_edges_ending_at in_n in_gr)) in
       (* Use fold_left for naturally ordered port assignment *)
       List.fold_left
         (fun igr x ->
-           let inc_type =
-             match incoming_type_at_port in_n x igr with 
-             | Some typ -> typ
-             | None -> failwith("Type stall: missing type at MULTIARITY port " ^ string_of_int x)
-           in
-           add_edge in_n x out_n (out_p + x) inc_type igr)
+          let inc_type =
+            match incoming_type_at_port in_n x igr with
+            | Some typ -> typ
+            | None ->
+                failwith
+                  ("Type stall: missing type at MULTIARITY port "
+                 ^ string_of_int x)
+          in
+          add_edge in_n x out_n (out_p + x) inc_type igr)
         in_gr ll
-    | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
+  | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
 
 (* this function just mixes up two typemaps together - in case of the local_tytab and global_tytab scenario it may just mix up the local ty tab and return *)
 and get_types_from_graph g inc_blob =
@@ -3431,33 +3439,34 @@ and outs_syms { nmap = _; eset = _; symtab = cs, ps; typemap = _, tm, _; w = _ }
   symtab_printer Format.std_formatter (cs, ps, tm)
 
 and string_of_triples_list in_gr triplets =
-  let (_, tm, _) = in_gr.typemap in
-  
+  let _, tm, _ = in_gr.typemap in
+
   let string_of_triple (n_idx, p_idx, t_idx) =
     (* 1. Resolve Node Name (Opcode) *)
-    let node_name = 
-      try 
+    let node_name =
+      try
         let node_data = NM.find n_idx in_gr.nmap in
         match node_data with
         | Simple (_, sym, _, _, _) -> string_of_node_sym sym
         | Literal (_, _, val_str, _) -> "LITERAL(" ^ val_str ^ ")"
-        | Compound (_, sym, _, _, _, _) -> "COMPOUND(" ^ string_of_node_sym sym ^ ")"
+        | Compound (_, sym, _, _, _, _) ->
+            "COMPOUND(" ^ string_of_node_sym sym ^ ")"
         | Boundary _ -> "BOUNDARY"
         | Unknown_node -> "UNKNOWN"
       with Not_found -> "NODE_NOT_FOUND(" ^ string_of_int n_idx ^ ")"
     in
 
     (* 2. Resolve Type Name from Typemap *)
-    let type_name = 
-      try 
+    let type_name =
+      try
         let ty_struct = TM.find t_idx tm in
         string_of_if1_ty ty_struct
       with Not_found -> "TYPE_NOT_FOUND(" ^ string_of_int t_idx ^ ")"
     in
 
     (* 3. Format the triple string *)
-    Printf.sprintf "[Node: %s (#%d) | Port: %d | Type: %s (#%d)]" 
-      node_name n_idx p_idx type_name t_idx
+    Printf.sprintf "[Node: %s (#%d) | Port: %d | Type: %s (#%d)]" node_name
+      n_idx p_idx type_name t_idx
   in
 
   (* Join all triples into a single block of text *)
