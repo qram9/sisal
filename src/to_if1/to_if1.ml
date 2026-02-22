@@ -2516,7 +2516,7 @@ and do_simple_exp in_gr in_sim_ex =
       ((oa, oup, arr_type), in_gr)
   | Ast.Record_ref (e, fn) ->
       let (ain, apo, tt1), in_gr = do_simple_exp in_gr e in
-      let input_type = (If1.lookup_ty tt1 in_gr) in
+      let input_type = If1.lookup_ty tt1 in_gr in
       if If1.is_vector_type input_type = true then
         let fn = Ast.str_field_name fn in
         let indices = crack_swizzle_mask (String.lowercase_ascii fn) in
@@ -3500,47 +3500,64 @@ and do_compilation_unit = function
 
 and verify_function_returns fn_ty_id in_gr =
   let _, tm, _ = If1.get_typemap in_gr in
-  
+
   (* 1. Extract the Return Tuple ID from the Function Type *)
-  let ret_tuple_id = 
+  let ret_tuple_id =
     match If1.TM.find_opt fn_ty_id tm with
     | Some (Function_ty (_, r, _)) -> r
-    | _ -> raise (If1.Sem_error "verify_function_returns: fn_ty_id is not a Function_ty")
+    | _ ->
+        raise
+          (If1.Sem_error
+             "verify_function_returns: fn_ty_id is not a Function_ty")
   in
 
   (* 2. Flatten the Tuple into a list of expected Type IDs *)
   let rec get_expected_ids tid =
     if tid = 0 then [] (* End of tuple *)
-    else match If1.TM.find_opt tid tm with
-      | Some (Tuple_ty (ty, next)) -> ty :: (get_expected_ids next)
-      | Some _ -> [tid] (* Single return value case *)
-      | None -> raise (If1.Sem_error ("Missing tuple/type definition for ID: " ^ string_of_int tid))
+    else
+      match If1.TM.find_opt tid tm with
+      | Some (Tuple_ty (ty, next)) -> ty :: get_expected_ids next
+      | Some _ -> [ tid ] (* Single return value case *)
+      | None ->
+          raise
+            (If1.Sem_error
+               ("Missing tuple/type definition for ID: " ^ string_of_int tid))
   in
   let expected_ids = get_expected_ids ret_tuple_id in
 
   (* 3. Get the actual edges reaching the boundary node (ID 0) *)
   (* all_edges_ending_at_ports_types returns (port_idx * type_id) list *)
   let actual_edges = If1.all_edges_ending_at_ports_types 0 in_gr in
-  
+
   (* Sort by port index to ensure we are matching in order *)
-  let actual_ids = actual_edges 
+  let actual_ids =
+    actual_edges
     |> List.sort (fun (p1, _) (p2, _) -> compare p1 p2)
-    |> List.map snd 
+    |> List.map snd
   in
 
   (* 4. THE VALIDATION CHECK *)
   if List.length expected_ids <> List.length actual_ids then
-    raise (If1.Sem_error (Printf.sprintf 
-      "Return Arity Mismatch: Header expects %d values, but graph returns %d" 
-      (List.length expected_ids) (List.length actual_ids)))
+    raise
+      (If1.Sem_error
+         (Printf.sprintf
+            "Return Arity Mismatch: Header expects %d values, but graph \
+             returns %d"
+            (List.length expected_ids) (List.length actual_ids)))
   else
-    List.iter2 (fun exp act ->
-      if exp <> act then
-        raise (If1.Sem_error (Printf.sprintf 
-          "Return Type Mismatch: Expected %s (#%d), but found %s (#%d)"
-          (If1.rev_lookup_ty_name exp) exp (If1.rev_lookup_ty_name act) act))
-    ) expected_ids actual_ids;
-  
+    List.iter2
+      (fun exp act ->
+        if exp <> act then
+          raise
+            (If1.Sem_error
+               (Printf.sprintf
+                  "Return Type Mismatch: Expected %s (#%d), but found %s (#%d)"
+                  (If1.rev_lookup_ty_name exp)
+                  exp
+                  (If1.rev_lookup_ty_name act)
+                  act)))
+      expected_ids actual_ids;
+
   print_endline "VALIDATION SUCCESS: Function returns match signature."
 
 and do_type_def in_gr = function
@@ -3562,8 +3579,9 @@ and do_internals (names, in_gr) f =
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
       let (_, _, fn_ty), new_fun_gr_ =
-        do_function_header (If1.inherit_parent_syms in_gr
-                              (If1.get_a_new_graph in_gr)) header
+        do_function_header
+          (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
+          header
       in
       let localsyms, globsyms = If1.get_symtab in_gr in
       let in_gr =
