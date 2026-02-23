@@ -735,7 +735,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                  ( If1.SM.add vv
                      {
                        If1.val_name = vv;
-                       If1.val_ty = 5;
+                       If1.val_ty = If1.lookup_tyid If1.LONG;
                        If1.val_def = aa;
                        If1.def_port = bb + 1;
                      }
@@ -746,7 +746,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
       let in_gr =
         If1.output_to_boundary
           ~start_port:(If1.boundary_in_port_count in_gr)
-          [ (aa, bb + 1, 5) ]
+          [ (aa, bb + 1, If1.lookup_tyid If1.LONG) ]
           in_gr
       in
       ((aa, bb, cc), in_gr)
@@ -2422,50 +2422,127 @@ and do_simple_exp in_gr in_sim_ex =
       in
       ((res_node, res_port, tt), in_gr_res)
   | Let_rec (dp, e) ->
+      (* 1. Setup Recursive Scope and Lower Inner Logic *)
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
       let _, let_gr = do_decldef_part2 (`Some 1) let_gr dp in
       let (frm, elp, elt), let_gr = do_exp let_gr e in
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
+
+      (* 2. Identify and Segregate Ports on Inner Boundary *)
       let port_type_map = If1.all_types_ending_at 0 let_gr If1.IntMap.empty in
-      let howmany = If1.IntMap.cardinal port_type_map in
+      let data_ports =
+        If1.IntMap.filter
+          (fun _ tid -> not (If1.is_error_port tid let_gr))
+          port_type_map
+      in
+      let error_ports =
+        If1.IntMap.filter
+          (fun _ tid -> If1.is_error_port tid let_gr)
+          port_type_map
+      in
+
+      (* 3. Add the Compound Node (add_node_2 will handle the 1-to-1 Propagator internally) *)
       let (aa, _, _), in_gr =
         If1.add_node_2
           (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_REC" ], []))
           in_gr
       in
-      let (multinum, _, _), in_gr = build_multiarity howmany in_gr in
-      let rec add_to_curr_expl cur_count howmany port_type_map nodeid in_gr =
-        if cur_count < howmany then
-          add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
-            (If1.add_edge aa cur_count nodeid cur_count
-               (If1.IntMap.find cur_count port_type_map)
-               in_gr)
-        else in_gr
+
+      (* 4. PATH A: Scalarize Data Results *)
+      let data_arity = If1.IntMap.cardinal data_ports in
+      let (multinum, _, _), in_gr = build_multiarity data_arity in_gr in
+      let in_gr =
+        If1.IntMap.fold
+          (fun port_idx tid acc_gr ->
+            If1.add_edge aa port_idx multinum port_idx tid acc_gr)
+          data_ports in_gr
       in
-      let in_gr = add_to_curr_expl 0 howmany port_type_map multinum in_gr in
+      (* 5. PATH B: Propagate Errors to Enclosing Boundary *)
+      let in_gr =
+        If1.IntMap.fold
+          (fun port_idx tid acc_gr ->
+            (* FIX: Use the getter instead of direct field access *)
+            match If1.NM.find 0 (If1.get_node_map acc_gr) with
+            | If1.Boundary (ins, outs, errs, prags) ->
+                let next_b_port = List.length errs in
+                (* Register error source in parent boundary metadata *)
+                let updated_b =
+                  If1.Boundary (ins, outs, errs @ [ (aa, tid) ], prags)
+                in
+                let acc_gr =
+                  {
+                    acc_gr with
+                    If1.nmap = If1.NM.add 0 updated_b (If1.get_node_map acc_gr);
+                  }
+                in
+                (* Physically wire Compound Error Port -> Parent Boundary Error Port *)
+                If1.add_edge2 aa port_idx 0 next_b_port tid acc_gr
+            | _ -> acc_gr)
+          error_ports in_gr
+      in
       ((multinum, 0, 0), in_gr)
   | Let (dp, e) ->
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
       let _, let_gr = do_decldef_part2 `None let_gr dp in
       let (frm, elp, elt), let_gr = do_exp let_gr e in
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
+
+      (* 1. Identify all ports on the inner boundary *)
       let port_type_map = If1.all_types_ending_at 0 let_gr If1.IntMap.empty in
-      let howmany = If1.IntMap.cardinal port_type_map in
+
+      (* 2. Segregate Data vs Errors *)
+      let data_ports =
+        If1.IntMap.filter
+          (fun _ tid -> not (If1.is_error_port tid let_gr))
+          port_type_map
+      in
+      let error_ports =
+        If1.IntMap.filter
+          (fun _ tid -> If1.is_error_port tid let_gr)
+          port_type_map
+      in
+
+      (* 3. Create the Compound Node *)
+      (* Note: add_node_2 now internally calls propagate_error_ports to lift inner errors to the node's face *)
       let (aa, _, _), in_gr =
         If1.add_node_2
           (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_NON_REC" ], []))
           in_gr
       in
-      let (multinum, _, _), in_gr = build_multiarity howmany in_gr in
-      let rec add_to_curr_expl cur_count howmany port_type_map nodeid in_gr =
-        if cur_count < howmany then
-          add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
-            (If1.add_edge aa cur_count nodeid cur_count
-               (If1.IntMap.find cur_count port_type_map)
-               in_gr)
-        else in_gr
+
+      (* 4. PATH A: Wire Data to MULTIARITY *)
+      let data_arity = If1.IntMap.cardinal data_ports in
+      let (multinum, _, _), in_gr = build_multiarity data_arity in_gr in
+      let in_gr =
+        If1.IntMap.fold
+          (fun port_idx tid acc_gr ->
+            If1.add_edge aa port_idx multinum port_idx tid acc_gr)
+          data_ports in_gr
       in
-      let in_gr = add_to_curr_expl 0 howmany port_type_map multinum in_gr in
+
+      (* 5. PATH B: Propagate Errors to Enclosing Boundary *)
+      let in_gr =
+        If1.IntMap.fold
+          (fun port_idx tid acc_gr ->
+            (* FIX: Use the getter instead of direct field access *)
+            match If1.NM.find 0 (If1.get_node_map acc_gr) with
+            | If1.Boundary (ins, outs, errs, prags) ->
+                let next_b_port = List.length errs in
+                (* Register error source in parent boundary metadata *)
+                let updated_b =
+                  If1.Boundary (ins, outs, errs @ [ (aa, tid) ], prags)
+                in
+                let acc_gr =
+                  {
+                    acc_gr with
+                    If1.nmap = If1.NM.add 0 updated_b (If1.get_node_map acc_gr);
+                  }
+                in
+                (* Physically wire Compound Error Port -> Parent Boundary Error Port *)
+                If1.add_edge2 aa port_idx 0 next_b_port tid acc_gr
+            | _ -> acc_gr)
+          error_ports in_gr
+      in
       ((multinum, 0, 0), in_gr)
   | Old (Ast.Value_name v) ->
       do_val_internal in_gr (`OldMob (String.concat "." v))
@@ -3170,7 +3247,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
   in
   let ret_gr = get_ports_unified ret_gr in_gr in_gr in
   (* NEED TO ADD STREAM RETURN *)
-  let do_reduc ((rdx, red_fn), tt, aa) _ in_gr =
+  let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
     let out_port_1 =
       let out_array = Array.make 1 "" in
       out_array
@@ -3184,7 +3261,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
     in
     let (dd, ee, _), in_gr =
       If1.add_node_2
-        (`Simple (which_ins, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+        (`Simple (which_ins, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
         in_gr
     in
     let (lx, ly, _), in_gr =
@@ -3192,6 +3269,13 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
     in
     let in_gr = If1.add_edge lx ly dd 0 (If1.lookup_tyid If1.CHARACTER) in_gr in
     let in_gr = If1.add_edge 0 aa dd 1 tt in_gr in
+    (* NEW: Port 2: Conditional Mask (if present) *)
+    let in_gr =
+      match msk_opt with
+      | Some (mask_ty, mask_port) -> 
+          If1.add_edge 0 mask_port dd 2 mask_ty in_gr
+      | None -> in_gr
+    in
     If1.add_to_boundary_outputs dd ee tt in_gr
   in
   let ret_gr, _, _, out_lis =
@@ -3526,23 +3610,28 @@ and verify_function_returns fn_ty_id in_gr =
   let expected_ids = get_expected_ids ret_tuple_id in
 
   (* 3. Get the actual edges reaching the boundary node (ID 0) *)
-  (* all_edges_ending_at_ports_types returns (port_idx * type_id) list *)
   let actual_edges = If1.all_edges_ending_at_ports_types 0 in_gr in
+
+  (* SEPARATION: Filter out the Railway Monad error ports *)
+  (* Only edges with non-ERROR types are treated as logical returns *)
+  let data_edges = 
+    List.filter (fun (_, ty_id) -> not (If1.is_error_port ty_id in_gr)) actual_edges 
+  in
 
   (* Sort by port index to ensure we are matching in order *)
   let actual_ids =
-    actual_edges
+    data_edges
     |> List.sort (fun (p1, _) (p2, _) -> compare p1 p2)
     |> List.map snd
   in
 
-  (* 4. THE VALIDATION CHECK *)
+  (* 4. THE VALIDATION CHECK (Now Error-Blind) *)
   if List.length expected_ids <> List.length actual_ids then
     raise
       (If1.Sem_error
-         (Printf.sprintf
-            "Return Arity Mismatch: Header expects %d values, but graph \
-             returns %d"
+         (If1.outs_graph in_gr; 
+          Printf.sprintf
+            "Return Arity Mismatch: Header expects %d data values, but graph returns %d (excluding errors)"
             (List.length expected_ids) (List.length actual_ids)))
   else
     List.iter2
@@ -3557,8 +3646,8 @@ and verify_function_returns fn_ty_id in_gr =
                   (If1.rev_lookup_ty_name act)
                   act)))
       expected_ids actual_ids;
-
-  print_endline "VALIDATION SUCCESS: Function returns match signature."
+  
+  print_endline "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
 
 and do_type_def in_gr = function
   | Type_def (n, t) ->
