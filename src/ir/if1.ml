@@ -1984,6 +1984,36 @@ and lookup_fn_ty in_fn_name in_gr =
       tm []
   with List_is_found tml -> tml
 
+and propagate_error_ports inner_gr compound_node_id outer_gr =
+  let inner_boundary = NM.find 0 inner_gr.nmap in
+  match inner_boundary with
+  | Boundary (_, _, inner_errs, _) ->
+      (* Linear fold ensures every inner error gets a unique outer port *)
+      List.fold_left
+        (fun current_outer_gr (_, err_ty) ->
+          match NM.find 0 current_outer_gr.nmap with
+          | Boundary (ins, outs, outer_errs, prags) ->
+              let next_err_port = List.length outer_errs in
+
+              (* 1. Lift the error metadata to the parent boundary *)
+              let updated_boundary =
+                Boundary
+                  (ins, outs, outer_errs @ [ (compound_node_id, err_ty) ], prags)
+              in
+              let outer_gr_updated =
+                {
+                  current_outer_gr with
+                  nmap = NM.add 0 updated_boundary current_outer_gr.nmap;
+                }
+              in
+
+              (* 2. Wire Compound:ErrPort[N] -> Boundary:ErrPort[N] *)
+              add_edge2 compound_node_id next_err_port 0 next_err_port err_ty
+                outer_gr_updated
+          | _ -> current_outer_gr)
+        outer_gr inner_errs
+  | _ -> outer_gr
+
 and add_node_2 nn in_gr =
   let nm = get_node_map in_gr in
   let pi = get_graph_label in_gr in
@@ -1999,13 +2029,15 @@ and add_node_2 nn in_gr =
   | `Compound (g, sy, ty, prag, alis) ->
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
-      ( (pi, 0, 0),
+      let base_gr =
         {
           in_gr with
           nmap = NM.add pi (Compound (pi, sy, ty, prag, g, alis)) nm;
           typemap = g_tmn;
           w = pi + 1;
-        } )
+        }
+      in
+      ((pi, 0, 0), propagate_error_ports g pi base_gr)
   | `Literal (ty_lab, str, pout) ->
       ( (pi, 0, lookup_tyid ty_lab),
         {
@@ -2033,7 +2065,9 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
       let nes =
         if ES.cardinal ending_at <> 1 then
           raise
-            (Sem_error "Incoming problem - all fan-ins must be exactly 1 or 0")
+            (Sem_error
+               (">1 incoming found in multiarity"
+              ^ " - all fan-ins must be exactly 1 or 0"))
         else
           let nending_at =
             ES.fold
@@ -2090,6 +2124,10 @@ and all_types_ending_at n2 in_gr res =
   in
   map_tnem
 
+and is_error_port ty_id in_gr =
+  let _, tm, _ = get_typemap in_gr in
+  match TM.find_opt ty_id tm with Some (ERROR _) -> true | _ -> false
+
 and connect_one_to_one in_lis to_n in_gr =
   let in_gr, _ =
     List.fold_right
@@ -2126,14 +2164,10 @@ and cleanup_multiarity in_gr =
       nm NM.empty
   in
   let new_edges =
-    ES.filter (fun ((_, _), (y, _), _) -> NM.mem y new_nm = true) es
+    (* CRITICAL FIX: Check both source (x) AND destination (y) *)
+    ES.filter (fun ((x, _), (y, _), _) -> NM.mem x new_nm && NM.mem y new_nm) es
   in
   { nmap = new_nm; eset = new_edges; symtab = sm; typemap = tm; w = pi }
-
-and remove_edge n1 p1 n2 p2 ed_ty in_gr =
-  (*Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
-  let pe = in_gr.eset in
-  { in_gr with eset = ES.remove ((n1, p1), (n2, p2), ed_ty) pe }
 
 and add_from_edge ((n1, p1), (n2, p2), ed_ty) in_gr =
   add_edge n1 p1 n2 p2 ed_ty in_gr
@@ -3287,14 +3321,6 @@ and string_of_if1_value_out tm = function
         "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ","
         ^ string_of_int p ^ ")}"
       else ""
-
-and string_of_symtab (ls, gs) tm =
-  let ls = SM.fold (fun _ v z -> string_of_if1_value tm v :: z) ls [] in
-  let ls = match ls with [] -> [] | _ -> "LOCAL-SYM: " :: ls in
-  let gs = SM.fold (fun _ v z -> string_of_if1_value tm v :: z) gs [] in
-  let gs = match gs with [] -> [] | _ -> "GLOBAL-SYM: " :: gs in
-  gs @ ls
-
 and string_of_symtab_gr in_gr =
   let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
     in_gr
@@ -3313,15 +3339,24 @@ and string_of_symtab_gr_out in_gr =
   in
   SM.fold (fun _ v z -> string_of_if1_value_out tm v :: z) ls []
 
+and string_of_symtab (ls, gs) tm =
+  let ls = SM.fold (fun _ v z -> string_of_if1_value tm v :: z) ls [] in
+  let ls = match ls with [] -> [] | _ -> "LOCAL-SYM: " :: ls in
+  let gs = SM.fold (fun _ v z -> string_of_if1_value tm v :: z) gs [] in
+  let gs = match gs with [] -> [] | _ -> "GLOBAL-SYM: " :: gs in
+  gs @ ls
+
 and typenames_to_string typemap =
   Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
     (fun ppf map ->
       let margin = 80 in
+      let reserved_threshold = 83 in (* Adjust this to your specific reserved count *)
       Format.pp_set_margin ppf margin;
       MM.iter
         (fun name type_num ->
+           if type_num > reserved_threshold then
           (* Use @  to hint at a break point for the 80-char limit *)
-          Format.fprintf ppf "  [%s:%d]@ " name type_num)
+          Format.fprintf ppf "  [%s:%d]@ " name type_num else ())
         map)
     typemap
 
@@ -3353,14 +3388,30 @@ and typemap_to_string typemap =
   Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
     (fun ppf map ->
       let margin = 80 in
+      let reserved_threshold = 83 in (* Adjust this to your specific reserved count *)
       Format.pp_set_margin ppf margin;
       TM.iter
         (fun id v ->
-          let type_str = string_of_if1_ty v in
-          (* Use @  to hint at a break point for the 80-char limit *)
-          Format.fprintf ppf "  [%d:%s]@ " id type_str)
+          (* Only print types created by the program/lowering, skipping standard primitives *)
+          if id >= reserved_threshold then
+            let type_str = string_of_if1_ty v in
+            Format.fprintf ppf "  [%d:%s]@ " id type_str
+        )
         map)
     typemap
+
+
+and string_of_graph ?(offset = 0) in_gr =
+  let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
+    in_gr
+  in
+  cate_list_pad offset
+    (("Graph {" :: string_of_node_map ~offset in_gr)
+    @ string_of_edge_set in_gr ne
+    @ string_of_symtab sm tm
+    @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
+    @ [ "} " ^ string_of_int tail ])
+    "\n"
 
 and string_of_typemap tm =
   let tm =
@@ -3381,19 +3432,6 @@ and string_of_triple_int (i, j, k) =
 
 and string_of_triple_int_list zz =
   List.fold_left (fun zz (i, j, k) -> zz ^ string_of_triple_int (i, j, k)) "" zz
-
-and string_of_graph ?(offset = 0) in_gr =
-  let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
-    in_gr
-  in
-  cate_list_pad offset
-    (("Graph {" :: string_of_node_map ~offset in_gr)
-    @ string_of_edge_set in_gr ne
-    @ string_of_symtab sm tm
-    @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
-    @ [ "} " ^ string_of_int tail ])
-    "\n"
-
 and string_of_graph_thin ?(offset = 0) in_gr =
   cate_list_pad offset
     (("Graph {" :: string_of_node_map ~offset in_gr)
