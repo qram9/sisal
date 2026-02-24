@@ -1960,29 +1960,33 @@ and lookup_tyid_triple = function
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
            (string_of_if1_basic_ty f))
 
+and find_sym_opt val_name in_gr =
+  let cs, ps = get_symtab in_gr in
+  match SM.find_opt val_name cs with
+  | None -> SM.find_opt val_name ps
+  | _ as re -> re
+
 and lookup_fn_ty in_fn_name in_gr =
   (* this looks at the typemap table and return type for an id - this can do that in the local and the global ty tabs just like symtab does *)
   let tm = get_typemap_tm in_gr in
-  try
-    TM.fold
-      (fun _ va z ->
-        match va with
-        | Function_ty (_, ret_ty, fn_name) ->
-            if fn_name = in_fn_name then
-              let tm_l =
-                let rec fold_ret_ty_lis ret_ty =
-                  match TM.find ret_ty tm with
-                  | Tuple_ty (fty, nty) ->
-                      if nty = 0 then [ fty ] else fty :: fold_ret_ty_lis nty
-                  | _ -> raise (Sem_error "Incorrect function type in")
-                in
-                fold_ret_ty_lis ret_ty
-              in
-              raise (List_is_found tm_l)
-            else z
-        | _ -> z)
-      tm []
-  with List_is_found tml -> tml
+  let { val_name = _; val_ty = sym_ty; val_def = _; def_port = _ } =
+    match find_sym_opt in_fn_name in_gr with
+    | Some reco -> reco
+    | None -> failwith "FUNCTION NOT FOUND"
+  in
+  match TM.find_opt sym_ty tm with
+  | Some tt -> (
+      match tt with
+      | Function_ty (_, ret_ty, _) ->
+          let rec fold_ret_ty_lis ret_ty =
+            match TM.find ret_ty tm with
+            | Tuple_ty (fty, nty) ->
+                if nty = 0 then [ fty ] else fty :: fold_ret_ty_lis nty
+            | _ -> raise (Sem_error "Incorrect function type in")
+          in
+          fold_ret_ty_lis ret_ty
+      | _ -> failwith "Type does not resolve to function")
+  | _ -> failwith "Type not found"
 
 and propagate_error_ports inner_gr compound_node_id outer_gr =
   let inner_boundary = NM.find 0 inner_gr.nmap in
@@ -2098,7 +2102,7 @@ and all_edges_ending_at n2 in_gr =
 and all_edges_ending_at_ports_types n2 in_gr =
   let pe = get_edge_set in_gr in
   let edges = ES.filter (fun ((_, _), (y, _), _) -> y = n2) pe in
-  ES.fold (fun ((_, xp), (_, _), y_ty) z -> (xp, y_ty) :: z) edges []
+  ES.fold (fun ((_, _), (_, yp), y_ty) z -> (yp, y_ty) :: z) edges []
 
 and all_nodes_joining_at (n2, _, _) in_gr =
   let pe = get_edge_set in_gr in
@@ -3321,6 +3325,7 @@ and string_of_if1_value_out tm = function
         "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ","
         ^ string_of_int p ^ ")}"
       else ""
+
 and string_of_symtab_gr in_gr =
   let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
     in_gr
@@ -3350,13 +3355,15 @@ and typenames_to_string typemap =
   Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
     (fun ppf map ->
       let margin = 80 in
-      let reserved_threshold = 83 in (* Adjust this to your specific reserved count *)
+      let reserved_threshold = 83 in
+      (* Adjust this to your specific reserved count *)
       Format.pp_set_margin ppf margin;
       MM.iter
         (fun name type_num ->
-           if type_num > reserved_threshold then
-          (* Use @  to hint at a break point for the 80-char limit *)
-          Format.fprintf ppf "  [%s:%d]@ " name type_num else ())
+          if type_num > reserved_threshold then
+            (* Use @  to hint at a break point for the 80-char limit *)
+            Format.fprintf ppf "  [%s:%d]@ " name type_num
+          else ())
         map)
     typemap
 
@@ -3388,18 +3395,17 @@ and typemap_to_string typemap =
   Format.asprintf "@[<v 0>@[<hov 0>%a@]@]"
     (fun ppf map ->
       let margin = 80 in
-      let reserved_threshold = 83 in (* Adjust this to your specific reserved count *)
+      let reserved_threshold = 83 in
+      (* Adjust this to your specific reserved count *)
       Format.pp_set_margin ppf margin;
       TM.iter
         (fun id v ->
           (* Only print types created by the program/lowering, skipping standard primitives *)
           if id >= reserved_threshold then
             let type_str = string_of_if1_ty v in
-            Format.fprintf ppf "  [%d:%s]@ " id type_str
-        )
+            Format.fprintf ppf "  [%d:%s]@ " id type_str)
         map)
     typemap
-
 
 and string_of_graph ?(offset = 0) in_gr =
   let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
@@ -3432,6 +3438,7 @@ and string_of_triple_int (i, j, k) =
 
 and string_of_triple_int_list zz =
   List.fold_left (fun zz (i, j, k) -> zz ^ string_of_triple_int (i, j, k)) "" zz
+
 and string_of_graph_thin ?(offset = 0) in_gr =
   cate_list_pad offset
     (("Graph {" :: string_of_node_map ~offset in_gr)
