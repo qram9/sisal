@@ -14,7 +14,8 @@
    WITH THE STANDARD.
   5: TODO -> SEEMS LIKE WHEN WE HAVE A DECL WITH
    MULTIPLE TYPES, ALL TYPES SEEM TO TAKE THE FIRST
-   TYPE ALL THE TIME.*)
+   TYPE ALL THE TIME.
+*)
 
 (* TEST about multiple definition to same variable in a scope,
    add scope numbers, level etc. *)
@@ -955,11 +956,11 @@ and do_for_all inexp bodyexp retexp in_gr =
         (* Connect Results To Body's If1.Boundary *)
         let body_gr = If1.output_to_boundary_with_none mask_ty_list body_gr in
 
-        let (_, _, _), forall_gr, return_action_list =
+        let (rn, _, _), forall_gr, return_action_list =
           add_ret body_gr return_action_list mask_ty_list
         in
 
-        let (_, _, _), forall_gr =
+        let (gn, _, _), forall_gr =
           If1.add_node_2
             (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR" ], []))
             forall_gr
@@ -973,17 +974,22 @@ and do_for_all inexp bodyexp retexp in_gr =
 
         let forall_gr = get_ports_unified forall_gr body_gr gen_gr in
 
-        ((bx, by, bz), return_action_list, mask_ty_list, forall_gr)
+        ( (bx, by, bz),
+          return_action_list,
+          mask_ty_list,
+          forall_gr,
+          [ gn; bx; rn ] )
     | (curr_lev, gen_exp) :: gen_exp_tl ->
         let ( (inner_gen_n, inner_gen_p, inner_gen_ty),
               inner_ret,
               mask_ty_list,
-              forall_gr ) =
+              forall_gr,
+              inner_ids ) =
           (* Create A Generator For Outer Loop. *)
           let (_, _, _), gen_gr = build_gen_graph curr_lev in_gr gen_exp in
 
           (* Add outer loop generator to a new forall_gr. *)
-          let _, forall_gr =
+          let (gn, _, _), forall_gr =
             let forall_gr =
               get_ports_unified (If1.get_a_new_graph gen_gr) gen_gr gen_gr
             in
@@ -992,7 +998,7 @@ and do_for_all inexp bodyexp retexp in_gr =
               forall_gr
           in
 
-          let _, inner_ret, mask_ty_list, body_nest_gr =
+          let _, inner_ret, mask_ty_list, body_nest_gr, inner_ids =
             (* As The Body Would Need Outer And Inner Generators,
               Send Gen_Gr To The Recursive Call To Obtain
               The Inner Loop, Which Is Body_Nest_Gr. *)
@@ -1001,7 +1007,7 @@ and do_for_all inexp bodyexp retexp in_gr =
           in
 
           (* Add Returns Graph To Forall_Gr. *)
-          let (_, _, _), forall_gr, return_action_list =
+          let (rn, _, _), forall_gr, return_action_list =
             let _, mask_ty_list = organize_ret_info inner_ret mask_ty_list in
             add_return_gr forall_gr gen_gr inner_ret mask_ty_list
           in
@@ -1014,8 +1020,7 @@ and do_for_all inexp bodyexp retexp in_gr =
                    If1.INTERNAL,
                    0,
                    [ If1.Name "FORALL" ],
-                   let lis = get_assoc_list body_nest_gr in
-                   List.length lis :: lis ))
+                   inner_ids ))
               forall_gr
           in
 
@@ -1042,28 +1047,27 @@ and do_for_all inexp bodyexp retexp in_gr =
             tie_outer_scope_to_inner forall_gr forall_gr fx
           in
 
-          ((fx, fy, fz), return_action_list, mask_ty_list, forall_gr)
+          ( (fx, fy, fz),
+            return_action_list,
+            mask_ty_list,
+            forall_gr,
+            [ gn; fx; rn ] )
         in
         ( (inner_gen_n, inner_gen_p, inner_gen_ty),
           inner_ret,
           mask_ty_list,
-          forall_gr )
+          forall_gr,
+          inner_ids )
   in
 
   let acrossl = get_cross_exp_lis inexp [] in
-  let _, return_action_list, _, forall_gr =
+  let _, return_action_list, _, forall_gr, subgr_ids =
     build_forloop acrossl bodyexp retexp in_gr
   in
   let forall_gr = get_ports_unified forall_gr forall_gr forall_gr in
   let (fx, _, _), in_gr =
     If1.add_node_2
-      (`Compound
-         ( forall_gr,
-           If1.INTERNAL,
-           0,
-           [ If1.Name "FORALL" ],
-           let lis = get_assoc_list forall_gr in
-           List.length lis :: lis ))
+      (`Compound (forall_gr, If1.INTERNAL, 0, [ If1.Name "FORALL" ], subgr_ids))
       in_gr
   in
 
@@ -1261,6 +1265,7 @@ and do_decldef in_gr delc =
               let (expnum, expport, expty), exps, expl, in_gr =
                 pop_or_push_to_exp_stack expl exps in_gr
               in
+              (* Fix: If we have a list of expected types, use the one matching the current index *)
               let in_gr = check_decl_type atyp expty in_gr in
               let localsyms, globsyms = in_gr.If1.symtab in
               ( expl,
@@ -2353,13 +2358,11 @@ and do_simple_exp in_gr in_sim_ex =
                         match discovered with
                         | Some (_, id) -> id
                         | None ->
-                            print_endline (If1.string_of_graph_thin in_gr);
                             raise
                               (If1.Sem_error ("Unknown function: " ^ deref_fn)))
                     ))
           in
           let deref_fn = symtab_entry.val_name in
-
           let in_port_00 = Array.make (List.length expl) "" in
           let prags = [ If1.Name deref_fn ] in
           let (n, _, _), in_gr =
@@ -2867,7 +2870,7 @@ and do_simple_exp in_gr in_sim_ex =
         |> If1.add_edge typecast_arg_node typecast_arg_out_port typecast_node 0
              typecast_arg_type )
   | Is_error e -> do_exp in_gr e
-  | If (cl, Else el) as ifp ->
+  | If (cl, Else el) ->
       (* Work an example with [1,2]
         and [1,2,3] and [1,2,3,4] *)
       (* How are outputs tied to the
@@ -2989,7 +2992,6 @@ and do_simple_exp in_gr in_sim_ex =
       let sai, gai =
         let ty_lis, _, regar =
           let regar = If1.get_a_new_graph in_gr in
-          print_endline (Ast.str_simple_exp ifp);
           if_builder cl (0, 0, 0) regar el 0 []
         in
         let boundary_ooo =
@@ -3008,11 +3010,10 @@ and do_simple_exp in_gr in_sim_ex =
         add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT"
       in
       (sai, gai)
-  | For_all (i, d, r) as ff ->
+  | For_all (i, d, r) ->
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
-      print_endline ("DO FOR ALL " ^ Ast.str_simple_exp ff);
       let (fx, fy, fz), _, in_gr = do_for_all i d r in_gr in
       (* TODO: Need To Check Vs If1, Add Assoc List *)
       (* How Do We Tie Up Results To Calling Function
@@ -3070,7 +3071,6 @@ and do_simple_exp in_gr in_sim_ex =
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
-        (* TODO: mask_ty_list *)
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
@@ -3272,8 +3272,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
     (* NEW: Port 2: Conditional Mask (if present) *)
     let in_gr =
       match msk_opt with
-      | Some (mask_ty, mask_port) -> 
-          If1.add_edge 0 mask_port dd 2 mask_ty in_gr
+      | Some (mask_ty, mask_port) -> If1.add_edge 0 mask_port dd 2 mask_ty in_gr
       | None -> in_gr
     in
     If1.add_to_boundary_outputs dd ee tt in_gr
@@ -3584,7 +3583,6 @@ and do_compilation_unit = function
 
 and verify_function_returns fn_ty_id in_gr =
   let _, tm, _ = If1.get_typemap in_gr in
-
   (* 1. Extract the Return Tuple ID from the Function Type *)
   let ret_tuple_id =
     match If1.TM.find_opt fn_ty_id tm with
@@ -3614,8 +3612,10 @@ and verify_function_returns fn_ty_id in_gr =
 
   (* SEPARATION: Filter out the Railway Monad error ports *)
   (* Only edges with non-ERROR types are treated as logical returns *)
-  let data_edges = 
-    List.filter (fun (_, ty_id) -> not (If1.is_error_port ty_id in_gr)) actual_edges 
+  let data_edges =
+    List.filter
+      (fun (_, ty_id) -> not (If1.is_error_port ty_id in_gr))
+      actual_edges
   in
 
   (* Sort by port index to ensure we are matching in order *)
@@ -3629,9 +3629,10 @@ and verify_function_returns fn_ty_id in_gr =
   if List.length expected_ids <> List.length actual_ids then
     raise
       (If1.Sem_error
-         (If1.outs_graph in_gr; 
+         (If1.outs_graph in_gr;
           Printf.sprintf
-            "Return Arity Mismatch: Header expects %d data values, but graph returns %d (excluding errors)"
+            "Return Arity Mismatch: Header expects %d data values, but graph \
+             returns %d (excluding errors)"
             (List.length expected_ids) (List.length actual_ids)))
   else
     List.iter2
@@ -3646,8 +3647,9 @@ and verify_function_returns fn_ty_id in_gr =
                   (If1.rev_lookup_ty_name act)
                   act)))
       expected_ids actual_ids;
-  
-  print_endline "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
+
+  print_endline
+    "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
 
 and do_type_def in_gr = function
   | Type_def (n, t) ->
