@@ -202,28 +202,21 @@ and sisal_lex = parse eof {
     EOF
   }
  (* --- 1. Literal Suffixes --- *)
- | digit+ ['f' 'F'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
- | digit+ '.' digit+ ['f' 'F'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
- | digit+ '.' digit+ ['d' 'D'] as lxm { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
- | digit+ ['d' 'D'] as lxm { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
- | digit+ ['h' 'H'] as lxm { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
  | digit+ ['l' 'L'] as lxm { LONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
- | digit+ ['u' 'U'] ['L' 'l'] as lxm { ULONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 1))) }
-
 
  (* ULONG: Strictly positive (Unsigned) *)
  | (digit+ | hex) (['u' 'U'] ['l' 'L'] | ['l' 'L'] ['u' 'U']) as lxm
    { ULONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 2))) }
 
- (* DOUBLE: Handles -1.23D, -123D *)
+ (* DOUBLE: Handles 1.23D, 123D *)
  | (digit+ ('.' digit*)? | '.' digit+) exp? ['d' 'D'] as lxm
    { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
- (* FLOAT: Handles -1.23F, -123F *)
+ (* FLOAT: Handles 1.23F, 123F *)
  | (digit+ ('.' digit*)? | '.' digit+) exp? ['f' 'F'] as lxm
    { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
- (* HALF: Handles -1.23H, -123H *)
+ (* HALF: Handles 1.23H, 123H *)
  | (digit+ ('.' digit*)? | '.' digit+) exp? ['h' 'H'] as lxm(* DOUBLE: Handles -1.23D, -123D *)
    { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
