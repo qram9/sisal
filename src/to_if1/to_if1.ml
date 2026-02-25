@@ -1117,7 +1117,7 @@ and do_decldef_part in_gr = function
       in
       (xyz, in_gr)
 
-and do_decldef_part2 kind in_gr = function
+and do_decldef_part_in_let_stmt kind in_gr = function
   | Ast.Decldef_part f ->
       let in_gr =
         match kind with
@@ -2427,7 +2427,7 @@ and do_simple_exp in_gr in_sim_ex =
   | Let_rec (dp, e) ->
       (* 1. Setup Recursive Scope and Lower Inner Logic *)
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
-      let _, let_gr = do_decldef_part2 (`Some 1) let_gr dp in
+      let _, let_gr = do_decldef_part_in_let_stmt (`Some 1) let_gr dp in
       let (frm, elp, elt), let_gr = do_exp let_gr e in
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
 
@@ -2486,7 +2486,7 @@ and do_simple_exp in_gr in_sim_ex =
       ((multinum, 0, 0), in_gr)
   | Let (dp, e) ->
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
-      let _, let_gr = do_decldef_part2 `None let_gr dp in
+      let _, let_gr = do_decldef_part_in_let_stmt `None let_gr dp in
       let (frm, elp, elt), let_gr = do_exp let_gr e in
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
 
