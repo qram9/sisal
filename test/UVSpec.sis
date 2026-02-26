@@ -1,0 +1,73 @@
+DEFINE U_V_Spectral
+
+type ArrReal1 = Array[real];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal];
+
+global Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Cmul(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
+
+FUNCTION bcplx( r,i:real returns CplexReal )
+  record CplexReal [ Repart:r; Impart:i ]
+END FUNCTION
+
+FUNCTION U_V_Spectral(  mx,jx,jxx: integer; epsi: ArrReal1; 
+			p, c: ArrCplexReal
+			RETURNS  ArrCplexReal, ArrCplexReal)
+LET
+iz := record CplexReal[Repart : 0.0; Impart : 1.0];
+zero := record CplexReal[Repart : 0.0; Impart : 0.0];
+u, v := FOR m IN 1, mx		% size of jxxmx=272
+	realm := real(m - 1);
+	u1, v1 :=
+
+	    FOR j IN 1, jxx
+	    nreal := j + m - 2;
+	    realn := real(nreal);
+	    realn1 := realn + 1.0;
+	    jm := (m - 1) * jx + j;
+	    jmx := (m - 1) * jxx + j;
+
+	    coeffd,  coeffc,  coeffu,  pd,  pc,  pu,  cd,  cc,  cu := 
+	    IF j = 1 
+	       THEN zero, 
+		    IF nreal = 0 THEN zero
+			ELSE bcplx( 0.0, realm / realn / realn1 )
+			END IF, 
+		    bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		    zero,  p[jm],  p[jm + 1],  zero,  c[jm],  c[jm + 1]
+	    
+	    ELSEIF j = jx 
+	       THEN bcplx( epsi[jmx] / realn, 0.0 ),
+		    bcplx( 0.0, realm / realn / realn1),
+		    bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		    p[jm - 1],  p[jm],  zero,  c[jm - 1],  c[jm],  zero
+
+	    ELSEIF j = jxx 
+	    THEN bcplx( epsi[jmx] / realn, 0.0 ),
+		 zero,  zero,  p[jm - 1],  zero,  zero,  c[jm - 1],  zero,  zero
+
+	    ELSE bcplx( epsi[jmx] / realn, 0.0 ),
+		 bcplx( 0.0, realm / realn / realn1),
+		 bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		 p[jm - 1],  p[jm],  p[jm + 1],  c[jm - 1],  c[jm],  c[jm + 1]
+
+	    end IF;
+
+	    ujm :=  Cadd(Crmul( - 1.0, Cmul(coeffd, pd)), 
+		    Csub(Cmul(coeffu, pu), Cmul(coeffc, cc))); 
+	    vjm :=  Csub(Csub(Cmul(coeffd, cd), Cmul(coeffu, cu)), 
+		    Cmul(coeffc, pc)); 
+
+	    RETURNS ARRAY of ujm
+		    ARRAY of vjm
+	    END FOR
+
+	RETURNS VALUE of CATENATE u1
+		VALUE of CATENATE v1
+	END FOR
+In u, v
+END LET
+END function

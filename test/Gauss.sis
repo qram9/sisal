@@ -1,0 +1,138 @@
+DEFINE GaussianQuadrature
+
+type ArrReal1 = Array[real];
+type ArrDreal1 = Array[double_real]
+
+global ACOS(num : double_real RETURNS double_real)
+global SQRT(num : double_real RETURNS double_real)
+global SIN(num : double_real RETURNS double_real)
+global COS(num : double_real RETURNS double_real)
+
+FUNCTION ORDLEG(ir : integer; coa : double_real
+		RETURNS double_real)
+LET
+irpp, irppm := ir+1, ir;
+delta := ACOS(coa);
+sqr2 := SQRT(2.0d0);
+theta := delta;
+c1 := sqr2 * 	FOR n IN 1, irppm
+		fn := n;
+		fn2 := fn * 2;
+		fn2sq :=  double_real(fn2 * fn2);
+		RETURNS VALUE of product SQRT(1.0d0 - 1.0d0 / fn2sq)
+		END FOR;
+
+s1 :=      FOR INITIAL
+	   n := irppm;
+	   fn := double_real(irppm);
+	   fn2 := fn * 2.0d0;
+	   ang := fn * theta;
+	   s1T := 0.0d0;
+	   c4 := 1.0d0;
+	   a := -1.0d0;
+	   b := 0.0d0;
+	   n1 := n + 1;
+	   kk := 1;
+
+	   WHILE kk <= n1 REPEAT
+	   kk := old kk + 2;
+	   k := old kk - 1;
+	   c4T := IF k=n THEN 0.5d0 * old c4
+		       ELSE old c4
+		END IF;
+	   s1T := old s1T + c4T * COS(old ang);
+	   a := old a + 2.0d0;
+	   b := old b + 1.0d0;
+	   fk := double_real(k);
+	   ang := theta * (fn - fk - 2.0d0);
+	   c4 := a * (fn - b + 1.0d0) / (b * (fn2 - a)) * c4T;
+
+	   RETURNS VALUE OF s1T
+	   END FOR;
+sx := s1 * c1;
+IN sx
+END LET
+END FUNCTION
+%---------------------------------------------------------------
+
+% Subroutine GaussianQuadrature calculates the cosine of the 
+% Colatitudes(f//fs) and the weights(wt//wts) for the
+% Gaussian Quadrature with NZERO Gaussian points between the pole
+% and the Equator. Calculations are done in double 
+% precision, but the results are returned in single
+% precision.
+%-----------------gaussg/cycle
+FUNCTION CYCLE(ir, irm, irp : integer;
+		  ft, a, b, xlim : double_real
+		  RETURNS double_real)
+FOR INITIAL
+  ftnew := ft;
+REPEAT
+  g := ORDLEG(ir, old ftnew);
+  gm := ORDLEG(irm, old ftnew);
+  gp := ORDLEG(irp, old ftnew);
+  gt := (old ftnew * old ftnew - 1.0d0)/(a * gp - b * gm);
+  ftemp := old ftnew - g * gt;
+  gtemp := old ftnew - ftemp;
+  ftnew := ftemp;
+WHILE( ABS(gtemp) - xlim > 0.0d0 )
+RETURNS VALUE OF ftnew
+END FOR
+END FUNCTION
+
+%--------------------GaussianQuadrature
+FUNCTION GaussianQuadrature(nzero : integer 
+	RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrDreal1) 
+LET
+xlim := 1.0d-12;
+ir := nzero * 2;
+fi := double_real(ir);
+fi1 := fi + 1.0d0;
+pi := 3.141592653589793d0;
+piov2 := pi * 0.5d0;
+fn := piov2/double_real(nzero);
+wt := FOR lat IN 1,nzero RETURNS
+	ARRAY of double_real(lat) - 0.5d0
+      END FOR;
+f := FOR lat IN 1,nzero RETURNS
+	ARRAY of SIN( wt[lat] * fn + piov2 )
+     END FOR;
+
+dn := fi/SQRT(4.0d0 * fi * fi - 1.0d0);
+dn1 := fi1/SQRT(4.0d0 * fi1 * fi1 - 1.0d0);
+a := dn1 * fi;
+b := dn * fi1;
+irp := ir + 1;
+irm := ir - 1;
+fnew  := FOR lat IN 1, nzero RETURNS
+	ARRAY of CYCLE(ir, irm, irp, f[lat], a, b, xlim)
+       END FOR;
+wtnew,  radnew,  coangnew,  sianew :=
+	FOR lat IN 1, nzero 
+		a1 := 2.0d0 * (1.0d0 - fnew[lat] * fnew[lat]);
+		bo := ORDLEG(irm, fnew[lat]);
+		b1 := bo * bo * fi * fi;
+		wtt := a1 * (fi - 0.5d0) / b1;
+		radt := ACOS(fnew[lat]);
+		coangt := radt * 180.0d0 / pi;
+		siat := SIN(radt);
+		RETURNS ARRAY of wtt
+			ARRAY of radt
+			ARRAY of coangt
+			ARRAY of siat
+        END FOR;
+
+WORKiyh := fnew || wtnew || sianew || radnew || coangnew;
+
+fs, wts, sias, rads, coangs := 
+     FOR lat IN 1, nzero 
+	RETURNS	ARRAY of real(fnew[lat])
+		ARRAY of real(wtnew[lat])
+		ARRAY of real(sianew[lat])
+		ARRAY of real(radnew[lat])
+		ARRAY of real(coangnew[lat])
+     END FOR;
+
+IN fs, wts, sias, rads, coangs, WORKiyh
+END LET
+END FUNCTION

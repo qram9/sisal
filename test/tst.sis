@@ -7,6 +7,6 @@ let x := 1;
              y := 3
          in  x + y + x * y, x * y + x * y
          end let
-in x * y + z, x * y - z
+in long(x * y + z), x * y - z
 end let
 end function

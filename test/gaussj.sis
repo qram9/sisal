@@ -1,0 +1,165 @@
+define Main
+
+type double = double_real;
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+
+
+function main( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( abs(A[old i]) > abs(A[old max24]) ) then 
+	       old i 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+From cann@medusa.llnl.gov Wed Sep 12 22:36:32 1990
+Return-Path: <cann@medusa.llnl.gov>
+Received: from medusa.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
+	id AA15326; Wed, 12 Sep 90 22:36:29 PDT
+Received: by medusa.llnl.gov (5.0/1.15)
+	id AA03592; Wed, 12 Sep 90 22:37:04 PDT
+Date: Wed, 12 Sep 90 22:37:04 PDT
+From: cann@medusa.llnl.gov (David Cann)
+Message-Id: <9009130537.AA03592@medusa.llnl.gov>
+To: cann@medusa.llnl.gov
+Subject: gaussj.sis
+Status: R
+
+% Gauss-Jordan elimination linear equation solver; based on the routine given
+% in the book "Numerical Recipes-The Art of Scientific Computing" (Press,
+% Flannery, Teukolsky, Vetterling) pages 28-29.
+%
+% A is an input matrix of NxN double_real floating point numbers.  B
+% is a vector of N double_real floating point numbers.  The  program
+% returns the solution set x of A * x = B. If A is singular an error
+% value is NOT generated.
+%
+% The algorithm uses full pivoting.
+%
+
+define Main
+
+type double = double_real;
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+
+
+function idfamax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( abs(A[old i]) > abs(A[old max24]) ) then 
+	       old i 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function idfmax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( A[old i] > A[old max24] ) then old i else old max24 end if;
+  returns value of max24
+  end for
+end function
+
+
+function GetPivot(n: integer; A: TwoD; PIVR: Onei
+                  returns integer, integer)
+   let cols, maxs :=
+       for i in 1, n
+           col, max := if PIVR[i] = 0 then
+			 let
+                           imax := idfamax( A[i], n );
+			 in
+			   imax, abs(A[i,imax])
+			 end let
+                       else
+                          0, -1.0d0
+                       end if
+       returns array of col
+               array of max
+       end for;
+
+       irow := idfmax( maxs, n );
+   in
+       cols[irow], irow
+   end let
+
+end function
+
+
+
+function Compute(n, pvtrow: integer; Ain: TwoD; Bin: OneD
+                 returns TwoD, OneD) 
+
+   for i in 1, n
+       pvtele     := Ain[pvtrow, pvtrow];
+       Arow, Bele := if i = pvtrow then
+                       for j in 1,n
+                       returns array of Ain[i,j] / pvtele
+                       end for,
+                       Bin[i] / pvtele
+                     else
+		       let
+                         multipler := Ain[i, pvtrow] / pvtele;
+		       in
+                         for j in 1,n
+                         returns array of Ain[i,j] - multipler * Ain[pvtrow, j]
+                         end for,
+                         Bin[i] - multipler * Bin[pvtrow]
+		       end let
+                     end if
+   returns array of Arow
+           array of Bele
+   end for
+
+end function
+
+
+
+function Main(n: integer; Ain :TwoD; Bin: OneD  returns OneD)
+
+   for initial
+
+       I    := 0;
+       A, B := Ain, Bin;
+       PIVR := array_fill(1,n,0)
+
+   while I < n repeat
+
+       I := old I + 1;
+       Icol, Irow := GetPivot(n, old A, old PIVR);
+
+       A1, B1 := if ( Icol ~= Irow ) then
+                     old A[Icol: old A[Irow]; Irow: old A[Icol]],
+                     old B[Icol: old B[Irow]; Irow: old B[Icol]]
+ 	         else
+ 	             old A, old B
+                 end if;
+
+       PIVR := old PIVR[Icol: 1];
+       A, B := Compute(n, Icol, A1, B1)
+
+   returns value of B
+   end for
+end function
+
+
+

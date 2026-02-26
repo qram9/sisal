@@ -1,0 +1,100 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                                         %%
+%%                BackTrack: takes the segmented jobs and backtracks       %%
+%%                           through the best job schedule.                %%
+%%                Returns a OneDim of job numbers to be scheduled          %%
+%%                                                                         %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%
+%
+function BackTrack(FinalPtrs: Seg_TwoDim;
+		   N: Integer
+                  returns
+	           Int_OneDim)
+
+
+
+%
+%  first, find all leafs, put them in a record 
+%  to be passed to batcher for sorting
+    Let 
+         PreSortVal, PreSortIRow, PreSortJRow :=
+%
+
+	   For Job in FinalPtrs at I
+
+	    Row,Iarray,Jarray :=
+%
+		for Seg in Job at J
+%
+%
+		returns
+		array of real(Seg.Max.Val) when Seg.Leaf
+	        array of I when seg.Leaf
+	        array of J when seg.Leaf
+		end for;
+
+	    returns
+	    value of catenate Row
+	    value of catenate Iarray
+	    value of catenate Jarray
+	    end for;
+
+	    PreSort := record PreSortRec[Val:PreSortVal;
+					 IRow:PreSortIRow;
+				         JRow:PreSortJRow];
+
+%
+%
+%  now, pass the values and locations to batcher
+%
+	PreSortIn :=
+%
+	    For I in 1, array_size(PreSort.Val)
+		Val := PreSort.Val[I];
+		Loc := I;
+	    returns array of Record SortRec[Val:Val; Loc:Loc]
+	    end for;
+%
+         SortSearch := batcher(PreSortIn);
+%
+	 JobIndex := PreSort.IRow[SortSearch[array_size(SortSearch)].Loc];
+	 SegIndex := PreSort.JRow[SortSearch[array_size(SortSearch)].Loc];
+
+%
+%
+	 ReverseJob,ReverseSeg:=
+%
+	     for initial
+	     NextJob := JobIndex;
+	     NextSeg := SegIndex;
+%%
+		while ( FinalPtrs[NextJob,NextSeg].Max.Job ~= 0 )
+%
+	    repeat
+            NextJob  :=  FinalPtrs[old NextJob,old NextSeg].Max.Job;      
+            NextSeg  :=  FinalPtrs[old NextJob,old NextSeg].Max.Seg;
+%
+%
+	    returns
+	    array of NextJob
+	    array of NextSeg
+	    end for;
+%
+%  reorder the job from start to finish
+%
+	    JobOrder:=
+%
+	    for I in 1,array_size(ReverseJob)
+		JobElem := ReverseJob[array_size(ReverseJob) + 1 - I];
+		returns
+		array of JobElem
+	    end for;
+
+    In
+	 JobOrder
+    End Let
+    end Function  %end of BackTrack

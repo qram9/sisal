@@ -1,0 +1,22 @@
+define Format, FormatClass
+
+%$include( "types.sis" )
+
+function Format( A: Paraffin returns array[ character ] )
+  "[ " ||
+  for Radical in A
+    Chars :=
+      tagcase R := Radical
+      tag Carbon: Format( R )
+      tag Hydrogen: "H "
+      end tagcase
+  returns value of catenate Chars
+  end for
+  || "] "
+end function % Format
+
+function FormatClass( C: Class returns array[ array[ character ] ] )
+  for Member in C
+  returns array of Format( Member )
+  end for
+end function % FormatClass

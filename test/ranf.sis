@@ -1,0 +1,177 @@
+define rans, ranf
+
+% The SISAL version of the RANF random
+% number generator, as implemented by J. Feo and T. DeBoni. It accepts a
+% single number,  divides the RANF sequence into at least that number of
+% subsequences, and produces a new random number and seed for each call.
+% The user is expected to keep the subsequences separate by keeping  the
+% seeds for the subsequences separated.  This allows the user to utilize
+% as much parallelism as desired.
+
+%==============================================================================
+%  D E C L A R A T I O N S
+%==============================================================================
+
+#include "ranf.h"
+
+%==============================================================================
+%  F U N C T I O N   D E F I N I T I O N S
+%==============================================================================
+
+function ranf_mod_mult( a, b: Four_Plex returns Four_Plex )
+
+% Returns a * b where both a and b are 4 12-bit integers and the
+% multiplication is done piecemeal.
+
+   let
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array [0: mod(k0, 4096), mod(k1, 4096), mod(k2, 4096), mod(k3, 4096)]
+   end let
+
+end function % ranf_mod_mult
+
+%==============================================================================
+
+function ranf_k( n: integer returns Four_Plex )
+
+% Returns the floor of (2**46) / nn, where 2**46 is represented by
+% 4 12-bit integers, in base ten [1024, 0, 0, 0], and the division
+% is done piecemeal. For statiscal reasons the divisor is made odd.
+%
+   let
+       nn := if mod(n, 2) = 0 then n + 1 else n end if;
+
+       q3 := 1024 / nn;
+       r3 := 1024 - (nn * q3);
+       q2 := (r3 * 4096) / nn;
+       r2 := (r3 * 4096) - (nn * q2);
+       q1 := (r2 * 4096) / nn;
+       r1 := (r2 * 4096) - (nn * q1);
+       q0 := (r1 * 4096) / nn
+   in
+       array [0: q0, q1, q2, q3]
+   end let
+
+end function % ranf_k
+
+%==============================================================================
+
+function ranf_k_binary( k: Four_Plex returns Bit_Array )
+
+% Returns the binary representation of k, where k is represented
+% by 4 12-bit integers. The bits are stored in the returns array
+% from least significant to most significant.
+
+   for i in 0, 3
+   returns value of catenate
+
+       for initial
+           j   := 1;
+           x   := k[i] / 2;
+           bit := mod(k[i], 2);
+       while j < 12 repeat
+           j   := old j + 1;
+           x   := old x / 2;
+           bit := mod(old x, 2)
+       returns array of bit
+       end for
+
+   end for
+
+end function % ranf_k_binary
+
+%==============================================================================
+
+function ranf_a_to_k( a: Four_Plex; k: Bit_Array returns Four_Plex )
+
+% Returns a to the k mod 2**48.   k is a binary number, so it is
+% equivalent to the sum of k[i] * 2**i.  a to the k mod 2**48 is
+% thus the product of a * (k[i] * 2**i) mod 2**48.  We calculate
+% iteratively a ** (2**i) mod 2**48, and form the result by mul-
+% tiplying together those terms (mod 2**48) for which k[i] is 1.
+
+   for initial
+       i   := 0;
+       a_i := a;
+       a_k := array [0: 1, 0, 0, 0]
+   while i < 46 repeat
+       i   := old i + 1;
+       a_k := if k[i] = 0 then
+                 old a_k
+              else
+                 ranf_mod_mult( old a_k, old a_i )
+              end if;
+       a_i := ranf_mod_mult( old a_i, old a_i )
+   returns value of a_k
+   end for
+
+end function % ranf_a_to_k
+
+%==============================================================================
+
+function rans( N_In, Seed1 : integer returns array[ Four_Plex ] )
+
+% Returns n seeds by dividing the wheel  into  n  segments  and
+% returning the start seed of each segment.  If seed1 is 0, the
+% routine will return all zeros; in such cases, seed1 is set to
+% [3281, 4041, 595, 2376] which is statistically the best start-
+% ing seed.  The wheel is divided into n pieces by dividing its
+% period (2**46) by n ( = k ). Then
+%
+%      seed(i) = seed(i - 1) * a ** k  (mod 2**48)
+%
+% where a is the multiplier of the random number generator.
+
+for initial
+
+        N    := if mod(N_In, 2) = 1 then N_In else N_In + 1 end if;
+        i    := 1;
+        seed := if Seed1 = 0 then
+                   array [0: 3281, 4041, 595, 2376]
+                else
+                   array [0: abs(Seed1), 0, 0, 0]
+                end if;
+        a    := array [0: 373, 3707, 1442, 647];
+        a_k  := if N > 1 then
+                   ranf_a_to_k( a, ranf_k_binary( ranf_k( N ) ) )
+                else % Do not bother to raise a to the first power.
+                   a
+                end if
+
+   while i < N repeat
+       i    := old i + 1;
+       seed := ranf_mod_mult(old seed, a_k)
+
+   returns array of seed
+   end for
+
+
+end function % rans
+
+%==============================================================================
+
+function ranf( Seed: Four_Plex
+               returns double,                  % Random Number
+                       Four_Plex)               % New Seed
+
+% Returns the next random number and seed in the series. The seed
+% bits shifted to the right 48 places are the bits  of  the  random
+% number.  The next seed is the product of the current seed and the
+% series multiplier.
+
+   double_real(Seed[3]) / 4096.0d0 +
+   double_real(Seed[2]) / 16777216.0d0 +
+   double_real(Seed[1]) / 68719476736.0d0 +
+   double_real(Seed[0]) / 281474976710656.0d0,
+
+   ranf_mod_mult( array [0: 373, 3707, 1442, 647], Seed )
+
+end function % ranf

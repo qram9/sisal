@@ -1,0 +1,417 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                           %%
+%%  This file contains routines which trace and select the   %%
+%%  best job schedule.                                       %%
+%%                                                           %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+function FindMax (Rec1,             %
+                  Rec2: MaxRec
+                 returns
+                  MaxRec)
+%
+%  determines the max of two records and returns it
+%
+   if (Rec1.Val > Rec2.Val) then
+      Rec1
+   elseif (Rec2.Val > Rec1.Val) then
+      Rec2
+   else
+      % really want to select the one that finishes first, not based
+      % on some form of starting time.  But would require Alphas and Dels.
+      if (Rec1.Job < Rec2.Job) then
+         Rec1
+      else
+         Rec2
+      end if
+   end if
+end function   % end of FindMax
+
+
+
+function UpdateSeg (Seg : SegRec;
+                    Cnt : Integer;
+                    Max : MaxRec
+                   returns
+                    SegRec)
+%
+%  Update the destination segment for the arc
+%
+   let
+      NewECnt := Seg.EnableCnt - Cnt;
+      NewMax := FindMax (Seg.Max, Max);
+      NewRec := Seg replace [EnableCnt: NewECnt; Max: NewMax];
+   in
+      NewRec
+   end let
+end function   % end of UpdateSeg
+
+
+
+function Unique (Sorted : Sort_Onedim
+                returns
+                 Sort_OneDim,          % starts of range
+                 Sort_OneDim)          % ends of range
+%
+%  For example, when sorting by Job and Segment, first sort by job and run
+%  this routine on the results to find the ranges of each job.  Then, the
+%  segments associated with each job can be sorted in parallel.
+%
+   let
+      % this is a different N
+      N := array_size(Sorted);
+
+      Starts, Finishes :=
+         for I in 1, (N-1)
+            Start := record SortRec [Val: Sorted[I+1].Val; Loc: I+1];
+            Finish := record SortRec [Val: Sorted[I].Val; Loc: I];
+         returns
+            array of Start when Sorted[I].Val ~= Sorted[I+1].Val
+            array of Finish when Sorted[I].Val ~= Sorted[I+1].Val
+         end for;
+
+      % fix up boundries
+      ActualStart := array Sort_OneDim [1: record SortRec [Val: Sorted[1].Val; 
+                                           Loc: 1]] || Starts;
+      ActualFinish := Finishes || array Sort_OneDim [1: record SortRec 
+                                            [Val: Sorted[N].Val; Loc: N]];
+   in
+      ActualStart, ActualFinish
+   end let
+end function   % end of Unique
+
+
+
+function Diffs (Vals : Int_Onedim;    % array of values
+                Low,                  % lower bound of expanded array
+                High : Integer        % upper bound of expnaded array
+               returns
+                Int_OneDim)           % array of differences
+%
+%  Want to expand a compressed array to full size.  So, count the number of spaces
+%  which are to be added between each adjacent element.
+%
+   let
+      Size := array_size(Vals);
+      Deltas := 
+         for I in 1, Size
+            Delta :=
+               if (I = 1) then
+                  Vals[I] - Low
+               else
+                  Vals[I] - Vals[I-1] - 1
+               end if;
+         returns
+            array of Delta
+         end for || array Int_OneDim [1: (High - Vals[Size])];
+   in
+      Deltas
+   end let
+end function   % end of Diffs
+
+
+
+function GenArcs (Links : Int_ThreeDim;
+                  Grid : Seg_TwoDim;    %array of jobs/segments, values, leafmark
+                  Vs : Int_TwoDim;      %lists, pairwise, jobs being compared
+                  Depth : Int_OneDim;
+                  N,
+                  Q : Integer
+                 returns
+                  Seg_TwoDim,           % return an updated Grid array
+                  Arc_OneDim)           % Good arcs
+%
+%  Generate all possible arcs and keep the good ones.  Count them
+%  and mark segments as fired and possibly leaves.
+%
+   for I in 1, N cross
+       K in 1, (Q+1)
+
+      Seg := Grid[I,K];
+      NewVal := Seg.Priority + Seg.Max.Val;
+
+      % fan out from all segments but only keep the good ones
+      % that is ones from enabled segments that are going somewhere
+      Arcs :=
+         for J in 1, Depth[I]
+            Arc := record ArcRec [Job: Vs[I,J];
+                                  Seg: Links[I,J,K];
+                                  Max: record MaxRec [Val: NewVal;
+                                                      Job: I;
+                                                      Seg: K]];
+         returns
+            array of Arc when (((Seg.EnableCnt = 0) & ~Seg.Fired)  &
+                                (Links[I,J,K] ~= 0))
+         end for;
+
+      NewSeg :=
+         % check for enabled segment mark fired and adjust value
+         % also check if the segment is a leaf
+         if ((Seg.EnableCnt = 0) & ~Seg.Fired) then
+            if (array_size(Arcs) ~= Depth[I]) then
+               % mark as leaf
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: TRUE;
+                            Leaf: TRUE]
+            else
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: TRUE]
+            end if
+         else
+            Seg
+         end if;
+   returns
+      array of NewSeg
+      value of catenate Arcs
+   end for
+end function   % end of GenArcs
+
+
+function SortArcs (Arcs : Arc_OneDim
+                  returns
+                   Max_TwoDim,        % 2D array of Max Arc into Seg
+                   Int_TwoDim,        % 2D array of Num Arcs into Seg
+                   Int_TwoDim,        % 2D array of location of Seg
+                   Int_OneDim)        % 1D array of job location
+%
+%  sort the arcs by Job, Segment, Value of Max.  Then return the max
+%  of each segment
+%
+   let
+      % first sort by job and then by segment
+      % generate the sort array for sorting by job
+      SortJobs := 
+         for Elt in Arcs at I
+         returns
+            array of record SortRec [Val: Real(Elt.Job); Loc: I]
+         end for;
+
+      SortedJobs := Batcher(SortJobs);
+
+      ArcsByJob :=
+         for Elt in SortedJobs
+            Arc := Arcs[Elt.Loc];
+         returns
+            array of Arc
+         end for;
+
+      % find all intervals for unique numbers with first indx, last indx, number
+      Start, Finish := Unique (SortedJobs);
+
+      % Sort all jobs by segment
+      % Work on all job numbers in parallel
+      MaxArcs, ArcCnts, SegLocs, JobLocs :=
+         for I in 1, array_limh(Start)
+            % rip out all segments associated with a Job
+            AJob := array_adjust(ArcsByJob, Start[I].Loc, Finish[I].Loc);
+
+            % generate array for sorting by Batcher
+            SortSeg :=
+               for Elt in AJob at K
+               returns
+                  array of record SortRec [Val: Real(Elt.Seg); Loc: K]
+               end for;
+
+            % sort the job by segment
+            SortedSeg := Batcher (SortSeg);
+
+            % shuffle the job into the correct order
+            SortedBySeg :=
+               for Elt in SortedSeg
+               returns
+                  array of AJob[Elt.Loc]
+               end for;
+
+            % now look inside a segment
+            % find the limits one arcs for each segment
+            SegStart, SegFinish := Unique (SortedSeg);
+
+            % have the starts and finishes of each segment
+            % work on each segment in parallel
+            MaxArcofSeg, ArcCntforSeg, LocofSeg := 
+               for K in 1, array_limh(SegStart)
+                  % rip out all arcs coming in to a segment
+                  Arcs := array_adjust(SortedBySeg, SegStart[K].Loc, 
+                                                    SegFinish[K].Loc);
+
+                  % create record to sort arcs by batcher
+                  SortArcs :=
+                     for Elt in Arcs at J
+                     returns
+                        array of record SortRec [Val: Real(Elt.Max.Val); Loc: J]
+                     end for;
+
+                  % sort using Batcher
+                  SortedArcs := Batcher (SortArcs);
+
+                  % only want to return the max arc
+                  High := array_limh(SortedArcs);
+                  MaxArc := Arcs[SortedArcs[High].Loc].Max;
+               returns
+                  array of MaxArc
+                  array of array_size(SortedArcs)
+                  array of Integer(SegStart[K].Val)
+               end for;
+         returns
+            array of MaxArcofSeg
+            array of ArcCntforSeg
+            array of LocofSeg
+            array of Integer(Start[I].Val)
+         end for;
+   in
+      MaxArcs, ArcCnts, SegLocs, JobLocs
+   end let
+end function   % end of SortArcs
+
+
+function ExpandToGrid (MaxArcs : Max_TwoDim;
+                       ArcCnts : Int_TwoDim;
+                       SegLocs : Int_TwoDim;
+                       JobLocs : Int_OneDim;
+                       N,
+                       Q : Integer
+                      returns
+                       Max_TwoDim,          % 2D array of Max for each Seg
+                       Int_TwoDim)          % 2D array of Cnts for each Seg
+%
+%  Expand the MaxArcs to full Grid size so all segments can be
+%  updated together
+%
+   let
+      % define an empty MaxRecord
+      ZeroRec := record MaxRec [Val: 0; Job: 0; Seg: 0];
+
+      % first expand each row so it has Q+1 segments
+      % expanding the segments and counts at the same time
+      FullNumSegs, FullNumCnts :=
+         for I in 1, array_limh(JobLocs)
+            % calculate the number of empty records which should be
+            % placed between each adjacent value
+            Deltas := Diffs (SegLocs[I], 1, (Q+1));
+
+            % add in all empty records except for off end
+            ShortSeg, ShortCnt :=
+               for K in 1, array_limh(SegLocs[I])
+                  Seg, Cnt :=
+                     if (Deltas[K] ~= 0) then
+                        % fill in leading empty records
+                        array_fill(1,Deltas[K], ZeroRec) ||
+                        array [1: MaxArcs[I,K]],
+
+                        % fill in leading zeros
+                        array_fill(1,Deltas[K],0) ||
+                        array Int_OneDim [1: ArcCnts[I,K]]
+                     else
+                        array [1: MaxArcs[I,K]],
+
+                        array Int_OneDim [1: ArcCnts[I,K]]
+                     end if;
+               returns
+                  value of catenate Seg
+                  value of catenate Cnt
+               end for;
+
+            % add on trailing empties if they exist
+            High := array_limh(Deltas);
+            FullSeg, FullCnt :=
+               if (Deltas[High] ~= 0) then
+                  ShortSeg || array_fill(1,Deltas[High], ZeroRec),
+
+                  ShortCnt || array_fill(1,Deltas[High],0)
+               else
+                  ShortSeg, ShortCnt
+               end if;
+         returns
+            array of FullSeg
+            array of FullCnt
+         end for;
+
+      % now do the same thing between rows
+      Deltas := Diffs (JobLocs, 1, N);
+      ShortJobs, ShortCnts :=
+         for I in 1, array_size(JobLocs)
+            Job, Cnt :=
+               if (Deltas[I] ~= 0) then
+                  array_fill(1,Deltas[I], array_fill (1, (Q+1), ZeroRec)) ||
+                  array [1: FullNumSegs[I]],
+
+                  array_fill(1,Deltas[I],array_fill(1,(Q+1),0))
+                  || array [1: FullNumCnts[I]]
+               else
+                  array [1: FullNumSegs[I]],
+
+                  array [1: FullNumCnts[I]]
+               end if;
+
+         returns
+            value of catenate Job
+            value of catenate Cnt
+         end for;
+
+      High := array_limh(Deltas);
+      FullNumJobs, FullJobCnts :=
+         if (Deltas[High] ~= 0) then
+            ShortJobs || array_fill(1,Deltas[High], array_fill(1,Q+1, ZeroRec)),
+
+            ShortCnts || array_fill(1,Deltas[High],array_fill(1,Q+1,0))
+         else
+            ShortJobs, ShortCnts
+         end if;
+   in
+      FullNumJobs, FullJobCnts
+   end let
+end function   % end of ExpandToGrid
+
+
+function UpdateGrid (Grid : Seg_TwoDim;
+                     Maxs : Max_TwoDim;
+                     Cnts : Int_TwoDim;
+                     N,
+                     Q : Integer
+                    returns
+                     Seg_TwoDim)
+%
+%  Update the Grid using the Expanded MaxArcs grid array
+%
+   for I in 1, N cross
+       K in 1, (Q+1)
+      NewSeg :=
+         if (Cnts[I,K] ~= 0) then
+            UpdateSeg (Grid[I,K], Cnts[I,K], Maxs[I,K])
+         else
+            Grid[I,K]
+         end if
+   returns
+      array of NewSeg
+   end for
+end function   % end of UpdateGrid
+
+
+
+function Trace (Links : Int_ThreeDim;
+                Ptrs : Seg_TwoDim;
+                Vs : Int_TwoDim;
+                Depth : Int_OneDim;
+                N,
+                Q : Integer
+               returns
+                Seg_TwoDim)           % return an updated Ptr array
+%
+%  Trace all possible pathes using pruning
+%
+   % the max length of a job schedule is N
+   for initial
+      Grid, Arcs := GenArcs(Links, Ptrs, Vs, Depth, N, Q);
+   while (array_size(Arcs) ~= 0)
+   repeat
+      MaxArcs, ArcCnts, SegLocs, JobLocs := SortArcs (old Arcs);
+      UpdateMax, UpdateCnt := ExpandToGrid (MaxArcs, ArcCnts, SegLocs, 
+                                            JobLocs, N, Q);
+      NewGrid := UpdateGrid (old Grid, UpdateMax, UpdateCnt, N, Q);
+      Grid, Arcs := GenArcs(Links, NewGrid, Vs, Depth, N, Q);
+   returns
+      value of Grid
+   end for
+end function   % end of Trace
+

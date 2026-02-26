@@ -1,0 +1,50 @@
+define Main
+
+Type OneDim = array[ integer ];
+
+function Main( A: OneDim returns OneDim )
+% This is a version of the QuickSort algorithm.
+  if array_size( A ) <=1 then
+    A
+  else
+    let
+      first := array_liml( A );
+      last := array_limh( A );
+      Pivot := A[ first ];
+      J, B:=
+      for initial
+        I := first;
+        J := last;
+	B := A
+      while I<=J repeat
+        L :=
+	  for initial
+	    I1 := old I
+	  while ( I1<= old J ) & ( A[ I1 ] <= Pivot ) repeat
+	    I1 := old I1 + 1
+	  returns value of I1
+	  end for;
+        R :=
+	  for initial
+	    J1 := old J
+	  while ( J1 > old I ) & ( A[ J1 ] > Pivot ) repeat
+	    J1 := old J1 - 1
+	  returns value of J1
+	  end for;
+        I, J, B :=
+	  if L>R then
+	    L, R, old B
+	  else
+	    L+1, R-1, old B[ L:old B[R]; R:old B[L] ]
+          end if
+      returns
+        value of J
+        value of B[ first: B[J] ]
+      end for
+    in
+      Main( array_adjust( B, first, J-1 ) ) ||
+      array[ 1: Pivot ] ||
+      Main( array_adjust( B, J+1, last ) )
+    end let
+  end if
+end function % Main

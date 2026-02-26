@@ -1,0 +1,878 @@
+Define Main
+
+% A modeler for Newtonian discrete pairwise particle dynamics
+% by T. M. DeBoni, with tutelage from A. M. Karo
+
+% This program models the movements in three-space of an ensemble of particles.
+% These particles are usually atoms, but may be molecules, ions, or other
+% aggregations.  They interact pairwise, as Newtonian point-masses, in ways
+% quantitatively specified by a set of parameterized forcing functions.
+%
+% The force functions define the forces generated between interacting particles
+% as functions of particle types and separation distances, and allow the
+% accelerations of the particles to be calculated.  The acceleration components
+% and the current velocity components constitute sufficient information to 
+% solve the pair of first-order systems of differential equations defined by
+% Newton's law: F = mA.  The ODE solver accepts the current state of the 
+% ensemble as particle positions and velocities, uses the force functions to	
+% calculate the accelerations, and solves the systems for new positions and 
+% velocities, giving an evolved state of the ensemble at the next specified 
+% simulation time in the future.  This process continues until an ending time 
+% is surpassed, at which point the simulation stops.  All the states of the 
+% ensemble so calculated are returned in sequence as the results of the 
+% computation.
+%
+%
+% D I S C U S S I O N
+%
+% In this version the ODE solver, originally written to be an independent and
+% reusable module, has been incorporated within the modelling code itself,
+% This is due to the need for a function in the model, DIFFUN, that uses
+% information passed to it by the solver, as well as other information not
+% needed by (and therefore not given to) the solver that must be gotten
+% From the modelling code. The need for library modules with standardized
+% interfaces is one not well comprehended by SISAL as it now stands.
+%
+% One suggested fix for this problem is the use of a higher-order function,
+% which capability is expected to be available in SISAL 2.0.
+%
+
+%==============================================================================
+% T Y P E   D E C L A R A T I O N S
+%----------------------------------
+
+type ENSEMBLE_STATE_REC = record    % The ensemble data for a single point in 
+				    % simulation time.
+	[ TOUT : real;		    % Simulation time of current ensemble state.
+	  CURRENT_STEP : real;	    % Internal step size used by solver to 
+				    % generate this ensemble state.
+	  CURRENT_ERR : real;	    % Max average error for this step;
+	  ENSEMBLE_SIZE : integer;  % The number of particles in the ensemble.
+	  POSITIONS : record	    % Particle position coordinates.
+		[ X, Y, Z : array[ real ] ];
+	  VELOCITIES : record 	    % Particle velocity components.
+		[ VX, VY, VZ : array[ real ] ];
+	  TYPES : array[ integer ]; % Particle types (an interaction parameter).
+	];
+
+type PROBLEM_DATA_REC = record	% Data needed to describe the problem at hand.
+				% Includes interaction and timing parameters.
+				%
+				% The following two-dimensional arrays will be
+				% indexed by pairs of integers denoting the
+				% types of the interacting particles.
+	[ NUMBER_OF_TYPES : integer; 	% The number of distinct particle types 
+					% in this problem; also the size of the 
+					% following arrays:
+	  A1 : array[ array[ real ] ];	% Morse potential parameter.
+	  B1 : array[ array[ real ] ];	% Morse potential parameter.
+	  Re : array[ array[ real ] ];	% Equilibrium particle separation.
+	  Rc : array[ array[ real ] ];	% Dissociation separation.
+	  ALFA : array[ array[ real ] ];	% Force adjustment parameter.
+	  C0 : array[ array[ real ] ];		% Force Adjustment parameter.
+	  MASS : array[ real ];	% Particle masses; indexed by TYPES.
+	  DELTA_T : real;	% Ensemble state step size for this problem.
+	  ENDTIME : real;	% Simulation time of last evolved ensemble.
+	  TOLERANCE : real	% Solution error requirements for ODE solver.
+	];
+
+type STATE_STREAM = stream[ ENSEMBLE_STATE_REC ]; % The sequence of ensemble 
+						% states from startup time to
+                    				% ENDTIME, in time steps of 
+						% DELTA_T.
+
+type TIME_POS_REC = record[ TIME, X1 : real ];	% Used to graph the vibration.
+
+type TIME_POS_STREAM = stream[ TIME_POS_REC ];	% See previous comment.
+
+type TIME_POS_ARRAY = array[ real ];		% Native mode output element.
+
+type TIME_POS_ARRAY_ARRAY = array[ TIME_POS_ARRAY ];	% See previous comment.
+
+type TIME_VEL_REC = RECORD[ TIME, VX1 : real ];	% Used to graph the velocity.
+
+type TIME_VEL_STREAM = stream[ TIME_VEL_REC ];	% See previous comment.
+
+type TIME_ERR_REC = record[ TIME, ERR : real ];	% Used to graph the error.
+
+type TIME_ERR_STREAM = stream[ TIME_ERR_REC ];	% See previous comment.
+
+type NEIGHBOR_LIST = array[ integer ];	% A list of neighbor indices.
+
+type NEIGHBOR_LIST_ARRAY = array[ NEIGHBOR_LIST ];	% An array of lists, 
+							% indexed by particle 
+							% index, used to store 
+							% the current neighbors
+							% of each particle.
+
+type SYSTEM_ARRAY = array[ real ];	% The values of the system that needs 
+					% solving.
+
+type K_VECTOR = array[ real ];		% One set (full or partial) of Runge-
+					% Kutta coefficients for one element
+					% of the SYSTEM
+
+type K_ARRAY = array[ K_VECTOR ];	% All six Runge-Kutta coefficients for 
+					% all of the system elements.
+
+global sqrt( Q : real returns real )
+
+global ln( X : real returns real )
+
+%==============================================================================
+% F O R W A R D   F U N C T I O N   D E C L A R A T I O N S 
+%-----------------------------------------------------------
+
+forward function Evolve_Ensemble( ENSEMBLE : ENSEMBLE_STATE_REC;
+			  	  PROBLEM_DATA : PROBLEM_DATA_REC
+			  	  returns ENSEMBLE_STATE_REC )
+
+forward function Get_Neighbor_Lists( ENSEMBLE : ENSEMBLE_STATE_REC;
+			     	     PROBLEM_DATA: PROBLEM_DATA_REC 
+			     	     returns NEIGHBOR_LIST_ARRAY )
+
+forward function Get_Neighbors( PARTICLE : integer;
+				ENSEMBLE : ENSEMBLE_STATE_REC;
+				PROBLEM_DATA : PROBLEM_DATA_REC
+				returns NEIGHBOR_LIST )
+
+forward function Separation( PARTICLE, OTHER_PARTICLE : integer;
+		     	     ENSEMBLE : ENSEMBLE_STATE_REC
+		     	     returns real )
+
+forward function Sep_Rad( X1, Y2, Z1, X2, Y2, Z2 : real returns real )
+
+forward function square( X : real returns real )
+
+forward function Solve_Systems( ENSEMBLE: ENSEMBLE_STATE_REC;
+				NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+				PROBLEM_DATA : PROBLEM_DATA_REC
+				returns ENSEMBLE_STATE_REC )
+
+forward function Diffun( S : SYSTEM_ARRAY; T: real; 
+			 TYPES : array[ integer ];
+			 NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			 PROBLEM_DATA : PROBLEM_DATA_REC
+			 returns SYSTEM_ARRAY )
+
+forward function Calc_Forces( PARTICLE : integer; S : System_Array;
+			      NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			      TYPES : array[ integer ];
+			      PROBLEM_DATA : PROBLEM_DATA_REC 
+			      returns real, real, real )
+
+forward function Force( PARTICLE, NEIGHBOR: integer; DIMENSION : character;
+			S : SYSTEM_ARRAY; TYPES : array[ integer] ;
+			PROBLEM_DATA : PROBLEM_DATA_REC returns real )
+
+forward function Morse_Force ( R : real; Tp, Tn : integer; Delta_Q : real; 
+			       PROBLEM_DATA : PROBLEM_DATA_REC returns real )
+
+forward function Basic_Morse( R, A1, B1, Re : real returns real )
+
+forward function F_ADJUST( R: real; T1, T2 : integer; 
+			   PROBLEM_DATA : PROBLEM_DATA_REC returns real )
+
+forward function log_base_10 ( X : real returns real )
+
+forward function e_to_power( X : real returns real )
+
+forward function RKF45( S : SYSTEM_ARRAY; H, TOUT, TOLERANCE : real;
+			NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			TYPES : array[ integer ];
+			PROBLEM_DATA : PROBLEM_DATA_REC 
+			returns SYSTEM_ARRAY, real, real )
+
+forward function Calc_Avg_Err( S : SYSTEM_ARRAY; H, TOUT : real;
+			       NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			       PROBLEM_DATA : PROBLEM_DATA_REC;
+			       TYPES : array[ integer ]
+			       returns K_ARRAY, real )
+
+forward function Calc_Ks( S : SYSTEM_ARRAY; H, TOUT : real;
+			  NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			  PROBLEM_DATA : PROBLEM_DATA_REC;
+			  TYPES : array[ integer ]
+			  returns K_ARRAY )
+
+forward function S_Augmented( S : SYSTEM_ARRAY; K : K_ARRAY; I : integer 
+			      returns SYSTEM_ARRAY )
+
+forward function Sum_Beta_K( K : K_ARRAY; I, L : integer returns real )
+
+forward function Sum_Gamma_Ks( K : K_ARRAY; L : integer returns real )
+
+forward function Get_Gamma( returns array[ real ] )
+
+forward function Get_Gamma_Star( returns array[ real ] )
+
+forward function Get_Alpha( returns array[ real ] )
+
+forward function Get_Beta( returns array[ array[ real ] ] )
+
+%==============================================================================
+% F U N C T I O N   D E F I N I T I O N S
+%----------------------------------------
+
+function Evolve_Ensemble( ENSEMBLE : ENSEMBLE_STATE_REC;
+			  PROBLEM_DATA : PROBLEM_DATA_REC
+			  returns ENSEMBLE_STATE_REC )
+
+% This function is responsible for the generation of a new state from an old
+% one.
+
+let	NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY := 
+				Get_Neighbor_Lists( ENSEMBLE, PROBLEM_DATA )
+
+in	Solve_Systems( ENSEMBLE, NEIGHBOR_LISTS, PROBLEM_DATA )
+
+end let
+
+end function % Evolve_Ensemble	
+
+%==============================================================================
+
+function Get_Neighbor_Lists( ENSEMBLE : ENSEMBLE_STATE_REC;
+			     PROBLEM_DATA: PROBLEM_DATA_REC 
+			     returns NEIGHBOR_LIST_ARRAY )
+
+% This function assembles the array of neighbor lists.
+
+
+for PARTICLE in 1, ENSEMBLE.ENSEMBLE_SIZE
+	N_LIST : NEIGHBOR_LIST := 
+			Get_Neighbors( PARTICLE, ENSEMBLE, PROBLEM_DATA )
+	returns array of N_LIST
+end for
+
+end function % Get_Neighbor_Lists
+
+%==============================================================================
+
+function Get_Neighbors( PARTICLE : integer;
+			ENSEMBLE : ENSEMBLE_STATE_REC;
+			PROBLEM_DATA : PROBLEM_DATA_REC
+			returns NEIGHBOR_LIST )
+
+% This function assembles a neighbor list for the specified particle.
+
+for OTHER_PARTICLE in 1, ENSEMBLE.ENSEMBLE_SIZE
+	T1 : integer := ENSEMBLE.TYPES[ PARTICLE ];
+	T2 : integer := ENSEMBLE.TYPES[ OTHER_PARTICLE ] ;
+    	RC : real := PROBLEM_DATA.Rc[ T1, T2 ]
+	returns	array of OTHER_PARTICLE
+	when	OTHER_PARTICLE ~= PARTICLE &
+      		Separation( PARTICLE, OTHER_PARTICLE, ENSEMBLE ) <= RC
+end for
+
+end function % Get_Neighbors
+
+%==============================================================================
+
+function Separation( PARTICLE, OTHER_PARTICLE : integer;
+		     ENSEMBLE : ENSEMBLE_STATE_REC
+		     returns real )
+
+let	X1 := ENSEMBLE.POSITIONS.X[ PARTICLE ];
+	Y1 := ENSEMBLE.POSITIONS.Y[ PARTICLE ];
+	Z1 := ENSEMBLE.POSITIONS.Z[ PARTICLE ];
+	X2 := ENSEMBLE.POSITIONS.X[ OTHER_PARTICLE ];
+	Y2 := ENSEMBLE.POSITIONS.Y[ OTHER_PARTICLE ];
+	Z2 := ENSEMBLE.POSITIONS.Z[ OTHER_PARTICLE ]
+
+in	Sep_Rad( X1, Y1, Z1, X2, Y2, Z2 )
+end let
+
+end function % Separation
+
+%==============================================================================
+
+function Sep_Rad( X1, Y1, Z1, X2, Y2, Z2 : real returns real )
+
+let	X_DIFF_SQ := square(X1 - X2);
+	Y_DIFF_SQ := square(Y1 - Y2);
+	Z_DIFF_SQ := square(Z1 - Z2)
+
+in	sqrt( X_DIFF_SQ + Y_DIFF_SQ + Z_DIFF_SQ )
+end let
+
+end function % Sep_Rad
+
+%==============================================================================
+
+function square( X : real returns real )
+
+X * X
+
+end function % square
+
+%==============================================================================
+
+function Solve_Systems( ENSEMBLE: ENSEMBLE_STATE_REC;
+			NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+			PROBLEM_DATA : PROBLEM_DATA_REC
+			returns ENSEMBLE_STATE_REC )
+
+% This functions prepares the data and calls the ODE solver to return the
+% newly evolved system. It then puts the new data into the proper structures
+% and returns it.
+
+let	S : SYSTEM_ARRAY :=
+		for I in 1, ENSEMBLE.ENSEMBLE_SIZE
+			Xi : real := ENSEMBLE.POSITIONS.X[ I ];
+			Yi : real := ENSEMBLE.POSITIONS.Y[ I ];
+			Zi : real := ENSEMBLE.POSITIONS.Z[ I ];
+			VXi : real := ENSEMBLE.VELOCITIES.VX[ I ];
+			VYi : real := ENSEMBLE.VELOCITIES.VY[ I ];
+			VZi : real := ENSEMBLE.VELOCITIES.VZ[ I ];
+			Si := array SYSTEM_ARRAY [ 1 : Xi, Yi, Zi, 
+						       VXi, VYi, VZi ]
+ 		returns	value of catenate Si
+		end for;
+
+	H : real := ENSEMBLE.CURRENT_STEP; 
+	NEXT_TOUT : real := ENSEMBLE.TOUT + PROBLEM_DATA.DELTA_T;
+	TOLERANCE : real := PROBLEM_DATA.TOLERANCE;
+
+	NEW_S : SYSTEM_ARRAY, NEW_H, AVG_ERR : real := 
+			RKF45( S, H, NEXT_TOUT, TOLERANCE, NEIGHBOR_LISTS, 
+			       ENSEMBLE.TYPES, PROBLEM_DATA );
+
+	NEW_X, NEW_Y, NEW_Z, NEW_VX, NEW_VY, NEW_VZ :=
+		for I in 1, ENSEMBLE.ENSEMBLE_SIZE
+			J : integer := (I-1) * 6 + 1
+		returns array of NEW_S[ J ]
+			array of NEW_S[ J+1 ]
+			array of NEW_S[ J+2 ]
+			array of NEW_S[ J+3 ]
+			array of NEW_S[ J+4 ]
+			array of NEW_S[ J+5 ]
+		end for
+
+in	ENSEMBLE replace [ TOUT : NEXT_TOUT;
+			   CURRENT_STEP : NEW_H;
+			   CURRENT_ERR : AVG_ERR;
+			   POSITIONS.X : NEW_X;
+			   POSITIONS.Y : NEW_Y;
+			   POSITIONS.Z : NEW_Z;
+			   VELOCITIES.VX : NEW_VX;
+			   VELOCITIES.VY : NEW_VY;
+			   VELOCITIES.VZ : NEW_VZ ]
+
+end let
+
+end function % Solve_Systems
+
+%==============================================================================
+
+function Diffun( S : SYSTEM_ARRAY; T: real; TYPES : array[ integer ];
+		 NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+		 PROBLEM_DATA : PROBLEM_DATA_REC 
+		 returns SYSTEM_ARRAY )
+
+% This function calculates the derivatives of the coupled systems as follows:
+% 	The velocity component is the derivative of the position component; 
+%	these values are part of system array S, which is an input argument. 
+%	provided by the ODE solver.
+%	The acceleration component is calculated by dividing the calculated 
+%	force component by the particle mass. The forces on a particle are
+%	calculated by componentwise summing of forces on the particle due to
+%	individual neighbor particles, which are members of the target
+%	particle's neighbor list.
+
+let	SYSTEM_SIZE : integer := array_size( S );
+	ENSEMBLE_SIZE := SYSTEM_SIZE / 6
+
+in	for I in 1, ENSEMBLE_SIZE		% NOTE: "I" is particle id #.
+		J : integer := (I-1) * 6 + 1;	% NOTE: "J" is Sys. array slot.
+
+		S_DOT : SYSTEM_ARRAY := array_fill( J, J+5, 0.0 );
+
+		VX : real := S[ J+3 ];
+		VY : real := S[ J+4 ];
+		VZ : real := S[ J+5 ];
+
+		FX, FY, FZ : real := 
+		Calc_Forces( I, S, NEIGHBOR_LISTS, TYPES, PROBLEM_DATA );
+
+		MASS : real := PROBLEM_DATA.MASS[ TYPES[ I ] ];
+
+		AX : real := FX / MASS;
+		AY : real := FY / MASS;
+		AZ : real := FZ / MASS
+
+	returns value of
+		catenate S_DOT[ J : VX;
+			        J+1 : VY;
+			        J+2 : VZ;
+			        J+3 : AX;
+			        J+4 : AY;
+			        J+5 : AZ ]
+	end for
+end let
+
+end function % Diffun
+
+%==============================================================================
+
+function Calc_Forces( PARTICLE : integer; S : System_Array; 
+		      NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY; 
+		      TYPES : array[ integer ];
+		      PROBLEM_DATA : PROBLEM_DATA_REC
+		      returns real, real, real )
+
+% This function calculates all three components of the total force on PARTICLE
+% exerted by its neighbors.
+
+let	N_LIST : NEIGHBOR_LIST := NEIGHBOR_LISTS[ PARTICLE ];
+	NEIGHBOR_COUNT := array_size( N_LIST )
+
+in	for I in 1, NEIGHBOR_COUNT
+		NEIGHBOR := N_LIST[ I ];
+		FXi : real := Force( PARTICLE, NEIGHBOR, 'X', S, 
+				     TYPES, PROBLEM_DATA );
+		FYi : real := Force( PARTICLE, NEIGHBOR, 'Y', S, 
+				     TYPES, PROBLEM_DATA );
+		FZi : real := Force( PARTICLE, NEIGHBOR, 'Z', S, 
+				     TYPES, PROBLEM_DATA );
+	returns	value of sum FXi
+		value of sum FYi
+		value of sum FZi
+	end for
+end let
+
+end function % Calc_Forces
+
+%==============================================================================
+
+function Force( PARTICLE, NEIGHBOR: integer; 
+		DIMENSION : character; S : System_Array;
+		TYPES: array[ integer ]; PROBLEM_DATA : PROBLEM_DATA_REC
+	        returns real )
+
+% This function calculates the component of the force between PARTICLE and
+% NEIGHBOR along DIMENSION.
+
+let	J : integer := (PARTICLE-1) * 6 + 1;
+	Xp : real := S[ J ];
+	Yp : real := S[ J+1 ];
+	Zp : real := S[ J+2 ];
+	Tp : integer := TYPES[ PARTICLE ];
+
+	K : integer := (NEIGHBOR-1) * 6 + 1;
+	Xn : real := S[ K ];
+	Yn : real := S[ K+1 ];
+	Zn : real := S[ K+2 ];
+	Tn : integer := TYPES[ NEIGHBOR ];
+
+	A1 : real := PROBLEM_DATA.A1[ Tp, Tn ];
+	B1 : real := PROBLEM_DATA.B1[ Tp, Tn ];
+	Re : real := PROBLEM_DATA.Re[ Tp, Tn ];
+	Rc : real := PROBLEM_DATA.Rc[ Tp, Tn ];
+
+	R : real := Sep_Rad( Xp, Yp, Zp, Xn, Yn, Zn );
+	Delta_Q : real := if DIMENSION = 'X'
+				then (Xp-Xn)
+			  elseif DIMENSION = 'Y'
+				then (Yp-Yn)
+			  else (Zp-Zn)
+			  end if
+
+in	Morse_Force( R, Tp, Tn, DELTA_Q, PROBLEM_DATA )
+end let
+
+end function % Force
+
+%==============================================================================
+
+function Morse_Force( R : real; Tp, Tn : integer; DELTA_Q : real; 
+		       PROBLEM_DATA : PROBLEM_DATA_REC returns real )
+
+% This function calculates interparticle force in a algebraic frame, using
+% the Morse potential model, and dimensionally normalizes it to give the
+% desired vector component. R and DELTA_Q are, respectively, separation vector
+% magnitude and separation along one dimension. The rest of the arguments are
+% parameters of the force model.
+
+let	A1 : real := PROBLEM_DATA.A1[ Tp, Tn ];
+	B1 : real := PROBLEM_DATA.B1[ Tp, Tn ];
+	Re : real := PROBLEM_DATA.Re[ Tp, Tn ];
+	Rc : real := PROBLEM_DATA.Rc[ Tp, Tn ];
+
+	BASIC_FORCE : real := Basic_Morse( R, A1, B1, Re );
+	FADJ : real := F_ADJUST( R, Tp, Tn, PROBLEM_DATA )
+
+in 	-( BASIC_FORCE - FADJ ) * DELTA_Q / R
+end let
+
+end function % Morse_Force
+
+%==============================================================================
+
+function Basic_Morse( R, A1, B1, Re : real returns real )
+
+% This function does the actual calculation for Morse_Force.
+
+(-1.0 / B1 ) * e_to_power( -2.0 * A1 * (R-Re) ) +
+(+1.0 / B1 ) * e_to_power( -A1 * (R-Re) )
+
+end function % Basic_Morse
+
+%==============================================================================
+
+function log_base_10 ( X : real returns real )
+
+% This function calculates the base-ten logarithm of its argument.
+
+let	log_of_e : real :=  0.434294482
+
+in	log_of_e * ln( X )
+end let
+
+end function % log_base_10
+
+%==============================================================================
+
+function F_ADJUST( R: real; T1, T2 : integer; 
+		   PROBLEM_DATA : PROBLEM_DATA_REC returns real )
+
+% This functions performs a numerical adjustment on the basic force.
+
+let	ALFA : real := PROBLEM_DATA.ALFA[ T1, T2 ];
+	C0 : real := PROBLEM_DATA.C0[ T1, T2 ]
+
+in	ALFA * e_to_power(ALFA * (R-C0))
+end let
+
+end function % F_ADJUST
+
+%==============================================================================
+
+function e_to_power( X : real returns real )
+
+% This function raises e - the base of the natural logarithms - to the power
+% provided as its argument.
+
+let	e : real := 2.718281828
+in	exp( e, X )
+
+end let
+
+end function % e_to_power
+
+%==============================================================================
+
+function RKF45( S : SYSTEM_ARRAY; H, TOUT, TOLERANCE : real;
+		NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+		TYPES : array[ integer ];
+		PROBLEM_DATA : PROBLEM_DATA_REC 
+		returns SYSTEM_ARRAY, real, real )
+
+% An ODE solver adapted from RKF45 as presented in "Computer Methods for
+% Mathematical Computations", by Forsythe, Malcolm, and Moler. As described 
+% there, it is a fourth order Runge-Kutta solver that gives fifth order 
+% solutions due to a careful choice of solution coefficients.
+%
+% This function implements the top level of the RKF45 solution, for the system
+% elements in S (and possibly the auxiliary information in AUX, which may or 
+% may not be used in the functional evaluation routine Diffun, depending on the
+% needs of % the current problem), and returns the new system S.
+
+let	K : K_ARRAY, AVG_ERR : real := 
+				Calc_Avg_Err( S, H, TOUT, NEIGHBOR_LISTS, 
+					      PROBLEM_DATA, TYPES );
+	SYSTEM_SIZE := array_size( S )
+
+in	if AVG_ERR < TOLERANCE then
+		for L in 1, SYSTEM_SIZE
+			NEW_S_VALUE : real := S[ L ] + Sum_Gamma_Ks( K, L )
+		returns array of NEW_S_VALUE
+			value of H
+			value of AVG_ERR
+		end for
+
+	else	% change the step size and try again
+		let	S1, NEW_H, AVG_ERR :=
+				RKF45( S, (0.5 * H), TOUT, TOLERANCE, 
+				NEIGHBOR_LISTS, TYPES, PROBLEM_DATA )
+		in	RKF45( S1, (0.5 * H), TOUT, TOLERANCE,
+			       NEIGHBOR_LISTS, TYPES, PROBLEM_DATA )
+		end let
+	 end if
+
+end let
+
+end function % RKF45
+
+%===============================================================================
+
+function Calc_Avg_Err( S : SYSTEM_ARRAY; H, TOUT : real;
+		       NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY; 
+		       PROBLEM_DATA : PROBLEM_DATA_REC;
+		       TYPES : array[ integer ]
+		       returns K_ARRAY, real )
+
+% This function calculates the error estimate described in FMM for each element
+% of the SYSTEM, and returns the largest of them.
+
+let	K : K_ARRAY := Calc_Ks( S, H, TOUT, NEIGHBOR_LISTS, PROBLEM_DATA, 
+				TYPES );
+	SYSTEM_SIZE : integer := array_size( S );
+	
+	GAMMA : array[ real ] := Get_Gamma();
+	GAMMA_STAR : array[ real ] := Get_Gamma_Star();
+
+	MAX_SUM_OF_PROD : real :=
+		for L in 1, SYSTEM_SIZE
+			SUM_OF_PROD : real := 
+				for I in 1, 6
+					PROD : real := K[ L, I ] *
+						( GAMMA[ I ] - GAMMA_STAR[ I ] )
+				returns value of sum PROD
+				end for
+		returns value of greatest SUM_OF_PROD
+		end for
+
+in	K, MAX_SUM_OF_PROD
+end let
+
+end function % Calc_Avg_Err
+
+%===============================================================================
+
+function Calc_Ks( S : SYSTEM_ARRAY; H, TOUT : real;
+		  NEIGHBOR_LISTS : NEIGHBOR_LIST_ARRAY;
+		  PROBLEM_DATA : PROBLEM_DATA_REC;
+		  TYPES : array[ integer ]
+		  returns K_ARRAY )
+
+% This function calculates the array of vectors of K - the RK coefficients.
+
+let	SYSTEM_SIZE : integer := array_size( S );
+	ALPHA : array[ real ] := Get_Alpha()
+
+in	for 
+	initial	I : integer := 1;
+		K : K_ARRAY := array_fill( 1, SYSTEM_SIZE, array K_VECTOR [] )
+
+	repeat	T_AUGMENTED : real := TOUT + ALPHA[ old I ];
+
+		SDOT : SYSTEM_ARRAY := Diffun( S_Augmented( S, old K, old I ), 
+					       T_AUGMENTED, TYPES, 
+					       NEIGHBOR_LISTS, PROBLEM_DATA );
+
+		K : K_ARRAY := 
+			for L in 1, SYSTEM_SIZE
+				NEW_K_VAL : real := (H * SDOT[ L ]);
+				NEW_K_ROW : K_VECTOR := 
+					array_addh( old K[ L ], NEW_K_VAL )
+			returns array of NEW_K_ROW 
+			end for;
+
+		I := old I + 1
+
+	until	I > 6
+
+	returns	value of K
+	end for
+end let
+
+end function % Calc_Ks
+
+%===============================================================================
+
+function S_Augmented( S : SYSTEM_ARRAY; K : K_ARRAY; I : integer 
+		      returns SYSTEM_ARRAY )
+
+let	SYSTEM_SIZE : integer := array_size( S )
+
+in	for L in 1, SYSTEM_SIZE
+		NEW_S_VALUE : real := S[ L ] + Sum_Beta_K( K, I, L )
+	returns	array of NEW_S_VALUE
+	end for
+end let
+
+end function % S_Augmented 
+
+%===============================================================================
+
+function Sum_Beta_K( K : K_ARRAY; I, L : integer returns real )
+
+if I <= 1 then 
+	0.0 
+else
+	let	BETA : array[ array[ real ] ] := Get_Beta()
+	in	for J in 1, (I-1)
+			returns value of sum BETA[ I, J ] * K[ L, J ]
+		end for
+	end let 
+end if
+
+end function % Sum_Beta_K 
+
+%===============================================================================
+
+function Sum_Gamma_Ks( K : K_ARRAY; L : integer returns real )
+
+let	GAMMA : array[ real ] := Get_Gamma()
+in	for I in 1, 6
+		returns value of sum GAMMA[ I ] * K[ L, I ]
+	end for
+end let
+
+end function % Calc_Summed_Gamma_Ks
+
+%===============================================================================
+
+function Get_Gamma( returns array[ real ] )
+
+% This functions generates the equivalent of a constant array of coefficients
+% used in the Runge-Kutta integration.
+
+let	GAMMA := array [ 1: (16./135.), 0., (6656./12825.), 
+			    (28561./56430.), (-9./50.), (2./55.) ]
+in	GAMMA
+
+end let
+
+end function % Get_Gamma
+
+%===============================================================================
+
+function Get_Gamma_Star( returns array[ real ] )
+
+% This functions generates the equivalent of a constant array of coefficients
+% used in the Runge-Kutta integration.
+
+let	GAMMA_STAR := array [ 1: (25./216.), 0., (1408./2565.),
+				 (2197./4104.), (-1./5.), 0. ]
+in	GAMMA_STAR
+
+end let
+
+end function % Get_Gamma_Star
+
+%===============================================================================
+
+function Get_Alpha( returns array[ real ] )
+
+% This functions generates the equivalent of a constant array of coefficients
+% used in the Runge-Kutta integration.
+
+let	ALPHA := array [ 1: 0., (1./4.), (3./8.), (12./13.), 1., (1./2.) ]
+in	ALPHA 
+
+end let
+
+end function % Get_Alpha  
+
+%===============================================================================
+
+function Get_Beta( returns array[ array[ real ] ] )
+
+% This functions generates the equivalent of a constant array of coefficients
+% used in the Runge-Kutta integration.
+
+let	BETA := array 
+	[ 1 : array[ 1 : 0., 0., 0., 0., 0. ],
+	      array[ 1 : (1./4.), 0., 0., 0., 0. ],
+	      array[ 1 : (3./32.), (9./32.), 0., 0., 0. ],
+	      array[ 1 : (1932./2197.), (-7200./2197.), (7296./2197.), 0., 0. ],
+	      array[ 1 : (439./216.), -8., (3680./513.), (-845./4104.), 0. ],
+	      array[ 1 : (-8./27.), 2., (-3544./2565.), (1859./4104.), 
+			  (-11./40.) ] ]
+in	BETA
+
+end let
+
+end function % Get_Beta
+
+%===============================================================================
+
+%===============================================================================
+%
+% MOLDYN "Main Program" body.
+% ---------------------------
+
+function Main( ENSEMBLE : ENSEMBLE_STATE_REC;
+	       PROB_DATA : PROBLEM_DATA_REC
+%	       returns stream [ real ],
+%		       stream [ real ]
+	       returns TIME_POS_ARRAY_ARRAY )
+
+for
+initial	ENSEMBLE_STATE : ENSEMBLE_STATE_REC := ENSEMBLE;
+
+%	TIME_POS : TIME_POS_REC := record [ TIME : ENSEMBLE.TOUT; 
+%					    X1 : ENSEMBLE.POSITIONS.X[ 1 ] ]; 
+%	TIME_VEL : TIME_VEL_REC := record [ TIME : ENSEMBLE.TOUT;
+%					    VX1 : ENSEMBLE.VELOCITIES.VX[ 1 ] ];
+%	TIME_ERR : TIME_ERR_REC := record [ TIME : ENSEMBLE.TOUT;
+%					    ERR : ENSEMBLE.CURRENT_ERR ]; 
+ 	TIME_POS_ARR : TIME_POS_ARRAY :=
+ 			array TIME_POS_ARRAY [ 1 : ENSEMBLE.TOUT,
+ 						   ENSEMBLE.POSITIONS.X[ 1 ] ];
+%	TIME : real := ENSEMBLE_STATE.TOUT;
+%	X1 : real := ENSEMBLE_STATE.POSITIONS.X[ 1 ];
+	
+	NUM_TYPES : integer := PROB_DATA.NUMBER_OF_TYPES;
+	Epsilon : real := 1.0e-8;
+
+	CALCED_ALFA, CALCED_C0 : array[ array[ real ] ] :=
+	for I in 1, NUM_TYPES
+
+		ALFA_ROW, C0_ROW : array[ real ] :=
+		for J in 1, NUM_TYPES
+
+			Rc : real := PROB_DATA.Rc[1,1];
+			Re : real := PROB_DATA.Re[1,1];
+			A1 : real := PROB_DATA.A1[1,1];
+			B1 : real := PROB_DATA.B1[1,1];
+
+			NEW_ALFA : real := 
+			log_base_10( abs( Basic_Morse( Rc, A1, B1, Re ) )
+				     / Epsilon ) / ( Rc - Re );
+			NEW_C0 : real := Re - ( 1.0/NEw_ALFA ) * 
+					 Log_base_10( Epsilon/NEW_ALFA );
+
+		returns	array of NEW_ALFA
+			array of NEW_C0
+		end for
+
+	returns	array of ALFA_ROW
+		array of C0_ROW
+	end for;
+
+	PROBLEM_DATA : PROBLEM_DATA_REC := 
+		PROB_DATA replace [ ALFA : CALCED_ALFA; 
+				    C0 : CALCED_C0 ]
+
+while	ENSEMBLE_STATE.TOUT <= PROBLEM_DATA.ENDTIME
+
+repeat	ENSEMBLE_STATE := Evolve_Ensemble( old ENSEMBLE_STATE,
+					   PROBLEM_DATA );
+
+%	TIME_POS : TIME_POS_REC := 
+%			record [ TIME : ENSEMBLE_STATE.TOUT;
+%				 X1 : ENSEMBLE_STATE.POSITIONS.X[ 1 ] ];
+%	TIME_VEL : TIME_VEL_REC := 
+%			record [ TIME : ENSEMBLE_STATE.TOUT;
+%				 VX1 : ENSEMBLE_STATE.VELOCITIES.VX[ 1 ] ];
+%	TIME_ERR : TIME_ERR_REC := 
+%			record [ TIME : ENSEMBLE_STATE.TOUT;
+%				 ERR : ENSEMBLE_STATE.CURRENT_ERR ];
+ 	TIME_POS_ARR : TIME_POS_ARRAY :=
+ 		    array TIME_POS_ARRAY [ 1 : ENSEMBLE_STATE.TOUT,
+ 					   ENSEMBLE_STATE.POSITIONS.X[ 1 ] ];
+%	TIME : real := ENSEMBLE_STATE.TOUT;
+%	X1 : real := ENSEMBLE_STATE.POSITIONS.X[ 1 ]
+
+%	returns	stream of TIME 
+%       	stream of X1
+	returns array of TIME_POS_ARR
+
+end for
+
+end function % Main
+
+

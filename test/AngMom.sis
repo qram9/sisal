@@ -1,0 +1,39 @@
+DEFINE AngMom
+
+TYPE CplexReal = Record [Repart, Impart : real];
+TYPE ArrCplexReal = Array [CplexReal]
+
+global SQRTR(num : real RETURNS real)
+
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Cmul(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Conjg(cnum : CplexReal RETURNS CplexReal)
+%----------------------------
+function AngMom(jx, jxmx : integer; zmean,  asq, ww : real; 
+		u, h, zm, z : ArrCplexReal
+		RETURNS real, real, real, real, real)
+LET
+c1,  c2,  c3,  c4 := 0.942809,  0.421637,  1.4142136,  1E-5;
+gmass := 4.0 * (zmean - h[1].Repart) / asq;
+
+atot1 := u[1].Repart * c3 * (zmean - h[1].Repart);
+backdown := 2 + jxmx;
+atotup := FOR j in 2, jxmx
+		k := backdown - j;
+		conjg_u := Conjg(u[k]);
+		relative := Cmul(Csub(zm[k], h[k]), conjg_u).Repart;
+	RETURNS VALUE of SUM
+			if k > jx then 2.0 * relative
+				else relative
+			end if
+	end FOR;
+
+atot := (atot1 + atotup) / gmass * c4;
+atot_1 := atot1 / gmass * c4;
+wtot := ww * ( - c2 * (z[3].Repart - h[3].Repart)) / gmass * c4;
+total := atot + wtot;
+total1 := atot_1 + wtot;
+
+IN atot, atot_1, wtot, total, total1
+end LET
+end function

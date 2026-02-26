@@ -1,0 +1,1128 @@
+define expon, get_nu0, form_knots, form_col_pts, s_int,
+  c_int, form_k, phi_ev_l, phi_ev_r, phi_od_l, phi_od_r,
+  spline, answers, a_alpha_even, a_alpha_odd, form_b11, 
+  form_b12
+%
+%  faces.sis     (c) Copyright 1986, 1987, 1988. All rights reserved
+%  Version 3.     Regents of the University of California
+%    3.1 sks replaced error[real] by 0.0
+%
+% ::::::::::::::::::::::::::::::::::::::::::::::::::
+%       To get the solution on the faces only,
+%       when running this program with  'di'  type
+%             di slab faces gauss
+%       and run slab(n) for some integer n, the number of intervals.
+%
+%       To get the solution both on the faces and
+%       on the interior, under 'di' type
+%             di inside faces gauss
+%       and run slab(n) for some integer n, the number of intervals.
+%
+%  This module contains the routines for computing the
+%  solution of the radiative transfer problem on the faces 
+%  of a slab using the algorithm from the paper `On the Use 
+%  of the FN Method with Splines for Radiative Transfer
+%  Problems' by R. C. Y. Chin, G. W. Hedstrom, and C. E. 
+%  Siewert, J. Quant. Spectrosc. Radiat. Transfer 39 (1988), 
+%  205--217.
+%
+% ::::::::::::::::::::::::::::::::::::::::::::::::::
+% this program uses a spline-fn method based on Hermite 
+% cubic splines to solve the radiative transport problem
+% in a slab.  The boundary conditions are that no radiation 
+% is coming in from the right and that half a Dirac 
+% delta-function is coming in from the left.
+% --------------------------------------------------
+type RealVector = array[real];
+type RealMatrix = array[RealVector]
+global ln(x : real returns real)
+global etothe(x : real returns real)
+% *************************************************
+%                   expon
+% *************************************************
+function expon(x : real returns real)
+% this function computes exp(x) with traps for overflow 
+% and underflow.  the traps are machine dependent.
+% --------------------------------------------------------
+  if (x < -88.028) then 0.0  %  trap underflow
+  elseif (x > 88.028) then 0.0  % sks error[real]  %  trap overflow
+  else etothe(x)
+  end if
+end function
+% **********************************************
+%                        g
+% ************************************************
+function g(alpha, c : real; returns real)
+% ----------------------------------------------
+ 2.0*alpha/c + ln((1.0 - alpha)/(1.0 + alpha))
+end function
+% *************************************************
+%                g_prime
+% *************************************************
+function g_prime(alpha, c : real; returns real)
+% -------------------------------------------------
+2.0/c - 1.0/(1.0 - alpha) - 1.0/(1.0 + alpha)
+end function
+% *************************************************
+%                 above
+% *************************************************
+function above(c : real returns real, real)
+% This function finds a value of \alpha = 1/ \nu
+% such that g(\alpha) <= 0  and
+% 0 < \alpha < 1.  This value of  \alpha  serves
+% as an initial guess in the Newton iteration
+% for the zero of  g.  The value of g(\alpha) 
+% is also returned.
+% -----------------------------------------------
+for initial
+  alpha0 := 0.5;  %  an initial guess
+  g_alpha0 := g(0.5, c)
+  while (g_alpha0 >= 0.0) repeat
+    alpha0 := 0.5*(1.0 + old alpha0);  % go closer to 1
+    g_alpha0 := g(alpha0, c)
+returns
+  value of alpha0 
+  value of g_alpha0
+end for
+end function
+% *****************************************************
+%                  get_nu0
+% *****************************************************
+function get_nu0(c, eps : real; returns real)
+% -----------------------------------------------------
+% this subroutine uses newton's method to find the
+% zero alpha (0 < alpha < 1) of the equation
+%    g(alpha) = (2*alpha/c) + log(1-alpha) - log(1+alpha).
+%
+% **************** WARNING ***************************
+% if  c  is too close to 1, the iteration loop in this
+% function can go on forever.
+% **************** WARNING ***************************
+%
+% the function  g  is concave, and we should start above
+% the root.  This is done in  'above'.
+%
+% input data:
+%   c,  0 < c < 1,  the relative loss due to scattering
+%   eps,  the tolerance
+% output data:
+%   nu0 = 1/alpha
+% -----------------------------------------------------
+let
+  a :=
+  for initial
+    alpha, g_alpha := above(c);
+    d_alpha := g_alpha/g_prime(alpha, c)
+  repeat
+    d_alpha := old g_alpha/g_prime(old alpha, c);
+    alpha := old alpha - d_alpha;
+    g_alpha := g(alpha, c)
+  until (abs(d_alpha) < eps*alpha) 
+  returns
+    value of alpha
+  end for
+in
+  1.0/a
+end let
+end function
+% *************************************************
+%                  form_knots
+% *************************************************
+function form_knots(interv : integer; returns RealVector,
+  RealVector)
+% -------------------------------------------------
+% this subroutine forms the knot points.  they are 
+% distributed quadratically from  mu = 0,  according to the 
+% optimal knots for  mu^2 log mu.
+%
+% input data:
+%   interv,  the knots run over 0 <= j <= interv
+% output data:
+%   knots[0:interv]
+%   lengths,  the lengths of the intervals
+% --------------------------------------------------
+let
+  knots := array[0 : 0.0]  ||
+    for j in 1, interv-1
+      knots := exp(real(j)/real(interv),2)
+    returns
+      array of knots
+    end for  ||  array[1 : 1.0];
+  lengths := array[0 : -1.0] ||
+    for j in 1, interv
+      lengths := knots[j] - knots[j-1]
+    returns array of lengths
+    end for || array[1 : -1.0]
+in
+  knots, lengths
+end let
+end function
+% *************************************************
+%                  form_col_pts
+% *************************************************
+function form_col_pts(interv : integer; knots : RealVector; 
+  nu0 : real returns RealVector)
+% --------------------------------------------------
+% this subroutine forms the collocation points.
+% they are taken to be the knots and the midpoints between
+% the knots.
+%
+% input data:
+%   interv,  the number of intervals
+%   knots[0:interv],  the knot points
+%   nu0,  the last collocation point is the eigenvalue
+% output data:
+%   col_pts[1:2*interv+2],  the collocation points
+% --------------------------------------------------
+  array[1 : 0.0]  ||
+  for j in 1, interv 
+    col_pts := array[1: 0.5*(knots[j-1] + knots[j]),
+      knots[j]]
+  returns value of catenate col_pts
+  end for ||
+  array[1 : nu0]
+end function
+% *******************************************************
+%                       s_int
+% *******************************************************
+function s_int(nu, mu0, delta : real returns real)
+% -------------------------------------------------------
+% this function evaluates the integral of
+%     mu*f(mu)*(1 - exp(-delta*(1/mu + 1/nu)))/(mu + nu)
+% over the interval  0 < mu < 1
+% in this case  f(mu) = 0.5*delta(mu - mu0).
+% input data:
+%   mu0,  for the delta-function
+%   nu,  the point of evaluation
+%   delta,  the thickness of the slab
+% output data:
+%   the integral
+% -------------------------------------------------------
+if (nu = 0.0) then 0.5
+else 0.5*mu0*(1.0 - expon(-delta*(1.0/mu0 + 1.0/nu)))/(mu0 + nu)
+end if
+end function
+% *******************************************************
+%                       c_int
+% *******************************************************
+function c_int(nu, mu0, delta, eps : real returns real)
+% -------------------------------------------------------
+% this function evaluates the integral of
+%     mu*f(mu)*(exp(-delta/mu) - exp(-delta/nu))/(mu - nu)
+% over the interval  0 < mu < 1
+% in this case  f(mu) = 0.5*delta(mu - mu0).
+% input data:
+%   mu0,  for the delta-function
+%   nu,  the point of evaluation
+%   delta,  the thickness of the slab
+%   eps,  the tolerance
+% output data:
+%   the integral
+% -------------------------------------------------------
+if (nu = 0.0) then 0.5*expon(-delta/mu0)
+elseif (abs(nu - mu0) < eps)
+  then 0.5*(delta/nu)*expon(-delta/nu)
+else 0.5*mu0*(expon(-delta/mu0) - expon(-delta/nu))/(mu0 - nu)
+end if
+end function
+% *************************************************
+%                   form_k
+% *************************************************
+function form_k(block_size : integer; mu0, delta : real;
+  col_pts : RealVector; eps : real returns RealVector)
+% ---------------------------------------------------
+% this subroutine colculates the right-hand side
+% for the matrix problem  a*b = k.  for incoming
+% radiation  fl  from the left and  fr  from the right
+%    k(xi) = s_int(fl) + c_int(fr)
+% for the first block, and
+%    k(xi) = c_int(fl) + s_int(fr).
+% in this version  fl = 0.5*delta(mu - mu0) and  fr = 0.
+%
+% input data:
+%   block_size, the number of collocation points, including  nu0
+%   mu0,  f(mu) = 0.5*delta(mu - mu0)
+%   delta,  the thickness of the slab
+%   col_pts,  the collocation points
+%   eps,  the tolerance
+% output data:
+%   k,  the right-hand side
+% -----------------------------------------------
+for i in 1, block_size
+  k := 2.0*s_int(col_pts[i], mu0, delta)
+returns array of k
+end for  ||
+for i in 1, block_size
+  k := 2.0*c_int(col_pts[i], mu0, delta, eps)
+returns array of k
+end for
+end function
+% **************************************************
+%                  phi_ev_l
+% **************************************************
+function phi_ev_l(y : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the spline  f
+% such that f(0) = 0, f(1) = 1, f'(0) = 0, and f'(1) = 0.
+% input data:
+%   y,  the point of evaluation
+% output data:
+%   phi_ev_l,  the value of the integral
+% -------------------------------------------------------
+  y*y*(3.0 - 2.0*y)
+end function
+% **************************************************
+%                  phi_ev_r
+% **************************************************
+function phi_ev_r(y : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the spline  f
+% such that f(0) = 1, f(1) = 0, f'(0) = 0, and f'(1) = 0.
+% input data:
+%   y,  the point of evaluation
+% output data:
+%   phi_ev_r,  the value of the integral
+% -------------------------------------------------------
+  (y - 1.0)*(y - 1.0)*(1.0 + 2.0*y)
+end function
+% **************************************************
+%                  phi_od_l
+% **************************************************
+function phi_od_l(y : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the spline  f
+% such that f(0) = 0, f(1) = 0, f'(0) = 0, and f'(1) = 1.
+% ----- warning: when you scale the length, you have to ----
+% ----- scale  phi  because  f'  gets scaled ---------------
+%
+% input data:
+%   y,  the point of evaluation
+% output data:
+%   phi_od_l,  the value of the integral
+% -------------------------------------------------------
+  y*y*(y - 1.0)
+end function
+% **************************************************
+%                  phi_od_r
+% **************************************************
+function phi_od_r(y : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the spline  f
+% such that f(0) = 0, f(1) = 0, f'(0) = 1, and f'(1) = 0.
+% ----- warning: when you scale the length, you have to ----
+% ----- scale  phi  because  f'  gets scaled ---------------
+%
+% input data:
+%   y,  the point of evaluation
+% output data:
+%   phi_od_r,  the value of the integral
+% -------------------------------------------------------
+  (1.0 - y)*(1.0 - y)*y
+end function
+% ********************************************************
+%                     spline
+% ********************************************************
+function spline(mu : real; interv : integer; knots, lengths, 
+  a : RealVector returns real)
+% ----------------------------------------------------------
+% this function finds the value of the hermite cubic spline with knots
+% at  'knots' and coefficients  'a'.  the order is as follows:
+%   phi(1) = 1  at  knots[0]
+%   phi(2)' = 1  at  knots[0]
+%   phi(3) = 1  at  knots[1]
+%   phi(4)' = 1  at  knots[1], etc.
+%
+% input data:
+%   mu,  the point at which the spline is to be evaluated
+%   interv,  the number of knots is  interv+1
+%   knots,  the knot points
+%   lengths,  the lengths of the intervals
+%   a,  the coefficients of the spline
+% output data:
+%   the sum of  a[j]*phi(j)
+% ----------------------------------------------------------
+if ((mu > knots[interv]) | (mu < 0.0))
+  then 0.0  % sks error[real]
+else
+let
+  j := 
+    for initial jtest := 0
+    repeat jtest := old jtest + 1
+    until (mu <= knots[jtest])
+    returns value of jtest
+    end for; 
+  y := (mu - knots[j-1])/lengths[j];
+in
+  a[2*j-1]*phi_ev_r(y) +
+    a[2*j]*lengths[j]*phi_od_r(y) +
+    a[2*j+1]*phi_ev_l(y) + a[2*j+2]*lengths[j]*phi_od_l(y)
+end let
+end if
+end function
+% ****************************************************
+%                  answers
+% ****************************************************
+function answers(interv, jmu : integer; mu, knots, lengths, 
+  coef_l, coef_r : RealVector; c : real returns 
+  RealVector, RealVector)
+% ----------------------------------------------------
+% this subroutine prints out the values of the hermite cubic
+% spline.
+%
+% input data:
+%   interv,  the number of collocation points,
+%   jmu,  the number of points of evaluation,
+%   mu,  the points of evaluation of the solution,
+%   knots,  the knots of the splines,
+%   lengths,  the lengths of the intervals
+%   coef_r,  the coefficients of the spline, right face
+%   coef_l,  the coefficients of the spline, left face
+%   c,  the relative loss due to scattering
+% output data:
+%   spline_l, the spline at the left face
+%   spline_r, the spline at the right face
+% ----------------------------------------------------------
+let
+  spline_l := 
+    for j in 0, jmu
+      spline_lj := 0.5*c*spline(mu[j], interv, knots,
+        lengths, coef_l)  %  spline uses positive mu
+    returns array of spline_lj
+    end for;
+  spline_r := 
+    for j in 0, jmu
+      spline_rj := 0.5*c*spline(mu[j], interv, knots,
+    lengths, coef_r)
+    returns array of spline_rj
+    end for
+in
+  spline_l, spline_r
+end let
+end function
+% **************************************************
+%                  pvint_ev_l
+% **************************************************
+function pvint_ev_l(xl, length, nu : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xr = xl + length  and  f  is the cubic polynomial
+% such that f(xl) = 0, f(xr) = 1, f'(xl) = 0, and f'(xr) = 0.
+% the method is to write it as
+%   \int_xl^xr f  + nu f(nu) log(abs((xr - nu)/(xl - nu))) +
+%     mu \int_xl^xr (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - xl)/length
+%   g(x) = f(xl + length*x)
+%
+% if, however, abs(y) > 10, we avoid troublesome
+% cancellations if we replace 1/(x-y) by a few terms
+% of the binomial series and integrate term by term.
+%
+% input data:
+%   xl,  the left endpoint of the interval
+%   length,  the length of the interval
+%   nu,  the point of evaluation
+% output data:
+%   pvint_ev_l,  the value of the integral
+% -------------------------------------------------------
+% -------------------- scale to (0, 1) ---------------------
+let
+  y := (nu - xl)/length;
+  z := y - 1.0;  %  use z = (nu - xc)/length
+  xc := xl + length;
+  integral :=
+    if (abs(y - 1.0) > 10.0) then %  use binomial expansion
+      - 1.0/z*(0.5*xc -
+        (xc/z + length)*3.0/20.0 +
+        (xc/z + length)/(15.0*z) -
+        (xc/z + length)/(28.0*z*z) +
+        3.0*(xc/z + length)/(140.0*exp(z,3)) -
+        (xc/z + length)/(72.0*exp(z,4)) +
+        (xc/z + length)/(105.0*exp(z,5)) -
+        3.0*(xc/z + length)/(440.0*exp(z,6)))
+    else
+% ----------- int_0^1 g ------------------------------------
+      0.5*length
+% -------------------- add log --------------------------
+      + if (y = 1.0) then - nu*ln(length)
+        elseif (y ~= 0.0) then
+          nu*phi_ev_l(y)*ln(abs((1.0 - y)/y))
+        else 0.0
+        end if
+% ------------------ add int (g(x) - g(y))/(x - y) dx ------
+      + nu*(5.0/6.0 + 2.0*y*(1.0 - y))
+    end if
+in integral
+end let
+end function
+% **************************************************
+%                  pvint_ev_r
+% **************************************************
+function pvint_ev_r(xl, length, nu : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xr = xl + length  and  f  is the cubic polynomial
+% such that f(xl) = 1, f(xr) = 0, f'(xl) = 0, and f'(xr) = 0.
+% the method is to write it as
+%   \int_xl^xr f  + nu f(nu) log(abs((xr - nu)/(xl - nu))) +
+%     mu \int_xl^xr (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - xl)/length
+%   g(x) = f(xl + length*x)
+%
+% if, however, abs(y) > 10, we avoid troublesome
+% cancellations if we replace 1/(x-y) by a few terms
+% of the binomial series and integrate term by term.
+%
+% input data:
+%   xl,  the left endpoint of the interval
+%   length,  the length of the interval
+%   nu,  the point of evaluation
+% output data:
+%   pvint_ev_r,  the value of the integral
+% -------------------------------------------------------
+% -------------------- scale to (0, 1) ---------------------
+let
+  y := (nu - xl)/length;
+  integral :=
+    if (abs(y) > 10.0) %  use binomial expansion
+      then - 1.0/y*(0.5*xl +
+        (xl/y + length)*3.0/20.0 +
+        (xl/y + length)/(15.0*y) +
+        (xl/y + length)/(28.0*y*y) +
+        3.0*(xl/y + length)/(140.0*exp(y,3)) +
+        (xl/y + length)/(72.0*exp(y,4)) +
+        (xl/y + length)/(105.0*exp(y,5)) +
+        3.0*(xl/y + length)/(440.0*exp(y,6)))
+    else
+% ----------- int_0^1 g ------------------------------------
+      0.5*length
+% -------------------- add log --------------------------
+      + if (y = 0.0) then
+          nu*ln(length)
+        elseif (y ~= 1.0) then
+          nu*phi_ev_r(y)*ln(abs((1.0 - y)/y))
+        else 0.0
+        end if
+% ------------------ add int (g(x) - g(y))/(x - y) dx ------
+    + nu*(-5.0/6.0 - 2.0*y*(1.0 - y))
+  end if
+in integral
+end let
+end function
+% **************************************************
+%                  pvint_ev
+% **************************************************
+function pvint_ev(xc, length_l, length_r, nu, eps : real returns 
+  real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xl = xc - length_l,  xr = xc + length_r,
+% on (xl, xc)  f  is the cubic polynomial such
+% that f(xl) = 0, f(xc) = 1, f'(xl) = 0, and f'(xc) = 0.
+% and on (xc, xr)  f  is the cubic polynomial such
+% that f(xc) = 1, f(xr) = 0, f'(xc) = 0, and f'(xr) = 0.
+% the method is to write each piece as
+%   \int_a^b f  + nu f(nu) log(abs((b - nu)/(a - nu))) +
+%     mu \int_a^b (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - a)/length
+%   g(x) = f(a + length*x)
+%
+% input data:
+%   xc,  the central knot
+%   length_l,  the length of the interval to the left of xc
+%   length_r,  the length of the interval to the right of xc
+%   nu,  the point of evaluation
+%   eps,  the tolerance
+% output data:
+%   pvint_ev,  the value of the integral
+% -------------------------------------------------------
+let
+  xl := xc - length_l;
+  pv := if (abs(nu - xc) > eps) then
+    pvint_ev_l(xl, length_l, nu) +
+    pvint_ev_r(xc,length_r, nu)
+  else
+    0.5*(length_l + length_r) +
+    nu*ln(length_r/length_l)
+  end if
+in
+  pv
+end let
+end function
+% **************************************************
+%                  pvint_od_l
+% **************************************************
+function pvint_od_l(xl, length, nu : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xr = xl + length  and  f  is the cubic polynomial
+% such that f(xl) = 0, f(xr) = 0, f'(xl) = 0, and f'(xr) = 1.
+% the method is to write it as
+%   \int_xl^xr f  + nu f(nu) log(abs((xr - nu)/(xl - nu))) +
+%     mu \int_xl^xr (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - xl)/length
+%   g(x) = f(xl + length*x)
+%
+% if, however, abs(y) > 10, we avoid troublesome
+% cancellations if we replace 1/(x-y) by a few terms
+% of the binomial series and integrate term by term.
+%
+% input data:
+%   xl,  the left endpoint of the interval
+%   length,  the length of the interval
+%   nu,  the point of evaluation
+% output data:
+%   pvint_od_l,  the value of the integral
+% -------------------------------------------------------
+let
+% -------------------- scale to (0, 1) ---------------------
+  y := (nu - xl)/length;
+  xc := xl + length;
+  z := y - 1.0;  %  use z = (nu - xc)/length
+  integral :=
+    if (abs(z - 1.0) > 10.0) then %  use binomial expansion
+      length/z*(xc/12.0 -
+      (xc/z + length)/30.0 +
+      (xc/z + length)/(60.0*z) -
+      (xc/z + length)/(105.0*z*z) +
+      (xc/z + length)/(168.0*exp(z,3)) -
+      (xc/z + length)/(252.0*exp(z,4)) +
+      (xc/z + length)/(360.0*exp(z,5)) -
+      (xc/z + length)/(495.0*exp(z,6)))
+    else
+% ----------- int_0^1 g ------------------------------------
+      - length*length/12.0
+% -------------------- add log --------------------------
+      + if ((y ~= 1.0) & (y ~= 0.0))
+        then nu*length*phi_od_l(y)*ln(abs((1.0 - y)/y))
+        else 0.0
+        end if
+% ------------------ add int (g(x) - g(y))/(x - y) dx ------
+      + nu*length*(-1.0/6.0 + y*(-0.5 + y))
+    end if
+in integral
+end let
+end function
+% **************************************************
+%                  pvint_od_r
+% **************************************************
+function pvint_od_r(xl, length, nu : real returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xr = xl + length  and  f  is the cubic polynomial
+% such that f(xl) = 1, f(xr) = 0, f'(xl) = 0, and f'(xr) = 0.
+% the method is to write it as
+%   \int_xl^xr f  + nu f(nu) log(abs((xr - nu)/(xl - nu))) +
+%     mu \int_xl^xr (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - xl)/length
+%   g(x) = f(xl + lengt*hx)
+%
+% if, however, abs(y) > 10, we avoid troublesome
+% cancellations if we replace 1/(x-y) by a few terms
+% of the binomial series and integrate term by term.
+%
+% input data:
+%   xl,  the left endpoint of the interval
+%   length,  the length of the interval
+%   nu,  the point of evaluation
+% output data:
+%   pvint_od_r,  the value of the integral
+% -------------------------------------------------------
+% -------------------- scale to (0, 1) ---------------------
+let
+  y := (nu - xl)/length;
+  integral :=
+    if (abs(y) > 10.0) %  use binomial expansion
+    then - length/y*(xl/12.0 +
+      (xl/y + length)/30.0 +
+      (xl/y + length)/(60.0*y) +
+      (xl/y + length)/(105.0*y*y) +
+      (xl/y + length)/(168.0*exp(y,3)) +
+      (xl/y + length)/(252.0*exp(y,4)) +
+      (xl/y + length)/(360.0*exp(y,5)) +
+      (xl/y + length)/(495.0*exp(y,6)))
+    else
+% ----------- int_0^1 g ------------------------------------
+      length*length/12.0
+% -------------------- add log --------------------------
+      + if ((y ~= 1.0) & (y ~= 0.0)) then
+          nu*length*phi_od_r(y)*ln(abs((1.0 - y)/y))
+        else 0.0
+        end if
+% ------------------ add int (g(x) - g(y))/(x - y) dx ------
+      + nu*length*(1.0/3.0 + y*(-1.5 + y))
+    end if
+in integral
+end let
+end function
+% **************************************************
+%                  pvint_od
+% **************************************************
+function pvint_od(xc, length_l, length_r, nu, eps : real 
+  returns real)
+% ----------------------------------------------------
+% this subroutine evaluates the integral
+%   \int_xl^xr mu f(mu) / (mu - nu) dmu,
+% where  xl = xc - length_l,  xr = xc + length_r,
+% on (xl, xc)  f  is the cubic polynomial such
+% that f(xl) = 0, f(xc) = 0, f'(xl) = 0, and f'(xc) = 1.
+% and on (xc, xr)  f  is the cubic polynomial such
+% that f(xc) = 0, f(xr) = 0, f'(xc) = 1, and f'(xr) = 0.
+% the method is to write each piece as
+%   \int_a^b f  + nu f(nu) log(abs((b - nu)/(a - nu))) +
+%     mu \int_a^b (f(mu) - f(nu))/(mu - nu) dmu.
+%
+% the latter integral is scaled to (0, 1) as follows:
+%    int (f(mu) - f(nu))/(mu - nu) d mu =
+%    int_0^1 (g(x) - g(y))/(x - y) dx
+% with
+%   y = (nu - a)/length
+%   g(x) = f(a + length*x)
+%
+% input data:
+%   xc,  the central knot
+%   length_l,  the length of the interval to the left of xc
+%   length_r,  the length of the interval to the right of xc
+%   nu,  the point of evaluation
+%   eps,  the tolerance
+% output data:
+%   pvint_od,  the value of the integral
+% -------------------------------------------------------
+let
+  xl := xc - length_l;
+  pv := if (abs(nu - xc) > eps) then
+    pvint_od_l(xl, length_l, nu) +
+    pvint_od_r(xc, length_r, nu)
+  else
+% ----------- int_0^1 g ------------------------------------
+    (length_r*length_r - length_l*length_l)/12.0 +
+% ------------------ add int (g(x) - g(y))/(x - y) dx ------
+    nu*(length_l + length_r)/3.0
+  end if
+in
+  pv
+end let
+end function
+% ********************************************
+%                     lambda
+% ********************************************
+function lambda(nu, c : real; returns real)
+% -----------------------------------------------
+% for -1 <= nu <= 1 this function calculates the cauchy
+% principal value integral
+%     1 + (c \nu)/2 \int_{-1}^1 {d \mu \over \mu - \nu}.
+% input data:
+%   c, the relative loss due to scattering
+%   nu,  the pole
+% -------------------------------------------------
+if ((-1.0 < nu) & (nu < 1.0)) then
+  1.0 + 0.5*c*nu*ln((1.0 - nu)/(1.0 + nu))
+elseif (nu = -1.0) then
+  1.0 + 0.5*c*nu*ln(2.0)
+elseif (nu = 1.0) then
+  1.0 - 0.5*c*nu*ln(2.0)
+else 0.0  % sks error[real]
+end if
+end function
+% *********************************************
+%                  l_knot_ind
+% *********************************************
+function l_knot_ind(col: integer returns integer)
+% ----------------------------------------------------
+% This function gives the index \alpha of the knot 
+% \zeta_zalpha if the collocation point is in the interval
+% (\zeta_\alpha, \zeta_(\alpha+1).  In this version there
+% is assumed to be 3 collocation points in the first 
+% interval and 2 in the others.
+% *** change this function if you change the number of ***
+% *** collocation points in an interval.               ***
+% ----------------------------------------------------
+if (col <= 3) then 0
+else col/2 - 1
+end if
+end function
+% ********************************************
+%                     b_alpha_even_middle
+% ********************************************
+function b_alpha_even_middle(knot_c, hl, hr, col_pt, c, eps
+ : real returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an even-order spline
+% on an interior interval.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  knot_r := knot_c + hr;  %  knot to the right
+  b_alpha := if ((col_pt <= knot_l) | (col_pt >= knot_r))
+      then - c*pvint_ev(knot_c, hl, hr, col_pt, eps)
+    elseif (col_pt <= knot_c - eps)
+      then - c*pvint_ev(knot_c, hl, hr, col_pt, eps) +
+        2.0*lambda(col_pt, c)*phi_ev_l((col_pt - knot_l)/hl)
+    elseif (col_pt >= knot_c + eps)
+      then - c*pvint_ev(knot_c, hl, hr, col_pt, eps) +
+        2.0*lambda(col_pt, c)*phi_ev_r((col_pt - knot_c)/hr)
+    else  %  col_pt on central knot
+      - c*(0.5*(hl + hr) +
+        col_pt*ln(hr/hl)) +
+        2.0*lambda(col_pt, c)
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     b_alpha_even_left
+% ********************************************
+function b_alpha_even_left(knot_c, hr, col_pt, c, eps : real 
+  returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an even-order spline
+% on an interval at the left-hand end.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_r := knot_c + hr;  %  knot to the right
+  b_alpha := if ((col_pt >= knot_r) | (col_pt <= knot_c - eps))
+      then -c*pvint_ev_r(knot_c, hr, col_pt)
+    elseif ((abs(knot_c + 1.0) >= eps) | (col_pt >= knot_c + eps))
+           % knot not -1 or col_pt not knot
+      then -c*pvint_ev_r(knot_c, hr, col_pt) +
+        2.0*lambda(col_pt, c)*phi_ev_r((col_pt - knot_c)/hr)
+    else  %  col_pt on knot -1
+      2.0 - c*(hr/2.0 + 5.0/6.0 + ln(2.0/hr))
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     b_alpha_even_right
+% ********************************************
+function b_alpha_even_right(knot_c, hl, col_pt, c, eps : 
+  real returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an even-order spline
+% on an interval on the right-hand end.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  b_alpha := if ((col_pt <= knot_l) | (col_pt >= 1.0 + eps))
+      then -c*pvint_ev_l(knot_l, hl, col_pt)
+    elseif (col_pt <= 1.0 - eps)
+      then -c*pvint_ev_l(knot_l, hl, col_pt) +
+        2.0*lambda(col_pt, c)*phi_ev_l((col_pt - knot_l)/hl)
+    else  %  col_pt on last knot
+      2.0 - c*(hl/2.0 + 5.0/6.0 + ln(2.0/hl))
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     b_alpha_odd_middle
+% ********************************************
+function b_alpha_odd_middle(knot_c, hl, hr, col_pt, c,
+  eps : real returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an odd-order spline on
+% an interior interval.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  knot_r := knot_c + hr;  %  knot to the right
+  b_alpha := if ((col_pt <= knot_l) | (col_pt >= knot_r))
+      then - c*pvint_od(knot_c, hl, hr, col_pt, eps)
+    elseif (col_pt <= knot_c)
+      then - c*pvint_od(knot_c, hl, hr, col_pt, eps) +
+        2.0*lambda(col_pt, c)*hl*phi_od_l((col_pt - knot_l)/hl)
+    else
+      - c*pvint_od(knot_c, hl, hr, col_pt, eps) +
+        2.0*lambda(col_pt, c)*hr*phi_od_r((col_pt - knot_c)/hr)
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     b_alpha_odd_left
+% ********************************************
+function b_alpha_odd_left(knot_c, hr, col_pt, c, eps : real  
+  returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an odd-order spline on
+% an interior interval.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_r := knot_c + hr;  %  knot to the right
+  b_alpha := if ((col_pt >= knot_r) | (col_pt <= knot_c - eps))
+      then -c*pvint_od_r(knot_c, hr, col_pt)
+    elseif ((abs(knot_c + 1.0) >= eps) |  (col_pt >= knot_c + eps))
+           %  knot not -1 or col_pt not knot
+      then -c*pvint_od_r(knot_c, hr, col_pt) +
+        2.0*lambda(col_pt, c)*hr*phi_od_r((col_pt - knot_c)/hr)
+    else  %  col_pt on knot -1
+      c*(hr/3.0)*(1.0 - 0.25*hr)
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     b_alpha_odd_right
+% ********************************************
+function b_alpha_odd_right(knot_c, hl, col_pt, c, eps : real
+ returns real)
+% --------------------------------------------
+% this function evaluates b_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an odd-order spline on
+% an interval at the right-hand end.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   col_pt,  the collocation point
+%   c,  the relative loss due to scattering
+%   eps,  a tolerance
+% ouptut data:
+%   b_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  b_alpha := if ((col_pt <= knot_l) | (col_pt >= 1.0 + eps))
+      then -c*pvint_od_l(knot_l, hl, col_pt)
+    elseif (col_pt <= 1.0 - eps)
+      then -c*pvint_od_l(knot_l, hl, col_pt) +
+        2.0*lambda(col_pt, c)*hl*phi_od_l((col_pt - knot_l)/hl)
+    else  %  col_pt on last knot
+      - c*(hl/3.0)*(1.0 - 0.25*hl)
+    end if
+in b_alpha
+end let
+end function
+% ********************************************
+%                     a_alpha_even
+% ********************************************
+function a_alpha_even(knot_c, hl, hr, col_pt, eps : real
+  returns real)
+% --------------------------------------------
+% this function evaluates a_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an even-order spline.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+%   eps,  the tolerance
+% ouptut data:
+%   a_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  knot_r := knot_c + hr;  %  knot to the right
+  a_alpha := if (hr*hl > 0.0)  %  a middle interval
+     then pvint_ev(knot_c, hl, hr, - col_pt, eps)
+    elseif (hl <= 0.0)  %  the first interval
+      then pvint_ev_r(knot_c, knot_r, - col_pt)
+    elseif (hr <= 0.0)  %  the last interval
+      then pvint_ev_l(knot_l, hl, - col_pt)
+    else 0.0  % sks error[real]
+    end if
+in a_alpha
+end let
+end function
+% ********************************************
+%                     a_alpha_odd
+% ********************************************
+function a_alpha_odd(knot_c, hl, hr, col_pt, eps : real
+  returns real)
+% --------------------------------------------
+% this function evaluates a_alpha from eq. (18)
+% of the manuscript on the spline fn method.
+% This is the case of an odd-order spline.
+% input data:
+%   knot_c,  the knot in the center of the spline
+%   hl,  the length of the left base of the spline
+%   hr,  the length of the right base of the spline
+%   col_pt,  the collocation point
+% ouptut data:
+%   a_alpha(nu)
+% ---------------------------------------------
+let
+  knot_l := knot_c - hl;  %  knot to the left
+  knot_r := knot_c + hr;  %  knot to the right
+  a_alpha := if (hr*hl > 0.0)  %  a middle interval
+      then pvint_od(knot_c, hl, hr, - col_pt, eps)
+    elseif (hl <= 0.0)  %  the first interval
+      then pvint_od_r(knot_c, knot_r, - col_pt)
+    elseif (hr <= 0.0)  %  the last interval
+      then pvint_od_l(knot_l, hl, - col_pt)
+    else 0.0  % sks error[real]
+    end if
+in a_alpha
+end let
+end function
+% *********************************************
+%                    form_b11
+% *********************************************
+function form_b11(interv : integer; c : real;
+  knots, lengths, col_pts : RealVector; eps : real
+  returns RealMatrix)
+% -------------------------------------------------
+% this subroutine forms the upper left-hand corner block of 
+% the matrix  b  from the collocation method.
+% input data:
+%   interv,  the number of intervals
+%     the size of a block is 2*interv + 2, and there are 4 blocks
+%   c,  the relative loss due to scattering
+%   nu0,  the eigenvalue (the last collocation point)
+%   knots,  the knots of the spline
+%   lengths,  the lengths of the intervals
+%   col_pts,  the collocation points
+%   eps,  the tolerance
+% output data:
+%   b11,  the upper left-hand block of the matrix
+% ------------------------------------------------
+let
+  block_size := 2*interv + 2;
+in
+  for i in 1, block_size
+    row := array[1 : b_alpha_even_left(knots[0], lengths[1], 
+      col_pts[i], c, eps),
+      b_alpha_odd_left(knots[0], lengths[1], col_pts[i], c, 
+        eps)] ||
+      for kn in 1, interv-1
+        sec := array[1 : b_alpha_even_middle(knots[kn], 
+          lengths[kn], lengths[kn+1], col_pts[i], c, eps),
+          b_alpha_odd_middle(knots[kn], lengths[kn], 
+            lengths[kn+1], col_pts[i], c,  eps)]
+      returns value of catenate sec
+      end for  ||
+      array[1 : b_alpha_even_right(knots[interv],
+        lengths[interv], col_pts[i], c, eps), 
+        b_alpha_odd_right(knots[interv], lengths[interv],
+          col_pts[i], c, eps)]
+  returns array of row
+  end for
+end let
+end function
+% *********************************************
+%                    form_b12
+% *********************************************
+function form_b12(interv : integer; c, delta : real;
+  knots, lengths, col_pts : RealVector; eps : real
+  returns RealMatrix)
+% -------------------------------------------------
+% this subroutine forms the upper right-hand corner block of 
+% the matrix  b  from the collocation method.
+% input data:
+%   interv,  the number of intervals
+%     the size of a block is 2*interv + 2, and there are 4 blocks
+%   c,  the relative loss due to scattering
+%   delta,  the thickness of the slab
+%   knots,  the knots of the spline
+%   lengths,  the lengths of the intervals
+%   col_pts,  the collocation points
+%   eps,  the tolerance
+% output data:
+%   b12,  the upper right-hand block of the matrix
+% ------------------------------------------------
+let
+  block_size := 2*interv + 2;
+  exp_quot :=
+    for j in 1, block_size
+      exp_quot := if (col_pts[j] = 0.0) then 0.0
+        else expon(-delta/col_pts[j])
+        end if
+    returns array of exp_quot
+    end for
+in
+  for i in 1, block_size
+    row :=
+    for kn in 0, interv
+      seg := array[1 : c*a_alpha_even(knots[kn], lengths[kn],
+        lengths[kn+1], col_pts[i], eps)*exp_quot[i],
+        c*a_alpha_odd(knots[kn], lengths[kn],
+        lengths[kn+1], col_pts[i], eps)*exp_quot[i] ]
+      returns value of catenate seg
+      end for
+  returns array of row
+  end for
+end let
+end function
+

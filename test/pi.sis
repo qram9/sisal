@@ -1,0 +1,20 @@
+define Main
+  
+% Main is a very, very slowly converging approximation to pi
+%    it uses the alternating series 1 - 1/3 + 1/5 - 1/7 ...
+  
+function Main ( Cycles:integer returns real )
+
+  for initial
+    Approx := 1.0;
+    Sign   := 1.0;
+    Count  := 1
+  while Count < Cycles repeat
+    Sign   := -old Sign;
+    Count  := old Count + 2;
+    Approx := old Approx + Sign / real( Count )
+  returns
+    value of Approx
+  end for
+* 4.0
+end function

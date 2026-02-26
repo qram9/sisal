@@ -1,0 +1,34 @@
+define Main
+
+type IntStream = stream[ integer ]
+
+function Main( N: integer returns IntStream )
+
+   function Filter( S: IntStream; N: integer returns IntStream )
+      let
+	 P := stream_first( S );
+	 R := stream_rest ( S );
+	 F :=
+	    if P > N then R
+	    else
+	       let
+		  G := 
+		     for V in R
+		     NotPrime := (mod(V,P) = 0)
+		     returns stream of V unless NotPrime
+		     end for
+                in Filter( G, N )
+		end let
+             end if
+      in stream[P] || F
+      end let
+   end function
+
+   let
+      StartList := 
+	 for I in 2, N*N
+	 returns stream of I
+	 end for
+   in Filter(StartList, N)
+   end let
+end function

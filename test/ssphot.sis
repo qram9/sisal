@@ -1,0 +1,1590 @@
+define main
+
+
+type	aaaareal 	= array[array[array[array[double_real]]]];
+type	aareal 		= array[array[double_real]];
+type	areal 		= array[double_real];
+type	ainteger 	= array[integer];
+type	aboolean	= array[boolean];
+
+type	materialrec 	= record[
+			mtl 	:integer; 
+			atrat,
+			dns,
+			tmp 	:double_real; 
+			matb,
+			mate 	:integer];
+
+type	input		= record[
+			igroup,
+			irr,
+			ithom,
+			ixopec,
+			naxl,
+			nradl	:integer;
+			axl,
+			bwgt,
+			opec,
+			radl,
+			tcen,
+			wcut,
+			xmult	:double_real;
+			mtls	:array[materialrec]];
+	
+type	coordrec 	= record[
+			rr,
+			zz	:double_real];
+
+type	coords 		= array[array[coordrec]];
+
+type	inforec  	= record[
+			itype	:integer; 
+			sqm,
+			bom	:double_real];
+
+type	cellinfo 	= array[array[inforec]];
+
+type	scattrec 	= record[
+			sigtot,
+			sig,
+			scrat	:double_real];
+
+type	scatt 		= array[array[scattrec]];
+
+type	particletype 	= record[
+			u,
+			v,
+			w,
+			x,
+			y,
+			z,
+			age,
+			newgt	:double_real; 
+			id,
+			ir	:integer];
+
+type	aparticletype 	= array[particletype];
+
+type	sampling 	= record[
+			rminsq,
+			rsq,
+			zmax,
+			zmin,
+			del	:double_real; 
+			xm,
+			xb	:areal;
+			itest	:aboolean];	
+
+type	escrec 		= record[
+			egrp,
+			nesc	:integer; 
+			wesc 	:double_real];
+
+
+
+global 	Ln (q:double_real returns double_real)
+
+global 	Sin (q:double_real returns double_real)
+
+global 	Cos (q:double_real returns double_real)
+
+global 	Sqrt (q:double_real returns double_real)
+
+
+
+function RandInit (
+		ir	:integer
+returns			 double_real)
+
+  let
+    two28 := 268435456.0d0;
+    r := double_real(ir)/two28;
+    factor := 41475557.0d0;
+    rp := r*factor;
+  in
+    rp - double_real(trunc(rp))
+  end let
+end function  % RandInit
+
+
+
+function Random (
+		r	:double_real
+returns			 double_real)
+
+  let
+    factor := 41475557.0d0;
+    rp := r*factor;
+  in
+    rp - double_real(trunc(rp))
+  end let
+end function  % Random
+
+
+
+function SetMatlId (
+		matls	:array[materialrec];
+		nradl,
+		naxl	:integer
+returns			ainteger)		% mid
+
+  for initial
+    i := 1;
+    mid := array_fill(1,nradl*naxl,0);
+  while (i <= array_size(matls))
+  repeat
+    mid := for elem in old mid at j
+	      newelem := if ((matls[old i].matb <= j) & 
+			     (j <= matls[old i].mate)) then
+		 	   old i
+                         else
+			   elem
+                         end if
+           returns
+	     array of newelem
+           end for;
+    i := old i + 1;
+  returns
+    value of mid
+  end for
+end function  % SetMatlId
+
+
+
+function AssignImportances (
+		nradl,
+		naxl,
+		irr	:integer; 
+		xmult	:double_real
+returns			areal)
+
+  if ((irr = 0) | (irr = 2)) then
+    array areal []
+  else
+    for i in 1,nradl
+      ximpa := array_fill(1,naxl,exp(xmult,(i-1)));
+    returns
+      value of catenate ximpa
+    end for
+  end if
+end function  % AssignImportances
+
+
+
+function Ceiling (
+		r	:double_real
+returns			integer) 
+
+  if (r > double_real(floor(r))) then
+    floor(r) + 1
+  else
+    integer(r)
+  end if
+end function  % Ceiling
+
+
+
+function AssignCells (
+		naxl,
+		nradl	:integer; 
+		radl,
+		axl	:double_real
+returns			coords,
+			integer)
+
+  let
+    pi := 3.141592653589793238d0;
+    nzones := nradl*naxl;
+    hr := radl/(double_real(nradl));
+    ha := axl*pi/(double_real(naxl)*180.0d0);
+    emptycoord := record coordrec [rr:0.0d0; zz:0.0d0];
+    rowcoords := array_fill(1,5,emptycoord);
+    cellcoords := array_fill(1,nzones,rowcoords);
+    ncc := 
+      for coord in cellcoords at row,col
+        ird,iang := if ((col = 1) | (col = 5)) then
+                      let
+			r := double_real(row)/double_real(naxl);
+ 		        ird := Ceiling(r);
+		      in
+		        ird,ird*naxl-row+1
+                      end let
+	            elseif (col = 2) then
+		      let
+			r := double_real(row-naxl)/double_real(naxl);
+		        ird := Ceiling(r)
+		      in
+		        ird,ird*naxl-row+1+naxl
+                      end let
+	            elseif (col = 3) then
+		      let
+			r := double_real(row-naxl)/double_real(naxl);
+		        ird := Ceiling(r)
+		      in
+		        ird,ird*naxl-row+2+naxl
+                      end let
+	            else  % (col = 4)
+		      let
+			r := double_real(row)/double_real(naxl);
+		        ird := Ceiling(r)
+		      in
+		        ird,ird*naxl-row+2
+                      end let
+	            end if;
+        r,z := let
+ 	         ang := double_real(iang - 1) * ha
+               in
+	         (double_real(ird)*hr) * Sin(ang),(double_real(ird)*hr) * Cos(ang)
+               end let;
+        rrr := if (abs(r) < 1.0d-9) then
+	         0.0d0
+               else
+	         r
+               end if;
+        zzz := if (abs(z) < 1.0d-9) then
+	         0.0d0
+               else
+	         z
+               end if;
+        cc := record coordrec [rr:rrr; zz:zzz]
+      returns
+        array of cc
+      end for;
+  in
+    ncc,nzones
+  end let
+end function  % AssignCells
+
+
+
+function SlopeIntercept (
+		cellcoords	:coords 
+returns				cellinfo)
+
+  for cell in cellcoords at row,col
+    newrec :=
+      if (col = 5) then
+        record inforec [itype:0; sqm:0.0d0; bom:0.0d0]
+      else
+        let
+          rdif := cellcoords[row,col+1].rr - cell.rr;
+          zdif := cellcoords[row,col+1].zz - cell.zz;
+          itype := 
+            if ((cell.rr = 0.0d0) & 
+	        (cellcoords[row,col+1].rr = 0.0d0)) then
+	      2
+            elseif (abs(rdif) < 1.0d-9) then
+              3
+            elseif (abs(zdif) < 1.0d-9) then
+              4
+            else
+              1
+            end if;
+          sqm,bom :=
+            if (itype = 1) then
+              if ((col = 1) | (col = 3)) then
+	        let
+	          m := rdif/zdif
+                in
+	          m*m,0.0d0
+                end let
+              else
+	        let
+	          m := rdif/zdif;
+	          b := ((cell.rr * cellcoords[row,col+1].zz) -
+	                (cellcoords[row,col+1].rr * cell.zz)) / zdif
+                in
+	          m*m,b/m
+                end let
+              end if
+            else
+              0.0d0,0.0d0
+            end if;
+        in
+          record inforec [itype:itype; sqm:sqm; bom:bom]
+        end let
+      end if
+  returns
+    array of newrec
+  end for
+end function  % SlopeIntercept
+
+
+
+function FindVolume (
+		cn	:coords; 
+		ci	:cellinfo; 
+		nzones,
+		naxl	:integer
+returns  		areal)
+
+  for j in 1,nzones
+    volume := 
+      for ks in 1,4
+        tv1 :=
+          if (((ci[j,ks].itype ~= 2) & (ci[j,ks].itype ~= 4)) &
+              ((j ~= 1) | (ks ~= 2)) &
+              ((j ~= naxl) | (ks > 2))) then
+            ((cn[j,ks+1].zz-cn[j,ks].zz) * 
+	      (cn[j,ks+1].rr * (cn[j,ks+1].rr+cn[j,ks].rr) 
+	    	 + (cn[j,ks].rr*cn[j,ks].rr)))
+	  		 * 1.0471976d0
+          else
+            0.0d0
+          end if
+      returns
+        value of sum tv1
+      end for
+  returns
+    array of volume
+  end for
+end function  % FindVolume
+
+
+
+function Interp (
+		matl	:materialrec; 
+		x	:aaaareal; 
+		t	:aareal; 
+		d	:areal 
+returns 		areal)
+
+  let
+    e := 2.7182817459106445d0;
+    ityp := if (matl.mtl = 2) | (matl.mtl = 4) then
+  	      2
+            else
+	      1
+            end if;
+    itmax,itmin := for temp in t[ityp] at i
+	             ubound := (matl.tmp <= temp);
+                   returns
+	             value of least i unless (~ ubound)
+     	             value of greatest i unless ubound
+                   end for;
+    tmin := t[ityp,itmin];
+    tmax := t[ityp,itmax];
+    trat := (matl.tmp - tmin)/(tmax - tmin);
+    idmax,idmin := for dns in d at i
+	             ubound := (matl.dns <= dns);
+                   returns
+	             value of least i unless (~ ubound)
+	             value of greatest i unless ubound
+                   end for;
+    dmin := d[idmin];
+    dmax := d[idmax];
+    drat := (matl.dns - dmin)/(dmax - dmin);
+  in
+    for ie in 1,13
+      xt := x[idmin,itmax,ie,matl.mtl] + 
+  	   (x[idmax,itmax,ie,matl.mtl]-x[idmin,itmax,ie,matl.mtl])*drat;
+      xt1 := x[idmin,itmin,ie,matl.mtl] + 
+	    (x[idmax,itmin,ie,matl.mtl]-x[idmin,itmin,ie,matl.mtl])*drat;
+      opcv := exp(e,xt1 + (xt-xt1)*trat);
+    returns
+      array of opcv
+    end for
+  end let
+end function  % Interp
+
+
+
+function Opacities (
+		inp	:input; 
+		libopac	:aaaareal 
+returns			scatt)
+
+  let
+    xthom := if (inp.ithom = 0) then
+  	       0.0d0
+             else
+	       1.0d0
+             end if;
+    t,d := let
+             t1 := array[1: 79.0d0, 99.0d0, 125.0d0, 157.0d0, 198.0d0,
+		   250.0d0, 315.0d0, 397.0d0, 500.0d0, 630.0d0,
+		   974.0d0, 1000.0d0, 1260.0d0, 1587.0d0,2000.0d0,
+		   2520.0d0, 3175.0d0, 4000.0d0, 5040.0d0, 6350.0d0,
+		   8000.0d0, 10079.0d0, 12699.0d0, 16000.0d0, 20159.0d0,
+		   25398.0d0, 32000.0d0, 40317.0d0, 50797.0d0, 64000.0d0,
+		   80635.0d0, 101594.0d0];
+             t2 := array[1: 20.0d0, 25.0d0, 31.0d0, 39.0d0, 50.0d0, 63.0d0,
+                   79.0d0, 99.0d0, 125.0d0, 157.0d0, 198.0d0, 250.0d0,
+		   315.0d0, 397.0d0, 500.0d0, 630.0d0, 974.0d0, 1000.0d0,
+                   1260.0d0, 1587.0d0, 2000.0d0, 2520.0d0, 3175.0d0, 4000.0d0,
+		   5040.0d0, 6350.0d0, 8000.0d0, 10079.0d0, 12699.0d0,
+                   16000.0d0, 20159.0d0, 25398.0d0];
+	     dt := array[1: 3.162d-4, 1.000d-3, 3.162d-3, 1.000d-2, 3.162d-2,
+	  	   1.000d-1, 3.162d-1, 1.000d+0, 3.162d+0, 1.000d+1, 3.162d+1,
+		   1.000d+2, 3.162d+2, 1.000d+3];
+           in
+	     array[1: t1, t2] ,dt
+           end let;
+    materials := inp.mtls;
+  in
+    for matl in inp.mtls
+      opcv := if (inp.ixopec = 0) then
+	        Interp(matl,libopac,t,d)
+              else
+  	        array_fill(1,13,inp.opec)
+              end if;
+      sigth := 0.4006d0 * matl.atrat * matl.dns * xthom;
+      opacvector := for ig in 1,13
+                      sigtot := if ((inp.igroup ~= 0) &
+                		    (inp.ixopec = 0)) then
+                                  matl.dns * opcv[inp.igroup]
+		                elseif (inp.ixopec = 0) then
+			          matl.dns * opcv[ig]
+                                else
+		  	          opcv[ig]
+                                end if;
+		      sig := sigtot + sigth;
+		      scrat := sigth/sig;
+		      srec := record scattrec [sigtot:sigtot; 
+		                 	       sig:sig; scrat:scrat];
+                    returns
+  	  	      array of srec
+                    end for
+    returns
+      array of opacvector
+    end for
+  end let
+end function  % Opacities
+
+
+
+function CalculateLimit (
+		z	:double_real
+returns			double_real)
+
+  let
+    xmin := 1.9d0;
+    xmax := 12.0d0;
+  in
+    if (z > xmax) then
+      let
+        q := 0.15398973d0;
+        e := 2.7182817459106445d0;
+      in
+        1.0d0 - q * exp(e,-z) * ((z+3.0d0)*z + 6.0d0) * z
+      end let
+    elseif (z > xmin) then
+      let
+        xm := 1.62d0;
+        h := 0.18d0;
+        d := (z - xm) / h;
+        i := trunc(d);
+        dr := d - double_real(i);
+        dm := dr - 1.0d0;
+        dn := dm - 1.0d0;
+        f := array[1:0.144005d0, 0.177286d0, 0.212769d0, 0.249946d0, 0.288322d0,
+                     0.327420d0, 0.366798d0, 0.406054d0, 0.444830d0, 0.482815d0,
+  	             0.519747d0, 0.555410d0, 0.589629d0, 0.622277d0, 0.653255d0,
+	             0.682506d0, 0.709999d0, 0.735729d0, 0.759714d0, 0.781988d0,
+	             0.802601d0, 0.821615d0, 0.839099d0, 0.855130d0, 0.869788d0,
+	             0.883155d0, 0.895317d0, 0.906355d0, 0.916351d0, 0.925385d0,
+	             0.933533d0, 0.940868d0, 0.947460d0, 0.953372d0, 0.958668d0,
+	             0.963403d0, 0.967630d0, 0.971399d0, 0.974754d0, 0.977738d0,
+	             0.980387d0, 0.982737d0, 0.984818d0, 0.986660d0, 0.988288d0,
+	             0.989726d0, 0.990994d0, 0.992111d0, 0.993095d0, 0.993961d0,
+	             0.994721d0, 0.995389d0, 0.995975d0, 0.996489d0, 0.996939d0,
+	             0.997333d0, 0.997677d0, 0.997978d0, 0.998242d0];
+      in
+        (f[i]*dm*dn + f[i+2]*dr*dm) * 0.5d0 - f[i+1]*dn*dr
+      end let
+    else
+      let
+        c3 := 0.51329911d-1; 
+        c4 := 0.19248717d-1; 
+        c5 := 0.25664956d-2; 
+        c7 := 0.30553519d-4;
+        c9 := 0.5658059d-6;
+      in
+        ((((c9*z*z - c7)*z*z + c5)*z - c4)*z + c3)*z*z*z
+      end let
+    end if
+  end let
+end function  % CalculateLimit	
+
+
+
+function Plnkut (
+		u1,
+		u2	:double_real
+returns 		double_real)
+
+  let
+    xmax := 12.0d0;
+  in
+    if (u1 <= xmax) then
+      let
+        upperlim := CalculateLimit(u2);
+        lowerlim := CalculateLimit(u1);
+      in
+        upperlim - lowerlim
+      end let
+    else
+      let
+        e := 2.7182817459106445d0;
+        q := 0.15398973d0;
+        fstlog := Ln(u1*(6.0d0 + u1*(3.0d0 + u1)));
+        sndlog := Ln(u2*(6.0d0 + u2*(3.0d0 + u2)));
+      in
+        q * (exp(e,fstlog-u1) - exp(e,sndlog-u2))
+      end let
+    end if
+  end let
+end function  % Plnkut
+
+
+
+function StorePlnkutResults (
+		materials:array[materialrec];
+		tcen	:double_real;
+		scatter	:scatt 
+returns			aareal)
+
+  let
+    constant := 2.567189267958d33 * tcen;
+    hnu := array[1:0.001d0, 0.5d0, 1.0d0, 2.0d0, 3.5d0, 4.75d0, 6.0d0, 7.5d0, 
+  	  	   9.0d0, 12.0d0, 20.0d0, 80.0d0, 200.0d0];
+  in
+    for matl in materials at ir
+      tempk := 1.0d-3 * matl.tmp;
+      xkt4 := tempk * tempk * tempk * tempk * constant;
+      xtemp := 1.0d0 / tempk;
+      efracvector := for ig in 1,12
+		       u1 := hnu[ig] * xtemp;
+		       u2 := hnu[ig+1] * xtemp;
+		       efrac := Plnkut(u1,u2) * (xkt4 * scatter[ir,ig].sigtot);
+                     returns
+		       array of efrac
+                     end for;
+    returns
+      array of efracvector
+    end for
+  end let
+end function  % StorePlnkutResults
+
+
+
+function InitializeProblem (
+		libopac	:aaaareal;
+		inp	:input
+returns 		integer,		% nzones
+			coords,			% cd
+			cellinfo,		% ci
+			ainteger,		% mid
+			ainteger,		% incr
+			areal,			% ximp
+			areal,			% volcl
+			aareal,			% efrac
+			scatt)			% scatter
+
+  let
+    incr := array ainteger [1:1,-inp.naxl,-1,inp.naxl];
+    mid := SetMatlId(inp.mtls,inp.nradl,inp.naxl);
+    ximp := AssignImportances(inp.nradl,inp.naxl,inp.irr,inp.xmult);
+    cd,nzones := AssignCells(inp.naxl,inp.nradl,inp.radl,inp.axl);
+    ci := SlopeIntercept(cd);
+    volcl := FindVolume(cd,ci,nzones,inp.naxl);
+    scatter := Opacities(inp,libopac);
+    efrac := StorePlnkutResults(inp.mtls,inp.tcen,scatter);
+  in 
+    nzones,cd,ci,mid,incr,ximp,volcl,efrac,scatter
+  end let
+end function  % InitializeProblem
+
+
+
+function SetSampleVars ( 
+		cv	:array[coordrec]; 
+		civ	:array[inforec] 
+returns 		sampling)
+
+  let
+    itest := 
+      for i in 1,4
+        itesti := if (i = 1) then
+  	            cv[i].rr < cv[i+1].rr
+                  elseif (i = 2) then
+		    cv[i].zz < cv[i+1].zz
+                  elseif (i = 3) then
+		    cv[i+1].rr < cv[i].rr
+                  else
+		    cv[1].zz < cv[i].zz
+                  end if;
+      returns
+        array of itesti
+      end for;
+    rmin,rmax,zmin,zmaxt := for i in 1,4
+                              rr := cv[i].rr;
+                              zz := cv[i].zz;
+                            returns
+                              value of least rr
+                              value of greatest rr
+                              value of least zz
+                              value of greatest zz
+                            end for;
+    rminsq := rmin * rmin;
+    rsq := rmax * rmax - rminsq;
+    zmax := zmaxt - zmin;
+    xm1,xb1 := if (civ[1].itype ~= 2) then
+	         let
+	  	   del1 := cv[1].rr - cv[2].rr
+                 in
+	  	   (cv[1].zz - cv[2].zz)/del1,
+		   (cv[2].zz*cv[1].rr - cv[1].zz*cv[2].rr)/del1
+                 end let
+               else
+	         0.0d0,0.0d0
+               end if;
+    del := cv[3].zz - cv[2].zz;  
+    xm2,xb2 := if (del ~= 0.0d0) then
+	         (cv[3].rr - cv[2].rr)/del,
+	         (cv[3].zz*cv[2].rr - cv[2].zz*cv[3].rr)/del
+	       else
+                 0.0d0,0.0d0
+               end if;
+    xm3,xb3 := if (civ[3].itype ~= 2) then
+	         let
+		   del3 := cv[4].rr - cv[3].rr;
+                 in
+		   (cv[4].zz - cv[3].zz)/del3,
+		   (cv[4].rr*cv[3].zz - cv[3].rr*cv[4].zz)/del3
+                 end let
+               else
+	         0.0d0,0.0d0
+               end if;
+    del4 := cv[4].zz - cv[1].zz;
+    xm4 := (cv[4].rr - cv[1].rr)/del4;
+    xb4 := (cv[4].zz*cv[1].rr - cv[1].zz*cv[4].rr)/del4;
+    xm := array areal [1:xm1,xm2,xm3,xm4];
+    xb := array areal [1:xb1,xb2,xb3,xb4];
+    stemp := record sampling [rminsq:rminsq; rsq:rsq; zmax:zmax; zmin:zmin;
+		  del:del; xm:xm; xb:xb; itest:itest];
+  in
+    stemp
+  end let
+end function  % SetSampleVars
+
+
+
+function DetPhotonsEmitted (
+		ig,	
+		mid	:integer;
+		efrac	:double_real; 
+		volume,
+		bwgt,
+		seed	:double_real
+returns			double_real, 		% edep
+			particletype, 		% p
+			integer,		% npht
+			double_real,		% epgain
+			integer,		% nploss
+			double_real,		% phwgt
+			double_real)		% seed
+
+  let
+    p := record particletype [u:0.0d0; v:0.0d0; w:0.0d0;
+			      x:0.0d0; y:0.0d0; z:0.0d0;
+			      age:0.0d0; newgt:0.0d0; id:0; ir:mid];
+    edep := efrac*volume;
+    xpht := edep/bwgt;
+    newseed := Random(seed);
+    npht := trunc(xpht + newseed);
+    epgain,nploss,phwgt := if (npht <= 0) then
+			     -edep,1,0.0d0
+                           else
+			     let
+			       phwgt := edep/(bwgt*double_real(npht));
+                             in
+			       if (xpht < 1.0d0) then
+			         edep*((1.0d0/xpht) - 1.0d0),0,phwgt/xpht
+                               else
+			         0.0d0,0,phwgt
+                               end if
+                             end let
+                           end if;
+  in
+    edep,p,npht,epgain,nploss,phwgt,newseed
+  end let
+end function  % DetPhotonsEmitted
+
+
+
+function SamplePtInCell (
+		s	:sampling; 
+		ci	:array[inforec];
+		seed	:double_real
+returns			double_real,
+			double_real,
+			double_real)
+
+  for initial
+    ptnotfound := true;
+    rsamp := 0.0d0;
+    zsamp := 0.0d0;
+    seed0 := seed;
+  while (ptnotfound)
+  repeat
+    seed1 := Random(old seed0);
+    rsamp := Sqrt(s.rsq*seed1 + s.rminsq);
+    seed0 := Random(seed1);
+    zsamp := s.zmax*seed0 + s.zmin;
+    ptnotfound1 := let
+		     jtest := if (ci[1].itype ~= 2) then
+                                (zsamp < (s.xm[1]*rsamp + s.xb[1]))
+                              else
+                                ~s.itest[1]
+                              end if;
+                   in
+		     ((s.itest[1] & jtest) | (~s.itest[1] & ~jtest))
+                   end let;
+    ptnotfound2 := let
+		     jtest := if (s.del ~= 0.0d0) then
+                                (rsamp > (s.xm[2]*zsamp + s.xb[2]))
+                              else
+                                ~s.itest[2]
+                              end if;
+                   in
+		     ((s.itest[2] & jtest) | (~s.itest[2] & ~jtest))
+		   end let;  
+    ptnotfound3 := let
+		     jtest := if (ci[3].itype ~= 2) then
+                                (zsamp > (s.xm[3]*rsamp + s.xb[3]))
+                              else
+                                ~s.itest[3]
+                              end if;
+                   in
+		     ((s.itest[3] & jtest) | (~s.itest[3] & ~jtest))
+		   end let;  
+    jtest := (rsamp < (s.xm[4]*zsamp + s.xb[4]));
+    ptnotfound4 := ((s.itest[4] & jtest) | (~s.itest[4] & ~jtest));
+    ptnotfound := ptnotfound1 | ptnotfound2 | ptnotfound3 | ptnotfound4;
+  returns
+    value of rsamp 
+    value of zsamp
+    value of seed0
+  end for
+end function  % SamplePtInCell
+
+
+
+function CalcDBound (
+		ccd	:array[coordrec]; 
+		aa,
+		bb,
+		disc	:double_real; 
+		ks	:integer;
+		p	:particletype
+returns			double_real)
+
+  if (disc < 0.0d0) then
+    1000.0d0
+  else
+    let
+      d := Sqrt(disc);
+    in
+      for i in 1,2
+        li := (double_real(exp(-1,i+1)) * d - bb)/aa;
+        zi := p.z + p.w * li;
+        isign := (((zi < ccd[ks].zz) & (zi < ccd[ks+1].zz)) |
+                  ((zi > ccd[ks+1].zz) & (zi > ccd[ks].zz)));
+        lmin := if ((~ isign) & (li >= 1.0d-10) & (li < 1000.0d0)) then
+  		  li
+                else
+	    	  1000.0d0
+                end if;
+      returns
+        value of least lmin
+      end for
+    end let
+  end if
+end function  % CalcDBound
+
+
+
+function DetDistToBound (
+		ccd	:array[coordrec];
+		ci	:array[inforec];
+		p	:particletype
+returns			double_real,
+			integer)
+  let
+   dboundarray :=
+     for ks in 1,4
+       info := ci[ks];
+       lmin := if (info.itype = 1) then
+	         let
+		   c1 := p.z + info.bom;
+	   	   c2 := info.sqm * c1;
+	   	   aa := 1.0d0 - (1.0d0 + info.sqm)*p.w*p.w;
+                   bb := p.x*p.u + p.y*p.v - c2*p.w;
+                   cc := p.x*p.x + p.y*p.y - c2*c1;
+                 in
+                   if (aa = 0.0d0) then
+                     -cc/bb
+	           else
+                     let
+		       disc := bb*bb - aa*cc;
+                     in
+		       CalcDBound(ccd,aa,bb,disc,ks,p)
+                     end let
+                   end if
+                 end let
+               elseif (info.itype = 2) then
+	         1000.0d0
+               elseif (info.itype = 3) then
+	         let
+		   aa := 1.0d0 - p.w*p.w;
+                   bb := p.x*p.u + p.y*p.v;
+                   cc := p.x*p.v - p.y*p.u;
+                   disc := aa * ccd[ks].rr * ccd[ks].rr - cc * cc;
+                 in
+	   	   CalcDBound(ccd,aa,bb,disc,ks,p)
+                 end let
+               else  
+	         let
+                   ltemp := (ccd[ks].zz - p.z)/p.w;
+                   x1 := p.x + p.u*ltemp;
+                   y1 := p.y + p.v*ltemp;
+                   r1 := Sqrt(x1*x1 + y1*y1);
+                   isign := (((r1 < ccd[ks].rr) & (r1 < ccd[ks+1].rr)) |
+                             ((r1 > ccd[ks+1].rr) & (r1 > ccd[ks].rr)));
+                 in
+		   if (~ isign) then	
+		     ltemp
+                   else
+		     1000.0d0
+                   end if
+                 end let
+               end if;
+     returns
+       array of lmin
+     end for;
+   in
+     for initial
+       dbound := dboundarray[4];
+       iside := 4;
+       i := 3;
+     while (i > 0)
+     repeat
+       dbound,iside := if ((dboundarray[old i] < old dbound) & 
+   	                   (dboundarray[old i] > 0.0d0)) then
+                         dboundarray[old i],old i
+                       else
+		         old dbound,old iside
+                       end if;
+       i := old i - 1;
+     returns
+       value of dbound
+       value of iside
+     end for
+   end let
+end function  % DetDistToBound
+
+
+
+function RRImportances (
+		seed	:double_real;
+		idold	:integer;
+		ximp	:areal;
+		p	:particletype
+returns			double_real,		% seed
+			particletype,		% p
+			double_real,		% wrr
+			integer,		% nrr
+			integer,		% nsplt
+			integer)		% ncopies
+
+  if (ximp[p.id] = ximp[idold]) then  % continue tracking
+    seed,p,0.0d0,0,0,1
+  else
+    let
+      r := ximp[p.id]/ximp[idold];
+      zeta := Random(seed);
+      ir1 := trunc(r);
+      r1 := double_real(ir1);
+      ir0 := ir1 - 1;
+      r0 := r - r1;
+    in
+      if ((r < 1.0d0) & (zeta < r0)) then  % continue tracking
+        let
+          rinv := 1.0d0/r;
+        in
+  	  zeta,p replace [newgt:p.newgt*rinv],p.newgt*(rinv - 1.0d0),0,0,1
+        end let
+      elseif (r < 1.0d0) then  % kill
+        zeta,p,-p.newgt,1,0,0
+      elseif (zeta < r0) then  % clone and continue tracking
+        zeta,p replace [newgt:p.newgt/(r1 + 1.0d0)],0.0d0,0,ir1,ir1+1
+      elseif (ir0 <= 0) then  % continue tracking
+        zeta,p,0.0d0,0,0,1
+      else  % clone and continue tracking
+        zeta,p replace [newgt:p.newgt/(r1 + 1.0d0)],0.0d0,0,ir0,ir0+1
+      end if
+    end let
+  end if
+end function  % RRImportances
+
+
+
+function RRWeights (
+		seed	:double_real;
+		wmin	:double_real;
+		p	:particletype;
+returns			double_real,		% seed
+			particletype,		% p
+			double_real,		% wrr
+			integer,		% nrr
+			integer,		% nsplt
+			integer)		% ncopies
+
+  if (p.newgt < wmin) then
+    let
+      newseed := Random(seed);
+    in
+      if (newseed < p.newgt) then  % continue tracking
+        newseed,p replace [newgt:1.0d0],1.0d0-p.newgt,0,0,1
+      else  % kill
+        newseed,p,-p.newgt,1,0,0
+      end if
+    end let
+  elseif (p.newgt < (1.0d0/wmin)) then  % continue tracking
+    seed,p,0.0d0,0,0,1
+  else
+    let
+      ir0 := trunc(p.newgt);
+      ir1 := ir0 - 1;
+    in
+      if (ir1 <= 0) then  % continue tracking
+        seed,p,0.0d0,0,0,1
+      else  % clone and continue tracking
+        seed,p replace [newgt:p.newgt/(double_real(ir1)+1.0d0)],0.0d0,0,ir1,ir1+1
+      end if
+    end let
+  end if
+end function  % RRWeights
+
+
+
+function Move (
+		seed	:double_real;
+		p	:particletype;
+		incr,
+		nzones,
+		mid,
+		irr	:integer; 
+		dbound	:double_real;
+		ximp	:areal;
+		wcut	:double_real
+returns			double_real,		% seed
+			particletype,		% p
+			double_real,		% wrr
+			integer,		% nrr
+			integer,		% nsplt
+			integer,		% ncopies
+			integer,		% nescgp
+			double_real)		% enesc
+
+  let
+    idold := p.id;
+    newid := p.id + incr;
+  in
+    if (newid > nzones) then
+      seed,p,0.0d0,0,0,0,1,p.newgt
+    else
+      let
+        newp := p replace [x:p.x + p.u*dbound;
+                           y:p.y + p.v*dbound;
+                           z:p.z + p.w*dbound;
+                           age:p.age + dbound*3.3356349d-11;
+	  		   id:newid;
+			   ir:mid];
+      in
+        if (irr = 0) then
+          seed,newp,0.0d0,0,0,1,0,0.0d0
+        elseif (irr = 1) then
+          RRImportances(seed,idold,ximp,newp),0,0.0d0
+        else
+          RRWeights(seed,wcut,newp),0,0.0d0
+        end if
+      end let
+    end if
+  end let
+end function  % Move
+
+
+
+function Thom (
+		seed	:double_real;
+		p	:particletype; 
+returns			double_real,
+			particletype)
+
+  let
+    csn := array[1: 1.0d0,0.98952871d0,0.9789466d0,0.96825135d0,
+       0.95744053d0,0.94651168d0,0.93546224d0,0.92428964d0,0.91299119d0,
+       0.90156417d0,0.89000577d0,0.87831314d0,0.86648335d0,0.8545134d0,
+       0.84240023d0,0.83014072d0,0.81773168d0,0.80516986d0,0.79245197d0,
+       0.77957465d0,0.76653448d0,0.75332801d0,0.73995175d0,0.72640218d0,
+       0.71267574d0,0.69876886d0,0.68467798d0,0.67039954d0,0.65592999d0,
+       0.64126583d0,0.62640361d0,0.61133997d0,0.59607164d0,0.58059548d0,
+       0.5649085d0,0.5490079d0,0.53289112d0,0.51655582d0,0.5d0,0.48322199d0,
+       0.46622053d0,0.44899477d0,0.43154441d0,0.41386968d0,0.39597143d0,
+       0.3778512d0,0.35951125d0,0.34095466d0,0.32218536d0,0.30320817d0,
+       0.2840289d0,0.26465437d0,0.24509241d0,0.22535195d0,0.20544297d0,
+       0.18537655d0,0.1651648d0,0.14482089d0,0.12435893d0,0.10379394d0,
+       0.083141761d0,0.062418936d0,0.041642596d0,0.020830322d0,0.0d0,
+       -0.020830322d0,-0.041642596d0,-0.062418936d0,-0.083141761d0,
+       -0.10379394d0,-0.12435893d0,-0.14482089d0,-0.1651648d0,-0.18537655d0,
+       -0.20544297d0,-0.22535195d0,-0.24509241d0,-0.26465437d0,-0.2840289d0,
+       -0.30320817d0,-0.32218536d0,-0.34095466d0,-0.35951125d0,-0.3778512d0,
+       -0.39597143d0,-0.41386968d0,-0.43154441d0,-0.44899477d0,-0.46622053d0,
+       -0.48322199d0,-0.5d0,-0.51655582d0,-0.53289112d0,-0.5490079d0,
+       -0.5649085d0,-0.58059548d0,-0.59607164d0,-0.61133997d0,-0.62640361d0,
+       -0.64126583d0,-0.65592999d0,-0.67039954d0,-0.68467798d0,
+       -0.69876886d0,-0.71267574d0,-0.72640218d0,-0.73995175d0,-0.75332801d0,
+       -0.76653448d0,-0.77957465d0,-0.79245197d0,-0.80516986d0,-0.81773168d0,
+       -0.83014072d0,-0.84240023d0,-0.8545134d0,-0.86648335d0,-0.87831314d0,
+       -0.89000577d0,-0.90156417d0,-0.91299119d0,-0.92428964d0,-0.93546224d0,
+       -0.94651168d0,-0.95744053d0,-0.96825135d0,-0.9789466d0,-0.98952871d0];
+    seed1 := Random(seed);
+    index := trunc(seed1*128.0d0 + 1.0d0);
+    sctang := csn[index];
+    seed2 := Random(seed1);
+    t3 := 6.2831853d0*seed2;
+    t4 := Sqrt(1.0d0 - sctang*sctang);
+    t5 := Sqrt(1.0d0 - p.w*p.w);
+    temp1 := t4/t5;
+    temp2 := Sin(t3);
+    temp3 := Cos(t3);
+    temp4 := p.w*temp3;
+  in
+    seed2,
+    p replace [u:p.u*sctang + temp1*(p.u*temp4 - p.v*temp2);
+               v:p.v*sctang + temp1*(p.v*temp4 + p.u*temp2);
+               w:p.w*sctang - (t4*t5)*temp3]
+  end let
+end function  % Thom
+
+
+
+function DetParticleFate (
+		seed	:double_real;
+		p	:particletype;
+		dbound,
+		tcen,
+		wcut	:double_real; 
+		incr,
+		nzones,
+		mid,
+		irr	:integer;
+		ximp	:areal; 
+		scatter	:scattrec
+returns			double_real,		% seed
+			particletype,		% p
+			double_real,		% wrr
+			integer, 		% nrr
+			integer, 		% nsplt
+			integer, 		% ncopies
+			integer,		% nescgp
+			double_real,		% enesc
+			integer,		% nlost
+			double_real,		% wlost
+			integer,		% nabs
+			double_real, 		% wabs
+			integer, 		% nscat
+			integer,		% ncen
+			double_real)		% wcen
+
+  if (dbound = 1000.0d0) then  % lost
+    seed,p,0.0d0,0,0,0,0,0.0d0,1,p.newgt,0,0.0d0,0,0,0.0d0
+  else
+    let
+      seed1 := Random(seed);
+      dist := -Ln(seed1)/scatter.sig;
+      dcen := (tcen - p.age)*2.99793d10;
+    in
+      if ((dbound < dist) & (dbound < dcen)) then
+        Move(seed1,p,incr,nzones,mid,irr,dbound,ximp,wcut),
+  	  0,0.0d0,0,0.0d0,0,0,0.0d0
+      elseif (dist < dcen) then
+        let
+  	  seed2 := Random(seed1);
+        in
+  	  if (seed2 > scatter.scrat) then  % absorbed
+            seed2,p,0.0d0,0,0,0,0,0.0d0,0,0.0d0,1,p.newgt,0,0,0.0d0
+          else  % collision
+            let
+    	      newp := p replace [x:p.x + p.u*dist;
+			         y:p.y + p.v*dist;
+                                 z:p.z + p.w*dist;
+                                 age:p.age + dist*3.3356349d-11];
+              seed3,newnewp := Thom(seed2,newp);
+            in
+              if (irr = 2) then
+	        RRWeights(seed3,wcut,newnewp),0,0.0d0,0,0.0d0,0,0.0d0,1,0,0.0d0
+              else
+	        seed3,newnewp,0.0d0,0,0,1,0,0.0d0,0,0.0d0,0,0.0d0,1,0,0.0d0
+              end if
+            end let
+          end if
+        end let
+      else
+        seed1,p,0.0d0,0,0,0,0,0.0d0,0,0.0d0,0,0.0d0,0,1,p.newgt
+      end if
+    end let
+  end if
+end function  % DetParticleFate
+
+
+
+function TrackParticles (
+		seed	:double_real;
+		p	:particletype;
+		tcen,
+		wcut	:double_real; 
+		nzones,
+		mid,
+		irr	:integer;
+		incr	:ainteger; 
+		ximp	:areal;
+		scatter	:scattrec;
+		ccd	:coords;
+		ci	:cellinfo
+returns			double_real,		% seed
+			double_real,		% wrr
+			integer,		% nrr
+			integer,		% nsplt
+			integer,		% nescgp
+			double_real,		% enesc
+			integer,		% nlost
+			double_real,		% wlost
+			integer,		% nabs
+			double_real,		% wabs
+			integer,		% nscat
+			integer,		% ncen
+			double_real,		% wcen
+			integer)		% ntrac
+
+  for initial
+    plist := array[1:p];
+    seed0 := seed;
+    wrr := 0.0d0;
+    nrr := 0;
+    nsplt := 0;
+    nescgp := 0;
+    enesc := 0.0d0;
+    nlost := 0;
+    wlost := 0.0d0;
+    nabs := 0;
+    wabs := 0.0d0;
+    nscat := 0;
+    ncen := 0;
+    wcen := 0.0d0;
+    ntrac := 0;
+  while (array_size(plist) > 0)
+  repeat
+    len := array_size(old plist);
+    ntrac := old ntrac + len;
+    seed0,plist,wrr,nrr,nsplt,nescgp,enesc,
+      nlost,wlost,nabs,wabs,nscat,ncen,wcen :=
+        for initial
+	  i := 1;
+  	  seedA := old seed0;
+          tplist := array aparticletype[];
+	  wrr := 0.0d0;
+	  nrr := 0;
+	  nsplt := 0;
+	  nescgp := 0;
+	  enesc := 0.0d0;
+	  nlost := 0;
+	  wlost := 0.0d0;
+	  nabs := 0;
+	  wabs := 0.0d0;
+	  nscat := 0;
+	  ncen := 0;
+	  wcen := 0.0d0;
+        while (i <= len)
+        repeat
+	  p := old plist[old i];
+  	  dbound,iside := DetDistToBound(ccd[p.id],ci[p.id],p);
+          seedA,newp,wrr,nrr,nsplt,ncopies,nescgp,enesc,
+	    nlost,wlost,nabs,wabs,nscat,ncen,wcen :=
+              DetParticleFate(old seedA,p,dbound,tcen,wcut,
+			incr[iside],nzones,mid,irr,ximp,scatter);
+          tplist := array_fill(1,ncopies,newp);
+	  i := old i + 1;
+        returns
+  	  value of seedA
+	  value of catenate tplist
+	  value of sum wrr
+	  value of sum nrr
+	  value of sum nsplt
+	  value of sum nescgp
+	  value of sum enesc
+	  value of sum nlost
+	  value of sum wlost
+	  value of sum nabs
+	  value of sum wabs
+	  value of sum nscat
+	  value of sum ncen
+	  value of sum wcen
+        end for;
+  returns
+    value of seed0
+    value of sum wrr
+    value of sum nrr
+    value of sum nsplt
+    value of sum nescgp
+    value of sum enesc
+    value of sum nlost
+    value of sum wlost
+    value of sum nabs
+    value of sum wabs
+    value of sum nscat
+    value of sum ncen
+    value of sum wcen
+    value of ntrac
+  end for
+end function  % TrackParticles
+
+
+
+function LoopOverZones (
+		nzones,
+		irr	:integer;
+		cd	:coords;
+		ci	:cellinfo; 
+		bwgt,
+		tcen,
+		wcut	:double_real; 
+		mid,
+		incr	:ainteger; 
+		ximp,	
+		volcl	:areal;
+		efrac	:aareal;
+		scatter	:scatt 
+returns			double_real,		% edep
+			integer,		% npht
+			double_real,		% epgain
+			integer,		% nploss
+			double_real,		% wrr
+			integer,		% nrr
+			integer,		% nsplt
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+			integer,
+                        integer, 		% nesc
+			double_real,
+			double_real,
+			double_real,
+			double_real,
+			double_real,
+			double_real, 
+			double_real,
+			double_real,
+			double_real,
+			double_real,
+			double_real,
+			double_real,
+			double_real, 
+			double_real,		% wesc
+			integer,		% nlost
+			double_real,		% wlost
+			integer,		% nabs
+			double_real,		% wabs
+			integer,		% nscat
+   			integer,		% ncen
+			double_real,		% wcen
+			integer)		% ntrac
+
+  for initial
+    iz := 1;
+    seed := RandInit(1);
+    edep := 0.0d0;
+    npht := 0;
+    epgain := 0.0d0;
+    nploss := 0;
+    wrr := 0.0d0;
+    nrr := 0;
+    nsplt := 0;
+    anescgp := array_fill(1,13,0);
+    nesc := 0;
+    aenesc := array_fill(1,13,0.0d0);
+    wesc := 0.0d0;
+    nlost := 0;
+    wlost := 0.0d0;
+    nabs := 0;
+    wabs := 0.0d0;
+    nscat := 0;
+    ncen := 0;
+    wcen := 0.0d0;
+    ntrac := 0;
+  while (iz <= nzones)
+  repeat
+    s := SetSampleVars(cd[old iz],ci[old iz]);
+    edep,npht,epgain,nploss,wrr,nrr,nsplt,anescgp,nesc,aenesc,wesc,
+      nlost,wlost,nabs,wabs,nscat,ncen,wcen,ntrac,seed :=
+      for initial
+        ig := 1;
+        seed0 := old seed;
+        edep := 0.0d0;
+        npht := 0;
+        epgain := 0.0d0;
+        nploss := 0;
+        wrr := 0.0d0;
+        nrr := 0;
+        nsplt := 0;
+        nescgp := 0;
+        enesc := 0.0d0;
+        nlost := 0;
+        wlost := 0.0d0;
+        nabs := 0;
+        wabs := 0.0d0;
+        nscat := 0;
+        ncen := 0;
+        wcen := 0.0d0;
+        ntrac := 0;
+      while (ig <= 12)
+      repeat
+	midi := mid[old iz];
+  	edep,p,npht,epgain,nploss,phwgt,seed1 := DetPhotonsEmitted(old ig,
+		  midi,efrac[midi,old ig],volcl[old iz],bwgt,old seed0);
+        wrr,nrr,nsplt,nescgp,enesc,nlost,wlost,
+	  nabs,wabs,nscat,ncen,wcen,ntrac,seed0 := 
+	  for initial
+            k := 1;
+	    seedA := seed1;
+	    wrr := 0.0d0;
+	    nrr := 0;
+	    nsplt := 0;
+	    nescgp := 0;
+	    enesc := 0.0d0;
+	    nlost := 0;
+	    wlost := 0.0d0;
+	    nabs := 0;
+	    wabs := 0.0d0;
+	    nscat := 0;
+	    ncen := 0;
+	    wcen := 0.0d0;
+	    ntrac := 0;
+          while (k <= npht) 
+	  repeat
+	    seedB := Random(old seedA);
+	    age := seedB * tcen;
+%	    ir := mid[old iz];
+	    ir := midi;
+	    seedC := Random(seedB);
+	    w := 2.0d0*seedC - 1.0d0;
+	    seedD := Random(seedC);
+	    t3 := 6.2831853d0 * seedD;
+	    snthet := Sqrt(1.0d0 - w*w);
+	    u := Cos(t3) * snthet;
+	    v := Sin(t3) * snthet;
+	    rsamp,zsamp,seedE := SamplePtInCell(s,ci[old iz],seedD);
+	    seedF := Random(seedE);
+	    t4 := 6.2831853d0 * seedF;
+	    y := rsamp * Sin(t4);
+	    x := rsamp * Cos(t4);
+	    z := zsamp;
+	    newp := p replace [ir:ir; age:age; w:w; u:u; v:v; x:x; y:y; z:z;
+	  		newgt:phwgt; id:old iz];
+            seedA,wrr,nrr,nsplt,nescgp,enesc,nlost,wlost,
+	      nabs,wabs,nscat,ncen,wcen,ntrac := 
+	  	    	 TrackParticles(seedF,newp,tcen,wcut,nzones,mid[old iz],
+					irr,incr,ximp,scatter[newp.ir,old ig],
+					cd,ci);
+            k := old k + 1;
+          returns
+	    value of sum wrr
+   	    value of sum nrr
+	    value of sum nsplt
+	    value of sum nescgp
+	    value of sum enesc
+	    value of sum nlost
+	    value of sum wlost
+	    value of sum nabs
+	    value of sum wabs
+	    value of sum nscat
+	    value of sum ncen
+	    value of sum wcen
+	    value of sum ntrac
+	    value of seedA
+          end for;
+	ig := old ig + 1;
+      returns
+	value of sum edep
+	value of sum npht
+	value of sum epgain
+	value of sum nploss
+	value of sum wrr
+   	value of sum nrr
+	value of sum nsplt
+	array of nescgp
+	value of sum nescgp
+	array of enesc
+	value of sum enesc
+	value of sum nlost
+	value of sum wlost
+	value of sum nabs
+	value of sum wabs
+	value of sum nscat
+	value of sum ncen
+	value of sum wcen
+	value of sum ntrac
+	value of seed0
+      end for;
+    iz := old iz + 1;
+  returns
+    value of sum edep
+    value of sum npht
+    value of sum epgain
+    value of sum nploss
+    value of sum wrr
+    value of sum nrr
+    value of sum nsplt
+    value of sum anescgp[1]
+    value of sum anescgp[2]
+    value of sum anescgp[3]
+    value of sum anescgp[4]
+    value of sum anescgp[5]
+    value of sum anescgp[6]
+    value of sum anescgp[7]
+    value of sum anescgp[8]
+    value of sum anescgp[9]
+    value of sum anescgp[10]
+    value of sum anescgp[11]
+    value of sum anescgp[12]
+    value of sum anescgp[13]
+    value of sum nesc
+    value of sum aenesc[1]
+    value of sum aenesc[2]
+    value of sum aenesc[3]
+    value of sum aenesc[4]
+    value of sum aenesc[5]
+    value of sum aenesc[6]
+    value of sum aenesc[7]
+    value of sum aenesc[8]
+    value of sum aenesc[9]
+    value of sum aenesc[10]
+    value of sum aenesc[11]
+    value of sum aenesc[12]
+    value of sum aenesc[13]
+    value of sum wesc
+    value of sum nlost
+    value of sum wlost
+    value of sum nabs
+    value of sum wabs
+    value of sum nscat
+    value of sum ncen
+    value of sum wcen
+    value of sum ntrac
+  end for
+end function  % LoopOverZones
+
+
+
+function SummarizeFinalResults (
+		anescgp	:array[integer];
+		aenesc	:array[double_real];
+		nphot	:integer; 
+		epgain,
+		wrr,
+		bwgt,
+		wabs,
+		wesc,
+		wcen,
+		wlost	:double_real
+returns			double_real,		% ffesc
+			double_real,		% std
+			array[escrec], 		% esc
+			double_real, 		% err
+			double_real, 		% wwabs
+			double_real, 		% wwesc
+			double_real, 		% wwcen
+			double_real)		% wwlost
+
+  let
+    trials := double_real(nphot);
+    ffesc := wesc/trials;
+    std := sqrt(ffesc*(1.0d0 - ffesc)/trials);
+    esc := for ig in 1,12
+% this is a BANDAID fix
+	     esc := record [egrp:ig; nesc:anescgp[ig+1]; wesc:aenesc[ig+1]*bwgt];
+           returns
+	     array of esc
+           end for;
+    err := epgain + wrr*bwgt;
+  in
+    ffesc,std,esc,err,wabs*bwgt,wesc*bwgt,wcen*bwgt,wlost*bwgt
+  end let
+end function  % SummarizeFinalResults
+
+
+
+function main (
+		libopac	:aaaareal;
+		inp	:input
+returns			integer,		% nphot
+			integer,		% nploss
+			double_real,		% etot
+			double_real,		% epgain
+			integer,		% nabs
+			integer,		% nesc
+			integer,		% ntrac
+			integer,		% nlost
+			integer,		% ncen
+			integer,		% nscat
+			integer,		% nrr
+			integer,		% nsplt
+			double_real,		% ffesc
+			double_real,		% std
+			array[escrec],		% esc
+			double_real,		% etot
+			double_real,		% err
+			double_real,		% wwabs
+			double_real,		% wwesc
+			double_real,		% wwcen
+			double_real)		% wwlost
+
+  let
+    nzones,cd,ci,mid,incr,ximp,volcl,efrac,scatter := 
+      InitializeProblem(libopac,inp);
+
+    etot,nphot,epgain,nploss,wrr,nrr,nsplt,
+      anescgp1,anescgp2,anescgp3,anescgp4,anescgp5,anescgp6,anescgp7,anescgp8,
+      anescgp9,anescgp10,anescgp11,anescgp12,anescgp13,
+      nesc,
+      aenesc1,aenesc2,aenesc3,aenesc4,aenesc5,aenesc6,aenesc7,aenesc8,
+      aenesc9,aenesc10,aenesc11,aenesc12,aenesc13,
+      wesc,
+      nlost,wlost,nabs,wabs,nscat,ncen,wcen,ntrac :=
+      LoopOverZones(nzones,inp.irr,cd,ci,inp.bwgt,inp.tcen,inp.wcut,mid,incr,
+  		       ximp,volcl,efrac,scatter);  
+
+    anescgp := array [1:anescgp1,anescgp2,anescgp3,anescgp4,anescgp5,anescgp6,
+  	       anescgp7,anescgp8,anescgp9,anescgp10,anescgp11,anescgp12,anescgp13];
+    aenesc := array [1:aenesc1,aenesc2,aenesc3,aenesc4,aenesc5,aenesc6,
+	      aenesc7,aenesc8,aenesc9,aenesc10,aenesc11,aenesc12,aenesc13];
+
+    ffesc,std,esc,err,wwabs,wwesc,wwcen,wwlost :=
+      SummarizeFinalResults(anescgp,aenesc,nphot,epgain,wrr,
+			    inp.bwgt,wabs,wesc,wcen,wlost);
+  in
+    nphot,nploss,etot,epgain,nabs,nesc,ntrac,nlost,ncen,nscat,nrr,nsplt,ffesc,
+    std,esc,etot,err,wwabs,wwesc,wwcen,wwlost
+  end let
+end function  % main

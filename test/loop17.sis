@@ -1,0 +1,75 @@
+% Implicit, Conditional Computation
+
+Define  Main
+
+type double = double_real;
+type IOneD  = array[integer];
+type OneD   = array[double];
+
+function Loop17( n:integer; VLIN,VLR,VSP,VSTP,VXNEin:OneD;
+                returns OneD, OneD, OneD)
+  for initial
+      i := n;
+      XNMt := 1.0d0 / 3.0d0;
+      E6t := 1.03d0 / 3.07d0;
+  
+      E3 := XNMt * VLR[i] + VLIN[i];
+      XNC := 5.0d0 / 3.0d0 * E3;
+      XNEI := VXNEin[i];
+      VXND := E6t;
+
+      VE3, E6, VXNE, XNM := 
+	 if ( XNMt > XNC ) then
+	    let
+	       E6 := XNMt * VSP[i] + VSTP[i];
+	    in
+	       E6, E6, E6, E6
+	    end let
+	 elseif ( XNEI > XNC ) then
+	    let
+	       E6 := XNMt * VSP[i] + VSTP[i];
+	    in
+	       E6, E6, E6, E6
+	    end let
+	 else
+	    E3, E3 + E3 - XNMt, E3 + E3 - XNEI, E3 + E3 - XNMt
+	 end if;
+  while i > 2 repeat
+      i := old i - 1;
+
+      E3 := old XNM * VLR[i] + VLIN[i];
+      XNC := 5.0d0 / 3.0d0 * E3;
+      XNEI := VXNEin[i];
+      VXND := old E6;
+
+      VE3, E6, VXNE, XNM := 
+	 if ( old XNM > XNC ) then
+	    let
+	       E6 := old XNM * VSP[i] + VSTP[i];
+	    in
+	       E6, E6, E6, E6
+	    end let
+	 elseif ( XNEI > XNC ) then
+	    let
+	       E6 := old XNM * VSP[i] + VSTP[i];
+	    in
+	       E6, E6, E6, E6
+	    end let
+	 else
+	    E3, E3 + E3 - old XNM, E3 + E3 - XNEI, E3 + E3 - old XNM
+	 end if;
+  returns array of VXNE
+          array of VE3
+          array of VXND
+  end for
+end function
+
+function Main( rep,n:integer; VLIN,VLR,VSP,VSTP,VXNEin:OneD;
+                returns OneD, OneD, OneD)
+   for i in 1, rep
+       v1,v2,v3 := Loop17( n, VLIN, VLR, VSP, VSTP, VXNEin );
+   returns value of v1
+	   value of v2
+	   value of v3
+   end for
+end function

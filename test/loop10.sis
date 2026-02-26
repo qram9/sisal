@@ -1,0 +1,53 @@
+% Difference Predictors
+% Modified Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop10( rep,n:integer; CX,PXin:TwoD returns TwoD )
+let
+  PX6, PX7, PX8, PX9, PX10, PX11, PX12, PX13, PX14 :=
+  for i in 1, n
+     PX5 := CX[5,i];
+     PX6 := PX5 - PXin[5,i];
+     PX7 := PX6 - PXin[6,i];
+     PX8 := PX7 - PXin[7,i];
+     PX9 := PX8 - PXin[8,i];
+     PX10 := PX9 - PXin[9,i];
+     PX11 := PX10 - PXin[10,i];
+     PX12 := PX11 - PXin[11,i];
+     PX13 := PX12 - PXin[12,i];
+     PX14 := PX13 - PXin[13,i];
+  returns array of PX6
+	  array of PX7
+	  array of PX8
+	  array of PX9
+	  array of PX10
+	  array of PX11
+	  array of PX12
+	  array of PX13
+	  array of PX14
+  end for
+in
+  PXin[5:CX[5], PX6, PX7, PX8, PX9, PX10, PX11, PX12, PX13, PX14]
+end let
+end function
+
+function Main( rep,n:integer; CX,PXin:TwoD returns TwoD )
+let
+   NewPX := for initial
+               i := 1;
+               PX := PXin;
+           while ( i <= rep ) repeat
+               i := old i + 1;
+               PX := Loop10( i, n, CX, old PX );
+           returns value of PX
+           end for
+in
+  array_adjust( NewPX, 5, array_limh( NewPX ) )
+end let
+end function
+

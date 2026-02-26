@@ -1,0 +1,346 @@
+DEFINE MAIN
+% DEFINE BUILDID
+% DEFINE EQNUM
+% DEFINE BUILDLM
+% DEFINE BUILDF
+% define readata
+% DEFINE FAC1,LOADA,FACTOR,BSOLVE,SOLN
+type areal=array[real];
+type aareal=array[areal];
+type aint=array[integer];
+type aaint=array[aint];
+type aaaint=array[aaint];
+type chip=record[x,y:integer;val:real];
+
+% type chipstream=stream[chip];
+type chiparray=array[chip];                                              % CANN
+
+type control=record[numnp,numel,neq:integer];
+type loc=record[lm:aint;ien:aint];
+type elemt=array[loc];
+type nodal=record[x,y,force,disp:areal] 
+global sqrt(q:real returns real)
+forward function stiff(control:control;elemt:elemt;nodal:nodal returns aareal)
+
+% forward function truss(loc:loc;nodal:nodal returns chipstream)
+forward function truss(loc:loc;nodal:nodal returns chiparray)            % CANN
+
+FUNCTION BUILDID(NUMNP,NUMBC:INTEGER;BC:ARRAY[ARRAY[INTEGER]];
+    RETURNS ARRAY[ARRAY[INTEGER]])
+%
+% BUILDS THE ID ARRAY GIVEN NO. OF BOUNDARY CONDITIONS, NO. OF
+%   NODES, AND THE BC ARRAY
+%
+% INITIALIZE THE ID ARRAY TO ALL 1'S
+%
+   FOR INITIAL
+        IDROW := ARRAY_FILL(1,2,1);
+        ID := ARRAY_FILL(1,NUMNP,IDROW);
+        I := 0
+   WHILE I<NUMBC REPEAT
+%
+% SET THE ID CODE TO ZERO FOR ALL DOF WHICH ARE SPECIFIED AS HOMOG
+%   DIRICHLET BOUNDARY CONDITIONS
+%
+       I := OLD I + 1;
+       ID := OLD ID[BC[I,1],BC[I,2]:0]
+   RETURNS VALUE OF ID
+   END FOR
+END FUNCTION
+FUNCTION EQNUM(NUMNP:INTEGER;ID:ARRAY[ARRAY[INTEGER]]
+    RETURNS ARRAY[ARRAY[INTEGER]],INTEGER)
+%
+% GOES THRU THE ID ARRAY AND ASSIGNS EQUATION NUMBERS TO ALL 
+%   DOF NOT ON THE DIRICHLET BOUNDARY
+%
+    FOR INITIAL
+        I := 0;
+        NEQ := 0;
+        IC := ID;
+    WHILE I<NUMNP REPEAT
+        I := OLD I + 1;
+        IC,NEQJ := FOR INITIAL
+                J := 0;
+                NEQJ := OLD NEQ;
+                ICJ := OLD IC
+              WHILE J<2 REPEAT
+                J:= OLD J + 1;
+                IELEM := OLD IC[I,J];
+                NEQJ := IF IELEM~=0 THEN
+                            OLD NEQJ + 1
+                        ELSE
+                            OLD NEQJ
+                        END IF;
+                ICJ := IF IELEM~=0 THEN 
+                          OLD ICJ[I,J: NEQJ]
+                     ELSE
+                          OLD ICJ[I,J:OLD ICJ[I,J]]
+                     END IF;
+              RETURNS VALUE OF ICJ
+                      VALUE OF NEQJ
+              END FOR;
+              NEQ := NEQJ
+    RETURNS VALUE OF IC
+            VALUE OF NEQ
+    END FOR
+END FUNCTION
+FUNCTION BUILDLM(NUMEL:INTEGER;IEN,ID:ARRAY[ARRAY[INTEGER]]
+    RETURNS ARRAY[ARRAY[INTEGER]])
+%
+% BUILDS THE LM ARRAY GIVEN ID, IEN ARRAYS AND NO. OF ELEMENTS
+%
+  FOR EL IN 1,NUMEL
+  RETURNS ARRAY OF
+     ARRAY[1: ID[IEN[EL,1],1],ID[IEN[EL,1],2],ID[IEN[EL,2],1],ID[IEN[EL,2],2]]
+  END FOR
+END FUNCTION
+FUNCTION BUILDF(NUMNF:INTEGER;IFR:ARRAY[ARRAY[INTEGER]];FR:ARRAY[REAL];
+    ID:ARRAY[ARRAY[INTEGER]];NEQ:INTEGER
+    RETURNS ARRAY[REAL])
+%
+% BUILDS THE GLOBAL FORCE VECTOR GIVEN THE LIST OF APPLIED NODAL FORCES,
+%   THE ID ARRAY, THE NO. OF NODAL FORCES AND THE NO. OF EQNS
+%
+    FOR INITIAL
+        F := ARRAY_FILL(1,NEQ,0.);
+        I := 0
+    WHILE I < NUMNF REPEAT
+        I := OLD I + 1;
+        J := ID[IFR[I,1],IFR[I,2]];
+        F := OLD F[J: FR[I]]
+    RETURNS VALUE OF F
+    END FOR
+END FUNCTION
+function readata(numnpr,numelr,neqr:integer;xr,yr:areal;
+                 lmr:aaint;ienr:aaint returns aareal)
+%
+% Read in data
+%
+     let
+       nodal:=record[x:xr;y:yr;force:array areal[];disp:array areal[]];
+       control:=record[numnp:numnpr;numel:numelr;neq:neqr];
+       elemt:=
+       for lnum in 1,numelr
+         returns array of record[lm:lmr[lnum];ien:ienr[lnum]]
+       end for
+     in
+       stiff(control,elemt,nodal)
+     end let
+end function %readdata
+function stiff(control:control;elemt:elemt;nodal:nodal returns aareal)
+%
+% Form all element stiffnesses
+%
+    let
+      alltruss:=
+                for lnum in 1,control.numel
+                  returns value of catenate truss(elemt[lnum],nodal)
+                end for
+    in
+%
+% Assemble all stiffnesses
+%
+      for initial
+        rowstiff:=array_fill(1,control.neq,0.);
+        gstiff:=array_fill(1,control.neq,rowstiff);
+
+%       chipstream:=alltruss
+        chiparray:=alltruss;                                             % CANN
+	chipindex:=1;                                                    % CANN
+
+%     until stream_empty(chipstream)
+%     repeat
+%       chip:=stream_first(old chipstream);
+%       chipstream:=stream_rest(old chipstream);
+      while ( chipindex <= array_limh(chiparray) ) repeat                % CANN
+	chip      := chiparray[old chipindex];                           % CANN
+	chipindex := old chipindex + 1;                                  % CANN
+
+        gstiff:=if ((chip.x~=0) & (chip.y~=0))then
+                  old gstiff[chip.x,chip.y:
+                           old gstiff[chip.x,chip.y]+chip.val]
+                else
+                  old gstiff
+                end if
+        returns value of gstiff
+      end for
+    end let
+end function %stiff  
+
+% function truss(loc:loc;nodal:nodal returns chipstream)
+function truss(loc:loc;nodal:nodal returns chiparray)                   % CANN
+
+%
+% Function to compute element stiffness for a truss
+%
+    let
+%
+% Define various subexpressions
+%
+      x1:=nodal.x[loc.ien[1]];
+      x2:=nodal.x[loc.ien[2]];
+      y1:=nodal.y[loc.ien[1]];
+      y2:=nodal.y[loc.ien[2]];      
+      length:=sqrt(exp((x2-x1),2)+exp((y2-y1),2));
+      ym:=1.;
+      area:=1.;
+      const:=ym*area/length;
+      c1:=(x2-x1)/length;
+      s1:=(y2-y1)/length;
+      cc:=c1*c1*const;
+      cs:=c1*s1*const;
+      ss:=s1*s1*const;
+%
+% Define lower triangle of element stiffness
+%
+      kelem:=array[1:array[1:cc],
+                     array[1:cs,ss],
+                     array[1:-cc,-cs,cc],
+                     array[1:-cs,-ss,cs,ss]]
+    in
+%
+% Define upper triangle by symmetry
+%
+    for i in 1,4
+    returns value of catenate
+        for j in 1,4
+%       returns stream of
+        returns array of                                                 % CANN
+                     if i>=j then
+                       record[x:loc.lm[i];y:loc.lm[j];val:kelem[i,j]]
+                     else
+                       record[x:loc.lm[i];y:loc.lm[j];val:kelem[j,i]]
+                     end if
+        end for
+    end for
+    end let
+end function %truss
+FUNCTION FAC1(A,L:ARRAY[ARRAY[REAL]];D:ARRAY[REAL];K,I:INTEGER;
+       RETURNS REAL)
+%
+% AUXILIARY ROUTINE FOR SOLVE
+%
+      A[K,I] - 
+          FOR M IN 1,I-1
+          RETURNS
+              VALUE OF SUM L[M,K]*D[M]*L[M,I]
+          END FOR
+END FUNCTION
+FUNCTION LOADA(L,A:ARRAY[ARRAY[REAL]];D:ARRAY[REAL];N:INTEGER
+    RETURNS ARRAY[ARRAY[REAL]])
+%
+% NOW PUT L, D, AND LT BACK INTO A
+%
+    FOR I IN 1,N CROSS J IN 1,N
+        RETURNS ARRAY OF
+            IF I<J THEN L[I,J]
+            ELSEIF I=J THEN D[J]
+            ELSE L[J,I]
+            END IF
+    END FOR
+END FUNCTION
+FUNCTION FACTOR(A:ARRAY[ARRAY[REAL]];N:INTEGER
+    RETURNS ARRAY[ARRAY[REAL]])
+%
+% FACTORS A SQUARE MATRIX A (SYMM, POS DEF.) INTO ITS
+%    CROUT FACTORIZATION A=L*D*LT
+%
+LET
+  D,L:= FOR INITIAL
+       I := 1;
+       D := ARRAY[1:A[1,1]];
+%
+% BUILD L-TRANSPOSE, CALL IT L
+%
+       L := ARRAY[1: 
+          FOR J IN 2,N
+               RETURNS ARRAY OF A[J,1]/D[1]
+          END FOR ]
+    WHILE I<N REPEAT
+        I := OLD I + 1;
+        X := FOR K IN 1,I-1
+                RETURNS VALUE OF
+                SUM OLD L[K,I]*OLD D[K]*OLD L[K,I]
+            END FOR;
+        D := ARRAY_ADDH(OLD D, A[I,I] - X);
+        V := FOR K IN I+1,N
+                RETURNS ARRAY OF FAC1(A,OLD L,D,K,I)/D[I]
+             END FOR;
+%
+% ADD NEW COLUMN (ACTUALLY ROW) TO L
+%
+        L := OLD L || ARRAY[1:V]
+        RETURNS
+            VALUE OF D
+            VALUE OF L
+    END FOR
+IN
+    LOADA(L,A,D,N)
+END LET
+END FUNCTION
+FUNCTION BSOLVE(A:ARRAY[ARRAY[REAL]];B:ARRAY[REAL];N:INTEGER
+    RETURNS ARRAY[REAL])
+%
+% PERFORMS A FORWARD REDUCTION AND BACK SUBSTITUTION TO SOLVE
+%    AX=B.  A IS ASSUMED TO CONTAIN THE FACTORS L,D,LT, AND BE SYMMETRIC
+%    AND POSITIVE DEFINITE.  B IS A NONZERO VECTOR; X IS THE DESIRED
+%    SOLUTION VECTOR.
+%
+LET
+   G:= FOR INITIAL
+          I := 1;
+          G := ARRAY[1:B[1]]
+       WHILE I<N REPEAT
+          I := OLD I + 1;
+          ELEM := B[I] - 
+              FOR J IN 1,I-1
+              RETURNS VALUE OF SUM A[I,J]*OLD G[J]
+              END FOR;
+          G := ARRAY_ADDH(OLD G,ELEM);
+       RETURNS VALUE OF G
+       END FOR       
+IN
+   FOR INITIAL
+      I := N;
+      X := ARRAY[N: G[I]/A[I,I] ]
+   WHILE I>1 REPEAT
+          I := OLD I - 1;
+          X := ARRAY_ADDL(OLD X,G[I]/A[I,I] - 
+              FOR J IN I+1,N
+              RETURNS VALUE OF SUM A[J,I]*OLD X[J]
+              END FOR);
+   RETURNS VALUE OF X
+   END FOR
+END LET
+END FUNCTION 
+FUNCTION SOLN(A:ARRAY[ARRAY[REAL]];B:ARRAY[REAL];N:INTEGER
+    RETURNS ARRAY[REAL])
+%
+% MAIN CONTROL PROCEDURE FOR PERFORMING
+%    A FORWARD REDUCTION AND BACK SUBSTITUTION TO SOLVE
+%    AX=B.  A IS ASSUMED TO CONTAIN THE FACTORS L,D,LT, AND BE SYMMETRIC
+%    AND POSITIVE DEFINITE.  B IS A NONZERO VECTOR; X IS THE DESIRED
+%    SOLUTION VECTOR.
+%
+    BSOLVE(FACTOR(A,N),B,N)
+%
+END FUNCTION    
+FUNCTION MAIN(NUMNP:INTEGER;XC,YC:ARRAY[REAL];
+              NUMEL:INTEGER;IEN:ARRAY[ARRAY[INTEGER]];
+              NUMBC:INTEGER;BC:ARRAY[ARRAY[INTEGER]];
+              NUMNF:INTEGER;IFR:ARRAY[ARRAY[INTEGER]];FR:ARRAY[REAL]
+         RETURNS
+              ARRAY[REAL])
+%
+% WARNING: THE SOLUTION VECTOR HERE IS BY DOF NUMBER, NOT NODAL NO.!
+%
+LET
+    ID1 := BUILDID(NUMNP,NUMBC,BC);
+    ID2,NEQ := EQNUM(NUMNP,ID1);
+    LM := BUILDLM(NUMEL,IEN,ID2);
+    F := BUILDF(NUMNF,IFR,FR,ID2,NEQ);
+    K := READATA(NUMNP,NUMEL,NEQ,XC,YC,LM,IEN)
+IN
+    SOLN(K,F,NEQ)
+END LET
+END FUNCTION

@@ -1,0 +1,158 @@
+define Main
+% define find_inverse
+
+type OneI = array[integer];
+type OneD = array[real];
+type TwoD = array[OneD];
+
+function Largest( N:integer; A:OneD; Ipiv:OneI returns real, integer )
+    for initial
+        K := 1; Idx := 0; Big := -1.0;
+    while ( K <= N ) repeat
+	K        := old K + 1;
+        Big, Idx := if ( Ipiv[old K] = 0 ) then
+                        if (abs(A[old K]) >= old Big) then
+                            abs(A[old K]), old K
+                        else
+                            old Big, old Idx
+                        end if
+                    else
+                        old Big, old Idx
+                    end if;
+    returns value of Big
+            value of Idx
+    end for
+end function
+
+function GetPivot( N:integer; A:TwoD; Ipiv:OneI returns integer, integer )
+    let
+	RBigs,
+	Cidxs  := for Row in A at J
+		      Big,
+		      Idx  := if ( Ipiv[J] ~= 1 ) then
+                                  Largest( N, Row, Ipiv )
+                              else
+			          -1.0, 0
+			      end if;
+                  returns array of Big
+			  array of Idx
+	          end for;
+
+	CBig   := for Elem in RBigs returns value of greatest Elem end for;
+
+	Irow   := for Elem in RBigs at I
+		      Irow := if ( Elem = CBig ) then I else 0 end if;
+		  returns value of greatest Irow
+		  end for;
+
+        Icol   := Cidxs[Irow];
+    in
+	Irow, Icol
+    end let
+end function
+
+function Compute( N,Irow,Icol:integer; A:TwoD returns TwoD ) 
+    let
+	Tmp1A  := if ( Irow ~= Icol ) then
+                      A[ Irow: A[Icol]; Icol: A[Irow] ]
+                  else
+		      A
+                  end if;
+
+        Pivinv := 1.0 / Tmp1A[Icol,Icol];
+	Tmp2A  := Tmp1A[Icol,Icol: 1.0 ];
+
+	Tmp1R  := for initial
+		      I := 1;
+		      NewRow := Tmp2A[Icol];
+                  while ( I <= N ) repeat
+		      I := old I + 1;
+		      NewRow := old NewRow[old I: old NewRow[old I] * Pivinv];
+                  returns value of NewRow
+		  end for;
+
+        Tmp3A := Tmp2A[ Icol: Tmp1R ];
+    in
+	for initial
+	    I := 1;
+	    NewTmp3A := Tmp3A;
+        while ( I <= N ) repeat
+	    I := old I + 1;
+	    NewTmp3A := if ( old I = Icol ) then
+			    old NewTmp3A
+			else
+			    let
+				Arow := old NewTmp3A[old I];
+				Tmp3Arow := old NewTmp3A[Icol];
+				Dum   := Arow[Icol];
+				Tmp1R := Arow[ Icol: 0.0 ];
+
+			        NewTmp1R := for initial
+						J := 1;
+						T := Tmp1R;
+					    while ( J <= N ) repeat
+						J := old J + 1;
+						T := old T [old J: 
+						  old T[old J] - 
+						  Tmp3Arow[old J] * Dum ];
+					    returns value of T
+					    end for;
+                            in
+				old NewTmp3A[old I: NewTmp1R]
+			    end let
+			end if;
+	returns value of NewTmp3A
+	end for
+    end let
+end function
+
+function Main( A:TwoD returns TwoD )
+% function find_inverse( A:TwoD returns TwoD )
+    let
+	N := array_size( A );
+	NewA,
+	Indxr,
+	Indxc   := for initial
+		       I     := 1;
+	               Ipiv  := for J in 1, N returns array of 0 end for;
+		       Indxr := array OneI [];
+		       Indxc := array OneI [];
+		       TmpA  := A;
+                   while ( I <= N ) repeat
+		       I     := old I + 1;
+		       Irow,
+		       Icol  := GetPivot( N, old TmpA, old Ipiv );
+	               Ipiv  := old Ipiv[ Icol: old Ipiv[Icol] + 1 ];
+		       Indxr := array_addh( old Indxr, Irow );
+		       Indxc := array_addh( old Indxc, Icol );
+
+		       TmpA  := Compute( N, Irow, Icol, old TmpA );
+                   returns value of TmpA
+			   value of Indxr
+			   value of Indxc
+                   end for;
+
+	InvA    := for initial
+		       L    := N;
+		       InvA := NewA;
+                   while ( L >= 1 ) repeat
+		       L    := old L - 1;
+		       Idxr := Indxr[old L];
+		       Idxc := Indxc[old L];
+		       InvA := for initial
+				   I := 1;
+				   NewInvA := old InvA;
+			       while ( I <= N ) repeat
+				   I := old I + 1;
+				   Arow := Old NewInvA[old I];
+			           NewArow := 
+				      Arow[ Idxr: Arow[Idxc]; Idxc: Arow[Idxr]];
+			           NewInvA := Old NewInvA[old I: NewArow];
+			       returns value of NewInvA
+			       end for;
+                   returns value of InvA
+		   end for;
+    in
+	InvA
+    end let
+end function

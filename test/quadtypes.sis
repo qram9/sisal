@@ -1,0 +1,38 @@
+type OneDimReal = array[ real ];
+
+type OneDimBTree = array[ BTree ];
+
+type BTree =	union[
+		  Scalar: real;
+		  NonScalar: record[ L, R: BTree ]
+		  ]; % union BTree
+
+type BinTree =	record[
+		  Order, Padding: integer;
+		  Body: BTree
+		  ]; % record BinTree
+
+type TwoDimReal = array[ OneDimReal ];
+
+type Quadrant = union[ NE, SE, SW, NW: null ];
+
+type QTree = union[
+	 	  Scalar: real;
+		  NonScalar: record[ NE, SE, SW, NW: QTree ]
+		     ];
+
+type QuadTree = record[
+			Order, Padding: integer;
+			Body: QTree
+			] % record QuadTree
+
+% Assume that A is a square matrix.
+% MatrixToQuad will embed the matrix in the southeast corner of a 2**N matrix
+%   and convert it to the corresponding quadtree
+
+global MatrixToQuad( A: TwoDimReal
+returns		QuadTree )
+
+global QuadToMatrix( Input: Quadtree
+returns 	TwoDimReal )
+

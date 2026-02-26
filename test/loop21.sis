@@ -1,0 +1,23 @@
+% Matrix * Matrix Product
+% Assumes transpose(CX) to allow vectorization
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop21( n:integer; CX,PX,VY:TwoD returns TwoD )
+  for i in 1,25 cross j in 1,n returns
+  array of PX[i,j] + for k in 1,25 returns
+                     value of sum VY[i,k] * CX[j,k]
+                     end for
+  end for
+end function
+
+function Main( rep,n:integer; CX,PXin,VY:TwoD returns TwoD )
+   for i in 1, rep
+       PX := Loop21( n, CX, PXin, VY );
+   returns value of PX
+   end for
+end function

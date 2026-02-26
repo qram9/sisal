@@ -1,0 +1,581 @@
+define main
+
+%$INCLUDE ("types")
+%$INCLUDE ("globals")
+
+%******************************************************************************
+%*******************    B U I L D _ Y _ B U C K E T    ************************
+%******************************************************************************
+
+function build_y_bucket (mode       : integer;
+                         x_pixels   : integer;
+			 y_pixels   : integer;
+			 screen_pts : pt_array;   
+			 triangles  : screen_tri_array;
+			 returns int_array2)
+
+% Build the y-bucket lists, inserting each triangle in the bucket according to
+% the first scan line (lowest Y) that intersects it. If mode = 2, insert
+% triangle in only one bucket, otherwise insert the triangle in EVERY y bucket
+% that it intersects.
+
+for initial
+  empty    := array int_array1 [];
+  y_bucket := array_fill (0, y_pixels, empty);
+  t        := array_liml (triangles) - 1;
+while (t < array_limh(triangles)) repeat
+  t        := old t + 1;
+  tri      := triangles[t];
+  xl       := screen_pts[tri.vlo].xp;
+  xm       := screen_pts[tri.vmid].xp;
+  xh       := screen_pts[tri.vhi].xp;
+  xmin     := min (xl, min (xm, xh));
+  xmax     := max (xl, max (xm, xh));
+  y        := max (0, up(screen_pts[tri.vlo].yp));
+
+  y_bucket := if tri.last_scan_line < 0        | % off bottom edge
+                 y > y_pixels                  | % off top edge
+                 xmax < 0.0                    | % off left edge
+	         xmin > real (x_pixels)        | % off right edge
+	         y > tri.last_scan_line        | % < 1 pixel high
+	         up(xmin) > dn(xmax)           | % < 1 pixel wide
+	         tri.screen_pln_eqn.c = 0.0 then % edge on
+		old y_bucket
+
+              elseif mode = 2 then % spanning scan line
+                old y_bucket [y : array_addh (old y_bucket[y], t)]
+
+              else                 % parallel scan line
+		for initial
+		  yi := y - 1;
+		  yb := old y_bucket
+                while yi < min (y_pixels, tri.last_scan_line) repeat
+		  yi := old yi + 1;
+		  yb := old yb[yi: array_addh(old yb[yi], t)]
+                returns value of yb
+		end for
+              end if
+
+returns value of y_bucket
+end for
+end function
+
+%******************************************************************************
+%************************    S O R T _ E D G E S    ***************************
+%******************************************************************************
+
+function sort_edges ( K: edge_array1 returns edge_array1 )
+
+% A sorting routine with a parallel inner loop. To get the best performance,
+% the code must be optimized. Adapted from sisal benckmark suite (batcher).
+
+%------------------------------------------------------------------------------
+function CeilingOfLog2( N: integer returns integer )
+  for initial
+    L := 0;
+    TwoToTheL := 1
+  while TwoToTheL < N repeat
+    L := old L + 1;
+    TwoToTheL := 2*old TwoToTheL
+  returns value of L
+  end for
+end function % CeilingOfLog2
+%------------------------------------------------------------------------------
+function FloorOfNOver2( N: integer returns integer )
+  if N=1 then 0 else N/2 end if
+end function % FloorOfNOver2
+%------------------------------------------------------------------------------
+function Intersect( I, P: integer returns integer )
+  if mod( I/P, 2 ) = 1 then P else 0 end if
+end function % Intersect
+%------------------------------------------------------------------------------
+
+  let
+    N := array_size(K);
+    T := CeilingOfLog2( N )
+  in
+    for initial
+      P := exp( 2, T );
+      B := array_setl( K, 0 )
+    while P>1 repeat
+      P := FloorOfNOver2( old P );
+      B :=
+        for initial
+	  Q := exp( 2, T );
+	  R := 0;
+	  D := P;
+	  C := old B
+	repeat
+	  C :=
+	    for Elt in old C at I
+	      NewElt :=
+		if ( Intersect( I, P ) = old R ) & ( I + old D < N ) then
+		  if Elt.x<=old C[I+old D].x then Elt else old C[I+old D] end if
+%		  min( Elt.x, old C[ I+old D ].x )
+		elseif ( Intersect( I-old D, P ) = old R ) & ( I >= old D ) then
+		  if Elt.x>=old C[I-old D].x then Elt else old C[I-old D] end if
+%		  max( Elt.x, old C[ I-old D ].x )
+		else
+		  Elt
+		end if;
+	    returns array of NewElt
+	    end for;
+	  D := old Q - P;
+	  Q := old Q / 2;
+	  R := P
+	until Q<P
+	returns value of C
+	end for
+    returns value of B
+    end for
+  end let
+end function
+
+%******************************************************************************
+%************************    U P D A T E _ A E L    ***************************
+%******************************************************************************
+
+function update_ael (pts       : pt_array;
+		     triangles : screen_tri_array;
+                     edge_list : edge_array1;
+		     y         : integer;
+		     returns edge_array1)
+
+% update the active edge list 'ael', by incrementing the X coordinate of
+% each edge. When passing the midpoint of the short edge, start interpolating
+% along the 3rd edge of the triangle. When the scan line passes the top of
+% the triangle, its edges are dropped.
+
+for edge in edge_list
+  tri      := triangles[edge.tri];
+  active   := (y <= tri.last_scan_line);
+
+  new_x,
+  num_edge := if ~ active then
+                0.0, 0
+
+              elseif edge.edge_num = 1 then      % incr long edge
+	        edge.x + tri.dxdy_lh, 1
+
+              elseif edge.edge_num = 3 then      % incr 3rd edge
+	        edge.x + tri.dxdy_mh, 3
+
+              elseif y <= tri.mid_scan_line then % incr 2nd edge
+	        edge.x + tri.dxdy_lm, 2
+
+              else                               % start 3rd edge of triangle
+	        let
+	          pt := pts[tri.vmid];
+                in
+		  pt.xp + tri.dxdy_mh * (real (y) - pt.yp), 3
+                end let
+              end if;
+
+  new_edge := record edge_rec [x         : new_x;
+	                       tri       : edge.tri;
+			       edge_num  : num_edge;
+			       left_edge : edge.left_edge];
+
+returns array of new_edge when active
+end for
+end function
+
+%******************************************************************************
+%*********************    N E W _ E D G E _ L I S T    ************************
+%******************************************************************************
+
+function new_edge_list (pts       : pt_array;
+			triangles : screen_tri_array;
+			y_bucket  : int_array1;
+			y         : integer;
+			returns edge_array1)
+
+% builds an unsorted edge list from the new triangles which first enter the
+% scene at this scan line. Each triangle contributes two edges.
+
+% As experiment, might sort two arrays to create a 'left' and 'right'
+% array (instead of long, short) and merge these. May improve later sorting.
+
+% Also experiment with sorting before concatenating
+
+let
+  long,
+  short := for t in y_bucket
+	     yr    := real (y);
+	     tri   := triangles[t];
+             xlo   := pts[tri.vlo].xp;
+	     ylo   := pts[tri.vlo].yp;
+	     xmid  := pts[tri.vmid].xp;
+	     ymid  := pts[tri.vmid].yp;
+	     xl    := xlo + tri.dxdy_lh * (yr - ylo);
+	     xs,
+	     e_num,
+	     dxdy  := if y <= tri.mid_scan_line then
+			xlo + tri.dxdy_lm * (yr - ylo),
+			2,
+			tri.dxdy_lm
+		      else
+			xmid + tri.dxdy_mh * (yr - ymid),
+			3,
+			tri.dxdy_mh
+		      end if;
+
+             long_is_left := if xl ~= xs then 
+			       xl < xs
+                             else
+			       (xl+tri.dxdy_lh) < (xs+dxdy)
+			     end if;
+
+             long_edge    := record edge_rec [x         : xl;
+		                              tri       : t;
+		                              edge_num  : 1;
+		                              left_edge : long_is_left];
+
+             short_edge   := record edge_rec [x         : xs;
+		                              tri       : t;
+		                              edge_num  : e_num;
+		                              left_edge : ~long_is_left]
+
+	   
+	   returns array of long_edge
+                   array of short_edge
+           end for
+
+in
+  long || short
+% sort_edges(long) || sort_edges(short)
+end let
+end function
+
+%******************************************************************************
+%********************    N E X T _ E D G E _ L I S T    ***********************
+%******************************************************************************
+
+function next_edge_list (pts            : pt_array;
+			 triangles      : screen_tri_array;
+			 y_bucket       : int_array1;
+			 prev_edge_list : edge_array1;
+			 y              : integer;
+			 returns edge_array1)
+
+% creates the set of edges for the scan line corresponding to Y. Involves
+% updating the prev_edge_list, creating a list for triangles entering on
+% this scan line and sorting the combined list on X. Various alternates
+% for when to sort/merge should be investigated.
+%     1. sort both updated and new list, then sort concatenation of two
+%     2. sort update edge list, then sort result of merging with new edges
+%     3. merge updated list, new list and then sort
+%     4. sort both, use alternate sorting technique for merge
+
+let
+  update := update_ael (pts, triangles, prev_edge_list, y);
+  new    := new_edge_list (pts, triangles, y_bucket, y);
+in
+% sort_edges (sort_edges (update) || sort_edges (new)) % alt 1
+% sort_edges (sort_edges (update) || new)              % alt 2
+  sort_edges (update || new)                           % alt 3
+end let
+end function
+
+%******************************************************************************
+%***********************    P R O C E S S _ V T L    **************************
+%******************************************************************************
+
+function process_vtl (triangles  : screen_tri_array;
+		      vtl        : int_array1;
+		      xlo, xhi   : real;
+		      x_pixels   : integer;
+		      y          : integer
+		      returns int_array1)
+
+% process all visible triangles that cover the range from xlo to xhi and
+% find the frontmost. The routine returns an array containing the index
+% of the frontmost. A value of 0 indicates the background is visible at
+% that pixel.
+
+let
+  xstart := up(xlo);
+  xend   := min (x_pixels, dn(xhi));
+in
+  if xstart > xend then
+    array int_array1 []
+
+  elseif array_size(vtl) = 0 then
+    array_fill (xstart, xend, 0)
+  else
+    let
+      yr        := real(y);
+      frontmost :=
+         for initial
+           i           := array_liml(vtl);
+  	   nearest_tri := vtl[i];
+	   pln_eqn     := triangles[nearest_tri].screen_pln_eqn;
+	   xmid        := (xlo + xhi) / 2.0;
+	   max_z       := -(xmid*pln_eqn.a+yr*pln_eqn.b+pln_eqn.d)/pln_eqn.c;
+         while i < array_limh(vtl) repeat
+           i           := old i + 1;
+           tri         := vtl[i];
+           pln_eqn     := triangles[tri].screen_pln_eqn;
+           screen_z    := -(xmid*pln_eqn.a+yr*pln_eqn.b+pln_eqn.d)/pln_eqn.c;
+           nearest_tri,
+           max_z       := if screen_z > old max_z then
+	                    tri, screen_z
+	                  else
+	  	            old nearest_tri, old max_z
+	                  end if;
+         returns value of nearest_tri
+         end for;
+    in
+      array_fill (xstart, xend, frontmost)
+    end let
+end if
+end let
+end function
+
+%******************************************************************************
+%***********************    P R O C E S S _ A E L    **************************
+%******************************************************************************
+
+function process_ael (triangles  : screen_tri_array;
+		      ael        : edge_array1;
+		      x_pixels   : integer;
+		      y          : integer
+		      returns int_array1)
+
+% Process the active edge list and return the scan line corresponding to Y.
+% Returned is a list of triangle indices defining the frontmost triangle
+% at each pixel along the scan line. Since this is sequential in nature,
+% the calculation of the color at each pixel is postponed until a later
+% parallel loop.
+
+if array_size (ael) = 0 then
+  array_fill (0, x_pixels, 0)
+else
+  let
+    ael_scan := 
+      for initial
+        i         := array_liml(ael) - 1;
+        xlo       := 0.0;
+        xhi       := 0.0;
+        scan_line := array_setl (array int_array1 [], 0);
+        vtl       := array int_array1 [];
+
+      while (i < array_limh(ael)) & (xlo <= real (x_pixels)) repeat
+        i         := old i + 1;
+        curr_edge := ael[i];
+        xhi       := curr_edge.x;
+	span      := process_vtl (triangles, old vtl, old xlo, xhi,
+				  x_pixels, y);
+
+	scan_line := old scan_line || span;
+
+        vtl       := if curr_edge.left_edge then
+                       array_addh (old vtl, curr_edge.tri)
+                     else
+                       for j in old vtl
+	               returns array of j when j ~= curr_edge.tri
+                       end for
+                     end if;
+        xlo        := if old xlo < xhi then xhi else old xlo end if;
+
+      returns value of scan_line
+      end for;
+
+    x_stop := array_limh (ael_scan) + 1;
+in
+  if x_stop >= x_pixels then
+    ael_scan
+  else
+    ael_scan || array_fill (x_stop, x_pixels, 0)
+  end if
+end let
+end if
+end function
+
+%******************************************************************************
+%*******************    B U I L D _ A L L _ E D G E S    **********************
+%******************************************************************************
+
+function build_all_edges(mode      : integer;
+			 y_pixels  : integer;
+		         pts       : pt_array;
+			 triangles : screen_tri_array;
+			 y_bucket  : int_array2
+			 returns edge_array2)
+
+% build an array of edge lists, one per scan line. Each edge list is
+% sorted and ready for processing. If mode = 2 this routine is sequential
+% in that it uses the sorted results of one scan line in the calculation
+% of the next scan line, thus taking advantage of the coherence from scan 
+% line to scan line. The output of this routine can be processed in parallel.
+% If mode = 3 then the lists can be build in parallel. If mode = 4 then
+% sequentialize outer loop to allow inner loops to be parrallelized.
+
+if mode = 2 then     % spanning scan line
+  for initial
+    y         := -1;
+    ael       := array edge_array1 [];
+    all_edges := array_setl (array edge_array2 [], 0);
+  while y < y_pixels repeat
+    y         := old y + 1;
+    ael       := next_edge_list (pts, triangles, y_bucket[y], old ael, y);
+    all_edges := array_addh (old all_edges, ael);
+  returns value of all_edges
+  end for
+
+elseif mode = 3 then % parallel scan line algorithm
+  for y in 0, y_pixels
+  returns array of 
+    sort_edges (new_edge_list (pts, triangles, y_bucket[y], y))
+  end for
+
+else                 % parallel scan with sequrential outer loop
+  for initial
+    y         := -1;
+    ael       := array edge_array1 [];
+    all_edges := array_setl (array edge_array2 [], 0);
+  while y < y_pixels repeat
+    y         := old y + 1;
+    ael       := sort_edges (new_edge_list (pts, triangles, y_bucket[y], y));
+    all_edges := array_addh (old all_edges, ael);
+  returns value of all_edges
+  end for
+end if
+end function
+
+%******************************************************************************
+%*************************    P O L Y _ S C A N    ****************************
+%******************************************************************************
+
+function poly_scan (mode      : integer;
+		    x_pixels  : integer;
+		    y_pixels  : integer;
+		    pts       : pt_array;
+		    triangles : screen_tri_array;
+		    returns int_array2)
+
+% find the frontmost polygon at each pixel
+
+let
+  y_bucket  := build_y_bucket (mode, x_pixels, y_pixels, pts, triangles);
+  all_edges := build_all_edges (mode, y_pixels, pts, triangles, y_bucket);
+  frontmost := for yp in 0, y_pixels
+               returns array of process_ael (triangles, all_edges[yp],
+					     x_pixels, yp)
+               end for
+in
+% y_bucket    % return if y bucket of interest
+  frontmost   % normal return
+end let
+end function
+
+%******************************************************************************
+%****************************    R E N D E R    *******************************
+%******************************************************************************
+
+function render (x_pixels         : integer;
+		 y_pixels         : integer;
+		 colors           : rgb_array1;
+		 background       : integer;
+		 ambient          : integer;
+		 surfaces         : surf_array;
+		 world_triangles  : tri_array;
+		 screen_pts       : pt_array;
+		 screen_triangles : screen_tri_array;
+		 frontmost        : int_array2;
+		 eye              : pt_rec;
+		 world_to_screen  : real_array2;
+		 lights           : light_array
+		 returns rgb_array2)
+
+% compute the color for each pixel in the raster
+
+let
+  screen_to_world := find_inverse(world_to_screen);
+in
+  for y in 0, y_pixels cross
+      x in 0, x_pixels
+
+    tri       := frontmost [y,x];
+    pix_color := if tri = 0 then
+                   colors[background]
+                 else
+  	           let
+	             peq       := screen_triangles[tri].screen_pln_eqn;
+		     xr        := real(x);
+		     yr        := real(y);
+		     screen_pt := record pt_rec
+			         [xp : xr;
+			          yp : yr;
+			          zp : -(peq.a*xr + peq.b*yr + peq.d)/peq.c];
+
+                     world_pt  := transform_pt (screen_pt, screen_to_world);
+                   in
+                     compute_color (world_pt, eye,
+ 	                            screen_triangles[tri].world_pln_eqn,
+ 	                            surfaces[world_triangles[tri].surf],
+ 	                            lights, colors, ambient)
+		   end let
+	         end if;
+
+  returns array of pix_color
+  end for
+end let
+end function
+
+%******************************************************************************
+%******************************    M A I N    *********************************
+%******************************************************************************
+
+function main (mode      : integer;        % 2 = spanning; 3 = parallel
+	       fs        : integer;        % super sample size
+               dsize     : integer;        % size of dither array
+	       x_pixels  : integer;        % num of pixels in x, y
+	       y_pixels  : integer;        %   e.g. 1024x768
+	       vp_xlo    : real;           % location of viewport
+	       vp_xhi    : real;
+	       vp_ylo    : real;
+	       vp_yhi    : real;
+	       gtr       : real_array2;    % general transformation matrix
+	       colors    : rgb_array1;     % definitions of colors 
+	       background: integer;        % index in colors of background
+	       ambient   : integer;        % index in colors of ambient light
+	       lights    : light_array;    % active lights
+	       surfaces  : surf_array;     % 
+	       world_pts : pt_array;       % pts in world coord system
+	       triangles : tri_array       % defines surfaces
+
+               returns integer, integer, int_array2 % normal return
+             % returns integer, integer, int_array2 % use to exclude rendering
+             % returns pt_array, screen_tri_array   % use for preproc
+	       )
+
+let
+  virt_x_pixels   := fs*x_pixels - 1;
+  virt_y_pixels   := fs*y_pixels - 1;
+  eye_pos         := find_eye (gtr);
+  world_to_screen := build_world_to_screen (virt_x_pixels, virt_y_pixels,
+                                            vp_xlo, vp_xhi, vp_ylo, vp_yhi, gtr);
+
+  screen_pts      := build_screen_pts (world_to_screen, world_pts);
+  screen_triangles:= build_screen_triangles (world_pts, screen_pts, triangles);
+
+  frontmost       := poly_scan (mode, virt_x_pixels, virt_y_pixels,
+				screen_pts, screen_triangles);
+
+  raster          := render (virt_x_pixels, virt_y_pixels, colors,
+                             background, ambient, surfaces, triangles,
+ 			     screen_pts, screen_triangles, frontmost,
+ 			     eye_pos, world_to_screen, lights);
+
+  output          := if fs = 1 then
+ 	               dither (dsize, 10, 10, 10, raster)
+                     else
+ 	               aalias_and_dither (fs, dsize, 10, 10, 10, raster)
+                     end if;
+in
+  x_pixels, y_pixels, output     % normal return data
+% x_pixels, y_pixels, frontmost  % return this to exclude rendering
+% screen_pts, screen_triangles   % return this to determine preprocessing
+end let
+end function

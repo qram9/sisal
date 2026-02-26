@@ -1,0 +1,71 @@
+% Banded Linear Equations
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop4(n: integer; X, Y: OneD returns OneD )
+
+  let
+      steps := n / 5;
+
+      T1, T2, T3 :=
+          if steps < 6 then
+             X[6] -    for i in 1, steps
+                       returns value of sum
+                           X[6 - 6 + i] * Y[5 * i]
+                       end for,
+             X[503] -  for i in 1, steps
+                       returns value of sum
+                           X[503 - 6 + i] * Y[5 * i]
+                       end for,
+             X[1000] - for i in 1, steps
+                       returns value of sum
+                           X[1000 - 6 + i] * Y[5 * i]
+                       end for
+          else
+             ( (1.0d0 - Y[30]) *
+               (X[6]  - for i in 1, 5
+                        returns value of sum
+                            X[6 - 6 + i] * Y[5 * i]
+                         end for))
+             - for i in 7, steps
+               returns value of sum
+                   X[6 - 6 + i] * Y[5 * i]
+               end for,
+             ( (1.0d0 - Y[30]) *
+               (X[503] - for i in 1, 5
+                         returns value of sum
+                             X[503 - 6 + i] * Y[5 * i]
+                          end for))
+             - for i in 7, steps
+               returns value of sum
+                   X[503 - 6 + i] * Y[5 * i]
+               end for,
+             ( (1.0d0 - Y[30]) *
+               (X[1000]  - for i in 1, 5
+                           returns value of sum
+                               X[1000 - 6 + i] * Y[5 * i]
+                            end for))
+             - for i in 7, steps
+               returns value of sum
+                   X[1000 - 6 + i] * Y[5 * i]
+               end for
+          end if
+  in
+      X[6: T1 * Y[5]; 503: T2 * Y[5]; 1000: T3 * Y[5]]
+  end let
+end function
+
+function Main( rep,n:integer; Xin,Y:OneD returns OneD )
+   for initial
+       i := 1;
+       X := Xin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       X := Loop4( n, old X , Y );
+   returns value of X
+   end for
+end function

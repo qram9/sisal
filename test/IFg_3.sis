@@ -1,0 +1,118 @@
+DEFINE IFACTg_3
+
+type ArrReal1 = Array[real];
+
+function IFACTg_3(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		 a, ci, trigs : arrReal1
+		 RETURNS arrReal1)
+FOR INITIAL
+sin60 := 0.866025403784437;
+k := 0;
+ia := 1;
+ja := 1;
+c := ci;
+
+WHILE k <= m / 2 REPEAT
+k := old k + la;
+ia, ja, c := 
+  IF old k = 0
+  THEN  LET ia1, ja1, c1 := 
+
+	FOR INITIAL
+	l := 1;
+	ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE l <= la REPEAT
+	l := old l + 1;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	a1 := a[old ia1] - a[ib];
+	b1 := 2.0 * sin60 * a[ib + 1];
+	c1 := old c1[old ja1:a[old ia1] + 2.0 * a[ib]; jb:a1 - b1; jc:a1 + b1]
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+
+	IN ia1, ja1 + jump, c1
+	END LET
+  
+  ELSEIF 2 * old k < m
+  THEN  LET ia1, ja1, c1 := 
+
+	FOR INITIAL
+	kb := old k * 2;
+	kc := kb * 2;
+	lower := iink + 2;
+	lupper := iink + jink * 2 - 2;
+	l := lower;
+	ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE l <= lupper REPEAT
+	l := old l + 4;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	icxx := old l - old ia1;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	a1 := a[ib] + a[icxx];
+	b1 := a[ib + 1] - a[icxx + 1];
+	a2 := a[old ia1] - 0.5 * a1;
+	b2 := a[old ia1 + 1] - 0.5 * b1;
+	a3 := sin60 * (a[ib] - a[icxx]);
+	b3 := sin60 * (a[ib + 1] + a[icxx + 1]);
+	cjb := a2 - b3;
+	djb := b2 + a3;
+	cjc := a2 + b3;
+	djc := b2 - a3;
+	tempr1 := cjb * trigs[kb + 1] - djb * trigs[kb + 2];
+	tempi1 := cjb * trigs[kb + 2] + djb * trigs[kb + 1];
+	tempr2 := cjc * trigs[kc + 1] - djc * trigs[kc + 2];
+	tempi2 := cjc * trigs[kc + 2] + djc * trigs[kc + 1];
+	c1  := old c1[old ja1 : a[old ia1] + a1; jb : tempr1; jc : tempr2;
+	  	   old ja1 + 1 : a[old ia1 + 1] + b1; 
+		   jb + 1 : tempi1; jc + 1 : tempi2];
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+
+	IN ia1,ja1 + jump,c1
+	END LET
+		
+  ELSE	FOR INITIAL
+	l := 1;
+        ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE  l <= la REPEAT
+	l := old l + 1;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	a1 := 0.5 * a[old ia1] - a[ib];
+	b1 := sin60 * a[old ia1 + 1];
+	c1 := old c1[old ja1 : a[old ia1] + a[ib]; jb : a1 - b1; jc : - a1 - b1]
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+  END IF;
+
+RETURNS VALUE of c
+END FOR
+end function

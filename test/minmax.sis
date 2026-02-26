@@ -1,0 +1,73 @@
+% Find Location of First Minimum in Array
+% Vectorizable on Alliant
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function imin( n:integer; X:OneD returns integer )
+  for initial
+    max24 := 1;
+    k := 2;
+  while ( k <= n ) repeat
+    k := old k + 1;
+    max24 := if ( X[old k] < X[old max24] ) then 
+	       old k 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function iamin( n:integer; X:OneD returns integer )
+  for initial
+    max24 := 1;
+    k := 2;
+  while ( k <= n ) repeat
+    k := old k + 1;
+    max24 := if ( abs(X[old k]) < abs(X[old max24]) ) then 
+	       old k 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function imax( n:integer; X:OneD returns integer )
+  for initial
+    max24 := 1;
+    k := 2;
+  while ( k <= n ) repeat
+    k := old k + 1;
+    max24 := if ( X[old k] > X[old max24] ) then 
+	       old k 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function iamax( n:integer; X:OneD returns integer )
+  for initial
+    max24 := 1;
+    k := 2;
+  while ( k <= n ) repeat
+    k := old k + 1;
+    max24 := if ( abs(X[old k]) > abs(X[old max24]) ) then 
+	       old k 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function Main( n:integer; X:OneD returns integer,integer, integer, integer )
+  imin( n,X ), iamin( n,X ),
+  imax( n,X ), iamax( n,X )
+end function

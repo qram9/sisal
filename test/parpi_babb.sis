@@ -1,0 +1,16 @@
+define Main
+  
+% Main produces an approximation to pi
+%    from (4/N)*sum(j=1,N)(1/(1+x[j]^2),
+%    where x[j] = (j - 1/2)/N.
+%    This version is parallelized.
+% See Karp and Babb, "A comparison of 12 parallel FORTRAN dialects,"
+% IEEE Software (September 1988):  52-67.
+  
+function Main ( N:integer returns real )
+      (4.0/real(N)) *
+	 for j in 1,N
+	    x := (real(j) - 0.5) / real(N)
+      returns value of sum 1.0/(1.0 + x*x)
+      end for
+end function

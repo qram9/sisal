@@ -1,0 +1,62 @@
+define main
+
+type Grid = array[array[array[real]]];
+
+% FUNCTION Smooth: Piece of a large aerodynamics code obtained from NASA Ames.
+% Uses a 3 point weighted average for simplicity.
+% Refer to "Mapping Array Computations for a Dataflow Multiprocessor", by
+% J. Dennis.
+
+function Smooth( n:integer; Q,S,D:Grid returns Grid )
+let
+    S1 := for e in S at j, k, l
+	      v := if ( j = 1 | k = 1 | l = 1 | j = n | k = n | l = n ) then
+		       e
+                   else
+		       e + 0.3 * ( Q[j+1,k,l] * D[j+1,k,l] 
+			       - 2.0 * Q[j,k,l] * D[j,k,l] 
+			       + Q[j-1,k,l] * D[j-1,k,l] ) / D[j,k,l]
+                   end if;
+          returns array of e
+	  end for;
+
+    S2 := for e in S1 at j, k, l
+	      v := if ( j = 1 | k = 1 | l = 1 | j = n | k = n | l = n ) then
+		       e
+                   else
+		       e + 0.3 * ( Q[j,k+1,l] * D[j,k+1,l] 
+			       - 2.0 * Q[j,k,l] * D[j,k,l] 
+			       + Q[j,k-1,l] * D[j,k-1,l] ) / D[j,k,l]
+                   end if;
+          returns array of e
+	  end for;
+
+    S3 := for e in S2 at j, k, l
+	      v := if ( j = 1 | k = 1 | l = 1 | j = n | k = n | l = n ) then
+		       e
+                   else
+		       e + 0.3 * ( Q[j,k,l+1] * D[j,k,l+1] 
+			       - 2.0 * Q[j,k,l] * D[j,k,l] 
+			       + Q[j,k,l-1] * D[j,k,l-1] ) / D[j,k,l]
+                   end if;
+          returns array of e
+	  end for;
+in
+    S3
+end let
+end function
+
+function main( n:integer returns Grid )
+let
+    Q := for i in 1,n cross j in 1,n cross k in 1, n 
+	 returns array of 1.1234 end for;
+
+    S := for i in 1,n cross j in 1,n cross k in 1, n 
+	 returns array of 924.143567 end for;
+
+    D := for i in 1,n cross j in 1,n cross k in 1, n 
+	 returns array of 0.1234 end for;
+in
+    Smooth( n, Q, S, D )
+end let
+end function

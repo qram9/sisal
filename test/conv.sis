@@ -1,0 +1,31 @@
+% CONVOLVER
+
+% This routine applies a general filter A of M elements to a real sequence
+% X of N elements.
+%
+%    Y[i] = SUMMATION(j=1,M) of A[i] * X[i+j-1]     for i = 1,2,...N-M+1
+%
+% Inputs: M, Cycles   where N = M * Cycles
+%
+
+define Main
+
+type   OneDim = array[double_real];
+
+function Conv( M : integer; A : OneDim; N : integer; X : OneDim returns OneDim )
+    for I in 1, N-M+1
+	Data := for J in 1, M
+		returns value of sum A[J] * X[I+J-1]
+		end for;
+    returns array of Data
+    end for
+end function
+
+function Main( M : integer; Cycles : integer returns OneDim )
+    let
+	A := for I in 1, M returns array of double_real(I) end for;
+	X := for I in 1, M * Cycles returns array of double_real(I) end for;
+    in
+	Conv( M, A, M * Cycles, X )
+    end let
+end function

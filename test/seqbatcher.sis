@@ -1,0 +1,66 @@
+define Main
+
+type aint = array[ integer ]
+
+global And( a,b:integer returns integer )
+
+function CSwap( A:aint; I, J:integer returns aint )
+if ( A[I] > A[J] ) then
+    A[I:A[J];J:A[I]]
+else
+    A
+end if
+end function
+
+function CeilingOfLog2( N: integer returns integer )
+  for initial
+    L := 0;
+    TwoToTheL := 1
+  while TwoToTheL < N repeat
+    L := old L + 1;
+    TwoToTheL := 2*old TwoToTheL
+  returns value of L
+  end for
+end function % CeilingOfLog2
+
+function Main( K: aint returns aint )
+  let
+    N    := array_size(K);
+    TTM1 := exp(2, CeilingOfLog2( N ) - 1);
+  in
+    for initial
+      P := TTM1;
+      B := K;
+    repeat
+      P := old P/2;
+
+      B :=
+        for initial
+	  Q := TTM1;
+	  R := 0;
+	  D := old P;
+	  C := old B
+	repeat
+	  C :=
+            for initial I := 0; AA := old C; 
+	    while ( I + old D < N ) repeat
+	      I  := old I + 1;
+	      AA :=
+		if ( And( old I, old P ) = old R ) then
+		  CSwap( old AA, old I+1, old I+old D+1 )
+		else
+		  old AA
+		end if;
+	    returns value of AA
+	    end for;
+	  D := old Q - old P;
+	  Q := old Q / 2;
+	  R := old P
+	until Q <= old P
+	returns value of C
+	end for
+    until P <= 0
+    returns value of B
+    end for
+  end let
+end function % Main

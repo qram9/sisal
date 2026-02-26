@@ -1,0 +1,56 @@
+DEFINE Linear
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal]
+
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
+
+% This subroutine adds the linear terms to the time-derivatives.
+
+FUNCTION Linear(mx, jx : integer; kmjx, kmjxx, ksq : ArrInt1; 
+		tw : real; epsi : ArrReal1;
+		c, p, u, v, ctin, e, ptin : ArrCplexReal
+		RETURNS ArrCplexReal, ArrCplexReal)
+LET
+zero := record CplexReal[Repart : 0.0; Impart : 0.0];
+
+pt,  ct := FOR m IN 1, mx
+	   pt_m, ct_m := 
+		FOR j in 1, jx
+		l := j + m - 2;
+		kl := real(ksq[l]);
+		jm := kmjx[m] + j;
+		jm_p1 := jm + 1;
+		jm_m1 := jm - 1;
+		jmx := kmjxx[m] + j;
+
+		pjm_p1, cjm_p1 :=   IF j = jx THEN zero, zero
+				    ELSE p[jm_p1], c[jm_p1]
+				    END IF;
+		pjm_m1, cjm_m1 :=   IF j = 1 THEN zero, zero
+				    ELSE p[jm_m1], c[jm_m1]
+				    END IF;
+
+	 	RETURNS ARRAY of
+			    Csub( ptin[jm], Crmul(tw, 
+			    Cadd(Crmul(epsi[jmx], cjm_m1), 
+			    Cadd(Crmul(epsi[jmx + 1], cjm_p1), v[jmx]))) )
+
+			ARRAY of 
+			    Cadd( ctin[jm], Cadd(Crmul(tw, 
+			    Csub(Cadd( Crmul(epsi[jmx], pjm_m1), 
+			    Crmul(epsi[jmx + 1], pjm_p1) ), u[jmx])), 
+			    Crmul(0.5 * kl, e[jm])) )
+		END FOR;
+	
+	RETURNS VALUE of CATENATE pt_m
+		VALUE of CATENATE ct_m
+	END FOR;
+
+IN pt, ct
+END LET
+end function

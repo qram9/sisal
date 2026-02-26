@@ -1,0 +1,146 @@
+DEFINE InitFFT
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real]
+
+global SINR(num : real RETURNS real)
+global COSR(num : real RETURNS real)
+
+% Subroutine FACTR4 factors an integer n into its prime factors.
+% For example, n=1960 is factorised into six prime factors(thus
+% nfact=6), which are(thus ifact(ifT)=) 2, 2, 5, 7 and 7.
+% The version below is modified to give the factor 4, so as to 
+% be used by the new FFT. Thus, the subsequent factors are 4, 2,
+% 5, 7 and 7, and nfact=5.
+
+%----------------factr4/facStep/facRecur
+function facRecur(nparti, idiv, ifTi : integer;
+		  ifacti : ArrInt1 
+		  RETURNS integer, integer, integer, ArrInt1)
+FOR INITIAL
+npart := nparti;
+iquot := npart / idiv;
+ifT := ifTi;
+ifact1 := ifacti;
+
+WHILE npart - idiv * iquot = 0 REPEAT
+npart := old iquot;
+iquot := npart / idiv;
+ifT := old ifT + 1;
+ifact1 := old ifact1[ifT : idiv]
+
+RETURNS VALUE of npart
+	VALUE of iquot
+	VALUE of ifT
+	VALUE of ifact1
+END FOR
+END function	% facRecur
+
+%-----------------factr4/facStep
+function Loop_id(n : integer 
+		 RETURNS integer, integer, ArrInt1)
+FOR INITIAL	% loop_id
+id := 1;
+ifT := 0;
+npart := n;
+ifact := ARRAY_fill(1, 20, 0)    % NOTE: wild guess	
+
+WHILE id <= n REPEAT
+idiv := IF old id - 1 <= 0  THEN 2 
+			ELSE old id   
+      END IF;
+
+npart, iquot, ifT, ifact :=  facRecur(old npart, idiv, old ifT, old ifact);
+
+id := IF  iquot - idiv <= 0 THEN n + 1  % just to make it greater than n 
+    			ELSE old id + 2     
+    END IF;
+
+RETURNS VALUE of npart
+	VALUE of ifT
+	VALUE of ifact
+END FOR
+END function 	% Loop_id
+
+%------------------------
+function FACTR4(n : integer RETURNS integer, arrint1)
+LET
+npart, ifT, ifact1 :=  Loop_id(n);
+
+iff := if npart - 1 > 0  then ifT + 1
+		    else ifT
+     END if;
+ifact2 := if npart - 1 > 0  then ifact1[iff : npart]
+		    else ifact1
+       END if;
+
+nfactT := iff;
+n2 := 	FOR INITIAL
+	n2 := 0;
+	i := 1;
+
+	% n2 includes case i=nfactT
+	WHILE i <= nfactT REPEAT	
+	i := old i + 1;
+	n2 := if ifact2[old i] = 2 then old n2 + 1
+			     else old n2
+	     END if
+	RETURNS VALUE of n2
+	END FOR;	% NOTE: very ineffecient!
+
+n4 := n2 / 2;
+ifact3 := ARRAY_fill(1, n4, 4)
+	||
+	for i in n4 + 1, nfactT - n4 RETURNS
+		ARRAY of ifact2[n4 + i]
+	END for
+	||
+	ARRAY_fill(nfactT - n4 + 1, nfactT, 0);
+
+nfact := nfactT - n4;
+
+IN nfact, ifact3
+
+END LET
+END function	% factr4
+%----------------------------------------------------------------
+
+% Subroutine InitFFT does the initialisations necessary so that the
+% FFT's can be used. It factorises the number of longitudinal points.
+% TRIGF are for forward transforms while TRIGB are for reverse.
+
+function InitFFT(n : integer
+		 RETURNS boolean, boolean, integer, arrint1, ArrReal1, ArrReal1)
+LET
+Abortinitfft :=	IF (MOD(n, 2) ~= 0 | n > 200) 	THEN true ELSE false
+		END IF;
+AbortFFT := IF n > 96 THEN true ELSE false END IF;
+
+pi := 3.14159265;
+
+nfax, ifax := FACTR4(n);
+
+trigf, trigb :=
+    IF Abortinitfft 
+    THEN  array ArrReal1 [],
+	  array ArrReal1 []
+
+    ELSE    FOR Lp IN 1, n
+	    k := (Lp + 1) / 2;
+	    Cargument := - 2.0 * pi * real(k - 1)/real(n);
+	    COStheta := COSR(Cargument);	% Repart
+	    SINtheta := SINR(Cargument);	% Impart
+
+	    RETURNS ARRAY of  IF MOD(Lp, 2) = 0 THEN SINtheta
+					       	ELSE COStheta
+			      END IF
+		    ARRAY of  IF MOD(Lp, 2) = 0 THEN - SINtheta
+					       	ELSE COStheta
+			      END IF
+	    END FOR
+    END IF
+
+IN AbortFFT, Abortinitfft, nfax, ifax, trigf, trigb
+
+END LET
+END function

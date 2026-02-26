@@ -1,0 +1,56 @@
+% A. D. I. Integration
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+type ThreeD = array[TwoD];
+
+
+function Loop8( n:integer; A11,A12,A13,A21,A22,A23:double;
+               A31,A32,A33,SIG:double; U1,U2,U3:ThreeD;
+               returns ThreeD, ThreeD, ThreeD )
+  for kx in 2,3 
+    V1,
+    V2,
+    V3 := for ky in 2,n
+            DU1 := U1[kx,1,ky+1] - U1[kx,1,ky-1];
+            DU2 := U2[kx,1,ky+1] - U2[kx,1,ky-1];
+            DU3 := U3[kx,1,ky+1] - U3[kx,1,ky-1];
+
+            V1  := U1[kx,1,ky] + A11 * DU1 + A12 * DU2 + A13 * DU3 +
+                     SIG * (U1[kx+1,1,ky] - 2.0d0 * U1[kx,1,ky] + U1[kx-1,1,ky]);
+
+            V2  := U2[kx,1,ky] + A21 * DU1 + A22 * DU2 + A23 * DU3 +
+                     SIG * (U2[kx+1,1,ky] - 2.0d0 * U2[kx,1,ky] + U2[kx-1,1,ky]);
+
+            V3  := U3[kx,1,ky] + A31 * DU1 + A32 * DU2 + A33 * DU3 +
+                     SIG * (U3[kx+1,1,ky] - 2.0d0 * U3[kx,1,ky] + U3[kx-1,1,ky]);
+
+          returns array of V1
+	          array of V2
+	          array of V3
+          end for;
+    M1 := array [1: U1[kx,1], V1 ];
+    M2 := array [1: U2[kx,1], V2 ];
+    M3 := array [1: U3[kx,1], V3 ];
+  returns array of M1
+	  array of M2
+	  array of M3
+  end for
+end function
+
+
+function Main( rep,n:integer; A11,A12,A13,A21,A22,A23:double;
+               A31,A32,A33,SIG:double; U1in,U2in,U3in:ThreeD;
+               returns ThreeD, ThreeD, ThreeD )
+   for i in 1, rep
+       U1, U2, U3 := Loop8( n, A11, A12, A13, A21, A22, A23,
+			    A31, A32, A33, SIG, U1in, U2in, U3in );
+   returns value of U1
+	   value of U2
+	   value of U3
+   end for
+end function

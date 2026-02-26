@@ -1,0 +1,24 @@
+define main
+% This version of matrix multiplication corresponds to the one used in bench.p
+
+type realmatrix = array[array[real]] ;
+
+function innerproduct(rowsize:integer; a,b:realmatrix; row,column:integer 
+			returns real)
+    for i in 1, rowsize
+    returns value of sum a[row,i]*b[i,column]
+    end for
+end function
+
+function main(rowsize:integer returns real)
+let
+    rma := array_fill(1, rowsize, array_fill(1, rowsize, 1.1)) ;
+    rmb := rma ;
+    rmc :=
+    for i in 1, rowsize cross j in 1, rowsize
+    returns array of innerproduct(rowsize, rma, rmb, i, j)
+    end for
+in
+    rmc[1, 1]
+end let
+end function

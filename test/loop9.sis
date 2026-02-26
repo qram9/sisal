@@ -1,0 +1,28 @@
+% Integrate Predictors
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop9( n:integer; CO,DM22,DM23,DM24,DM25:double;
+               DM26,DM27,DM28:double; PX:TwoD returns OneD )
+    for i in 1,n returns
+    array of PX[3,i] +
+             CO   * (PX[5,i]  +  PX[6,i])   +
+             DM22 * PX[7,i]  + DM23 * PX[8,i]  +
+             DM24 * PX[9,i]  + DM25 * PX[10,i] +
+             DM26 * PX[11,i] + DM27 * PX[12,i] +
+             DM28 * PX[13,i]
+   end for
+end function
+
+function Main( rep,n:integer; CO,DM22,DM23,DM24,DM25:double;
+               DM26,DM27,DM28:double; PXin:TwoD returns OneD )
+   for i in 1,rep
+     PXr := Loop9( n, CO, DM22, DM23, DM24, DM25, DM26, DM27, DM28, PXin )
+   returns value of PXr
+   end for
+end function

@@ -1,0 +1,60 @@
+define seive
+
+function seive(n:integer returns array [ integer ])
+%returns array of primes in range 1.. 2n+1
+%generates array of booleans coding the odd integers
+%sift this array to mark the non-primes -- for each intial
+%    prime, mark all multiples of it
+%Reduce the array to an array of primes
+
+Function Sift(k : integer; A : array [boolean] returns array [ boolean ])
+% This function takes in an array of booleans, marking the odd integers
+% which are potentially primes as "true".  It begins at location k, which
+% corresponds to integer p = 2k+1.  And then from location k + k*p, which
+% corresponds to the location of p^2, mark every odd multiple of p as
+% "false".
+
+for initial
+  p := 2*k+1;    % this is the current prime being sifted
+  j := k + k*p;  % start at location corresponding to p^2
+  x := a[j: false]
+while j < array_limh(a)
+repeat
+  j:= old j + p;
+  x:= old x[j: false]
+returns value of x
+end for
+end function % "Sift"
+
+
+Function convert (x: array [boolean] returns array [ integer ])
+%This reads through the array of booleans and for each location i in
+% which there is a value "true", it adds the odd integer 2*i+1 to the
+%output array.  Thus this can be used to get a list of primes from
+%the sifted array of booleans.
+for i in array_liml(x), array_limh(x)
+  returns array of (2*i +1) when x[i]
+end for
+end function % "Convert"
+
+%body of main function seive
+
+for initial
+  X:= sift(1, array_fill(1,N, true));
+  k:=1
+ while k <= n
+ repeat
+  k:= old k + 1;
+  X:=sift(k,old X)
+returns value of convert(x)
+end for
+end function % "seive"
+
+
+%Make a main program here
+
+function main(n:integer returns array [integer])
+seive(n)
+end function % main
+
+

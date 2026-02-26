@@ -1,0 +1,57 @@
+define Main
+
+type OneDim = array[ integer ];
+type TwoDim = array[ OneDim ];
+
+function Transpose( A: TwoDim 
+returns		TwoDim)
+
+  for Element in A at I,J
+  returns array of A[ J,I ]
+  end for
+
+end function % Transpose
+
+function MatMult( A, B: TwoDim
+returns		TwoDim)
+
+  for Row in A at I
+   NewRow :=
+     for Col in Transpose(B) at J
+       S :=
+         for Aik in Row dot Bkj in Col
+	 returns value of sum Aik*Bkj
+         end for
+     returns array of S
+     end for
+  returns array of NewRow
+end for
+
+end function % MatMult
+
+function Array1( i,N: integer
+returns		OneDim )
+
+for j in 1,N
+  t := i + (j-1)*2
+returns array of t
+end for
+
+end function % Array1
+
+function main(	N: integer
+returns		TwoDim, TwoDim, TwoDim )
+
+let
+  B :=
+    for i in 1,N
+      t := array1( i, N )
+    returns array of t
+    end for;
+  A := B
+in
+  A,
+  B,
+  MatMult( A, B )
+end let
+end function % main

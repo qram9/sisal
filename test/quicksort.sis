@@ -12,6 +12,9 @@ function Main (	Data : Info returns Info )
 	end for
     end function
 
+    % routine body
+    %
+
     if array_size( Data ) > 2 then
        let
           L, Middle, R := Split( Data )

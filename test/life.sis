@@ -1,0 +1,97 @@
+define Main
+
+%
+% John Conway's Game of Life. Values of the Grid are 0's or 1's.  A given
+% cell has 8 neighbors. One each iteration the cells are updated as follows:
+%  -- If a cell contains a 1 and greater than five of its neighbors contain
+%     1's, then it should become a 0.
+%  -- If a cell contains a 0 and has more than three or fewer then three 
+%     neighbors containing 1's, then it should become a 1
+%  -- otherwise the value of a cell remains unchanged.
+% The simulation of life iterates Iterations times. The boarder of the grid 
+% is always zeros.
+%
+% Main(Iterations,Rows,Columns)
+%
+
+type   double  = double_real;
+type   OneDim  = array[integer];
+type   TwoDim  = array[OneDim];
+type     Grid  = array[OneDim];
+
+global ranf( Seed:OneDim returns double, OneDim )
+global rans( N,Seed1:integer returns TwoDim )
+
+function Convert( Seed:OneDim returns integer, OneDim )
+  let
+    Number, NewSeed := ranf( Seed );
+    V := if Number < 0.5D0 then 1 else 0 end if;
+  in
+    V, NewSeed
+  end let
+end function
+
+function Generate( Rows,Columns:integer returns Grid )
+  let
+    Seed_Stream := rans(Columns,1);
+    First := array_fill(0,Columns+1,0);
+    Last  := array_fill(0,Columns+1,0);
+    Core  := for i in 1,Columns
+               Row := for initial
+                        j := 1;
+                        V,Seed := Convert( Seed_Stream[i] );
+                      while ( j < Rows ) repeat
+                        j := old j + 1;
+                        V,Seed := Convert( old Seed );
+                      returns array of V
+                      end for;
+             returns array of array_addl(array_addh(Row,0),0)
+             end for
+  in
+    array_addl(array_addh(Core,Last),First)
+  end let
+end function
+
+function Compute( G : Grid; I : integer; J : integer returns integer )
+  let
+    Total := G[I-1,J-1] + G[I-1,J] + G[I-1,J+1] +
+             G[I,J-1]        +       G[I,J+1]   +
+             G[I+1,J-1] + G[I+1,J] + G[I+1,J+1];
+  in
+    if ( G[I,J] = 1 & Total > 5 ) then 0
+    elseif ( G[I,J] = 0 & Total ~= 3 ) then 1
+    else G[I,J] end if 
+  end let
+end function
+
+function DoWork( G:Grid; Rows,Columns:integer returns Grid )
+  let
+    First := for i in 0,Columns+1 returns array of G[0,i] end for;
+    Last  := for i in 0,Columns+1 returns array of G[Rows+1,i] end for;
+
+    Core  := for I in 1, Rows
+                Mid := for J in 1, Columns
+                       returns array of Compute(G,I,J)
+                       end for;
+                Row := array_addl( Mid, 0 );
+              returns array of array_addh( Row, 0 )
+              end for;
+  in
+    array_addl(array_addh(Core,Last),First)
+  end let
+end function
+
+function Main( Iterations,Rows,Columns:integer returns Grid,Grid )
+  let
+    Gin := Generate(Rows,Columns);
+  in
+    Gin, for initial
+           Count := Iterations;
+           G := Gin;
+         while ( Count > 0 ) repeat
+           Count := old Count - 1;
+           G := DoWork( old G, Rows, Columns ); 
+         returns value of G
+         end for
+  end let
+end function

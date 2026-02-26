@@ -1,0 +1,1 @@
+global IsMember( Set: Class; Candidate: Paraffin returns Boolean )

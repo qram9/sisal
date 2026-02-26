@@ -1,0 +1,134 @@
+DEFINE IFACTg_4
+
+type ArrReal1 = Array[real];
+
+function IFACTg_4(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		 a, ci, trigs : ArrReal1
+		 RETURNS ArrReal1)
+FOR INITIAL
+sin45 := 0.7071067812;
+k := 0;
+ia := 1;
+ja := 1;
+c := ci;
+
+WHILE k <= m / 2 REPEAT
+k := old k + la;
+ia,  ja,  c := 
+  IF old k = 0
+  THEN  LET ia1, ja1, c1 := 
+
+	FOR INITIAL
+	l := 1;
+	ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE l <= la REPEAT
+	l := old l + 1;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	ic := ib + iink;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	jd := jc + jink;
+	a1 := a[old ia1] + a[ic];
+	a2 := 2.0 * a[ib];
+	a3 := a[old ia1] - a[ic];
+	a4 := 2.0 * a[ib + 1];
+	c1 := old c1[old ja1:a1 + a2; jb:a3 - a4; jc:a1 - a2; jd:a3 + a4];
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+
+	IN ia1, ja1 + jump, c1
+	END LET
+
+  ELSEIF 2 * old k < m
+  THEN  LET ia1, ja1, c1 := 
+
+	FOR INITIAL
+	lower := iink + 2;
+	lupper := iink + jink * 2 - 2;
+	l := lower;
+	ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE l <= lupper REPEAT
+	l := old l + 4;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	idxx := old l - old ia1;
+	icxx := idxx + iink;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	jd := jc + jink;
+	kb := old k * 2;
+	kc := kb * 2;
+	kd := kc + kb;
+	a0 := a[old ia1] + a[icxx];
+	a1 := a[ib] + a[idxx];
+	a2 := a[old ia1] - a[icxx];
+	a3 := a[ib] - a[idxx];
+	b0 := a[old ia1 + 1] - a[icxx + 1];
+	b1 := a[ib + 1] - a[idxx + 1];
+	b2 := a[old ia1 + 1] + a[icxx + 1];
+	b3 := a[ib + 1] + a[idxx + 1];
+	cjb := a2 - b3;
+	djb := b2 + a3;
+	cjc := a0 - a1;
+	djc := b0 - b1;
+	cjd := a2 + b3;
+	djd := b2 - a3;
+	tempr1 := cjb * trigs[kb + 1] - djb * trigs[kb + 2];
+	tempi1 := cjb * trigs[kb + 2] + djb * trigs[kb + 1];
+	tempr2 := cjc * trigs[kc + 1] - djc * trigs[kc + 2];
+	tempi2 := cjc * trigs[kc + 2] + djc * trigs[kc + 1];
+	tempr3 := cjd * trigs[kd + 1] - djd * trigs[kd + 2];
+	tempi3 := cjd * trigs[kd + 2] + djd * trigs[kd + 1];
+	c1 := old c1[old ja1 : a0 + a1; jb : tempr1; jc : tempr2; jd : tempr3;
+	      old ja1 + 1 : b0 + b1; jb + 1 : tempi1; jc + 1 : tempi2; 
+	      jd + 1 : tempi3];
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+
+	IN ia1, ja1 + jump, c1
+	END LET
+
+  ELSE	FOR INITIAL
+	l := 1;
+	ia1 := old ia;
+	ja1 := old ja;
+	c1 := old c;
+
+	WHILE  l <= la REPEAT
+	l := old l + 1;
+	ia1 := old ia1 + inc1;
+	ja1 := old ja1 + inc2;
+	ib := old ia1 + iink;
+	jb := old ja1 + jink;
+	jc := jb + jink;
+	jd := jc + jink;
+	a1 := sin45 * (a[old ia1 + 1] + a[ib + 1]);
+	a2 := sin45 * (a[old ia1] - a[ib]);
+	c1 := old c1[old ja1:2.0 * (a[old ia1] + a[ib]); jb:2.0 * (a2 - a1);
+		   jc:2.0 * (a[ib + 1] - a[old ia1 + 1]); jd: - 2.0 * (a1 + a2)]
+
+	RETURNS VALUE of ia1
+		VALUE of ja1
+		VALUE of c1
+	END FOR
+
+  END IF;
+
+RETURNS VALUE of c
+END FOR
+end function

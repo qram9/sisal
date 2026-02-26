@@ -1,0 +1,36 @@
+define Main
+
+function Main( Low, High: real returns real )
+
+   function F( X: real returns real )
+	X * X + 1.0
+   end function
+
+   function Area( Low, FLow , High, FHigh : real returns real )
+      (High - Low) * (FHigh + FLow) / 2.0
+   end function
+
+   function Quad( Low, FLow, High, FHigh, Trap: real returns real)
+      let
+	 Mid  := (Low + High)/ 2.0;
+	 FMid := F(Mid);
+	 LTrap := Area( Low, FLow, Mid, FMid );
+	 HTrap := Area( Mid, FMid, High, FHigh );
+      in
+	 if abs( LTrap + HTrap - Trap ) < 0.0001 % Epsilon
+	 then LTrap + HTrap
+	 else
+	    Quad( Low, FLow, Mid, FMid, LTrap) +
+	    Quad( Mid, FMid, High, FHigh, HTrap )
+         end if
+      end let
+   end function
+
+   let
+      FLow := F( Low );
+      FHigh := F( High );
+   in
+      Quad( Low, FLow, High, FHigh, Area( Low, FLow, High, FHigh) )
+   end let
+end function
+

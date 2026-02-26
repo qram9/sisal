@@ -1,0 +1,62 @@
+define SpecToFreqSphere
+type arrint1=array[integer];
+type arrreal1=array[real];
+type arrreal2=array[arrreal1];
+type arrreal3=array[arrreal2]
+
+function SpecToFreqSphere
+	       (jx, mx, jxx, ilath, ixh : integer; kmjx, kmjxx : ArrInt1; 
+		alp : ArrReal3; pri, zri, uri, vri : ArrReal1
+		RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+LET
+% The rest_0 below is to set the right size, ie (ix + 1) * 2, for MDFFTG
+% rest_0 := ARRAY_FILL(1, (ixh * 2 + 1 - mx) * 2, 0.0);
+% But let MdFFTG worries for itself
+% However the actual computation of MDFFTG can live even with size of n
+% for pg, zg, ug and vg. Therefore
+% rest_0 := ARRAY_FILL(1, (ixh - mx) * 2, 0.0);
+% This is a trial:
+% rest_0 := array_fill(1, (ixh-mx)*2, 0.0);
+
+pg, zg, ug, vg :=
+	FOR hemi IN 1, 2 CROSS latlev IN 1, ilath
+	pg, zg, ug, vg:=
+		FOR mrmi in 1, mx * 2
+		m := (mrmi + 1) / 2;
+		pg, zg :=
+		    FOR j IN 1, jx
+		    jm := kmjx[m] + j;
+		    jmx := kmjxx[m] + j;
+		    jmrjmi := jm * 2 - mod(mrmi, 2);
+		    pgj, zgj := IF ~(m = 1 & j = 1)
+			        THEN alp[hemi, latlev, jmx] * pri[jmrjmi],
+			             alp[hemi, latlev, jmx] * zri[jmrjmi]
+				ELSE 0.0, 0.0
+				END IF;
+		    RETURNS VALUE of SUM pgj	
+			    VALUE of SUM zgj
+		    END FOR;
+
+		ug, vg :=
+		    FOR j IN 1, jxx
+		    jmx := kmjxx[m] + j;
+		    jmrjmi := jmx * 2 - mod(mrmi, 2)
+		    RETURNS VALUE of SUM alp[hemi, latlev, jmx] * uri[jmrjmi]
+			    VALUE of SUM alp[hemi, latlev, jmx] * vri[jmrjmi]
+		    END FOR;
+
+		RETURNS ARRAY of pg 
+			ARRAY of zg 
+			ARRAY of ug 
+			ARRAY of vg 
+		END FOR;
+
+	RETURNS ARRAY of pg %|| rest_0    
+		ARRAY of zg %|| rest_0    % Without this catenation,
+		ARRAY of ug %|| rest_0	 % their sizes will be mx * 2
+		ARRAY of vg %|| rest_0
+	END FOR;
+
+IN pg, zg, ug, vg
+end LET
+end function

@@ -1,0 +1,38 @@
+define VertigSphere
+type ArrReal1 = ARRAY[real];
+type ArrReal2 = ARRAY[ArrReal1];
+type ArrReal3 = ARRAY[ArrReal2]
+
+FUNCTION VertigSphere
+	       (longitude_END, ilath : integer; 
+		pg, zg, ug, vg : ArrReal3
+		RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+LET 
+% The rest_0 below is catenated with the longitude point array in order to
+% satisfy the requirement for MDFFTM which needs arraysize of ix * 2 + 2
+% rest_0 := ARRAY_FILL(1, longitude_END + 2, 0.0);
+%
+% But MdFFTGrid supplies Grid arrays of size ix * 2 + 2 already, so this 
+% is unnecessary here
+
+eg, pvg,  pug,  zvg,  zug :=
+	FOR hemi IN 1, 2 CROSS latlev IN 1, ilath
+	eg, pvg,  pug,  zvg,  zug :=
+	    FOR longpt IN 1, longitude_END * 2 + 2	% modified bound
+	    RETURNS ARRAY of ug[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+			   + vg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+		    ARRAY of pg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+		    ARRAY of pg[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+		    ARRAY of zg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+		    ARRAY of zg[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+	    END FOR
+				% hence unnecessary
+	RETURNS ARRAY of eg	%||	rest_0
+		ARRAY of pvg   	%||	rest_0
+		ARRAY of pug   	%||	rest_0
+		ARRAY of zvg   	%||	rest_0
+		ARRAY of zug   	%||	rest_0
+	END FOR
+IN eg,  pug,  pvg,  zug,  zvg
+END LET
+END FUNCTION

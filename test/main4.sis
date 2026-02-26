@@ -1,0 +1,7 @@
+define main
+
+global paraffin( N: integer returns array[ array[ character ] ] )
+
+function main( returns array[ array[ character ] ] )
+  paraffin(4)
+end function % main

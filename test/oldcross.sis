@@ -1,0 +1,391 @@
+% Functions to handle crossovers
+%
+
+define Are_Crossed, Find_All_Crosses, Remove_Edge, Check_Crossed
+
+%$include ("anneal.sish")
+% Gauss-Jordan elimination linear equation solver; based on the routine given
+% in the book "Numerical Recipes-The Art of Scientific Computing" (Press,
+% Flannery, Teukolsky, Vetterling) pages 28-29.
+%
+% A is an input matrix of NxN double_real floating point numbers.  B
+% is a vector of N double_real floating point numbers.  The  program
+% returns the solution set x of A * x = B. If A is singular an error
+% value is NOT generated.
+%
+% The algorithm uses full pivoting.
+%
+
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+
+
+function idfamax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( abs(A[old i]) > abs(A[old max24]) ) then 
+	       old i 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function idfmax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( A[old i] > A[old max24] ) then old i else old max24 end if;
+  returns value of max24
+  end for
+end function
+
+
+function GetPivot(n: integer; A: TwoD; PIVR: Onei
+                  returns integer, integer)
+   let cols, maxs :=
+       for i in 1, n
+           col, max := if PIVR[i] = 0 then
+			 let
+                           imax := idfamax( A[i], n );
+			 in
+			   imax, abs(A[i,imax])
+			 end let
+                       else
+                          0, -1.0d0
+                       end if
+       returns array of col
+               array of max
+       end for;
+
+       irow := idfmax( maxs, n );
+   in
+       cols[irow], irow
+   end let
+
+end function
+
+
+
+function Compute(n, pvtrow: integer; Ain: TwoD; Bin: OneD
+                 returns TwoD, OneD) 
+
+   for i in 1, n
+       pvtele     := Ain[pvtrow, pvtrow];
+       Arow, Bele := if i = pvtrow then
+                       for j in 1,n
+                       returns array of Ain[i,j] / pvtele
+                       end for,
+                       Bin[i] / pvtele
+                     else
+		       let
+                         multipler := Ain[i, pvtrow] / pvtele;
+		       in
+                         for j in 1,n
+                         returns array of Ain[i,j] - multipler * Ain[pvtrow, j]
+                         end for,
+                         Bin[i] - multipler * Bin[pvtrow]
+		       end let
+                     end if
+   returns array of Arow
+           array of Bele
+   end for
+
+end function
+
+
+
+function NewGauss(n: integer; Ain :TwoD; Bin: OneD  returns OneD)
+
+   for initial
+
+       I    := 0;
+       A, B := Ain, Bin;
+       PIVR := array_fill(1,n,0)
+
+   while I < n repeat
+
+       I := old I + 1;
+       Icol, Irow := GetPivot(n, old A, old PIVR);
+
+       A1, B1 := if ( Icol ~= Irow ) then
+                     old A[Icol: old A[Irow]; Irow: old A[Icol]],
+                     old B[Icol: old B[Irow]; Irow: old B[Icol]]
+ 	         else
+ 	             old A, old B
+                 end if;
+
+       PIVR := old PIVR[Icol: 1];
+       A, B := Compute(n, Icol, A1, B1)
+
+   returns value of B
+   end for
+end function
+%===================== End of new Gaussian functions ===================
+%=======================================================================
+%  Solves a system of n equations in n unknowns 
+%  using Gaussian elimination
+%=======================================================================
+
+function Gauss (A : array [ array [real] ]
+	returns Boolean, array [real] )
+
+if A[1,1] = 0.0 then false, array Soln_Type []
+else
+	if array_size(A) = 1 then
+		true, array [1:A[1,2] / A[1,1] ]
+	else
+		let pivot := A[1,1];
+			msub := array_setl (
+				for I in 2, array_size(A)
+					F := A[I,1]/pivot;
+				returns array of
+					array_setl (
+					for J in 2, array_size(A[I])
+					returns array of
+						if F=0.0 then
+							A[I,J]
+						else
+							A[I,J]/F - A[1,J]
+						end if
+					end for
+					, 1 )
+				end for
+				, 1 );
+			cansolve, soln := Gauss(msub);
+			OK, vect := if cansolve then
+				true, 
+				array [1:
+				( (A[1,array_size(A[1])] -
+					for J in 2,array_size(A[1]) - 1
+					returns
+						value of sum A[1,J]*soln[J-1]
+					end for) / pivot ) ] || soln
+				else
+					false, array Soln_Type []
+				end if;
+		in
+			OK, vect
+		end let
+	end if
+end if
+
+end function
+
+%========================================================================
+%  Finds the determinant of an nxn matrix
+%========================================================================
+
+function Determinant ( A : array [ array [integer] ] returns real)
+
+if array_size(A) = 2 then
+	real ( A[1,1] * A[2,2]  - A[2,1] * A[1,2])
+else
+	for I in 1, array_size(A)
+		CI := ((I+1)/2) * 2 - (I+1);	% Is I+1 odd?
+		cofact := if CI = 0 then 1.0 else -1.0 end if;
+		elem := real ( A[I,1] );        % Use column 1
+		AI := for E in A at I1
+			EI := for D in E at I2
+			returns array of D unless I2 = 1
+			end for;		% eliminate col 1
+		returns array of EI unless I1 = I
+		% eliminate row I
+		end for;
+	returns
+		value of sum elem * cofact * Determinant(AI)
+		% recursive call for determinant
+	end for
+end if
+
+end function
+
+%========================================================================
+%  Finds the determinant of an nxn matrix (non-recursive)
+%========================================================================
+
+function NewDeterminant ( A : array [ array [integer] ] returns real)
+
+if array_size(A) = 2 then
+	real ( A[1,1] * A[2,2]  - A[2,1] * A[1,2])
+else
+	for I in 1, array_size(A)
+		CI := ((I+1)/2) * 2 - (I+1);	% Is I+1 odd?
+		cofact := if CI = 0 then 1.0 else -1.0 end if;
+		elem := real ( A[I,1] );        % Use column 1
+		AI := for E in A at I1
+			EI := for D in E at I2
+			returns array of D unless I2 = 1
+			end for;		% eliminate col 1
+		returns array of EI unless I1 = I
+		% eliminate row I
+		end for;
+	returns
+		value of sum elem * cofact * Determinant(AI)
+		% recursive call for determinant
+	end for
+end if
+
+end function
+
+%=========================================================================
+%  Cramer's rule uses determinants to solve systems of linear equations
+%=========================================================================
+
+function Cramer ( A : array [ array [integer] ]; B : array [integer]
+	returns Soln_Type )
+
+let D := Determinant (A);
+	soln := if D = 0.0 then array Soln_Type [] else
+		for I in 1, array_size(A)
+			% AI is the matrix A with its Ith column replaced
+			% by the vector B
+			AI := for E in A at J
+				returns array of E[I: B[J]]
+				end for;
+			DI := Determinant(AI);
+		returns
+			array of DI/D
+		end for
+
+	end if
+in
+	soln
+end let
+
+end function
+
+%========================================================================
+%  Test for crossed edges
+%========================================================================
+
+function Are_Crossed ( a,b : Edge_Type; Nodes : Node_List
+	returns boolean )
+
+if a[1] = b[2] | a[2] = b[1] | a[1] = b[1] | a[2] = b[2] then 
+	false
+else
+let x1,y1,x2,y2,x3,y3,x4,y4 :=
+	Nodes[a[1]].x, Nodes[a[1]].y,
+	Nodes[a[2]].x, Nodes[a[2]].y,
+	Nodes[b[1]].x, Nodes[b[1]].y,
+	Nodes[b[2]].x, Nodes[b[2]].y;
+
+%	C1 := array [1:
+%		array [1: 1, 0, x1-x2, 0],
+%		array [1: 0, 1, y1-y2, 0],
+%		array [1: 1, 0, 0, x3-x4],
+%		array [1: 0, 1, 0, y3-y4] ];	% Coefficients of the
+						% Parametric equations
+%	D := array [1: x1, y1, x3, y3];		% Constants of p.e.s
+%	S := Cramer(C,D);			% Solve them
+
+	C1 := double_real(x1-x2);		% Coefficients for slopes
+	C2 := double_real(y1-y2);		% And parametric equations
+	C3 := double_real(x3-x4);
+	C4 := double_real(y3-y4);
+	Z := 0.0d0;				% Save a bunch of typing
+	DN := C2*C3 - C1*C4;			% Determinant of coefficients
+
+%	S1 := if C1 = Z then Z else C2/C1 end if;	% Slopes
+%	S2 := if C3 = Z then Z else C4/C3 end if;
+
+	P1 := if DN = Z then false 
+
+	else
+	let
+%	C := array [1:
+%		array [1: 1.0d0, 0.0d0, double_real(x1-x2), 0.0d0],
+%		array [1: 0.0d0, 1.0d0, double_real(y1-y2), 0.0d0],
+%		array [1: 1.0d0, 0.0d0, 0.0d0, double_real(x3-x4)],
+%		array [1: 0.0d0, 1.0d0, 0.0d0, double_real(y3-y4)] ];
+%	D := array [1:
+%		double_real(x1),
+%		double_real(y1),
+%		double_real(x3),
+%		double_real(y3) ];
+%
+%	S := NewGauss (4,C,D);
+%	P := S[3] >= Z & S[3] <= 1.0d0 & 
+%				S[4] >= Z & S[4] <= 1.0d0
+
+	DX1 := double_real(x1);
+	DY1 := double_real(y1);
+	DX3 := double_real(x3);
+	DY3 := double_real(y3);
+
+	D3 := C4*DX3 - C3*DY3 + C3*DY1 - C4*DX1;
+	D4 := C2*DX3 - C1*DY3 + C1*DY1 - C2*DX1;
+
+	P := D3 >= Z & D3 <= DN & D4 >= Z & D4 <= DN;
+	in 
+	  p
+	end let
+
+	end if
+in
+	P1
+end let
+
+end if
+
+end function
+
+%=========================================================================
+%  Find all crossed lines
+%=========================================================================
+
+function Find_All_Crosses ( Itinerary : Itin_Type; Nodes : Node_List
+	returns Cross_List )
+
+for I in 1, array_size (Itinerary) - 3
+	E1 := array [1: Itinerary[I], Itinerary[I+1]];
+	CL := for J in I+2, array_size (Itinerary) - 1
+		E2 := array [1: Itinerary[J], Itinerary[J+1]];
+		returns array of array [1: E1, E2]
+			when Are_Crossed (E1, E2, Nodes)
+		end for;
+returns
+	value of catenate CL
+end for
+
+end function
+		
+%==========================================================================
+%  Check a new edge for crossed edges
+%==========================================================================
+
+function Check_Crossed (E:Edge_type; Itinerary:Itin_type; Nodes:Node_List
+	returns Cross_List)
+
+for I in 1, array_size (Itinerary) - 1
+	E2 := array [1:Itinerary[I], Itinerary[I+1] ]
+returns
+	array of array [1:E, E2] when Are_Crossed(E, E2, Nodes)
+end for
+
+end function
+
+
+%===========================================================================
+%  Remove an edge from the cross lisst
+%===========================================================================
+
+function Remove_Edge (C: Cross_List; E: Edge_Type  returns Cross_List)
+
+for CE in C
+returns array of CE unless (CE[1,1] = E[1] & CE[1,2] = E[2]) |
+			   (CE[1,2] = E[1] & CE[1,1] = E[2]) |
+			   (CE[2,1] = E[1] & CE[2,2] = E[2]) |
+			   (CE[2,2] = E[1] & CE[2,1] = E[2])
+end for
+
+end function
+

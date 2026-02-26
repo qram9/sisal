@@ -1,0 +1,225 @@
+define Main
+
+%      PROGRAM SHUNONG GRAD KINETICS16
+% Zone Electrophoresis of two interacting solutes in a gradient 
+% of polyacrylamide. Diffusion coefficient corrected.
+% 1 designates monomer; 2, dimer
+
+type Double = double_real;
+type OneD   = array[Double];
+type TwoD   = array[OneD];
+
+type Save = record[ 
+	      SIGSQMI:Double;  YMEANMI:Double;
+	      SIGSQM2I:Double; YMEANM2I:Double 
+	      ];
+
+type Edit = record[ 
+              T:Double;          YMEANM:Double;  SIGSQM:Double;    SIGM:Double;
+              SUM1M:Double;      YMEANM2:Double; SIGSQM2:Double;   SIGM2:Double;
+              SUM1M2:Double;     DIFM:Double;    VELOCITYM:Double; DIFM2:Double;
+              VELOCITYM2:Double
+	      ];
+              
+global SQRT( x:Double returns Double )
+
+function OUT( T:Double; N,NP:integer; C:TwoD; DT,DX:Double; oldS:Save; Y:OneD; 
+  	      returns Edit,Save )
+let
+  SUM1M,  SUM2M,
+  SUM3M,  SUM1M2,
+  SUM2M2, SUM3M2 := for J in 2,NP
+                      YSQ := exp(Y[J],2.0D0);
+	            returns value of sum C[1,J]
+		            value of sum Y[J]*C[1,J]
+		            value of sum YSQ*C[1,J]
+		            value of sum C[2,J]
+		            value of sum Y[J]*C[2,J]
+		            value of sum YSQ*C[2,J]
+                    end for;
+
+  YMEANM  := SUM2M/SUM1M;
+  SIGSQM  := SUM3M/SUM1M-exp(YMEANM,2.0D0);
+  SIGM    := SQRT(SIGSQM);
+  YMEANM2 := SUM2M2/SUM1M2;
+  SIGSQM2 := SUM3M2/SUM1M2-exp(YMEANM2,2.0D0);
+  SIGM2   := SQRT(SIGSQM2);
+
+  newS := if (T = 0.0D00) then
+            record Save [ SIGSQMI:SIGSQM;   YMEANMI:YMEANM;
+                          SIGSQM2I:SIGSQM2; YMEANM2I:YMEANM2 ]
+	  else
+	    oldS
+          end if;
+
+
+  DIFM,VELOCITYM,
+  DIFM2,VELOCITYM2 := if ( T > 0.0D0 ) then
+                        5.0D-01*(SIGSQM-newS.SIGSQMI)/T,
+                        (YMEANM-newS.YMEANMI)/T,
+                        5.0D-01*(SIGSQM2-newS.SIGSQM2I)/T,
+                        (YMEANM2-newS.YMEANM2I)/T
+		      else
+			0.0D0, 0.0D0, 0.0D0, 0.0D0
+                      end if;
+
+  Edit := record Edit [
+              T:T;          YMEANM:YMEANM;  SIGSQM:SIGSQM;    SIGM:SIGM;
+              SUM1M:SUM1M;  YMEANM2:YMEANM2; SIGSQM2:SIGSQM2; SIGM2:SIGM2;
+              SUM1M2:SUM1M2; DIFM:DIFM; VELOCITYM:VELOCITYM; DIFM2:DIFM2;
+              VELOCITYM2:VELOCITYM2 ];
+in
+  Edit, newS
+end let
+end function
+
+function FILLUP( N,NSEG:integer; DX:Double; GZERO:OneD 
+		 returns OneD,OneD,TwoD )
+let
+  Xc,
+  Yc := for J in 2,N
+          X := double_real(J-1)*DX;
+          Y := X-5.0D-01*DX;
+        returns array of x
+		array of y
+        end for;
+
+  X := array_addl( Xc, 0.0D0 );
+  Y := array_addl( Yc, 0.0D0 );
+
+  C := for M in 1,2 
+	 R1 := for J in 2,NSEG returns array of GZERO[M] end for;
+	 R2 := for J in NSEG+1,N returns array of 0.0D0 end for;
+       returns array of array_addl(R1,0.0D0)||R2
+       end for;
+in
+  X,Y, C
+end let
+end function
+
+
+function VELOCITY( DT,DX:Double; N:integer; X:OneD
+		   returns OneD,OneD,Twod,TwoD,TwoD )
+let
+  GEL := for I in 1,N 
+	 returns array of 1.0D01+(double_real(I-1)*0.7D-03) 
+	 end for;
+
+  PM  := array [1: -6.9018D-02, -0.10799D0 ];
+
+  T1  := array [1: 6.0D-04, 5.0D-04];
+  T2  := array [1: 2.1D-07, 1.67D-07];
+
+  V,DEFF := for M in 1,2
+              Vc,DEFFc := for I in 2,N
+	                    V := T1[M]*exp(10.0D0,(PM[M]*X[I]));
+	                    DEFF := T2[M]-5.0D-01*DX*V+5.0D-01*DT*exp(V,2.0D0);
+	                  returns array of V*DT/DX
+	                          array of DEFF
+	                  end for;
+            returns array of array_addl( Vc, T1[M]*DT/DX )
+	            array of array_addl( DEFFc, T2[M] )
+            end for;
+
+  DLAMBDA := for M in 1,2 cross I in 1,N
+	     returns array of DEFF[M,I]*DT/exp(DX,2.0D0)
+	     end for;
+in
+  GEL,PM,V,DEFF,DLAMBDA
+end let
+end function
+
+
+function Main( returns Edit,Edit )
+let
+  IT := 42000;
+  % IT := 420;
+  % IT := 200;
+
+  N := 14285;
+  % N := 20;
+
+  NP := N-1;
+  NPP := N-2;
+
+  NSEG := 287;
+  % NSEG := 9;
+
+  DX := 0.7D-03;
+  DT := 5.0D-01;
+
+  GZERO := array [1: 0.5D-05, 0.5D-05 ];
+  
+  RK1a := 34.0D00;
+  RK2a := 5.0D-01*RK1a*exp(GZERO[1],2.0D0)/GZERO[2];
+
+  RK1 := RK1a*DT;
+  RK2 := RK2a*DT;
+
+  X,Y,Cin := FILLUP(N,NSEG,DX,GZERO);
+  GEL,PM,V,DEFF,DLAMBDA := VELOCITY(DT,DX,N,X);
+
+  Tin := 0.0D0;
+
+  Save0 := record Save [ SIGSQMI:0.0D0;  YMEANMI:0.0D0;
+                         SIGSQM2I:0.0D0; YMEANM2I:0.0D0 ];
+
+  Edit1,
+  Save1 := OUT( Tin, N,NP, Cin, DT,DX, Save0, Y );
+
+  T,C := for initial
+	   I := 1;
+	   T := Tin;
+	   C := Cin;
+	 while ( I <= IT ) repeat
+	   I := old I + 1;
+
+           C12 := old C[1,2]+DLAMBDA[1,2]*(old C[1,3]-old C[1,2]) -
+                  V[1,2]*old C[1,2]-RK1*exp(old C[1,2],2.0D0)+
+	          2.0D00*RK2*old C[2,2];
+
+
+           C22 := old C[2,2]+DLAMBDA[2,2]*(old C[2,3]-old C[2,2])-
+                  V[2,2]*old C[2,2]+5.0D-01*RK1*exp(old C[1,2],2.0D0)-RK2*
+		  old C[2,2];
+
+           C1c,
+           C2c := for J in 3,NPP
+                    C1 := old C[1,J]+DLAMBDA[1,J]*(old C[1,J+1]-old C[1,J])-
+                          DLAMBDA[1,J-1]*(old C[1,J]-old C[1,J-1])-V[1,J]*
+		          old C[1,J]+V[1,J-1]*old C[1,J-1]-RK1*
+		          exp(old C[1,J],2.0D0)+2.0D00*RK2*old C[2,J];
+
+                    C2 := old C[2,J]+DLAMBDA[2,J]*(old C[2,J+1]-old C[2,J])-
+                          DLAMBDA[2,J-1]*(old C[2,J]-old C[2,J-1])-V[2,J]*
+		          old C[2,J]+V[2,J-1]*old C[2,J-1]+5.0D-01*RK1*
+		          exp(old C[1,J],2.0D0)-RK2*old C[2,J];
+                  returns array of C1
+	                  array of C2
+                  end for;
+
+           C1NP := old C[1,NP]-DLAMBDA[1,NP]*old C[1,NP]-DLAMBDA[1,NPP]*
+                   (old C[1,NP]-old C[1,NPP])-V[1,NP]*old C[1,NP]+V[1,NPP]*
+	           old C[1,NPP]-RK1*exp(old C[1,NP],2.0D0)+2.0D00*RK2*
+		   old C[2,NP];
+
+           C2NP := old C[2,NP]-DLAMBDA[2,NP]*old C[2,NP]-DLAMBDA[2,NPP]*
+                   (old C[2,NP]-old C[2,NPP])-V[2,NP]*old C[2,NP]+
+	           V[2,NPP]*old C[2,NPP]+5.0D-01*RK1*exp(old C[1,NP],2.0D0)-
+	           RK2*old C[2,NP];
+
+           C1 := array [1:old C[1,1],C12] || C1c || array [1:C1NP,old C[1,NP]];
+           C2 := array [1:old C[2,1],C22] || C2c || array [1:C2NP,old C[2,NP]];
+           C  := array [1:C1,C2];
+
+	   T := double_real(old I)*DT;
+	 returns value of T
+		 value of C
+         end for;
+
+  Edit2,
+  Save2 := OUT( T, N,NP, C, DT,DX, Save1, Y );
+in
+  Edit1, Edit2
+end let
+end function

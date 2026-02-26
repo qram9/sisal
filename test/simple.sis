@@ -1,0 +1,1550 @@
+define Main
+
+type Double = double_real;
+
+type Oned = array[Double];
+type Twod = array[Oned];
+type Onei = array[integer];
+type Twoi = array[Onei];
+
+type Spac = record[
+              kmn:integer; kmx:integer;
+              lmn:integer; lmx:integer;
+            ];
+
+type Bdry  = record[
+               pb:Oned;  qb:Oned;
+               pbb:Oned; nbc:Twoi;
+             ];
+
+type Coeff = record[ 
+               aes:Double; bes:Double;     ces:Oned;   des:Double;
+               ees:Double; fes:Oned;       ges:Double; hes:Double;
+               izes:Onei;  ntm1sv:integer; pes:Double; res:Oned;
+               tes:Oned 
+             ];
+
+Type OutInfo = record[
+                 ncycle:integer; tnup:Double; dtnph:Double; dtc:Double;
+               % kc:integer;     lc:integer;  
+                 dte:Double;
+	       % ken:integer;    len:integer;     
+	         dcn:Double;
+               ];
+
+
+global sin( x:Double returns Double )
+global cos( x:Double returns Double )
+global sqrt( x:Double returns Double )
+
+
+function EosTempcaUtil( nt,nr,m:integer;
+                        theta,rho:Double;
+                        eoscom:Coeff; 
+                        returns integer, integer, integer )
+  let
+    tes  := eoscom.tes;
+    res  := eoscom.res;
+    ntm1 := eoscom.ntm1sv;
+
+    nt_1,
+    m_1 := if ( theta >= tes[nt+1] ) then
+             let
+               nt_1,
+               m_1 := for initial
+                        nt_1 := nt;
+                        m_1  := m;
+                      repeat
+                        nt_1 := old nt_1 + 1;
+                        m_1  := old m_1 + 1;
+                      while ( theta >= tes[nt_1] )
+                      returns value of nt_1
+                              value of m_1
+                      end for;
+             in
+               nt_1 - 1,
+               m_1 - 1
+             end let
+           elseif ( theta < tes[nt] ) then
+             for initial
+               nt_1 := nt;
+               m_1  := m;
+             repeat
+               nt_1 := old nt_1 - 1;
+               m_1  := old m_1 - 1;
+             while ( theta < tes[nt_1] )
+             returns value of nt_1
+                     value of m_1
+             end for
+           else
+             nt, m
+           end if;
+
+    nr_1,
+    m_2 := if ( rho >= res[nr+1] ) then
+             let
+               nr_1,
+               m_2 := for initial
+                        nr_1 := nr;
+                        m_2  := m_1;
+                      repeat
+                        nr_1 := old nr_1 + 1;
+                        m_2  := old m_2 + ntm1;
+                      while ( rho >= res[nr_1] )
+                      returns value of nr_1
+                              value of m_2
+                      end for;
+             in
+               nr_1 - 1,
+               m_2 - ntm1
+             end let
+           elseif ( rho < res[nr] ) then
+             for initial
+               nr_1 := nr;
+               m_2  := m_1;
+             repeat
+               nr_1 := old nr_1 - 1;
+               m_2  := old m_2 - ntm1;
+             while ( rho < res[nr_1] )
+             returns value of nr_1
+                     value of m_2
+             end for
+           else
+             nr, m_1
+           end if;
+  in
+    nt_1, nr_1, m_2
+  end let
+end function
+
+
+% fortran side-effect: updates theta in function---HELP!
+function tempca( msv,nrsv,ntsv:Onei; 
+                 eoscom:Coeff; 
+                 evalue,rho,theta:Double
+                 returns Double )
+  let
+    aes  := eoscom.aes;
+    bes  := eoscom.bes;
+    des  := eoscom.des;
+    ces  := eoscom.ces;
+    fes  := eoscom.fes;
+    ges  := eoscom.ges;
+    ees  := eoscom.ees;
+    hes  := eoscom.hes;
+    pes  := eoscom.pes;
+    tes  := eoscom.tes;
+
+    theta_1,
+    nt,
+    nr,
+    m := for initial
+           theta_1 := theta;
+           nt_1    := ntsv[2];
+           nr_1    := nrsv[2];
+           m_1     := msv[2];
+           done    := false;
+         repeat
+           nt_1,
+           nr_1,
+           m_1 := EosTempcaUtil( old nt_1, old nr_1, old m_1, 
+                                 old theta_1, rho, eoscom );
+
+           alp :=ees+rho*(hes+rho*pes);
+           bet :=ces[m_1]+rho*(fes[m_1]+rho*ges);
+           gam :=aes+rho*(bes+rho*des)-evalue;
+           theta_1 :=-2.0D0*gam/(bet+sqrt(bet*bet-4.0D0*alp*gam) );
+
+           done := if ( theta_1 > tes[nt_1 + 1] ) then
+                     false
+                   elseif ( theta_1 < tes[nt_1] ) then
+                     false
+                   else
+                     true
+                   end if;
+         while ( ~done )
+         returns value of theta_1
+                 value of nt_1
+                 value of nr_1
+                 value of m_1
+         end for
+  in
+    theta_1
+  end let
+end function
+
+
+% which = 3 -> kappa = 0.1D0 
+% this routine assumes which is 1 or 2
+function eos( msv,nrsv,ntsv:Onei; 
+              eoscom:Coeff; 
+              theta,rho:Double; which:integer 
+              returns Double )
+  let
+    aes  := eoscom.aes;
+    bes  := eoscom.bes;
+    des  := eoscom.des;
+    ces  := eoscom.ces;
+    fes  := eoscom.fes;
+    ges  := eoscom.ges;
+    ees  := eoscom.ees;
+    hes  := eoscom.hes;
+    pes  := eoscom.pes;
+
+    n   := which;
+    nt  := ntsv[n];
+    nr  := nrsv[n];
+    m   := msv[n];
+
+    nt_1,
+    nr_1,
+    m_1 := EosTempcaUtil( nt,nr,m,theta,rho,eoscom );
+  in
+    aes+rho*(bes+rho*des)
+    +theta*(ces[m_1]+rho*(fes[m_1]+rho*ges)
+    +theta*(ees+rho*(hes+rho*pes)))
+  end let
+end function
+
+
+function conduc( klspac:Spac; dtnph,dte:Double; energy,temp,
+                 aj,mass,r,z,rho:Twod;
+                 msv,nrsv,ntsv:Onei; eoscom:Coeff
+                 returns Twod, Twod,
+                         Double, Double )
+% the lu decomposition algorithm with operator splitting.
+% the heat conducion delta_t (-dte-) is also computed here,
+% the lu decomposition algorithm with operator splitting.
+% the heat conducion delta_t (-dte-) is also computed here,
+% as well as the calculation for the heat flow across the
+% boundary (-hn-).
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  kappa := 0.1D0;
+  tflr  := 0.0001D0;
+ 
+% set up material properties for all internal zones
+ 
+  sig,
+  oldtem,
+  cc_core := for k in kmnp, kmx
+               sigr,
+               oldtemr,
+               cc_rc := for l in lmnp, lmx
+                          ccV := (0.0001D0*sqrt(temp[k,l])*
+                                 exp(temp[k,l],2.0D0))/aj[k,l];
+                          sigV := mass[k,l]*kappa/dtnph;
+                          oldtemV := temp[k,l];
+                        returns array of sigV
+                                array of oldtemV
+                                array of ccV
+                        end for;
+
+               cc_r := array_addl( 
+                       array_addh( cc_rc, cc_rc[lmx] ), cc_rc[lmn+1] );
+             returns array of sigr
+                     array of oldtemr
+                     array of cc_r
+             end for;
+
+  cc := array_addl( array_addh( cc_core, cc_core[kmx] ), cc_core[kmn+1] );
+
+% coupling constants in the k-direction
+
+  dbb := for k in kmn, kmx
+           dbb_c := for l in lmnp, lmx
+                      dbb := (2.0D0*cc[k+1,l]*cc[k,l])/(cc[k+1,l]+cc[k,l])
+                             *( 0.5D0*(r[k,l-1]+r[k,l])*
+                             (exp((r[k,l]-r[k,l-1]),2.0D0)
+                             +exp((z[k,l]-z[k,l-1]),2.0D0)) );
+                    returns array of dbb
+                    end for;
+           dbbr := array_addl( dbb_c, 0.0D0 );
+         returns array of dbbr
+         end for;
+
+%      coupling constants in the l-direction
+
+  cbb_c := for k in kmnp, lmx 
+             cbb_rc := for l in lmn+1, lmx-1
+                         cbb := (2.0D0*cc[k,l]*cc[k,l+1])/(cc[k,l]+cc[k,l+1])
+                                *(0.5D0*(r[k-1,l]+r[k,l])*
+                                (exp((r[k,l]-r[k-1,l]),2.0D0)
+                                +exp((z[k,l]-z[k-1,l]),2.0D0)) );
+                       returns array of cbb
+                       end for;
+             
+             cbb_r  := array_addl( array_addh( cbb_rc, 0.0D0 ), 0.0D0 );
+           returns array of cbb_r
+           end for;
+
+  cbb   := array_addl( cbb_c, array_fill(lmn,lmx,0.0D0) );
+ 
+% alpha,beta forward sweep (l direction)
+
+  temp_1 := for k in kmnp, kmx
+              a_1,
+              b_1 := for initial
+                       l := lmnp;
+                       a := 0.0D0;
+                       b := temp[k,lmn];
+                     while ( l <= lmx ) repeat
+                       l := old l + 1;
+                       denom  := sig[k,old l]+cbb[k,old l]+
+                                 cbb[k,old l-1]*(1.0D0-old a);
+                       a := cbb[k,old l]/denom;
+                       b := (sig[k,old l]*temp[k,old l]+
+                            cbb[k,old l-1]*old b)/denom;
+                     returns array of a
+                             array of b
+                     end for;
+
+              a := array_setl(a_1,lmn);
+              b := array_setl(b_1,lmn);
+
+              temp_r :=  for initial
+                           r := array Oned [];
+                           ml := lmx;
+                           V := temp[k,ml+1];
+                         while ( ml >= lmnp ) repeat
+                           ml := old ml-1;
+                           V  := a[old ml]* old V +
+                                 b[old ml];
+			   r := array_addl( old r, V );
+                         returns value of r
+                         end for;
+
+            returns array of array_setl( temp_r, lmnp )
+            end for;
+
+ 
+% alpha,beta forward sweep (k direction)
+
+  temp_2 := for l in lmnp, lmx
+              a_1,
+              b_1 := for initial
+                       k := kmnp;
+                       a := 0.0D0;
+                       b := temp[kmn,l];
+                     while ( k <= kmx ) repeat
+                       k := old k + 1;
+                       denom := sig[old k,l]+dbb[old k,l]+
+                                dbb[old k-1,l]*(1.0D0-old a);
+                       a := dbb[old k,l]/denom;
+                       b := (sig[old k,l]*temp_1[old k,l]+
+                            dbb[old k-1,l]*old b)/denom;
+                     returns array of a
+                             array of b
+                     end for;
+
+              a := array_setl(a_1,kmn);
+              b := array_setl(b_1,kmn);
+
+              temp_c := for initial
+                           ml := kmx;
+                           V := temp[ml+1,l];
+			   c := array Oned [];
+                         while ( ml >= kmnp ) repeat
+                           ml := old ml-1;
+                           V := a[old ml]*old V + b[old ml];
+			   c := array_addl( old c, V );
+                         returns value of c
+                         end for;
+
+            returns array of array_setl( temp_c, kmnp )
+            end for;
+
+% compute dt contrl for heat conducion
+% compute new zonal energies after heat conducion
+
+  e_c,
+  t_c,
+  ye := for k in kmnp, kmx
+	    ye,
+	    e_rc,
+            t_rc := for l in lmnp, lmx
+                      eosV:= eos( msv, nrsv, ntsv, eoscom,
+                                  temp_2[l,k], rho[k,l] , 2 );
+
+                      newV := max(temp_2[l,k],tflr);
+                      tempr := abs((newV-
+                                    oldtem[k,l])/oldtem[k,l]);
+                    returns value of greatest tempr
+			    array of eosV
+			    array of newV
+                    end for;
+
+            e_r := array_addl( array_addl( 
+                   array_addh( e_rc, energy[k,lmx+1]),energy[k,lmn] ),
+			       energy[k,lmn-1]); 
+
+            t_r := array_addl( array_addl( 
+                   array_addh( t_rc, temp[k,lmx+1]),temp[k,lmn] ),
+			       temp[k,lmn-1]); 
+          returns array of e_r
+		  array of t_r
+		  value of greatest ye
+          end for;
+
+  e :=  array_addl( array_addl( 
+                    array_addh(e_c, energy[kmx+1]), energy[lmn]),energy[lmn-1]);
+
+  t := array_addl(  array_addl( 
+                    array_addh(t_c, temp[kmx+1]), temp[lmn]),temp[lmn-1]);
+
+
+  dte_1 := if( ye ~= 0.0D0 ) then 
+             (0.1D0*dtnph)/ye
+           else
+             dte
+           end if;
+      
+%      calculate energy flow across boundaries this time step.
+ 
+  s1 := for k in kmn,kmx
+          s := cbb[k,lmn]*(t[k,lmn]-t[k,lmn+1])
+               + cbb[k,lmx]*(t[k,lmx+1]-t[k,lmx]);
+        returns value of sum s
+        end for;
+ 
+  s2 := for l in lmn,lmx
+          s := dbb[kmn,l]*(t[kmn,l]-t[kmn+1,l])
+               + dbb[kmx,l]*(t[kmx+1,l]-t[kmx,l]);
+        returns value of sum s
+        end for;
+
+  s := s1 + s2;
+  eloss := s*dtnph;
+in
+  e, t, dte_1, eloss
+end let
+end function
+
+
+function projct( r0,z0,r1,z1,rp,zp:Double returns Double, Double )
+%      this subroutine reflects an interior point across the boundary
+%      reflect (rp,zp) to (rr,zr)
+%      where (r0,z0) and (r1,z1) are boundary points
+let
+  ww := (2.0D0*(z1-z0))/(exp((r1-r0),2.0D0)+exp((z1-z0),2.0D0));
+  alpha := 1.0D0-(z1-z0)*ww;
+  beta := (r1-r0)*ww;
+in
+  r0 + (rp-r0)*alpha + (zp-z0)*beta,
+  z0 + (rp-r0)*beta  - (zp-z0)*alpha
+end let
+end function
+
+
+function hbdry1( klspac:Spac; r,z:Twod returns Twod, Twod )
+%      this routine does the geometry calculation for boundary zones
+%      for the hydrodynamics pass
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmxz := kmx - 1;
+  lmxz := lmx - 1;
+
+% set up boundary zones [2..31,1] [32,1] (column 1)
+ 
+  r_1,
+  z_1  := for initial
+            k := kmn;
+            r_1 := r;
+            z_1 := z;
+          while ( k <= kmxz ) repeat
+            k := old k + 1;
+            rr, zz := projct( old r_1[old k,lmn],old z_1[old k,lmn],
+                              old r_1[old k+1,lmn],old z_1[old k+1,lmn],
+                              old r_1[old k,lmn+1],old z_1[old k,lmn+1]);
+            r_1 := old r_1[old k,lmn-1: rr];
+            z_1 := old z_1[old k,lmn-1: zz];
+          returns value of r_1
+                  value of z_1
+          end for;
+
+  rr1, zz1 := projct( r_1[kmx,lmn],z_1[kmx,lmn],
+                      r_1[kmx-1,lmn],z_1[kmx-1,lmn],
+                      r_1[kmx,lmn+1],z_1[kmx,lmn+1]);
+ 
+  r_2 := r_1[kmx,lmn-1: rr1];
+  z_2 := z_1[kmx,lmn-1: zz1];
+
+% set up boundary zones [2..31,33] [32,33] (column lmx+1)
+ 
+  r_3,
+  z_3  := for initial
+            k := kmn;
+            r_3 := r_2;
+            z_3 := z_2;
+          while ( k <= kmxz ) repeat
+            k := old k + 1;
+            rr, zz := projct( old r_3[old k,lmx],old z_3[old k,lmx],
+                              old r_3[old k+1,lmx],old z_3[old k+1,lmx],
+                              old r_3[old k,lmx-1],old z_3[old k,lmx-1]);
+            r_3 := old r_3[old k,lmx+1: rr];
+            z_3 := old z_3[old k,lmx+1: zz];
+          returns value of r_3
+                  value of z_3
+          end for;
+
+  rr2, zz2 := projct( r_3[kmx,lmx],z_3[kmx,lmx],
+                      r_3[kmx-1,lmx],z_3[kmx-1,lmx],
+                      r_3[kmx,lmx-1],z_3[kmx,lmx-1]);
+ 
+  r_4 := r_3[kmx,lmx+1: rr2];
+  z_4 := z_3[kmx,lmx+1: zz2];
+
+ 
+% set up boundary zones [1,2..31] [1,32] (row 1)
+ 
+  r_r1c,
+  z_r1c := for l in lmn,lmxz
+             rr, zz := projct( r_4[kmn,l],z_4[kmn,l],
+                               r_4[kmn,l+1],z_4[kmn,l+1],
+                               r_4[kmn+1,l],z_4[kmn+1,l]);
+            returns array of rr
+                    array of zz
+            end for;
+
+  rr3,
+  zz3 := projct( r_4[kmn,lmx],z_4[kmn,lmx],
+                 r_4[kmn,lmx-1],z_4[kmn,lmx-1],
+                 r_4[kmn+1,lmx],z_4[kmn+1,lmx]);
+ 
+  r_r1 := array_addh( r_r1c, rr3 );
+  z_r1 := array_addh( z_r1c, zz3 );
+
+% set up boundary zones [33,2..31] [33,32] (row kmx+1)
+
+  r_rmaxc,
+  z_rmaxc := for l in lmn,lmxz
+               rr, zz := projct( r_4[kmx,l],z_4[kmx,l],
+                                 r_4[kmx,l+1],z_4[kmx,l+1],
+                                 r_4[kmx-1,l],z_4[kmx-1,l]);
+              returns array of rr
+                      array of zz
+              end for;
+
+  rr4,
+  zz4 := projct( r_4[kmx,lmx],z_4[kmx,lmx],
+                 r_4[kmx,lmx-1],z_4[kmx,lmx-1],
+                 r_4[kmx-1,lmx],z_4[kmx-1,lmx]);
+ 
+  r_rmax := array_addh( r_rmaxc, rr4 );
+  z_rmax := array_addh( z_rmaxc, zz4 );
+
+ 
+% the corner boundaries ([1,1], [1,33], [33,1], and [33,33]) must be 
+% carefully set up to maintain symmetry.
+ 
+% set up corner [33,33]
+ 
+  rr5,
+  zz5 := projct( r_4[kmx,lmx],z_4[kmx,lmx],
+                 r_rmax[lmx], z_rmax[lmx],
+                 r_rmax[lmx-1], z_rmax[lmx-1]);
+
+  r_rmax_1 := array_addh( r_rmax, rr5 );
+  z_rmax_1 := array_addh( z_rmax, zz5 );
+
+% set up corner [33,1]
+ 
+  rr6,
+  zz6 := projct( r_4[kmx,lmn],z_4[kmx,lmn],
+                 r_rmax_1[lmn],z_rmax_1[lmn],
+                 r_rmax_1[lmn+1],z_rmax_1[lmn+1]);
+ 
+  r_rmax_2 := array_addl( r_rmax_1, rr6 );
+  z_rmax_2 := array_addl( z_rmax_1, zz6 );
+
+  r_5 := r_4[lmx+1: r_rmax_2];
+  z_5 := z_4[lmx+1: z_rmax_2];
+
+% set up corner [1,1]
+ 
+  rr7,
+  zz7 := projct( r_5[kmn,lmn],z_5[kmn,lmn],
+                 r_5[kmn,lmn-1],z_5[kmn,lmn-1],
+                 r_5[kmn+1,lmn-1],z_5[kmn+1,lmn-1]);
+
+  r_r1_1 := array_addl( r_r1, rr7 );
+  z_r1_1 := array_addl( z_r1, zz7 );
+ 
+% set up corner [1,33]
+ 
+  rr8,
+  zz8 := projct( r_5[kmn,lmx],z_5[kmn,lmx],
+                 r_r1_1[lmx],z_r1_1[lmx],
+                 r_r1_1[lmx-1],z_r1_1[lmx-1]);
+
+  r_r1_2 := array_addh( r_r1_1, rr8 );
+  z_r1_2 := array_addh( z_r1_1, zz8 );
+
+in
+  r_5[1: r_r1_2 ],
+  z_5[1: z_r1_2 ]
+end let
+end function
+
+
+function pdvwor( klspac:Spac; energy,dtau,p,q,temp,rho:Twod;
+                 msv,nrsv,ntsv:Onei; eoscom:Coeff
+                 returns Twod )
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  e_c := for k in kmnp, kmx
+            e_rc := for l in lmnp, lmx
+                       eps := energy[k,l]-(p[k,l]+q[k,l])*dtau[k,l];
+                       tempcaV := tempca( msv, nrsv, ntsv, eoscom,  
+                                          eps, rho[k,l],temp[k,l] );
+                       phat := eos( msv, nrsv, ntsv, eoscom,
+                                    tempcaV, rho[k,l], 1 );
+                              
+                       eV1 := energy[k,l]-(0.5D0*(phat+p[k,l])+
+                              q[k,l])*dtau[k,l];
+
+                       eV  := if ( eV1 < 0.0D0 ) then
+                                0.0D0
+                              else
+                                eV1
+                              end if;
+                    returns array of eV
+                    end for;
+
+            e_r := array_addl( array_addl( 
+                    array_addh( e_rc, energy[k,lmx+1]),
+				energy[k,lmn] ),energy[k,lmn-1]); 
+          returns array of e_r
+          end for;
+
+  e := array_addl( array_addl( 
+                   array_addh( e_c, energy[kmx+1]), energy[lmn]),energy[lmn-1]);
+in
+  e
+end let
+end function
+
+function newque( klspac:Spac; q,p,r,z,u,v,rho,energy,aj:Twod 
+                 returns Double, Twod )
+%        this routine calculates the von neuman "q" and the courant
+%        delta_t for each zone.
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  % ok for Sequent Balance and Sun 3/50 with coprocessor
+  MaxDouble := 1D308;
+
+  c0f   := 0.375D0;
+  c1f   := 0.25D0;
+  dtc_2 := 1.0D12;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  dtc_1,
+  qc := for k in kmnp,kmx
+          dtc,
+          qrc := for l in lmnp,lmx
+                   qV,
+                   dtc := if(p[k,l] = 0.0D0) then
+                            0.0D0, MaxDouble
+                          else
+                            let
+                              drk := r[k,l]-r[k-1,l-1]+r[k,l-1]-r[k-1,l];
+                              drl := r[k,l]-r[k-1,l-1]+r[k-1,l]-r[k,l-1];
+                              dzk := z[k,l]-z[k-1,l-1]+z[k,l-1]-z[k-1,l];
+                              dzl := z[k,l]-z[k-1,l-1]+z[k-1,l]-z[k,l-1];
+                              duk := u[k,l]-u[k-1,l-1]+u[k,l-1]-u[k-1,l];
+                              dul := u[k,l]-u[k-1,l-1]+u[k-1,l]-u[k,l-1];
+                              dwk := v[k,l]-v[k-1,l-1]+v[k,l-1]-v[k-1,l];
+                              dwl := v[k,l]-v[k-1,l-1]+v[k-1,l]-v[k,l-1];
+                              w1  := drk*dwl-dzk*dul;
+                              w2  := duk*dzl-dwk*drl;
+           
+                              w3  := if (w1 < 0.0D0) then 
+                                       exp(w1,2.0D0)/
+                                       (exp(drk,2.0D0)+exp(dzk,2.0D0)) 
+                                     else 
+                                       0.0D0 
+                                     end if;
+           
+                              w4  := if (w2 < 0.0D0 ) then
+                                       exp(w2,2.0D0)/
+                                       (exp(drl,2.0D0)+exp(dzl,2.0D0))
+                                     else
+                                       0.0D0
+                                     end if;
+                            in
+                              if((w3+w4) = 0.0D0) then
+                                0.0D0, MaxDouble
+                              else
+                                let
+ 
+% compute sound speed of a gamma-law gas
+% sound speed = sroot(gamma*pressure/density)
+% gamma(ideal gas) = 1.0 + pressure/(energy*density)
+% ergo : sound speed = sroot((p/rho)*(1+(p/rho)/e))
+ 
+                                 cs2 := (p[k,l]/rho[k,l]) *
+                                       (1.0D0 + (p[k,l]/rho[k,l])/energy[k,l]);
+                                 cs  := sqrt(cs2);
+ 
+%              von neuman "q" + scalar "q"
+ 
+                                 qV := c0f*rho[k,l]*(w3+w4)
+                                       + c1f*cs*rho[k,l]*sqrt(w3+w4);
+ 
+%              courant condition
+ 
+                                  ts0 := (exp(aj[k,l],2.0D0))/
+                                         (cs2*(exp(drk,2.0D0)+exp(drl,2.0D0)+
+                                         exp(dzk,2.0D0)+exp(dzl,2.0D0)));
+                                in
+                                  qV, ts0
+                                end let
+                              end if
+                            end let
+                          end if;
+                 returns value of least dtc
+                         array of qV
+                 end for;
+
+          qr := array_addl( array_addl( 
+                array_addh( qrc, q[k,lmx+1] ), q[k,lmn] ), q[k,lmn-1] );
+        returns value of least dtc
+                array of qr
+        end for;
+
+% courant delta_t
+
+  dtc := sqrt( if ( dtc_2 < dtc_1 ) then dtc_2 else dtc_1 end if );
+
+  q_1 := array_addl( array_addl( 
+                     array_addh( qc, q[kmx+1] ), q[lmn]), q[lmn-1] );
+in
+  dtc, q_1
+end let
+end function
+
+
+function hwork( klspac:Spac; p,q,u,v,z,r:Twod; dtnph:Double returns Double )
+% sum the hydro work done on the boundary this time step
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  S1 := for k in kmnp, kmx
+          s1 := (p[k,lmn+1]+p[k,lmn]+q[k,lmn+1]+q[k,lmn])
+                *( (u[k,lmn]+u[k-1,lmn])*(z[k,lmn]-z[k-1,lmn])
+                -(v[k,lmn]+v[k-1,lmn])*(r[k,lmn]-r[k-1,lmn])
+                )*(r[k,lmn]+r[k-1,lmn]);
+          s2 := (p[k,lmx+1]+p[k,lmx]+q[k,lmx+1]+q[k,lmx])
+                *( (u[k,lmx]+u[k-1,lmx])*(z[k,lmx]-z[k-1,lmx])
+                -(v[k,lmx]+v[k-1,lmx])*(r[k,lmx]-r[k-1,lmx])
+                )*(r[k,lmx]+r[k-1,lmx]);
+        returns value of sum s1 - s2
+        end for;
+
+  S2 := for l in lmnp, lmx
+          s1 := (p[kmn+1,l]+p[kmn,l]+q[kmn+1,l]+q[kmn,l])
+                 *( (u[kmn,l]+u[kmn,l-1])*(z[kmn,l]-z[kmn,l-1])
+                   -(v[kmn,l]+v[kmn,l-1])*(r[kmn,l]-r[kmn,l-1])
+                  )*(r[kmn,l]+r[kmn,l-1]);
+          s2 := (p[kmx+1,l]+p[kmx,l]+q[kmx+1,l]+q[kmx,l])
+                 *( (u[kmx,l]+u[kmx,l-1])*(z[kmx,l]-z[kmx,l-1])
+                   -(v[kmx,l]+v[kmx,l-1])*(r[kmx,l]-r[kmx,l-1])
+                  )*(r[kmx,l]+r[kmx,l-1]);
+        returns value of sum s1 - s2
+        end for;
+
+  S  := S1 + S2;
+
+in
+  S*dtnph/8.0D0
+end let
+end function
+
+
+function newrz2( klspac:Spac; rho, mass, r, z, aj:Twod returns 
+                 Twod, Twod, Twod )
+let
+  p1d6 := 0.166666666666667D0;
+
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+%     jacobian area in (r,z) plane
+%     volume = volume/2pi (cm**3/radian)
+%       mass =   mass/2pi (gm/radian)
+
+  dtau,
+  rho_c,
+  aj_c := for k in kmnp, kmx
+            dtaur,
+            rhorc,
+            ajrc := for l in lmnp, lmx
+                      aj1 := r[k,l]* (z[k-1,l]-z[k,l-1])
+                             + r[k-1,l]* (z[k,l-1]-z[k,l])
+                             + r[k,l-1]*(z[k,l]-z[k-1,l]);
+                      aj3 := r[k-1,l]*(z[k-1,l-1]-z[k,l-1])
+                             + r[k-1,l-1]*(z[k,l-1]-z[k-1,l])
+                             + r[k,l-1]*(z[k-1,l]-z[k-1,l-1]);
+                      ajV := 0.5D0*(aj1+aj3);
+                      vol := p1d6*((r[k,l]+r[k-1,l]+r[k,l-1])*aj1 +
+                             (r[k-1,l]+r[k-1,l-1]+r[k,l-1])*aj3 );
+                      vn := 1.0D0/rho[k,l];
+                      rhoV := mass[k,l]/vol;
+                      vnp := 1.0D0/rhoV;
+                      dtau := vnp-vn;
+                    returns array of dtau
+                            array of rhoV
+                            array of ajV
+                    end for;
+
+            rhor := array_addl( array_addl( 
+                    array_addh(rhorc, rho[k,lmx+1]),rho[k,lmn] ),rho[k,lmn-1]); 
+            ajr  := array_addl( array_addl( 
+                    array_addh( ajrc, aj[k,lmx+1]), aj[k,lmn]), aj[k,lmn-1]);
+          returns array of dtaur
+                  array of rhor
+                  array of ajr
+          end for;
+
+  rho_1 := array_addl( array_addl( 
+                       array_addh( rho_c, rho[kmx+1]), rho[lmn]), rho[lmn-1]);
+  aj_1  := array_addl( array_addl( 
+                       array_addh( aj_c, aj[kmx+1] ), aj[lmn] ), aj[lmn-1] );
+in
+  dtau, rho_1, aj_1
+end let
+end function
+
+
+function newrz1( klspac:Spac; u,v,r,z,p,q,rho,aj:Twod; dtn,dtnph:Double
+                 returns Twod, Twod, Twod, Twod )
+% this routine calculates the new velocities and coordinates
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  vcut := 1.0D-10;
+ 
+%      compute acceleration and new velocities
+ 
+  u_c,
+  v_c := for k in kmn,kmx
+           urc,
+           vrc := for l in lmn,lmx
+                    au1 := (p[k,l]+q[k,l]) * (z[k,l-1]-z[k-1,l]) +
+                           (p[k+1,l]+q[k+1,l])*(z[k+1,l]-z[k,l-1]) +
+                           (p[k,l+1]+q[k,l+1])*(z[k-1,l]-z[k,l+1]) +
+                           (p[k+1,l+1]+q[k+1,l+1])*(z[k,l+1]-z[k+1,l]);
+                    aw1 := (p[k,l]+q[k,l]) * (r[k,l-1]-r[k-1,l]) +
+                           (p[k+1,l]+q[k+1,l]) * (r[k+1,l]-r[k,l-1]) +
+                           (p[k,l+1]+q[k,l+1]) * (r[k-1,l]-r[k,l+1]) +
+                           (p[k+1,l+1]+q[k+1,l+1]) * (r[k,l+1]-r[k+1,l]);
+                    auw1 := rho[k,l]*aj[k,l]+rho[k+1,l]*aj[k+1,l]
+                            +rho[k,l+1]*aj[k,l+1]+rho[k+1,l+1]*aj[k+1,l+1];
+                    auw := 2.0D0/auw1;
+                    au  := -au1*auw;
+                    aw  :=  aw1*auw;
+
+                    tu  := u[k,l]+dtn*au;
+                    tv  := v[k,l]+dtn*aw;
+
+                    uV := if(abs(tu) <= vcut) then 0.0D0 else tu end if;
+                    vV := if(abs(tv) <= vcut) then 0.0D0 else tv end if;
+                  returns array of uV
+                          array of vV
+                  end for;
+
+           ur := array_addl( array_addh( urc, u[k,lmx+1] ), u[k,lmn-1] );
+           vr := array_addl( array_addh( vrc, v[k,lmx+1] ), v[k,lmn-1] );
+         returns array of ur
+                 array of vr
+         end for;
+
+  u_1 := array_addl( array_addh( u_c, u[kmx+1] ), u[kmn-1] );
+  v_1 := array_addl( array_addh( v_c, v[kmx+1] ), v[kmn-1] );
+
+        
+%      advance coordinates to time (n+1)
+ 
+  r_c,
+  z_c := for k in kmn,kmx
+           rrc,
+           zrc := for l in lmn,lmx
+                    rV := r[k,l]+dtnph*u_1[k,l];
+                    zV := z[k,l]+dtnph*v_1[k,l];
+                  returns array of rV
+                          array of zV
+                  end for;
+
+           rr := array_addl( array_addh( rrc, r[k,lmx+1] ), r[k,lmn-1] );
+           zr := array_addl( array_addh( zrc, z[k,lmx+1] ), z[k,lmn-1] );
+         returns array of rr
+                 array of zr
+         end for;
+
+  r_1 := array_addl( array_addh( r_c, r[kmx+1] ), r[kmn-1] );
+  z_1 := array_addl( array_addh( z_c, z[kmx+1] ), z[kmn-1] );
+
+        
+in
+  u_1, v_1, r_1, z_1 
+end let
+end function
+
+
+function hbdry2( klspac:Spac; rho,aj,q,p:Twod; bdryco:Bdry 
+                 returns Twod, Twod, Twod, Twod )
+%      set up boundary zone attributes
+%         the nbc array refers to the interface which is in a
+%      counter-clockwise direction from the (k,l), point around the
+%      problem. e.g. nbc(kmx,lmx) refers to the interface from
+%      (kmx-1,lmx) to (kmx,lmx).
+
+let
+  nbc := bdryco.nbc;
+  qb  := bdryco.qb;
+  pb  := bdryco.pb;
+  pbb := bdryco.pbb;
+
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  rho_1,
+  aj_1,
+  q_1,
+  p_1 := for initial
+            rho_1 := rho;
+            aj_1  := aj;
+            q_1   := q;
+            p_1   := p;
+            k     := kmnp;
+         while ( k <= kmx ) repeat
+            k := old k + 1;
+            rho_1 := old rho_1[old k,lmn: old rho_1[old k,lmn+1]];
+            aj_1 := old aj_1[old k,lmn : old aj_1[old k,lmn+1]];
+            ip := nbc[old k-1,lmn];
+            q_1 := old q_1[old k,lmn: qb[ip]*old q_1[old k,lmn+1]];
+            p_1 := old p_1[old k,lmn: pbb[ip]+pb[ip]*old p_1[old k,lmn+1]];
+         returns value of rho_1
+                 value of aj_1
+                 value of q_1
+                 value of p_1
+         end for;
+
+  rho_2,
+  aj_2,
+  q_2,
+  p_2 := for initial
+            rho_2 := rho_1;
+            aj_2  := aj_1;
+            q_2   := q_1;
+            p_2   := p_1;
+            k     := kmnp;
+         while ( k <= kmx ) repeat
+            k := old k + 1;
+            rho_2 := old rho_2[old k,lmx+1: old rho_2[old k,lmx]];
+            aj_2 := old aj_2[old k,lmx+1 : old aj_2[old k,lmx]];
+            ip := nbc[old k,lmx];
+            q_2 := old q_2[old k,lmx+1: qb[ip]*old q_2[old k,lmx]];
+            p_2 := old p_2[old k,lmx+1: pbb[ip]+pb[ip]*old p_2[old k,lmx]];
+         returns value of rho_2
+                 value of aj_2
+                 value of q_2
+                 value of p_2
+         end for;
+
+  rho_rmaxc,
+  aj_rmaxc,
+  q_rmaxc,
+  p_rmaxc := for l in lmnp, lmx 
+               ip := nbc[lmx,l-1];
+               qq := qb[ip]*q_2[lmx,l];
+               pp := pbb[ip]+pb[ip]*p_2[kmx,l];
+             returns array of rho_2[kmx,l]
+                     array of aj_2[kmx,l]
+                     array of qq
+                     array of pp
+             end for;
+
+  rho_r2c,
+  aj_r2c,
+  q_r2c,
+  p_r2c := for l in lmnp, lmx 
+             ip := nbc[kmn,l];
+             qq := qb[ip]*q_2[kmn+1,l];
+             pp := pbb[ip]+pb[ip]*p_2[kmn+1,l];
+           returns array of rho_2[kmn+1,l]
+                   array of aj_2[kmn+1,l]
+                   array of qq
+                   array of pp
+           end for;
+
+  rho_ulc := rho_2[kmn+1,lmn];
+  rho_urc := rho_2[kmn+1,kmx+1];
+  rho_V1  := rho_2[kmn,1];
+  rho_r2  := array_addl( array_addl( 
+                         array_addh(rho_r2c,rho_urc), rho_ulc), rho_V1 );
+
+  aj_ulc := aj_2[kmn+1,lmn];
+  aj_urc := aj_2[kmn+1,kmx+1];
+  aj_V1  := aj_2[kmn,1];
+  aj_r2  := array_addl( array_addl( 
+                        array_addh(aj_r2c,aj_urc), aj_ulc), aj_V1 );
+
+  q_ulc  := q_2[kmn+1,lmn];
+  q_urc  := q_2[kmn+1,kmx+1];
+  q_V1   := q_2[kmn,1];
+  q_r2   := array_addl( array_addl( 
+                        array_addh(q_r2c,q_urc), q_ulc), q_V1 );
+
+  p_ulc  := p_2[kmn+1,lmn];
+  p_urc  := p_2[kmn+1,kmx+1];
+  p_V1   := p_2[kmn,1];
+  p_r2   := array_addl( array_addl( 
+                        array_addh(p_r2c,p_urc), p_ulc), p_V1 );
+
+  rho_blc   := rho_rmaxc[lmn+1];
+  rho_brc   := rho_rmaxc[kmx];
+  rho_V1max := rho_2[lmx+1,1];
+  rho_rmax  := array_addl( array_addl( 
+                           array_addh(rho_rmaxc,rho_brc), rho_blc), rho_V1max );
+
+  aj_blc   := aj_rmaxc[lmn+1];
+  aj_brc   := aj_rmaxc[kmx];
+  aj_V1max := aj_2[lmx+1,1];
+  aj_rmax  := array_addl( array_addl( 
+                         array_addh(aj_rmaxc,aj_brc), aj_blc), aj_V1max );
+
+  q_blc   := q_rmaxc[lmn+1];
+  q_brc   := q_rmaxc[kmx];
+  q_V1max := q_2[lmx+1,1];
+  q_rmax  := array_addl( array_addl( 
+                         array_addh(q_rmaxc,q_brc), q_blc), q_V1max );
+
+  p_blc   := p_rmaxc[lmn+1];
+  p_brc   := p_rmaxc[kmx];
+  p_V1max := p_2[lmx+1,1];
+  p_rmax  := array_addl( array_addl( 
+                         array_addh(p_rmaxc,p_brc), p_blc), p_V1max );
+in
+  rho_2[kmn:rho_r2;kmx+1:rho_rmax],
+  aj_2[kmn:aj_r2;kmx+1:aj_rmax],
+  q_2[kmn:q_r2;kmx+1:q_rmax],
+  p_2[kmn:p_r2;kmx+1:p_rmax]
+end let
+end function
+
+
+function gen3( klspac:Spac; 
+               r,z:Twod; 
+               pzero,ezero:Double 
+               returns Twod, Twod, Twod, Twod, Twod, Twod )
+% generate zone quantities rho, p, energy.
+% compute area, volume and mass of zone
+% volume = volume/2pi (cm**3/radian)
+%   mass = mass/2pi (gm/radian)
+
+  let
+    kmn := klspac.kmn;
+    kmx := klspac.kmx;
+    lmn := klspac.lmn;
+    lmx := klspac.lmx;
+
+    kmnp := kmn + 1;
+    lmnp := lmn + 1;
+
+    p1d6   := 0.166666666666667D0;
+    rhozer := 1.4D0;
+    tzero  := 0.0001D0;
+
+    zeros  := array_fill(1,kmx+1,0.0D0);
+
+    pc,
+    rhoc,
+    tempc,
+    energyc,
+    ajc,
+    massc := for k in kmnp,kmx
+               prc,
+               rhorc,
+               temprc,
+               energyrc,
+               ajrc,
+               massrc := for l in lmnp,lmx
+                           aj1 := r[k,l]*(z[k-1,l]-z[k,l-1])
+                                  + r[k-1,l]*(z[k,l-1]-z[k,l])
+                                  + r[k,l-1]*(z[k,l]-z[k-1,l]);
+                           aj3 := r[k-1,l]*(z[k-1,l-1]-z[k,l-1])
+                                  + r[k-1,l-1]*(z[k,l-1]-z[k-1,l])
+                                  + r[k,l-1]*(z[k-1,l]-z[k-1,l-1]);
+                           aj  := 0.5D0*(aj1+aj3);
+                           vol := p1d6*((r[k,l]+r[k-1,l]+r[k,l-1])*aj1 +
+                                       (r[k,l-1]+r[k-1,l]+r[k-1,l-1])*aj3);
+                           mass := vol*rhozer;
+                         returns array of pzero
+                                 array of rhozer
+                                 array of tzero
+                                 array of ezero
+                                 array of aj
+                                 array of mass
+                         end for;
+
+               pr      := array_addl(array_addl(
+                                     array_addh(prc, 0.0D0),0.0D0),0.0D0);
+               rhor    := array_addl(array_addl(
+                                     array_addh(rhorc, 0.0D0),0.0D0),0.0D0);
+               tempr   := array_addl(array_addl(
+                                     array_addh(temprc, 0.0D0),0.0D0),0.0D0);
+               energyr := array_addl(array_addl(
+                                     array_addh(energyrc, 0.0D0),0.0D0),0.0D0);
+               ajr     := array_addl(array_addl(
+                                     array_addh(ajrc, 0.0D0),0.0D0),0.0D0);
+               massr   := array_addl(array_addl(
+                                     array_addh(massrc, 0.0D0),0.0D0),0.0D0);
+             returns array of pr
+                     array of rhor
+                     array of tempr
+                     array of energyr
+                     array of ajr
+                     array of massr
+             end for;
+  in
+    array_addl(array_addl(array_addh(pc,zeros),zeros),zeros),
+    array_addl(array_addl(array_addh(rhoc,zeros),zeros),zeros),
+    array_addl(array_addl(array_addh(tempc,zeros),zeros),zeros),
+    array_addl(array_addl(array_addh(energyc,zeros),zeros),zeros),
+    array_addl(array_addl(array_addh(ajc,zeros),zeros),zeros),
+    array_addl(array_addl(array_addh(massc,zeros),zeros),zeros)
+  end let
+end function
+
+
+function gen2( klspac:Spac returns Twod,Twod )
+  let
+    kmn := klspac.kmn;
+    kmx := klspac.kmx;
+    lmn := klspac.lmn;
+    lmx := klspac.lmx;
+
+    pi     := 3.1415926535898D0;
+
+
+%      generate the coordinates r and z
+%      this algorithm generates a spherical shell between -pi/2
+%      and pi/2 with inner radius of 10 cm.
+ 
+    rp  := double_real(lmx-lmn);
+
+    rc,
+    zc  := for k in kmn,kmx
+             z1 := double_real(10 + (k-kmn));
+
+             rrc,
+             zrc := for l in lmn,lmx
+                      zz := (-0.5D0+double_real(l-lmn)/rp)*pi;
+                    returns array of z1*cos(zz)
+                            array of z1*sin(zz)
+                    end for;
+
+             rr := array_addl(array_addh(rrc, 0.0D0), 0.0D0);
+             zr := array_addl(array_addh(zrc, 0.0D0), 0.0D0);
+           returns array of rr
+                   array of zr
+           end for;
+
+    zeros := array_fill(1,lmx+1,0.0D0);
+
+    r := array_addl(array_addh(rc,zeros), zeros);
+    z := array_addl(array_addh(zc,zeros), zeros);
+
+  in
+    r, z
+  end let
+end function
+
+
+% generate nbc matrix of hydro boundary condition sentinels
+function gen1( klspac:Spac returns Twoi )
+  let
+    kmn := klspac.kmn;
+    kmx := klspac.kmx;
+    lmn := klspac.lmn;
+    lmx := klspac.lmx;
+
+    nbcu   := 1;
+    nbcr   := 2;
+    nbcl   := 1;
+    nbcd   := 1;
+
+    nbcls := array_fill(3,lmx,nbcl);
+    zeros := array_fill(3,lmx-1,0);
+    nbcrs := array_fill(2,lmx-1,nbcr);
+
+    r1    := array_fill(1,kmx+1,0);
+    r2    := array_addl(array_addl(array_addh(nbcls,0),nbcd),0);
+    core  := array_addl(array_addl(array_addh(
+                                   array_addh(zeros,nbcu),0),nbcd),0);
+    rkmx  := array_addl(array_addh(array_addh(nbcrs,nbcu),0),0);
+
+    nbc   := array_addl( array_addl( array_addh( array_addh( 
+                         array_fill(3,kmx-1,core), rkmx ), r1), r2), r1);
+  in
+    nbc
+  end let
+end function
+
+
+function esubk( klspac:Spac; u,v,mass:Twod returns Double )
+  let
+    kmn := klspac.kmn;
+    kmx := klspac.kmx;
+    lmn := klspac.lmn;
+    lmx := klspac.lmx;
+
+    kmnp := kmn + 1;
+    lmnp := lmn + 1;
+
+    % kineti energy for the whole problem
+ 
+    w1 := for k in kmn, kmx cross l in lmn, lmx 
+            w1 := exp( u[k,l], 2.0D0 ) + exp( v[k,l], 2.0D0 );
+          returns array of w1
+          end for;
+  in
+    for k in kmnp, kmx cross l in lmnp, lmx
+      kineti := mass[k,l]*(w1[k,l]+w1[k-1,l]+w1[k,l-1]+w1[k-1,l-1])
+    returns value of sum kineti
+    end for / 8.0D0
+  end let
+end function
+
+
+function NewPressure( klspac:Spac; p:Twod; msv,nrsv,ntsv:Onei; 
+                      temp,rho:Twod; eoscom:Coeff
+                      returns Twod )
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  p_c := for k in kmnp, kmx
+            p_rc := for l in lmnp, lmx
+                      eosV := eos( msv, nrsv, ntsv, eoscom, 
+                                   temp[k,l],
+                                   rho[k,l], 1 );
+                    returns array of eosV
+                    end for;
+
+            p_r := array_addl( array_addl( 
+                     array_addh(p_rc, p[k,lmx+1]),p[k,lmn] ),p[k,lmn-1]); 
+          returns array of p_r
+          end for;
+
+  p_1 := array_addl( array_addl( 
+                     array_addh( p_c, p[kmx+1]), p[lmn]),p[lmn-1]);
+in
+  p_1
+end let
+end function
+
+
+function NewTemperature( klspac:Spac; temp:Twod; msv,nrsv,ntsv:Onei; 
+			 energy,rho:Twod; eoscom:Coeff 
+			 returns Twod )
+let
+  kmn := klspac.kmn;
+  kmx := klspac.kmx;
+  lmn := klspac.lmn;
+  lmx := klspac.lmx;
+
+  kmnp := kmn + 1;
+  lmnp := lmn + 1;
+
+  tflr  := 0.0001D0;
+
+  t_c := for k in kmnp, kmx
+            t_rc := for l in lmnp, lmx
+                      tempcaV := tempca( msv, nrsv, ntsv, eoscom,
+                                        energy[k,l],
+                                        rho[k,l],
+                                        temp[k,l] );
+                      maxV := max( tempcaV, tflr );
+
+                    returns array of maxV
+                    end for;
+
+            t_r := array_addl( array_addl( 
+                   array_addh(t_rc, temp[k,lmx+1]),temp[k,lmn] ),temp[k,lmn-1]);
+          returns array of t_r
+          end for;
+
+  t := array_addl( array_addl( 
+                    array_addh( t_c, temp[kmx+1]), temp[lmn]),temp[lmn-1]);
+in
+  t
+end let
+end function
+
+
+function Main( returns array[OutInfo] )
+  let
+    tflr  := 0.0001D0;
+    tmax  := 4.999D0;
+    dtmax := 0.1D0;
+
+    % lmn must equal kmn and lmx must equal kmx
+    lmn := 2;
+    lmx := 99;
+    kmn := 2;
+    kmx := 99;
+
+    klspac := record Spac [
+                       kmn:kmn;
+                       kmx:kmx;
+                       lmn:lmn;
+                       lmx:lmx;
+                     ];
+
+    kmnp := kmn+1;
+    lmnp := lmn+1;
+
+    % subroutine setup
+    gamma := 1.6667D0;
+    csubv := 0.1D0;
+    cons  := csubv*(gamma-1.0D0);
+
+
+    eoscom := record Coeff [ 
+                aes:0.0D0;
+                bes:0.0D0;
+
+                ces:array [1: 0.0D0, 0.0D0, 0.0D0, 0.0D0, 0.0D0, 0.0D0,
+                              csubv, csubv, csubv, csubv, csubv, csubv  ];
+
+                des:0.0D0;
+                ees:0.0D0;
+
+                fes:array [1: cons,  cons,  cons,  cons,  cons,  cons,
+                              0.0D0, 0.0D0, 0.0D0, 0.0D0, 0.0D0, 0.0D0 ];
+
+                ges:0.0D0;
+                hes:0.0D0;
+
+                izes:array [1: 1, 7, 13 ];
+
+                ntm1sv:3;
+
+                pes:0.0D0;
+
+                res:array [1: 0.0D0, 3.0D0, 300.0D0, 3.0D10,
+                              0.0D0, 3.0D0, 300.0D0, 3.0D10,
+                              0.0D0 ];
+
+                tes:array[1:  0.0D0, 1.0D0, 100.0D0,
+                              0.0D0, 1.0D0, 100.0D0,
+                              0.0D0 ];
+              ];
+
+    % read only gen stuff
+    bdryco := record Bdry [ pb:array [1: 1.0D0, 0.0D0, 0.0D0 ];
+                            qb:array [1: 1.0D0, 0.0D0, 0.0D0 ];
+                            pbb:array[1: 0.0D0, 6.0D0, 0.0D0 ];
+                            nbc: gen1( klspac );
+                          ];
+
+    rhozer := 1.4D0;
+    tzero  := 0.0001D0;
+
+    msv  := array[1: 1, 7 ];
+    nrsv := array[1: 1, 5 ];
+    ntsv := array[1: 1, 4 ];
+
+    pzero := eos( msv, nrsv, ntsv, eoscom, tzero, rhozer, 1 ); 
+    ezero := eos( msv, nrsv, ntsv, eoscom, tzero, rhozer, 2 );
+    
+  in
+    for initial
+      hn  := 0.0D0;
+      wn  := 0.0D0;
+
+      r,z := gen2( klspac );
+
+      p, 
+      rho,
+      temp,
+      energy,
+      aj,
+      mass := gen3( klspac, r, z, pzero, ezero );
+
+      q := array_fill(1,kmx+1,array_fill(1,lmx+1,0.0D0));
+      v := array_fill(1,kmx+1,array_fill(1,lmx+1,0.0D0));
+      u := array_fill(1,kmx+1,array_fill(1,lmx+1,0.0D0));
+
+      ncycle := 0;
+      tnup   := 0.0D0;
+
+      dtnph  := 0.01D0;
+      dtn    := dtnph;
+
+      cnold  := 0.0D0;
+
+      edit := record OutInfo [
+                ncycle:ncycle;
+                tnup:tnup;
+                dtnph:dtnph;
+                dtc:1.0D10;
+                % kc:0;
+                % lc:0;
+                dte:1.0D10;
+                % ken:0;
+                % len:0;
+		dcn:0.0D0;
+                ];
+
+    repeat
+
+      dte_1 := 1.0D10;
+
+      % calculate new pressure for this cycle
+
+      p_1 := NewPressure( klspac, old p, msv, nrsv, ntsv, 
+			  old temp, old rho, eoscom );
+
+      r_1,
+      z_1 := hbdry1( klspac, old r, old z );
+
+      rho_1,
+      aj_1,
+      q_1,
+      p := hbdry2( klspac, old rho, old aj, old q, p_1, bdryco );
+
+      u,
+      v,
+      r,
+      z := newrz1( klspac, old u, old v, r_1, z_1, p, 
+                   q_1, rho_1, aj_1, old dtn, old dtnph );
+                   
+      dtau,
+      rho,
+      aj := newrz2( klspac, rho_1, mass, r, z, aj_1 );
+
+      wn := old wn + hwork( klspac, p, q_1, u, v, z, r, old dtnph );
+
+      dtc,
+      q := newque( klspac, q_1, p, r, z, u, v, rho, old energy, aj );
+
+      energy_1 := pdvwor( klspac, old energy, dtau, p, q, old temp, rho,
+                          msv, nrsv, ntsv, eoscom );
+
+      ske := esubk( klspac, u, v, mass );
+
+      % get temperature as function of energy and density
+      % insure temperature returned is > floor temperature
+
+      temp_1 := NewTemperature( klspac, old temp, msv, nrsv, 
+				ntsv, energy_1, rho, eoscom );
+
+      % heat conduction
+      energy,
+      temp,
+      dte,
+      dhn := conduc( klspac, old dtnph, dte_1,  energy_1, temp_1, 
+                     aj, mass, r, z, rho,
+                     msv, nrsv, ntsv, eoscom );
+
+      hn := old hn + dhn;
+
+      % calculate new internal energy
+
+      eint := for k in kmnp, kmx cross l in lmnp, lmx
+              returns value of sum energy[k,l] * mass[k,l]
+              end for;
+
+      % *** HOUSE KEEPING ***
+
+      % advance cycle counter
+      ncycle := old ncycle + 1;
+
+      % compute new delta_t
+      dtnmh := old dtnph;
+      dtnph := min( min( dtc, dte ), dtmax );
+      dtn   := 0.5D0 * (dtnph + dtnmh);
+      tnup  := old tnup + dtnph;
+
+      % update energies and energy balance quantities
+      te := ske + eint;
+      cn := te - (hn + wn);
+
+      dcn := if ( ncycle = 1 ) then
+               0.0D0
+             else
+               cn - old cnold
+             end if;
+
+      cnold := cn;
+
+
+      edit := record OutInfo [
+                ncycle:ncycle;
+                tnup:tnup;
+                dtnph:dtnph;
+                dtc:dtc;
+                % kc:kc;
+                % lc:lc;
+                dte:dte;
+                % ken:ken;
+                % len:len;
+		dcn:dcn;
+                ];
+
+    while ( tnup < tmax )
+    returns array of edit
+    end for
+  end let
+end function

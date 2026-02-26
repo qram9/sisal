@@ -1,0 +1,45 @@
+define Main
+
+type Vector = array[ integer ];
+type Matrix = array[ Vector  ];
+
+function Main( M : Matrix returns Matrix )
+   for I in array_liml( M ) + 2, array_limh( M ) - 2
+      V1 := for Y in array_liml( M[I] ) + 2, array_limh( M[I] ) - 2
+               nos1 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I-1,Y+1]) = 1 ) then
+                             if ( M[I+1,Y-1] + M[I-2,Y+2] >= 1 ) then false
+	                     else true end if
+                          elseif ( (M[I+1,Y-1] + M[I+2,Y-2]) = 2 ) then false
+	                  else true end if
+	               else false end if;
+
+               nos2 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I+1,Y+1]) = 1 ) then
+                             if ( M[I-1,Y-1] + M[I+2,Y+2] >= 1 ) then false
+	                     else true end if
+                          elseif ( (M[I-1,Y-1] + M[I-2,Y-2]) = 2 ) then false
+		          else true
+		          end if
+                       else false end if;
+
+               nos3 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I+1,Y-1]     + M[I+2,Y] +
+		                M[I+1,Y ]      + M[I+1,Y+1]) = 4 ) then false
+                          elseif ( (M[I-1,Y-1] + M[I-2,Y] +
+			            M[I-1,Y ]  + M[I-1,Y+1]) = 4 ) then false
+                          elseif ( (M[I,Y+1]   + M[I,Y+2] +
+			            M[I-1,Y+1] + M[I+1,Y+1]) = 4 ) then false
+                          elseif ( (M[I-1,Y-1] + M[I+1,Y-1] +
+			            M[I,Y-1 ]  + M[I,Y-2]) = 4 )   then false
+                          elseif ( (M[I+1,Y]   + M[I-1,Y] +
+			            M[I,Y+1 ]  + M[I,Y-1]) = 4 )   then false
+		          else true end if
+                       else false end if;
+         
+               V2 := if ( nos1 & nos2 & nos3 ) then 0 else M[I,Y] end if;
+            returns array of V2
+            end for
+   returns array of V1
+   end for
+end function

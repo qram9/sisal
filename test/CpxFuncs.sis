@@ -1,0 +1,97 @@
+DEFINE Cadd, Csub, Cmul, Cdiv, Crmul, Crsub, Crdiv, Conjg, Cneg, 
+       Csqrt, Cabs, CabsSqr
+
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal];
+
+% ---------Intrinsic Functions
+global SINR(num : real RETURNS real)
+global COSR(num : real RETURNS real)
+global ATANR(num : real RETURNS real)
+global SQRTR(num : real RETURNS real)
+
+% These subroutines do the arithmatics of complex numbers:
+
+% cnum1 + cnum2
+function Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : cnum1.Repart + cnum2.Repart;
+		    Impart : cnum1.Impart + cnum2.Impart ]
+end function
+
+% cnum1 - cnum2
+function Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : cnum1.Repart - cnum2.Repart;
+		    Impart : cnum1.Impart - cnum2.Impart ]
+end function
+
+% cnum1 * cnum2
+function Cmul(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : cnum1.Repart * cnum2.Repart -
+			   cnum1.Impart * cnum2.Impart;
+	          Impart : cnum1.Repart * cnum2.Impart  + 
+		     	   cnum1.Impart * cnum2.Repart  ]
+end function
+
+% cnum1/cnum2
+function Cdiv(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+LET dnom:= cnum2.Repart * cnum2.Repart + cnum2.Impart * cnum2.Impart;
+IN 
+record CplexReal[ Repart : (cnum1.Repart*cnum2.Repart +
+	         	  cnum1.Impart*cnum2.Impart) / dnom;
+		  Impart : (cnum1.Impart*cnum2.Repart -
+		          cnum1.Repart*cnum2.Impart) / dnom ]
+end LET
+end function
+
+% Real_constant*cnum
+function Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : cons * cnum.Repart; Impart : cons * cnum.Impart ]
+end function
+
+% cnum-Real_constant 
+function Crsub(cnum : CplexReal; cons : real RETURNS CplexReal)
+record CplexReal[ Repart : cnum.Repart-cons; Impart : cnum.Impart ] 
+end function
+
+% cnum/Real_constant
+function Crdiv(cnum : CplexReal; cons : real RETURNS CplexReal)
+record CplexReal[ Repart : cnum.Repart / cons; Impart : cnum.Impart / cons ]
+end function
+
+% conjugate(cnum)=Repart-Impart
+function Conjg(cnum : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : cnum.Repart; Impart : -cnum.Impart ]
+end function
+
+% Cneg(cnum)
+function Cneg(cnum : CplexReal RETURNS CplexReal)
+record CplexReal[ Repart : -cnum.Repart; Impart : -cnum.Impart ]
+end function
+
+% Csqrt(cnum)
+% This routine receives a complex number,  then stripes it into Repart &
+% Impart. It then calculates the magnitude and argument(angle) of the
+% square root of this number and then reconstruct them into the
+% corresponding Real and Imaginary parts. The result is then structured
+% as a RECORD of these two parts before it is returned.
+function Csqrt(cnum:CplexReal RETURNS CplexReal)
+LET
+RR := cnum.Repart;
+II := cnum.Impart;
+mag := SQRTR( SQRTR(RR * RR + II * II) );
+angle := ATANR(II / RR) / 2.0;
+Re, Im := mag * COSR(angle), mag * SINR(angle);
+IN
+record CplexReal[Repart : Re; Impart : Im]
+end LET
+end function
+
+% Cabs(cnum) refers to the MAGNITUDE of the complex number.
+function Cabs(cnum : CplexReal RETURNS real)
+SQRTR(cnum.Repart * cnum.Repart + cnum.Impart * cnum.Impart)
+end function
+
+% CabsSqr(cnum) refers to the MAGNITUDE Square of the complex number.
+function CabsSqr(cnum : CplexReal RETURNS real)
+cnum.Repart * cnum.Repart + cnum.Impart * cnum.Impart
+end function

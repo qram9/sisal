@@ -1,0 +1,66 @@
+% 2-D Explicit Hydrodynamic Fragment
+% Sequential and Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type IOneD  = array[integer];
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop18( n:integer; S,T:double;
+                 ZA,ZB,ZM,ZP,ZQ,ZR,ZU,ZV,ZZ:TwoD
+                 returns TwoD,TwoD )
+  let ZAcore, ZBcore :=
+      for j in 2,6
+        ZArc,ZBrc := 
+	   for i in 2,n
+	   returns array of
+                     (ZP[j+1,i-1] + ZQ[j+1,i-1] - ZP[j,i-1] - ZQ[j,i-1]) *
+                     (ZR[j,i] + ZR[j,i-1]) / (ZM[j,i-1] + ZM[j+1,i-1])
+		   array of
+                     (ZP[j,i-1] + ZQ[j,i-1] - ZP[j,i] - ZQ[j,i]) *
+                     (ZR[j,i] + ZR[j-1,i]) / (ZM[j,i] + ZM[j,i-1])
+           end for;
+      returns array of array_addl( array_addh(ZArc, ZA[j,n+1]), ZA[j,1] )
+              array of array_addl( array_addh(ZBrc, ZB[j,n+1]), ZB[j,1] )
+      end for;
+
+      ZANew := array_addl( array_addh( ZAcore, ZA[7] ), ZA[1] );
+      ZBNew := array_addl( array_addh( ZBcore, ZB[7] ), ZB[1] );
+
+      ZRNew, ZZNew :=
+      for j in 2,6
+        ZRr, ZZr := 
+           for i in 2,n
+             ZUNew := ZU[j,i] + S *
+                      (ZANew[j,i]  * (ZZ[j,i] - ZZ[j,i+1]) -
+                      ZANew[j,i-1] * (ZZ[j,i] - ZZ[j,i-1]) -
+                      ZBNew[j,i]   * (ZZ[j,i] - ZZ[j-1,i]) +
+                      ZBNew[j+1,i] * (ZZ[j,i] - ZZ[j+1,i]));
+             ZVNew := ZV[j,i] + S *
+                      (ZANew[j,i]  * (ZR[j,i] - ZR[j,i+1]) -
+                      ZANew[j,i-1] * (ZR[j,i] - ZR[j,i-1]) -
+                      ZBNew[j,i]   * (ZR[j,i] - ZR[j-1,i]) +
+                      ZBNew[j+1,i] * (ZR[j,i] - ZR[j+1,i]))
+           returns array of ZR[j,i] + T * ZUNew
+                   array of ZZ[j,i] + T * ZVNew
+           end for;
+      returns array of ZRr
+              array of ZZr
+      end for;
+  in  
+      ZRNew, ZZNew
+  end let
+end function
+
+function Main( rep,n:integer; S,T:double;
+                ZAin,ZBin,ZM,ZP,ZQ,ZRin,ZUin,ZVin,ZZin:TwoD
+                returns TwoD,TwoD )
+   for i in 1, rep
+      ZR, ZZ := 
+	 Loop18( n, S, T, ZAin, ZBin, ZM, ZP, ZQ, ZRin, ZUin, ZVin, ZZin );
+   returns value of ZR
+	   value of ZZ
+   end for
+end function

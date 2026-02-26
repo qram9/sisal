@@ -1,0 +1,186 @@
+define main
+
+%%%  The paraffins problem from Turner (FP conference 1981, pp 85-92 )
+%%%  88/3/7 sks
+
+%%% We'll assume the same data structure as Turner, except we'll use an
+%%% array instead of a list.
+
+type Radical = union[	Hydrogen: null;
+			Carbon: array[ Radical ] % always three Radicals
+			];
+
+type Paraffin = array[ Radical ];		% always four Radicals
+
+type Class = array[ Paraffin ];			% distinct Paraffins
+
+function Invert( Molecule: Paraffin returns Paraffin )
+  tagcase Radical := Molecule[ 1 ]
+  tag Hydrogen:
+    Molecule
+  tag Carbon:
+    array_addh( Radical, union Radical[ Carbon: array_setl( array_adjust( Molecule, 2, 4 ), 1 ) ] )
+  end tagcase
+end function % Invert
+
+function Rotate( Molecule: Paraffin returns Paraffin )
+  array Paraffin[1: Molecule[2], Molecule[3], Molecule[4], Molecule[1] ]
+end function % Rotate
+
+function Swap( Molecule: Paraffin returns Paraffin )
+  Molecule[1: Molecule[2], Molecule[1] ]
+end function % Swap
+
+function AreEqual( A, B: Paraffin returns Boolean )
+  for initial
+    i := array_liml( A );
+    j := array_liml( B );
+    Agreement := true;
+  while Agreement & i<=array_limh( A ) repeat
+    RadicalA := A[ old i ];
+    RadicalB := B[ old j ];
+    Agreement :=
+      tagcase L := RadicalA
+      tag Hydrogen:
+        is Hydrogen( RadicalB )
+      tag Carbon:
+        tagcase R := RadicalB
+        tag Hydrogen: false
+        tag Carbon: AreEqual( L, R )
+        end tagcase
+      end tagcase;
+    i := old i + 1;
+    j := old j + 1
+  returns value of Agreement
+  end for
+end function % AreEqual
+
+function IsMember( Set: Class; Candidate: Paraffin returns Boolean )
+  for initial
+    i := array_liml( Set );
+    Membership := AreEqual( Set[ i ], Candidate )
+  while i < array_limh( Set ) & ~Membership repeat
+    i := old i + 1;
+    Membership := AreEqual( Set[ i ], Candidate )
+  returns value of Membership
+  end for
+end function % Member
+
+
+function Format( A: Paraffin returns array[ character ] )
+  "[ " ||
+  for Radical in A
+    Chars :=
+      tagcase R := Radical
+      tag Carbon: Format( R )
+      tag Hydrogen: "H "
+      end tagcase
+  returns value of catenate Chars
+  end for
+  || "] "
+end function % Format
+
+function FormatClass( C: Class returns array[ array[ character ] ] )
+  for Member in C
+  returns array of Format( Member )
+  end for
+end function % FormatClass
+
+function FirstRest( C: Class returns Paraffin, Class )
+  C[ array_liml( C ) ],
+  array_reml( C )
+end function % FirstRest
+
+function Extra( S1, S2: Class returns Class )
+ array_adjust( S2, array_limh( S1 )+1, array_limh( S2 ) )
+end function % Extra
+
+function AddToSet( Set, New: Class returns Class, Class )
+%					new Set, new members
+ let BiggerSet :=
+  for initial
+    S := Set;
+    Additions := New;
+  while array_size(Additions)>0 repeat
+    Molecule, Additions := FirstRest( old Additions );
+    S := if IsMember( old S, Molecule ) then old S else array_addh( old S, Molecule ) end if
+  returns value of S
+  end for
+ in
+    BiggerSet, Extra( Set, BiggerSet )
+ end let
+end function % AddToSet
+
+function Closure( Set, New: Class returns Class, Class )
+%				New Set, New Members
+  let Generated :=
+    for A in New
+      Added :=
+        tagcase A[ 1 ]
+	tag Carbon: array Class[ 1: Invert( A ), Swap( A ), Rotate( A ) ]
+	tag Hydrogen:
+	  tagcase A[ 2 ]
+	  tag Carbon:  array Class[ 1: Swap( A ), Rotate( A ) ]
+	  tag Hydrogen: array Class[ 1: Rotate( A ) ]
+	  end tagcase
+	end tagcase
+    returns value of catenate Added
+    end for
+  in
+    AddToSet( Set, Generated )
+  end let
+end function % Closure
+
+function Equivclass( A: Paraffin returns Class )
+  for initial
+    Set := array Class[ 1: A ];
+    Added := array Class[ 1: A ]
+  until array_size( Added )=0 repeat
+    Set, Added := Closure( old Set, old Added )
+  returns value of Set
+  end for
+end function % Equivclass
+
+function Para( N: integer returns array[ Radical ] )
+  if N=0 then
+    array[ 1: union Radical[ Hydrogen: nil ] ]
+  else
+    for i in 0,(N-1)/3 cross j in i,(N-1-i)/2
+      k := N-1-i-j;
+      OneSet :=
+	for R1 in Para( i ) cross R2 in Para( j ) cross R3 in Para( k )
+          Rad := array[ 1: union Radical[ Carbon: array[ 1: R1, R2, R3 ] ] ]
+	returns value of catenate Rad
+	end for
+    returns value of catenate OneSet
+    end for
+  end if
+end function % Para
+
+function Paraffin( N: integer returns array[ array[ character ] ] )
+  let
+    H := union Radical[ Hydrogen: nil ];
+    NCarbon :=
+      for Radical in Para( N-1 )
+      returns array of array[ 1: Radical, H, H, H ]
+      end for;
+    Quotient :=
+      for initial
+        List := NCarbon;
+	Representative := array Paraffin[ ];	
+      while array_size( List )>0 repeat
+        Representative := old List[ array_liml( old List ) ];
+	List :=
+	  for Molecule in array_reml( old List )
+	  returns array of Molecule unless IsMember( EquivClass( Representative ), Molecule )
+	  end for
+      returns array of Representative
+      end for
+  in
+    FormatClass( array_reml( Quotient ) )
+  end let
+end function % Paraffin
+
+function main( n:integer  returns array[ Radical ] )
+  para(n)
+end function % main

@@ -1,0 +1,22 @@
+define main
+
+% cdf.types -- define types for a record isomorphic to a subset of Candis
+type cdf_cline = array[character];
+type cdf_clist = array[cdf_cline];
+type cdf_param = record[pname: cdf_cline; pval: real];
+type cdf_plist = array[cdf_param];
+type cdf_dim = record[dname: cdf_cline; dsize: integer; ddata: array[real]];
+type cdf_dlist = array[cdf_dim];
+type cdf_field = record[fname: cdf_cline; num_dims: integer;
+     cdf_dhandles: array[integer]; tsize: integer; fdata: array[real]];
+type cdf_flist = array[cdf_field];
+type cdf = record[name: cdf_cline; instance: integer; comments: cdf_clist;
+     params: cdf_plist; dims: cdf_dlist; fields: cdf_flist];
+
+type onec = array[character];
+
+global cdfcreate(file_name: cdf_cline; instance: integer; returns cdf)
+
+function main(returns cdf)
+  cdfcreate("hi mom",1)
+end function

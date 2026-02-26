@@ -1,0 +1,36 @@
+define main
+global sqrt(x: real returns real)
+
+function main( n: integer returns stream[integer] )
+
+let T :=
+   let
+      L := integer(sqrt(real(n)));
+   in
+      for initial
+         a := array_fill(1,n,'0');
+	    j := 2
+      while j <= L repeat
+         j := old j + 1;
+         a := if old a[old j] = '0' then
+	            for initial
+                    i := old j + old j;
+                    b := old a
+                 while i <= n repeat
+                    b := old b[old i: '1'];
+                    i := old i + old j
+                 returns value of b
+                 end for
+              else
+                 old a
+              end if
+      returns value of a
+      end for
+   end let
+in
+   for k in 2,n
+   returns stream of k unless T[k] = '1'
+   end for
+end let
+
+end function

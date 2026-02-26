@@ -1,0 +1,10 @@
+%%% We'll assume the same data structure as Turner, except we'll use an
+%%% array instead of a list.
+
+type Radical = union[	Hydrogen: null;
+			Carbon: array[ Radical ] % always three Radicals
+			];
+
+type Paraffin = array[ Radical ];		% always four Radicals
+
+type Class = array[ Paraffin ];			% distinct Paraffins

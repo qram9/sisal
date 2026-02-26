@@ -1,0 +1,43 @@
+% ICCG Excerpt (Incomplete Cholesky - Conjugate Gradient)
+% Sequential Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop2( n:integer; V,Xin:OneD returns OneD )
+  for initial
+      IL    := n;
+      IPNTP := 0;
+      X     := Xin;
+  while ( IL > 1 ) repeat
+      IPNT  := old IPNTP;
+      IPNTP := old IPNTP + old IL;
+      IL    := old IL / 2; 
+      X     := for initial
+		   k  := IPNT+2;
+		   Xt := old X;
+		   i  := IPNTP;
+               while ( k <= IPNTP ) repeat
+		   k  := old k + 2;
+		   i  := old i + 1;
+		   Xt := old Xt[i: old Xt[old k] - 
+			 (V[old k]   * old Xt[old k-1]) + 
+			 (V[old k+1] * old Xt[old k+1])];
+               returns value of Xt
+	       end for;
+  returns value of X
+  end for
+end function
+
+function Main( rep,n:integer; V,Xin:OneD returns OneD )
+   for initial
+       i := 1;
+       X := Xin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       X := Loop2( n, V, old X );
+   returns value of X
+   end for
+end function

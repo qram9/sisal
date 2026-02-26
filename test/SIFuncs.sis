@@ -1,0 +1,34 @@
+DEFINE ASINR, ACOSR, SQRTR, SINR, COSR, ATANR
+
+% ---------Intrinsic Functions
+global SIN(num : double_real RETURNS double_real)
+global COS(num : double_real RETURNS double_real)
+global ATAN(num : double_real RETURNS double_real)
+global ASIN(num : double_real RETURNS double_real)
+global ACOS(num : double_real RETURNS double_real)
+global SQRT(num : double_real RETURNS double_real)
+
+% Catering for real operations of Intrinsic functions
+function ASINR(num : real RETURNS real)
+real(ASIN(double_real(num)))
+end function
+
+function ACOSR(num : real RETURNS real)
+real(ACOS(double_real(num)))
+end function
+
+function SQRTR(num : real RETURNS real)
+real(SQRT(double_real(num)))
+end function
+
+function SINR( num:real returns real )
+real(SIN(double_real(num)))
+end function
+
+function COSR( num:real returns real )
+real(COS(double_real(num)))
+end function
+
+function ATANR( num:real returns real )
+real(ATAN(double_real(num)))
+end function

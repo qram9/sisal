@@ -1,0 +1,297 @@
+DEFINE MAIN
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+type ArrReal2 = Array[ArrReal1];
+type ArrReal3 = Array[ArrReal2];
+type ArrDreal1 = Array[Double_real];
+type ArrDreal2 = Array[ArrDreal1];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal];
+
+global SINR(num : real RETURNS real)
+global ACOSR(num : real RETURNS real)
+
+global Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
+global CabsSqr(cnum : CplexReal RETURNS real)
+
+global Inital(	ires, ix, iy, mx, jx, jxx : integer; zmean1 : real
+		RETURNS integer, integer, integer, integer, 
+			real, real, real, real, real, 
+			arrint1, arrint1, arrint1, 
+			arrreal1)
+
+global InitFFT(	n : integer
+		RETURNS boolean, boolean, integer, arrint1, 
+			ArrReal1, ArrReal1)
+
+global GaussianQuadrature(nzero : integer 
+	RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrDreal1)
+
+global LegendrePolyOf1stKind(	ir, irmax2, jxxmx : integer;
+		coas, sias, deltas : real
+		RETURNS ArrDreal1)
+
+global SasAlfaSphere(   ir, irmax2, jxxmx, ilath : integer;
+		    alp_double: ArrDReal2
+		    RETURNS ArrReal3)
+
+global Loop_TimeStep(
+		mx, jx, jxx, ilin, mx2, jxmx, jxxmx, nfax, ilath, imp, 
+		istart, idumpt, ir, irmax2, ires, ix, ixh, iy, delt, ilong, 
+		izon, ifirst, ihkont : integer;
+	   	hdiff, hdrag, tw, zmean, vnu, asq, ww, grav : real;
+		kmjx, kmjxx, ksq, ifax : ArrInt1;
+		epsi, wocs : ArrReal1;
+		alp : ArrReal3;
+		p, c, z, h : ArrCplexReal;
+		p1 : ArrReal1;
+		pm, cm, zm : ArrCplexReal;
+		trigb, trigf : ArrReal1
+
+		RETURNS Integer,
+		    ArrCplexReal, ArrCplexReal, 
+		    ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+		    ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+		    %ArrReal2, ArrReal2, ArrReal2, ArrReal2, 
+		    ArrReal1, ArrReal1, ArrReal1, 
+		    real, real, real, real, real, real, real, real)
+
+function MAIN(	
+	ires, ix, iy,
+	ktotal, idelt, idumpt_i, nrun, imp, istart, izon, ilin:integer;
+	zmean_1, hdiff, hdrag, vnu:real;
+	p_in, c_in, z_in, zt_mountain:ArrCplexReal
+
+	RETURNS Boolean, Boolean,
+	% ArrReal3, ArrReal3, ArrReal3, ArrReal3,      % _Grid fields
+	ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal, % tendency
+	ArrReal1, ArrReal1, ArrReal1, 		 	% energy
+	ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrReal1, % Angularmomentum
+	ArrReal1, ArrReal1, ArrReal1)			% specam
+LET
+ixh := ix/2;		
+iyh := iy/2;
+jxx := ires + 2;
+jx := ires + 1;
+mx := ires + 1;
+jxxmx := jxx * mx;
+jxmx := jx * mx;
+mxmx := mx * mx;
+mx2 := mx * 2;
+jxmx2 := jxmx * 2;
+jxxmx2 := jxxmx * 2;
+
+ifirst := 1;
+itflag := 1;
+iglobe := 2;
+delt := idelt;
+idumpt := IF idumpt_i = 0 THEN 1000
+			  ELSE idumpt_i
+	  END IF;
+
+zero := record CplexReal[Repart : 0.0; Impart : 0.0];
+
+ir, ilong, ilath, irmax2, ww, zmean, tw, asq, grav, 
+kmjx, kmjxx, ksq_1_uncared_for, epsi := 
+	Inital(ires, ix, iy, mx, jx, jxx, zmean_1);
+
+ksq := ARRAY[0 : 0] || ksq_1_uncared_for || ARRAY[1 : 0, 0];
+
+AbortFFT, AbortInitFFT, nfax, ifax, trigf, trigb := InitFFT(ix);
+
+coa, w, sia, delta, wocs, WORKiyh := GaussianQuadrature(ilath);	% size iyh
+
+wix := 	IF ilin = 0		% Indeed
+	THEN	FOR lat_level IN 1, ilath
+		dummy := w[lat_level] / real(ix)
+		RETURNS ARRAY of dummy
+		END FOR
+	ELSE 	w
+	END IF;		% size iyh; of the North
+
+winv, coainv := FOR lat_level IN 1, ilath
+		winv := wix[iy / 2 + 1 - lat_level];
+		coainv := -coa[iy / 2 + 1 - lat_level]
+		RETURNS ARRAY of winv
+			ARRAY of coainv
+		END FOR;	
+
+wiy, coaiy :=  wix || winv,  coa || coainv;	% size iy; of North & South
+
+deltaiy, siaiy, wocsiy := 	% size iy; of North & South
+	FOR lat_level IN 1, iy
+		deltai :=  ACOSR(coaiy[lat_level]);
+		siai :=  SINR(deltai);
+		wocsi :=  wiy[lat_level] / (siai * siai);
+	RETURNS ARRAY of deltai
+		ARRAY of siai
+		ARRAY of wocsi
+	END FOR;
+wocsilath, wilath := 
+	IF iglobe = 2	% Indeed, highlight the South
+	THEN wocsiy, wiy
+	
+	ELSE	FOR lat_level in 1, ilath
+		wocsiyhalf := 2.0 * wocsiy[lat_level]
+		RETURNS ARRAY of wocsiyhalf
+		end FOR		
+		|| ARRAY_adjust(wocsiy, ilath + 1, iy), 
+
+		FOR lat_level in 1, ilath
+		wiyhalf := 2.0 * wiy[lat_level]
+		RETURNS ARRAY of wiyhalf
+		end FOR
+		|| ARRAY_adjust(wiy, ilath + 1, iy)
+	END IF;
+
+alp_double := 	
+    FOR lat_level IN 1, ilath
+    alp_LGN := LegendrePolyOf1stKind(ir, irmax2, jxxmx, coaiy[lat_level], 
+		     siaiy[lat_level], deltaiy[lat_level]);
+    RETURNS ARRAY of alp_LGN
+    END FOR;			% arraysize [iyh levels, spectral_indices]
+
+alp := SasAlfaSphere(ir, irmax2, jxxmx, ilath, alp_double);
+
+% When these two are put out seperately, if1opt disallows.
+%constant := grav / asq;
+%var := for diffindex in 2, jxmx returns value of sum CabsSqr(zt_mountain[diffindex])
+%	end for;
+%h := for index in 1, jxmx returns array of Crmul(constant, zt_mountain[index])
+%	end for;
+
+constant := grav / asq;
+var, h :=   for index in 1, jxmx 
+	    returns value of sum 
+			IF index ~= 1 THEN CabsSqr(zt_mountain[index])
+			ELSE 0.0
+			END IF
+		    array of Crmul(constant, zt_mountain[index])
+	    end for;
+
+hnew := IF ilin = 0	% Indeed
+	THEN h
+	ELSE 	ARRAY_fill(1, jx, zero) || ARRAY_adjust(h, jx + 1, jxmx)
+       	END IF;
+
+p, c_taken, z := FOR row IN 1, jxmx
+	   p, c, z:= IF row <= 256 THEN p_in[row], c_in[row], z_in[row]
+				   ELSE zero, zero, zero
+		     END IF;
+	   RETURNS ARRAY of p
+		   ARRAY of c
+		   ARRAY of z
+	   END FOR;
+
+c := 	IF istart = 0 THEN ARRAY_FILL(1, jxmx, zero) 	% Indeed
+	ELSEIF ARRAY_SIZE(c_in) = 0 THEN ARRAY_FILL(1, jxmx, zero)
+	ELSE c_taken 
+	END IF;
+	
+znew :=	IF istart = 0 		% Indeed
+	    %--------------------------------------Linear Balance Equation
+    	THEN   
+	    For m IN 1, mx 
+	    zjm :=
+		FOR j IN 1, jx
+		jm :=  kmjx[m] + j;
+		jmx :=  kmjxx[m] + j;
+		realn :=  real(m + j - 2);
+		realn1 := realn + 1.0;
+		zj:=IF ~(j = 1 & m = 1) & ~(j = jx & m = mx)
+			THEN Crmul( - tw / realn / realn1, 
+			     Cadd(Crmul(realn1 / realn * epsi[jmx], p[jm - 1]), 
+			     Crmul(realn / realn1 * epsi[jmx + 1], p[jm + 1])))
+		    ELSEIF (j = jx & m = mx)
+		    THEN Crmul( - tw / realn / realn * epsi[jmx], p[jm - 1])
+		    ELSE zero 
+		    END IF
+		RETURNS ARRAY of zj
+		END FOR
+	    RETURNS VALUE of CATENATE zjm
+	    END FOR
+	    %-----------------------------
+	ELSEIF array_size(z_in) = 0 THEN ARRAY_FILL(1, jxmx, zero)
+	ELSE z
+    	END IF;
+pm := p;
+p1 := 	FOR j IN 1, jxmx
+	p1 := p[j].Repart
+	RETURNS ARRAY of p1 
+	END FOR;
+cm := c;
+zm := znew;
+
+% Loop_TimeStep Procedure
+% ktotal denotes the total number of timesteps intended.
+
+%p_GridSphere, z_GridSphere, u_GridSphere, v_GridSphere, 
+newct, newpt, newzt, newe, 
+ptot, ktot, totalenergy, 
+atot, atot1, wtot, totalangmom, totalangmom1, 
+ampk, ampvor, ampz := 
+
+	FOR INITIAL
+	emptyArrCplexReal := ARRAY ArrCplexReal [];
+	%emptyArrReal2 := ARRAY ArrReal2 [];
+	emptyArrReal1 := ARRAY ArrReal1 [];
+        Ifirst_loop := ifirst;
+	newct, newpt, newzt, newe := emptyArrCplexReal, emptyArrCplexReal, 
+				     emptyArrCplexReal, emptyArrCplexReal;
+	newc, newp, newz, newcm, newpm, newzm := c, p, znew, cm, pm, zm;
+	%p_GridSphere, z_GridSphere, u_GridSphere, v_GridSphere:=emptyArrReal2;
+	ampk, ampvor, ampz := emptyArrReal1, emptyArrReal1, emptyArrReal1;
+	atot, atot1, wtot, totalangmom, totalangmom1, 
+	ptot, ktot, totalenergy := 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+	th_time_step := 1;
+
+	WHILE th_time_step <= ktotal REPEAT
+	th_time_step := old th_time_step + 1;
+
+        Ifirst_loop,
+	newct, newpt, newzt, newe, 
+	newc, newp, newz, newcm, newpm, newzm,
+	%p_GridSphere, z_GridSphere, u_GridSphere, v_GridSphere, 
+	ampk, ampvor, ampz, 
+	atot, atot1, wtot, totalangmom, totalangmom1, 
+	ptot, ktot, totalenergy :=
+	   Loop_TimeStep(mx, jx, jxx, ilin, mx2, jxmx, jxxmx, nfax, ilath, imp, 
+		istart, idumpt, ir, irmax2, ires, ix, ixh, iy, delt, ilong, 
+		     	izon, old Ifirst_loop, old th_time_step, 
+			hdiff, hdrag, tw, zmean, vnu, asq, ww, grav, 
+			kmjx, kmjxx, ksq, ifax, epsi, wocsilath, alp, 
+			old newp, old newc, old newz, hnew, p1,
+			old newpm, old newcm, old newzm, trigb, trigf);
+
+        RETURNS %ARRAY of p_GridSphere
+		%ARRAY of z_GridSphere
+		%ARRAY of u_GridSphere
+		%ARRAY of v_GridSphere
+		VALUE of newct
+		VALUE of newpt
+		VALUE of newzt
+		VALUE of newe
+		ARRAY of ptot
+		ARRAY of ktot
+		ARRAY of TotalEnergy
+		ARRAY of atot
+		ARRAY of atot1
+		ARRAY of wtot
+		ARRAY of totalangmom
+		ARRAY of totalangmom1
+		VALUE of ampk
+		VALUE of ampvor
+		VALUE of ampz
+	End FOR;
+IN
+AbortFFT, AbortInitFFT,
+%p_GridSphere, z_GridSphere, u_GridSphere, v_GridSphere, 
+newct, newpt, newzt, newe, 
+ptot, ktot, totalenergy, 
+atot, atot1, wtot, totalangmom, totalangmom1, 
+ampk, ampvor, ampz
+
+end LET
+end function % -- Main

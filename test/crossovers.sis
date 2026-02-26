@@ -1,0 +1,123 @@
+% Functions to handle crossovers
+%
+
+define Are_Crossed, Find_All_Crosses, Remove_Edge, Check_Crossed
+
+%$include ("anneal.sish")
+
+%========================================================================
+%  Test for crossed edges
+%========================================================================
+
+function Are_Crossed ( a,b : Edge_Type; Nodes : Node_List
+	returns boolean )
+
+if a[1] = b[2] | a[2] = b[1] | a[1] = b[1] | a[2] = b[2] then 
+	false
+else
+let x1,y1,x2,y2,x3,y3,x4,y4 :=
+	Nodes[a[1]].x, Nodes[a[1]].y,
+	Nodes[a[2]].x, Nodes[a[2]].y,
+	Nodes[b[1]].x, Nodes[b[1]].y,
+	Nodes[b[2]].x, Nodes[b[2]].y;
+
+	C1 := (x1-x2);		% Coefficients for slopes
+	C2 := (y1-y2);		% And parametric equations
+	C3 := (x3-x4);
+	C4 := (y3-y4);
+
+	DN := C2*C3 - C1*C4;	% Determinant of coefficients
+
+	P1 := if DN = 0 then false 
+
+	else
+	let
+
+	D3 := C4*X3 - C3*Y3 + C3*Y1 - C4*X1;
+	D4 := C2*X3 - C1*Y3 + C1*Y1 - C2*X1;
+
+	P := if DN > 0 then
+		D3 >= 0 & D3 <= DN & D4 >= 0 & D4 <= DN
+	     else
+		D3 <= 0 & D3 >= DN & D4 <= 0 & D4 >= DN
+	     end if;
+	in 
+	  p
+	end let
+
+	end if
+in
+	P1
+end let
+
+end if
+
+end function
+
+%=========================================================================
+%  Find all crossed lines
+%=========================================================================
+
+function Find_All_Crosses ( Itinerary : Itin_Type; Nodes : Node_List
+	returns Cross_List )
+
+for I in 1, array_size (Itinerary) - 3
+	E1 := array [1: Itinerary[I], Itinerary[I+1]];
+%	CL := for J in I+2, array_size (Itinerary) - 1
+%		E2 := array [1: Itinerary[J], Itinerary[J+1]];
+%		returns array of array [1: E1, E2]
+%			when Are_Crossed (E1, E2, Nodes)
+%		end for;
+	CL := for initial
+		J := I+2;
+		C1 := array Cross_List [];
+		while J < array_size (Itinerary) repeat
+			E2 := array [1: Itinerary[old J],
+				Itinerary[old J+1]];
+			C1 := if Are_Crossed (E1,E2,Nodes) then
+				array_addh(old C1, 
+					array[1:E1, E2])
+				else
+					old C1
+				end if;
+			J := old J+1;
+		returns
+			value of C1
+	end for;
+returns
+	value of catenate CL
+end for
+
+end function
+		
+%==========================================================================
+%  Check a new edge for crossed edges
+%==========================================================================
+
+function Check_Crossed (E:Edge_type; Itinerary:Itin_type; Nodes:Node_List
+	returns Cross_List)
+
+for I in 1, array_size (Itinerary) - 1
+	E2 := array [1:Itinerary[I], Itinerary[I+1] ]
+returns
+	array of array [1:E, E2] when Are_Crossed(E, E2, Nodes)
+end for
+
+end function
+
+
+%===========================================================================
+%  Remove an edge from the cross lisst
+%===========================================================================
+
+function Remove_Edge (C: Cross_List; E: Edge_Type  returns Cross_List)
+
+for CE in C
+returns array of CE unless (CE[1,1] = E[1] & CE[1,2] = E[2]) |
+			   (CE[1,2] = E[1] & CE[1,1] = E[2]) |
+			   (CE[2,1] = E[1] & CE[2,2] = E[2]) |
+			   (CE[2,2] = E[1] & CE[2,1] = E[2])
+end for
+
+end function
+

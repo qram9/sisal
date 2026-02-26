@@ -1,0 +1,262 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                            %%
+%%   Contains functions to calculate successor array          %%
+%%   Compare 2 rows.  For each segment of the first row,      %%
+%%   return the index of the first segment of row 2 which     %%
+%%   can be a successor.                                      %%
+%%                                                            %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+function Compare (Row1,             % row 1
+                  Row2: AB_OneDim;  % row 2
+                  Del: Real;        % difference between starts of segments of row 2
+                  Q,                % number of segments - 1
+                  N: Integer        % number of jobs
+                 returns
+                  Int_OneDim)       % array of index of first successor segment
+%
+%  Compare two rows and generate index array
+%
+   for I in 1, Q+1
+      Diff := Row1[I].Beta - Row2[1].Alpha;
+      Indx :=
+          % see if the segment has any successors
+         if ((Diff > 0.0) & (Del = 0.0)) then
+            0
+
+         % all segments of row 2 are successors for this segment
+         elseif (Diff <= 0.0) then
+            1
+
+         % might have a successor if shift isn't greater than Q+1
+         else
+            let
+               % calculate segment index of successor
+               RIndx := (Diff / Del) + 1.0;
+               IIndx := Floor(RIndx);
+               Indx :=
+                  if ((RIndx - Real(IIndx)) = 0.0) then
+                     IIndx
+                  else
+                     IIndx+1
+                  end if;
+            in
+               % see if index is too big
+               if (Indx > (Q+1)) then
+                  0
+               else
+                  Indx
+               end if
+            end let
+         end if;
+   returns
+      array of Indx
+   end for
+end function   % end of Compare
+
+
+
+function RowSum (Row: Int_OneDim  % row of values to sum
+                returns
+                 Integer)         % sum of elements in row
+%
+%   Sum up elements in a row
+%
+   for Elt in Row
+   returns 
+      value of tree sum Elt        % do log sum
+   end for
+end function   % end of RowSum
+
+
+
+function Successors (AB : AB_TwoDim;     % alpha beta array of starts and finishes
+                     Del : Real_OneDim;  % array of deltas between starts / job
+                     Q : Integer;        % still Q
+                     N : Integer         % still N
+                    returns
+                     Int_OneDim)         % array of rows in complete conflict
+%
+%  Calculate successor for each row
+%
+   for I in 1, N-1
+      % compare row pairwise
+      IndexRow := Compare (AB[I], AB[I+1], Del[I+1], Q, N);
+
+      % find out which rows are in complete conflict with their successor
+      Zero := RowSum (IndexRow);
+   returns
+      array of Zero
+   end for || array Int_OneDim [1: 0]       % add flag for row N
+end function    % end of Successors
+
+
+
+function GenLinks (AB : AB_TwoDim;        % alpha beta array
+                   Zeros : Int_Onedim;    % array of rows in conflict
+                   N,                     % still N
+                   Q: Integer;            % still Q
+                   Del: Real_OneDim       % still deltas between starts / Job
+                  returns
+                   Int_ThreeDim,
+                   Seg_TwoDim,
+                   Int_Twodim,
+                   Int_OneDim)
+%
+%  generate the real successor array and pointer array
+%
+   let
+      % find how wide the row array will be by counting number of rows in
+      % conflict immediately after (association for the eunuchification of religion).
+      % This is an optimization to limit the depth of the ptrs array.
+      InitDepth, InitLinks, Flags, InitVs :=
+         for I in 1, (N-1)
+            Depth :=
+               % get worst case size by counting successors in conflict
+               for initial
+                  Cnt := 1;
+               while (((I+Cnt) < N) & (Zeros[I+Cnt] = 0))
+               repeat
+                  Cnt := old Cnt + 1;
+               returns
+                  value of Cnt
+               end for;
+      
+            Layer, Flags, Vs :=
+               % do appropriate compareisons 
+               for J in 1, Depth
+                  Dest := I + J;
+                  IvsJ := Compare (AB[I], AB[Dest], Del[Dest], Q, N);
+                  Flag := RowSum (IvsJ);
+               returns
+                  array of IvsJ
+                  array of Flag
+                  array of Dest
+               end for;
+         returns
+            array of Depth
+            array of Layer
+            array of Flags
+            array of Vs
+         end for;
+
+      % compress out zeros of rows in conflict because they just indicate path
+      % termination and if there is a longer path they won't be the max.  If
+      % all jobs to the end are in conflict, save one row of zeros.
+      ShortLinks, ShortVs, ShortDepth :=
+         for I in 1, N-1
+            % count the number of zero rows in this layer
+            NumZeros :=
+               for J in 1, (InitDepth[I] - 1)
+                  Zero :=
+                     if (Flags[I,J] = 0) then
+                        1
+                     else
+                        0
+                     end if;
+               returns
+                  value of tree sum Zero
+               end for;
+               
+            % compress zero rows in layer and versus for layer
+            % NOTE: VS array tells which jobs are being compared
+            Layer, Vs :=
+               % if there are zeros, they will be at the beginning.
+               for initial
+                  Layer := InitLinks[I];
+                  Vs := InitVs[I];
+                  J := 1;
+               while (J < NumZeros)
+               repeat
+                  J := old J + 1;
+                  Layer := array_reml(old Layer);
+                  Vs := array_reml(old Vs);
+               returns
+                  value of Layer
+                  value of Vs
+               end for;
+
+            % number of rows in layer after ripping out extra zero rows
+            Depth := InitDepth[I] - NumZeros;
+
+         returns
+            array of Layer
+            array of Vs
+            array of Depth
+         end for;
+
+      % fudge in an extra row into links for job N
+      Links := ShortLinks || array [1: array [1: array_fill(1,Q+1,0)]];
+      Vs := ShortVs || array [1: array [1: 1]];
+      Depth := ShortDepth || array [1: 1];
+
+      % For 10 points and a headache.  Guess what the following does.....
+      % Generate ptr array
+      % brute force the search and summation to generate enable counts.
+      % an enable count indicates the number of incoming arcs to that segment.
+      ECnts :=
+         for Job in 1, N        % for each job in ptr array
+            RowECnts :=
+               if (Job = 1) then
+                  array_fill(1,(Q+1),0)
+               else
+                  for Seg in 1, (Q+1)   % for each segment in ptr array
+                     % look through all jobs which could link to this job
+                     Cnt := 
+                        for I in 1, (Job-1)
+                           % see if they actually reference the job
+                           RowECnt :=
+                              for J in 1, Depth[I]
+                                 Val :=
+                                    % if they reference job, sum for this segment
+                                    if (Vs[I,J] = Job) then
+                                       for K in 1, (Q+1)
+                                          SegVal :=
+                                             if (Links[I,J,K] = Seg) then
+                                                1
+                                             else
+                                                0
+                                             end if
+                                       returns
+                                          value of tree sum SegVal
+                                       end for
+                                    else
+                                       0
+                                    end if;
+                              returns
+                                  value of tree sum Val
+                              end for;
+                        returns
+                           value of tree sum RowECnt
+                        end for
+                  returns
+                     array of Cnt
+                  end for
+               end if;
+         returns
+            array of RowECnts
+         end for;
+
+      % now generate the segment records for each job
+      Ptrs :=
+         for I in 1, N cross
+             J in 1, (Q+1)
+            Seg := record SegRec [EnableCnt : ECnts[I,J];
+                                  Max: record MaxRec [Val : 0;
+                                                      Job : 0;
+                                                      Seg : 0];
+                                  Priority: AB[I,J].Priority;
+                                  Fired: FALSE;
+                                  Leaf: FALSE];
+         returns
+            array of Seg
+         end for;
+
+   in
+      Links, Ptrs, Vs, Depth
+   end let
+end function    % end of GenLinks
+

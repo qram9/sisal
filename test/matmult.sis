@@ -1,0 +1,18 @@
+%$entry=multiply
+define multiply
+
+type OneD = array[double_real];
+type TwoD = array[OneD];
+
+% Multiple A[1..x, 1..y] and B[1..y, 1..z].
+%
+function multiply(x,y,z: integer; A, B: TwoD returns TwoD)
+
+  for i in 1, x cross j in 1, z
+    Cij := for k in 1, y
+           returns value of sum A[i, k] * B[k, j]
+           end for
+  returns array of Cij
+  end for
+
+end function % multiply

@@ -1,0 +1,121 @@
+% Gauss-Jordan elimination with full pivoting, based on the routine given
+% in the book "Numerical Recipes-The Art of Scientific Computing" (Press,
+% Flannery, Teukolsky, Vetterling) pages 28-29.
+%
+% A is an input matrix of NxN double_real floating point numbers and B is
+% a vector of N double_real floating point numbers.   The program returns
+% the vector x in the equation A x = B.  If A is singular, an error value
+% is NOT generated.
+%
+
+define Main
+
+type double = double_real;
+type OneI   = array[integer];
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+
+function Max(A: TwoD returns double, OneD)
+
+   for row in A
+       max := for x in row
+              returns value of greatest abs(x)
+              end for
+   returns value of greatest max
+           array of max
+   end for
+
+end function % Max
+
+
+
+function Index_of_Max(max: double; maxs: OneD; A: TwoD
+                      returns integer, integer)
+
+   let
+       row := for x in maxs at i
+              returns value of least i when x = max
+              end for;
+       col := for x in A[row] at j
+              returns value of least j when abs(x) = max
+              end for
+   in
+       row, col
+   end let
+
+end function % Index_of_Max
+
+
+
+function Reduce_and_Max(pivot: integer;
+                        PIVR: OneI; A: TwoD; B: OneD
+                        returns TwoD, OneD, double, OneD)
+
+   for row in A at i
+
+       mult          := A[i, pivot] / A[pivot, pivot];
+
+       rrow, max, rB :=
+             if i = pivot then
+
+                for x in row returns
+                    array of x / A[pivot, pivot]
+                    value of 0.0d0
+                end for,
+                B[i] / A[pivot, pivot]
+
+             elseif PIVR[i] = 1 then
+
+                for x in row at j returns
+                    array of x - mult * A[pivot, j]
+                    value of 0.0d0
+                end for,
+                B[i] - mult * B[pivot]
+        
+             else
+ 
+                for x in row at j
+                    rx := x - mult * A[pivot, j]
+                returns array of rx
+                        value of greatest abs(rx)
+                end for,
+                B[i] - mult * B[pivot]
+
+             end if
+
+   returns array of rrow
+           array of rb
+           value of greatest max
+           array of max
+   end for
+
+end function % Reduce_and_Max
+
+
+
+function Main(n: integer; Ain: TwoD; Bin: OneD  returns OneD)
+
+   for initial
+
+       i    := 0;
+       A, B := Ain, Bin;
+       PIVR := array_fill(1, n, 0);
+
+       max, maxs := Max(A); 
+       row, col  := Index_of_Max(max, maxs, A)
+
+   while i < n repeat
+
+       i      := old i + 1;
+       A1, B1 := old A[old col: old A[old row]; old row: old A[old col]],
+                 old B[old col: old B[old row]; old row: old B[old col]];
+       PIVR   := old PIVR[old col: 1];
+
+       A, B, max, maxs := Reduce_and_Max(old col, PIVR, A1, B1);
+       row, col        := Index_of_Max(max, maxs, A)
+
+   returns value of B
+   end for
+
+end function % Main

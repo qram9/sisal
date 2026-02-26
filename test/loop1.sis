@@ -3,6 +3,7 @@
 
 Define  Main
 
+type double = double_real;
 type OneD   = array[double];
 
 function Loop1( n:integer; Q,R,T:double; Y,Z:OneD returns OneD )

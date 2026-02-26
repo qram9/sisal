@@ -1,0 +1,1937 @@
+%$entry=MainWithoutStripMining
+Define MainWithoutStripMining
+
+% This is a Sisal version of Michael Welcome's unsplit integrator, from the
+% Adaptive Mesh Refinement Hydrodynamics code, by Welcome, Bell, and Colella
+% of Lawrence Livermore National Laboratory. That code implements the method
+% developed by Colella and reported in "Multidimensional Upwind Methods for
+% Hyperbolic Conservation Laws", by philip Colella, Journal of Computational
+% Physics, % Vol 87, No. 1, March 1990.
+%
+% The Sisal version was written by T. DeBoni, J. Feo, and D. Cann, of the
+% Computer Research Group, Computing and Mathematics Research Division, of
+% LLNL, in December of 1990.
+%
+% Sisal is an applicative language for parallel programming, developed at
+% LLNL.
+%
+%==============================================================================
+% D A T A   A N D   C O N T R O L   V A L U E S
+%==============================================================================
+
+#define NCX_PARAM  4
+#define NVAR_PARAM 4
+
+% nvar		number of conserved quantities
+% ncx		number of bndry cells for integrator
+% mxdim1	stripped grid dimension in I-Direction
+% mxdim2	stripped grid dimension in J-Direction
+% max1d		max(mxdim1,mxdim2), used for allocating temporary 1-D arrays
+% ndim1		actual grid dimension in I-Direction
+% ndim2		actual grid dimension in J-Direction
+%
+% maxstep	number of steps to run
+% stoptime	max simulation time
+% intplot	how often to write plot file	
+% maxplots	ignore, just set to 1
+% nxcell	number of cells in X direction
+% nycell	number of cells in Y directioN
+% xlft		physical position of left edge of domain
+% xrgt		physical position of right edge of domain
+% ybot		physical position of bottom edge of domain
+% ytop		physical position of top edge of domain
+% cfl		cfl number, 0.9 is good
+% gamma		polytropic gas constant
+% difmag	coef of artificial visc.
+% timefact	initial scaling of timestep
+% lstrip	stripmine if true
+% ldebug	??? i forgot
+% lnewton	print out stats of riemann solver
+% ncheck	how often to write checkpoint file
+% nupdate	how often to inform user of progress
+% niter		number of iterations in Riemann solver
+%
+% shockdir	direction of shock, 1=x, 2=y
+% shockpos	position of shock front
+% rmach		shock mach number
+% denfact	density ratio between cloud and ambient
+% xcld		(xcld,ycld) = position of circular cloud of gas
+% ycld		see above comment
+% radius	radius of cloud
+% xperiod	true if periodic in x direction
+% yperiod	true if periodic in y direction
+%
+% godorder	determines whether the solution is godunov order one or two
+
+%==============================================================================
+%  T Y P E   D E C L A R A T I O N S
+%==============================================================================
+
+type Data_Record = record [
+			MaxStep : integer;
+			StopTime : double_real;
+			IntPlot, MaxPlots, NXCell, NYCell, Ncx, Ncy,
+				NDim1, NDim2 : integer;
+			XLft, XRgt, YBot, YTop, Cfl, Gamma, DifMag,
+				TimeFact, Chngmax : double_real;
+			LStrip, LDebug, LNewton : Boolean;
+			NCheck, NUpdate, NIter, NVar, Nc1, Nc2,
+				MxDim1, MxDim2 : integer;
+			ShockDir, ShockPos, RMach, DenFact, XCld, YCld,
+				Radius: double_real;
+			XPeriod, YPeriod : Boolean;
+                        GodOrder : integer ];
+
+type OneDim = array [ double_real ];
+
+type PlaneArray = array [ OneDim ];
+
+type SystemArray = array [ PlaneArray ];
+
+type SystemStreamType = stream [ SystemArray ];
+
+type Plot = record [ NX, NY : integer;
+		     VMax, VMin : double_real;
+		     XCellCenters, YCellCenters : array [ double_real ];
+		     UOut : PlaneArray ];
+
+type PlotStreamType = stream [ Plot ];
+
+
+%==============================================================================
+%  G L O B A L   F U N C T I O N S 
+%==============================================================================
+
+global sqrt( x : double_real returns double_real )
+
+%==============================================================================
+%  F U N C T I O N   D E F I N I T I O N S
+%==============================================================================
+
+function acopy( A:OneDim; lo,hi:integer returns OneDim )
+  for i in lo,hi returns array of A[i] end for
+end function
+
+function sign( x, y : double_real returns double_real )
+if y >= 0.0d0 then abs( x ) else -abs( x ) end if
+end function %% sign
+
+%==============================================================================
+
+function sqr( x : double_real returns double_real )
+x*x
+end function %% sqr
+
+%==============================================================================
+
+function ProbInit( nx, ny : integer;
+                   xlft, xrgt, ybot, ytop : double_real;
+                   nstep : integer;
+                   time, gamma, denfact, rmach, xcld, ycld,
+                        shockdir, shockpos, radius : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray )
+
+% This function initializes the system state vectors to values that are
+% functions of the input data.
+
+%---------------------------------------
+% EMBEDDED FUNCTIONS
+%---------------------------------------
+
+function xcen( xl, dx : double_real; i : integer returns double_real )
+xl + dx * ( double_real( i ) - 0.5d0 )
+end function %% xcen
+
+%---------------------------------------
+
+function ycen( yb, dy : double_real; j : integer returns double_real )
+yb + dy * ( double_real( j ) - 0.5d0 )
+end function %% ycen
+
+%---------------------------------------
+
+function distsq( xc, xcld, yc, ycld : double_real returns double_real )
+sqr(xc-xcld) + sqr(yc-ycld)
+end function %% dist
+
+%---------------------------------------
+
+function buildplane1( nx, ny : integer;
+		      xlft, dx, xcld, shockpos,
+		      ybot, dy, ycld, radius,
+		      val_x_left_of_shk, val_dist_le_radius,
+		      val_dist_gt_radius : double_real
+		      returns PlaneArray )
+for j in 1, ny
+returns array of
+	for i in 1, nx
+		xceni := xcen( xlft, dx, i )
+	returns array of
+		if xceni < shockpos then
+			val_x_left_of_shk
+		elseif distsq( xceni, xcld, ycen( ybot, dy, j ), ycld )
+		       <= sqr( radius ) then
+			val_dist_le_radius
+		else	val_dist_gt_radius
+		end if
+	end for
+end for
+end function %% buildplane1
+
+%---------------------------------------
+
+function buildplane2( nx, ny : integer;
+		      xlft, dx, xcld, shockpos,
+		      ybot, dy, ycld, radius,
+		      val_y_below_shk, val_dist_le_radius,
+		      val_dist_gt_radius : double_real
+		      returns PlaneArray )
+for j in 1, ny
+returns array of
+	for i in 1, nx
+		ycenj := ycen( ybot, dy, j )
+	returns array of
+		if ycenj < shockpos then
+			val_y_below_shk
+		elseif distsq( xcen( xlft, dx, i ), xcld, ycenj, ycld )
+		       <= sqr( radius ) then
+			val_dist_le_radius
+		else	val_dist_gt_radius
+		end if
+	end for
+end for
+end function %% buildplane2
+
+%---------------------------------------
+
+let
+	zero	:= 0.0d0;
+	half	:= 0.5d0;
+	one	:= 1.0d0;
+	two	:= 2.0d0;
+        gamm1   := gamma - one;
+        gamp1   := gamma + one;
+
+        rhoamb  := one;
+        pamb    := one/gamma;
+        eambi   := pamb/(gamm1*rhoamb);
+        unamb   := zero;
+        utamb   := zero;
+        eamb    := rhoamb*eambi;
+
+        rhocld  := rhoamb*denfact;
+        pcld    := pamb;
+        ecldi   := pcld/(gamm1*rhocld);
+        uncld   := zero;
+        utcld   := zero;
+        ecld    := rhocld*ecldi;
+
+        ashk    := sqrt(gamma*pamb/rhoamb);
+        ushk    := ashk*two*(sqr(rmach)-one)/(gamp1*rmach);
+        rhoshk  := rhoamb*(gamp1*sqr(rmach))/(gamm1*sqr(rmach) + two);
+        pshk    := pamb*(one + ( two*gamma*(sqr(rmach) - one)) / gamp1 );
+        eshki   := pshk / (gamm1*rhoshk);
+        unshk   := rhoshk*ushk;
+        utshk   := zero;
+        eshk    := rhoshk*(eshki + half*sqr(ushk));
+
+        dx      := (xrgt - xlft)/double_real(nx);
+        dy      := (ytop - ybot)/double_real(ny);
+
+in
+
+        if shockdir > zero then
+%:::::::::::::: Shock in first coord direction.
+		buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, rhoshk, rhocld, rhoamb ),
+		buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, unshk, uncld, unamb ),
+		buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, utshk, utcld, utamb ),
+		buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, eshk, ecld, eamb ) 
+
+        else
+%:::::::::::::: Shock in second coord direction.
+		buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, rhoshk, rhocld, rhoamb ),
+		buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, unshk, uncld, unamb ),
+		buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, utshk, utcld, utamb ),
+		buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+			     radius, eshk, ecld, eamb ) 
+	end if
+
+end let
+
+end function %% ProbInit
+
+%==============================================================================
+
+function InitDt( U1, U2, U3, U4 : PlaneArray;
+                 NX, NY : integer;
+                 Dx, Dy, Cfl, TimeFact, Gamma : double_real
+                 returns double_real )
+
+% This function initializes the time step based on the problem being modeled.
+
+let
+
+dt :=   for J in 1, NY
+        returns value of least
+                for I in 1, NX
+                        Rho     := U1[ J, I ];
+                        Ux      := abs( U2[ J, I ] );
+                        Uy      := abs( U3[ J, I ] );
+                        Eng     := U4[ J, I ];
+                        Usq     := ( sqr(Ux) + sqr(Uy) ) / Rho;
+                        Eint    := Eng - 0.5d0 * Usq;
+                        P       := Eint * ( gamma - 1.0d0);
+                        C       := sqrt( Gamma * P / Rho );
+                        Dt1     := Dx / ( c + Ux/Rho );
+                        Dt2     := Dy / ( c + Uy/Rho );
+                returns value of least min( Dt1, Dt2 )
+                end for
+        end for
+
+in
+
+        dt * Cfl * TimeFact
+
+end let
+
+end function %% InitDt
+
+%==============================================================================
+
+function PlotDump( U1, U2, U3, U4  : PlaneArray;
+                   NX, NY : integer;
+                   XLft, XRgt, YBot, YTop : double_real;
+                   NStep : integer;
+                   Time, Gamma : double_real
+                   returns Plot )
+
+% This function generates Plot records.
+%
+% The operations of the original Fortran version used to determine when to
+% generate a new plot file and its name are not implemented here.
+
+let
+
+VMin, VMax :=
+        for J in 1, NY cross I in 1, NX
+                returns value of least U1[ J, I ]
+                        value of greatest U1[ J, I ]
+end for;
+
+DX := ( XRgt - XLft ) / double_real( NX );
+DY := ( YTop - YBot ) / double_real( NY );
+
+XCellCenters := for I in 1, NX
+                returns array of XLft + DX * ( double_real( I ) - 0.5d0 )
+                end for;
+
+YCellCenters := for J in 1, NY
+                returns array of YBot + DY * ( double_real( J ) - 0.5d0 )
+                end for;
+
+UOut := for J in 1, NY
+                UO :=   for I in 1, NX
+                        returns array of U1[ J, I ]
+                        end for
+        returns array of UO
+        end for
+
+in
+
+record Plot [ NX : NX; NY : NY; VMax : VMax; VMin : VMin;
+              XCellCenters : XCellCenters; YCellCenters : YCellCenters;
+              UOut : UOut ]
+
+end let
+
+end function %% PlotDump
+
+%==============================================================================
+
+function PhysBnd( Up:PlaneArray; Data:Data_Record returns PlaneArray )
+
+% This function sets the boundary rows and columns of the system array to
+% the required values.
+
+% PhysBnd utility functions
+
+  function BndL( ncx,nx:integer; xperiod:boolean; Row:OneDim returns OneDim )
+    for i in 1-ncx,0
+    returns array of if ( xperiod ) then Row[nx+i] else Row[1] end if
+    end for
+  end function
+
+  function BndR( ncx,nx:integer; xperiod:boolean; Row:OneDim returns OneDim )
+    for i in 1,ncx
+    returns array of if ( xperiod ) then Row[i] else Row[nx] end if
+    end for
+  end function
+
+let 
+
+  ny  := Data.NYCell;
+  nx  := Data.NXCell;
+  ncx := NCX_PARAM;
+
+  xperiod := Data.XPeriod;
+  yperiod := Data.YPeriod;
+
+%::::: Set all boundaries to the ambient state.
+
+  WideCore := for k in 1,ny
+		Lft  := BndL(ncx,nx,xperiod,Up[k]);
+		RowC := acopy( Up[k], 1, nx );
+		Rght := BndR(ncx,nx,xperiod,Up[k]);
+              returns array of Lft || RowC || Rght
+              end for;
+
+  WideTop := for i in 1-ncx,0
+	       Row  := if yperiod then Up[ny+i] else Up[1] end if;
+
+	       Lft  := BndL(ncx,nx,xperiod,Row);
+	       RowC := acopy( Row, 1, nx );
+	       Rght := BndR(ncx,nx,xperiod,Row);
+	     returns array of Lft || RowC || Rght
+	     end for;
+
+  WideBottom := for i in 1,ncx
+	          Row  := if yperiod then Up[i] else Up[ny] end if;
+
+	          Lft  := BndL(ncx,nx,xperiod,Row);
+	          RowC := acopy( Row, 1, nx );
+	          Rght := BndR(ncx,nx,xperiod,Row);
+	        returns array of Lft || RowC || Rght
+	        end for;
+  in
+    WideTop || WideCore || WideBottom
+  end let
+
+end function %% PhysBnd
+
+
+%==============================================================================
+
+function flaten( p, u, v : PlaneArray;
+                 nc1, nc2, godorder : integer
+                 returns PlaneArray )
+
+% Somewhat modified from the original Fortran and Sisal versions...
+
+let
+one     := 1.0d0;
+small   := 1.0d-6;
+smallp  := 1.0d-6;
+zero    := 0.0d0;
+
+shktst  := 0.33d0;
+zcut1   := 0.75d0;
+zcut2   := 0.85d0;
+
+dzcut   := one/(zcut2-zcut1);
+
+%:::::: x-direction flattening coef
+flatn1  :=      for j in 0, nc2+1
+%......................	first change
+                        chi1_z1_prod
+                        :=      for i in -1, nc1+2
+                                        dp      := p[j,i+1] - p[j,i-1];
+                                        denom   := max( small,
+                                                        abs( p[j,i+2] -
+                                                             p[j,i-2] ) );
+                                        zeta    := abs(dp)/denom;
+                                        z2      := min( one,
+                                                        max( zero,
+                                                             dzcut*
+                                                             (zeta-zcut1) ) );
+%...................................... second change
+                                        tst     := if ( u[j,i-1] >=
+							u[j,i+1] ) then
+                                                        one
+                                                   else
+                                                        zero
+                                                   end if;
+                                        tmp     := min( p[j,i+1], p[j,i-1] );
+                                        chi2    := if ( ( abs(dp) / tmp ) >
+                                                        shktst ) then
+                                                        tst
+                                                   else
+                                                        zero
+                                                   end if;
+%.............................. third change
+                                returns array of chi2 * z2
+                                end for;
+
+                        flatn2
+                        :=      for i in 0, nc1+1
+                                returns array of one -
+%............................................... fourth change
+                                                 max( chi1_z1_prod[i-1],
+                                                      max( chi1_z1_prod[i],
+                                                           chi1_z1_prod[i+1] ) )
+                                end for;
+                returns array of flatn2
+                end for;
+
+%:::::: y-direction flattening coef
+%.............. fifth change
+chi2z2prod2d  := for j in -1, nc2+2
+%...................... sixth change
+                        chi2_z2_prod
+%.............................. seventh change
+                        :=      for i in 0, nc1+1
+                                        dp      := p[j+1,i] - p[j-1,i];
+                                        denom   := max( smallp,
+                                                        abs( p[j+2,i] -
+                                                             p[j-2,i] ) );
+                                        zeta    := abs(dp)/denom;
+                                        z3      := min( one,
+                                                        max( zero,
+                                                             dzcut*
+                                                             (zeta-zcut1) ) );
+%...................................... eighth change
+                                        tst     := if ( v[j-1,i] >=
+							v[j+1,i]) then
+                                                        one
+                                                   else
+                                                        zero
+                                                   end if;
+                                        tmp     := min( p[j+1,i], p[j-1,i] );
+                                        chi3    := if ( ( abs(dp) / tmp ) >
+                                                        shktst ) then
+                                                        tst
+                                                   else
+                                                        zero
+                                                   end if;
+%.............................. ninth change
+                                returns array of chi3 * z3
+                                end for;
+%..............	tenth change
+		returns array of chi2_z2_prod
+		end for;
+
+%.............. eleventh change
+flaty2d	:=	for j in 0, nc2+1
+                        flaty :=
+				for i in 0, nc1+1
+                                returns array of
+					one - max( chi2z2prod2d[j-1,i],
+						   max( chi2z2prod2d[j,i],
+							chi2z2prod2d[j+1,i] ) )
+                                end for;
+		returns array of flaty
+		end for;
+
+%.............. twelfth change
+flatn32d :=	for j in 0, nc2+1
+			flatn3 :=
+				for i in 0, nc1+1
+                                returns array of
+                                        if godorder = 2 then
+                                                min( flatn1[j,i], flaty2d[j,i] )
+                                        else
+                                                zero
+                                        end if
+                                end for;
+                returns array of flatn3
+                end for;
+
+%...... no longer needed
+%:::::: transpose to return the proper shape
+%flatn4  := for j in 0, nc2+1 cross
+%               i in 0, nc1+1
+%                returns array of flatn2[i,j]
+%           end for;
+
+in
+
+% changed name
+%flatn4
+flatn32d
+
+end let
+
+end function %% flaten
+
+%==============================================================================
+
+function slope( q, flatn : PlaneArray;
+                nc1, nc2 : integer
+                returns SystemArray )
+
+let
+
+half    := 0.5d0;
+one	:= 1.0d0;
+two	:= 2.0d0;
+zero    := 0.0d0;
+two3rd  := 2.0d0 / 3.0d0;
+sixth   := 1.0d0 / 6.0d0;
+
+%:::::: slopes in first coordinate direction
+dq1     :=      for j in 0, nc2+1
+%:::::::::::::::::::::: first compute Fromm slopes
+                        df1, dsgn1, dlim1
+                        :=      for i in -1, nc1+2
+                                        dcen    := half*( q[j,i+1] - q[j,i-1] );
+                                        dlft    := two*(  q[j,i]   - q[j,i-1] );
+                                        drgt    := two*(  q[j,i+1] - q[j,i] );
+                                        dsgn2   := sign( one, dcen );
+                                        slop    := min( abs(dlft),
+                                                        min( abs(drgt),
+                                                             abs(dcen) ) );
+                                        dlim2   := if ( dlft*drgt >= zero ) then
+                                                        slop
+                                                   else
+                                                        zero
+                                                   end if;
+                                        df2     := dsgn2*dlim2;
+                                returns array of df2
+                                        array of dsgn2
+                                        array of dlim2
+                                end for;
+
+%:::::::::::::::::::::: now limited fourth order slopes
+                        dq2
+                        :=      for i in 0, nc1+1
+                                        dq3     := two3rd*( q[j,i+1] -
+                                                            q[j,i-1] ) -
+                                                   sixth*( df1[i+1] -
+                                                           df1[i-1] );
+                                        dq4     := flatn[j,i]*dsgn1[i]*
+                                                   min( dlim1[i], abs(dq3) );
+
+                                returns array of dq4
+                                end for;
+                returns array of dq2
+                end for;
+
+%:::::: compute slopes in second coordinate direction
+%:::::::::::::::::::::: first compute Fromm slopes for this column
+Xdf2, Xdsgn2, Xdlim2 := for j in -1,nc2+2 cross i in 0,nc1+1
+                                        dcen    := half*( q[j+1,i] - q[j-1,i] );
+                                        dlft    := two*(  q[j,i]   - q[j-1,i] );
+                                        drgt    := two*(  q[j+1,i] - q[j,i] );
+                                        dsgn3   := sign( one, dcen );
+                                        slop    := min( abs(dlft),
+                                                        min(abs(drgt),
+                                                            abs(dcen) ) );
+                                        dlim3   := if ( dlft*drgt >= zero ) then
+                                                        slop
+                                                  else
+                                                        zero
+                                                  end if;
+                                        df3     := dsgn3*dlim3;
+                                returns array of df3
+                                        array of dsgn3
+                                        array of dlim3
+                                end for;
+
+%:::::::::::::::::::::: now compute limited fourth order slopes
+dq2t := for j in 0,nc2+1 cross i in 0,nc1+1
+                         dq4     := two3rd*( q[j+1,i] - q[j-1,i] ) -
+                                    sixth*( Xdf2[j+1,i] - Xdf2[j-1,i] );
+                         dq5     := flatn[j,i]*Xdsgn2[j,i]*
+                                    min( Xdlim2[j,i], abs(dq4) );
+        returns array of dq5
+	end for;
+
+in
+
+array SystemArray [ 1: dq1, dq2t ]
+
+end let
+
+end function %% slope
+
+%==============================================================================
+
+%======================================
+% S H O R T H A N D   F U N C T I O N S
+%======================================
+%-------------------------------------------------------------------------------
+function fluxev1( lo,hi : integer; gamma : double_real;
+		  rl, ul, pl, rr, ur, pr, smallp : array[ double_real ] 
+		  returns OneDim, integer )
+%:::::::::::: compute the initial guess
+let
+                pstar1  := for k in lo, hi
+                                wl      := sqrt( gamma*rl[k]*pl[k] );
+                                wr      := sqrt( gamma*rr[k]*pr[k] );
+                                pstar2  := ( wr*pl[k] + wl*pr[k] +
+                                             wl*wr*(ul[k]-ur[k]) ) / (wl+wr);
+                                pstar3  := max( smallp[k], pstar2 );
+                           returns array of pstar3
+                           end for;
+                itno    := 1;
+in
+pstar1, itno
+end let
+end function %% fluxev1
+%-------------------------------------------------------------------------------
+function fluxev2( lo,hi : integer; half, forth, one, gm1, gp1 : double_real;
+		  rl, rr, old_pstar1, pl, pr, ul, ur, smallp : OneDim
+		  returns OneDim )
+%:::::: now the Newton iteration
+let
+                pstar1  := for k in lo, hi
+                                wl      := sqrt( half*rl[k]*(gp1*old_pstar1[k] +
+                                                             gm1*pl[k]) );
+                                wlfrac  := one/wl;
+                                dwl     := forth*rl[k]*gp1*wlfrac;
+                                ustarl  := ul[k] - wlfrac*(old_pstar1[k] -
+                                                           pl[k]);
+                                dustarl := wlfrac *
+                                           ( wlfrac*dwl*(old_pstar1[k]-pl[k]) -
+                                             one );
+
+                                wr      := sqrt( half*rr[k]*(gp1*old_pstar1[k] +
+                                                 gm1*pr[k]) );
+                                wrfrac  := one/wr;
+                                dwr     := forth*rr[k]*gp1*wrfrac;
+                                ustarr  := ur[k] + wrfrac*(old_pstar1[k] -
+                                                           pr[k]);
+                                dustarr := wrfrac *
+                                           ( one -
+                                             wrfrac*dwr*(old_pstar1[k]-pr[k]) );
+
+                                pstar2  := old_pstar1[k] -
+                                           (ustarl-ustarr)/(dustarl-dustarr);
+                                pstar3  := max( smallp[k], pstar2 );
+                           returns array of pstar3
+                           end for
+in
+pstar1
+end let
+end function %% fluxev2
+%-------------------------------------------------------------------------------
+function fluxev4( lo,hi : integer;
+		  half, gm1, gp1 : double_real;
+		  rl, rr, pstar, pl, pr, ul, ur : OneDim
+		  returns array[ double_real ], array[ double_real ],
+				 array[ double_real ] )
+%:::::: now compute the remainder of the middle states
+let
+ustar, rstarl, rstarr
+        :=      for k in lo, hi
+                        wlsq    := half*rl[k]*(gp1*pstar[k] + gm1*pl[k]);
+                        wrsq    := half*rr[k]*(gp1*pstar[k] + gm1*pr[k]);
+                        wl      := -sqrt( wlsq );
+                        wr      :=  sqrt( wrsq );
+                        ustarl  := ul[k] + (pstar[k] - pl[k])/wl;
+                        ustarr  := ur[k] + (pstar[k] - pr[k])/wr;
+                        ustar1   := half*( ustarl + ustarr );
+
+                        rstarl1 := wlsq*rl[k]/(wlsq - rl[k]*(pstar[k]-pl[k]));
+                        rstarr1 := wrsq*rr[k]/(wrsq - rr[k]*(pstar[k]-pr[k]));
+                returns array of ustar1
+                        array of rstarl1
+                        array of rstarr1
+                end for
+in
+ustar, rstarl, rstarr
+end let
+end function %% fluxev4
+%-------------------------------------------------------------------------------
+function fluxev5( lo,hi : integer;
+		  zero, half, one, xi, gamma, small, gm1, gp1 : double_real;
+		  rl, rr, vl, vr, pl, pr, ul, ur,
+		  pstar, ustar, rstarl, rstarr : OneDim
+		  returns OneDim, OneDim, OneDim, OneDim )
+%:::::: now compute the physical space solution
+let
+rg, ug, vg, pg
+        :=      for k in lo, hi
+                        chi     := sign( one, xi-ustar[k] );
+%:::::::::::::::::::::: which outer state to use
+                        ro, uo, vo, po,
+%:::::::::::::::::::::: which inner state to use
+                        ri, vi  := if ( chi >= zero ) then
+                                        rr[k], ur[k], vr[k], pr[k],
+                                        rstarr[k], vr[k]
+                                   else
+                                        rl[k], ul[k], vl[k], pl[k],
+                                        rstarl[k], vl[k]
+                                   end if;
+                        ui      := ustar[k];
+                        pi      := pstar[k];
+%:::::::::::::::::::::: compute sound speeds
+                        ci      := sqrt( gamma*pi/ri );
+                        co      := sqrt( gamma*po/ro );
+%:::::::::::::::::::::: compute speeds of acoustic waves
+                        wo      := sqrt( half*ro*(gp1*pi + gm1*po) );
+                        shock   := chi*uo + wo/ro;
+                        si, so  := if (pi-po < zero ) then
+                                        chi*ui+ci,
+                                        chi*uo+co
+                                   else
+                                        shock,
+                                        shock
+                                   end if;
+%:::::::::::::::::::::: compute interpolation coef
+                        sdenom  := one/max(small,so-si);
+                        frac1   := if ( chi*xi >= so ) then
+                                        zero
+                                   else
+                                        (so-xi*chi)*sdenom
+                                   end if;
+                        frac    := if ( chi*xi < si ) then
+                                        one
+                                   else
+                                        frac1
+                                   end if;
+%:::::::::::::::::::::: compute half time solution
+                        rg1     := ro + frac*(ri - ro);
+                        ug1     := uo + frac*(ui - uo);
+                        vg1     := vo + frac*(vi - vo);
+                        pg1     := po + frac*(pi - po);
+                returns array of rg1
+                        array of ug1
+                        array of vg1
+                        array of pg1
+                end for
+in
+rg, ug, vg, pg
+end let
+end function %% fluxev5
+%-------------------------------------------------------------------------------
+function fluxev6( lo,hi : integer; half, gamma, gm1 : double_real;
+		  rg, ug, pg, vg : OneDim
+		  returns OneDim, OneDim, OneDim, OneDim )
+%:::::: finally, compute the fluxes
+let
+f1, f2, f3, f4
+        :=      for k in lo, hi
+                        f1a     := rg[k]*ug[k];
+                        f2a     := rg[k]*sqr(ug[k]) + pg[k];
+                        f3a     := rg[k]*ug[k]*vg[k];
+                        f4a     := ug[k]*( gamma*pg[k]/gm1 +
+                                   half*rg[k]*(sqr(ug[k]) + sqr(vg[k])) );
+                returns array of f1a
+                        array of f2a
+                        array of f3a
+                        array of f4a
+                end for
+in
+f1, f2, f3, f4
+end let
+end function %% fluxev6
+%-------------------------------------------------------------------------------
+function fluxev( rl, ul, vl, pl : array[ double_real ];
+                 lo,hi, niter : integer;
+                 lnewton : Boolean;
+                 gamma, xi : double_real;
+                 smallp, rr, ur, vr, pr : array [ double_real ]
+                 returns OneDim, OneDim, OneDim, OneDim )
+
+%:::::: phase space soln of Riemann problem...
+%:::::: This involves a Newton iteration to compute
+%:::::: the pressure in the state between th two acustic waves.
+
+let
+
+one     := 1.0d0;
+half    := 0.5d0;
+forth   := 0.25d0;
+small   := 1.0d-6;
+zero    := 0.0d0;
+gm1     := gamma - one;
+gp1     := gamma + one;
+
+pstar   := for
+           initial
+%:::::::::::: compute the initial guess
+		pstar1, itno
+			:= fluxev1( lo,hi, gamma, rl, ul, pl, rr,
+				    ur, pr, smallp );
+
+%:::::: now the Newton iteration
+           while itno <= niter
+           repeat
+                pstar1  := fluxev2( lo,hi, half, forth, one, gm1, gp1,
+				    rl, rr, old pstar1, pl, pr, ul, ur,
+				    smallp );
+
+                itno    := old itno + 1
+
+           returns value of pstar1
+           end for;
+
+%:::::: now compute the remainder of the middle states
+ustar, rstarl, rstarr
+        :=      fluxev4( lo,hi, half, gm1, gp1, rl, rr, pstar,
+			 pl, pr, ul, ur );
+
+%:::::: now compute the physical space solution
+rg, ug, vg, pg
+        :=      fluxev5( lo,hi, zero, half, one, xi, gamma, small, gm1, gp1,
+			 rl, rr, vl, vr, pl, pr, ul, ur,
+			 pstar, ustar, rstarl, rstarr );
+
+%:::::: finally, compute the fluxes
+f1, f2, f3, f4
+        :=      fluxev6( lo,hi, half, gamma, gm1, rg, ug, pg, vg )
+
+in
+  f1, f2, f3, f4
+end let
+
+end function %% fluxev
+
+%==============================================================================
+
+%======================================
+% S H O R T H A N D   F U N C T I O N S
+%======================================
+%-------------------------------------------------------------------------------
+function Method1( U1,U2,U3,U4: PlaneArray;
+		  nc1, nc2, ncx, ilo, ordinal : integer
+		  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                          integer )
+%:::::: convert to non-conservation form
+let
+rho1, uu1, v1, e1
+        :=      for j in 1-ncx, nc2+ncx cross i in 1-ncx, nc1+ncx
+                  ii      := i+ilo-1;
+                  rhoij   := U1[j,ii];
+                returns array of rhoij
+                        array of U2[j,ii]/rhoij
+                        array of U3[j,ii]/rhoij
+                        array of U4[j,ii]/rhoij
+		end for
+in
+rho1, uu1, v1, e1, 1
+end let
+end function %% Method1
+%-------------------------------------------------------------------------------
+function Method2( u1, v1, e1, rho1 : PlaneArray;
+		  nc1, nc2, ncx, ordinal : integer;
+		  half, small, gm1 : double_real
+		  returns PlaneArray, PlaneArray, integer )
+%:::::: compute pressure via equation of state
+let
+psml, p :=      for j in 1-ncx, nc2+ncx cross i in 1-ncx, nc1+ncx
+                  eken := half*( sqr(u1[j,i]) + sqr(v1[j,i]) );
+                  eint := e1[j,i] - eken;
+                returns array of small*rho1[j,i]*eken
+                        array of max( small*rho1[j,i]*eken,
+                                      gm1*rho1[j,i]*eint )
+                end for;
+in
+psml, p, 1
+end let
+end function %% Method2
+%-------------------------------------------------------------------------------
+function Method3( gamma : double_real;
+		  p, rho1 : PlaneArray;
+		  nc1, nc2, ordinal : integer
+		  returns PlaneArray, integer )
+%:::::: compute sound speed on interior and one row of bndry cells
+let
+c       :=      for j in 0, nc2+1 cross
+                    i in 0, nc1+1
+                returns array of sqrt( gamma*p[j,i]/rho1[j,i] )
+		end for
+in
+c, 1
+end let
+end function %% Method3
+%-------------------------------------------------------------------------------
+function Method4( c, u1, v1 : PlaneArray;
+		  nc1, nc2, ordinal : integer
+		  returns double_real, double_real, integer )
+%:::::: compute Courant Number on grid interior
+let
+courmx1, courmy1
+        :=      for j in 1, nc2 cross
+                    i in 1, nc1
+                returns value of greatest ( c[j,i] + abs(u1[j,i]) )
+                        value of greatest ( c[j,i] + abs(v1[j,i]) )
+                end for
+in
+courmx1, courmy1, 1
+end let
+end function %% Method4
+%-------------------------------------------------------------------------------
+function Method5( c, u1, rho1, v1, p, psml : PlaneArray;
+		  drho, dp, du, dv : SystemArray;
+		  nc1, nc2, ordinal : integer;
+		  half, one, zero, two, dtdx, hdtdx, smallr : double_real
+		  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                          integer )
+%:::::: compute traced left states in first coord dir
+let
+rhol1, ul1, vl1, pl1
+        :=      for jc in 0, nc2+1 cross
+                    ie in 1, nc1+1
+                        ic      := ie-1;
+                        cc      := c[jc,ic];
+                        uu      := u1[jc,ic];
+                        alpha   := half*(one - dtdx*max(zero,uu+cc));
+                        t2      := cc*drho[1,jc,ic] - dp[1,jc,ic]/cc;
+                        beta0   := if ( uu >= zero ) then t2
+                                   else zero end if;
+                        t3      := two * ( dp[1,jc,ic]/rho1[jc,ic] -
+                                           cc*du[1,jc,ic] );
+                        betam   := if ( uu-cc >= zero ) then t3
+                                   else zero end if;
+                        beta    := if ( uu >= zero ) then cc*dv[1,jc,ic]
+                                   else zero end if;
+                        rhol2   := rho1[jc,ic] + alpha*drho[1,jc,ic] +
+                                   hdtdx*(beta0 + half*rho1[jc,ic]*betam/cc);
+                        rhol3   := max( smallr, rhol2 );
+                        ul2     := u1[jc,ic] + alpha*du[1,jc,ic] -
+                                        hdtdx*half*betam;
+			vl2	:= v1[jc,ic] + alpha*dv[1,jc,ic] +
+					hdtdx*beta;
+                        pl2     := p[jc,ic] + alpha*dp[1,jc,ic] +
+                                        hdtdx*half*rho1[jc,ic]*cc*betam;
+                        pl3     := max( psml[jc,ic],
+                                        max( psml[jc,ic+1], pl2 ) )
+
+                returns array of rhol3
+                        array of ul2
+                        array of vl2
+                        array of pl3
+                end for
+in
+rhol1, ul1, vl1, pl1, 1
+end let
+end function %% Method5
+%-------------------------------------------------------------------------------
+function Method6( c, u1, rho1, v1, p, psml : PlaneArray;
+		  drho, dp, du, dv : SystemArray;
+                  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdx, hdtdx, smallr : double_real
+		  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                          integer )
+%:::::: compute traced right states in first coord dir
+let
+rhor1, ur1, vr1, pr1
+        :=      for jc in 0, nc2+1 cross
+                    ie in 1, nc1+1
+                        ic      := ie;
+                        cc      := c[jc,ic];
+                        uu      := u1[jc,ic];
+                        alpha   := half*(one + dtdx*min(zero,uu-cc));
+                        t2      := dp[1,jc,ic]/cc - cc*drho[1,jc,ic];
+                        beta0   := if ( uu < zero ) then t2
+                                   else zero end if;
+                        t3      := -two * ( cc*du[1,jc,ic] +
+                                            dp[1,jc,ic]/rho1[jc,ic] );
+                        betap   := if ( uu+cc < zero ) then t3
+                                   else zero end if;
+                        beta    := if ( uu < zero ) then -cc*dv[1,jc,ic]
+                                   else zero end if;
+                        rhor2   := rho1[jc,ic] - alpha*drho[1,jc,ic] +
+                                   hdtdx*(beta0 + half*rho1[jc,ic]*betap/cc);
+                        rhor3   := max( smallr, rhor2 );
+                        ur2     := u1[jc,ic] - alpha*du[1,jc,ic] +
+                                        hdtdx*half*betap;
+                        vr2     := v1[jc,ic] - alpha*dv[1,jc,ic] +
+                                        hdtdx*beta;
+                        pr2     := p[jc,ic] - alpha*dp[1,jc,ic] +
+                                        hdtdx*half*rho1[jc,ic]*cc*betap;
+                        pr3     := max( psml[jc,ic-1],
+                                        max( psml[jc,ic], pr2 ) )
+                returns array of rhor3
+                        array of ur2
+                        array of vr2
+                        array of pr3
+		end for
+in
+rhor1, ur1, vr1, pr1, 1
+end let
+end function %% Method6
+%-------------------------------------------------------------------------------
+function Method7( c, v1, u1, rho1, p, psml : PlaneArray;
+		  drho, dp, du, dv : SystemArray;
+		  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdy, hdtdy, smallr : double_real
+		  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                          integer )
+%:::::: compute traced bottom states in second coord dir
+let
+rhob1, ub1, vb1, pb1
+        :=      for je in 1, nc2+1 cross
+                    ic in 0, nc1+1
+                        jc      := je-1;
+                        cc      := c[jc,ic];
+                        vv      := v1[jc,ic];
+                        alpha   := half*(one - dtdy*max(vv+cc,zero));
+                        tmp1    := cc*drho[2,jc,ic] - dp[2,jc,ic]/cc;
+                        beta0   := if ( vv >= zero ) then tmp1
+                                   else zero end if;
+                        beta    := if ( vv >= zero ) then cc*du[2,jc,ic]
+                                   else zero end if;
+                        tmp2    := two * ( dp[2,jc,ic]/rho1[jc,ic] -
+                                           cc*dv[2,jc,ic] );
+                        betam   := if ( vv-cc >= zero ) then tmp2
+                                   else zero end if;
+                        rhob2   := rho1[jc,ic] + alpha*drho[2,jc,ic] +
+                                   hdtdy*(beta0 + half*rho1[jc,ic]*betam/cc);
+                        rhob3   := max( smallr, rhob2 );
+                        ub2     := u1[jc,ic] + alpha*du[2,jc,ic] +
+                                        hdtdy*beta;
+                        vb2     := v1[jc,ic] + alpha*dv[2,jc,ic] -
+                                        hdtdy*half*betam;
+                        pb2     := p[jc,ic] + alpha*dp[2,jc,ic] +
+                                        hdtdy*half*cc*rho1[jc,ic]*betam;
+                        pb3     := max( psml[jc,ic],
+                                        max( psml[jc+1,ic], pb2 ) )
+                returns array of rhob3
+                        array of ub2
+                        array of vb2
+                        array of pb3
+                end for
+in
+rhob1, ub1, vb1, pb1, 1
+end let
+end function %% Method7
+%-------------------------------------------------------------------------------
+function Method8( c, v1, u1, rho1, p, psml : PlaneArray;
+                  drho, dp, du, dv : SystemArray;
+                  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdy, hdtdy, smallr : double_real
+                  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                          integer )
+%:::::: compute traced top states in second coord dir
+let
+rhot1, ut1, vt1, pt1
+        :=      for je in 1, nc2+1 cross
+                    ic in 0, nc1+1
+                        jc      := je;
+                        cc      := c[jc,ic];
+                        vv      := v1[jc,ic];
+                        alpha   := half*(one + dtdy*min(vv-cc,zero));
+                        tmp1    := dp[2,jc,ic]/cc - cc*drho[2,jc,ic];
+                        beta0   := if ( vv < zero ) then tmp1
+                                   else zero end if;
+                        beta    := if (vv < zero ) then -cc*du[2,jc,ic]
+                                   else zero end if;
+                        tmp2    := -two * ( dp[2,jc,ic]/rho1[jc,ic] +
+                                            cc*dv[2,jc,ic] );
+                        betap   := if (vv+cc < zero ) then tmp2
+                                   else zero end if;
+                        rhot2   := rho1[jc,ic] - alpha*drho[2,jc,ic] +
+                                   hdtdy*(beta0 + half*rho1[jc,ic]*betap/cc);
+                        rhot3   := max( smallr, rhot2 );
+                        ut2     := u1[jc,ic] - alpha*du[2,jc,ic] +
+                                        hdtdy*beta;
+                        vt2     := v1[jc,ic] - alpha*dv[2,jc,ic] +
+                                        hdtdy*half*betap;
+                        pt2     := p[jc,ic] - alpha*dp[2,jc,ic] +
+                                        hdtdy*half*cc*rho1[jc,ic]*betap;
+                        pt3     := max( psml[jc,ic],
+                                        max( psml[jc-1,ic], pt2 ) );
+                returns array of rhot3
+                        array of ut2
+                        array of vt2
+                        array of pt3
+                end for
+in
+rhot1, ut1, vt1, pt1, 1
+end let
+end function %% Method8
+%-------------------------------------------------------------------------------
+function Method9( rhob1, vb1, ub1, pb1,
+		  rhot1, vt1, ut1, pt1, psml : PlaneArray;
+		  nc1, nc2, niter, ordinal : integer; lnewton : Boolean;
+		  gamma, xi : double_real
+		  returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+			  integer )
+%:::::: compute fluxes transverse to first coord dir
+let
+flux2a1, flux2a2, flux2a3, flux2a4
+	  := for je in 1,nc2+1
+%:::::::::::::::::::::: strip out bottom and top states
+                        rminus, uminus, vminus, pminus,
+                        rplus, uplus, vplus, pplus :=
+                                rhob1[je],
+                                        vb1[je],
+                                        ub1[je],
+                                        pb1[je],
+                                        rhot1[je],
+                                        vt1[je],
+                                        ut1[je],
+                                        pt1[je];
+
+			smallp
+			:= for ic in 0,nc1+1 returns
+                                        array of max( psml[je-1,ic],
+                                                      psml[je,ic] )
+                                end for;
+%:::::::::::::::::::::: solve Riemann problem
+                        f1, f2, f3, f4
+                        :=      fluxev( rminus, uminus, vminus, pminus,
+                                        % nc2+1, niter, lnewton,
+                                        0,nc1+1, niter, lnewton,
+                                        gamma, xi, smallp,
+                                        rplus, uplus, vplus, pplus );
+%:::::::::::::::::::::: store fluxes
+%                       nothing to do here (see below)
+
+%.............. return four arrays of rows, corresponding to four planes.
+                returns array of f1
+                        array of f3
+                        array of f2
+                        array of f4
+                end for
+in
+flux2a1, flux2a2, flux2a3, flux2a4, 1
+end let
+end function %% Method9
+%-------------------------------------------------------------------------------
+function Method10( rhol1, ul1, vl1, pl1,
+		   rhor1, ur1, vr1, pr1, psml : PlaneArray;
+		   nc1, nc2, niter, ordinal : integer; lnewton : Boolean;
+		   gamma, xi : double_real
+		   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                           integer )
+%:::::: compute fluxes transverse to second coord dir
+let
+flux1a1, flux1a2, flux1a3, flux1a4
+        :=      for jc in 0, nc2+1
+			rminus := rhol1[jc];
+			uminus := ul1[jc];
+			vminus := vl1[jc];
+			pminus := pl1[jc];
+			rplus  := rhor1[jc];
+			uplus  := ur1[jc];
+			vplus  := vr1[jc];
+			pplus  := pr1[jc];
+                        smallp := for ie in 1, nc1+1
+                                  returns array of max( psml[jc,ie],
+                                                        psml[jc,ie-1] )
+                                  end for;
+                        f1, f2, f3, f4
+                        :=      fluxev( rminus, uminus, vminus, pminus,
+                                        1,nc1+1, niter, lnewton,
+                                        gamma, xi, smallp,
+                                        rplus, uplus, vplus, pplus );
+
+%.............. return four arrays of rows, corresponding to four planes.
+                returns array of f1
+                        array of f2
+                        array of f3
+                        array of f4
+                end for
+in
+flux1a1, flux1a2, flux1a3, flux1a4, 1
+end let
+end function %% Method10
+%-------------------------------------------------------------------------------
+function Method11( rhol1, ul1, vl1, pl1 : PlaneArray;
+		   flux2b1, flux2b2, flux2b3, flux2b4 : PlaneArray; 
+		   nc1, nc2, ordinal : integer;
+		   hdtdy, smallr, half, gm1, small : double_real
+		   returns  PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                            integer )
+%:::::: add transverse component for full predictor in
+%:::::: first coord dir (left states)
+let
+rhol2, ul2, vl2, pl2
+        :=      for jc in 1, nc2 cross
+                    ie in 1, nc1+1
+                        ic      := ie-1;
+%:::::::::::::::::::::: convert to conservation form
+                        rr      := rhol1[jc,ie];
+                        ru      := rr*ul1[jc,ie];
+                        rv      := rr*vl1[jc,ie];
+                        re      := pl1[jc,ie]/gm1 +
+                                   half*rr*(sqr(ul1[jc,ie]) + sqr(vl1[jc,ie]));
+%:::::::::::::::::::::: add transverse predictor
+                        rrnew   := rr - hdtdy*(flux2b1[jc+1,ic] -
+                                               flux2b1[jc,ic]);
+                        runew   := ru - hdtdy*(flux2b2[jc+1,ic] -
+                                               flux2b2[jc,ic]);
+                        rvnew   := rv - hdtdy*(flux2b3[jc+1,ic] -
+                                               flux2b3[jc,ic]);
+                        renew   := re - hdtdy*(flux2b4[jc+1,ic] -
+                                               flux2b4[jc,ic]);
+%:::::::::::::::::::::: convert back to non-conservation form
+                        rhol3   := max( smallr, rrnew );
+%###################### USE rhol() in denom rather than rrnew
+                        ul3     := runew/rhol3;
+                        vl3     := rvnew/rhol3;
+                        rhoeken         := half*(sqr(runew)+sqr(rvnew))/rhol3;
+                        pl3     := gm1*(renew - rhoeken);
+                        pl4     := max( small*rhoeken, pl3 );
+                returns array of rhol3
+                        array of ul3
+                        array of vl3
+                        array of pl4
+                end for
+in
+rhol2, ul2, vl2, pl2, 1
+end let
+end function %% Method11
+%-------------------------------------------------------------------------------
+function Method12( rhor1, ur1, vr1, pr1 : PlaneArray;
+		   flux2b1, flux2b2, flux2b3, flux2b4 : PlaneArray;
+                   nc1, nc2, ordinal : integer;
+                   hdtdy, smallr, half, gm1, small : double_real
+		   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                           integer )
+%:::::: add transverse component for full predictor in
+%:::::: first coord dir (right states)
+let
+rhor2 , ur2, vr2, pr2
+        :=      for jc in 1, nc2 cross
+                    ie in 1, nc1+1
+                        ic      := ie;
+%:::::::::::::::::::::: convert to conservation form
+                        rr      := rhor1[jc,ie];
+                        ru      := rr*ur1[jc,ie];
+                        rv      := rr*vr1[jc,ie];
+                        re      := pr1[jc,ie]/gm1 +
+                                   half*rr*(sqr(ur1[jc,ie]) + sqr(vr1[jc,ie]));
+%:::::::::::::::::::::: add transverse predictor
+                        rrnew   := rr - hdtdy*(flux2b1[jc+1,ic] -
+                                               flux2b1[jc,ic]);
+                        runew   := ru - hdtdy*(flux2b2[jc+1,ic] -
+                                               flux2b2[jc,ic]);
+                        rvnew   := rv - hdtdy*(flux2b3[jc+1,ic] -
+                                               flux2b3[jc,ic]);
+                        renew   := re - hdtdy*(flux2b4[jc+1,ic] -
+                                               flux2b4[jc,ic]);
+%:::::::::::::::::::::: convert back to non-conservation form
+                        rhor3   := max( smallr, rrnew );
+%###################### USE rhor() in denom rather than rrnew
+                        ur3     := runew/rhor3;
+                        vr3     := rvnew/rhor3;
+                        rhoeken := half*(sqr(runew)+sqr(rvnew))/rhor3;
+                        pr3     := gm1*(renew - rhoeken);
+                        pr4     := max( small*rhoeken, pr3 );
+                returns array of rhor3
+                        array of ur3
+                        array of vr3
+                        array of pr4
+                end for
+in
+rhor2 , ur2, vr2, pr2, 1
+end let
+end function %% Method12
+%-------------------------------------------------------------------------------
+function Method13( rhob1, ub1, vb1, pb1 : PlaneArray;
+                   flux1a1, flux1a2, flux1a3, flux1a4 : PlaneArray;
+                   nc1, nc2, ordinal : integer;
+                   hdtdx, smallr, half, gm1, small : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                           integer )
+%:::::: add transverse component for full predictor in
+%:::::: second coord dir (bottom states)
+let
+rhob2, ub2, vb2, pb2
+        :=      for ic in 1, nc1 cross
+                    je in 1, nc2+1
+                        jc      := je - 1;
+%:::::::::::::::::::::: convert to conservation form
+                        rr      := rhob1[je,ic];
+                        ru      := rr*ub1[je,ic];
+                        rv      := rr*vb1[je,ic];
+                        re      := pb1[je,ic]/gm1 +
+                                   half*rr*(sqr(ub1[je,ic]) + sqr(vb1[je,ic]));
+%:::::::::::::::::::::: add transverse predictor
+                        rrnew   := rr - hdtdx*(flux1a1[jc,ic+1] -
+                                               flux1a1[jc,ic]);
+                        runew   := ru - hdtdx*(flux1a2[jc,ic+1] -
+                                               flux1a2[jc,ic]);
+                        rvnew   := rv - hdtdx*(flux1a3[jc,ic+1] -
+                                               flux1a3[jc,ic]);
+                        renew   := re - hdtdx*(flux1a4[jc,ic+1] -
+                                               flux1a4[jc,ic]);
+%:::::::::::::::::::::: convert back to non-conservation form
+                        rhob3   := max( smallr, rrnew );
+%###################### USE rhob() in denom rather than rrnew
+                        ub3     := runew/rhob3;
+                        vb3     := rvnew/rhob3;
+                        rhoeken := half*(sqr(runew)+sqr(rvnew))/rhob3;
+                        pb3     := gm1*(renew - rhoeken);
+                        pb4     := max( small*rhoeken, pb3 );
+                returns array of rhob3
+                        array of ub3
+                        array of vb3
+                        array of pb4
+                end for
+in
+rhob2, ub2, vb2, pb2, 1
+end let
+end function %% Method13
+%-------------------------------------------------------------------------------
+function Method14( rhot1, ut1, vt1, pt1 : PlaneArray;
+                   flux1a1,flux1a2, flux1a3, flux1a4 : PlaneArray;
+                   nc1, nc2, ordinal : integer;
+                   hdtdx, smallr, half, gm1, small : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+                           integer )
+%:::::: add transverse component for full predictor in
+%:::::: second coord dir (top states)
+let
+rhot2, ut2, vt2, pt2
+        :=      for ic in 1, nc1 cross
+                    je in 1, nc2+1
+                        jc      := je;
+%:::::::::::::::::::::: convert to conservation form
+                        rr      := rhot1[je,ic];
+                        ru      := rr*ut1[je,ic];
+                        rv      := rr*vt1[je,ic];
+                        re      := pt1[je,ic]/gm1 +
+                                   half*rr*(sqr(ut1[je,ic]) + sqr(vt1[je,ic]));
+%:::::::::::::::::::::: add transverse predictor
+                        rrnew   := rr - hdtdx*(flux1a1[jc,ic+1] -
+                                               flux1a1[jc,ic]);
+                        runew   := ru - hdtdx*(flux1a2[jc,ic+1] -
+                                               flux1a2[jc,ic]);
+                        rvnew   := rv - hdtdx*(flux1a3[jc,ic+1] -
+                                               flux1a3[jc,ic]);
+                        renew   := re - hdtdx*(flux1a4[jc,ic+1] -
+                                               flux1a4[jc,ic]);
+%:::::::::::::::::::::: convert back to non-conservation form
+                        rhot3   := max( smallr, rrnew );
+%###################### USE rhot() in denom rather than rrnew
+                        ut3     := runew/rhot3;
+                        vt3     := rvnew/rhot3;
+                        rhoeken := half*(sqr(runew)+sqr(rvnew))/rhot3;
+                        pt3     := gm1*(renew - rhoeken);
+                        pt4     := max( small*rhoeken, pt3 );
+                returns array of rhot3
+                        array of ut3
+                        array of vt3
+                        array of pt4
+                end for
+in
+rhot2, ut2, vt2, pt2, 1
+end let
+end function %% Method14
+%-------------------------------------------------------------------------------
+function Method15( rhol2, ul2, vl2, pl2,
+		   rhor2, ur2, vr2, pr2, psml : PlaneArray;
+                   nc1, nc2, niter, ordinal : integer;
+		   lnewton : Boolean;
+                   gamma, xi : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+		   integer )
+%:::::: compute full fluxes in first coord dir
+let
+flux1c1, flux1c2, flux1c3, flux1c4
+        :=      for jc in 1, nc2
+			rminus := rhol2[jc];
+			uminus := ul2[jc];
+			vminus := vl2[jc];
+			pminus := pl2[jc];
+			rplus  := rhor2[jc];
+			uplus  := ur2[jc];
+			vplus  := vr2[jc];
+			pplus  := pr2[jc];
+                        smallp := for ie in 1, nc1+1
+                                  returns array of max( psml[jc,ie-1],
+                                                        psml[jc,ie] )
+                                  end for;
+                        f1, f2, f3, f4
+                        :=      fluxev( rminus, uminus, vminus, pminus,
+                                        1,nc1+1, niter, lnewton,
+                                        gamma, xi, smallp,
+                                        rplus, uplus, vplus, pplus );
+                returns array of f1
+                        array of f2
+                        array of f3
+                        array of f4
+                end for
+in
+flux1c1, flux1c2, flux1c3, flux1c4, 1
+end let
+end function %% Method15
+%-------------------------------------------------------------------------------
+function Method16( rhob2, ub2, vb2, pb2,
+		   rhot2, ut2, vt2, pt2, psml : PlaneArray;
+                   nc1, nc2, niter, ordinal : integer;
+		   lnewton : Boolean;
+                   gamma, xi : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+		   integer )
+%:::::: compute full fluxes in second coord dir
+let
+flux2c1, flux2c2, flux2c3, flux2c4
+        :=      for ic in 1, nc1
+%:::::::::::::::::::::: strip out bottom and top states
+                        rminus, uminus, vminus, pminus,
+                        rplus, uplus, vplus, pplus, smallp
+                        :=      for je in 1, nc2+1
+                                returns array of rhob2[ic,je]
+                                        array of vb2[ic,je]
+                                        array of ub2[ic,je]
+                                        array of pb2[ic,je]
+                                        array of rhot2[ic,je]
+                                        array of vt2[ic,je]
+                                        array of ut2[ic,je]
+                                        array of pt2[ic,je]
+                                        array of max( psml[je,ic],
+                                                      psml[je-1,ic] )
+                                end for;
+%:::::::::::::::::::::: solve Riemann problem
+                        f1, f2, f3, f4
+                        :=      fluxev( rminus, uminus, vminus, pminus,
+                                        1,nc2+1, niter, lnewton,
+                                        gamma, xi, smallp,
+                                        rplus, uplus, vplus, pplus );
+%:::::::::::::::::::::: store fluxes
+%                       do nothing here (see below)
+
+                returns array of f1
+                        array of f3
+                        array of f2
+                        array of f4
+                end for
+in
+flux2c1, flux2c2, flux2c3, flux2c4, 1
+end let
+end function %% Method16
+%-------------------------------------------------------------------------------
+function Method17( u1, v1 : PlaneArray;
+		   nc1, nc2, ordinal : integer;
+		   difmag, half, dx, dy : double_real
+                   returns PlaneArray, integer )
+%:::::: compute the divergence of the velocity field
+let
+div     :=      for je in 1, nc2+1 cross
+                    ie in 1, nc1+1
+			udiv1	:= u1[je,ie] - u1[je,ie-1];
+			udiv2	:= udiv1 + u1[je-1,ie];
+			udiv	:= udiv2 - u1[je-1,ie-1];
+%                       udiv    := (((u1[je,ie] - u1[je,ie-1]) +
+%                                  u1[je-1,ie]) - u1[je-1,ie-1]);
+			vdiv1	:= v1[je,ie] - v1[je,ie-1];
+			vdiv2	:= vdiv1 + v1[je-1,ie];
+			vdiv	:= vdiv2 - v1[je-1,ie-1];
+%                       vdiv    := (((v1[je,ie] - v1[je,ie-1]) +
+%                                  v1[je-1,ie]) - v1[je-1,ie-1]);
+                returns array of difmag*half*( udiv/dx + vdiv/dy )
+                end for
+in
+div, 1
+end let
+end function %5 Method17
+%-------------------------------------------------------------------------------
+function Method18( div : PlaneArray;
+		   flux1c1, flux1c2, flux1c3, flux1c4,
+		   flux2d1, flux2d2, flux2d3, flux2d4 : PlaneArray;
+		   U1,U2,U3,U4 : PlaneArray;
+		   nc1, nc2, nvar, ilo, ordinal : integer;
+		   zero, half, dx, dy : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+			   PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+			   integer )
+%.................
+%EMBEDDED FUNCTIONS
+%.................
+function Method18A( nc2, nc1, ilo : integer;
+		    zero, half, dx : double_real;
+		    div, flux1 : PlaneArray;
+		    Up : PlaneArray
+		    returns PlaneArray )
+%:::::::::::::::::::::: first coordinate direction
+		for jc in 1, nc2 cross
+                    ie in 1, nc1+1
+                        div1    := min( zero,
+                                        half*( div[jc,ie] + div[jc+1,ie] ) );
+                        flux1e  := flux1[jc,ie] +
+                                   dx*div1*( Up[jc,ilo+ie-1] -
+                                             Up[jc,ilo+ie-1-1] );
+                returns array of flux1e
+                end for
+end function %% Method18A
+%.................
+function Method18B( nc2, nc1, ilo : integer;
+		    zero, half, dy : double_real;
+                    div, flux2 : PlaneArray;
+                    Up : PlaneArray
+                    returns PlaneArray )
+%:::::::::::::::::::::: second coordinate direction
+		for je in 1, nc2+1 cross
+                    ic in 1, nc1
+                        div2    := min( zero,
+                                        half*( div[je,ic] + div[je,ic+1] ) );
+                        flux2e  := flux2[je,ic] +
+                                   dy*div2*( Up[je,ilo+ic-1] -
+                                             Up[je-1,ilo+ic-1] );
+                returns array of flux2e
+                end for
+end function %% Method18B
+%.................
+
+%:::::: add diffusive flux where flow is compressing
+let
+% We're removing one level of loop nesting and one dimension per array, here,
+% for reasons of Sisal efficiency
+
+%:::::::::::::::::::::: first coordinate direction
+  flux1d1 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c1, U1 );
+  flux1d2 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c2, U2 );
+  flux1d3 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c3, U3 );
+  flux1d4 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c4, U4 );
+
+%:::::::::::::::::::::: second coordinate direction
+  flux2e1 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d1, U1 );
+  flux2e2 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d2, U2 );
+  flux2e3 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d3, U3 );
+  flux2e4 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d4, U4 );
+
+in
+  flux1d1, flux1d2, flux1d3, flux1d4,
+  flux2e1, flux2e2, flux2e3, flux2e4, 1
+end let
+end function %% Method18
+%-------------------------------------------------------------------------------
+function Method19( U1,U2,U3,U4 : PlaneArray;
+		   flux1d1, flux1d2, flux1d3, flux1d4,
+		   flux2e1, flux2e2, flux2e3, flux2e4 : PlaneArray;
+		   nc1, nc2, ilo, ordinal : integer;
+		   dtdx, dtdy : double_real
+                   returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+			   integer )
+%:::::: conservative update formula
+let
+uout1, uout2, uout3, uout4
+        :=      for j in 1, nc2 cross
+                    i in 1, nc1
+                        tmp1    := U1[j,ilo+i-1] + dtdx*( flux1d1[j,i] -
+                                                             flux1d1[j,i+1] )
+                                                    + dtdy*( flux2e1[j,i] -
+                                                             flux2e1[j+1,i] );
+                        tmp2    := U2[j,ilo+i-1] + dtdx*( flux1d2[j,i] -
+                                                             flux1d2[j,i+1] )
+                                                    + dtdy*( flux2e2[j,i] -
+                                                             flux2e2[j+1,i] );
+                        tmp3    := U3[j,ilo+i-1] + dtdx*( flux1d3[j,i] -
+                                                             flux1d3[j,i+1] )
+                                                    + dtdy*( flux2e3[j,i] -
+                                                             flux2e3[j+1,i] );
+                        tmp4    := U4[j,ilo+i-1] + dtdx*( flux1d4[j,i] -
+                                                             flux1d4[j,i+1] )
+                                                    + dtdy*( flux2e4[j,i] -
+                                                             flux2e4[j+1,i] );
+                returns array of tmp1
+                        array of tmp2
+                        array of tmp3
+                        array of tmp4
+                end for
+in
+  uout1, uout2, uout3, uout4, 1
+end let
+end function %% Method19
+%-------------------------------------------------------------------------------
+function Transpose( fluxa1, fluxa2, fluxa3, fluxa4 : PlaneArray;
+		    outerlow, outerhigh, innerlow, innerhigh, ordinal : integer
+		    returns PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+				integer )
+%...... transpose, to build a proper plane array
+let
+fluxb1, fluxb2, fluxb3, fluxb4
+        :=      for je in outerlow, outerhigh cross
+                    ic in innerlow, innerhigh
+                returns array of fluxa1[ic,je]
+                        array of fluxa2[ic,je]
+                        array of fluxa3[ic,je]
+                        array of fluxa4[ic,je]
+                end for
+in
+fluxb1, fluxb2, fluxb3, fluxb4, 1
+end let
+end function %% Transpose
+%-------------------------------------------------------------------------------
+function Method( U1,U2,U3,U4 : PlaneArray; Data:Data_Record;
+		 dx, dy, dt  : double_real;
+		 nstep : integer;
+		 ilo, jlo, ordinal : integer
+                 returns double_real,
+			 PlaneArray, PlaneArray, PlaneArray, PlaneArray,
+			 integer )
+
+let
+
+  mxdim1   := Data.NDim1;
+  mxdim2   := Data.NDim2;
+  nout1    := Data.NDim1;
+  nout2    := Data.NDim2;
+  nc1      := Data.NXCell;
+  nc2      := Data.NYCell;
+  gamma    := Data.Gamma;
+  difmag   := Data.DifMag;
+  lnewton  := Data.LNewton;
+  ncx      := NCX_PARAM;
+  niter    := Data.NIter;
+  nvar     := NVAR_PARAM;
+  godorder := Data.GodOrder;
+
+  one     := 1.0d0;
+  two     := 2.0d0;
+  half    := 0.5d0;
+  small   := 1.0d-6;
+  smallr  := 1.0d-6;
+  zero    := 0.0d0;
+  xi      := 0.0d0;
+%:::::  local constants
+  gm1     := gamma - one;
+  dtdx    := dt/dx;
+  dtdy    := dt/dy;
+  hdtdx   := half*dtdx;
+  hdtdy   := half*dtdy;
+  
+%:::::: convert to non-conservation form
+rho1, uu1, v1, e1, ord1
+        :=      Method1( U1,U2,U3,U4, nc1, nc2, ncx, ilo, ordinal );
+
+%:::::: compute pressure via equation of state
+psml, p, ord2
+	:=	Method2( uu1, v1, e1, rho1, nc1, nc2, ncx, ordinal,
+			 half, small, gm1 );
+
+%:::::: compute sound speed on interior and one row of bndry cells
+c, ord3	:=      Method3( gamma, p, rho1, nc1, nc2, ordinal );
+
+%:::::: compute Courant Number on grid interior
+courmx1, courmy1, ord4
+        :=      Method4( c, uu1, v1, nc1, nc2, ordinal );
+courmx	:= courmx1*dt/dx;
+courmy	:= courmy1*dt/dy;
+courno  := max( courmx, courmy );
+
+%:::::: compute flattening coef for slope calcualtions
+flatn   :=      flaten( p, uu1, v1, nc1, nc2, godorder );
+
+%:::::: compute slopes
+dp      :=      slope( p,    flatn, nc1, nc2 );
+drho    :=      slope( rho1, flatn, nc1, nc2 );
+du      :=      slope( uu1,  flatn, nc1, nc2 );
+dv      :=      slope( v1,   flatn, nc1, nc2 );
+
+%:::::: compute traced left states in first coord dir
+rhol1, ul1, vl1, pl1, ord5
+        :=	Method5( c, uu1, rho1, v1, p, psml, drho, dp, du, dv,
+			 nc1, nc2, ordinal, half, one, zero, two,
+			 dtdx, hdtdx, smallr );
+
+%:::::: compute traced right states in first coord dir
+rhor1, ur1, vr1, pr1, ord6
+        :=	Method6( c, uu1, rho1, v1, p, psml, drho, dp, du, dv,
+                         nc1, nc2, ordinal, half, one, zero, two,
+			 dtdx, hdtdx, smallr );
+
+%:::::: compute traced bottom states in second coord dir
+rhob1, ub1, vb1, pb1, ord7
+        :=	Method7( c, v1, uu1, rho1, p, psml, drho, dp, du, dv,
+                         nc1, nc2, ordinal, half, one, zero, two,
+			 dtdy, hdtdy, smallr );
+
+%:::::: compute traced top states in second coord dir
+rhot1, ut1, vt1, pt1, ord8
+        :=	Method8( c, v1, uu1, rho1, p, psml, drho, dp, du, dv,
+                         nc1, nc2, ordinal, half, one, zero, two,
+			 dtdy, hdtdy, smallr );
+
+%:::::: compute fluxes transverse to first coord dir
+flux2a1, flux2a2, flux2a3, flux2a4, ord9
+	  :=	Method9( rhob1, vb1, ub1, pb1,
+			 rhot1, vt1, ut1, pt1, psml,
+			 nc1, nc2, niter, ordinal, lnewton, gamma, xi );
+
+flux2b1, flux2b2, flux2b3, flux2b4, ord9a :=
+	flux2a1, flux2a2, flux2a3, flux2a4, ordinal;
+
+%:::::: compute fluxes transverse to second coord dir
+flux1a1, flux1a2, flux1a3, flux1a4, ord10
+	:=      Method10( rhol1, ul1, vl1, pl1,
+			  rhor1, ur1, vr1, pr1, psml,
+			  nc1, nc2, niter, ordinal, lnewton, gamma, xi );
+
+%:::::: add transverse component for full predictor in
+%:::::: first coord dir (left states)
+rhol2, ul2, vl2, pl2, ord11
+        :=	Method11( rhol1, ul1, vl1, pl1,
+			  flux2b1,flux2b2, flux2b3, flux2b4,
+			  nc1, nc2, ordinal,
+			  hdtdy, smallr, half, gm1, small );
+
+%:::::: add transverse component for full predictor in
+%:::::: first coord dir (right states)
+rhor2, ur2, vr2, pr2, ord12
+        :=	Method12( rhor1, ur1, vr1, pr1,
+			  flux2b1,flux2b2, flux2b3, flux2b4,
+			  nc1, nc2, ordinal,
+			  hdtdy, smallr, half, gm1, small );
+
+%:::::: add transverse component for full predictor in
+%:::::: second coord dir (bottom states)
+rhob2, ub2, vb2, pb2, ord13
+	:=	Method13( rhob1, ub1, vb1, pb1,
+			  flux1a1,flux1a2, flux1a3, flux1a4,
+			  nc1, nc2, ordinal,
+			  hdtdx, smallr, half, gm1, small );
+
+%:::::: add transverse component for full predictor in
+%:::::: second coord dir (top states)
+rhot2, ut2, vt2, pt2, ord14
+        :=      Method14( rhot1, ut1, vt1, pt1,
+			  flux1a1,flux1a2, flux1a3, flux1a4,
+			  nc1, nc2, ordinal,
+			  hdtdx, smallr, half, gm1, small );
+
+%:::::: compute full fluxes in first coord dir
+flux1c1, flux1c2, flux1c3, flux1c4, ord15
+	:=	Method15( rhol2, ul2, vl2, pl2,
+			  rhor2, ur2, vr2, pr2, psml,
+			  nc1, nc2, niter, ordinal, lnewton, gamma, xi );
+
+
+%:::::: compute full fluxes in second coord dir
+flux2c1, flux2c2, flux2c3, flux2c4, ord16
+	:=      Method16( rhob2, ub2, vb2, pb2,
+                          rhot2, ut2, vt2, pt2, psml,
+                          nc1, nc2, niter, ordinal, lnewton, gamma, xi );
+
+%...... transpose, to build a proper plane array
+flux2d1, flux2d2, flux2d3, flux2d4, ord16a
+        :=      Transpose( flux2c1, flux2c2, flux2c3, flux2c4,
+			   1, nc2+1, 1, nc1, ordinal );
+
+%:::::: compute the divergence of the velocity field
+div, ord17
+	:=      Method17( uu1, v1, nc1, nc2, ordinal, difmag, half, dx, dy );
+
+%:::::: add diffusive flux where flow is compressing
+flux1d1, flux1d2, flux1d3, flux1d4,
+flux2e1, flux2e2, flux2e3, flux2e4,  ord18
+        :=      Method18( div, flux1c1,flux1c2, flux1c3, flux1c4,
+			       flux2d1,flux2d2, flux2d3, flux2d4,
+			  U1,U2,U3,U4, nc1, nc2, nvar, ilo, ordinal,
+			  zero, half, dx, dy );
+
+%:::::: conservative update formula
+uout1, uout2, uout3, uout4, ord19
+        :=      Method19( U1,U2,U3,U4, flux1d1, flux1d2, flux1d3, flux1d4,
+			       flux2e1, flux2e2, flux2e3, flux2e4,
+			  nc1, nc2, ilo, ordinal,
+			  dtdx, dtdy );
+
+in      
+  courno, uout1, uout2, uout3, uout4, 1
+end let
+
+end function %% Method
+
+%==============================================================================
+
+function MainWithoutStripMining( Data:Data_Record; returns PlotStreamType )
+
+% This version of Main runs the Method routine directly, on the entire
+% System arrray.
+
+let
+
+% Set up values used in the Fortran version.
+IPlotCnt := 0;
+IPltFile := -1;
+IDumpCnt := 0;
+Dx       := ( Data.XRgt - Data.XLft ) / double_real ( Data.NXCell );
+Dy       := ( Data.YTop - Data.YBot ) / double_real ( Data.NYCell );
+
+PlotStream,
+Uout1,Uout2,Uout3,Uout4,
+LastPlotNum, NStep, ordinal
+	 :=
+
+%:::::: Loop in time until stoptime reached
+for initial
+
+%:::::: Set up initial data and timestep
+        NStep    := 0;
+	ordinal	 := 0;
+        Time     := 0.0d0;
+
+        U1, U2, U3, U4 :=
+        	ProbInit( Data.NXCell, Data.NYCell, Data.XLft, Data.XRgt,
+			  Data.YBot, Data.YTop, NStep, Time, Data.Gamma,
+			  Data.DenFact, Data.RMach, Data.XCld, Data.YCld,
+			  Data.ShockDir, Data.ShockPos, Data.Radius );
+        Dt  := InitDt( U1, U2, U3, U4, Data.NXCell, Data.NYCell,
+		       Dx, Dy, Data.Cfl, Data.TimeFact, Data.Gamma );
+
+% Set up local values for Sisal version.
+        PlotStream := stream PlotStreamType [
+                        PlotDump( U1, U2, U3, U4, Data.NXCell, Data.NYCell,
+                                  Data.XLft, Data.XRgt, Data.YBot, Data.YTop,
+                                  NStep, Time, Data.Gamma ) ];
+        LastPlotNum	:= NStep;
+
+%:::: loop in tim euntil stoptime reached
+while ( Time < Data.StopTime ) & ( NStep < Data.MaxStep )
+repeat
+
+%:::::: Set timestep
+        DtIn := old Dt;
+
+%:::::: Set boundary conditions
+        U1Bnd := PhysBnd( old U1, Data );
+        U2Bnd := PhysBnd( old U2, Data );
+        U3Bnd := PhysBnd( old U3, Data );
+        U4Bnd := PhysBnd( old U4, Data );
+
+%:::::: Advance grid
+        CourNo, U1, U2, U3, U4, ordinal
+		:= Method( U1Bnd,U2Bnd,U3Bnd,U4Bnd, Data,
+			   Dx, Dy, DtIn, old NStep, 1, 0, old ordinal );
+				
+
+%:::::: Compute new timestep
+        Time := old Time + DtIn;
+        NStep := old NStep + 1;
+        Dt := old Dt * min( Data.Chngmax, Data.Cfl/CourNo );
+
+%:::::: Swap data
+%     Nothing needed here.
+
+%:::::: Check for plot dump
+        PlotStream, LastPlotNum
+        :=      if mod( NStep, Data.IntPlot ) = 0 then
+                                stream_append( old PlotStream,
+                                               PlotDump( U1, U2, U3, U4,
+							 Data.NXCell,
+                                                         Data.NYCell,
+                                                         Data.XLft, Data.XRgt,
+                                                         Data.YBot, Data.YTop,
+                                                         old NStep, old Time,
+                                                         Data.Gamma ) ),
+                                NStep
+                else
+                                old PlotStream, old LastPlotNum
+                        end if;
+
+returns value of PlotStream
+        value of U1 value of U2 value of U3 value of U4
+	value of LastPlotNum
+	value of NStep
+	value of 1
+
+end for;
+
+%::::::
+in
+  if LastPlotNum ~= NStep then
+        stream_append( PlotStream,
+                       PlotDump( Uout1, Uout2, Uout3, Uout4,
+				 Data.NXCell, Data.NYCell,
+                                 Data.Xlft, Data.XRgt, Data.YBot, Data.YTop,
+                                 Data.MaxStep, Data.StopTime, Data.Gamma ) )
+  else
+        PlotStream
+  end if
+end let
+
+end function %% MainWithoutStripMining

@@ -1,0 +1,29 @@
+% Planckian Distribution
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+global etothe( x:double returns double )
+
+function Loop22( n:integer; U,V,X:OneD returns OneD, OneD )
+  for k in 1,n
+      Y := if ( U[k] < 20.0d0 * V[k] ) then
+	       U[k] / V[k] 
+	   else
+	       20.0d0
+	   end if;
+      W := X[k] / (etothe(Y) - 1.0d0);
+  returns array of W
+          array of Y
+  end for
+end function
+
+function Main( rep,n:integer; U,V,X:OneD returns OneD, OneD )
+   for i in 1, rep
+       v1,v2 := Loop22( n, U,V,X );
+   returns value of v1
+	   value of v2
+   end for
+end function

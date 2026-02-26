@@ -1,0 +1,44 @@
+% Discrete Ordinates Transport: Conditional Recurrence on XX
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop20( n:integer; DK,S,T:double;
+                XXin,G,U,V,VX,W,Y,Z:OneD returns OneD, OneD )
+   for initial
+       i := 1;
+       DI := Y[1] - G[1] / (XXin[1] + DK);
+       DN := if DI = 0.0d0 then 0.20d0
+             else max(S, min(Z[1]/DI, T))
+             end if;
+       X  := (XXin[1] * (W[1] + DN * V[1]) + U[1]) / (VX[1] + DN * V[1]);
+       XX := XXin[2: XXin[1] + DN * (X - XXin[1])];
+   while i < n repeat
+       i := old i + 1;
+       DI := Y[i] - G[i] / (old XX[i] + DK);
+       DN := if DI = 0.0d0 then 0.20d0
+             else max(S, min(Z[i]/DI, T))
+             end if;
+       X  := (old XX[i] * (W[i] + DN * V[i]) + U[i]) / (VX[i] + DN * V[i]);
+       XX := old XX[i+1: old XX[i] + DN * (X - old XX[i])];
+   returns array of X
+           value of XX
+   end for
+end function
+
+function Main( rep,n:integer; DK,S,T:double;
+                 XXin,G,U,V,VX,W,Y,Z:OneD returns OneD, OneD )
+   for initial
+       i  := 1;
+       X  := array OneD [];
+       XX := XXin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       X, XX := Loop20( n, DK, S, T, old XX, G, U, V, VX, W, Y, Z );
+   returns value of X
+	   value of XX
+   end for
+end function

@@ -1,0 +1,60 @@
+define Main 
+
+type queen_list = array[integer];
+type solution_list = array [queen_list]
+
+forward function in_check(row, column: integer;
+			  queens: queen_list returns boolean)
+
+function Main(level: integer returns solution_list)
+
+    if level = 1 then
+	for row in 1,4		% 5 to 8 are same by symmetry
+	    assignment := array queen_list [ 1: row ]
+	returns
+	    array of assignment
+	end for
+    else
+    	let
+	    assignment_list:solution_list := Main(level-1)
+    	in
+	    for partial_assignment in assignment_list
+	        column := 1+array_size(partial_assignment);
+	        new_assignment:solution_list :=
+		    for row in 1,8
+			ischeck := in_check(row,column,partial_assignment);
+		        assignment := 
+			    if ischeck then
+			        array queen_list []
+			    else
+			        array_addh(partial_assignment,row)
+			    end if
+		    returns
+		        array of assignment unless ischeck
+		    end for
+	    returns
+	        value of catenate new_assignment
+	    end for
+        end let
+    end if
+end function
+
+
+%
+%  in_check checks to see that the (row,column) pair proposed
+%  does not enter check with any of the previously assigned
+%  (row,column) pairs.
+%
+function in_check (row,column : integer;
+		   queens : array [integer]
+		   returns boolean)
+
+    for old_row in queens at old_column
+	check_value:boolean := (row = old_row) |
+		       ((old_row+old_column) = (row+column)) |
+		       ((old_row-old_column) = (row-column))
+    returns value of sum check_value
+    end for
+end function
+
+

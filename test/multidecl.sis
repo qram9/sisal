@@ -1,0 +1,13 @@
+define Main
+
+function GetValues(returns integer, double)
+    10, double(3.14159f)
+end function
+
+function Main(returns double, integer)
+  let
+    x, y := GetValues()
+  in
+    y, x
+  end let
+end function

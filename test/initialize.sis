@@ -1,0 +1,104 @@
+define Initialize_System
+
+%$include ("anneal.sish")
+
+%==============================================================================
+%  G L O B A L   F U N C T I O N   D E C L A R A T I O N S
+%==============================================================================
+
+global my_sqrt( X : real returns real )
+
+global Single_Change ( SI : Sys_State; seed_in : Four_Plex
+	returns Sys_State, Four_Plex, Energy_Type )
+
+global Set_Energy ( SI : Sys_State returns Energy_Type )
+
+global ranf ( seed : Four_Plex returns double, Four_Plex )
+
+global rans ( N_In, Seed1 : integer returns Seed_Type )
+
+% srans is used to obtain a single seed for temperature initialization
+% the  initialization routine skips some seeds before commencing to avoid
+% reusing the same seeds in annealing
+global srans ( Seed1 : integer returns Four_Plex)
+
+%==============================================================================
+
+function sqr ( x:real returns real ) x*x end function
+
+function Init_Annealing_Temp( SI : Sys_State; EI : Energy_Type;
+					Problem_Size, seed : integer
+			returns       Sys_State,
+                                      Energy_Type,      % Energy
+                                      real )            % Temperature
+
+% Calculates the starting temperature for the annealing schedule.
+
+let     Loop_Ceil := 2 * Problem_Size;
+        Alpha,  % Sum of squared energy values
+        Beta,   % Sum of energy values
+        New_St, % Modified state
+	Seed2,
+        Energy  % Global cost of modified itinerary
+                :=
+                for initial
+			S1 := SI;
+                        I := 0;
+                        E := EI;
+			Seed1 := srans(Seed);
+
+                while I < Loop_Ceil             % Loop executed a number of times
+
+                repeat
+                        % Choose a swap to perform.
+
+			S1, Seed1, Delta_E := 
+				Single_Change (old S1, old Seed1);
+
+                        % Calculate the new global cost.
+                        E := old E + Delta_E;
+
+                        I := old I + 1
+
+                returns value of sum ( E * E )
+                        value of sum E
+                        value of S1
+			value of Seed1
+                        value of E
+                end for
+
+in      New_St,
+        Energy,
+        my_sqrt( (  Alpha  / real( Loop_Ceil + 1) ) -        % Temperature
+             ( sqr ( Beta  / real( Loop_Ceil + 1) ) ) )
+end let
+
+end function % Init_Annealing_Temp
+
+%==============================================================================
+
+function Initialize_System ( In_State : Sys_State; Problem_Size, seed : integer
+		     returns Sys_State, Energy_Type, real, Seed_Type )
+
+%  Sets initial configuration, energy and temperature
+
+let	
+
+	% Calculate the initial global energy (cost) for use in the temperature
+	% calculation.
+	Energy := Set_Energy ( In_State );
+
+	new_State, new_E, T :=
+		Init_Annealing_Temp ( In_State, Energy, Problem_Size, seed );
+
+	new_seed := rans ( Problem_Size, seed );
+in
+	new_State,
+	new_E,
+	T,
+	new_Seed
+
+end let
+
+end function % Initialize
+

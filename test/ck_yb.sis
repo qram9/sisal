@@ -1,0 +1,50 @@
+% Used to gather info on Y bucket for analysis of picture
+% To get y bucket, change returned value of 'poly_scan' 
+% to 'y_bucket' and output of 'main' to 'frontmost'.
+% Both functions found in 'scan2.sis'.
+% Run this program using output of 'scan2' as input.
+% 
+% If mode = 2, values represent following
+%    - total number of triangles
+%    - number of empty entries in Y bucket (no NEW triangles)
+%    - min/max number of entries in any slot of y bucket
+%    - array of NON zero entries of y bucket
+%
+% If mode = 3, values represent following
+%    - total number of triangles in all y buckets (divide by
+%      # of scan lines to get avg # of triangles per scan line)
+%    - number of scan lines with NO triangles
+%    - min/max as above
+%    - y buckets as above
+
+define main
+
+type int_array1 = array[integer];
+type int_array2 = array[int_array1];
+
+function main (x, y : integer;
+	       yb   : int_array2
+	       returns integer, integer,
+		       integer, integer,
+		       int_array1)
+
+let
+tri_count,
+width      := for i in array_liml(yb), array_limh(yb)
+                s := array_size(yb[i]);
+              returns value of sum s
+                      array of s when s~=0
+	      end for;
+
+min_edge,
+max_edge   := for i in array_liml(width), array_limh(width)
+	      returns value of least    width[i]
+	              value of greatest width[i]
+	      end for;
+
+zeroes     := array_size(yb) - array_size(width)
+
+in
+  tri_count, zeroes, min_edge, max_edge, width
+end let
+end function

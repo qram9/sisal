@@ -1,0 +1,6 @@
+Function Main(x:integer returns integer ) 
+for i in 1, 10
+    val := 100 / (i - 5) 
+    returns value of sum val when i > 5
+end for
+end function

@@ -1,0 +1,774 @@
+% Parallel Scheduler, Version 1.0, 03/23/89
+%
+% A parallel implementation of simulated annealing is used to solve
+% the School TimeTable Problem
+%
+
+define Main
+
+
+
+%==============================================================================
+%  T Y P E   D E C L A R A T I O N S
+%==============================================================================
+
+type Tuple_Type = record [ Class, Subject,
+                           Teacher, Room, Frequency : integer ];
+
+type Swap_Type  = record [ Tuple : Tuple_Type;
+                           From, To, Index, Ea, Er : integer ];
+
+type double        = double_real;
+type OneDim        = array [integer];
+type OneReal       = array [real];
+type TwoDim        = array [OneDim];
+type TwoReal       = array [OneReal];
+type bitarray      = array [integer];
+type fourplex      = array [integer];
+type Seed_Type     = array [fourplex];
+type Period_Type   = array [Tuple_Type];
+type Schedule_Type = array [Period_Type];
+type Swap_Array_1  = array [Swap_Type];
+type Swap_Array_2  = array [Swap_Array_1];
+
+
+
+%==============================================================================
+%  G L O B A L   F U N C T I O N   D E C L A R A T I O N S
+%==============================================================================
+
+global sqrt(x: real  returns real)
+
+%==============================================================================
+%  F U N C T I O N   D E F I N I T I O N S
+%==============================================================================
+
+function ranf_odd(n: integer  returns integer)
+
+   if mod(n, 2) = 0 then 0 else 1 end if
+
+end function % odd
+
+
+function ranf_even(n: integer  returns integer)
+
+   if mod(n, 2) = 0 then 1 else 0 end if
+
+end function % even
+
+
+% Returns a * b where both a and b are 4 12-bit integers and the
+% multiplication is done piecemeal.
+%
+function ranf_mod_mult(a, b: fourplex  returns fourplex)
+
+   let 
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array [0: mod(k0, 4096), mod(k1, 4096), mod(k2, 4096), mod(k3, 4096)]
+   end let
+
+end function % mod_mult
+
+
+% Returns the floor of (2**46) / nn, where 2**46 is represented by
+% 4 12-bit integers, in base ten [1024, 0, 0, 0], and the division
+% is done piecemeal. For statiscal reasons the divisor is made odd.
+%
+function ranf_k(n: integer  returns fourplex)
+   let 
+       nn := n + ranf_even(n);
+
+       q3 := 1024 / nn;
+       r3 := 1024 - (nn * q3);
+       q2 := (r3 * 4096) / nn;
+       r2 := (r3 * 4096) - (nn * q2);
+       q1 := (r2 * 4096) / nn;
+       r1 := (r2 * 4096) - (nn * q1);
+       q0 := (r1 * 4096) / nn
+   in
+       array [0: q0, q1, q2, q3]
+   end let
+
+end function % k
+
+
+% Returns the binary representation of k, where k is represented
+% by 4 12-bit integers. The bits are stored in the returns array
+% from least significant to most significant.
+%
+function ranf_k_binary(k: fourplex  returns bitarray)
+
+   for i in 0, 3
+   returns value of catenate
+
+       for initial
+           j   := 1;
+           x   := k[i] / 2;
+           bit := ranf_odd(k[i])
+       while j < 12 repeat
+           j   := old j + 1;
+           x   := old x / 2;
+           bit := ranf_odd(old x)
+       returns array of bit
+       end for
+
+   end for
+
+end function % k_binary
+
+
+% Returns a to the k mod 2**48.   k is a binary number, so it is
+% equivalent to the sum of k[i] * 2**i.  a to the k mod 2**48 is
+% thus the product of a * (k[i] * 2**i) mod 2**48.  We calculate
+% iteratively a ** (2**i) mod 2**48, and form the result by mul-
+% tiplying together those terms (mod 2**48) for which k[i] is 1.
+%
+function ranf_a_to_k(a: fourplex; k: bitarray  returns fourplex)
+
+   for initial
+       i   := 0; 
+       a_i := a;
+       a_k := array [0: 1, 0, 0, 0]
+   while i < 46 repeat
+       i   := old i + 1;
+       a_k := if k[i] = 0 then
+                 old a_k
+              else
+                 ranf_mod_mult(old a_k, old a_i)
+              end if;
+       a_i := ranf_mod_mult(old a_i, old a_i)
+   returns value of a_k
+   end for
+
+end function
+
+
+% Returns n seeds by dividing the wheel  into  n  segments  and
+% returning the start seed of each segment.  If seed1 is 0, the
+% routine will return all zeros; in such cases, seed1 is set to
+% [3281, 4041, 595, 2376] which is statistically the best start-
+% ing seed.  The wheel is divided into n pieces by dividing its
+% period (2**46) by n ( = k ). Then
+%
+%      seed(i) = seed(i - 1) * a ** k  (mod 2**48)
+%
+% where a is the multiplier of the random number generator.
+%
+function rans(n, seed1: integer  returns array [fourplex])
+
+   for initial
+
+       i    := 1;
+       seed := if seed1 = 0 then
+                  array [0: 3281, 4041, 595, 2376]
+               else
+                  array [0: abs(seed1), 0, 0, 0]
+               end if;
+       a    := array [0: 373, 3707, 1442, 647];
+       a_k  := ranf_a_to_k(a, ranf_k_binary(ranf_k(n)))
+
+   while i < n repeat
+
+       i    := old i + 1;
+       seed := ranf_mod_mult(old seed, a_k)
+
+   returns array of seed
+   end for
+
+end function % rans
+
+
+% Returns the next random number and seed in the series. The seed's
+% bits shifted to the right 48 places are the bits  of  the  random
+% number.  The next seed is the product of the current seed and the
+% series' multiplier.
+%
+function ranf(seed: fourplex  returns double, fourplex)
+
+   double_real(seed[3]) / 4096.0d0 +
+   double_real(seed[2]) / 16777216.0d0 +
+   double_real(seed[1]) / 68719476736.0d0 +
+   double_real(seed[0]) / 281474976710656.0d0,
+
+   ranf_mod_mult(array [0: 373, 3707, 1442, 647], seed)
+
+end function % ranf
+
+
+
+function Tuple_Tuple_Cost(Tuple_1, Tuple_2 : Tuple_Type
+			  returns integer)
+
+   if Tuple_1.Room    = Tuple_2.Room    then 1 else 0 end if
+      +
+   if Tuple_1.Class   = Tuple_2.Class   then 1 else 0 end if
+      +
+   if Tuple_1.Teacher = Tuple_2.Teacher then 1 else 0 end if
+
+end function % Tuple_Tuple_Cost 
+
+
+
+function Tuple_Period_Cost(Tuple  : Tuple_Type;
+                           Period : Period_Type
+                           returns integer)
+
+   for T in Period
+   returns value of sum
+       Tuple_Tuple_Cost(T, Tuple)
+   end for
+
+end function % Tuple_Period_Cost
+
+
+
+% Since a period's cost matrix is symmetric only the upper triangle
+% is considered.
+%
+function Period_Cost(Period : Period_Type  returns integer)
+
+   for i in 1,     array_size(Period) cross
+       j in i + 1, array_size(Period)
+   returns value of sum
+       Tuple_Tuple_Cost(Period[i], Period[j])
+   end for
+
+end function % Period_Cost
+
+
+
+function Member(tuple : Tuple_Type;
+                period: Period_Type  returns boolean)
+
+   for initial
+       i     := 0;
+       found := false
+   while ~found & (i < array_size(period)) repeat
+       i     := old i + 1;
+       found := (period[i].Class     = tuple.Class)   &
+                (period[i].Room      = tuple.Room)    &
+                (period[i].Subject   = tuple.Subject) &
+                (period[i].Teacher   = tuple.Teacher) &
+                (period[i].Frequency = tuple.Frequency)
+   returns value of found
+   end for
+
+end function % Member
+
+
+
+function Choose_Tuple(seed    : fourplex;
+                      from    : integer;
+                      schedule: Schedule_Type
+                      returns fourplex, integer, Tuple_Type)
+
+   let
+       random, seed1 := ranf(seed);
+       size          := array_size(schedule[from]);
+       index         := trunc( random * double_real(size) ) + 1
+   in
+       seed1, index, schedule[from, index]
+   end let
+
+end function % Choose_Tuple
+
+
+
+function Choose_Period(seed     : fourplex;
+                       N_Periods: integer
+                       returns fourplex, integer)
+
+   let
+       random, seed1 := ranf(seed)
+   in 
+       seed1, trunc(random * double_real(N_Periods)) + 1
+   end let
+
+end function % Choose_Period
+
+
+
+function Period_Index(tuple: Tuple_Type;
+                      period: Period_Type  returns integer)
+
+   for initial
+       i     := 0;
+       found := false
+   while ~found & (i < array_size(period)) repeat
+       i     := old i + 1;
+       found := (period[i].Class     = tuple.Class)   &
+                (period[i].Room      = tuple.Room)    &
+                (period[i].Subject   = tuple.Subject) &
+                (period[i].Teacher   = tuple.Teacher) &
+                (period[i].Frequency = tuple.Frequency)
+   returns value of i
+   end for
+
+end function % Period_Index
+
+
+
+function Boltzmann(seed  : fourplex;
+                   delta : integer;  T : real
+                   returns fourplex, boolean)
+
+   if delta <= 0 then
+      seed, true
+   else
+      let
+          random, seed1 := ranf(seed);
+          prob := exp( 2.718281828, real(- delta) / T )
+      in
+          seed1, double_real(prob) > random
+      end let
+   end if
+
+end function % Boltzmann
+
+
+
+% A from period (nonempty), a tuple in that period, and a to period
+% (not the from period) are choosen at random. Then the energy gain
+% of removing the tuple from the from period,and the energy lost of
+% adding the tuple to the to period are computed.
+%
+function Get_Swap(seed     : fourplex;
+                  schedule : Schedule_Type
+		  returns fourplex, Swap_Type)
+
+   let
+       N           := array_size(schedule);
+
+       seed1, from := for initial
+                          seed1, from := Choose_Period(seed, N)
+                      while array_size(schedule[from]) = 0 repeat
+                          seed1, from := Choose_Period(old seed1, N)
+                      returns value of seed1
+                              value of from
+                      end for;
+
+       seed2, to   := for initial
+                          seed2, to := Choose_Period(seed1, N)
+                      while to = from repeat
+                          seed2, to := Choose_Period(old seed2, N)
+                      returns value of seed2
+                              value of to
+                      end for;
+
+       seed3, index, tuple := Choose_Tuple(seed2, from, schedule)
+   in
+       seed3,
+       record [ Tuple : Tuple;
+                From  : From;
+                To    : To; 
+                Index : Index;
+                Ea    : Tuple_Period_Cost(tuple, schedule[to]);
+                Er    : Tuple_Period_Cost(tuple, schedule[from]) - 3 ]
+   end let
+
+end function % Get_Swap
+
+
+
+% A tuple from period, and a to period (not the  from  period)  are
+% choosen at random. The change in energy due to the swap is calcu-
+% lated and the Boltzmann function is called to decide  whether  or
+% not to accept the swap.  Note the energy calculated may be incor-
+% rect due to simultaneous swaps.
+%
+function Get_Swap_P(seed     : fourplex;
+                    from     : integer;
+                    T        : real;
+                    schedule : Schedule_Type
+		    returns fourplex, integer, integer, Swap_Type)
+
+   let
+       seed1, to := for initial
+                        N         := array_size(schedule);
+                        seed1, to := Choose_Period(seed, N)
+                    while to = from repeat
+                        seed1, to := Choose_Period(old seed1, N)
+                    returns value of seed1
+                            value of to
+                    end for;
+
+       seed2, index, tuple := Choose_Tuple(seed1, from, schedule);
+
+       Ea, Er := Tuple_Period_Cost(tuple, schedule[to]),
+                 Tuple_Period_Cost(tuple, schedule[from]) - 3;
+
+       seed3, Accept := Boltzmann(seed2, Ea - Er, T)
+   in
+       if ~Accept then
+          seed3, 1, 0, 
+          record [Tuple : record
+                          [Class   : 0;
+                           Subject : 0; Teacher   : 0;
+                           Room    : 0; Frequency : 0];
+                  From  : 0; To : 0; Index : 0; Ea : 0; Er : 0]
+       else
+          seed2, 1, 1,
+          record [Tuple : tuple; From : From; To : To; 
+                  Index : Period_Index(tuple, schedule[from]);
+                  Ea    : Ea;    Er   : Er]
+       end if
+   end let
+
+end function % Get_Swap_P
+
+
+
+% A swap is choosen from each nonempty period when random is not greater
+% than factor.
+%
+function Get_Swap_Set(seed     : Seed_Type;
+                      T        : real;
+                      schedule : Schedule_Type
+                      returns Seed_Type, integer, integer, Swap_Array_1)
+
+   for P in schedule at i
+
+       seed_p, swap, success, swap_p :=
+
+          let
+              random, seed1 := ranf(seed[i])
+          in
+              if array_size(P) = 0 then
+                 seed1, 0, 0,
+                 record [Tuple : record
+                                 [Class   : 0;
+                                  Subject : 0; Teacher   : 0;
+                                  Room    : 0; Frequency : 0];
+                         From  : 0; To : 0; Index : 0; Ea : 0; Er : 0]
+              else
+                 Get_Swap_P(seed1, i, T, schedule)
+              end if
+          end let
+
+   returns array of seed_p
+           value of sum swap
+           value of sum success
+           array of swap_p
+   end for
+
+end function % Get_Swap_Set
+
+
+
+% The tuple is removed in period by replacing it with the last tuple
+% in the period, and then shrinking the period by one.
+%
+function Remove_Tuple(period : Period_Type;
+                      swap   : Swap_Type
+                      returns Period_Type)
+
+   let
+       size     := array_size(period);
+       period_1 := period[swap.index: period[size]];
+   in
+       array_remh(period_1)
+   end let
+
+end function % Remove_Tuple
+
+
+
+% Remove the tuple from the From period, and add the tuple to the To
+% period (note, the From and To are guaranteed to be different. Then
+% Update Energy, and Schedule.
+%
+function Update_State (swap    : Swap_Type;
+                       energy  : integer;
+                       schedule: Schedule_Type
+                       returns integer, Schedule_Type)
+
+   let
+       P1 := Remove_Tuple(schedule[swap.from], swap);
+       S1 := schedule[swap.from: P1];
+       P2 := array_addh(S1[swap.to], swap.tuple)
+   in
+       energy + swap.Ea - swap.Er, S1[swap.to: P2]
+   end let
+
+end function % Update_State
+
+
+
+% Remove the tuples from the From period, and add the tuples to the
+% To  periods.  Note, there is at most one tuple to be removed from
+% each period,  but there may be more than one tuple to be added to
+% each period. On input the Swap_Set is sorted by From period.
+%
+function Update_State_P(Swap_Set    : Swap_Array_1;
+                        E_in        : integer;
+                        Schedule_in : Schedule_Type
+                        returns integer, Schedule_Type)
+
+   for initial
+       i    := 0;
+       E, S := E_in, Schedule_in
+   while i < array_size(Swap_Set) repeat
+       i    := old i + 1;
+       swap := Swap_Set[i];
+       E, S := if swap.from ~= 0 then
+                  let
+                      P1 := Remove_Tuple(old S[swap.from], swap);
+                      S1 := old S[swap.from: P1];
+                      Ea := Tuple_Period_Cost(swap.tuple, S1[swap.to]);
+                      Er := Tuple_Period_Cost(swap.tuple, S1[swap.from]);
+                      P2 := array_addh(S1[swap.to], swap.tuple)
+                  in
+                      old E + Ea - Er, S1[swap.to: P2]
+                  end let
+               else
+                  old E, old S
+               end if
+   returns value of E
+           value of S
+   end for
+
+end function % Update_State_P
+
+
+
+function Global_Cost(Schedule : Schedule_Type  returns integer)
+
+   for Period in Schedule
+   returns value of sum
+       Period_Cost(Period)
+   end for
+
+end function % Global_Cost
+
+
+
+% Periods 1 .. Left_Overs are given the leftover tuples.
+%
+function Init_Periods(extras, size, Max_Periods : integer;
+                      Tuples : Period_Type  returns Schedule_Type)
+
+   for i in 1, extras
+       LB     := (i - 1) * (size + 1) + 1;
+       UB     := i * (size + 1);
+       Period := for j in LB, UB
+		 returns array of Tuples[j]
+		 end for;
+       % Period := array_adjust(Tuples, LB, UB)
+   returns array of
+       array_setl(Period, 1)
+   end for
+
+   ||
+
+   for j in extras + 1, Max_Periods
+       LB     := (j - 1) * size + extras + 1;
+       UB     := j * size + extras;
+       Period := for j in LB, UB
+		 returns array of Tuples[j]
+		 end for;
+       % Period := array_adjust(Tuples, LB, UB)
+   returns array of
+       array_setl(Period, 1)
+   end for
+
+end function % Init_Periods
+
+
+
+% Return the starting energy, temperature, schedule. The starting temp-
+% erature is the standard deviation of the energy over N swaps.   Each
+% swap is accepted without regard to the resulting change in energy.
+%
+function Init_Schedule(Max_Success, energy_in : integer;
+                       seed_in                : fourplex;
+                       schedule_in            : Schedule_Type
+                       returns fourplex, integer, real, Schedule_Type)
+
+   let
+       seed, energy,
+       schedule, sum_E, sum_E_2 :=
+
+       for initial
+           i                := 1;
+           seed, swap       := Get_Swap(seed_in, schedule_in);
+           energy, schedule := Update_State(swap, energy_in, schedule_in)
+       while i < Max_Success repeat 
+           i                := old i + 1;
+           seed, swap       := Get_Swap(old seed, old schedule);
+           energy, schedule := Update_State(swap, old energy, old schedule)
+       returns value of seed
+               value of energy
+               value of schedule
+               value of sum energy
+               value of sum ( energy * energy )
+       end for;
+
+       Avg   := real(sum_E)   / real(Max_Success + 1);
+       Avg_2 := real(sum_E_2) / real(Max_Success + 1)
+
+   in  
+       seed, energy, sqrt(Avg_2 - (Avg * Avg)), schedule
+   end let
+
+end function % Init_Schedule
+
+
+
+
+% Divides tuples into periods, calculates and returns starting schedule,
+% annealing temperature, global cost, a initial set of error tuples.
+%
+function Initialize(Max_Periods, Max_Success : integer;
+                    seed_in                  : Seed_Type;
+                    Tuples                   : Period_Type
+                    returns Seed_Type, integer, real, Schedule_Type)
+
+   let
+       n_tuples    := array_size(Tuples);
+       period_size := n_tuples / Max_Periods;
+       extras      := mod(n_tuples, Max_Periods);
+       schedule_in := Init_Periods(extras, period_size, Max_Periods, Tuples);
+       cost        := Global_Cost(schedule_in);
+
+       seed_1, energy, T, schedule :=
+             Init_Schedule(Max_Success, cost, seed_in[1], schedule_in)
+   in
+       seed_in[1: seed_1], energy, T, schedule
+   end let
+
+end function % Initialize
+
+
+
+% Anneals the schedule at the current temperature until the stopping
+% conditions are met;returns a new schedule, set of error tuples and
+% global cost.
+%
+function Anneal(Max_swaps, Max_success, E_in : integer;
+                seed_in                      : Seed_Type;
+                T                            : real;
+                schedule_in                  : Schedule_Type
+                returns Seed_Type, integer, integer, integer, Schedule_Type)
+
+   for initial
+
+       seed, swaps, success, Swap_Set :=
+             Get_Swap_Set(seed_in, T, schedule_in);
+
+       E, schedule := Update_State_P(Swap_Set, E_in, schedule_in)
+
+   while (swaps < Max_swaps) &
+         (success < Max_success) & (E > 0) repeat
+
+       seed, N_swaps, N_success, Swap_Set :=
+             Get_Swap_Set(old seed, T, old schedule);
+
+       swaps       := old swaps   + N_swaps;
+       success     := old success + N_success;
+
+       E, schedule := Update_State_P(Swap_Set, old E, old schedule)
+
+   returns value of seed
+           value of E
+           value of swaps
+           value of success
+           value of schedule
+   end for
+
+end function % Anneal
+
+
+
+% Anneal the schedule until the ground state is reached or no change
+% occurs for five temperatures. The temperature decreases by .9 each
+% iteration.
+%
+function Scheduler(Max_Classes,  Max_Rooms,
+                   Max_Teachers, Max_Swaps,
+                   Max_Success,  seed_in     : integer;
+                   Tuples                    : Period_Type
+	           returns OneReal, OneDim,
+                           OneDim, OneDim, Schedule_Type)
+
+   for initial
+
+       Max_Periods               := 30;
+       No_change, swaps, success := 0, 0, 0;
+
+       seed, E, T, schedule :=
+             Initialize(Max_Periods, Max_Success,
+                        rans(Max_Periods, seed_in), Tuples)
+
+   while (E > 0) & (No_Change < 5) repeat
+
+       seed, E, swaps, success, schedule :=
+             Anneal(Max_Swaps, Max_Success, old E,
+                    old seed, old T, old schedule);
+
+       T            := 0.9 * old T;
+
+       No_change    := if E ~= old E then 0
+                       else old No_change + 1 end if
+
+   returns array of T
+           array of E
+           array of swaps
+           array of success
+           value of schedule
+   end for
+
+end function % Scheduler
+
+
+
+% Runs the scheduler on the input data for each seed. Returns the min-
+% imum, maximum, and total number of swaps;  the termperature, energy,
+% number of swaps, number of successes, period cost,  and period size
+% array for each run.
+%
+function Main(Max_Classes, Max_Rooms,
+	      Max_Subjects, Max_Teachers,
+	      seed_1, seed_2, Max_Swaps, Max_Success : integer;
+              Tuples                                 : Period_Type
+	      returns  integer, integer, integer,
+                       integer, integer, integer,
+                       integer, integer, integer, OneReal,
+                       OneDim, OneDim, OneDim, OneDim, OneDim)
+
+   let
+
+       seed := seed_1;
+
+       T, E, Swaps, Success, Schedule :=
+          Scheduler(Max_Classes, Max_Rooms, Max_Teachers,
+                    Max_Swaps, Max_Success, seed, Tuples);
+
+       Iterations     := array_size(T) - 1;
+
+       Final_Cost     := E[array_size(E)];
+
+       Swaps_Total    := for S in Swaps
+                         returns value of sum S
+                         end for;
+
+       P_Size, P_Cost := for P in Schedule
+                         returns array of array_size(P)
+                                 array of Period_Cost(P)
+                         end for
+
+   in
+      Iterations, Iterations, Iterations,
+      Final_Cost, Final_Cost, Final_Cost,
+      Swaps_Total, Swaps_Total, Swaps_Total,
+      T, E, Swaps, Success, P_Size, P_Cost
+   end let
+
+end function % Main

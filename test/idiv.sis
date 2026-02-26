@@ -1,0 +1,3 @@
+define Main
+
+function idiv(a,b : integer returns integer) a/b end function

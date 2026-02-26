@@ -1,0 +1,114 @@
+DEFINE FreqToSpecSphere 
+type arrreal1=array[real];
+type ArrReal2=array[ArrReal1];
+type ArrReal3=array[ArrReal2];
+type arrint1=array[integer]
+
+FUNCTION FreqToSpecSphere(jx, mx, mx2, ilath, iy : integer;
+			kmjx, kmjxx : ArrInt1;
+			wocs, epsi : ArrReal1;	
+			alp : ArrReal2;
+			ef, puf, pvf, zuf, zvf : ArrReal3
+		RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1)
+LET
+eP, puP, pvP, zuP, zvP,		% symmetric: North + South
+eM, puM, pvM, zuM, zvM:=	% symmetric: North - South
+    FOR latlev IN 1, ilath CROSS mri IN 1, mx2
+    RETURNS % symmetric
+	    ARRAY of ef[1, latlev, mri]  +  ef[2, latlev, mri]
+	    ARRAY of puf[1, latlev, mri]  +  puf[2, latlev, mri]
+	    ARRAY of pvf[1, latlev, mri]  +  pvf[2, latlev, mri]
+	    ARRAY of zuf[1, latlev, mri]  +  zuf[2, latlev, mri]
+	    ARRAY of zvf[1, latlev, mri]  +  zvf[2, latlev, mri]
+
+	    % antisymmetric
+	    ARRAY of ef[1, latlev, mri] - ef[2, latlev, mri]
+	    ARRAY of puf[1, latlev, mri] - puf[2, latlev, mri]
+	    ARRAY of pvf[1, latlev, mri] - pvf[2, latlev, mri]
+	    ARRAY of zuf[1, latlev, mri] - zuf[2, latlev, mri]
+	    ARRAY of zvf[1, latlev, mri] - zvf[2, latlev, mri]
+    END FOR;
+
+ctri, eri, ptri, ztri := 
+    FOR m in 1, mx
+    mi := m * 2;
+    mr := mi - 1;
+    realm := m - 1;
+
+    ctri_m, eri_m, ptri_m, ztri_m := 	% loop
+	FOR jj in 1, jx * 2
+	j := (jj + 1) / 2;
+	jm := kmjx[m] + j;
+	jmrjmi := jm * 2 - mod(jj, 2);
+	jmx := kmjxx[m] + j;
+	realn := real( j +  m - 2);
+
+	ctri_jj, eri_jj, ptri_jj, ztri_jj:=
+	    FOR latlev IN 1, ilath
+	    ihem := iy + 1 - latlev;
+%	    ------------------------- for symmetric parts
+	    gwplm := alp[latlev, jmx] * wocs[ihem]; 
+	    b := real(realm) * gwplm;
+%	    ------------------------- for antisymmetric parts
+	    alpm := IF j ~= 1   THEN alp[latlev, jmx - 1]
+				ELSE 0.0
+				END IF;
+	    alpp := alp[latlev, jmx + 1];
+	    a := ((realn + 1.0) * epsi[jmx] * alpm  - 
+		 realn * epsi[jmx + 1] * alpp) * wocs[ihem];
+%	    -------------------------
+
+	    ctri_jm, eri_jm, ptri_jm, ztri_jm :=
+		IF ~(j = 1 & m = 1) 
+	    	THEN 
+		    IF MOD(jm, 2) = 0
+		    THEN    IF MOD(jmrjmi,2) = 0
+			    THEN    a * puP[latlev, mi] + b * pvM[latlev, mr],
+						      gwplm * eM[latlev, mi],
+				    a * pvP[latlev, mi] - b * puM[latlev, mr],
+				    a * zvP[latlev, mi]	- b * zuM[latlev, mr]
+
+			    ELSE    a * puP[latlev, mr] - b * pvM[latlev, mi],
+						      gwplm * eM[latlev, mr],
+				    a * pvP[latlev, mr] + b * puM[latlev, mi],
+				    a * zvP[latlev, mr] + b * zuM[latlev, mi]
+			    END IF
+		    ELSEIF MOD(jmrjmi, 2) = 0
+			THEN    a * puM[latlev, mi] + b * pvP[latlev, mr],
+				gwplm * eP[latlev, mi],
+				a * pvM[latlev, mi] - b * puP[latlev, mr],
+				a * zvM[latlev, mi] - b * zuP[latlev, mr]
+
+		    ELSE    a * puM[latlev, mr] - b * pvP[latlev, mi],
+			    gwplm * eP[latlev, mr],
+			    a * pvM[latlev, mr] + b * puP[latlev, mi],
+			    a * zvM[latlev, mr] + b * zuP[latlev, mi]
+		    END IF
+
+		ELSE 0.0, IF jj=1 
+			     THEN eP[latlev, 1] * wocs[ihem] * alp[latlev, 1] 
+			     ELSE 0.0 
+			  END IF,
+		     0.0, 0.0
+		END IF
+
+	    RETURNS VALUE of SUM ctri_jm
+		    VALUE of SUM eri_jm
+		    VALUE of SUM ptri_jm
+		    VALUE of SUM ztri_jm
+	    END FOR
+	RETURNS ARRAY of ctri_jj
+		ARRAY of eri_jj
+		ARRAY of ptri_jj 
+		ARRAY of ztri_jj
+	END FOR
+    RETURNS VALUE of CATENATE ctri_m
+	    VALUE of CATENATE eri_m
+	    VALUE of CATENATE ptri_m
+	    VALUE of CATENATE ztri_m
+    END FOR
+
+IN ctri, eri, ptri, ztri
+END LET
+
+END FUNCTION

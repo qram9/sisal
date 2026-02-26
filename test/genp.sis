@@ -1,0 +1,46 @@
+define Para, Paraffin
+
+%$include( "types.sis")
+%$include( "gclosure.sis" )
+
+global FormatClass( C:Class returns array[ array[ character ] ] )
+
+function Para( N: integer returns array[ Radical ] )
+  if N=0 then
+    array[ 1: union Radical[ Hydrogen: nil ] ]
+  else
+    for i in 0,(N-1)/3 cross j in i,(N-1-i)/2
+      k := N-1-i-j;
+      OneSet :=
+	for R1 in Para( i ) cross R2 in Para( j ) cross R3 in Para( k )
+          Rad := array[ 1: union Radical[ Carbon: array[ 1: R1, R2, R3 ] ] ]
+	returns value of catenate Rad
+	end for
+    returns value of catenate OneSet
+    end for
+  end if
+end function % Para
+
+function Paraffin( N: integer returns array[ array[ character ] ] )
+  let
+    H := union Radical[ Hydrogen: nil ];
+    NCarbon :=
+      for Radical in Para( N-1 )
+      returns array of array[ 1: Radical, H, H, H ]
+      end for;
+    Quotient :=
+      for initial
+        List := NCarbon;
+	Representative := array Paraffin[ ];	
+      while array_size( List )>0 repeat
+        Representative := old List[ array_liml( old List ) ];
+	List :=
+	  for Molecule in array_reml( old List )
+	  returns array of Molecule unless IsMember( EquivClass( Representative ), Molecule )
+	  end for
+      returns array of Representative
+      end for
+  in
+    FormatClass( array_reml( Quotient ) )
+  end let
+end function % Paraffin

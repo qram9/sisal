@@ -1,0 +1,116 @@
+define slab
+%
+%  slab.sis    (c) Copyright 1986, 1987, 1988.  All rights reserved.
+%  Version 3.   The Regents of the University of California
+%
+% ::::::::::::::::::::::::::::::::::::::::::::::::::
+%       When running this program with  'di'  type
+%             di slab faces gauss
+%       and run slab(n) for some integer n, the number of intervals.
+%
+%       These routines compute the solution on the faces only.
+%       In order to get the solution in the interior in addition, use
+%             di inside faces gauss
+%       and run slab(n) for some integer n.
+%
+%  This module contains the driver for computing the
+%  solution of the radiative transfer problem for a slab
+%  using the algorithm from the paper `On the Use of the
+%  FN Method with Splines for Radiative Transfer Problems'
+%  by R. C. Y. Chin, G. W. Hedstrom, and C. E. Siewert,
+%  J. Quant. Spectrosc. Radiat. Transfer 39 (1988), 205--217.
+%
+% ::::::::::::::::::::::::::::::::::::::::::::::::::
+type RealVector = array[real];
+type RealMatrix = array[RealVector]
+global get_nu0(c, eps : real returns real)
+global form_knots(interv : integer; returns RealVector,
+  RealVector)
+global form_col_pts(interv : integer; knots : RealVector; 
+  nu0 : real returns RealVector)
+global form_k(block_size : integer; mu0, delta : real;
+  col_pts : RealVector; eps : real returns RealVector)
+global form_b11(interv : integer; c : real;
+  knots, lengths, col_pts : RealVector; eps : real
+  returns RealMatrix)
+global form_b12(interv : integer; c, delta : real;
+  knots, lengths, col_pts : RealVector; eps : real
+  returns RealMatrix)
+global factor(n : integer; b : RealMatrix returns
+  RealMatrix, RealMatrix)
+global solve_down(n : integer; l : RealMatrix;
+  k : RealVector returns RealVector)
+global solve_up(n : integer; u : RealMatrix;
+  y : RealVector returns RealVector)
+global phi_od_r(y : real returns real)
+global phi_od_l(y : real returns real)
+global phi_ev_r(y : real returns real)
+global phi_ev_l(y : real returns real)
+global spline(mu : real; interv : integer; knots, lengths, 
+  a : RealVector returns real)
+global answers(interv, jmu : integer; mu, knots, lengths, 
+  coef_l, coef_r : RealVector; c : real returns 
+  RealVector, RealVector)
+% ******************************************************
+%                      slab
+% ******************************************************
+function slab(interv : integer returns RealVector, RealVector,
+  RealVector)
+% input data
+%   interv,  the number of intervals
+% output data:
+%   mu,  the sampling angles
+%   \psi_l,  the exit angular fluxes on the left face
+%   \psi_r,  the exit angular fluxes on the right face
+% -------------------- set up everything -------------
+let 
+% ----------------- initial data --------------------
+  c := 0.9;  %  the absorption coefficient (0 < c < 1)
+  mu0 := 1.0;  %  the direction cosine for incoming radiation
+  jmu := 10;   %  the number of evaluation points for answers
+  dmu := 1.0/real(jmu);
+  mu := 
+    for j in 0, jmu
+      muj := real(j)*dmu
+    returns array of muj
+    end for;   %  the evaluation points for answers
+  delta := 1.0;  %  the thickness of the slab
+  eps := 1.0e-10;  %  the tolerance
+% ------------------- derived data ------------------
+  nu0 := get_nu0(c, eps);  %  the eigenvalue
+  knots, lengths := form_knots(interv);  %  the knots for the splines
+  col_pts := form_col_pts(interv, knots, nu0);  %  the collocation points
+  block_size := 2*(interv + 1);  %  the matrix has 4 blocks, each of this size
+  k := form_k(block_size, mu0, delta, col_pts, eps);
+    %  the right-hand side
+  b11 := form_b11(interv, c, knots, lengths, col_pts, eps);
+    % first block of matrix
+  b12 := form_b12(interv, c, delta, knots, lengths,col_pts, eps);
+  %  2nd block
+  b := 
+    for j in 1, block_size
+      row := b11[j] || b12[j]
+    returns array of row
+    end for  ||
+    for j in 1, block_size
+      row := b12[j] || b11[j]
+    returns array of row
+    end for;  %  the whole matrix
+% --------------------- solve ------------------------
+  l, u := factor(2*block_size, b);
+  y := solve_down(2*block_size, l, k);
+  x := solve_up(2*block_size, u, y);
+  coef_l, coef_r := for j in 1, block_size
+      xlj := x[j];
+      xrj := x[block_size+j]
+    returns
+      array of xlj
+      array of xrj
+    end for;  %  the coefficents of the splines
+  psi_l, psi_r := answers(interv, jmu, mu, knots, lengths,
+    coef_l, coef_r, c)  %  the values of the splines at the  mu  points
+in 
+  mu, psi_l, psi_r
+end let
+end function
+

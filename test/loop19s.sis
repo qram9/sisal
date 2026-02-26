@@ -1,0 +1,53 @@
+% General Linear Recurrence Equations
+% Sequential Agorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop19( n:integer; STIn: double;
+                SA, SB: OneD returns OneD, double  )
+  let
+      B5t, STB5t := 
+	 for initial
+	     k    := 1;
+	     B5   := SA[1] + STIn * SB[1];
+	     STB5 := B5 - STIn;
+	 while ( k < n ) repeat
+	     k    := old k + 1;
+	     B5   := SA[k] + old STB5 * SB[k];
+	     STB5 := B5 - old STB5;
+	 returns array of B5
+		 value of STB5
+         end for
+  in 
+     for initial
+         i    := 1;
+         B5   := B5t;
+         STB5 := STB5t;
+     while ( i <= n ) repeat
+	 k := n + 1 - old i;
+         i := old i + 1;
+         B5V := SA[k] + old STB5 * SB[k];
+         B5  := old B5[k:B5V];
+         STB5 := B5V - old STB5;
+     returns value of B5
+             value of STB5
+     end for
+  end let
+end function
+
+function Main( rep,n:integer; STB5in: double;
+                SA, SB: OneD returns OneD, double  )
+   for initial
+       i    := 1;
+       B5   := array OneD [];
+       STB5 := STB5in;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       B5,STB5 := Loop19( n, old STB5, SA, SB );
+   returns value of B5
+	   value of STB5
+   end for
+end function
