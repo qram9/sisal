@@ -1,0 +1,62 @@
+define Main
+
+type aint = array[ integer ]
+
+function CeilingOfLog2( N: integer returns integer )
+  for initial
+    L := 0;
+    TwoToTheL := 1
+  while TwoToTheL < N repeat
+    L := old L + 1;
+    TwoToTheL := 2*old TwoToTheL
+  returns value of L
+  end for
+end function % CeilingOfLog2
+
+function FloorOfNOver2( N: integer returns integer )
+  if N=1 then 0 else N/2 end if
+end function % FloorOfNOver2
+
+function Intersect( I, P: integer returns integer )
+  if mod( I/P, 2 ) = 1 then P else 0 end if
+end function % Intersect
+
+function Main( K: aint returns aint )
+  let
+    N := array_size(K);
+    T := CeilingOfLog2( N )
+  in
+    for initial
+      P := exp( 2, T );
+      B := array_setl( K, 0 )
+    while P>1 repeat
+      P := FloorOfNOver2( old P );
+      B :=
+        for initial
+	  Q := exp( 2, T );
+	  R := 0;
+	  D := P;
+	  C := old B
+	repeat
+	  C :=
+	    for Elt in old C at I
+	      NewElt :=
+		if ( Intersect( I, P ) = old R ) & ( I + old D < N ) then
+		  min( Elt, old C[ I+old D ] )
+		elseif ( Intersect( I-old D, P ) = old R ) & ( I >= old D ) then
+		  max( Elt, old C[ I-old D ] )
+		else
+		  Elt
+		end if;
+	    returns array of NewElt
+	    end for;
+	  D := old Q - P;
+	  Q := old Q / 2;
+	  R := P
+	until Q<P
+	returns value of C
+	end for
+    returns value of B
+    end for
+  end let
+end function % Main

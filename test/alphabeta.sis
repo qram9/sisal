@@ -1,0 +1,35 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%							%%
+%%   Contains functions to calculate Alpha Beta Array	%%
+%%   Alpha is the start time for each segment.		%%
+%%   Beta is the finish time for each segment.		%%
+%%   There will be Q+1 segments for each job.		%%
+%%							%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function AlphaBeta (Sorted : SRec_OneDim;
+                    Q : Integer
+                   returns
+                    AB_TwoDim,
+                    Real_OneDim)
+%
+%  Create the Alpha Beta Array
+%
+  for Elt in Sorted
+     Last_Start := Elt.Finish - Elt.Duration;
+     Del := (Last_Start - Elt.Start) / Real(Q);
+     Row := 
+        for I in 1, Q+1
+           Alpha := Elt.Start + (Real(I-1) * Del);
+           Beta := Alpha + Elt.Duration;
+        returns
+           array of record Element [Alpha: Alpha; Beta: Beta; 
+                                    Priority: Elt.Priority]
+        end for;
+   returns
+      array of Row
+      array of Del
+   end for
+end function   % end of AlphaBeta

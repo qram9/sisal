@@ -1,0 +1,60 @@
+define EquivClass
+
+%$include( "types.sis")
+%$include( "gtransforms.sis" )
+%$include( "gmember.sis" )
+
+function FirstRest( C: Class returns Paraffin, Class )
+  C[ array_liml( C ) ],
+  array_reml( C )
+end function % FirstRest
+
+function Extra( S1, S2: Class returns Class )
+ array_adjust( S2, array_limh( S1 )+1, array_limh( S2 ) )
+end function % Extra
+
+function AddToSet( Set, New: Class returns Class, Class )
+%					new Set, new members
+ let BiggerSet :=
+  for initial
+    S := Set;
+    Additions := New;
+  while array_size(Additions)>0 repeat
+    Molecule, Additions := FirstRest( old Additions );
+    S := if IsMember( old S, Molecule ) then old S else array_addh( old S, Molecule ) end if
+  returns value of S
+  end for
+ in
+    BiggerSet, Extra( Set, BiggerSet )
+ end let
+end function % AddToSet
+
+function Closure( Set, New: Class returns Class, Class )
+%				New Set, New Members
+  let Generated :=
+    for A in New
+      Added :=
+        tagcase A[ 1 ]
+	tag Carbon: array Class[ 1: Invert( A ), Swap( A ), Rotate( A ) ]
+	tag Hydrogen:
+	  tagcase A[ 2 ]
+	  tag Carbon:  array Class[ 1: Swap( A ), Rotate( A ) ]
+	  tag Hydrogen: array Class[ 1: Rotate( A ) ]
+	  end tagcase
+	end tagcase
+    returns value of catenate Added
+    end for
+  in
+    AddToSet( Set, Generated )
+  end let
+end function % Closure
+
+function Equivclass( A: Paraffin returns Class )
+  for initial
+    Set := array Class[ 1: A ];
+    Added := array Class[ 1: A ]
+  until array_size( Added )=0 repeat
+    Set, Added := Closure( old Set, old Added )
+  returns value of Set
+  end for
+end function % Equivclass

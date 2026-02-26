@@ -1,0 +1,69 @@
+% The program uses an iterative method to solve a set of sparse linear
+% equations of size asz with rhs g. Each equation is assumed to have 4
+% nonzero coefficients. The coefficients are stored in a and aj stores
+% the sparcity pattern.
+
+define main
+
+type double  = double_real;
+type OneDim  = array[real];
+type TwoDim  = array[OneDim];
+type OneDimI = array[integer];
+type TwoDimI = array[OneDimI];
+
+global sqrt(x : double returns double)
+
+
+function r_sqrt(x : real returns real)
+
+  real( sqrt(double_real(x)) )
+
+end function % r_sqrt
+
+
+function dist(n : integer; x, y : OneDim returns real)
+
+   r_sqrt (for i in 1, n
+             x_y := (x[i] - y[i]) * (x[i] - y[i])
+           returns value of sum x_y
+           end for
+          )
+
+end function % dist
+
+
+function spmul(n  : integer; A    : TwoDim;
+               AJ : TwoDimI; x, g : OneDim
+       returns OneDim)
+
+  for i in 1, n
+    ax := a[1,i] * x[aj[1,i]] + a[2,i] * x[aj[2,i]] + 
+          a[3,i] * x[aj[3,i]] + a[4,i] * x[aj[4,i]]
+  returns array of g[i] + ax
+  end for
+
+end function % spmul
+
+
+function main(n  : integer; A     : TwoDim;
+              AJ : TwoDimI; x0, g : OneDim
+      returns integer)
+
+  for initial
+
+    ncount := 0;
+    x      := x0
+
+  repeat
+
+    ncount  := old ncount + 1;
+    x       := spmul(n, A, AJ, old x, g);
+    x_error := dist(n, old x, x)
+
+% until ncount = 10 | x_error <= 1.0e-6 
+  until ncount = 10 | x_error <  0.0 
+
+  returns value of ncount
+  end for
+
+end function % main

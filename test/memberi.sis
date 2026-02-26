@@ -1,0 +1,30 @@
+define IsMember
+
+%$include( "types.sis")
+
+function AreEqual( A, B: Paraffin returns Boolean )
+  for RadicalA in A dot RadicalB in B
+   Equiv :=
+    tagcase L := RadicalA
+    tag Hydrogen:
+      is Hydrogen( RadicalB )
+    tag Carbon:
+      tagcase R := RadicalB
+      tag Hydrogen: false
+      tag Carbon: AreEqual( L, R )
+      end tagcase
+    end tagcase
+  returns value of product Equiv
+  end for
+end function % AreEqual
+
+function IsMember( Set: Class; Candidate: Paraffin returns Boolean )
+  for initial
+    i := array_liml( Set );
+    Membership := AreEqual( Set[ i ], Candidate )
+  while i < array_limh( Set ) & ~Membership repeat
+    i := old i + 1;
+    Membership := AreEqual( Set[ i ], Candidate )
+  returns value of Membership
+  end for
+end function % Member

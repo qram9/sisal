@@ -1,0 +1,50 @@
+define Main
+
+type OneDim = array[ integer ];
+
+global And( a,b:integer returns integer )
+
+function CSwap( A:OneDim; I, J:integer returns OneDim )
+  if ( A[I] > A[J] ) then A[I:A[J];J:A[I]] else A end if
+end function
+
+function CeilingOfLog2( N: integer returns integer )
+  for initial
+    L := 0; TwoToTheL := 1
+  while TwoToTheL < N repeat
+    L := old L + 1; TwoToTheL := 2*old TwoToTheL
+  returns value of L
+  end for
+end function
+
+function Main( K: OneDim returns OneDim )
+  let
+    N := array_size(K); TTM1 := exp(2,CeilingOfLog2(N)-1);
+  in
+    for initial
+      P := TTM1; B := K;
+    repeat
+      P := old P/2;
+      B := for initial
+	     Q := TTM1; R := 0; D := old P; C := old B
+	   while ( Q >= old P ) repeat
+	     C := for initial 
+		    I := 0; E := old C; 
+	          while ( I+old D < N ) repeat
+	            I := old I + 1;
+	            E := if ( And( I-1, old P ) = old R ) then
+		           CSwap( old E, I, I+old D )
+		         else
+		           old E
+		         end if;
+	           returns value of E
+	           end for;
+	     D := old Q - old P; Q := old Q / 2; R := old P
+	   % until Q <= old P
+	   returns value of C
+	   end for
+    until P <= 0
+    returns value of B
+    end for
+  end let
+end function % Main

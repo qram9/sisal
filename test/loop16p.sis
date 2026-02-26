@@ -1,0 +1,64 @@
+% Monte Carlo Search Loop
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type IOneD  = array[integer];
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop16( n:integer; R,S,T:double; D,PLAN:OneD;
+                ZONE:IOneD returns integer,integer)
+   % interchanged
+   let Y := for j in 1,n cross i in 1,ZONE[1]
+              j4 := 2 * (n * (i-1) + j - 1) + 3;
+              j5 := ZONE[2 * (n * (i-1) + j - 1) + 3];
+              C1 := if j5 < n/3 then
+                       if PLAN[j5] < T then ZONE[j4-1]
+                       elseif PLAN[j5] = T then 0
+                       else -ZONE[j4-1]
+                       end if
+                    elseif j5 < 2*n/3 then
+                       if PLAN[j5] < S then ZONE[j4-1]
+                       elseif PLAN[j5] = S then 0
+                       else -ZONE[j4-1]
+                       end if
+                    elseif j5 < n then
+                       if PLAN[j5] < R then ZONE[j4-1]
+                       elseif PLAN[j5] = R then 0
+                       else -ZONE[j4-1]
+                       end if
+                    elseif j5 = n then 0
+                    elseif let
+                             test := D[j5] - (D[j5-1] * exp(T - D[j5-2], 2) +
+                                     exp(S - D[j5-3], 2) + exp(R - D[j5-4], 2));
+			   in
+		             test < 0.0d0 
+			   end let  
+			   then ZONE[j4-1]
+                    else -ZONE[j4-1]
+                    end if
+          returns value of least if C1 = 0 then j4
+                                 else 2 * n * ZONE[1] + 2
+                                 end if
+          end for
+   in  if Y = 2 * n * ZONE[1] + 2 then 1, 0
+       else (Y - 3) / (2 * n) + 1, Y
+       end if
+   end let
+end function
+
+function Main( rep,n:integer; R,S,T:double; D,PLAN:OneD;
+                ZONE:IOneD returns integer,integer)
+   for initial
+       i  := 1;
+       v1 := 0;
+       v2 := 0;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       v1,v2 := Loop16( n, R, S, T, D, PLAN, ZONE );
+   returns value of v1
+	   value of v2
+   end for
+end function

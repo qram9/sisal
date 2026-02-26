@@ -1,0 +1,42 @@
+DEFINE SasAlfaSphere
+TYPE arrDreal1 = ARRAY [double_real];
+TYPE arrDreal2 = ARRAY [arrDreal1];
+TYPE arrDreal3 = ARRAY [arrDreal2];
+TYPE arrreal1 = ARRAY [real];
+TYPE arrreal2 = ARRAY [arrreal1];
+TYPE arrreal3 = ARRAY [arrreal2]
+
+% The parallelism in .ASS. is improved here by rewriting the original
+% two nested .while. loops in .forall. loops.
+% Here .lpfin. in reversely defined to suit the forall environment.
+
+FUNCTION SasAlfaSphere(ir, irmax2, jxxmx, ilath : integer; alp : ArrDReal2
+		RETURNS ArrReal3)
+LET
+%lpfin := 	IF MOD(ir, 2) = 0 THEN ir + 1
+%		ELSE ir + 2
+%		END IF;
+
+alfa :=	FOR hemi IN 1, 2 CROSS latlev IN 1,ilath
+	RETURNS ARRAY of 
+		IF hemi = 1 	% North 
+		THEN  	FOR specindex IN 1, jxxmx
+			RETURNS ARRAY of real(alp[latlev, specindex])
+			END FOR
+		ELSE	FOR mp IN 1, ir + 1	% South
+			RETURNS VALUE of CATENATE
+				% FOR lp IN 1, lpfin
+				FOR lp IN 1, irmax2
+				ilm := (mp - 1) * irmax2 + lp;
+				RETURNS ARRAY of
+					IF lp = 1 | MOD(lp, 2) ~= 0
+					THEN real(alp[latlev, ilm])
+					ELSE real(-alp[latlev, ilm])
+					END IF
+				END FOR
+			END FOR
+		END IF
+	END FOR
+IN alfa
+END LET
+END FUNCTION

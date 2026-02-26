@@ -1,4 +1,5 @@
-define Main
+%$entry=Bubble
+define Bubble
 
 type onedim = array[ integer ]
 
@@ -33,7 +34,3 @@ function Bubble( n: integer; Ain : onedim returns onedim )
     end for
 
 end function % Sort
-
-function Main(A : onedim returns onedim)
-  Bubble(array_size(A),A)
-end function % Main

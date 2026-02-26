@@ -1,0 +1,9 @@
+define main
+
+%$include( "types.sis" )
+global para( N: integer returns array[ Radical ] )
+global Format( C: array[ Radical ]  returns array[ array[ character ] ] )
+
+function main( returns array[ Radical ] )
+  para(5)
+end function % main

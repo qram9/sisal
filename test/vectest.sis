@@ -1,0 +1,284 @@
+
+define main
+
+type OneD = array[double_real];
+type OneR = array[real];
+type OneI = array[integer];
+
+
+% Index of First Max
+function maxD( N:integer; X:OneD returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] > X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function maxR( N:integer; X:OneR returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] > X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function maxI( N:integer; X:OneI returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] > X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+
+% Index of First Absolute Max
+function amaxD( N:integer; X:OneD returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) > abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function amaxR( N:integer; X:OneR returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) > abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function amaxI( N:integer; X:OneI returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) > abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+
+% Index of First Min
+function minD( N:integer; X:OneD returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] < X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function minR( N:integer; X:OneR returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] < X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function minI( N:integer; X:OneI returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( X[old K] < X[old Idx] ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+
+% Index of First Absolute Min
+function aminD( N:integer; X:OneD returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) < abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function aminR( N:integer; X:OneR returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) < abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+function aminI( N:integer; X:OneI returns integer )
+  for initial
+    Idx := 1; K := 2;
+  while ( K <= N ) repeat
+    Idx := if ( abs(X[old K]) < abs(X[old Idx]) ) then 
+             old K  
+           else 
+             old Idx 
+           end if;
+    K := old K + 1;
+  returns value of Idx
+  end for
+end function
+
+
+% Tri-Diagonal Elimination
+function TriD( N:integer; XIn,Z,Y:OneD returns OneD )
+  for initial
+    K := 2; X := XIn[1];
+  while ( K <= N ) repeat
+    X := Z[old K]*(Y[old K]-old X);
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+function TriR( N:integer; XIn,Z,Y:OneR returns OneR )
+  for initial
+    K := 2; X := XIn[1];
+  while ( K <= N ) repeat
+    X := Z[old K]*(Y[old K]-old X);
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+function TriI( N:integer; XIn,Z,Y:OneI returns OneI )
+  for initial
+    K := 2; X := XIn[1];
+  while ( K <= N ) repeat
+    X := Z[old K]*(Y[old K]-old X);
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+
+% Partial Sum
+function SumD( N:integer; YIn: OneD returns OneD )
+  for initial
+    K := 2; X := Yin[1];
+  while ( K <= N ) repeat
+    X := old X + Yin[old K];
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+function SumR( N:integer; YIn: OneR returns OneR )
+  for initial
+    K := 2; X := Yin[1];
+  while ( K <= N ) repeat
+    X := old X + Yin[old K];
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+function SumI( N:integer; YIn: OneI returns OneI )
+  for initial
+    K := 2; X := Yin[1];
+  while ( K <= N ) repeat
+    X := old X + Yin[old K];
+    K := old K + 1;
+  returns array of X
+  end for
+end function
+
+function main( n:integer returns OneD,OneR,OneI, OneD,OneR,OneI,
+               integer,integer,integer,integer,integer,integer,
+               integer,integer,integer,integer,integer,integer )
+  let
+    XInD := for i in 1,n returns array of 1.0D0/DOUBLE_REAL(i) end for;
+    ZD   := for i in 1,n returns array of 1.0D0/DOUBLE_REAL(i+1) end for;
+    YD   := for i in 1,n returns array of 1.0D0/DOUBLE_REAL(i+2) end for;
+
+    XInR := for i in 1,n returns array of 1.0/REAL(i) end for;
+    ZR   := for i in 1,n returns array of 1.0/REAL(i+1) end for;
+    YR   := for i in 1,n returns array of 1.0/REAL(i+2) end for;
+
+    XInI := for i in 1,n returns array of 1 end for;
+    ZI   := for i in 1,n returns array of 2 end for;
+    YI   := for i in 1,n returns array of 3 end for;
+
+    YInD := for i in 1,n returns array of 1.0D0/DOUBLE_REAL(i) end for;
+    YInR := for i in 1,n returns array of 1.0/REAL(i) end for;
+    YInI := for i in 1,n returns array of i end for;
+
+    WInD := for i in 1,n 
+	      z := if ( mod(i,2) = 0 )  then -i else i end if
+	    returns array of double_real(z) 
+	    end for;
+    WInR := for i in 1,n 
+	      z := if ( mod(i,2) = 0 )  then -i else i end if
+	    returns array of real(z) 
+	    end for;
+    WInI := for i in 1,n 
+	      z := if ( mod(i,2) = 0 )  then -i else i end if
+	    returns array of z 
+	    end for;
+  in
+    TriD( N, XInD,ZD,YD ),
+    TriR( N, XInR,ZR,YR ),
+    TriI( N, XInI,ZI,YI ),
+    SumD( N, YInD),
+    SumR( N, YInR),
+    SumI( N, YInI),
+    minD(N,WinD),
+    minR(N,WinR),
+    minI(N,WinI),
+    aminD(N,WinD),
+    aminR(N,WinR),
+    aminI(N,WinI),
+    maxD(N,WinD),
+    maxR(N,WinR),
+    maxI(N,WinI),
+    amaxD(N,WinD),
+    amaxR(N,WinR),
+    amaxI(N,WinI)
+  end let
+end function

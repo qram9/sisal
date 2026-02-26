@@ -1,0 +1,227 @@
+define factor, solve_down, solve_up
+%
+%  gauss.sis     (c) Copyright 1986, 1987.  All rights reserved.
+%  Version 2.    Regents of the University of California
+%
+% This set of routines does Gaussian elimination.
+% a driver  gauss(n : integer)  to test the routines is included.
+%
+type RealVector = array[real];
+type RealMatrix = array[RealVector]
+% ***************************************************
+%                     reduce
+% ***************************************************
+function reduce(n, i : integer; b : RealMatrix returns
+  RealVector, RealVector, RealMatrix)
+% this function performs one step of gaussian reduction on 
+% a matrix  b,  forming a row of  U  and a column
+% of  L  in the decomposition  b = LU  with each pass.
+% input data:
+%   b,  a submatrix indexed from  i  to  n
+%   n,  the dimension of the full matrix
+%   i,  the index of the top row of  b
+% output data:
+%   row,  the top row of b (the row of U)
+%   mult,  the multipliers (the column of L)
+%   next,  the submatrix to be done next
+% --------------------------------------------------
+let
+  mult := array_setl(
+      for j in i+1, n 
+        m := b[j,i]/b[i,i]
+      returns array of m
+      end for,
+    i+1);  %  sets first index to i+1
+  row := b[i];
+  NextBlock := array_setl(
+      for j in i+1, n
+        NewRow := array_setl(
+          for k in i+1, n
+            term := b[j, k] - mult[j]*row[k]  % reduce
+          returns array of term
+          end for,
+          i+1)  %  set first index to i+1 
+      returns array of NewRow
+      end for,
+    i+1)  %  set first index to i+1
+in
+  row, mult, NextBlock
+end let
+end function  %  reduce
+% ***************************************************
+%                     factor
+% ***************************************************
+function factor(b : RealMatrix; n : integer returns
+  RealMatrix, RealMatrix)
+% this function factors an  n-by-n  matrix  b  into
+% a product of lower- and upper-triangular matrices.
+% no pivoting is used.
+% input data:
+%   b,  the matrix
+%   n,  the dimension of  b
+% output data:
+%   l,  the lower triangular factor
+%   u,  the upper triangular factor
+% --------------------------------------------------
+for initial
+  row, col, next := reduce(n, 1, b);
+  i := 2
+repeat  
+  row, col, next := reduce(n, old i, old next);
+  i := old i + 1
+until (i > n)
+returns
+  array of col
+  array of row 
+end for
+end function  %  factor
+% ***************************************************
+%                     solve_down
+% ***************************************************
+function solve_down( l : RealMatrix; 
+  k : RealVector; n:integer returns RealVector)
+% this function does a forward solve with
+% lower triangular matrix  l  of rank  n
+% and right-hand side  k.
+% input data:
+%   l,  the lower factor of the matrix, stored by column
+%   k,  the right-hand side
+%   n,  the order of  lu
+% output data:
+%   x,  the solution of the matrix equation  l*x = k
+% -----------------------------------------------------
+for initial
+  i := 1;
+  y := array[1:k[1]]
+repeat
+  i := old i + 1;
+  y := old y || array[1 : k[i] - 
+    for j in 1, old i
+      x := l[j,i]*old y[j]
+    returns value of sum x
+    end for ]
+until (i = n)
+returns value of  y
+end for
+end function  %  solve_down
+% ***************************************************
+%                     solve_up
+% ***************************************************
+function solve_up( u : RealMatrix;
+  y : RealVector; n: integer returns RealVector)
+% function solve_up(n : integer; u : RealMatrix;
+  % y : RealVector returns RealVector)
+% this function does a backward solve with
+% upper triangular matrix  u  of rank  n
+% and right-hand side  y.
+% input data:
+%   u,  the upper triangular factor of the matrix,
+%       stored by rows
+%   y,  the right-hand side
+%   n,  the order of  u
+% output data:
+%   x,  the solution of the matrix equation  u*x = y
+% -----------------------------------------------------
+for initial
+  i := n;
+  x := array[n : y[n]/u[n,n]]
+repeat
+  i := old i - 1;
+  x :=  array[i : (y[i] - 
+    for j in i+1, n
+      xi := u[i,j]*old x[j]
+    returns value of sum xi
+    end for)/u[i,i] ] || old x
+until (i = 1)
+returns value of  x
+end for
+end function  %  solve_up
+% **************************************************
+%                      FormA
+% **************************************************
+function FormA(n : integer returns RealMatrix)
+% ---------------------------------------------------
+%  This function creates a VanderMondean matrix
+% input data:
+%   n,  the rank of the matrix
+% output data:
+%   b,  the matrix
+% ---------------------------------------------------
+for i in 1, n cross j in 1, n
+  bij := exp(real(j),i-1)
+returns array of bij
+end for
+end function  %  FormA
+% ************************************************
+%                 AProd
+% ************************************************
+function AProd(n : integer; a : RealMatrix;
+  v : RealVector returns RealVector)
+% ------------------------------------------------
+%  This function computes the product  Av  of a matrix A
+% with a vector  v.
+% input data:
+%   n,  the size of the vector (and matrix)
+%   a,  the matrix
+%   v,  the vector
+% output data:
+%   Av,  the product
+% ------------------------------------------------
+for j in 1, n  %  rows
+  row :=
+    for k in 1, n
+      DotProd := a[j, k]*v[k]
+    returns value of sum DotProd
+    end for
+returns array of row
+end for
+end function  %  AProd
+% ************************************************
+%                 FormV
+% ************************************************
+function FormV(n , m : integer returns RealVector)
+% ------------------------------------------------
+%  For a given integers n and m this function creates a
+% test vector with 1 in the m-th position and 0 elsewhere.
+% input data:
+%   n,  the size of the vector
+%   m,  the location of the 1
+% output data:
+%   v[1..n],  the test vector
+% ------------------------------------------------
+for j in 1, n
+  element := if (j=m) then 1.0 else 0.0 end if
+returns array of element
+end for
+end function % FormV
+% **************************************************
+%                      gauss
+% **************************************************
+% function gauss(n : integer returns RealMatrix,
+  % RealMatrix, RealMatrix) 
+% ---------------------------------------------------
+% This function tests the Gaussian elimination functions.
+% input data:
+%   n,  the size of the matrix
+% output data:
+%   b,  a test matrix (a VanderMondean)
+%   AMatrix,  should be the transpose of  b
+%   Check,  should be the identity
+% let
+  % b := FormA(n);
+  % l, u := factor(b, n);
+  % AMatrix, Check :=
+    % for m in 1, n
+      % v := FormV(n, m);
+      % k := AProd(n, b, v);
+      % y := solve_down(l, k, n);
+      % x := solve_up(u, y, n)
+    % returns
+      % array of k
+      % array of x
+    % end for
+% in
+  % b, AMatrix, check
+% end let
+% end function
+% 

@@ -1,0 +1,113 @@
+% Gauss-Jordan elimination linear equation solver; based on the routine given
+% in the book "Numerical Recipes-The Art of Scientific Computing" (Press,
+% Flannery, Teukolsky, Vetterling) pages 28-29.
+%
+% A is an input matrix of NxN double_real floating point numbers.  B
+% is a vector of N double_real floating point numbers.  The  program
+% returns the solution set x of A * x = B. If A is singular an error
+% value is NOT generated.
+%
+% The algorithm uses full pivoting.
+%
+
+define Main
+
+type double = double_real;
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+
+
+
+function GetPivot(n: integer; A: TwoD; PIVR: Onei
+                  returns integer, integer)
+
+   let cols, maxs, max :=
+       for row in A at i
+           col, max := if PIVR[i] = 0 then
+                          for initial
+                              j   := 1;
+                              col := 1;
+                              max := abs(row[1])
+                          while j < n repeat
+                              j   := old j + 1;
+                              col, max :=
+                              if abs(row[j]) > old max then
+                                 j, abs(row[j])
+                              else
+                                 old col, old max
+                              end if
+                          returns value of col
+                                  value of max
+                          end for
+                       else
+                          0, 0.0d0
+                       end if
+       returns array of col
+               array of max
+               value of greatest max
+       end for;
+
+       row := for x in maxs at i
+              returns value of least i when x = max
+              end for
+   in
+       cols[row], row
+   end let
+
+end function
+
+
+
+function Compute(n, pvtrow: integer; Ain: TwoD; Bin: OneD
+                 returns TwoD, OneD) 
+
+   for i in 1, n
+       pvtele     := Ain[pvtrow, pvtrow];
+       multipler  := Ain[i, pvtrow] / pvtele;
+       Arow, Bele := if i = pvtrow then
+                        for x in Ain[i]
+                        returns array of x / pvtele
+                        end for,
+                        Bin[i] / pvtele
+                     else
+                        for x in Ain[i] at j
+                        returns array of x - multipler * Ain[pvtrow, j]
+                        end for,
+                        Bin[i] - multipler * Bin[pvtrow]
+                     end if
+   returns array of Arow
+           array of Bele
+   end for
+
+end function
+
+
+
+function Main(n: integer; Ain :TwoD; Bin: OneD  returns OneD)
+
+   for initial
+
+       I    := 0;
+       A, B := Ain, Bin;
+       PIVR := array_fill(1,n,0)
+
+   while I < n repeat
+
+       I := old I + 1;
+       Icol, Irow := GetPivot(n, old A, old PIVR);
+
+       A1, B1 := if ( Icol ~= Irow ) then
+                     old A[Icol: old A[Irow]; Irow: old A[Icol]],
+                     old B[Icol: old B[Irow]; Irow: old B[Icol]]
+		 else
+		     old A, old B
+                 end if;
+
+       PIVR := old PIVR[Icol: 1];
+       A, B := Compute(n, Icol, A1, B1)
+
+   returns value of B
+   end for
+end function
+

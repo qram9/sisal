@@ -1,0 +1,79 @@
+% 1-D PIC  Particle in Cell
+
+Define  Main
+
+type double = double_real;
+type IOneD  = array[integer];
+type OneD   = array[double];
+
+function MOD2N(i, j: integer  returns integer)
+  if i < 0 then
+     i - (i / j * j) + j / 2 + abs(j/2)
+  else
+     i - (i / j * j) + j / 2 - abs(j/2)
+  end if
+end function
+
+function Loop14( rep,n:integer; FLX:double;
+                DEXin,EXin,GRD,RHIn : OneD;
+                returns OneD,OneD,IOneD,IOneD,
+                        OneD,OneD,OneD,OneD,OneD )
+  let DEX1,EX1,IR1,IX1,RX1,VX1,XI1,XX1 :=
+        for i in 1,n
+            j := Trunc(GRD[i]);
+            EX := EXin[j];
+            DEX := DEXin[j];
+            XI := Double_Real(j);
+            VX := EX - DEX * XI;
+            k  := Trunc(VX + FLX);
+            IR := MOD2N(k,512) + 1;
+            RX := VX + FLX - Double_Real(k);
+            XX := VX + FLX - Double_Real(k) + Double_Real(IR)
+        returns array of DEX
+                array of EX
+                array of IR
+                array of j
+                array of RX
+                array of VX
+                array of XI
+                array of XX
+        end for
+  in  DEX1,EX1,IR1,IX1,RX1,VX1,XI1,XX1,
+      for initial
+          i := 0;
+          RH := RHIn
+      while i < n repeat
+          i := old i + 1;
+          RH := old RH[IR1[i]:
+                       old RH[IR1[i]] - RX1[i] + 1.0d0,
+                       old RH[IR1[i] + 1] + RX1[i]]
+      returns value of RH
+      end for
+  end let
+end function
+
+function Main( rep,n:integer; FLX:double;
+                DEX,EX,GRD, RHIn : OneD;
+                returns OneD,OneD,IOneD,IOneD,
+                        OneD,OneD,OneD,OneD,OneD )
+   for initial
+       i  := 1;
+       v1 := array OneD  [];
+       v3 := array IOneD [];
+       v4 := v3; v2 := v1; v5 := v2; v6 := v2; v7 := v2; v8 := v2;
+       RH := RHin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       v1,v2,v3,v4,v5,v6,v7,v8, RH := 
+	   Loop14( i, n, FLX, DEX, EX, GRD, old RH );
+   returns value of v1
+	   value of v2
+	   value of v3
+	   value of v4
+	   value of v5
+	   value of v6
+	   value of v7
+	   value of v8
+           value of RH
+   end for
+end function

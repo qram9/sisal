@@ -1,0 +1,130 @@
+DEFINE TStep
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal]
+
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
+global Crsub(cnum : CplexReal; cons : real RETURNS CplexReal)
+global Crdiv(cnum : CplexReal; cons : real RETURNS CplexReal)
+%----------------------------
+function TStep(	jx, mx, delt, izon, ifirst, imp, istart : integer;
+		hdiff, hdrag, zmean, vnu : real;
+		kmjx, kmjxx, ksq : ArrInt1;
+		p1 : ArrReal1;
+		c, p, z, cm, pm, zm, ct, pt, zt : ArrCplexReal
+		RETURNS integer, ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+			ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+			ArrCplexReal, ArrCplexReal, ArrCplexReal)
+LET
+deltt2 :=   if ifirst = 0 then real(delt) * 2.0
+	    else real(delt)
+	    end if;
+deltt := deltt2 * 0.5;
+zero := record CplexReal[Repart : 0.0; Impart : 0.0];
+
+newc, newp, newz, newcm, newpm, newzm, newct, newpt, newzt := 
+
+    FOR m in 1, mx 
+    c_m, p_m, z_m, cm_m, pm_m, zm_m, ct_m, pt_m, zt_m := 
+
+	FOR j in 1, jx
+	jm := kmjx[m] + j;
+	kl := real(ksq[j + m - 2]);
+	dkl := kl - 2.0;
+
+	c_j, p_j, z_j, cm_j, pm_j, zm_j, ct_j, pt_j, zt_j := 
+	IF (m = 1 & izon = 1) | jm = 1
+
+	THEN c[jm], p[jm], z[jm], cm[jm], pm[jm], zm[jm], ct[jm], pt[jm], zt[jm]
+
+	ELSE 	LET
+		ptjm := Csub( Csub(pt[jm], Crmul(dkl * hdiff, pm[jm])),  
+				Crmul(hdrag, Crsub(pm[jm], p1[jm])) );
+		ctjm := Csub( ct[jm],  Crmul(hdrag + dkl * hdiff, cm[jm]) );
+		ztjm := Csub( zt[jm],  Crmul(dkl * hdiff, zm[jm]) );
+
+		ppv := Cadd( pm[jm],  Crmul(deltt2, pt[jm]) );
+
+		ccv, zzv := 
+		  IF imp=1
+		  THEN	LET
+			ccv1 := Crdiv(Cadd(cm[jm], Crmul(deltt2, Cadd(ctjm, 
+			      Crmul(kl, Cadd(zm[jm], Crmul(deltt, 
+			      Csub(ztjm, Crmul(0.5 * zmean, cm[jm])))))))), 
+		       		1.0 + deltt * deltt * kl * zmean );
+
+			zzv1 := Cadd(zm[jm], Crmul(deltt2, Csub(ztjm, 
+			      Crmul(0.5 * zmean, Cadd(cm[jm], ccv1)))))
+
+			IN ccv1, zzv1
+			END LET
+
+		  ELSE	Cadd(cm[jm], Crmul(deltt2, Cadd(ctjm, 
+			Crmul(kl, z[jm])))), 
+
+		     	Cadd( zm[jm], Crmul(deltt2, 
+			Csub(ztjm, Crmul(zmean, c[jm]))) )
+
+	     	  END IF;
+
+		pmjm,  cmjm,  zmjm,  pjm,  cjm,  zjm :=  
+		     IF ifirst = 0 
+		     THEN Cadd(p[jm], Crmul(vnu, Cadd(Csub(pm[jm], 
+			  Crmul(2.0, p[jm])), ppv))), 
+
+		     	  Cadd(c[jm], Crmul(vnu, Cadd(Csub(cm[jm], 
+			  Crmul(2.0, c[jm])), ccv))), 
+
+		     	  Cadd(z[jm], Crmul(vnu, Cadd(Csub(zm[jm], 
+			  Crmul(2.0, z[jm])), zzv))), 
+
+			  ppv,  ccv,  zzv 
+
+		      ELSE  pm[jm],  cm[jm],  
+			    if istart = 0 then Crdiv(ctjm, - kl)
+					else zm[jm]
+			    end if, 
+			    ppv, 
+			    if istart = 0 then zero
+					else ccv
+			    end if, 
+			    if istart = 0 then Crdiv(ctjm, - kl)
+					else zzv
+			    end if
+		      END IF;
+
+		IN cjm, pjm, zjm, cmjm, pmjm, zmjm, ctjm, ptjm, ztjm
+		END LET
+	END IF;
+
+	RETURNS ARRAY of c_j
+		ARRAY of p_j
+		ARRAY of z_j
+		ARRAY of cm_j
+		ARRAY of pm_j
+		ARRAY of zm_j
+		ARRAY of ct_j
+		ARRAY of pt_j
+		ARRAY of zt_j
+	End FOR;
+
+    RETURNS VALUE of CATENATE c_m
+	    VALUE of CATENATE p_m
+	    VALUE of CATENATE z_m
+	    VALUE of CATENATE cm_m
+	    VALUE of CATENATE pm_m
+	    VALUE of CATENATE zm_m
+	    VALUE of CATENATE ct_m
+	    VALUE of CATENATE pt_m
+	    VALUE of CATENATE zt_m
+    END FOR;
+
+ifirst_R := 0;
+
+IN ifirst_R, newc, newp, newz, newcm, newpm, newzm, newct, newpt, newzt
+END LET
+end function

@@ -1,0 +1,5 @@
+define Main
+
+Function Long_ (L : LONG2; UL : ULONG2 returns ULONG, LONG) 
+UL.y, L.x
+end function

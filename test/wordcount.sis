@@ -1,0 +1,31 @@
+% WordCount in Sisal
+% T. R. Richert Nov 88
+
+define main
+
+type ArrayChar = Array [character];
+
+function is_char (c: character returns boolean)
+if ((c=' ') | (c= '\t') | (c= '\n')) then false
+     else true
+end if
+end function
+
+function main (text:ArrayChar returns integer)
+for initial
+   count := 0;
+   iword := 0;
+   pointer := 1;
+while (pointer <= array_size(text))
+   repeat
+   count,iword := if (is_char (text[old pointer]) & (old iword = 0))
+                  then 1,1 
+                  elseif (is_char (text[old pointer]) & (old iword = 1))
+                          then 0, 1
+                  else 0,0
+                  end if;
+   pointer := old pointer + 1;
+   returns value of sum count
+   end for
+end function
+

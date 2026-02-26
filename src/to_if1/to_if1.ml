@@ -1679,44 +1679,37 @@ and get_new_tagcase_graph in_gr vntt e =
       pragmas and updated graph likewise *)
   (outs_, prags_sth, in_gr_)
 
+(* Helper to strip Monad/Error edges from the comparison map *)
+and filter_data_types in_gr ty_map =
+  If1.IntMap.filter (fun _ ty_id -> not (If1.is_error_port ty_id in_gr)) ty_map
+
 and check_subgr_tys ingr msg jj prev =
-  (*
-  Format.printf "FIRST:%s\nNEXT:%s\n"
-    (
-      If1.IntMap.fold
-        (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) jj "")
-    (
-      If1.IntMap.fold
-        (fun ke v z -> (string_of_int ke) ^ ";" ^(string_of_int v) ^ z) prev "");
-        *)
-  let rec do_in_loop curr last jj prev =
-    if curr < last then
-      if If1.IntMap.mem curr prev = false then
-        raise
-          (If1.Sem_error
-             (Format.printf "PREV does not have %d\n" curr;
-              ""))
-      else if If1.IntMap.mem curr jj = false then
-        raise
-          (If1.Sem_error
-             (Format.printf "JJ does not have %d\n" curr;
-              ""))
-      else
-        let fst = If1.IntMap.find curr jj in
-        let snd = If1.IntMap.find curr prev in
+  (* 1. Strip the Railway edges *)
+  let jj_data = filter_data_types ingr jj in
+  let prev_data = filter_data_types ingr prev in
+
+  (* 2. Fast Arity Check: Do they have the same number of pure data ports? *)
+  if If1.IntMap.cardinal jj_data <> If1.IntMap.cardinal prev_data then
+    raise
+      (If1.Sem_error
+         (Printf.sprintf
+            "Data Arity Mismatch: Branch outputs do not align AT %s" msg))
+  else
+    (* 3. Extract the ordered types (ignoring the now-gappy port numbers) *)
+    let jj_types = List.map snd (If1.IntMap.bindings jj_data) in
+    let prev_types = List.map snd (If1.IntMap.bindings prev_data) in
+
+    (* 4. Compare the sequences directly *)
+    List.iter2
+      (fun fst snd ->
         if fst <> snd then
           failwith
             (If1.outs_graph ingr;
-             Printf.sprintf "Mismatched types "
-             ^ If1.rev_lookup_ty_name fst ^ " " ^ If1.rev_lookup_ty_name snd
-             ^ " AT " ^ msg)
-        else
-          (*Format.printf "Matches: %d:%d %d:%d\n"
-              curr fst curr snd;*)
-          do_in_loop (curr + 1) last jj prev
-    else ()
-  in
-  do_in_loop 0 (If1.IntMap.cardinal jj) jj prev
+             Printf.sprintf "Mismatched types %s vs %s AT %s"
+               (If1.rev_lookup_ty_name fst)
+               (If1.rev_lookup_ty_name snd)
+               msg))
+      jj_types prev_types
 
 and boundary_node_lookup in_gr =
   let pe = in_gr.If1.eset in
@@ -2370,7 +2363,24 @@ and do_simple_exp in_gr in_sim_ex =
               (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
               in_gr
           in
-          let tml = If1.lookup_fn_ty deref_fn in_gr in
+          let tm = If1.get_typemap_tm in_gr in
+          let tml =
+            match If1.TM.find_opt symtab_entry.val_ty tm with
+            | Some x -> (
+                match x with
+                | If1.Function_ty (_, ret_ty, _) ->
+                    If1.fold_ret_ty_lis ret_ty tm
+                | _ ->
+                    failwith
+                      ("Expected function type but found: "
+                     ^ If1.string_of_if1_ty x))
+            | None -> (
+                match If1.lookup_mangled_type symtab_entry.val_ty with
+                | Some (If1.Function_ty (_, ret_ty, _)) ->
+                    let _, intrinsic_types = Lazy.force If1.intrinsic_lib in
+                    If1.fold_ret_ty_lis ret_ty intrinsic_types
+                | _ -> failwith "Function type missing in typemap")
+          in
           let _, mmm =
             List.fold_right
               (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
@@ -2467,7 +2477,7 @@ and do_simple_exp in_gr in_sim_ex =
             (* FIX: Use the getter instead of direct field access *)
             match If1.NM.find 0 (If1.get_node_map acc_gr) with
             | If1.Boundary (ins, outs, errs, prags) ->
-                let next_b_port = List.length errs in
+                let next_b_port = List.length errs + 1 in
                 (* Register error source in parent boundary metadata *)
                 let updated_b =
                   If1.Boundary (ins, outs, errs @ [ (aa, tid) ], prags)
@@ -2489,22 +2499,14 @@ and do_simple_exp in_gr in_sim_ex =
       let _, let_gr = do_decldef_part_in_let_stmt `None let_gr dp in
       let (frm, elp, elt), let_gr = do_exp let_gr e in
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
-
       (* 1. Identify all ports on the inner boundary *)
       let port_type_map = If1.all_types_ending_at 0 let_gr If1.IntMap.empty in
-
       (* 2. Segregate Data vs Errors *)
       let data_ports =
         If1.IntMap.filter
           (fun _ tid -> not (If1.is_error_port tid let_gr))
           port_type_map
       in
-      let error_ports =
-        If1.IntMap.filter
-          (fun _ tid -> If1.is_error_port tid let_gr)
-          port_type_map
-      in
-
       (* 3. Create the Compound Node *)
       (* Note: add_node_2 now internally calls propagate_error_ports to lift inner errors to the node's face *)
       let (aa, _, _), in_gr =
@@ -2521,30 +2523,6 @@ and do_simple_exp in_gr in_sim_ex =
           (fun port_idx tid acc_gr ->
             If1.add_edge aa port_idx multinum port_idx tid acc_gr)
           data_ports in_gr
-      in
-
-      (* 5. PATH B: Propagate Errors to Enclosing Boundary *)
-      let in_gr =
-        If1.IntMap.fold
-          (fun port_idx tid acc_gr ->
-            (* FIX: Use the getter instead of direct field access *)
-            match If1.NM.find 0 (If1.get_node_map acc_gr) with
-            | If1.Boundary (ins, outs, errs, prags) ->
-                let next_b_port = List.length errs in
-                (* Register error source in parent boundary metadata *)
-                let updated_b =
-                  If1.Boundary (ins, outs, errs @ [ (aa, tid) ], prags)
-                in
-                let acc_gr =
-                  {
-                    acc_gr with
-                    If1.nmap = If1.NM.add 0 updated_b (If1.get_node_map acc_gr);
-                  }
-                in
-                (* Physically wire Compound Error Port -> Parent Boundary Error Port *)
-                If1.add_edge2 aa port_idx 0 next_b_port tid acc_gr
-            | _ -> acc_gr)
-          error_ports in_gr
       in
       ((multinum, 0, 0), in_gr)
   | Old (Ast.Value_name v) ->
@@ -2960,9 +2938,6 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
-            If1.write_any_dot_file "if.dot" in_gr_if;
-            If1.write_any_dot_file "then.dot" then_gr;
-            If1.write_any_dot_file "else.dot" else_gr;
             let in_gr_if =
               If1.output_to_boundary
                 [
@@ -3629,7 +3604,8 @@ and verify_function_returns fn_ty_id in_gr =
   if List.length expected_ids <> List.length actual_ids then
     raise
       (If1.Sem_error
-         (If1.outs_graph in_gr;
+         (If1.write_any_dot_file "ERROR.dot" in_gr;
+          If1.outs_graph in_gr;
           Printf.sprintf
             "Return Arity Mismatch: Header expects %d data values, but graph \
              returns %d (excluding errors)"
@@ -3714,14 +3690,9 @@ and do_internals (names, in_gr) f =
         If1.add_each_in_list new_fun_gr_ tdefs 0 do_type_def
       in
       let _, new_fun_gr_ = do_internals ([], new_fun_gr_) nest in
-      let _, new_fun_gr_ =
-        match e with
-        | Ast.Exp elis ->
-            let olis, new_fun_gr_ =
-              If1.add_each_in_list_to_node [] new_fun_gr_ elis 0 0 do_simple_exp
-            in
-            (olis, new_fun_gr_)
-        | Empty -> ([], new_fun_gr_)
+      let new_fun_gr_ =
+        let (frm, elp, elt), new_fun_gr_ = do_exp new_fun_gr_ e in
+        point_edges_to_boundary frm elp elt new_fun_gr_
       in
       let new_fun_gr_ = If1.graph_clean_multiarity new_fun_gr_ in
       let () = verify_function_returns fn_ty new_fun_gr_ in

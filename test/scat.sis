@@ -1,0 +1,49 @@
+From cann@ocfmail.ocf.llnl.gov Sun Aug  4 20:48:57 1991
+Return-Path: <cann@ocfmail.ocf.llnl.gov>
+Received: from diego.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
+	id AA23603; Sun, 4 Aug 91 20:48:55 PDT
+Received: from lll-crg.llnl.gov by diego.llnl.gov (4.0/LLNL-1.17)
+	id AA08430; Sun, 4 Aug 91 20:50:33 PDT
+Received: from ocfmail.ocf.llnl.gov by lll-crg.llnl.gov (5.65/LLNL-1.17)
+	id AA08253; Sun, 4 Aug 91 20:51:08 -0700
+Received: from ocf.llnl.gov (ocf.ocf.llnl.gov) by ocfmail.ocf.llnl.gov (4.1/SMI-4.0)
+	id AA10827; Sun, 4 Aug 91 20:52:07 PDT
+Received:  by ocf.llnl.gov
+	id AA36834; 5.61/CRI-%I%; Sun, 4 Aug 91 20:51:06 -0700
+Date: Sun, 4 Aug 91 20:51:06 -0700
+From: Cann David C. <cann@ocfmail.ocf.llnl.gov>
+Message-Id: <9108050351.AA36834@ocf.llnl.gov>
+Apparently-To: cann
+Status: R
+
+To: cann
+
+define main
+
+type twoi = array[array[integer]];
+type twod = array[array[double_real]];
+
+function scatter( l,k:integer; mask:twoi; A:twod returns Twod )
+  for i in 1,l cross j in 1,k 
+    v := if ( mask[i,k] = 1 ) then 0.0D0 else A[i,k] end if;
+  returns array of v
+  end for
+end function
+
+function main( nlop,l,k:integer; returns twod )
+let
+  mat  := for i in 1,l cross j in 1,k returns array of 1.0D0 end for;
+  mask := for i in 1,l cross j in 1,k returns array of mod(i+j,3) end for;
+in
+  for initial
+    M := mat;
+    i := 1;
+  while ( i <= nlop ) repeat
+    i := old i + 1;
+    M := scatter( l,k, mask, old M );
+  returns value of M
+  end for
+end let
+end function
+
+

@@ -1,0 +1,15 @@
+% 1.0 2.0 gran -> 3.3333318333334977
+define main
+
+function main( start, finish: real; gran : integer returns real )
+   let
+      width := (finish - start ) / real(gran);
+   in
+      for I in 1, gran
+         x := start + ((real(I-1))*width);
+         y := (x * x) + 1.0;
+         v := y * width;
+      returns value of sum v
+      end for
+   end let
+end function

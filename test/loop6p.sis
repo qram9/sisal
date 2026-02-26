@@ -1,0 +1,33 @@
+% General Linear Recurrence Equations
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function Loop6( n:integer; B:TwoD; Win:OneD returns OneD )
+  for initial
+      i := 2;
+      W := Win;
+  while i <= n repeat
+      i := old i + 1;
+      V := for k in 1, old i - 1 returns
+	   value of sum B[old i,k] * old W[old i - k]
+	   end for;
+      W := old W[old i: old W[old i] + V];
+  returns value of W
+  end for
+end function
+
+function Main( rep,n:integer; B:TwoD; Win:OneD returns OneD )
+   for initial
+      i := 1;
+      W := Win;
+   while ( i <= rep ) repeat
+      i := old i + 1;
+      W := Loop6( n, B, old W );
+   returns value of W
+   end for
+end function

@@ -1,0 +1,57 @@
+define Complexing_ct_e_pt_ztSp, Decomplexing_p_zdiff_u_v
+
+type ArrInt1 = ARRAY [integer];
+type ArrReal1 = ARRAY [real];
+type CplexReal = RECORD [Repart, Impart : real];
+type ArrCplexReal = ARRAY[CplexReal]
+
+FUNCTION Complexing_ct_e_pt_ztSp
+	    (jxmx : integer; ct, e, pt, zt : ArrReal1
+	     RETURNS ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal)
+LET
+ctC, eC, ptC, ztC :=
+    FOR complex_index in 1, jxmx
+	index := complex_index * 2
+    RETURNS ARRAY of 
+		RECORD CplexReal[Repart : ct[index - 1]; Impart : ct[index]]
+	    ARRAY of 
+		RECORD CplexReal[Repart : e[index - 1]; Impart : e[index]]
+	    ARRAY of
+		RECORD CplexReal[Repart : pt[index - 1]; Impart : pt[index]]
+	    ARRAY of 
+		RECORD CplexReal[Repart : zt[index - 1]; Impart : zt[index]]
+	    END FOR;
+IN ctC, eC, ptC, ztC
+END LET
+END FUNCTION
+
+FUNCTION Decomplexing_p_zdiff_u_v
+	    (jxmx, jxxmx : integer;
+	     p, zdiff, u, v : ArrCplexReal
+	     RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1)
+LET 
+pri,zri :=
+    FOR m IN 1, jxmx * 2
+	real_index := m;
+	complex_index := (real_index + 1) / 2;
+	pri, zri :=  IF MOD(real_index, 2) = 0
+		     THEN p[complex_index].Impart, zdiff[complex_index].Impart 
+		     ELSE p[complex_index].Repart, zdiff[complex_index].Repart 
+		     END IF
+	RETURNS ARRAY of pri
+		ARRAY of zri
+	END FOR;
+uri,vri :=
+    FOR m IN 1, jxxmx * 2
+	real_index := m;
+	complex_index := (real_index + 1) / 2;
+	uri, vri :=  IF MOD(real_index, 2) = 0
+		     THEN u[complex_index].Impart, v[complex_index].Impart 
+		     ELSE u[complex_index].Repart, v[complex_index].Repart 
+		     END IF
+	RETURNS ARRAY of uri
+		ARRAY of vri
+	END FOR;
+IN pri, zri, uri, vri
+END LET
+END FUNCTION

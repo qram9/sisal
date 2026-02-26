@@ -1,0 +1,24 @@
+% this is not insertion sort
+define Main
+
+type OneDim = array[ double_real ]
+
+function Main( Input: OneDim returns OneDim )
+  for initial
+    I := array_liml( Input );
+    A := Input
+  while I<array_limh( Input ) repeat
+    I := old I + 1;
+    A :=
+      for initial
+        J := I;
+	B := old A
+      % WHILE TEST IN ERROR WHEN J = 1
+      while (J>array_liml(Input)) & (B[ J ] < B[ J-1 ]) repeat
+        J := old J - 1;
+        B := old B[ J: old B[ old J ], old B[ J ] ]
+      returns value of B  
+      end for
+  returns value of A
+  end for
+end function % Main

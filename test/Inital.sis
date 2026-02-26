@@ -1,0 +1,50 @@
+DEFINE Inital
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+
+global SQRTR(num : real RETURNS real)
+
+FUNCTION Inital(ir, ilong, ilat, mx, jx, jxx : integer; zmean1 : real
+		RETURNS integer, integer, integer, integer, 
+			real, real, real, real, real, 
+			arrint1, arrint1, arrint1, 
+			arrreal1)
+LET
+ww := 7.292E-5;
+tw := ww * 2.0;
+irmax:= ir;
+
+ilath, irmax1, irmax2 := ilat / 2, irmax + 1, irmax + 2;
+
+asq, grav :=  6371.22E3 * 6371.22E3,  9.80616;
+zmean:= zmean1 * grav / asq;
+
+kmjx, kmjxx := 	FOR m IN 1, mx 
+		RETURNS ARRAY of (m - 1) * jx
+			ARRAY of (m - 1) * jxx
+	    	END FOR;
+
+ksq := 	FOR j IN 1, ir * 2 
+	RETURNS ARRAY of j * (j + 1)
+	END FOR;
+
+epsilon_a :=    FOR mp IN 1, mx 
+		RETURNS VALUE of CATENATE
+		    FOR j IN 1, jxx    % epsilon_size is 1-272
+		    l := j + mp - 2;
+		    m := mp - 1;
+		    t := real((l + m) * (l - m));
+		    b := real(4 * l * l - 1);
+		    RETURNS ARRAY of SQRTR(t / b)
+		    END FOR
+		END FOR;	
+
+epsilon := epsilon_a[1 : 0.0];
+
+IN
+ir, ilong, ilath, irmax2, ww, zmean, tw, asq, grav, 
+kmjx, kmjxx, ksq, epsilon
+
+END LET
+END FUNCTION

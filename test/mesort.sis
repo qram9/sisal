@@ -1,0 +1,108 @@
+% This is a SISAL version of Batcher's parallel merge-exchange sort
+% described on p 112 of Knuth Vol. 3
+
+define main
+
+type info = array[integer];
+
+function log2(n:integer returns integer)
+% return ceiling( lg(n) )
+% assume that n > 0
+
+for initial i := 0 ; nn := n-1 % n-1 provides for the ceiling function
+while nn > 0 repeat  i := old i + 1 ; nn := old nn / 2
+returns value of i
+end for
+
+end function % log2
+
+function bitmask(n,j:integer returns integer)
+% n is a non-negative integer; return the integer obtained by anding it
+% with 2^j
+
+	mod(n/exp(2,j),2)*exp(2,j)
+
+end function % bitselect
+
+function newz(oldt, oldd, oldr :integer; oldz :info; n,lgn:integer
+ returns info )
+% n = size of oldz and lgn = ceiling(lg(n))
+% Moved this loop out of the body of the while loop to see
+% if that avoids the compiler error.
+
+  for i in 0, n-1
+    elem :=
+	let
+		lo := (i <= n-1-oldd) & bitmask(i,oldt) = oldr ;
+		hi := (i >= oldd) & bitmask(i-oldd,oldt) = oldr
+	in
+	if lo then min(oldz[i],oldz[i+oldd])
+	elseif hi then max(oldz[i-oldd],oldz[i])
+	else oldz[i]
+	end if
+	end let
+  returns array of elem
+  end for
+
+end function % newz
+
+function mesort(x:info returns info)
+% return the sorted permutation of array x, using Batcher's parallel
+% merge-exchange sort algorithm
+
+let
+	size := array_size(x) ;
+	lgsize := log2(size)
+in
+for initial 
+	y := x ;
+	t := lgsize - 1 ;
+	p := exp(2,t) ;
+while t >=0
+repeat
+t := old t - 1 ;
+p := old p / 2 ;
+y :=
+	for initial
+		z := old y ;
+		u := lgsize-1 ;
+		d := old p ;
+		r := 0 ;
+		q := exp(2, u) ;
+	while u >= old t
+	repeat
+	u := old u - 1 ;
+	q := old q / 2 ;
+	z := newz(old t, old d, old r, old z, size, lgsize) ;
+	d := old q - old p ;
+	r := old p ;
+	returns value of z
+	end for
+returns value of y
+end for
+end let
+
+end function % mesort
+
+
+function reverse(n:integer returns info)
+% generate an array with n elements - n, n-1, ..., 2, 1
+
+for i in 0, n-1
+elem := n-i
+returns array of elem
+end for
+
+end function
+
+function main(n:integer returns boolean)
+
+let
+    x := mesort(reverse(n))
+in
+    for i in array_liml(x), array_limh(x)-1
+    returns value of product x[i] <= x[i+1]
+    end for
+end let
+
+end function

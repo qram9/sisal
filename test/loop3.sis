@@ -1,0 +1,20 @@
+% Inner Product
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop3( n:integer; X,Z:OneD returns double )
+  for i in 1,n
+      Q := X[i] * Z[i]
+  returns value of sum Q
+  end for
+end function
+
+function Main( rep,n:integer; X,Z:OneD returns double )
+   for i in 1, rep
+      V := Loop3( n, X,Z );
+   returns value of V
+   end for
+end function

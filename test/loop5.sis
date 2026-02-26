@@ -1,0 +1,25 @@
+% Tri-Diangonal Elimination, Below Diagonal
+% Sequential Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop5( n:integer; XIn,Y,Z: OneD returns OneD )
+  for initial
+      i := 2;
+      X := XIn[1];
+  while i <= n repeat
+      i := old i + 1;
+      X := Z[old i] * (Y[old i] - old X)
+  returns array of X
+  end for
+end function
+
+function Main( rep,n:integer; Xin,Y,Z:OneD returns OneD )
+   for i in 1, rep
+       X := Loop5( n, Xin, Y, Z );
+   returns value of X
+   end for
+end function

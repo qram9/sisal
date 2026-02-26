@@ -1,0 +1,92 @@
+define Main
+
+type ArrayInt = array[ integer ];
+
+function  HeapSort (list : ArrayInt returns ArrayInt )
+
+  function exchange ( list : ArrayInt; low, high : integer returns ArrayInt )
+     let
+       lowtemp  := list[low];
+       hightemp := list[high];
+     in
+       list [ low : hightemp; high : lowtemp ]
+     end let
+  end function
+  
+  function Heapify ( list : ArrayInt; low, high :integer returns ArrayInt )
+     let 
+       child1        := low * 2;
+       child2        := child1 + 1;
+       done, largest := if ( child1 < high ) then
+		           FALSE, if ( list[ child1 ] < list[ child2 ] ) then
+			             child2
+			          else
+			             child1
+			          end if
+			else
+			   if ( child1 = high ) then
+		              FALSE
+		           else
+			      TRUE
+		           end if, child1
+			end if;
+
+       newlist, middle := if ( ~done ) then
+		             if ( list[ low ] < list[ largest ] ) then
+			        exchange( list, low, largest ), largest
+		             else
+			        list, low
+		             end if
+			  else
+			     list, low
+			  end if;
+     in
+        if ( middle ~= low ) then
+	   Heapify ( newlist, middle, high )
+	else 
+	   newlist
+        end if
+     end let
+  end function
+
+  function  BuildHeap ( list : ArrayInt; low, high : integer returns ArrayInt )
+     for initial
+        I       := high/ 2;
+        newlist := list
+     while I >= low repeat
+	 newlist, I := Heapify (old newlist, old I, high ), old I - 1
+     returns  value of newlist
+     end for
+  end function
+
+%
+% Heapsort Body
+%
+
+   let
+      high := array_limh (list);
+      low  := array_liml (list)
+   in
+      let
+         newlist := BuildHeap (list, low, high)
+      in
+         for initial
+	   Iterlist := newlist;
+	   I := high
+         while I > low repeat
+	   Iterlist, I :=
+	      let
+	         newlist := exchange (old Iterlist, 1, old I)    
+              in
+	         Heapify (newlist, 1, old I-1),
+	         old I - 1
+              end let
+         returns  value of Iterlist
+         end for
+      end let
+   end let
+end function
+
+function main ( list : ArrayInt returns ArrayInt )
+   heapsort (list)
+end function

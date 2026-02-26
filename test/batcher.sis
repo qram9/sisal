@@ -1,0 +1,105 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%							%%
+%%  File contains functions to perform Batcher Sort.	%%
+%%  Ripped directly from the Sisal Workshop.		%%
+%%							%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+function CeilingOfLog2 (N: Integer
+                       returns
+                        Integer)
+%
+%  calculates ceiling of log2 of N
+%
+   for initial
+      L := 0;
+      TwoToTheL := 1;
+   while (TwoToTheL < N)
+   repeat
+      L := old L + 1;
+      TwoToTheL := 2 * old TwoToTheL;
+   returns
+      value of L
+   end for
+end function   % end of CeilingOfLog2
+
+
+function Intersect (I,
+                    P: Integer
+                   returns
+                    Integer)
+%
+%  checks bit in position P for 1
+%
+   if (mod(I/P, 2) = 1) then
+      P
+   else
+      0
+   end if
+end function   % end of Intersect
+
+
+function Batcher (K : Sort_OneDim
+                 returns
+                  Sort_OneDim)
+%
+%  Batcher Sort
+%  input is a array of records which have a real val and interger loc
+%  val is the key to sort on
+%  loc is the original position in the array of the val
+%
+   let
+      N := array_size(K);
+      T := CeilingOfLog2(N);
+      Sorted :=
+         for initial
+            P := exp(2, T);
+            B := array_setl(K, 0);
+         while (P > 1)
+         repeat
+            P := old P / 2;
+            B := 
+               for initial
+                  Q := exp(2, T);
+                  R := 0;
+                  D := P;
+                  C := old B;
+               repeat
+                  C := 
+                     for Elt in old C at I
+                        NewElt := 
+                           if (Intersect(I,P) = old R) & (I + old D < N) then
+                              if (Elt.Val < old C[I + old D].Val) then
+                                 Elt
+                              else
+                                 old C[I + old D]
+                              end if
+                           elseif (Intersect(I-old D,P) = old R) & (I >= old D) then
+                              if (Elt.Val > old C[I - old D].Val) then
+                                 Elt
+                              else
+                                 old C[I - old D]
+                              end if
+                           else
+                              Elt
+                           end if;
+                     returns
+                        array of NewElt
+                     end for;
+                  D := old Q - P;
+                  Q := old Q / 2;
+                  R := P;
+               until (Q < P)
+               returns
+                  value of C
+               end for;
+         returns
+            value of B
+         end for
+   in
+      array_setl(Sorted, 1)
+   end let
+end function   % end of Batcher

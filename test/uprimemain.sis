@@ -1,0 +1,12 @@
+define main
+
+TYPE StrmInt = stream[ integer ];
+
+global Primesupto( Limit: integer returns StrmInt )
+
+function main( Limit : integer returns integer, integer )
+   for V in Primesupto( Limit ) at I
+   returns value of I
+	   value of V
+   end for
+end function

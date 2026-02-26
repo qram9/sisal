@@ -1,0 +1,569 @@
+define main
+
+type vector=array[double_real];
+type ivector=array[integer];
+type matrix= array[vector]
+
+global sin(a:double_real returns double_real)
+global sqrt (a:double_real returns double_real)
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Function: SIGN                              %
+% Input: a,b : double_real                    %
+% Returns: abs(a)*sign(b)                     %
+% ------------------------------------------- %
+% Simulates a silly fortran routine           %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function sign (a,b: double_real returns double_real)
+if (b<0.0d0) then (-1.0d0*abs(a))
+	  else abs(a)
+end if
+end function
+
+function transpose(a:matrix returns matrix)
+let
+   temp:= for elmt in a at i,j
+	returns array of a[j,i]
+	 end for
+in
+ temp
+ end let
+end function
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Function: ISAMAX                                             %
+% From LIMPAC routines                                         %
+% Input: start- first index to start search at                 %
+%        count- max number of input array                      %
+%        sx- single dimension array of double_reals                   %
+% Returned: Index of maximum array element                     %
+% ------------------------------------------------------------ %
+% Note: Uses 2 parallel loops- one to find maximum value       %
+%   and one to find index of that value.                       %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function isamax (start,count: integer; sx: vector returns integer)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% n: integer- max index of sx      %
+% sx: double_real- vector of double_reals        %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+let
+max_val:=
+   for i in 1,count
+      returns value of greatest abs(sx[i+start-1])
+      end for;
+index:=
+   for j in 1,count
+      returns value of least
+         if (abs(sx[j+start-1])=max_val)
+	    then j
+	 else
+	    count
+      end if
+   end for
+in
+index
+end let
+end function	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Function: SSCAL						  %
+% From LIMPAC routines						  %
+% Input: start- first index to start scale at                     %
+%        count- max number of input array                         %
+%        sx- vector of double_reals to be scaled	          %
+%        sa- double_real to scale input array by		  %
+% Returned- Vector of sx scaled by sa				  %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function sscal (start,count: integer; sx: vector; sa: double_real 
+		returns vector)
+let
+  uc:= for i in 1,start-1
+     returns array of sx[i]
+     end for;
+  scaled_vector:=
+     for i in 1,count
+	returns array of sa*sx[i+start-1]
+     end for
+in
+uc||scaled_vector
+end let
+end function
+
+function saxpy (start, count: integer; scale: double_real; x,y: vector
+		returns vector)
+let
+ uc:= for i in 1,start-1
+    returns array of y[i] 
+    end for;
+ result:= for i in 1, count
+  returns array of
+    scale*x[i+start-1] + y[i+start-1]
+  end for
+in
+ uc||result
+end let
+end function
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Function: SDOT						  %
+% From LIMPAC routines						  %
+% Input: n- max index of input array 				  %
+%        sx,sy- vectors to be dotted            		  %
+% Returned- Dot product of sx and sy                              %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function sdot (start,count: integer; sx,sy: vector returns double_real)
+let
+  answer:=
+     for i in 1,count
+	returns value of sum 
+	    sx[i+start-1]*sy[i+start-1]
+     end for
+in
+answer
+end let
+end function
+
+function calc_z3 (a: matrix; z_in: vector; ipvt: ivector; n: integer
+		  returns vector)
+for initial
+kb:=1;
+z:= z_in;
+
+while (kb<=n)
+repeat
+kb:=old kb+1;
+k:= n+1-old kb;
+z2:= if (k<n) then
+	old z[k: old z[k]+sdot(k+1,n-k,let trans_a:= transpose (a)
+				       in trans_a[k] end let, old z)]
+     else
+	old z
+     end if;
+z:= if (abs(z2[k]) <= 1.00d0)
+     then let 
+	  l:= ipvt[k]
+	  in
+	  z2[l: z2[k]; k:z2[l]]
+	  end let
+     else
+	 let
+	 z4:= sscal (1,n,z2,1.0d0/abs(z2[k]));
+	 l:= ipvt[k]
+	 in
+	 z4[l:z4[k]; k: z4[l]] end let
+     end if
+returns value of z
+end for
+end function
+
+
+function calc_z1 (a: matrix; n: integer returns vector)
+let z1:=
+ for initial
+  z:=array_fill (1,n,0.0d0);
+  k:= 1;
+  ek:= 1.0d0
+ while (k<= n)
+ repeat
+  k:=old k+1;
+  ek1 := if (old z[old k]=0.0d0)then
+	     old ek
+         else
+	     sign(old ek, -old z[old k])
+         end if;
+
+   ek2,z2:= if (abs (ek1- old z[old k]) <= abs(a[old k, old k])) then
+	     ek1, old z
+         else
+             (ek1*((abs(a[old k,old k]))/(abs(ek1-old z[old k])))),
+	     sscal (1,n, old z,
+		    ((abs(a[old k,old k]))/(abs (ek1- old z[old k]))))
+          end if;
+
+   s,sm,wk,wkm:=
+	 let
+	  wk1:= ek2-z2[old k];
+	  wkm1:= -ek2-z2[old k];
+	  s1:= abs(wk1);
+	  sm1:= abs(wkm1);
+	  wk2,wkm2:= if (a[old k,old k] ~= 0.0d0) then
+	      wk1/a[old k,old k],
+	      wkm1/a[old k,old k]
+           else
+	      1.0d0,1.0d0
+           end if
+          in
+	  s1,sm1,wk2,wkm2
+	  end let;
+
+    z3:= if (k>n) then z2[old k:wk]
+       else
+	 let
+	   z4,sm2,s2:=
+	     let
+	       z5init:= for j in 1,old k
+		   returns array of z2[j]
+		   end for;
+	       z5,sm3:=
+		 for j in k,n
+		   returns array of z2[j]+wk*a[old k,j]
+		   value of sum abs(z2[j]+wkm*a[old k,j])
+                 end for;
+               s3:=for j in k,n
+		   returns value of sum abs(z5[j])
+		   end for
+             in 
+	       z5init||z5,sm3+sm,s3+s
+             end let;
+           z6:= if (s2 >= sm2) then
+		   z4[old k: wk]
+                else
+		let
+		  t:= wkm-wk;
+		  wk3:= wkm;
+		  init:= for j in 1,old k
+			 returns array of z4[j]
+			 end for;
+                  z7:= init|| for j in k,n
+			returns array of
+			 z4[j]+t*a[old k,j]
+			 end for
+                 in
+		  z7[old k: wk3]
+                end let
+	       end if
+              in z6
+	      end let
+            end if;
+	    z:=z3;
+	    ek:=ek2
+          returns value of z
+       end for
+       in
+       z1
+       end let
+   end function
+
+
+
+function calc_newzy1 (n: integer; ipvt: ivector; a: matrix; z: vector
+		      returns vector, double_real)
+
+for initial
+k:=1;
+new_z:= z;
+ynorm:=1.0d0
+
+while (k<= n)
+repeat
+k:= old k+1;
+  z2:= old new_z[ipvt[old k]: old new_z[old k];
+		 old k: old new_z[ipvt[old k]]];
+  trans_a:= transpose (a);
+  z3:= if (old k < n) then
+		saxpy(old k+1, n- old k, z2[old k], trans_a[old k],z2)
+            else
+		z2
+            end if;
+
+  new_z,ynorm:= if (abs(z3[old k]) <= 1.0d0) then
+		    z3,old ynorm
+                else
+		    sscal (1,n, z3, 1.0d0/abs(z3[old k])),
+		    (1.0d0/abs(z3[old k]))*old ynorm
+                end if
+returns 
+	value of new_z
+        value of ynorm
+end for
+end function
+
+function calc_newzy2 (n: integer;  a: matrix; z: vector; ynorm: double_real
+		      returns vector, double_real)
+for initial
+kb:=1;
+  new_z:=z;
+  new_y:= ynorm
+while (kb<= n)
+repeat
+  kb:=old kb +1;
+  k:= n+1-old kb;
+    ztemp,new_y:= if (abs(old new_z[k])<= abs(a[k,k]))
+       then old new_z,old new_y
+       else
+       let
+	 garb:=if old new_z[k]=0.0d0 then error[double_real]
+	 else 1.0d0
+	 end if;
+	 s:= abs(a[k,k])/abs(old new_z[k])
+	  in
+         sscal (1,n,old new_z,s),
+	 old new_y*s
+       end let
+    end if;
+  ztemp2:= if (a[k,k])=0.0d0 then  ztemp[k:1.0d0]
+	      else
+           ztemp[k:ztemp[k]/a[k,k]]
+	   end if;
+  new_z:= let
+	  t:= -ztemp2[k];
+	  z3:= saxpy (1,k-1,t,let trans_a:= transpose (a) in trans_a[k] end let, ztemp2);
+	  z4:= for i in k,n returns array of ztemp2[i] end for
+	  in
+	  z3||z4
+  end let
+returns
+  value of new_z
+  value of new_y
+end for
+end function
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Function: SASUM						  %
+% From LINPAC routines						  %
+% Input: n- max index of input array 				  %
+%        sx- vector of double_reals to be summed		  %
+% Returned- Sum of the absolute values of sx elements             %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+function sasum (n: integer; sx: vector returns double_real)
+
+let
+  answer:=
+     for i in 1,n
+	returns value of sum 
+	     if (sx[i]<0.0d0) then -1.0d0*sx[i]
+	       else
+		sx[i]
+             end if
+     end for
+in
+answer
+end let
+end function
+
+function sgefa (a:matrix; lda,n: integer returns  %sgefa
+		matrix,ivector,integer)
+let
+linfo,llu,lipvt:=
+  for initial
+  k:=1;                  %counter
+  info:=0;               %info default
+  ipvt:=array_fill(1,n,0);  %null array of ipvt
+  lu:=a                  %original array
+
+  while (k<=(n-1))
+  repeat
+    k:= old k +1;
+    l:=isamax(old k,n-old k+1,let trans_a:=transpose(old lu) in trans_a[old k] end let)
+	   +old k -1;
+
+    ipvt:=old ipvt[old k:l];
+
+    info,lu:=
+      if (a[l,old k]=0.0d0)   %this column already triangularized
+	then
+	  old k, old lu
+	else
+          let tmp1lu:=
+	    if(l=old k)
+	      then old lu
+            else
+	      old lu[l,old k:old lu[old k,old k];old k,old k:old lu[l,old k]]
+            end if;
+
+          t:= -1.0d0/tmp1lu[old k,old k]; %compute mplier
+
+	  tmp2lu:=
+	    let t2_tran:=transpose(tmp1lu);
+                mr:=sscal(old k+1,n-old k,t2_tran[old k],t);
+		tmp3lu:=t2_tran[old k:mr]
+            in
+	       transpose(tmp3lu)
+            end let;
+
+          t4_tran:=transpose(tmp2lu);
+
+
+       endlu:= for initial
+	  j:= old k+1;
+	  nmat:= t4_tran
+	  while (j<= n)
+	  repeat
+	  t:= old nmat[old j,l];
+	  nmat:= if (l= old k) then
+	     let
+	      nrow:= saxpy (old k+1,n-old k,t, old nmat[old k], old nmat[old j])
+             in
+	       old nmat[old j: nrow]
+             end let
+          else
+	     let
+	     dummat:= old nmat[old j,l: old nmat[old j,old k]; old j,old k: old nmat[old j,l]];
+	     dumrow:= saxpy(old k+1,n-old k,t,dummat[old k], dummat[old j])
+	     in
+	      dummat[old j: dumrow]
+             end let
+           end if;
+          j:= old j+1
+	  returns value of nmat
+        end for
+
+
+       in old info, transpose(endlu)
+       end let
+      end if
+     returns value of info
+	     value of lu
+	     value of ipvt
+    end for
+
+      in
+      llu,
+      lipvt[n:n],
+      if (llu[n,n]=0.0d0) then n
+	 else linfo end if
+    end let
+end function
+
+
+
+function sgeco (a: matrix; lda,n: integer returns matrix, ivector,
+                double_real, vector)
+
+let
+mat,ivect,rc,zvect:=
+ let
+ anorm:= for j in 1,n
+	 returns value of greatest
+	    sasum (n,let x:=transpose(a) in x[j] end let)
+         end for;
+
+ a1,ipvt1,info:= sgefa (a,lda,n);
+
+ z1:= calc_z1 (a1,n);
+ z2:= sscal (1,n,z1,1.0d0/sasum (n,z1));
+
+ z3:= calc_z3(a1,z2,ipvt1,n);
+ z4:= sscal (1,n,z3,1.0d0/sasum (n,z3));
+
+ z5,ynorm:= calc_newzy1 (n,ipvt1,a1,z4);
+
+ z6:= sscal (1,n,z5,1.0d0/sasum(n,z5));
+
+ ynorm2:= (1.0d0/sasum(n,z5))*ynorm;
+
+ z7,ynorm3:= calc_newzy2 (n,a1,z6,ynorm2);
+
+ z8,ynorm4:=let
+              s3:= 1.0d0/sasum(n,z7)
+            in
+              sscal (1,n,z7,s3),
+	      ynorm3*s3
+            end let;
+
+ rcond:= if (anorm=0.0d0) then 0.0d0
+	  else ynorm4/anorm
+         end if
+
+
+ in
+ a1,ipvt1,rcond,z8
+ end let
+in
+mat,ivect,rc,zvect
+end let
+end function
+
+
+
+
+function sgesl ( a : matrix ; n : integer ; ipvt : ivector ; b :
+		vector returns vector )
+   let
+	 bks := 
+	    if ( n-1 ) >= 1 then
+		  for initial
+		     k := 1 ;
+		     newb := b ;
+		  while ( k <= (n-1) )
+		  repeat
+			l := ipvt[old k] ;
+			t := old newb[l] ;
+			tempb := 
+			if ( l ~= old k )  then
+				 old newb[l: old newb[old k] ; old k : t]
+			    else
+			    old newb
+			end if;
+                     trans_a:= transpose(a);
+			 newb:= saxpy ( old k+1, n - old k, t, trans_a[old k],tempb );
+			k := old k + 1
+		  returns value of newb 
+		  end for
+	    else
+		  b
+	    end if
+	 in
+	    for initial
+		  k2 := 1 ;
+		  bother := bks ;
+		  dummy := array vector[];
+	    while ( k2 <= n ) 
+	    repeat
+		  t2 := n + 1 - old k2 ;
+		  tbother := old bother[t2: (old bother[t2]/a[t2, t2])];
+		  t3 := -tbother[t2];
+		  trans_a:= transpose(a);
+		  front :=  saxpy (1, t2-1, t3, trans_a[t2], tbother);
+		  rear := for i in t2,n
+					 returns array of tbother[i]
+					 end for;
+		  k2 := old k2 + 1;
+		  bother:= front || rear
+	    returns value of bother
+	    end for
+	 end let
+ end function % sgesl
+
+
+
+function calc_resid (hilb: matrix; n,lda: integer; b: vector returns 
+double_real )
+
+let
+   hilb1,ipvt,rcond, work:= sgeco (hilb,lda,n);
+   resid:=
+     if (rcond=0.0d0) then -999.0d0
+     else
+      let
+	xtemp:= sgesl (hilb1,n,ipvt,b)
+      in
+	for i in 1,n
+	  hprod:= for j in 1,n
+                  returns value of sum hilb[i,j]*xtemp[j]
+	          end for;
+          hprod1:= hprod- b[i]
+	  returns value of sum hprod1*hprod1
+        end for
+      end let
+      end if
+   in 
+   if resid<0.0d0 then resid
+   else sqrt(resid)
+   end if
+end let
+end function
+
+function main ( hilbert:matrix; b:vector returns double_real )
+let
+   n := array_size(hilbert);
+in
+   calc_resid (hilbert,n,n,b)
+end let
+end function

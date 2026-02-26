@@ -1,0 +1,40 @@
+define Main
+
+type StrmInt = stream[ integer ];
+
+global sqrt( a : double_real returns double_real )
+
+function Filter( S: StrmInt; M: integer returns StrmInt )
+   for I IN S
+   returns stream of I unless mod( I, M ) = 0
+   end for
+end function
+
+function Integers( Limit: integer returns StrmInt )
+   for initial 
+      I := 3;
+   while I <= Limit repeat
+      I := old I + 2;
+   returns stream of I
+   end for
+end function
+     
+function main( Limit: integer returns StrmInt )
+   let 
+      Maxt := integer( sqrt( double_real( Limit ) ) );
+   in
+      for initial 
+	 S := Integers( Limit );
+         T := 2;
+      repeat
+         T := stream_first( old S );
+         S := if T <= Maxt then
+                 Filter( stream_rest( old S ), T )
+              else 
+		 stream_rest( old S )
+              end IF
+       until stream_empty( S )
+       returns stream of T
+       end for
+   end let
+end function

@@ -1,0 +1,46 @@
+% 2-D Implicit Hydodynamics Fragment
+% Sequential Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+% transpose
+function Loop23( n:integer; ZAin,ZB:TwoD;
+                ZR,ZU,ZV,ZZ:TwoD returns TwoD )
+  for initial
+      j   := 1;
+      ZAt := ZAin;
+  while ( j < 6 ) repeat
+      j := old j + 1;
+
+      ZArc := for initial
+		k  := 1;
+		ZA := old ZAt[j,1];
+              while ( k < n ) repeat
+		k := old k + 1;
+		QA := old ZAt[j+1,k] * ZR[j,k] + old ZAt[j-1,k] * ZB[j,k] +
+		      old ZAt[j,k+1] * ZU[j,k] + old ZA * ZV[j,k] +
+		      ZZ[j,k];
+		ZA := old ZAt[j,k] + 0.175d0 * (QA - old ZAt[j,k]);
+	      returns array of ZA
+	      end for;
+
+      ZAt  := old ZAt[ j:array_addh( ZArc, old ZAt[j,n+1] ) ];
+  returns value of ZAt
+  end for
+end function
+
+function Main(  rep,n:integer; ZAin,ZB:TwoD;
+                ZR,ZU,ZV,ZZ:TwoD returns TwoD )
+   for initial
+       i := 1;
+       ZA := ZAin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       ZA := Loop23( n, old ZA, ZB, ZR, ZU, ZV, ZZ );
+   returns value of ZA
+   end for
+end function

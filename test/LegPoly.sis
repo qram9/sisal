@@ -1,0 +1,167 @@
+DEFINE LegendrePolyOf1stKind
+
+type ArrDreal1 = Array[Double_real]
+
+global SIN(num : double_real RETURNS double_real)
+global COS(num : double_real RETURNS double_real)
+global SQRT(num : double_real RETURNS double_real)
+
+% The COMMON statement(WORK) CATENATEs into ARRAY P, the following 
+% ARRAYs in the order of F(20), WT(20), SIA(20), RAD(20) and
+% COANG(20), followed by 172 new empty cells. This has to be taken
+% into consideration.
+% Hence from start, an ARRAY of "family" P has to be created to be 
+% as such.
+% NOTE:
+% However, this should be done in the main program beforehand, 
+% before the main program calls LegendrePolyOf1stKind ILATH times, because once
+% the program enters subroutine LegendrePolyOf1stKind, it includes WORK to update
+% the containt of WORK. This should be investigated again because
+% of the presence of SIA in the variable-passing and WORK. Is SIA
+% passed the updated SIA in WORK?
+% p should be returned as double_real for cocsistency in MAIN, in
+% contrast to the Fortran codes
+
+FUNCTION LegendrePolyOf1stKind(ir, irmax2, jxxmx : integer;
+		coas, sias, deltas : real
+		RETURNS ArrDreal1)
+LET
+p := LET
+    coa := double_real(coas); 
+    sia := double_real(sias); 
+    delta := double_real(deltas); 
+    irpp := ir + 2;
+    theta := delta;
+    sqr2 := SQRT(2.0d0);
+    pp :=  FOR INITIAL
+	n := 1; 
+	c1 := sqr2;
+	pLoop1 :=   ARRAY ArrDreal1 [1: 1.0d0 / sqr2]
+		    || 	FOR jm IN 2, jxxmx
+			RETURNS ARRAY of 0.0d0
+			END FOR;
+
+        WHILE n <= irpp REPEAT
+	n := old n + 1;
+	fn := double_real(old n);
+	fn2 := 2.0d0 * fn;
+	fn2sq := fn2 * fn2;
+	c1 := old c1 * SQRT(1.0d0 - 1.0d0 / fn2sq);
+	c3 := c1 / SQRT(fn * (fn + 1.0d0));
+	
+	s1, s2 :=
+		FOR INITIAL
+		kk := 1;
+		ang := fn * theta;
+		n1 := old n + 1;
+		ss1, ss2 := 0.0d0, 0.0d0;
+		c4, c5 := 1.0d0, fn;
+		a, b := - 1.0d0, 0.0d0;
+
+		WHILE kk <= n1 REPEAT
+		kk := old kk + 2;
+		k := old kk - 1;
+		ss2 := old ss2 + old c5 * SIN(old ang) * old c4;
+		c4t :=  if k = old n then 0.5d0 * old c4
+			     else old c4
+		      END if;
+		ss1 := old ss1 + c4t * COS(old ang);
+		a := old a + 2.0d0;
+		b := old b + 1.0d0;
+		fk := double_real(k);
+		ang := theta * (fn - fk - 2.0d0);
+		c4 := (a * (fn - b + 1.0d0) / (b * (fn2 - a))) * c4t;
+		c5 := old c5 - 2.0d0
+
+		RETURNS	VALUE of ss1
+			VALUE of ss2	% to s1 and s2
+		END FOR;
+	
+	pLoop1 := IF old n - irpp < 0 	
+		  THEN old pLoop1[old n + 1 : s1 * c1; old n + irmax2 : s2 * c3]
+		  ELSEIF old n - irpp = 0 
+		  THEN old pLoop1[old n + irmax2 : s2 * c3]
+		  ELSE old pLoop1
+	          END IF
+
+	RETURNS VALUE of pLoop1 	% to pp
+	END FOR;
+    
+    p2 :=
+	IF ir = 2
+	THEN pp
+	
+    	ELSE	FOR INITIAL
+		m := 2;
+		ppp := pp
+
+		WHILE m <= ir REPEAT
+		m := old m + 1;
+		fm := double_real(old m);
+		fm1, fm2, fm3 := fm - 1.0d0, fm - 2.0d0, fm - 3.0d0;
+		mm1 := old m - 1;
+		m1 := old m + 1;
+		c6 := SQRT((2.0d0 * fm + 1.0d0) / (2.0d0 * fm));
+		p5 := old ppp[irmax2 * old m + 1 : c6 * sia * 
+					old ppp[irmax2 * mm1 + 1]];
+		mpir := old m + ir + 1;
+		mt := old m;
+
+		ppp := FOR INITIAL
+		     l := m1;
+		     p4 := p5;
+		     
+		     WHILE l <= mpir REPEAT
+		     l := old l + 1;
+		     fn := double_real(old l);
+		     c7 := (fn * 2.0d0 + 1.0d0) / (fn * 2.0d0 - 1.0d0);
+		     c8 := (fm1 + fn) / ((fm + fn) * (fm2 + fn));
+		     c := SQRT((fn * 2.0d0 + 1.0d0) /  
+			     (fn * 2.0d0 - 3.0d0) * c8 * (fm3 + fn));
+		     d := SQRT(c7 * c8 * (fn - fm1));
+		     e := SQRT(c7 * (fn - fm) / (fn + fm));
+		     lm := irmax2 * mt + old l - mt + 1;
+		     lmm2 := irmax2 * (mt - 2) + old l - mt + 3;
+		     lm1mm2 := lmm2 - 1;
+		     lm2mm2  :=  lm1mm2 - 1;
+		     lm1m := lm - 1;
+
+		     p4 :=   IF old l - mpir < 0
+			     THEN old p4[lm:c * old p4[lm2mm2]
+				 - d * old p4[lm1mm2] * coa
+				 + e * old p4[lm1m] * coa]
+			 	 
+			   ELSEIF old l - mpir > 0 
+			   THEN old p4
+			   
+			   ELSE LET
+				a := SQRT((fn * fn - 0.25d0) / 
+					(fn * fn - fm * fm));
+				b := SQRT((2.0d0 * fn + 1.0d0) * 
+					(fn - fm - 1.0d0) * (fn + fm1)
+				     / ((2.0d0 * fn - 3.0d0) * (fn - fm)
+					   * (fn + fm)));
+				lm2m := lm1m - 1;
+
+				IN
+				old p4[lm : 2.0d0 * a * coa * old p4[lm1m]
+				   	     - b * old p4[lm2m]]
+				END LET
+
+		           END IF
+
+		     RETURNS VALUE of p4	% to p6
+		     END FOR;
+
+		RETURNS VALUE of ppp 			% to p2
+		END FOR
+
+	END IF
+
+    IN p2
+    END LET;		% RETURNS p2 to p
+
+IN p
+END LET
+
+END FUNCTION

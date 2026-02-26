@@ -1,0 +1,74 @@
+% Approximate the value of a function Phi satisfying boundary conditions
+% Program Input: Number of iterations, Number of Rows, Number of Columns
+
+define Main
+
+type   OneDim  = array[double_real];
+type     Grid  = array[OneDim];
+
+function Phi( A, B : integer returns double_real )
+    let
+	X := double_real( A );
+	Y := double_real( B );
+    in
+	% X * X - Y * Y + X * Y
+	X * Y
+    end let
+end function
+
+function BuildGrid( Rows, Columns : integer returns Grid )
+    let
+	Top    := for I in 1, Columns + 2 
+		  returns array of Phi( 1, I ) 
+		  end for;
+
+	Bottom := for I in 1, Columns + 2 
+		  returns array of Phi( Rows+2, I ) 
+		  end for;
+
+	Middle := for I in 1, Rows
+		      Row  := for J in 1, Columns
+			      returns array of 0.0D0
+			      end for;
+		      Low  := Phi( I+1, 1 );
+		      High := Phi( I+1, Columns+2 );
+                  returns array of array_addl( array_addh( Row, High ), Low )
+		  end for;
+
+	Temp1  := array_addh( Middle, array_setl( Bottom, 0 ) );
+    in
+	array_addl( Temp1, array_setl( Top, 0 ) )
+    end let
+end function
+
+function Compute( G : Grid; I : integer; J : integer returns double_real )
+        (G[I][J-1] + G[I][J+1] + G[I+1][J] + G[I-1][J]) / 4.0D0
+end function
+
+function DoWork( G : Grid; Rows, Columns : integer returns Grid )
+    let
+	Rlast  := Rows + 1;
+	Clast  := Columns + 1;
+	Middle := for I in 1, Rows
+		      Mid := for J in 1, Columns
+				 V := Compute( G, I, J );
+			     returns array of V
+			     end for;
+                      Row := array_addl( Mid, G[I][0] );
+                  returns array of array_addh( Row, G[I][Clast] )
+		  end for;
+    in
+	array_addl( array_addh( Middle, G[Rlast] ), G[0] )
+    end let
+end function
+
+function Main( Num : integer; Rows, Columns : integer returns Grid )
+    for initial
+	Count := Num;
+	NewG  := BuildGrid( Rows, Columns );
+    while ( Count > 0 ) repeat
+	Count := old Count - 1;
+	NewG  := DoWork( old NewG, Rows, Columns ); 
+    returns value of NewG
+    end for
+end function

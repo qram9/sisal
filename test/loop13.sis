@@ -1,0 +1,60 @@
+% 2-D PIC  Particle In Cell
+
+Define  Main
+
+type double = double_real;
+type IOneD  = array[integer];
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+function MOD2N(i, j: integer  returns integer)
+  if i < 0 then
+     i - (i / j * j) + j / 2 + abs(j/2)
+  else
+     i - (i / j * j) + j / 2 - abs(j/2)
+  end if
+end function
+
+
+function Loop13( n:integer;
+                E,F:IOneD; B,C,Hin,Pin:TwoD;
+                Y,Z:OneD returns TwoD,TwoD)
+  for initial
+      i := 0;
+      H := Hin;
+      P := Pin
+  while i < n repeat
+      i := old i + 1;
+      i1 := 1 + MOD2N(Trunc(old P[1,i]),64);
+      j1 := 1 + MOD2N(Trunc(old P[2,i]),64);
+      P1 := old P[4,i: old P[4,i] + C[i1,j1];
+                  3,i: old P[3,i] + B[i1,j1];
+                  2,i: old P[2,i] + old P[4,i] + C[i1,j1];
+                  1,i: old P[1,i] + old P[3,i] + B[i1,j1]];
+      i2 := MOD2N(Trunc(P1[1,i]),64);
+      j2 := MOD2N(Trunc(P1[2,i]),64);
+      i3 := i2 + E[i2+32];
+      j3 := j2 + F[j2+32];
+      P := P1[1,i: P1[1,i] + Y[i2+32];
+              2,i: P1[2,i] + Z[j2+32]];
+      H := old H[i3,j3: old H[i3,j3] + 1.0d0]
+  returns
+      value of H
+      value of P
+  end for
+end function
+
+function Main(  rep,n:integer;
+                E,F:IOneD; B,C,Hin,Pin:TwoD;
+                Y,Z:OneD returns TwoD,TwoD)
+   for initial
+       i := 1;
+       H := Hin;
+       P := Pin;
+   while ( i <= rep ) repeat
+       i := old i + 1;
+       H,P := Loop13( n, E, F, B, C, old H, old P, Y, Z )
+   returns value of H
+	   value of P
+   end for
+end function

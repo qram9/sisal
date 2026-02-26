@@ -1,0 +1,150 @@
+
+define Pick_Change, Accept
+
+%$include ("anneal.sish")
+
+%----------------------------------------------------------------------------
+
+global ranf ( Seed : Four_Plex returns double_real, Four_Plex )
+
+global Cost_Change (E1, E2 : Edge_Type; D : Dist_Type returns real)
+
+global Boltzmann ( seed : Four_Plex; delta_E : Energy_Type;
+		Temperature : real
+	returns Four_Plex, boolean )
+
+%============================================================================
+
+function Choose_Random ( Seed : Four_Plex; Itinerary : Itin_Type;
+	Distances : Dist_Type returns Change_Type, Four_Plex )
+let
+	random, seed1 := ranf (Seed);
+	size := double_real(array_size(Itinerary) - 1);
+	I := trunc ( random * size ) + 1;
+	J,new_seed := for initial ran2, seed2 := ranf (seed1)
+		until (trunc (ran2 * size ) + 1 < I - 1) |
+			(trunc (ran2 * size ) + 1 > I + 1)
+		repeat
+			ran2, seed2 := ranf (old seed2)
+		returns
+			value of trunc (ran2 * size ) + 1
+			value of seed2
+		end for;
+	E1, E2 :=
+		array [1: Itinerary[I], Itinerary[I+1] ],
+		array [1: Itinerary[J], Itinerary[J+1] ];
+in
+	record [ E1:E1; E2:E2;
+		E1_Index:I; E2_Index:J;
+		Delta_E:Cost_Change (E1, E2, Distances) ],
+		new_Seed
+end let
+
+end function
+
+%=========================================================================
+
+function Choose_Crossed ( Seed : Four_Plex; Crosses : Cross_List; 
+	Itinerary : Itin_Type; Distances : Dist_Type
+		returns	Change_Type, Four_Plex )
+
+let
+	random, seed1 := ranf (Seed);
+	size := double_real(array_size(Crosses));
+	index := trunc ( random * size ) + 1;
+	E1, E2 := Crosses [index, 1], Crosses [index, 2];
+	I,J := for initial NI :=1;
+			I1,J1 := 0,0;
+		until NI >array_size(Itinerary) - 1 repeat
+		N1 := Itinerary[old NI];
+		N2 := Itinerary[old NI+1];
+		I1,J1 :=
+			if	(N1 = E1[1] & N2 = E1[2]) |
+				(N1 = E1[2] & N2 = E1[1])
+			then old NI,old J1
+			else
+			if	(N1 = E2[1] & N2 = E2[2]) |
+				(N1 = E2[2] & N2 = E2[1])
+			then old I1, old NI
+			else
+				old I1, old J1
+			end if
+			end if;
+		NI := old NI + 1;
+		returns
+			value of i1
+			value of j1
+		end for;
+	%  The order of nodes in the edges of the cross list may not be
+	%  the same as in the itinerary.  This would make the switch to
+	%  find the change in distance invalid, so put them in the
+	%  right order before switching.
+	old_E1, old_E2 :=
+		array [1: Itinerary[I], Itinerary[I+1] ],
+		array [1: Itinerary[J], Itinerary[J+1] ];
+in
+	record [ E1:old_E1; E2:old_E2;
+		E1_Index:I; E2_Index:J;
+		Delta_E:Cost_Change (old_E1, old_E2, Distances) ],
+	seed1
+end let
+
+end function
+
+%=========================================================================
+
+function Get_A_Swap ( Seed : Four_Plex; Itinerary : Itin_Type; 
+	Crosses : Cross_List; factor : real; Distances : Dist_Type 
+	returns Change_Type, Four_Plex )
+
+% Factor decides if edges are chosen from the crossed list or randomly
+% from the itinerary.
+
+if array_size (Crosses) = 0 then
+	Choose_Random ( Seed, Itinerary, Distances )
+else
+	let random, seed1 := ranf ( Seed );
+	in
+		if random <= double_real(factor) then
+			Choose_Random ( seed1, Itinerary, Distances )
+		else
+			Choose_Crossed ( seed1, Crosses, Itinerary,
+					Distances )
+		end if
+	end let
+end if
+
+end function
+
+%=========================================================================
+
+function Pick_Change ( SI : Sys_State; seed : Seed_Type
+	returns Change_Type, Seed_Type, integer )
+
+let Change, new_seed :=
+	Get_a_Swap ( seed, SI.Itinerary, SI.Crosses,
+		SI.factor, SI.Distances);
+
+in
+	Change,
+	new_seed,
+	1
+end let
+
+end function  % Pick_Change
+
+%==========================================================================
+
+function Accept ( SI : Sys_State; Change : Change_Type; seed : Seed_Type;
+		Temperature : real
+	returns boolean, Change_Type, Seed_Type )
+
+let new_seed, Accepted :=
+	Boltzmann ( seed, Change.Delta_E, Temperature );
+
+in
+	Accepted, Change, new_seed
+
+end let
+
+end function % Accept

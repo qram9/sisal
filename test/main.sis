@@ -1,0 +1,21 @@
+define main
+
+type RealVector = array[real];
+type RealMatrix = array[RealVector]
+
+%% FOR insides.sis VERSION OF SLAB
+%% global slab( interv : integer returns RealVector, 
+%%              RealVector, RealVector, RealMatrix )
+%%             
+%% function main( interv: integer
+%%                returns Realvector,RealVector, RealVector, RealMatrix )
+%%     slab( interv )
+%% end function
+
+%% FOR faces.sis VERSION OF SLAB
+global slab( interv : integer returns RealVector, RealVector, RealVector )
+
+function main( interv: integer returns	Realvector,RealVector, RealVector )
+    slab( interv )
+end function
+

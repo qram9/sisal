@@ -1,0 +1,200 @@
+define Anneal
+
+%$include ("anneal.sish")
+
+global Pick_Change ( SI : Sys_State; seed : Seed_Type
+	returns Change_Type, Seed_Type, integer )
+
+global Accept ( SI : Sys_State; Change : Change_Type; seed : Seed_Type;
+		Temperature : real
+	returns boolean, Change_Type, Seed_Type)
+	
+global Make_Change ( SI : Sys_State; Change : Change_Type
+	returns Sys_State, Energy_Type, integer )
+
+global Find_All_Crosses ( I : Itin_Type; N : Node_List
+	returns Cross_List )
+	
+global ranf ( Seed : Four_Plex returns double, Four_Plex )
+
+%==============================================================================
+
+function Annealing_Not_Done( Num_Swaps, Max_Swaps, Num_Succ_Swaps,
+                             Max_Succ_Swaps : integer;
+			     Energy : Energy_Type
+                             returns Boolean )
+( Num_Swaps < Max_Swaps ) &
+( Num_Succ_Swaps < Max_Succ_Swaps ) &
+( Energy > 0.0 )
+end function % Annealing_Not_Done
+
+%===========================================================================
+
+function Boltzmann(seed  : Four_Plex;
+                   delta : real;  T : real
+                   returns Four_Plex, boolean)
+
+   if delta <= 0.0 then
+      seed, true
+   else
+      let
+          random, seed1 := ranf(seed);
+          prob := exp( 2.718281828, (- delta) / T )
+      in
+          seed1, double_real(prob) > random
+      end let
+   end if
+
+end function % Boltzmann
+
+
+%==============================================================================
+
+function New_Temperature ( Temperature : real returns real )
+	0.95 * Temperature
+end function
+
+%==============================================================================
+
+function Temperature_Close_to_Zero ( Temperature : real returns boolean )
+
+let 
+	Temperature_Epsilon := 0.005
+in
+	Temperature < Temperature_Epsilon
+end let
+
+end function  % Temperture_Close_to_Zero
+
+%==============================================================================
+
+function Energy_Close_to_Zero ( Energy : Energy_Type returns boolean )
+
+let 
+	Energy_Epsilon := 0.0
+in
+	Energy <= Energy_Epsilon
+end let
+
+end function  % Energy_Close_to_Zero
+
+%==============================================================================
+
+function Termination_Conditions ( Temperature : real;
+				  Energy : Energy_Type;
+				  No_Change : integer;
+				  Whether_to_stop : boolean
+				  returns boolean )
+
+Temperature_Close_to_Zero (Temperature) |
+	Energy_Close_to_Zero (Energy) |
+	No_Change >= 5 |
+	Whether_to_Stop
+
+end function   % Termination_conditions
+
+%==============================================================================
+
+function Anneal( SI : Sys_State;		% Initial State
+		 EI : Energy_Type;		% Initial Energy
+		 TI : real;			% Initial Temperature
+		 Initial_Seed : Seed_Type;
+		 Problem_Size : integer
+
+                 returns Sys_State,		% Final State
+			Energy_Type,		% Final Energy
+			real,			% Final Temperature
+			integer,		% Number of swaps
+			integer,		% Number of successful swaps
+			integer)		% Number of iterations
+
+
+% Anneals the system, changing temperature after the system stabilizes
+% at each temperature in the cooling schedule.  Stops when termination
+% conditions are met.
+
+let	Max_Swaps := Problem_Size;
+	Max_Succ_Swaps := Problem_Size / 5;
+
+in
+
+for initial Temperature := TI;
+		Energy := EI;
+		State := SI;
+		Seed := Initial_Seed;
+		Num_Swaps := 0;
+	        Num_Succ_Swaps := 0;
+		No_Change := 0;
+		Whether_to_Stop := false;
+
+repeat
+
+Energy, TState, Seed, Num_Swaps, Num_Succ_Swaps :=
+
+	for initial St := old State;
+        	En := old Energy;
+	        Seed1 := old Seed;
+		N_Swaps := 0;
+		N_Succs := 0;
+
+	while   Annealing_Not_Done( N_Swaps, Max_Swaps, N_Succs,
+                            Max_Succ_Swaps, En )
+
+	repeat  % Pick the swaps and check them for acceptability.
+
+        	Possible_change, Seed_2, Possible_Swaps :=
+			Pick_Change( old St, old Seed1 );
+
+	        % Decide whether to accept the swaps
+        	Accepted, Acc_Change, Seed1 := 
+			Accept ( old St, Possible_Change, Seed_2,
+				old Temperature );
+
+		% Switch the edges if accepted
+		St, Delta_E, Actual_Swaps  := if Accepted then
+			Make_Change ( old St, Acc_Change )
+		else
+			old St, 0.0, 0
+		end if;
+
+	        % Accumulate some control values.
+        	N_Swaps := old N_Swaps + Possible_Swaps;
+	        N_Succs := old N_Succs + Actual_Swaps;
+	        En := old En + Delta_E;
+
+	returns value of En
+	        value of St
+		value of Seed1
+        	value of N_Swaps
+	        value of N_Succs
+	end for;
+
+	State := TState replace [ crosses : 
+		Find_All_Crosses ( TState.Itinerary, TState.Nodes ) ];
+%	State := TState;
+
+	Temperature := New_Temperature (old Temperature);
+	No_Change := if Energy = old Energy then 
+			old No_Change + 1
+		     else
+			0
+		     end if;
+	Whether_to_Stop := false;
+
+until Termination_Conditions ( Temperature, Energy, No_Change, 
+	Whether_To_Stop )
+
+returns
+	value of State
+	value of Energy
+	value of Temperature
+	value of sum Num_Swaps
+	value of sum Num_Succ_Swaps
+	value of sum 1
+end for
+
+end let
+
+end function % Anneal
+
+

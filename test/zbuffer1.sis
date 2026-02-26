@@ -1,0 +1,205 @@
+define main
+
+%$INCLUDE ("types")
+%$INCLUDE ("globals")
+
+%******************************************************************************
+%*************    B U I L D _ T R I A N G L E _ D E P T H S    ****************
+%******************************************************************************
+
+function build_triangle_depths
+                              (tri : screen_tri_rec;
+			       pts : pt_array
+			       returns real_array2)
+
+% returns an array of depths for each pixel covered by the triangle. The shape
+% of the triangle determines the array bounds of each row of the triangle.
+
+let
+  lo_pt   := pts[tri.vlo];
+  mid_pt  := pts[tri.vmid];
+  hi_pt   := pts[tri.vhi];
+  pln_eqn := tri.screen_pln_eqn;
+  ylo     := up(lo_pt.yp);
+
+in
+  if ylo > tri.last_scan_line then
+    array real_array2 []
+  else 
+    for y in up(lo_pt.yp), tri.last_scan_line
+      yr     := real(y);
+      xl     := lo_pt.xp + tri.dxdy_lh * (yr - lo_pt.yp);
+      xs     := if y <= tri.mid_scan_line then
+  	          lo_pt.xp  + tri.dxdy_lm * (yr - lo_pt.yp)
+	        else
+	          mid_pt.xp + tri.dxdy_mh * (yr - mid_pt.yp)
+	        end if;
+      xleft,
+      xright := if xl <= xs then xl, xs else xs, xl end if;
+      y_const:= yr*pln_eqn.b + pln_eqn.d;
+      row    := for x in up(xleft), dn(xright)
+  	  	  z := -(real(x)*pln_eqn.a + y_const)/pln_eqn.c;
+	        returns array of z
+	        end for
+  
+    returns array of row
+    end for
+  end if
+end let
+end function
+
+%******************************************************************************
+%*************************    M E R G E _ T R I    ****************************
+%******************************************************************************
+
+function merge_tri
+                   (tri_num    : integer;
+		    tri_depths : real_array2;
+		    curr_zbuff : depth_array2
+		    returns depth_array2)
+
+% replaces entries in zbuffer by entries from triangle when depth is greater
+% than value currently in zbuffer.
+
+if array_size(tri_depths) = 0 then
+  curr_zbuff
+else
+  for initial
+    y         := array_liml (tri_depths) - 1;
+    next_zbuf := curr_zbuff;
+  while y < array_limh (tri_depths) repeat
+    y         := old y + 1;
+    next_zbuf := for initial
+  		   x    := array_liml (tri_depths[y]) - 1;
+		   zbuf := old next_zbuf;
+                 while x < array_limh (tri_depths[y]) repeat
+		   x    := old x + 1;
+		   zbuf := if tri_depths[y,x] <= old zbuf[y,x].depth then
+			    old zbuf
+                          else
+			    let
+			      new_depth := record depth_rec
+			 		     [tri   : tri_num;
+					      depth : tri_depths[y,x]]
+			    in
+			      old zbuf[y,x : new_depth]
+			    end let
+			  end if;
+	        returns value of zbuf
+	        end for
+  returns value of next_zbuf
+  end for
+end if
+end function
+
+%******************************************************************************
+%***************************    Z B U F F E R    ******************************
+%******************************************************************************
+
+function zbuffer
+	       (x_pixels         : integer;
+		y_pixels         : integer;
+		colors           : rgb_array1;
+		background       : integer;
+		ambient          : integer;
+		surfaces         : surf_array;
+		world_triangles  : tri_array;
+		screen_pts       : pt_array;
+		screen_triangles : screen_tri_array;
+		eye              : pt_rec;
+		screen_to_world  : real_array2;
+		lights           : light_array
+		returns rgb_array2)
+let
+  all_depths := for tri in screen_triangles
+		  depths := build_triangle_depths (tri, screen_pts);
+	        returns array of depths
+	        end for;
+  empty      := record depth_rec [tri : 0; depth : -1.0e10];
+
+  frontmost  := for initial
+		  zbuff := array_fill (0, y_pixels,
+				       array_fill (0, x_pixels, empty));
+                  t     := array_liml(all_depths) - 1;
+                while t < array_limh(all_depths) repeat
+		  t     := old t + 1;
+		  zbuff := merge_tri (t, all_depths[t], old zbuff);
+                returns value of zbuff
+                end for;
+in
+  for y in 0, y_pixels cross
+      x in 0, x_pixels
+    tri       := frontmost[y,x].tri;
+    pix_color := if tri = 0 then
+		   colors[background]
+                 else
+		   let
+		     screen_pt := record pt_rec [xp : real(x);
+						 yp : real(y);
+						 zp : frontmost[y,x].depth];
+		     world_pt  := transform_pt (screen_pt, screen_to_world);
+                   in
+		     compute_color (world_pt, eye,
+				    screen_triangles[tri].world_pln_eqn,
+				    surfaces[world_triangles[tri].surf],
+				    lights, colors, ambient)
+		   end let
+		 end if
+  returns array of pix_color
+  end for
+end let
+end function
+
+%******************************************************************************
+%******************************    M A I N    *********************************
+%******************************************************************************
+
+function main (mode      : integer;        % for data compatability only
+	       fs        : integer;        % super sample size
+               dsize     : integer;        % size of dither array
+	       x_pixels  : integer;        % num of pixels in x, y
+	       y_pixels  : integer;        %   e.g. 1024x768
+	       vp_xlo    : real;           % location of viewport
+	       vp_xhi    : real;
+	       vp_ylo    : real;
+	       vp_yhi    : real;
+	       gtr       : real_array2;    % general transformation matrix
+	       colors    : rgb_array1;     % definitions of colors 
+	       background: integer;        % index in colors of background
+	       ambient   : integer;        % index in colors of ambient light
+	       lights    : light_array;    % active lights
+	       surfaces  : surf_array;     % 
+	       world_pts : pt_array;       % pts in world coord system
+	       triangles : tri_array       % defines surfaces
+
+               returns integer,
+		       integer,
+		       int_array2
+	       )
+
+let
+  virt_x_pixels   := fs*x_pixels - 1;
+  virt_y_pixels   := fs*y_pixels - 1;
+  world_to_screen := build_world_to_screen (virt_x_pixels, virt_y_pixels,
+                                            vp_xlo, vp_xhi, vp_ylo, vp_yhi, gtr);
+  eye_pos         := find_eye (gtr);
+  screen_to_world := find_inverse(world_to_screen);
+
+  screen_pts      := build_screen_pts (world_to_screen, world_pts);
+  screen_triangles:= build_screen_triangles (world_pts, screen_pts, triangles);
+
+  raster          := zbuffer (virt_x_pixels, virt_y_pixels, colors, background,
+			      ambient, surfaces, triangles, screen_pts,
+			      screen_triangles, eye_pos, screen_to_world,
+			      lights);
+
+  output          := if fs = 1 then
+		       dither (dsize, 10, 10, 10, raster)
+                     else
+		       aalias_and_dither (fs, dsize, 10, 10, 10, raster)
+                     end if;
+
+in
+  x_pixels, y_pixels, output
+end let
+end function

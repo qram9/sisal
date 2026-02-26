@@ -1,0 +1,72 @@
+DEFINE MdFFTGrid
+
+TYPE ArrInt1 = Array[integer];
+TYPE ArrReal1 = Array[real]
+
+global PassGrid(inc1, inc2, n, ifac, la : integer; 
+		a, c, trigs : ArrReal1
+		RETURNS ArrReal1) % c
+
+function MdFFTGrid( nlev, nwave, nfax, n : integer; 	%nwave=mx
+		    ifax : ArrInt1; trigs, gridii : ArrReal1
+		    RETURNS ArrReal1)	
+LET
+% Need to fix itself, hence:
+% gridii has size mx * 2; grid n*2+2
+
+gridi := gridii || array_fill(1, n * 2 + 2 - nwave * 2, 0.0);
+
+%-------
+x    := array_fill(1, (n + 1) * 2, 0.0);
+work := array_fill(1, (n + 1) * 2, 0.0);
+grid := IF nfax <= 1
+    	THEN PassGrid(2, 2, n, ifax[1], 1, gridi, x, trigs)  
+	ELSE LET
+		next_R, x_R,  work_R := 
+		    IF MOD(nfax, 2) = 1
+		    THEN 40,
+			 PassGrid(2, 2, n, ifax[1], 1, gridi, x, trigs),	
+			 work
+		    ELSE 50,
+			 x,
+			 PassGrid(2, 2, n, ifax[1], 1, gridi, work, trigs)
+		    END IF;
+
+		la3,  work_la3 := 
+		    FOR INITIAL
+		    loop := 2;
+		    la3 := 1;
+		    next3 := next_R;
+		    x_la3 := x_R;
+		    work_la3 := work_R;
+
+		    WHILE loop <= (nfax - 1) REPEAT
+		    loop := old loop + 1;
+		    la3 :=  old la3 * ifax[old loop - 1];
+		    next3, x_la3, work_la3:=
+			IF old next3 = 50
+			THEN 40,
+			     PassGrid(2, 2, n, ifax[old loop], la3,
+				   old work_la3, old x_la3, trigs), 
+			     old work_la3
+			ELSE 50,
+			     old x_la3,
+			     PassGrid(2, 2, n, ifax[old loop], la3,
+				    old x_la3, old work_la3, trigs)
+			END IF;
+
+		    RETURNS VALUE of la3
+			    VALUE of work_la3
+		    END FOR;
+
+		la := la3  *  ifax[nfax - 1];
+		grid:=PassGrid(2, 1, n, ifax[nfax], la, work_la3, gridi, trigs);
+
+	     IN grid	% Here only the first layer is built and returned
+	     END LET
+
+	END IF;
+IN grid
+
+end LET
+end function

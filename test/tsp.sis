@@ -1,0 +1,183 @@
+define Main, Set_Energy
+
+% This is a traveling salesman program which uses simulated annealing as
+% the optimization technique.  It is designed to run in parallel and contains
+% a parallel implementation of the RANF random number generator to allow this
+% to happen properly.  It is written in SISAL, and applicative language that
+% runs under BSD 4.2.
+%
+% J. Feo, T. DeBoni, C. Osterbrock
+% Computer Research group
+% Lawrence Livermore National Laboratory
+% July 1991
+
+%$include ("anneal.sish")
+
+%===========================================================================
+
+global Initialize_System ( SI : Sys_State; Problem_Size, I_Seed : integer
+	returns Sys_State,
+		Energy_Type,
+		real,
+		Seed_Type )
+
+global Anneal ( SI : Sys_State; EI : Energy_Type; TI : real;
+		Initial_Seed : Seed_Type; Problem_Size : integer
+
+		returns Sys_State,
+			Energy_Type,
+			real,
+			integer,
+			integer,
+			integer )
+
+global Find_All_Crosses ( Itinerary : Itin_Type; Nodes : Node_List
+	returns Cross_List )
+
+global sqrt ( x : double_real returns double_real )
+
+%=============================================================================
+
+function my_sqrt (x : real returns real)
+	real (sqrt (double_real(x)))
+end function
+
+function Init_Vars(In_Array : array[integer]; factor : real
+	returns	Sys_State )
+
+% Sets up the arrays of coordinates and distances.
+
+let
+	n := for I in 1,array_size(In_Array)/2
+		returns array of record Node_type [
+				x:In_Array[I*2 - 1];
+				y:In_Array[I*2]
+				]
+		end for;
+
+	d := for E in n at I
+		d1 :=
+			for J in 1, I-1
+				E1 := n[J];
+				xdiff := real(E.x - E1.x);
+				ydiff := real(E.y - E1.y);
+			returns array of my_sqrt ( xdiff * xdiff +
+				ydiff * ydiff)
+			end for
+	     returns array of d1	
+	     end for
+in
+	record [ Itinerary : 
+		for I in 1, array_size (n)
+			returns array of I
+			end for
+		|| array [1:1] ;
+		 Crosses : array Cross_List [] ;
+		 Distances : d ;
+		 Nodes : n ;
+		 factor : Factor ]
+end let
+
+end function
+
+%---------------------------------------------------------------------------
+
+function Dist (a,b : integer; Distances : Dist_Type returns real)
+
+let from,to := 
+	if a > b then a,b
+	else b,a
+	end if;
+    d := Distances[from,to]
+in
+    d
+end let
+
+end function
+
+%============================================================================
+
+function Set_Energy ( St : Sys_State
+		    returns
+			Energy_Type)
+
+%  Finds the total cost of the itinerary, which is the sum of the lengths
+%  of the edges
+
+for I in 1,array_size(St.Itinerary) - 1
+
+	d := Dist (St.Itinerary[I],St.Itinerary[I+1],St.Distances)
+returns
+	value of sum d
+end for
+
+end function
+
+%============================================================================
+
+function Main( In_Array : array[integer];
+	       Seed_1, Seed_2,
+	       Max_Swaps, Max_Succ_Swaps : integer;
+	       Control : integer;
+	       Factor : real
+	       returns integer,			% Least # iterations
+		       integer,			% Greatest # iterations
+		       integer,			% Sum of # iterations
+		       real,			% Least final cost
+		       real,			% Greatest final cost
+		       real,			% Sum of final costs
+		       integer,			% Least total # swaps
+		       integer,			% Greatest total # swaps
+		       integer,			% Sum of total # swaps
+		       array[real],	   	% Initial Temperatures
+		       array[real],		% Final Temperatures
+		       array[real],		% Energies
+%		       array[array[real]],	% Distances
+		       array[Itin_Type] )	% Itineraries
+
+let In_State := Init_Vars ( In_Array, Factor );
+	Problem_Size := array_size(In_State.Nodes);
+in
+% Run as many problems in parallel as are in the range [Seed_1, Seed_2].
+
+for Seed_In in Seed_1, Seed_2
+	
+	Initial_State, Initial_Energy, Initial_Temperature, Seed :=
+		Initialize_System( In_State, Problem_Size, Seed_In );
+
+	%  Find all crossed edges in the initial state
+	Temp_State := Initial_State replace [ Crosses :
+		Find_All_Crosses ( Initial_State.Itinerary,
+			Initial_State.Nodes ) ];
+
+	Final_State, Final_Cost, Final_Temperature, Num_Swaps,
+		Num_Succ_Swaps, Num_Iterations :=
+		Anneal ( Temp_State, Initial_Energy, Initial_Temperature,
+			Seed, Problem_Size );
+
+	Total_Swaps := Num_Swaps;
+
+returns	value of least 		Num_Iterations
+	value of greatest	Num_Iterations
+	value of sum		Num_Iterations
+
+	value of least		Final_Cost
+	value of greatest	Final_Cost
+	value of sum		Final_Cost
+
+	value of least		Total_Swaps
+	value of greatest	Total_Swaps
+	value of sum		Total_Swaps
+
+	array of 		Initial_Temperature
+	array of		Final_Temperature
+	array of		Final_Cost
+%	value of		Final_State.Distances
+	array of		Final_State.Itinerary
+
+end for
+
+end let
+
+end function % Main
+

@@ -1,0 +1,22 @@
+define Main
+
+type Vector = array [ integer ];
+type Matrix = array[ Vector ];
+type Output = stream[ character ];
+
+function Prepare( M: Matrix returns Vector )
+   for E in M
+      V := E || array Vector[1:3];
+   returns value of catenate V
+   end for
+end function
+
+function main ( M: Matrix returns Output )
+   for E in Prepare( M )
+      V := if ( E = 1 ) then '*'
+	   elseif ( E = 0 ) then ' '
+	   else '\n'
+	   end if;
+   returns stream of V
+   end for
+end function

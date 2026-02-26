@@ -1,0 +1,29 @@
+define main
+
+type intstr = stream[integer];
+
+function merge(x,y: intstr; returns integer, intstr, intstr)
+   if stream_first(x) < stream_first(y) then
+      stream_first(x), stream_rest(x), y
+   elseif stream_first(x) = stream_first(y) then
+      stream_first(x), stream_rest(x), stream_rest(y)
+   else stream_first(y), x, stream_rest(y)
+   end if
+end function %merge
+
+function main(J: integer; returns intstr)
+   for initial
+       i := 1;
+       t2 := stream intstr [];
+       t3 := stream intstr [];
+       t5 := stream intstr [];
+       m1 := stream intstr [];
+       while i <= J repeat
+          n, t2, t3 := merge(stream_append(old t2, 2 * old i),
+                             stream_append(old t3, 3 * old i));
+          i, m1, t5 := merge(stream_append(old m1, n),
+                             stream_append(old t5, 5 * old i))
+   returns stream of i
+   end for
+end function %hamming
+

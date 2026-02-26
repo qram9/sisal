@@ -1,0 +1,111 @@
+% I just did a few minor cleanups on fft.sis to get this version, but it now
+% bombs on di.  (It runs correctly on the IF1-C translator though)
+
+% FFT algorithm in SISAL
+% Author: Vivek Sarkar
+
+define main
+
+type complex = record[r, i:real] ;
+
+% Standard functions
+global sqrt(x:real returns real)
+global sin(x:real returns real)
+global cos(x:real returns real)
+
+% use absc(), addc(), ... instead of cabs(), cadd(), ...
+% because cabs() is a standard math function.
+
+function addc(a, b:complex returns complex)
+    record complex [ r:a.r+b.r ; i:a.i+b.i ]
+end function % addc
+
+function subc(a, b:complex returns complex)
+    record complex [ r:a.r-b.r ; i:a.i-b.i ]
+end function % subc
+
+function mulc(a, b:complex returns complex)
+    record complex [ r:a.r*b.r-a.i*b.i ; i:a.i*b.r+a.r*b.i ]
+end function % mulc
+
+function absc(a:complex returns real)
+    sqrt(a.r*a.r + a.i*a.i)
+end function % absc
+
+function fft(z:array[complex] returns array[complex])
+% Return the complex FFT of input array z.
+% Assume that array_liml(z) = 0 and that array_size(z) is a power of 2.
+% This routine is based on procedure Oscar() in bench.p, and does not
+% require any "bit reversal" at the beginning or at the end.  Bit reversal
+% is necessary if the FFT has to be performed in-place.  This algorithm
+% effectively uses 2 arrays - for the old and new values respectively.
+
+    let
+	pi := 3.1415926536 ;
+	n := array_size(z) ;
+	m := n / 2 ;
+	theta := - pi/real(m) ;  % = -2*pi/n
+	z1 :=
+	    for initial
+		l := 1 ;
+		z1 := z
+	    repeat
+		l := old l + old l ;
+		z1 :=
+		    for x in 0, n-1
+		    k := (x / l) * old l ;
+		    j := k + old l ;
+		    w :=
+			if mod(x/old l, 2) = 0 then
+			    let
+				i := x - k 
+			    in
+			    	addc(old z1[i], old z1[i+m])
+			    end let
+			else
+			    let
+				i := x - j ;
+				expval := 
+				record complex 
+				[r:cos(real(k)*theta); i:sin(real(k)*theta)];
+				zdiff := subc(old z1[i], old z1[i+m])
+			    in
+			    	mulc(expval, zdiff)
+			    end let
+			end if
+		    returns array of w
+		    end for
+	    while l <= m
+	    returns
+		value of z1
+	    end for
+    in
+	z1
+    end let
+end function % fft
+
+function eqreal(x,y:real returns boolean)
+% Are x and y equal (for my purpose)
+    abs(x-y) <= 0.0001 * max(abs(x), abs(y))
+end function % eqreal
+
+function main(m:integer returns boolean)
+% Main program to test function fft(), using an array of size 2**m.
+% Assume m >= 4, for correct output validation.
+let
+    pi := 3.1415926536;
+    n := exp(2, m) ;
+    % Generate test signal
+    s := for j in 0, n-1
+	 returns array of record complex [r:sin(real(j)*pi/8.0); i:0.0]
+	 end for ;
+    % Do the FFT
+    f := fft(s) ;
+    % Check if positions n/16 and (n - n/16) contain the value n/2
+    pos1 := n / 16 ;
+    pos2 := n - pos1 ;
+    absval := real(n) / 2.0 
+in
+    eqreal(absc(f[pos1]),absval) & eqreal(absc(f[pos2]),absval)
+end let
+end function % main

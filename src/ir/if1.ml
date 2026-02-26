@@ -278,7 +278,7 @@ type port_idx = int
 module E = struct
   type t = (N.t * port_idx) * (N.t * port_idx) * int
 
-  let compare ((i, pi), (j, pj), _) ((k, pk), (m, pm), _) =
+  let compare ((i, pi), (j, pj), t1) ((k, pk), (m, pm), t2) =
     let cv1 = compare i k in
     if cv1 = 0 then
       let cv2 = compare j m in
@@ -286,7 +286,7 @@ module E = struct
         let cv3 = compare pi pk in
         if cv3 = 0 then
           let cv4 = compare pj pm in
-          cv4
+          if cv4 = 0 then compare t1 t2 else cv4
         else cv3
       else cv2
     else cv1
@@ -1966,25 +1966,26 @@ and find_sym_opt val_name in_gr =
   | None -> SM.find_opt val_name ps
   | _ as re -> re
 
+and fold_ret_ty_lis ret_ty tm =
+  match TM.find ret_ty tm with
+  | Tuple_ty (fty, nty) ->
+      if nty = 0 then [ fty ] else fty :: fold_ret_ty_lis nty tm
+  | _ -> raise (Sem_error "Incorrect function type in")
+
 and lookup_fn_ty in_fn_name in_gr =
-  (* this looks at the typemap table and return type for an id - this can do that in the local and the global ty tabs just like symtab does *)
+  (* this looks at the typemap table and return type
+   * for an id - this can do that in the local and the global
+   * ty tabs just like symtab does *)
   let tm = get_typemap_tm in_gr in
   let { val_name = _; val_ty = sym_ty; val_def = _; def_port = _ } =
     match find_sym_opt in_fn_name in_gr with
     | Some reco -> reco
-    | None -> failwith "FUNCTION NOT FOUND"
+    | None -> failwith ("FUNCTION NOT FOUND: " ^ in_fn_name)
   in
   match TM.find_opt sym_ty tm with
   | Some tt -> (
       match tt with
-      | Function_ty (_, ret_ty, _) ->
-          let rec fold_ret_ty_lis ret_ty =
-            match TM.find ret_ty tm with
-            | Tuple_ty (fty, nty) ->
-                if nty = 0 then [ fty ] else fty :: fold_ret_ty_lis nty
-            | _ -> raise (Sem_error "Incorrect function type in")
-          in
-          fold_ret_ty_lis ret_ty
+      | Function_ty (_, ret_ty, _) -> fold_ret_ty_lis ret_ty tm
       | _ -> failwith "Type does not resolve to function")
   | _ -> failwith "Type not found"
 
@@ -2339,7 +2340,8 @@ and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
                   ("Type stall: missing type at MULTIARITY port "
                  ^ string_of_int x)
           in
-          add_edge in_n x out_n (out_p + x) inc_type igr)
+          let igr = add_edge in_n x out_n (out_p + x) inc_type igr in
+          igr)
         in_gr ll
   | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
 
@@ -3157,7 +3159,7 @@ and string_of_node_ty ?(offset = 2) in_gr n =
               (cate_nicer
                  (string_of_int lab ^ " " ^ string_of_int ty)
                  (string_of_pragmas pl) " ")
-              (string_of_graph ~offset:(offset + 2) g)
+              (string_of_graph_thin ~offset:(offset + 2) g)
               "\n")
            (string_of_node_sym sy) " ")
         (List.fold_right
@@ -3216,74 +3218,7 @@ and string_of_edge_set in_gr ne =
   let ee = ES.fold (fun x y -> string_of_edge in_gr x :: y) ne [] in
   match ee with [] -> [] | _ -> "----EDGES----" :: ee
 
-and dot_of_node_ty id in_gr =
- fun n ->
-  match n with
-  | Literal (lab, _, str, _) ->
-      string_of_int id ^ string_of_int lab ^ " [shape=plaintext;label=\"" ^ str
-      ^ "\"]"
-  | Simple (lab, n, _, _, prag) ->
-      string_of_int id ^ string_of_int lab ^ " [shape=rect;label=\""
-      ^ string_of_int lab ^ " "
-      ^ cate_nicer (string_of_node_sym n) (string_of_pragmas prag) ":"
-      ^ "\"]"
-  | Compound (lab, _, _, pl, g, _) ->
-      "subgraph cluster_" ^ string_of_int id ^ string_of_int lab ^ " {\n"
-      ^ "label=\"" ^ string_of_int lab ^ " " ^ string_of_pragmas pl ^ "\";\n"
-      ^ dot_of_graph (int_of_string (string_of_int id ^ string_of_int lab)) g
-      ^ "\n" ^ "}"
-  | Unknown_node -> "Unknown"
-  | Boundary (_, yy, _, pp) ->
-      "IN0" ^ string_of_int id ^ " [shape=rect;label=\""
-      ^ cate_list (string_of_symtab_gr_in in_gr) "\\n"
-      ^ "\"];\n" ^ "OUT0" ^ string_of_int id ^ " [shape=rect;label=\""
-      ^ cate_list (string_of_symtab_gr_out in_gr) "\\n"
-      ^ string_of_pair_list yy ^ string_of_pragmas pp ^ "\"]"
-
 and graph_clean_multiarity in_gr = cleanup_multiarity in_gr
-
-and dot_of_node_map id mn in_gr =
-  NM.fold (fun _ v z -> cate_nicer z (dot_of_node_ty id in_gr v) ";\n") mn ""
-
-and dot_of_edge id ((n1, p1), (n2, p2), tt) =
-  let process_n1 id = function
-    | 0 -> "IN0" ^ string_of_int id
-    | n1 -> string_of_int id ^ string_of_int n1
-  in
-  let process_n2 id = function
-    | 0 -> "OUT0" ^ string_of_int id
-    | n2 -> string_of_int id ^ string_of_int n2
-  in
-  process_n1 id n1 ^ " ->  " ^ process_n2 id n2 ^ " [label=\"("
-  ^ string_of_int p1 ^ "," ^ string_of_int p2 ^ "),Ty=" ^ string_of_int tt
-  ^ "\"]"
-
-and dot_of_edge_set id ne =
-  ES.fold (fun x y -> cate_nicer y (dot_of_edge id x) "\n") ne ""
-
-and dot_of_graph id in_gr =
-  let { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = _ } = in_gr in
-  cate_nicer (dot_of_node_map id nm in_gr) (dot_of_edge_set id ne) "\n"
-
-and write_dot_file in_gr =
-  let oc = open_out "out.dot" in
-  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
-  close_out oc;
-  "Output Dot in out.dot"
-
-and dot_graph in_gr =
-  let na, oc = Filename.open_temp_file "graph-" ".dot" in
-  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
-  close_out oc;
-
-  print_endline ("Output Dot in " ^ na);
-  ()
-
-and write_any_dot_file sss in_gr =
-  let oc = open_out sss in
-  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
-  close_out oc;
-  ()
 
 and string_of_node_map ?(offset = 2) in_gr =
   let mn = in_gr.nmap in
@@ -3299,7 +3234,7 @@ and string_of_if1_value tm = function
         | true -> string_of_if1_ty (TM.find ii tm)
         | false -> ""
       in
-      ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ "," ^ string_of_int p
+      ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ":" ^ string_of_int p
       ^ ")"
 
 and string_of_if1_value_in tm = function
@@ -3449,7 +3384,7 @@ and string_of_graph_thin ?(offset = 0) in_gr =
 and string_of_graph2 (_, gr) = string_of_graph gr
 
 and graph_printer fmt gr =
-  Format.fprintf fmt "-------\n%s\n" (string_of_graph ~offset:2 gr)
+  Format.fprintf fmt "-------\n%s\n" (string_of_graph_thin ~offset:2 gr)
 
 and int_map_printer fmt inmap =
   Format.fprintf fmt "-------\n%s\n"
@@ -3591,6 +3526,73 @@ and get_symbol_id_old v in_gr =
 
 and is_outer_var vv = function
   | { nmap = _; eset = _; symtab = _, ps; typemap = _; w = _ } -> SM.mem vv ps
+
+and dot_of_node_map id mn in_gr =
+  NM.fold (fun _ v z -> cate_nicer z (dot_of_node_ty id in_gr v) ";\n") mn ""
+
+and dot_of_edge id ((n1, p1), (n2, p2), tt) =
+  let process_n1 id = function
+    | 0 -> "IN0" ^ string_of_int id
+    | n1 -> string_of_int id ^ string_of_int n1
+  in
+  let process_n2 id = function
+    | 0 -> "OUT0" ^ string_of_int id
+    | n2 -> string_of_int id ^ string_of_int n2
+  in
+  process_n1 id n1 ^ " ->  " ^ process_n2 id n2 ^ " [label=\"("
+  ^ string_of_int p1 ^ "," ^ string_of_int p2 ^ "),Ty=" ^ string_of_int tt
+  ^ "\"]"
+
+and dot_of_edge_set id ne =
+  ES.fold (fun x y -> cate_nicer y (dot_of_edge id x) "\n") ne ""
+
+and dot_of_graph id in_gr =
+  let { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = _ } = in_gr in
+  cate_nicer (dot_of_node_map id nm in_gr) (dot_of_edge_set id ne) "\n"
+
+and write_dot_file in_gr =
+  let oc = open_out "out.dot" in
+  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
+  close_out oc;
+  "Output Dot in out.dot"
+
+and dot_graph in_gr =
+  let na, oc = Filename.open_temp_file "graph-" ".dot" in
+  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
+  close_out oc;
+
+  print_endline ("Output Dot in " ^ na);
+  ()
+
+and write_any_dot_file sss in_gr =
+  let oc = open_out sss in
+  fprintf oc "%s" ("digraph R {\nnewrank=true;\n" ^ dot_of_graph 0 in_gr ^ "}");
+  close_out oc;
+  ()
+
+and dot_of_node_ty id in_gr =
+ fun n ->
+  match n with
+  | Literal (lab, _, str, _) ->
+      string_of_int id ^ string_of_int lab ^ " [shape=plaintext;label=\"" ^ str
+      ^ "\"]"
+  | Simple (lab, n, _, _, prag) ->
+      string_of_int id ^ string_of_int lab ^ " [shape=rect;label=\""
+      ^ string_of_int lab ^ " "
+      ^ cate_nicer (string_of_node_sym n) (string_of_pragmas prag) ":"
+      ^ "\"]"
+  | Compound (lab, _, _, pl, g, _) ->
+      "subgraph cluster_" ^ string_of_int id ^ string_of_int lab ^ " {\n"
+      ^ "label=\"" ^ string_of_int lab ^ " " ^ string_of_pragmas pl ^ "\";\n"
+      ^ dot_of_graph (int_of_string (string_of_int id ^ string_of_int lab)) g
+      ^ "\n" ^ "}"
+  | Unknown_node -> "Unknown"
+  | Boundary (_, yy, _, pp) ->
+      "IN0" ^ string_of_int id ^ " [shape=rect;label=\""
+      ^ cate_list (string_of_symtab_gr_in in_gr) "\\n"
+      ^ "\"];\n" ^ "OUT0" ^ string_of_int id ^ " [shape=rect;label=\""
+      ^ cate_list (string_of_symtab_gr_out in_gr) "\\n"
+      ^ string_of_pair_list yy ^ string_of_pragmas pp ^ "\"]"
 
 let intrinsic_lib =
   lazy

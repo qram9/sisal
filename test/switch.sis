@@ -1,0 +1,118 @@
+%===========================================================================
+%  Routines to switch endpoints of two edges
+%===========================================================================
+
+define Make_Change, Single_Change
+
+%$include ("anneal.sish")
+
+global Remove_Edge ( C : Cross_List; E : Edge_Type
+	returns Cross_List )
+
+global Check_Crossed ( E : Edge_Type; Itinerary : Itin_Type;
+	Nodes : Node_List
+	returns Cross_List )
+
+global Choose_Random ( seed : Four_Plex; Itinerary : Itin_Type;
+	Distances : Dist_Type
+	returns Change_Type, Four_Plex )
+
+%------------------------------------------------------------------------------
+function Reverse (I : array[integer] returns array[integer])
+
+for J in 1, array_size(I)
+returns
+	array of I[array_size(I) + 1 - J]
+end for
+
+end function
+
+%------------------------------------------------------------------------------
+
+function Edge_Length ( E : Edge_Type; D : Dist_Type returns real)
+
+let from,to := if E[1] > E[2] then E[1], E[2] else E[2],  E[1] end if;
+in
+	D[from,to]
+end let
+end function
+
+%------------------------------------------------------------------------------
+
+function Cost_Change ( E1, E2 : Edge_Type; D : Dist_Type returns real)
+
+% Computes the cost change resulting from switching two edges
+
+let New_E1, New_E2 := array [1: E1[1], E2[1] ],
+			array [1: E1[2], E2[2] ];
+	old_C := Edge_Length(E1, D) + Edge_Length(E2, D);
+	new_C := Edge_Length(New_E1, D) + Edge_Length(New_E2, D);
+in
+	new_C - old_C
+end let
+
+end function
+
+%------------------------------------------------------------------------------
+function Switch2(Change : Change_Type; Itinerary : Itin_Type
+	returns Itin_Type, Edge_Type, Edge_Type)
+
+let
+	I,J := Change.E1_Index, Change.E2_Index;
+
+	A,B := if I < J then I,J else J,I end if;
+	I1,I2,I3 := for N in Itinerary at NI
+		returns
+			array of N when NI <= A
+			array of N when NI > A & NI <= B
+			array of N when NI > B
+		end for;
+	New_Itin, New_E1, New_E2 := I1 || Reverse(I2) || I3,
+		array [1: Itinerary[A], Itinerary[B] ],
+		array [1: Itinerary[A+1], Itinerary[B+1] ];
+in
+	New_Itin, New_E1, New_E2
+end let
+
+end function
+
+%====================================================================
+
+function Make_Change ( SI : Sys_State; Change : Change_Type
+	returns Sys_State, Energy_Type, integer )
+
+let
+	new_Itin, new_E1, new_E2 := 
+		Switch2 ( Change, SI.Itinerary );
+	new_Crosses := Remove_Edge ( Remove_Edge ( SI.Crosses,
+		Change.E1 ), Change.E2 )
+in
+	SI replace [ Itinerary : new_Itin;
+		Crosses: new_Crosses ],
+	Change.Delta_E,
+	1
+end let
+
+end function
+	
+%==========================================================================
+
+function Single_Change ( SI : Sys_State; seed : Four_Plex
+	returns Sys_State, Four_Plex, Energy_Type )
+
+let
+	Change, new_seed :=
+		Choose_Random ( seed, SI.Itinerary, SI.Distances );
+	new_Itin, new_E1, new_E2 :=
+		Switch2 (Change, SI.Itinerary);
+in
+	SI replace [ Itinerary:new_Itin ],
+	new_seed,
+	Change.Delta_E
+end let
+
+end function	
+
+
+
+

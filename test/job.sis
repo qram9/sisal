@@ -1,0 +1,104 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                                %%
+%%   Job Shop Scheduling                                          %%
+%%   Algorithm:                                                   %%
+%%      1)  Read in input data                                    %%
+%%      2)  Sort jobs by start of window                          %%
+%%      3)  Generate matrix of start and finish times for each    %%
+%%             segment                                            %%
+%%      4)  Pairwise comparison of job i with i+1, (look for      %%
+%%             conflicts)                                         %%
+%%      5)  Create Link and Ptr arrays.  Link array contains      %%
+%%             information on number of jobs referencing a        %%
+%%             particular job segment.  (Pruning will be done     %%
+%%             here.)  Ptr array contains information on next     %%
+%%             possible successors to this job segment.  If there %%
+%%             are no successors, link contains zero (implies end %%
+%%             of a path).                                        %%
+%%      6)  Trace all paths.  Any Segment in Link array which     %%
+%%             is not referenced by any other job is the start    %%
+%%             of a path.  A Arc (representing a path) is         %%
+%%             generated for each immediate successor (represented%%
+%%             in Ptr array).  A location in Ptr array references %%
+%%             a job and segment.  If the job or segment is zero, %%
+%%             the referencing job/segment in Link array is marked%%
+%%             as a Leaf (end of a path).  When all inputs to a   %%
+%%             job/segment are present, they are sorted to find   %%
+%%             the max (representing the best path to this job/   %%
+%%             segment).  Other inputs are pruned.  This step is  %%
+%%             repeated until no further arcs are generated.      %%
+%%      7)  Looking at all leaves, the Maximum path is selected.  %%
+%%             The jobs are traced backward from the finish.  They%%
+%%             are then printed out in ascending order.           %%
+%%                                                                %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+define MAIN
+
+%$include ("types.h")
+%$include ("batcher.sis")
+%$include ("alphabeta.sis")
+%$include ("successor.sis")
+%$include ("trace.sis")
+%$include ("BackTrack.sis")
+
+
+function MAIN(Q: Integer;       % number of segments to break job into
+              A: SRec_OneDim    % job information
+             returns 
+              Seg_TwoDim,
+	      Int_OneDim)
+%
+%  Job shop scheduling
+%
+   let
+      % figure out how many jobs working on
+      N := array_size(A);
+
+      % sort the jobs by the start of the windows
+      % create a sort array for batcher
+      Sort :=
+         for Elt in A at I
+         returns
+            array of record SortRec [Val: Elt.Start; Loc: I]
+         end for;
+
+      Sorted := Batcher(Sort);
+
+      % use the sorted array to reposition A into a sorted array
+      SortedA :=
+         for Elt in Sorted
+         returns
+            array of A[Elt.Loc]
+         end for;
+
+      % break them into segments with a start and end times
+      AB, Del := AlphaBeta (SortedA, Q);
+
+      % look for conflicts among immediate successors
+      Zeros := Successors (AB, Del, Q, N);
+
+      % create the Link and Ptr arrays
+      Links, Ptrs, Vs, Depth := GenLinks (AB, Zeros, N, Q, Del);
+
+      % trace all paths
+      FinalPtrs := Trace (Links, Ptrs, Vs, Depth, N, Q);
+
+      % find the max valued path and trace it backward
+      JobSchedule:= BackTrack(FinalPtrs,N);
+
+      % retreive the original job numbers
+      MaximumJobPathThatWeCouldFind :=
+         for Elt in JobSchedule
+         returns
+            array of Sorted[Elt].Loc
+         end for;
+
+   in
+      FinalPtrs, MaximumJobPathThatWeCouldFind
+   end let
+end function   % end of MAIN

@@ -1,0 +1,30 @@
+% Find Location of First Minimum in Array
+% Vectorizable on Alliant
+% Parallel Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop24( n:integer; X:OneD returns integer )
+  for initial
+    max24 := 1;
+    k := 2;
+  while ( k <= n ) repeat
+    k := old k + 1;
+    max24 := if ( X[old k] < X[old max24] ) then 
+	       old k 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+
+function Main( rep,n:integer; X:OneD returns integer )
+   for i in 1, rep
+      v1 := Loop24( n, X );
+   returns value of v1
+   end for
+end function

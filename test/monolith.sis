@@ -1,0 +1,197 @@
+define Main, Paraffins
+
+
+type OneDint   = array [integer];
+type TwoDint   = array [OneDint];
+type TreeArray = array [array [character]];
+
+
+
+function AttachTrees(i, j, k, l: integer;
+                     TreePtrs: OneDint returns TwoDint)
+
+   if (i = j) & (j = k) & (k = l) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in n,           TreePtrs[j + 1] - 1 cross
+          o in m,           TreePtrs[k + 1] - 1 cross
+          p in o,           TreePtrs[l + 1] - 1
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (i = j) & (j = k) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in n,           TreePtrs[j + 1] - 1 cross
+          o in m,           TreePtrs[k + 1] - 1 cross
+          p in TreePtrs[l], TreePtrs[l + 1] - 1
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (i = j) & (k = l) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in n,           TreePtrs[j + 1] - 1 cross
+          o in TreePtrs[k], TreePtrs[k + 1] - 1 cross
+          p in o,           TreePtrs[l + 1] - 1
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (j = k) & (k = l) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in TreePtrs[j], TreePtrs[j + 1] - 1 cross
+          o in m,           TreePtrs[k + 1] - 1 cross
+          p in o,           TreePtrs[l + 1] - 1
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (i = j) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in n,           TreePtrs[j + 1] - 1 cross
+          o in TreePtrs[k], TreePtrs[k + 1] - 1 cross
+          p in TreePtrs[l], TreePtrs[l + 1] - 1 
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (j = k) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in TreePtrs[j], TreePtrs[j + 1] - 1 cross
+          o in m,           TreePtrs[k + 1] - 1 cross
+          p in TreePtrs[l], TreePtrs[l + 1] - 1 
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   elseif (k = l) then
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in TreePtrs[j], TreePtrs[j + 1] - 1 cross
+          o in TreePtrs[k], TreePtrs[k + 1] - 1 cross
+          p in o,           TreePtrs[l + 1] - 1
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   else
+      for n in TreePtrs[i], TreePtrs[i + 1] - 1 cross
+          m in TreePtrs[j], TreePtrs[j + 1] - 1 cross
+          o in TreePtrs[k], TreePtrs[k + 1] - 1 cross
+          p in TreePtrs[l], TreePtrs[l + 1] - 1 
+      returns value of catenate
+          array [1: array [1: n, m, o, p]]
+      end for
+   end if
+
+end function % AttachTrees
+
+
+
+function PrettyPrint(NewTrees: TwoDint;
+                     Trees: TreeArray returns TreeArray)
+
+   for T in NewTrees
+   returns array of "(" ||
+                     Trees[T[1]] || Trees[T[2]] ||
+                    "C" ||
+                     Trees[T[3]] || Trees[T[4]] ||
+                    ")"
+  end for
+
+end function % PrettyPrint
+
+
+
+function NewTrees(n: integer; Trees: TreeArray;
+                  TreePtrs: OneDint returns TreeArray)
+
+   Trees ||
+
+   for i in 0, (n - 1) / 3 cross
+       j in i, (n - 1 - i) / 2
+
+       k := n - 1 - i - j
+
+   returns value of catenate
+
+       PrettyPrint(AttachTrees(0, i, j, k, TreePtrs), Trees)
+
+   end for
+
+end function % NewTrees
+
+
+
+function OrderedTrees(w: integer
+                      returns TreeArray, OneDint)
+
+   for initial
+
+       n        := 1;
+       Trees    := array [0: "", "(C)"];
+       TreePtrs := array [0: 0,  1,  2]
+
+   while n < w repeat
+
+       n        := old n + 1;
+       Trees    := NewTrees(n, old Trees, old TreePtrs);
+       TreePtrs := array_addh(old TreePtrs, array_size(Trees))
+
+   returns value of Trees
+           value of TreePtrs
+   end for
+
+end function % OrderedTrees
+
+
+
+function OneCentroid(w: integer; Trees: TreeArray;
+                     TreePtrs: OneDint returns TreeArray)
+
+   for i in 0, (w - 1) / 4     cross
+       j in i, (w - 1 - i) / 3 cross
+       k in max(j, (w/2) - i - j), (w - 1 - i - j) / 2
+
+       l        := w - 1 - i - j - k
+
+   returns value of catenate
+
+       PrettyPrint(AttachTrees(i, j, k, l, TreePtrs), Trees)
+
+   end for
+
+end function % OneCentroid
+
+
+
+function TwoCentroid(w: integer; Trees: TreeArray;
+                     TreePtrs: OneDint returns TreeArray)
+
+
+   for i in TreePtrs[w/2], TreePtrs[(w/2) + 1] - 1 cross
+       j in i,             TreePtrs[(w/2) + 1] - 1
+   returns value of catenate 
+       array [1: "(" || Trees[i] || array_reml(Trees[j])]
+   end for
+
+end function % TwoCentroid
+
+
+
+function Paraffins(nodes: integer returns TreeArray)
+
+   let
+       Trees,
+       TreePtrs := OrderedTrees(nodes / 2)
+   in
+       for i in 1, nodes
+       returns value of catenate
+           if mod(i, 2) = 1 then
+              OneCentroid(i, Trees, TreePtrs)
+           else
+              OneCentroid(i, Trees, TreePtrs) ||
+              TwoCentroid(i, Trees, TreePtrs)
+           end if
+       end for
+
+   end let
+
+end function % Paraffins
+
+function Main( nodes: integer returns TreeArray)
+  Paraffins( Nodes )
+end function %Main
+

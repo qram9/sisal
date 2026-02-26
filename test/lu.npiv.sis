@@ -1,0 +1,65 @@
+% Gauss-Jordan elimination with no pivoting, based on the  routine  given
+% in the book "Numerical Recipes-The Art of Scientific Computing" (Press,
+% Flannery, Teukolsky, Vetterling) pages 28-29.
+%
+% A is an input matrix of NxN double_real floating point numbers and B is
+% a vector of N double_real floating point numbers.   The program returns
+% the vector x in the equation A x = B.  If A is singular, an error value
+% is NOT generated.
+%
+
+define Main
+
+type double = double_real;
+type OneI   = array[integer];
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+
+function Reduce(pivot: integer; A: TwoD; B: OneD
+                returns TwoD, OneD)
+
+   for row in A at i
+
+       mult     := A[i, pivot] / A[pivot, pivot];
+
+       rrow, rB := if i = pivot then
+
+                      for x in row returns
+                          array of x / A[pivot, pivot]
+                      end for,
+                      B[i] / A[pivot, pivot]
+
+                   else
+ 
+                      for x in row at j returns
+                          array of x - mult * A[pivot, j]
+                      end for,
+                      B[i] - mult * B[pivot]
+
+                   end if
+
+   returns array of rrow
+           array of rb
+   end for
+
+end function % Reduce
+
+
+
+function Main(n: integer; Ain: TwoD; Bin: OneD  returns OneD)
+
+   for initial
+
+       i    := 0;
+       A, B := Ain, Bin;
+
+   while i < n repeat
+
+       i    := old i + 1;
+       A, B := Reduce(i, old A, old B);
+
+   returns value of B
+   end for
+
+end function % Main

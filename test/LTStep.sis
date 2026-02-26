@@ -1,0 +1,176 @@
+DEFINE Loop_TimeStep
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+type ArrReal2 = Array[ArrReal1];
+type ArrReal3 = Array[ArrReal2];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal];
+
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+
+global U_V_Spectral(mx, jx, jxx: integer; epsi: ArrReal1; p, c: ArrCplexReal
+		RETURNS  ArrCplexReal, ArrCplexReal)
+
+global Decomplexing_p_zdiff_u_v
+	    (jxmx, jxxmx : integer; p, zdiff, u, v : ArrCplexReal
+	     RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1)
+
+global SpecToFreqSphere(jx, mx, jxx, ilath, ixh : integer; 
+			kmjx, kmjxx : ArrInt1; 
+			alp : ArrReal3; pri, zri, uri, vri : ArrReal1
+			RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+
+global MdFFTGrid(   nlev, nwave, nfax, n : integer;
+		    ifax : ArrInt1; trigb, gridi : ArrReal1
+		    RETURNS ArrReal1)	
+
+global VertigSphere(longitude_END, ilath : integer; 
+		pg, zg, ug, vg : ArrReal3
+		RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+
+global MdFFTFreq(   nlev, nwave, nfax, n : integer;
+		    ifax : ArrInt1; trigf, grid : ArrReal1
+		    RETURNS ArrReal1)   
+
+global FreqToSpecSphere(jx, mx, mx2, ilath, iy : integer;
+			kmjx, kmjxx : ArrInt1;
+			wocs, epsi : ArrReal1;	
+			alp : ArrReal2;		
+			ef, puf, pvf, zuf, zvf : ArrReal3
+			RETURNS ArrReal1, ArrReal1, ArrReal1, ArrReal1)
+
+global Complexing_ct_e_pt_ztSp
+	    (jxmx : integer; ct, e, pt, zt : ArrReal1
+	     RETURNS ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal)
+
+global Linear(  mx, jx : integer; kmjx, kmjxx, ksq : ArrInt1; 
+		tw : real; epsi : ArrReal1;
+		c, p, u, v, ctin, e, ptin : ArrCplexReal
+		RETURNS ArrCplexReal, ArrCplexReal)
+
+global TStep(	jx, mx, delt, izon, ifirst, imp, istart : integer;
+		hdiff, hdrag, zmean, vnu : real;
+		kmjx, kmjxx, ksq : ArrInt1;
+		p1 : ArrReal1;
+		c, p, z, cm, pm, zm, ct, pt, zt : ArrCplexReal
+		RETURNS integer, ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+			ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+			ArrCplexReal, ArrCplexReal, ArrCplexReal)
+
+global Energy(  jx, jxmx : integer; zmean, asq : real; 
+		e, h, zm : arrCplexReal
+		RETURNS real, real, real)
+
+global AngMom(  jx, jxmx : integer; zmean,  asq, ww : real; 
+		u, h, zm, z : ArrCplexReal
+		RETURNS real, real, real, real, real)
+
+global Specam(  jx, mx : integer; kmjx : ArrInt1; 
+		asq, ww, grav :  real; 
+		c, p, z : ArrCplexReal
+		RETURNS ArrReal1, ArrReal1, ArrReal1)
+
+%------------------------------------------
+
+FUNCTION Loop_TimeStep(
+		mx, jx, jxx, ilin, mx2, jxmx, jxxmx, nfax, ilath, imp, 
+		istart, idumpt, ir, irmax2, ires, ix, ixh, iy, delt, ilong, 
+		izon, ifirst, ihkont : integer;
+	   	hdiff, hdrag, tw, zmean, vnu, asq, ww, grav : real;
+		kmjx, kmjxx, ksq, ifax : ArrInt1;
+		epsi, wocs : ArrReal1;
+		alp : ArrReal3;
+		p, c, z, h : ArrCplexReal;
+		p1 : ArrReal1;
+		pm, cm, zm : ArrCplexReal;
+		trigb, trigf : ArrReal1
+
+		RETURNS Integer,
+		ArrCplexReal, ArrCplexReal, 
+		ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal,
+		ArrCplexReal, ArrCplexReal, ArrCplexReal, ArrCplexReal, 
+		%ArrReal2, ArrReal2, ArrReal2, ArrReal2, 
+		ArrReal1, ArrReal1, ArrReal1,
+		real, real, real, real, real, real, real, real)
+LET
+zdiff :=    FOR jm IN 1, jxmx
+ 	    RETURNS ARRAY of Csub(z[jm], h[jm])
+ 	    END FOR;
+
+% Introducing static indexing array kmjx:
+% zdiff :=    FOR m IN 1, mx
+	    % RETURNS VALUE of CATENATE
+		% FOR j in 1,jx
+		% jm := kmjx[m] + j
+		% RETURNS ARRAY of Csub(z[jm], h[jm])
+		% END FOR
+	    % END FOR;
+
+u, v :=	U_V_Spectral(mx, jx, jxx, epsi, p, c);	% The spectral U- and V-fields 
+
+pDec, zDec, uDec, vDec := Decomplexing_p_zdiff_u_v(jxmx, jxxmx, p, zdiff, u, v);
+
+pIF, zIF, uIF, vIF := SpecToFreqSphere(jx, mx, jxx, ilath, ixh, kmjx, kmjxx,
+				alp, pDec, zDec, uDec, vDec);	
+
+p_Grid, z_Grid, u_Grid, v_Grid := 
+    FOR hemi IN 1, 2 CROSS latlev IN 1,ilath
+    RETURNS ARRAY of MdFFTGrid(1, mx, nfax, ix, ifax, trigb, pIF[hemi, latlev])
+	    ARRAY of MdFFTGrid(1, mx, nfax, ix, ifax, trigb, zIF[hemi, latlev])
+	    ARRAY of MdFFTGrid(1, mx, nfax, ix, ifax, trigb, uIF[hemi, latlev])
+	    ARRAY of MdFFTGrid(1, mx, nfax, ix, ifax, trigb, vIF[hemi, latlev])
+    END FOR;
+
+e_Grid, pu_Grid, pv_Grid, zu_Grid, zv_Grid :=
+    VertigSphere(ilong, ilath, p_Grid, z_Grid, u_Grid, v_Grid);
+
+eIF, puIF, pvIF, zuIF, zvIF :=	
+FOR hemi IN 1, 2 CROSS latlev IN 1,ilath
+RETURNS ARRAY of MdFFTFreq(1, mx, nfax, ix, ifax, trigf, e_Grid[hemi, latlev])
+	ARRAY of MdFFTFreq(1, mx, nfax, ix, ifax, trigf, pu_Grid[hemi, latlev])
+	ARRAY of MdFFTFreq(1, mx, nfax, ix, ifax, trigf, pv_Grid[hemi, latlev])
+	ARRAY of MdFFTFreq(1, mx, nfax, ix, ifax, trigf, zu_Grid[hemi, latlev])
+	ARRAY of MdFFTFreq(1, mx, nfax, ix, ifax, trigf, zv_Grid[hemi, latlev])
+END FOR;
+
+ctSp, eSp, ptSp, ztSp := 
+    FreqToSpecSphere(jx, mx, mx2, ilath, iy, kmjx, kmjxx, 
+		 wocs, epsi, alp[1], eIF, puIF, pvIF, zuIF, zvIF);
+
+ct, e, pt, zt := Complexing_ct_e_pt_ztSp(jxmx, ctSp, eSp, ptSp, ztSp);
+
+ptlin, ctlin := 
+    Linear(mx, jx, kmjx, kmjxx, ksq, tw, epsi, c, p, u, v, ct, e, pt);
+					     % c, e, p, u, v, pt, ct);
+
+ifirst_ttp, c_ttp, p_ttp, z_ttp, cm_ttp, pm_ttp, zm_ttp, 
+ct_ttp, pt_ttp, zt_ttp := 
+	TStep(jx, mx, delt, izon, ifirst, imp, istart, hdiff, hdrag, 
+	      zmean, vnu, kmjx, kmjxx, ksq, 
+	      p1, c, p, z, cm, pm, zm, ctlin, ptlin, zt);
+
+ptot, ktot, TotalEnergy := 
+	Energy(jx, jxmx, zmean, asq, e, h, zm_ttp);
+
+atot, atot1, wtot, totalangmom, totalangmom1 := 
+	AngMom(jx, jxmx, zmean, asq, ww, u, h, zm_ttp, z_ttp);
+
+ampk, ampvor, ampz := 
+	IF mod(ihkont, idumpt) = 0
+	THEN Specam(jx, mx, kmjx, asq, ww, grav, c_ttp, p_ttp, z_ttp)
+	ELSE ARRAY ArrReal1 [], ARRAY ArrReal1 [], ARRAY ArrReal1 []
+	END IF;
+
+IN					% Check the order
+ifirst_ttp,
+ct_ttp, pt_ttp, zt_ttp, e,
+c_ttp, p_ttp, z_ttp, cm_ttp, pm_ttp, zm_ttp,
+%p_Grid[1] || p_Grid[2], z_Grid[1] || z_Grid[2], 
+%u_Grid[1] || u_Grid[2], v_Grid[1] || v_Grid[2],
+ampk, ampvor, ampz,
+atot, atot1, wtot, totalangmom, totalangmom1, 
+ptot, ktot, totalenergy
+
+END LET
+END FUNCTION

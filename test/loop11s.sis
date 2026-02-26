@@ -1,0 +1,25 @@
+% First Sum
+% Sequential Algorithm
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop11( n:integer; Yin:OneD returns OneD )
+  for initial
+      i := 2;
+      X := Yin[1];
+  while ( i <= n ) repeat
+      i := old i + 1;
+      X := old X + Yin[old i];
+  returns array of X
+  end for
+end function
+
+function Main( rep,n:integer; Yin:OneD returns OneD )
+  for i in 1,rep
+    Y := Loop11( n, Yin );
+  returns value of Y
+  end for
+end function

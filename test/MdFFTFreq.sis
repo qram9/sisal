@@ -1,0 +1,69 @@
+DEFINE MdFFTFreq
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real]
+
+global PassFreq(    inc1, inc2, n, ifac, la : integer; 
+		    a, c, trigs : ArrReal1
+		    RETURNS ArrReal1) % c
+
+function MdFFTFreq( nlev, nwave, nfax, n : integer;
+		    ifax : ArrInt1; trigs, grid : ArrReal1
+		    RETURNS ArrReal1)   
+LET
+la1    := n / ifax[1];
+x_0    := array_fill(1,n*2+2,0.0);
+work_0 := array_fill(1,n*2+2,0.0);
+    x  :=    IF nfax <= 1 
+	    THEN PassFreq(1, 2, n, ifax[1], la1, grid, x_0, trigs) 
+
+	    ELSE 	
+	    LET 
+	    next1, x1, work1 :=
+		IF MOD(nfax, 2) = 1 
+		THEN 40,
+		     PassFreq(1, 2, n, ifax[1], la1, grid, x_0, trigs),
+		     work_0
+		ELSE 50,
+		     x_0,
+		     PassFreq(1, 2, n, ifax[1], la1, grid, work_0, trigs)
+		END IF;
+
+	    x :=    FOR INITIAL
+		    loop := 2;
+		    la := la1;
+		    next := next1;
+		    x := x1;
+		    work := work1;
+
+		    WHILE loop <= nfax REPEAT
+		    loop := old loop + 1;
+		    la := old la / ifax[old loop];
+		    next, x, work := 
+			IF old next = 50
+			THEN 40,
+			     PassFreq(2, 2, n, ifax[old loop], la, 
+					old work, old x, trigs),
+			     old work
+			ELSE 50,
+			     old x,
+			     PassFreq(2, 2, n, ifax[old loop], la, 
+					old x, old work, trigs)
+			END IF;
+
+		    RETURNS VALUE of x
+		    END FOR;
+
+	    IN x
+	    END LET
+
+	    END IF;
+
+    fourier :=  FOR truncated_index IN 1, nwave * 2
+		RETURNS ARRAY of x[truncated_index]
+		END FOR
+		|| ARRAY_FILL(nwave * 2 + 1, n, 0.0)
+
+IN fourier	% Only one layer is built and returned
+END LET
+END FUNCTION

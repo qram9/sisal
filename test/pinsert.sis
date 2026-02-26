@@ -1,0 +1,36 @@
+define Main
+
+type OneDim = array[ double_real ];
+type TwoDim = array[ OneDim ];
+
+function Insertion( N : integer; Input: OneDim returns OneDim )
+  for initial
+    K := 2;
+    A := Input;
+  while K <= N repeat
+    Y := old A[old K];
+    X, I := for initial
+              I := old K - 1;
+	      X := old A;
+	      Found := FALSE;
+            while ( I >= 1 & ~Found ) repeat
+	      X, I, Found := if ( Y < old X[old I] ) then
+		               old X[old I + 1: old X[old I]], old I - 1, FALSE
+                             else
+		               old X, old I, TRUE
+                             end if;
+            returns value of X  
+		    value of I
+            end for;
+    A := X[I + 1: Y ];
+    K := old K + 1;
+  returns value of A
+  end for
+end function
+
+function main( A:TwoDim returns TwoDim )
+  for Row in A
+     NewRow := Insertion( array_size(Row), Row );
+  returns array of NewRow
+  end for
+end function

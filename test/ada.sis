@@ -1,0 +1,13 @@
+define main
+
+type answer = array[integer];
+
+function main ( returns answer )
+   for I in 1, 5
+      x := for J in 1, 10000000
+	      local := I;
+           returns value of local
+	   end for;
+   returns array of x
+   end for
+end function

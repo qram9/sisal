@@ -1,0 +1,43 @@
+DEFINE Energy
+
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal]
+
+global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Cmul(cnum1, cnum2 : CplexReal RETURNS CplexReal)
+global Conjg(cnum : CplexReal RETURNS CplexReal)
+
+function Energy(jx, jxmx : integer; zmean, asq : real; 
+		e, h, zm : arrCplexReal
+		RETURNS real, real, real)
+LET
+% The following asSUMes h[1] and e[1] not having non - zero Impart.
+% Otherwise,  the following has to be rewritten.
+gmass := 4.0 * (zmean - h[1].Repart) / asq;
+
+backdown := 2 + jxmx;
+ptot1, ktot1 := 
+	FOR j in 2, jxmx
+		k := backdown - j;
+		zm_R := zm[k].Repart;
+		zm_I := zm[k].Impart;
+		conjg_e := Conjg(e[k]);
+		potential := zm_R * zm_R+zm_I * zm_I;
+		kinetic := Cmul(Csub(zm[k], h[k]), conjg_e).Repart;
+	RETURNS VALUE of SUM 
+			if k > jx then 2.0 * potential
+				else potential
+			end if
+		VALUE of SUM
+			if k > jx then 2.0 * kinetic
+				else kinetic
+			end if						
+	end FOR;
+
+ptot := ptot1/gmass;
+ktot := (ktot1 + e[1].Repart * 1.4142136 * (zmean - h[1].Repart)) / gmass;
+total := ptot + ktot;
+
+IN ptot, ktot, total
+end LET
+end function

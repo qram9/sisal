@@ -1,0 +1,38 @@
+DEFINE PassGrid
+
+type ArrReal1 = Array[real]
+
+global IFACTg_2ETC(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		 	a, ci, trigs : ArrReal1
+		 	RETURNS ArrReal1)
+
+global IFACTg_3(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		 a, ci, trigs : arrReal1
+		 RETURNS arrReal1)
+
+global IFACTg_4(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		 a, ci, trigs : ArrReal1
+		 RETURNS ArrReal1)
+
+FUNCTION PassGrid(inc1, inc2, n, ifac, la : integer; 
+		    a, c, trigs : ArrReal1
+		    RETURNS ArrReal1) % c
+LET
+m := n / ifac;
+iink := inc1 * m;
+jink := inc2 * la;
+jump := (ifac - 1) * jink;
+igo := ifac - 1;
+c_return := 	
+    IF igo = 2 
+      THEN IFACTg_3(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+    ELSEIF igo = 3 
+      THEN IFACTg_4(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+
+    ELSE IFACTg_2ETC(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+    end IF;
+
+IN c_return
+
+end LET
+end function

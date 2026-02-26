@@ -1,0 +1,21 @@
+% Equation of State Fragment
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+
+function Loop7( n:integer; R,T:double; U,Y,Z: OneD; returns OneD )
+  for k in 1,n returns
+  array of U[k] + R * (Z[k]   + R * Y[k])
+                + T * (U[k+3] + R * (U[k+2] + R * U[k+1])
+                + T * (U[k+6] + R * (U[k+5] + R * U[k+4])))
+  end for
+end function
+
+function Main( rep,n:integer; R,T:double; U,Y,Z: OneD; returns OneD )
+   for i in 1, rep
+       W := Loop7( n, R, T, U, Y, Z );
+   returns value of W
+   end for
+end function

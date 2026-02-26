@@ -1,0 +1,67 @@
+define main
+% SISAL program for the CYK parsing algorithm, as an example of
+% Dynamic Programming.  See p140 of Automata Theory book by Hopcroft & Ullman
+
+% The input grammar will be in Chomsky Normal form which has 2 kinds of prods:
+% 1. Productions of the kind A --> a
+% 2. Productions of the kind A --> B C
+% Let the grammar have terminals T1, ..., Tm and non-terminals N1, ..., Nn
+% We represent them by their corresponding integer subscripts.
+type string = array[integer] ; % a string of terminals
+% P1[i,j]=true represents Nj --> Ti
+type prod1 = array[array[boolean]] ;
+% P2[i,j,k]=true represents Ni --> Nj Nk
+type prod2 = array[array[array[boolean]]] ;
+
+function CYK(x:string; NV:integer; P1:prod1; P2:prod2 returns boolean)
+
+% V[j,i,A] = true if var # A derives a string of length j starting at x[i]
+
+let
+n := array_size(x) ;
+V :=
+for initial
+	j := 2 ;
+	V := array[1: 
+		     for i in 1,n returns array of P1[x[i]] end for
+		  ]
+while j <= n repeat
+	j := old j + 1 ;
+	newrow :=
+		% form new row to be added to V[j,i]
+		for i in 1,n-old j+1 returns array of
+		% set of variables for V[j,i]
+			for A in 1,NV
+			a_ji := for k in 1,old j-1
+				cross B in 1,NV cross C in 1,NV
+				returns value of sum
+				Old V[k,i,B] & Old V[old j-k,i+k,C] & P2[A,B,C]
+				end for
+			returns array of a_ji
+			end for
+		end for ;
+	V := array_addh(old V, newrow)
+returns
+	value of V
+end for
+in
+V[n,1,1] % assume var 1 is the goal
+end let
+
+end function % cyk
+
+function main( n:integer returns boolean )
+
+let
+	NV := 1 ;
+
+	P1 := array [1: array [1: true] ] ; % for A --> a
+
+	P2 := array [1: array [1: array [1:true] ] ] ; % for A --> A A
+
+	x := array_fill(1,n,1) % string of n a's
+in
+	CYK(x,NV,P1,P2)
+end let
+
+end function % main

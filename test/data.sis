@@ -1,0 +1,18 @@
+define main
+
+type vector = array[double_real];
+type matrix = array[vector];
+
+global sin( v:double_real returns double_real )
+
+function main( n:integer returns matrix, vector )
+
+    for i in 1,n cross j in 1,n
+    returns array of 1.0d0/(double_real(i)+double_real(j)-1.0d0)
+    end for,
+
+    for i in 1,n
+    returns array of 1.0d0+0.01d0*sin(100.0d0*double_real(i))
+    end for
+
+end function

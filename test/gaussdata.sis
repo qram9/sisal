@@ -1,0 +1,31 @@
+define main
+
+type oned = array[double_real];
+type twod = array[oned];
+
+function FormA(n : integer returns twod)
+for i in 1, n cross j in 1, n
+  bij := exp(double_real(j),i-1)
+returns array of bij
+end for
+end function 
+% ************************************************
+%                 FormB
+% ************************************************
+function FormB( n,m:integer returns oned )
+for j in 1, n
+  element := if (j=m) then 1.0D0 else 0.0D0 end if
+returns array of element
+end for
+end function
+% **************************************************
+%                      gauss
+% **************************************************
+function main(n : integer returns integer, twod, oned )
+let
+  b := FormB(n, 1);
+  a := FormA( n );
+in
+  n, a, b
+end let
+end function

@@ -1,0 +1,299 @@
+define MatrixToQuad, QToMatrix
+
+type OneDimReal = array[ real ];
+
+type OneDimBTree = array[ BTree ];
+
+type BTree =	union[
+		  Scalar: real;
+		  NonScalar: record[ L, R: BTree ]
+		  ]; % union BTree
+
+type BinTree =	record[
+		  Order, Padding: integer;
+		  Body: BTree
+		  ]; % record BinTree
+
+type TwoDimReal = array[ OneDimReal ];
+
+type Quadrant = union[ NE, SE, SW, NW: null ];
+
+type QTree = union[
+	 	  Scalar: real;
+		  NonScalar: record[ NE, SE, SW, NW: QTree ]
+		     ];
+
+type QuadTree = record[
+			Order, Padding: integer;
+			Body: QTree
+			] % record QuadTree
+
+% CeilingOfLog2 returns both the ceiling of log2(N) and 2**it
+
+function CeilingOfLog2( N: integer returns integer,integer )
+  for initial
+    Log := 0;
+    Power := 1
+  while Power<N repeat
+    Log := old Log + 1;
+    Power := old Power * 2
+  returns
+    value of Log
+    value of Power
+  end for
+end function % CeilingOfLog2
+
+function Depth( Input: QTree returns integer )
+  tagcase Q := Input
+  tag Scalar:
+    0
+  tag Nonscalar:
+    max( max( Depth( Q.NE ), Depth( Q.SE ) ),
+         max( Depth( Q.SW ), Depth( Q.NW ) ) ) + 1
+  end tagcase
+end function % Depth
+
+% AtoB will produce the BTree representation of the input array A
+% Precondition: size( A ) is a power of 2
+
+function AtoB( A: OneDimReal returns BTree )
+  if array_size( A ) = 1 then
+    union BTree[ Scalar: A[ array_liml( A ) ] ]
+  else
+    let
+      Mid := array_liml( A ) + array_size( A ) / 2;
+      L := AtoB( array_adjust( A, array_liml( A ), Mid-1 ) );
+% RESULTS IN A SUBSCRIPT ERROR
+      R := AtoB( array_adjust( A, Mid, array_limh( A ) ) );
+      Merge :=
+	tagcase L1 := L
+	tag NonScalar: false
+	tag Scalar:
+          tagcase R1 := R
+	  tag NonScalar: false
+	  tag Scalar: L1=R1
+	  end tagcase
+	end tagcase
+    in
+      if Merge then
+        L
+      else
+        union BTree[ NonScalar: record[ L:L; R:R ] ]
+      end if
+    end let
+  end if
+end function % AtoB
+
+% Return the Left sub-BTree for every element in the array
+
+function LeftBranch( A: OneDimBTree returns OneDimBTree )
+  for B in A
+    L :=
+      tagcase B1 := B
+      tag Scalar: B
+      tag NonScalar: B1.L
+      end tagcase
+  returns array of L
+  end for
+end function % LeftBranch
+
+% Return the Right sub-BTree for every element in the array
+
+function RightBranch( A: OneDimBTree returns OneDimBTree )
+  for B in A
+    R :=
+      tagcase B1 := B
+      tag Scalar: B
+      tag NonScalar: B1.R
+      end tagcase
+  returns array of R
+  end for
+end function % RightBranch
+
+% BtoQTree creates a QTree from an array of BinTrees
+% Precondition: array_size(array) is a power of 2
+
+function BtoQTree( A: OneDimBTree returns QTree )
+  if array_size( A ) = 1 then
+    tagcase S:= A[ array_liml( A ) ]
+    tag Scalar: union QTree[ Scalar: S ]
+    tag NonScalar: error[ QTree ]
+    end tagcase
+  else
+    let
+      Mid := array_liml( A ) + array_size( A ) / 2;
+      NE := BtoQTree( RightBranch( array_adjust( A, array_liml( A ), Mid-1 ) ) );
+      NW := BtoQTree( LeftBranch( array_adjust( A, array_liml( A ), Mid-1 ) ) );
+      SW := BtoQTree( LeftBranch( array_adjust( A, Mid, array_limh( A ) ) ) );
+      SE := BtoQTree( RightBranch( array_adjust( A, Mid, array_limh( A ) ) ) );
+
+      DiagonalOK :=
+	tagcase NW1 := NW
+	tag NonScalar: false
+	tag Scalar:
+          tagcase SE1 := SE
+	  tag NonScalar: false
+	  tag Scalar: NW1=SE1
+	  end tagcase
+	end tagcase;
+      Merge :=
+	if DiagonalOK then
+	  tagcase NE1 := NE
+	  tag NonScalar: false
+	  tag Scalar:
+	    tagcase SW1 := SW
+	    tag NonScalar: false
+	    tag Scalar: (NE1=0.0) & (SW1=0.0)
+	    end tagcase
+	  end tagcase
+	else
+	  false
+	end if
+    in
+      if Merge then
+        NW
+      else
+        union QTree[ NonScalar: record[ NE: NE; SE: SE; SW: SW; NW:NW ] ]
+      end if
+    end let
+  end if
+end function % BtoQTree
+
+% Assume that A is a square matrix.
+% MatrixToQuad will embed the matrix in the southeast corner of a 2**N matrix
+%   and convert it to the corresponding quadtree
+
+function MatrixToQuad( A: TwoDimReal
+returns		QuadTree )
+  let
+    S := array_size( A );
+    Log2, TwoToTheLog2 := CeilingOfLog2( S );
+    ColumnFiller := array_fill( 1, TwoToTheLog2-S, 0.0 );
+    ArrayOfBTree :=
+      for ARow in A
+      returns array of AtoB( ColumnFiller || ARow )
+      end for;
+    RowFill := array_fill( 1, TwoToTheLog2-S, union BTree[ Scalar: 0.0 ] )
+  in
+    record QuadTree[
+		Order: Log2;
+		Padding: TwoToTheLog2 - S;
+		Body: BtoQTree( RowFill || ArrayOfBTree )
+		] % B
+  end let
+end function % MatrixToQuad
+
+function QToMatrix( Input: QTree; Order: integer
+returns		      TwoDimReal )
+  tagcase Q:=Input
+  tag Scalar:
+    if Order<=0 then
+      array[ 1: array[ 1: Q ] ]
+    else
+      let
+	Zero := union QTree[ Scalar: 0.0 ];
+	A := QToMatrix( Input, Order-1 ) || QToMatrix( Zero, Order-1 );
+	B := QToMatrix( Zero, Order-1 ) || QToMatrix( Input, Order-1 );
+      in
+	for ARow in A dot BRow in B
+	returns array of ARow || BRow
+	end for
+      end let
+    end if
+  tag NonScalar:
+    let
+      A := QToMatrix( Q.NW, Order-1 ) || QToMatrix( Q.SW, Order-1 );
+      B := QToMatrix( Q.NE, Order-1 ) || QToMatrix( Q.SE, Order-1 );
+    in
+      for ARow in A dot BRow in B
+      returns array of ARow || BRow
+      end for
+    end let
+  end tagcase
+end function % QToMatrix
+
+function QuadToMatrix( Input: Quadtree
+returns 	TwoDimReal )
+  QToMatrix( Input.Body, Input.Order )
+end function % QuadToMatrix
+
+function Transpose( Input: QTree
+returns		    QTree )
+  tagcase Q := Input
+  tag Scalar:
+    Input
+  tag NonScalar:
+    union QTree[
+		 NonScalar: record[
+			NE: Transpose( Q.SW );
+			SE: Transpose( Q.SE );
+			SW: Transpose( Q.NE );
+			NW: Transpose( Q.NW ) ]
+		] % union QTree
+  end tagcase
+end function % Transpose
+
+function QAdd( A, B: QTree
+returns	 QTree )
+  tagcase L := A
+  tag NonScalar:
+    tagcase R := B
+    tag NonScalar:
+      union QTree[
+	NonScalar: record[
+		NE: QAdd( L.NE, R.NE );		SE: QAdd( L.SE, R.SE );
+		SW: QAdd( L.SW, R.SW );		NW: QAdd( L.NW, R.NW )
+		] % record
+	] % union QTree
+    tag Scalar:
+      if R=0.0 then
+	A
+      else
+	union QTree[
+	  NonScalar: record[
+		NE: QAdd( L.NE, union QTree[ Scalar: 0.0] );
+		SE: QAdd( L.SE, B );
+		SW: QAdd( L.SW, union QTree[ Scalar: 0.0] );
+		NW: QAdd( L.NW, B )
+		] % record
+	  ] % union QTree
+      end if
+    end tagcase
+  tag Scalar:
+    tagcase R := B
+    tag Scalar:
+      union QTree[ Scalar: L+R ]
+    tag NonScalar:
+      union QTree[
+	NonScalar: record[
+		NE: QAdd( union QTree[ Scalar: 0.0], R.NE );
+		SE: QAdd( A, R.SE );
+		SW: QAdd( union QTree[ Scalar: 0.0], R.SW );
+		NW: QAdd( A, R.NW )
+		] % record
+	] % union QTree
+    end tagcase
+  end tagcase
+end function % QAdd
+
+function QuadAdd( A, B: Quadtree
+returns	 Quadtree )
+  A replace [ Body: QAdd( A.Body, B.Body ) ]
+end function % QuadAdd
+
+function main( returns TwoDimReal )
+  let
+    A := array[	1: array[ 1: 1.0, 1.0, 1.0 ],
+		   array[ 1: 1.0, 1.0, 1.0 ],
+		   array[ 1: 1.0, 1.0, 1.0 ]
+		];
+    B := array[	1: array[ 1: 11.0, 21.0, 31.0 ],
+		   array[ 1: 12.0, 1.0, 0.0 ],
+		   array[ 1: 13.0, 0.0, 1.0 ]
+		];
+    Qa := MatrixToQuad( A );
+    Qb := MatrixToQuad( B )
+  in
+    QuadToMatrix( QuadAdd( Qa, Qb ) )
+  end let
+end function % main

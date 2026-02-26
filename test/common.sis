@@ -1,0 +1,489 @@
+%$INCLUDE ("com_defines")
+%$INCLUDE ("types")
+
+global find_inverse (a : real_array2 returns real_array2)
+
+%******************************************************************************
+%**************************    M A T _ M U L T    *****************************
+%******************************************************************************
+
+function mat_mult (m1, m2 : real_array2
+		   returns real_array2)
+
+for i in array_liml(m1),    array_limh(m1) cross
+    j in array_liml(m2[1]), array_limh(m2[1])
+
+    returns array of
+      for k in array_liml(m1[1]), array_limh(m1[1])
+	returns value of sum m1[i,k]*m2[k,j]
+      end for
+end for
+end function
+
+%******************************************************************************
+%*************    B U I L D _ W O R L D _ T O _ S C R E E N    ****************
+%******************************************************************************
+
+function build_world_to_screen (xpixels, ypixels   : integer;
+				xlo, xhi, ylo, yhi : real;
+				gtr                : real_array2
+				returns real_array2)
+
+% build the matrix to take world coords to screen coords.
+% gtr                is general tranformation matrix
+% xpixels, ypixels   are size of raster
+% xlo, xhi, ylo, yhi are location of viewport
+
+let
+  NDC_to_pixel := real (min (xpixels, ypixels));
+  sx           := NDC_to_pixel * (xhi - xlo)/2.0;
+  tx           := NDC_to_pixel * (xhi + xlo)/2.0;
+  sy           := NDC_to_pixel * (yhi - ylo)/2.0;
+  ty           := NDC_to_pixel * (yhi + ylo)/2.0;
+  c2s          := array [1: array [1:  sx, 0.0, 0.0, 0.0],
+		            array [1: 0.0,  sy, 0.0, 0.0],
+		            array [1: 0.0, 0.0, 1.0, 0.0],
+		            array [1:  tx,  ty, 0.0, 1.0]]
+in
+  mat_mult (gtr, c2s)
+end let
+end function
+
+%******************************************************************************
+%**************************    F I N D _ E Y E    *****************************
+%******************************************************************************
+
+function find_eye (gtr : real_array2;
+		   returns pt_rec)
+
+% find location of eye given gtr
+
+let
+  inv := find_inverse(gtr);
+  w   := inv[3,4];
+in
+  if w = 0.0 then    % put eye at infinity
+    record pt_rec [xp : 0.0;
+		   yp : 0.0;
+		   zp : 1.0e10]
+  else
+    record pt_rec [xp : inv[3,1]/w;
+  		   yp : inv[3,2]/w;
+		   zp : inv[3,3]/w]
+  end if
+end let
+end function
+
+%******************************************************************************
+%**********************    T R A N S F O R M _ P T     ************************
+%******************************************************************************
+
+function transform_pt (pt  : pt_rec;
+		       mat : real_array2
+                       returns pt_rec)
+
+% Tranforms pt according to matrix 'mat' and perform homogeneous division
+
+let
+     w := pt.xp*mat[1,4] + pt.yp*mat[2,4] + pt.zp*mat[3,4] + mat[4,4]
+in
+  record pt_rec
+    [xp : (pt.xp*mat[1,1] + pt.yp*mat[2,1] + pt.zp*mat[3,1] + mat[4,1])/w;
+     yp : (pt.xp*mat[1,2] + pt.yp*mat[2,2] + pt.zp*mat[3,2] + mat[4,2])/w;
+     zp : (pt.xp*mat[1,3] + pt.yp*mat[2,3] + pt.zp*mat[3,3] + mat[4,3])/w]
+end let
+end function
+
+%******************************************************************************
+%******************    B U I L D _ S C R E E N _ P T S    *********************
+%******************************************************************************
+
+function build_screen_pts (w2s   : real_array2;
+			   w_pts : pt_array
+			   returns pt_array)
+
+% convert world pts in array 'w_pts' to screen coordinates using world_to_screen
+% transformation 'w2s'
+
+for pt in w_pts
+  returns array of transform_pt (pt, w2s)
+end for
+end function
+
+%******************************************************************************
+%**********************    F I N D _ P L N _ E Q N    *************************
+%******************************************************************************
+
+function find_pln_eqn (v1, v2, v3 : pt_rec
+		       returns pln_eqn_rec)
+  
+% compute plane eqn for a triangle. The normal (a,b,c) is of unit length
+
+let
+  ax := (v2.zp+v1.zp)*(v2.yp-v1.yp) + (v3.zp+v2.zp)*(v3.yp-v2.yp) +
+	(v1.zp+v3.zp)*(v1.yp-v3.yp);
+  ay := (v2.xp+v1.xp)*(v2.zp-v1.zp) + (v3.xp+v2.xp)*(v3.zp-v2.zp) +
+	(v1.xp+v3.xp)*(v1.zp-v3.zp);
+  az := (v2.yp+v1.yp)*(v2.xp-v1.xp) + (v3.yp+v2.yp)*(v3.xp-v2.xp) +
+	(v1.yp+v3.yp)*(v1.xp-v3.xp);
+  sx := v1.xp + v2.xp + v3.xp;
+  sy := v1.yp + v2.yp + v3.yp;
+  sz := v1.zp + v2.zp + v3.zp;
+  l  := sqrt (ax*ax + ay*ay + az*az);
+  a  := ax/l;
+  b  := ay/l;
+  c  := az/l
+in
+  record pln_eqn_rec [a : a;
+		      b : b;
+		      c : c;
+		      d : -(a*sx + b*sy + c*sz)/3.0]
+end let
+end function
+
+%******************************************************************************
+%*************************    O R D E R _ P T S    ****************************
+%******************************************************************************
+
+function order_pts (v1, v2, v3 : integer;
+		    pts        : pt_array
+		    returns integer,
+			    integer,
+			    integer)
+
+% order pts based on Y from lowest to highest
+
+  function order2 (va, vb : integer; pts : pt_array  returns integer, integer)
+  if pts[va].yp <= pts[vb].yp then
+    va, vb
+  else
+    vb, va
+  end if
+  end function
+
+let
+  l1, m1 := order2 (v1, v2, pts);
+  l2, m2 := order2 (l1, v3, pts)
+in
+  l2, order2(m1, m2, pts)
+end let
+end function
+
+%******************************************************************************
+%*****************************    U P / D N    ********************************
+%******************************************************************************
+
+function up (x : real
+	     returns integer)
+
+let
+  xi := trunc(x)
+in
+  if x = real(xi) then xi elseif x > 0.0 then xi + 1 else xi end if
+end let
+end function
+
+%------------------------------------------------------------------------------
+
+function dn (x : real
+	     returns integer)
+
+let
+  xi := trunc(x)
+in
+  if x = real(xi) then xi elseif x > 0.0 then xi else xi - 1 end if
+end let
+end function
+
+%******************************************************************************
+%************    B U I L D _ S C R E E N _ T R I A N G L E S    ***************
+%******************************************************************************
+
+function build_screen_triangles (w_pts, s_pts : pt_array;
+				 triangles    : tri_array
+				 returns screen_tri_array)
+
+%------------------------------------------------------------------------------
+function dxdy (p1, p2 : integer;
+	       pts    : pt_array
+	       returns real)
+let
+  dx := pts[p2].xp - pts[p1].xp;
+  dy := pts[p2].yp - pts[p1].yp;
+in
+  if dy = 0.0 then 0.0 else dx/dy end if
+end let
+end function
+%------------------------------------------------------------------------------
+
+for tri in triangles
+  returns array of (
+    let
+      lo,mid,hi := order_pts (tri.v1, tri.v2, tri.v3, s_pts)
+    in
+      record screen_tri_rec
+	  [vhi           : hi;
+           vmid          : mid;
+           vlo           : lo;
+	   mid_scan_line : dn (s_pts[mid].yp);
+	   last_scan_line: dn (s_pts[hi].yp);
+	   dxdy_lh       : dxdy (lo, hi, s_pts);
+	   dxdy_lm       : dxdy (lo, mid, s_pts);
+	   dxdy_mh       : dxdy (mid, hi, s_pts);
+           world_pln_eqn : find_pln_eqn (w_pts[hi], w_pts[mid], w_pts[lo]);
+	   screen_pln_eqn: find_pln_eqn (s_pts[hi], s_pts[mid], s_pts[lo])]
+    end let
+  )
+end for
+end function
+
+%******************************************************************************
+%********************    A A L I A S _ W E I G H T    *************************
+%******************************************************************************
+
+function aalias_weight (n : integer
+			returns real_array2)
+
+% This function returns the weighting array used in the anti-aliasing
+% computation. The input n is the super-sampling factor.
+
+let
+  denom := real (n*n*n*n);
+  n1    := n-1;
+  n2    := 2*n1;
+  wij   := for i in 0,n2 cross j in 0,n2
+             returns array of (real ((n-abs(n1-i))*(n-abs(n1-j)))/denom)
+           end for
+in
+wij
+end let
+end function
+
+%******************************************************************************
+%*********************    D I T H E R _ W E I G H T    ************************
+%******************************************************************************
+
+function dither_weight (dsize : integer
+			returns real_array2)
+
+% This function returns the weighting matrix used in ordered dithering. The
+% input is the size of the matrix (2, 4, 8, etc). The resulting array is
+% calcultated recursively starting from a 1x1 array and doubling the size
+% on each pass.
+
+let
+  w := for initial
+    wi := array [0 : array [0 : 0]];
+    s  := 1;
+
+    while (s < dsize) repeat
+      o  := old s;
+      m  := old s * 2 - 1;
+      n  := array_limh(old wi);
+      wi := for j in 0,m cross
+                k in 0,m
+            returns array of
+     	      (if (j<=n) & (k<=n) then
+	         old wi[j  ,k  ]*4        % mult original elements by 4
+               elseif (j<=n) & (k>n) then
+	         old wi[j  ,k-o]*4 + 3    % add 3 to get elements to right
+               elseif (j>n)  & (k<=n) then
+	         old wi[j-o,k  ]*4 + 2    % add 2 to get elements below
+               else
+	         old wi[j-o,k-o]*4 + 1    % add 1 to elements diagonally dn/rt
+	       end if)
+            end for;
+      s := old s * 2
+    returns value of wi
+  end for
+
+in
+  for i in 0,dsize-1 cross
+      j in 0,dsize-1
+  returns array of (real (w[i,j])/real(dsize*dsize)) % scale to 0.0 to 1.0
+  end for
+end let
+end function
+
+%******************************************************************************
+%******************    A A L I A S _ A N D _ D I T H E R    *******************
+%******************************************************************************
+
+function aalias_and_dither (fs, dsize     : INTEGER;
+                            nr, ng, nb    : INTEGER;
+			    mat           : rgb_array2
+			    returns int_array2)
+
+% This function does simultaneous anti-aliasing and dithering. The input
+% consists of the supersample size (fs), the dither size (dsize) and the
+% number of colors (nr, nb, ng) and the supersampled raster (mat). It
+% returns and array of color indices which can be used to produce the picture.
+
+let
+  ulx     := array_limh(mat[0]);
+  uly     := array_limh(mat);
+  aweight := aalias_weight (fs);
+  dweight := dither_weight (dsize);
+
+in
+  for y in 0, (uly+1)/fs - 1 cross
+      x in 0, (ulx+1)/fs - 1
+
+    returns array of (
+      let
+        r,g,b := for i in 0, min(2*fs-2, ulx - x*fs) cross
+                     j in 0, min(2*fs-2, uly - y*fs)
+
+                   xj := x*fs + i;
+		   yi := y*fs + j;
+		   aw := aweight[i,j]
+
+                   returns value of sum mat[yi, xj].r * aw
+                           value of sum mat[yi, xj].g * aw
+                           value of sum mat[yi, xj].b * aw
+                 end for;
+
+	dw  := dweight[mod(y,dsize), mod(x,dsize)];
+        rs  := real (nr-1) * max (0.0, min (1.0, r)); % put in range 0.0->1.0
+	gs  := real (ng-1) * max (0.0, min (1.0, g)); % and convert to integer
+	bs  := real (nb-1) * max (0.0, min (1.0, b)); % range
+
+        ri  := trunc (rs);
+	gi  := trunc (gs);
+	bi  := trunc (bs);
+
+	red := if (rs-real(ri) > dw) then ri+1 else ri end if;
+	grn := if (gs-real(gi) > dw) then gi+1 else gi end if;
+	blu := if (bs-real(bi) > dw) then bi+1 else bi end if
+
+      in
+        (red*nr + grn)*ng + blu
+      end let )
+  end for
+end let
+end function
+
+%******************************************************************************
+%****************************    D I T H E R    *******************************
+%******************************************************************************
+
+function dither (dsize      : INTEGER;
+                 nr, ng, nb : INTEGER;
+		 mat        : rgb_array2;
+		 returns int_array2)
+
+% dither the computed raster in the case where antialiasing has not been
+% performed
+
+let
+  ulx     := array_limh(mat[0]);
+  uly     := array_limh(mat);
+  dweight := dither_weight (dsize);
+in
+  for y in 0, uly cross
+      x in 0, ulx
+
+  returns array of
+    let 
+      dw  := dweight[mod(y,dsize), mod(x,dsize)];
+      rs  := real (nr-1) * max (0.0, min (1.0, mat[y,x].r));
+      gs  := real (ng-1) * max (0.0, min (1.0, mat[y,x].g));
+      bs  := real (nb-1) * max (0.0, min (1.0, mat[y,x].b));
+      ri  := trunc (rs);
+      gi  := trunc (gs);
+      bi  := trunc (bs);
+      red := if (rs-real(ri) > dw) then ri+1 else ri end if;
+      grn := if (gs-real(gi) > dw) then gi+1 else gi end if;
+      blu := if (bs-real(bi) > dw) then bi+1 else bi end if;
+    in
+      (red*nr + grn)*ng + blu
+    end let    
+  end for
+end let
+end function
+
+%******************************************************************************
+%**************************    F I N D _ D I R    *****************************
+%******************************************************************************
+
+function find_dir (p1, p2 : pt_rec
+		   returns pt_rec)
+
+% return unit vector in direction from p1 towards p2
+
+let
+  dx := p2.xp - p1.xp;
+  dy := p2.yp - p1.yp;
+  dz := p2.zp - p1.zp;
+  l  := sqrt (dx*dx + dy*dy + dz*dz)
+in
+  record pt_rec [xp: dx/l;
+		 yp: dy/l;
+		 zp: dz/l]
+end let
+end function
+
+%******************************************************************************
+%*********************    C O M P U T E _ C O L O R    ************************
+%******************************************************************************
+
+function compute_color
+		      (pt      : pt_rec;
+		       eye     : pt_rec;
+		       normal  : pln_eqn_rec;
+		       surface : surf_rec;
+		       lights  : light_array;
+		       colors  : rgb_array1;
+		       ambient : integer
+		       returns rgb_rec)
+
+%------------------------------------------------------------------------------
+function rsign (x : real returns integer)
+
+if x > 0.0 then 1 elseif x < 0.0 then -1 else 0 end if
+
+end function
+%------------------------------------------------------------------------------
+
+let
+  raw_color := colors[surface.color];
+  amb_color := colors[ambient];
+  eye_dir   := find_dir (pt, eye);
+  red,
+  grn,
+  blu       := for light in lights
+		 light_dir := find_dir (pt, light.pos);
+		 NL        := normal.a*light_dir.xp + normal.b*light_dir.yp +
+			      normal.c*light_dir.zp;
+                 NE        := normal.a*eye.xp       + normal.b*eye.yp       +
+			      normal.c*eye.zp;
+                 LE        := light_dir.xp*eye.xp   + light_dir.yp*eye.yp   +
+			      light_dir.zp*eye.zp;
+
+                 r, g, b   := if rsign(NL) ~= rsign(NE) then
+				0.0, 0.0, 0.0
+                              else
+				let
+				  cos_theta := abs(NL);
+				  cos_alpha := abs(LE*(2.0*cos_theta-1.0));
+				  spec      := surface.spec_refl *
+						 exp(cos_alpha, surface.spec_n);
+				  light_color := colors[light.color];
+                                in
+				  light_color.r*(raw_color.r*cos_theta + spec),
+				  light_color.g*(raw_color.g*cos_theta + spec),
+				  light_color.b*(raw_color.b*cos_theta + spec)
+                                end let
+			      end if
+
+               returns value of sum r
+		       value of sum g
+		       value of sum b
+               end for
+in
+  record rgb_rec [r : amb_color.r*raw_color.r + red;
+		  g : amb_color.g*raw_color.g + grn;
+		  b : amb_color.b*raw_color.b + blu]
+end let
+end function
+

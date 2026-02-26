@@ -1,0 +1,33 @@
+%
+% --- SIMPSONS RULE INTEGRATION ---
+%
+% Integrate function f over the closed range [a, b] with n *even*
+% panels using Simpsons one-third rule.
+
+define Simpson
+
+
+global sin ( x : real returns real )
+
+
+% a < b, n even
+%
+function Simpson ( a, b : real; n : integer returns real )
+
+  let
+    Delta := abs( b - a ) / real( n );
+    S_odd := for i in 1, (n + 1) / 2
+                   panel := 2 * (i - 1) + 1;
+	           fi    := sin( a + real(panel) * Delta )
+	       returns value of sum fi
+	       end for;
+    S_even := for i in 1, n / 2
+	          panel := 2 * i;
+	          fi := sin( a + real(panel) * Delta )
+	      returns value of sum fi
+	      end for
+    in
+      ( sin(a) + sin(b) + 4.0 * S_odd + 2.0 * S_even ) * Delta / 3.0
+  end let
+
+end function

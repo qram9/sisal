@@ -1,0 +1,104 @@
+% Casual Fortran. Development Version
+
+Define  Main
+
+type double = double_real;
+type OneD   = array[double];
+type TwoD   = array[OneD];
+
+global Sqrt( x:double returns double )
+
+function Loop15( n:integer; VF,VG,VH:TwoD returns TwoD, TwoD )
+let
+  VS, VYc := for j in 2, 6
+               VSrc,
+               VYrc := for i in 2, n-1
+	                 VGj   := VG[j];
+	                 VGjm1 := VG[j-1];
+	                 VHj   := VH[j];
+	                 VHjp1 := VH[j+1];
+
+                         S := if VF[j,i] >= VF[j-1,i] then
+                                let
+                                  R := Max(VGj[i],VGj[i+1]);
+                                  S := VF[j,i];
+                                  T := 0.053d0;
+                                in
+                                  Sqrt(VHj[i] * VHj[i] + R*R) * T/S
+                                end let
+                              else
+                                let
+                                  R := Max(VGjm1[i],VGjm1[i+1]);
+                                  S := VF[j-1,i];
+                                  T := 0.073d0;
+                                in
+                                  Sqrt(VHj[i] * VHj[i] + R*R) * T/S
+                                end let
+                              end if;
+
+                         
+                         T := if VHjp1[i] > VHj[i] then 
+			        0.053d0
+                              else 
+			        0.073d0 
+                              end if;
+
+                         Y := if VF[j,i] >= VF[j,i-1] then
+                                let
+                                  R := Max(VHj[i],VHjp1[i]);
+                                  S := VF[j,i];
+                                in
+                                  Sqrt(VGj[i] * VGj[i] + R*R) * T/S
+                                end let
+                              else 
+                                let
+                                  R := Max(VHj[i-1], VHjp1[i-1]);
+                                  S := VF[j,i-1];
+                                in
+                                  Sqrt(VGj[i] * VGj[i] + R*R) * T/S
+                                end let
+                              end if;
+                       returns array of S
+                               array of Y
+                       end for;
+
+               T := if VH[j+1,n] > VH[j,n] then 
+		      0.053d0
+                    else 
+		      0.073d0 
+                    end if;
+
+               LastY := if VF[j,n] >= VF[j,n-1] then
+                          let
+                            R := Max(VH[j,n],VH[j+1,n]);
+                            S := VF[j,n];
+                          in
+                            Sqrt(VG[j,n] * VG[j,n] + R*R) * T/S
+                          end let
+                        else 
+                          let
+                            R := Max(VH[j,n-1], VH[j+1,n-1]);
+                            S := VF[j,n-1];
+                          in
+                            Sqrt(VG[j,n] * VG[j,n] + R*R) * T/S
+                          end let
+                        end if;
+
+               VSr := array_addh( VSrc, 0.0d0 );
+               VYr := array_addh( VYrc, LastY );
+             returns array of VSr
+                     array of VYr
+             end for;
+in
+  VS, array_addh( VYc, array_fill( 2,n,0.0d0 ) )
+end let
+end function
+
+
+function Main( rep,n:integer; VF,VG,VH:TwoD returns TwoD, TwoD )
+   for i in 1, rep
+      v1,v2 := Loop15( n, VF, VG, VH );
+   returns value of v1
+           value of v2
+   end for
+end function

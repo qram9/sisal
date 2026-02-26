@@ -1,0 +1,1014 @@
+define main
+
+type double = double_real;
+type OneD = array[double];
+type OneI = array[integer];
+
+global sqrt( x:double returns double )
+
+function BCNDUpdate2( lb,ibcdl:integer; x,xh,vx,vxh:OneD; 
+                      xleft, xlef2:double 
+                      returns OneD, OneD, OneD, OneD )
+  if ( x[lb] >= xleft ) then x, vx, xh, vxh                % GOTO 60
+  elseif ( ibcdl > 1 ) then                                % GOTO 30
+    x, vx, xh, vxh                                         % call BCNDL GOTO 60
+  else
+    x[lb:xlef2 - x[lb]], vx[lb:-vx[lb]],
+    if ( xh[lb] >= xleft ) then xh, vxh                    % GOTO 60
+    else xh[lb:xlef2-xh[lb]], vxh[lb:-vxh[lb]] 
+    end if
+  end if
+end function
+
+
+function BCNDUpdate1( lb:integer; z_IN,zh_IN:OneD; zmax:double 
+                     returns OneD, OneD )
+let
+  z  := z_IN[lb];
+  zh := zh_IN[lb];
+  
+  zv, zhv := if ( z < zmax ) then                             % GOTO 70
+
+               if ( z >= 0.0D0 ) then z, zh                   % GOTO 80
+               else
+                 let
+                   zv := z + zmax;
+                 in
+                   if ( zh >= 0.0D0 ) then zv, zh             % GOTO 80
+                   else zv, zh + zmax
+                   end if
+                 end let
+               end if
+
+             else
+
+               let
+                 zv1 := z - zmax;
+               in
+                 if ( zh < zmax ) then                         % GOTO 70
+                   if ( zv1 >= 0.0D0 ) then zv1, zh            % GOTO 80
+                   else
+                     if ( zh >= 0.0D0 ) then zv1 + zmax, zh    % GOTO 80
+                     else zv1 + zmax, zh + zmax
+                     end if
+                   end if
+                 else zv1, zh - zmax
+                 end if
+               end let
+
+             end if;
+in
+  z_IN[lb:zv], zh_IN[lb:zhv]
+end let
+end function
+
+
+function BCND( xleft,xright:double;
+               l3,jb:integer;
+               kbound,ibcdr,ibcdl:integer;
+               ib:OneI;
+               yIN,yhIN,xIN,xhIN,vxIN,vxhIN:OneD;
+               xmax,ymax:double;
+               returns OneD, OneD, OneD, OneD, OneD, OneD )
+let
+  xlef2 := 2.0D0 * xleft;
+  xrit2 := 2.0D0 * xright;
+in
+  for initial
+    l   := l3;
+
+    y   := yIN;
+    yh  := yhIN;
+    x   := xIN;
+    xh  := xhIN;
+    vx  := vxIN;
+    vxh := vxhIN;
+
+  while ( l <= jb ) repeat
+    l  := old l + 1;
+    lb := ib[old l];
+
+    x, xh, vx, vxh :=
+      if ( kbound = 0 ) then                                % GOTO 40
+
+        BCNDUpdate1( lb, old x,old xh, xmax ), old vx, old vxh
+
+      elseif ( old x[lb] < xright ) then                    % GOTO 20
+
+        BCNDUpdate2( lb,ibcdl, old x,old xh,old vx,old vxh, xleft,xlef2 )
+
+      elseif ( ibcdr > 1 ) then                             % GOTO 10
+
+        old x, old xh, old vx, old vxh                      % call BCNDL GOTO 60
+
+      else
+
+        let
+          x1  := old x[lb: xrit2-old x[lb]];
+          vx1 := old vx[lb: -old vx[lb]]
+        in
+          if ( old xh[lb] < xright ) then % GOTO 20
+            BCNDUpdate2( lb,ibcdl, x1,old xh,vx1, old vxh, xleft,xlef2 )
+          else
+            x1, old xh[lb: xrit2-old xh[lb]], vx1, old vxh[lb:-old vxh[lb]] 
+          end if
+        end let
+
+      end if;
+
+% 60:
+    y, yh := BCNDUpdate1( lb, old y,old yh, ymax );
+               yIN,yhIN,xIN,xhIN,vxIN,vxhIN:OneD;
+  returns value of y value of yh
+          value of x value of xh
+          value of vx value of vxh
+  end for
+end let
+end function
+
+
+function parmve( dt,qmult,wmult:double;
+                 kbound,ibcdr,ibcdl,l3,l4:integer;
+                 ex,ey:OneD;
+                 xmax,ymax,xright,xleft,hxi,hyi:double; nx2:integer;
+                 yIN,yh,xIN,xh,vxIN,vxh,vyIN,q:OneD;
+                 returns OneD, OneD, OneD, OneD, OneD, OneD, OneD, OneD )
+let
+  h1 := dt*qmult/wmult;
+  hh := 0.5D0*h1;
+
+  h := for l in l3,l4
+       returns array of if (xIN[l] < 0.0D0 ) then 0.0D0 else h1 end if
+       end for;
+
+%
+%
+%    calculate area weight vectors
+%
+
+  i,  fx, fy, ij, 
+  w1, w2, w3, w4 := for l in l3,l4
+                      rx  := hxi*xIN[l] + 1.5D0;
+                      ry  := hyi*yIN[l] + 1.5D0;
+                      i   := trunc(rx);            % i = rx
+                      fx  := rx - double_real(trunc(rx)); % aint
+                      fxc := 1.0D0 - fx;
+                      j   := trunc(ry);            % j = ry
+                      fy  := ry - double_real(trunc(ry)); % aint
+                      fyc := 1.0D0 - fy;
+                    returns array of i
+                            array of fx
+                            array of fy
+                            array of i + nx2*(j-1)
+                            array of fxc*fyc
+                            array of fx*fyc
+                            array of fxc*fy
+                            array of fx*fy
+                    end for;
+
+%  fetch ex field vector
+%    calculate average field on particle
+%
+%     1ef4,nx2,324)
+%
+  exa, eya := for l in l3,l4
+                ijl   := ij[l];
+                ijl1  := ijl + 1;
+                ijln  := ijl + nx2;
+                ijln1 := ijln + 1;
+              returns array of w1[l]*ex[ijl] + w2[l]*ex[ijl1] + w3[l]*ex[ijln] +
+                               w4[l]*ex[ijln1]
+                      array of w1[l]*ey[ijl] + w2[l]*ey[ijl1] + w3[l]*ey[ijln] +
+                               w4[l]*ey[ijln1]
+              end for;
+%
+%  advance two components of velocity
+%
+  vx, vy := for l in l3,l4
+            returns array of vxIN[l] + h[l]*exa[l]
+                    array of vyIN[l] + h[l]*exa[l]
+            end for;
+%
+%   advance whole positions.
+%
+  h2, x, y := for l in l3,l4
+                h := if ( xIN[l] < 0.0D0 ) then 0.0D0 else 1.0D0 end if;
+              returns array of h
+                      array of xIN[l] + dt*vx[l]*h
+                      array of yIN[l] + dt*vy[l]*h
+              end for;
+%
+%   check for particle boundary crossings
+%
+  jb, ib := for l in l3,l4
+              ib := if (x[l] >= xright) then 1
+                    elseif (x[l] < xleft) then 1
+                    elseif (y[l] < 0.0D0) then 1
+                    elseif (y[l] >= ymax) then 1
+                    else 0
+                    end if;
+            returns value of sum ib
+                    array of ib
+            end for;
+
+  y1, yh1, x1, 
+  xh1, vx1, vxh1 := if ( jb > 0 ) then
+                      BCND( xleft,xright, l3,jb, kbound,ibcdr,ibcdl, ib,
+                            y, yh, x, xh, vx, vxh, xmax, ymax )
+                    else
+                      y, yh, x, xh, vx, vxh
+                    end if;
+%
+%    calculate area weight vectors at whole time
+%
+  qmlt := for l in l3,l4
+            qmlt := if (x1[l] < 0.0D0 ) then 0.0D0 else qmult end if;
+          returns array of qmlt
+          end for;
+
+  i1, fx1, fy1, ij1,
+  w11, w21, w31, w41 := for l in l3,l4
+                          rx  := hxi*x1[l] + 1.5D0;
+                          ry  := hyi*y1[l] + 1.5D0;
+                          i   := trunc(rx);
+                          fx  := rx - double_real(trunc(rx));
+                          fxc := 1.0D0 - fx;
+                          j   := trunc(ry);
+                          fy  := ry - double_real(trunc(ry));
+                          fyc := 1.0D0 - fy;
+                        returns array of i
+                                array of fx
+                                array of fy
+                                array of i + nx2*(j-1)
+                                array of fxc*fyc
+                                array of fx*fyc
+                                array of fxc*fy
+                                array of fx*fy
+                         end for;
+%
+%  area weight particles onto charge grid
+%
+  s1, s2, s3, s4 := for l in l3,l4
+                    returns array of w11[l]*qmlt[l]
+                            array of w21[l]*qmlt[l]
+                            array of w31[l]*qmlt[l]
+                            array of w41[l]*qmlt[l]
+                    end for;
+
+  q1 := for initial
+          l  := l3;
+          q1 := q;
+        while ( l <= l4 ) repeat
+          l  := old l + 1;
+
+          ijl   := ij1[old l];
+          ijl1  := ijl + 1;
+          ijln  := ijl + nx2;
+          ijln1 := ijln + 1;
+
+          q1a := old q1[ijl:  old q1[ijl] + s1[old l]];
+          q1b := q1a[ijl1: q1a[ijl1] + s2[old l]];
+          q1c := q1b[ijln: q1b[ijln] + s3[old l]];
+
+          q1  := q1c[ijln1: q1c[ijln1] + s4[old l]];
+        returns value of q1
+        end for;
+in
+  y1, yh1, x1, xh1, vx1, vxh1, vy, q1
+end let
+end function
+
+
+function parmov( dt,qmult,wmult:double;
+                 kbound,ibcdr,ibcdl,l3,l4:integer;
+                 ex,ey,ez,bx,by,bz:OneD;
+                 xmax,ymax,xright,xleft,hxi,hyi:double; nx2:integer;
+                 vzIN, yIN,xIN,vxIN,vyIN,cx,cy,cz,q:OneD;
+                 returns OneD, OneD, OneD, OneD,
+			 OneD, OneD, OneD, OneD, OneD )
+let
+  h1 := dt*qmult/wmult;
+  hh := 0.5D0*h1;
+
+  h := for l in l3,l4
+       returns array of if (xIN[l] < 0.0D0 ) then 0.0D0 else h1 end if
+       end for;
+
+%
+%
+%    calculate area weight vectors
+%
+
+  i,  fx, fy, ij, 
+  w1, w2, w3, w4 := for l in l3,l4
+                      rx  := hxi*xIN[l] + 1.5D0;
+                      ry  := hyi*yIN[l] + 1.5D0;
+                      i   := trunc(rx);            % i = rx
+                      fx  := rx - double_real(trunc(rx)); % aint
+                      fxc := 1.0D0 - fx;
+                      j   := trunc(ry);            % j = ry
+                      fy  := ry - double_real(trunc(ry)); % aint
+                      fyc := 1.0D0 - fy;
+                    returns array of i
+                            array of fx
+                            array of fy
+                            array of i + nx2*(j-1)
+                            array of fxc*fyc
+                            array of fx*fyc
+                            array of fxc*fy
+                            array of fx*fy
+                    end for;
+
+%  fetch ex field vector
+%    calculate average field on particle
+%
+%     1ef4,nx2,324)
+%
+  exa, eya, eza,
+  bxa, bya, bza := for l in l3,l4
+                     ijl   := ij[l];
+                     ijl1  := ijl + 1;
+                     ijln  := ijl + nx2;
+                     ijln1 := ijln + 1;
+                   returns array of w1[l]*ex[ijl] + w2[l]*ex[ijl1] + 
+				    w3[l]*ex[ijln] + w4[l]*ex[ijln1]
+                           array of w1[l]*ey[ijl] + w2[l]*ey[ijl1] + w3[l]*
+				    ey[ijln] + w4[l]*ey[ijln1]
+                           array of w1[l]*ez[ijl] + w2[l]*ez[ijl1] + w3[l]*
+				    ez[ijln] + w4[l]*ez[ijln1]
+                           array of w1[l]*bx[ijl] + w2[l]*bx[ijl1] + w3[l]*
+				    bx[ijln] +w4[l]*bx[ijln1]
+                           array of w1[l]*by[ijl] + w2[l]*by[ijl1] + w3[l]*
+				    by[ijln] +w4[l]*by[ijln1]
+                           array of w1[l]*bz[ijl] + w2[l]*bz[ijl1] + w3[l]*
+				    bz[ijln] +w4[l]*bz[ijln1]
+                   end for;
+
+%
+%  advance three components of velocity
+%
+  vx, vy, vz := for l in l3,l4
+                  f := 1.0D0 - h[l]*hh*(exp(bxa[l],2.0D0)+exp(bya[l],2.0D0)+
+		       exp(bza[l],2.0D0));
+                  g := hh*(vxIN[l]*bxa[l]+vyIN[l]*bya[l]+vzIN[l]*bza[l]);
+
+                  vxa := vxIN[l] + hh*exa[l];
+                  vya := vyIN[l] + hh*eya[l];
+                  vza := vzIN[l] + hh*eza[l];
+
+                returns array of f*vxIN[l] + h[l]*(exa[l]+g*bxa[l]+vya*
+				 bza[l]-vza*bya[l])
+                        array of f*vyIN[l] + h[l]*(eya[l]+g*bya[l]+vza*
+				 bxa[l]-vxa*bza[l])
+                        array of f*vzIN[l] + h[l]*(eza[l]+g*bza[l]+vxa*
+				 bya[l]-vya*bxa[l])
+		end for;
+           
+%
+%   advance whole and half-time positions.
+%
+  vxh, xh, 
+  x, yh, y := for l in l3,l4
+                   dx := if (xIN[l] < 0.0D0) then 0.0D0 else dt*vx[l] end if;
+                   dy := if (xIN[l] < 0.0D0) then 0.0D0 else dt*vy[l] end if;
+                 returns array of vx[l]
+                         array of xIN[l] + 0.5D0*dx
+                         array of xIN[l] + dx
+                         array of yIN[l] + 0.5D0*dy
+                         array of yIN[l] + dy
+		  end for;
+%
+%   check for particle boundary crossings
+%
+  jb, ib := for l in l3,l4
+              ib := if (x[l] >= xright) then 1
+                    elseif (x[l] < xleft) then 1
+                    elseif (y[l] < 0.0D0) then 1
+                    elseif (y[l] >= ymax) then 1
+                    else 0
+                    end if;
+            returns value of sum ib
+                    array of ib
+            end for;
+
+  y1, yh1, x1, 
+  xh1, vx1, vxh1 := if ( jb > 0 ) then
+                      BCND( xleft,xright, l3,jb, kbound,ibcdr,ibcdl, ib,
+                            y, yh, x, xh, vx, vxh, xmax, ymax )
+                    else
+                      y, yh, x, xh, vx, vxh
+                    end if;
+%
+%    calculate area weight vectors at half-time step.
+%
+  i1, fx1, fy1, ij1,
+  w11, w21, w31, w41 := for l in l3,l4
+                          rx  := hxi*xh1[l] + 1.5D0;
+                          ry  := hyi*yh1[l] + 1.5D0;
+                          i   := trunc(rx);
+                          fx  := rx - double_real(trunc(rx));
+                          fxc := 1.0D0 - fx;
+                          j   := trunc(ry);
+                          fy  := ry - double_real(trunc(ry));
+                          fyc := 1.0D0 - fy;
+                        returns array of i
+                                array of fx
+                                array of fy
+                                array of i + nx2*(j-1)
+                                array of fxc*fyc
+                                array of fx*fyc
+                                array of fxc*fy
+                                array of fx*fy
+                         end for;
+%
+%  area weight particles onto current grids
+%
+
+  xmult1,xmult2,xmult3,xmult4,
+  ymult1,ymult2,ymult3,ymult4,
+  zmult1,zmult2,zmult3,zmult4,
+  qmlt  := for l in l3,l4 
+             qmlt  := if (x1[l] < 0.0D0 ) then 0.0D0 else qmult end if;
+             xmult := qmlt*vxh1[l];
+             ymult := qmlt*vy[l];
+             zmult := qmlt*vz[l];
+	   returns array of xmult*w11[l] array of xmult*w21[l] 
+		   array of xmult*w31[l] array of xmult*w41[l]
+		   array of ymult*w11[l] array of ymult*w21[l] 
+		   array of ymult*w31[l] array of ymult*w41[l]
+		   array of zmult*w11[l] array of zmult*w21[l] 
+		   array of zmult*w31[l] array of zmult*w41[l]
+	           array of qmlt
+           end for;
+
+  cx1, cy1, cz1 :=
+      for initial
+	l := l3;
+	cx1 := cx; cy1 := cy; cz1 := cz;
+      while ( l <= l4 ) repeat
+	l := old l + 1;
+
+        ijl   := ij[old l];
+        ijl1  := ijl + 1;
+        ijln  := ijl + nx2;
+        ijln1 := ijln + 1;
+
+        cx1a := old cx1[ijl: old cx1[ijl] + xmult1[old l]];
+        cx1b := cx1a[ijl1  : cx1a[ijl1] + xmult2[old l]];
+        cx1c := cx1b[ijln  : cx1b[ijln] + xmult3[old l]];
+        cx1  := cx1c[ijln1 : cx1c[ijln1] + xmult4[old l]];
+
+        cy1a := old cy1[ijl: old cy1[ijl] + ymult1[old l]];
+        cy1b := cy1a[ijl1: cy1a[ijl1] + ymult2[old l]];
+        cy1c := cy1b[ijln: cy1b[ijln] + ymult3[old l]];
+        cy1  := cy1c[ijln1: cy1c[ijln1] + ymult4[old l]];
+
+        cz1a := old cz1[ijl: old cz1[ijl] + zmult1[old l]];
+        cz1b := cz1a[ijl1: cz1a[ijl1] + zmult2[old l]];
+        cz1c := cz1b[ijln: cz1b[ijln] + zmult3[old l]];
+        cz1  := cz1c[ijln1: cz1c[ijln1] + zmult4[old l]];
+      returns value of cx1
+	      value of cy1
+	      value of cz1
+      end for;
+
+%
+%  calculate area weight vectors at whole time
+%
+  i2, fx2, fy2, ij2,
+  w12, w22, w32, w42 := for l in l3,l4
+                          rx  := hxi*x1[l] + 1.5D0;
+                          ry  := hyi*y1[l] + 1.5D0;
+                          i   := trunc(rx);
+                          fx  := rx - double_real(trunc(rx));
+                          fxc := 1.0D0 - fx;
+                          j   := trunc(ry);
+                          fy  := ry - double_real(trunc(ry));
+                          fyc := 1.0D0 - fy;
+                        returns array of i
+                                array of fx
+                                array of fy
+                                array of i + nx2*(j-1)
+                                array of fxc*fyc
+                                array of fx*fyc
+                                array of fxc*fy
+                                array of fx*fy
+                         end for;
+
+% 
+%  area weight particles onto charge grid 
+%
+  s1, s2, s3, s4 := for l in l3,l4
+                    returns array of w12[l]*qmlt[l]
+                            array of w22[l]*qmlt[l]
+                            array of w32[l]*qmlt[l]
+                            array of w42[l]*qmlt[l]
+                    end for;
+
+  q1 := for initial
+          l  := l3;
+          q1 := q;
+        while ( l <= l4 ) repeat
+          l  := old l + 1;
+
+          ijl   := ij2[old l];
+          ijl1  := ijl + 1;
+          ijln  := ijl + nx2;
+          ijln1 := ijln + 1;
+
+          q1a := old q1[ijl:  old q1[ijl] + s1[old l]];
+          q1b := q1a[ijl1: q1a[ijl1] + s2[old l]];
+          q1c := q1b[ijln: q1b[ijln] + s3[old l]];
+
+          q1  := q1c[ijln1: q1c[ijln1] + s4[old l]];
+        returns value of q1
+        end for;
+in
+  y1, x1, vz, vx1, vy, cx1, cy1, cz1, q1
+end let
+end function
+
+
+function parmvr( dt,qmult,wmult:double;
+                 kbound,ibcdr,ibcdl,l3,l4:integer;
+                 ex,ey,ez,bx,by,bz:OneD;
+                 xmax,ymax,xright,xleft,hxi,hyi:double; nx2:integer;
+                 vzIN, yIN,xIN,vxIN,vyIN,cx,cy,cz,q:OneD;
+                 returns OneD, OneD, OneD, OneD,
+			 OneD, OneD, OneD, OneD, OneD,
+			 double, double, double )
+let
+  h1 := dt*qmult/wmult;
+  hh := 0.5D0*h1;
+
+  h := for l in l3,l4
+       returns array of if (xIN[l] < 0.0D0 ) then 0.0D0 else h1 end if
+       end for;
+
+%
+%    calculate old gammas.
+%
+  ga := for l in l3,l4
+          ga := exp(vxIN[l],2.0D0) + 
+		exp(vyIN[l],2.0D0) + exp(vzIN[l],2.0D0) + 1.0D0;
+          ga1 := sqrt(ga);
+          ga2 := 1.0D0/ga1;
+	returns array of ga2
+	end for;
+
+%
+%    calculate area weight vectors
+%
+
+  i,  fx, fy, ij, 
+  w1, w2, w3, w4 := for l in l3,l4
+                      rx  := hxi*xIN[l] + 1.5D0;
+                      ry  := hyi*yIN[l] + 1.5D0;
+                      i   := trunc(rx);            % i = rx
+                      fx  := rx - double_real(trunc(rx)); % aint
+                      fxc := 1.0D0 - fx;
+                      j   := trunc(ry);            % j = ry
+                      fy  := ry - double_real(trunc(ry)); % aint
+                      fyc := 1.0D0 - fy;
+                    returns array of i
+                            array of fx
+                            array of fy
+                            array of i + nx2*(j-1)
+                            array of fxc*fyc
+                            array of fx*fyc
+                            array of fxc*fy
+                            array of fx*fy
+                    end for;
+
+%  fetch ex field vector
+%    calculate average field on particle
+%
+%     1ef4,nx2,324)
+%
+  exa, eya, eza,
+  bxa, bya, bza := for l in l3,l4
+                     ijl   := ij[l];
+                     ijl1  := ijl + 1;
+                     ijln  := ijl + nx2;
+                     ijln1 := ijln + 1;
+                   returns array of w1[l]*ex[ijl] + w2[l]*ex[ijl1] + 
+				    w3[l]*ex[ijln] + w4[l]*ex[ijln1]
+                           array of w1[l]*ey[ijl] + w2[l]*ey[ijl1] + w3[l]*
+				    ey[ijln] + w4[l]*ey[ijln1]
+                           array of w1[l]*ez[ijl] + w2[l]*ez[ijl1] + w3[l]*
+				    ez[ijln] + w4[l]*ez[ijln1]
+                           array of w1[l]*bx[ijl] + w2[l]*bx[ijl1] + w3[l]*
+				    bx[ijln] +w4[l]*bx[ijln1]
+                           array of w1[l]*by[ijl] + w2[l]*by[ijl1] + w3[l]*
+				    by[ijln] +w4[l]*by[ijln1]
+                           array of w1[l]*bz[ijl] + w2[l]*bz[ijl1] + w3[l]*
+				    bz[ijln] +w4[l]*bz[ijln1]
+                   end for;
+
+%
+%  advance three components of momentum
+%
+  vx, vy, vz, sumf1,
+  sumf2, sumf3 := for l in l3,l4
+                    hha   := hh*ga[l];
+                    hhasq := hha*ga[l];
+                    c     := ga[l]*(1.0D0-hhasq*(vxIN[l]*exa[l]+vyIN[l]*eya[l]+
+			     vzIN[l]*eza[l]));
+
+                    f := 1.0D0 - h[l]*hhasq*(exp(bxa[l],2.0D0)+
+			 exp(bya[l],2.0D0)+exp(bza[l],2.0D0));
+
+                    g := hhasq*(vxIN[l]*bxa[l]+vyIN[l]*bya[l]+vzIN[l]*bza[l]);
+
+                    vxa := c*vxIN[l] + hha*exa[l];
+                    vya := c*vyIN[l] + hha*eya[l];
+                    vza := c*vzIN[l] + hha*eza[l];
+                  returns array of f*vxIN[l] + h[l]*(exa[l]+g*bxa[l]+vya*bza[l]
+                                   -vza*bya[l])
+                          array of f*vyIN[l] + h[l]*(eya[l]+g*bya[l]+vza*bxa[l]
+                                   -vxa*bza[l])
+                          array of f*vzIN[l] + h[l]*(eza[l]+g*bza[l]+vxa*bya[l]
+                                   -vya*bxa[l])
+                          value of sum vxIN[l]
+                          value of sum vyIN[l]
+                          value of sum vzIN[l]
+	          end for;
+%
+%   compute new gammas
+%
+  ga1 := for l in l3,l4
+           ga   := exp(vx[l],2.0D0) + exp(vy[l],2.0D0) + exp(vz[l],2.0D0) 
+		   + 1.0D0;
+           ga1  := sqrt(ga);
+           ga2  := 1.0D0/ga1;
+	 returns array of ga2
+	 end for;
+           
+%
+%   advance whole and half-time positions.
+%
+  vxh, xh, 
+  x, yh, y := for l in l3,l4
+                   dx := if (xIN[l] < 0.0D0) then 0.0D0 
+			 else ga1[l]*dt*vx[l] end if;
+                   dy := if (xIN[l] < 0.0D0) then 0.0D0 
+			 else ga1[l]*dt*vy[l] end if;
+                 returns array of vx[l]
+                         array of xIN[l] + 0.5D0*dx
+                         array of xIN[l] + dx
+                         array of yIN[l] + 0.5D0*dy
+                         array of yIN[l] + dy
+		  end for;
+%
+%   check for particle boundary crossings
+%
+  jb, ib := for l in l3,l4
+              ib := if (x[l] >= xright) then 1
+                    elseif (x[l] < xleft) then 1
+                    elseif (y[l] < 0.0D0) then 1
+                    elseif (y[l] >= ymax) then 1
+                    else 0
+                    end if;
+            returns value of sum ib
+                    array of ib
+            end for;
+
+  y1, yh1, x1, 
+  xh1, vx1, vxh1 := if ( jb > 0 ) then
+                      BCND( xleft,xright, l3,jb, kbound,ibcdr,ibcdl, ib,
+                            y, yh, x, xh, vx, vxh, xmax, ymax )
+                    else
+                      y, yh, x, xh, vx, vxh
+                    end if;
+%
+%    calculate area weight vectors at half-time step.
+%
+  i1, fx1, fy1, ij1,
+  w11, w21, w31, w41 := for l in l3,l4
+                          rx  := hxi*xh1[l] + 1.5D0;
+                          ry  := hyi*yh1[l] + 1.5D0;
+                          i   := trunc(rx);
+                          fx  := rx - double_real(trunc(rx));
+                          fxc := 1.0D0 - fx;
+                          j   := trunc(ry);
+                          fy  := ry - double_real(trunc(ry));
+                          fyc := 1.0D0 - fy;
+                        returns array of i
+                                array of fx
+                                array of fy
+                                array of i + nx2*(j-1)
+                                array of fxc*fyc
+                                array of fx*fyc
+                                array of fxc*fy
+                                array of fx*fy
+                         end for;
+%
+%  area weight particles onto current grids
+%
+
+  xmult1,xmult2,xmult3,xmult4,
+  ymult1,ymult2,ymult3,ymult4,
+  zmult1,zmult2,zmult3,zmult4,
+  qmlt  := for l in l3,l4 
+             qmlt  := if (x1[l] < 0.0D0 ) then 0.0D0 else qmult end if;
+	     qma   := qmlt*ga1[l];
+             xmult := qma*vxh1[l];
+             ymult := qma*vy[l];
+             zmult := qma*vz[l];
+	   returns array of xmult*w11[l] array of xmult*w21[l] 
+		   array of xmult*w31[l] array of xmult*w41[l]
+		   array of ymult*w11[l] array of ymult*w21[l] 
+		   array of ymult*w31[l] array of ymult*w41[l]
+		   array of zmult*w11[l] array of zmult*w21[l] 
+		   array of zmult*w31[l] array of zmult*w41[l]
+	           array of qmlt
+           end for;
+
+  cx1, cy1, cz1 :=
+      for initial
+	l := l3;
+	cx1 := cx; cy1 := cy; cz1 := cz;
+      while ( l <= l4 ) repeat
+	l := old l + 1;
+
+        ijl   := ij[old l];
+        ijl1  := ijl + 1;
+        ijln  := ijl + nx2;
+        ijln1 := ijln + 1;
+
+        cx1a := old cx1[ijl: old cx1[ijl] + xmult1[old l]];
+        cx1b := cx1a[ijl1  : cx1a[ijl1] + xmult2[old l]];
+        cx1c := cx1b[ijln  : cx1b[ijln] + xmult3[old l]];
+        cx1  := cx1c[ijln1 : cx1c[ijln1] + xmult4[old l]];
+
+        cy1a := old cy1[ijl: old cy1[ijl] + ymult1[old l]];
+        cy1b := cy1a[ijl1: cy1a[ijl1] + ymult2[old l]];
+        cy1c := cy1b[ijln: cy1b[ijln] + ymult3[old l]];
+        cy1  := cy1c[ijln1: cy1c[ijln1] + ymult4[old l]];
+
+        cz1a := old cz1[ijl: old cz1[ijl] + zmult1[old l]];
+        cz1b := cz1a[ijl1: cz1a[ijl1] + zmult2[old l]];
+        cz1c := cz1b[ijln: cz1b[ijln] + zmult3[old l]];
+        cz1  := cz1c[ijln1: cz1c[ijln1] + zmult4[old l]];
+      returns value of cx1
+	      value of cy1
+	      value of cz1
+      end for;
+
+%
+%  calculate area weight vectors at whole time
+%
+  i2, fx2, fy2, ij2,
+  w12, w22, w32, w42 := for l in l3,l4
+                          rx  := hxi*x1[l] + 1.5D0;
+                          ry  := hyi*y1[l] + 1.5D0;
+                          i   := trunc(rx);
+                          fx  := rx - double_real(trunc(rx));
+                          fxc := 1.0D0 - fx;
+                          j   := trunc(ry);
+                          fy  := ry - double_real(trunc(ry));
+                          fyc := 1.0D0 - fy;
+                        returns array of i
+                                array of fx
+                                array of fy
+                                array of i + nx2*(j-1)
+                                array of fxc*fyc
+                                array of fx*fyc
+                                array of fxc*fy
+                                array of fx*fy
+                         end for;
+
+% 
+%  area weight particles onto charge grid 
+%
+  s1, s2, s3, s4 := for l in l3,l4
+                    returns array of w12[l]*qmlt[l]
+                            array of w22[l]*qmlt[l]
+                            array of w32[l]*qmlt[l]
+                            array of w42[l]*qmlt[l]
+                    end for;
+
+  q1 := for initial
+          l  := l3;
+          q1 := q;
+        while ( l <= l4 ) repeat
+          l  := old l + 1;
+
+          ijl   := ij2[old l];
+          ijl1  := ijl + 1;
+          ijln  := ijl + nx2;
+          ijln1 := ijln + 1;
+
+          q1a := old q1[ijl:  old q1[ijl] + s1[old l]];
+          q1b := q1a[ijl1: q1a[ijl1] + s2[old l]];
+          q1c := q1b[ijln: q1b[ijln] + s3[old l]];
+
+          q1  := q1c[ijln1: q1c[ijln1] + s4[old l]];
+        returns value of q1
+        end for;
+in
+  y1, x1, vz, vx1, vy, cx1, cy1, cz1, q1,
+  sumf1, sumf2, sumf3
+end let
+end function
+
+
+function main( 
+               returns OneD, OneD, OneD, OneD, OneD, OneD, OneD, OneD,
+                       OneD, OneD, OneD, OneD, OneD, OneD, OneD, OneD,
+                       OneD, OneD, OneD, OneD, OneD, double, double, double )
+let
+
+  nlop := 10;
+  l4 := 2560;
+
+  kbound := 0;
+  ibcdl  := 0;
+  ibcdr  := 0;
+
+  xmax := 1.0D0;
+  ymax := 1.0D0;
+
+  xleft  := 0.0D0;
+  xright := xmax;
+
+  qmult := -1.0D0;
+  wmult := 1.0D0;
+  dt    := 0.0D0;
+
+  nx := 16;
+  ny := 16;
+
+  enx := double_real(nx);
+  eny := double_real(ny);
+
+  hx := xmax/enx;
+  hy := ymax/eny;
+
+  nx1 := nx + 1;
+  nx2 := nx + 2;
+  ny1 := ny + 1;
+  ny2 := ny + 2;
+
+  hxi := 1.0D0/hx;
+  hyi := 1.0D0/hy;
+
+  nx2ny2 := nx2*ny2;
+
+  ex := array_fill(1,2560,0.0D0);
+  ey := array_fill(1,2560,0.0D0);
+  ez := array_fill(1,2560,0.0D0);
+  bx := array_fill(1,2560,0.0D0);
+  by := array_fill(1,2560,0.0D0);
+  bz := array_fill(1,2560,0.0D0);
+
+  l3 := 1;
+
+
+  y1,   yh1, x1, xh1,
+  vx1, vxh1, vy1, q1 := 
+    for initial
+      x1, y1 := for l in l3,2560
+                  lll := mod(l,640);
+                  el  := double_real(lll);
+	          v   := 0.85D0*xmax*el/double_real(1250);
+                returns array of v
+                        array of v 
+                end for;
+
+      vx1 := array_fill(1,2560,0.1D0);
+      vy1 := array_fill(1,2560,0.1D0);
+
+      q1   := array_fill(1,2560,0.0D0);
+      yh1  := array_fill(l3,2560,0.0D0);
+      xh1  := array_fill(l3,2560,0.0D0);
+      vxh1 := array_fill(l3,2560,0.0D0);
+
+      l   := 1;
+    while ( l <= nlop ) repeat
+      l := old l + 1;
+
+      y1,   yh1,  x1, xh1, 
+      vx1, vxh1, vy1,  q1 := 
+        parmve( dt,qmult,wmult,kbound,ibcdr,ibcdl,l3,l4,ex,ey,
+                xmax,ymax,xright,xleft,hxi,hyi,nx2,
+                old y1, old yh1,old x1,old xh1,old vx1,old vxh1,
+                old vy1,old q1 );
+
+    returns value of y1 value of yh1
+            value of x1 value of xh1
+            value of vx1 value of vxh1
+            value of vy1 value of q1
+    end for;
+
+  y2,   x2, vz2, vx2, vy2,
+  cx2, cy2, cz2, q2 := 
+    for initial
+      x2, y2 := for l in l3,2560
+                  lll := mod(l,640);
+                  el  := double_real(lll);
+	          v   := 0.85D0*xmax*el/double_real(1250);
+                returns array of v
+                        array of v 
+                end for;
+
+      vy2 := array_fill(1,2560,0.1D0);
+      vx2 := array_fill(1,2560,0.1D0);
+      vz2 := array_fill(1,2560,0.1D0);
+
+      upb := if ( nx2ny2 > l4 ) then l4 else nx2ny2 end if;
+
+      q2 := for initial
+	      kk := 1;
+	      q2 := q1;
+            while ( kk <= upb ) repeat
+	      kk := old kk + 1;
+	      q2 := old q2[old kk: 0.0D0 ];
+	    returns value of q2
+	    end for;
+
+      cx2 := array_fill(1,2560,0.0D0);
+      cy2 := array_fill(1,2560,0.0D0);
+      cz2 := array_fill(1,2560,0.0D0);
+
+      l   := 1;
+    while ( l <= nlop ) repeat
+      l := old l + 1;
+
+      y2,  x2, vz2, vx2, vy2,
+      cx2, cy2, cz2,  q2 := 
+        parmov( dt,qmult,wmult,kbound,ibcdr,ibcdl,l3,l4,ex,ey,ez,bx,by,bz,
+                xmax,ymax,xright,xleft,hxi,hyi,nx2,
+                old vz2, old y2, old x2,old vx2,
+                old vy2,old cx2,old cy2,old cz2,old q2 );
+
+    returns value of y2 value of x2
+	    value of vz2 value of vx2
+            value of vy2 value of cx2
+	    value of cy2 value of cz2
+            value of q2
+    end for;
+
+  y3,   x3, vz3, vx3, vy3,
+  cx3, cy3, cz3, q3, sumf1,
+  sumf2, sumf3 := 
+    for initial
+      x3, y3 := for l in l3,2560
+                  lll := mod(l,640);
+                  el  := double_real(lll);
+	          v   := 0.85D0*xmax*el/double_real(1250);
+                returns array of v
+                        array of v 
+                end for;
+
+      vy3 := array_fill(1,2560,0.1D0);
+      vx3 := array_fill(1,2560,0.1D0);
+      vz3 := array_fill(1,2560,0.1D0);
+
+      upb := if ( nx2ny2 > l4 ) then l4 else nx2ny2 end if;
+
+      q3, cx3, cy3, cz3 := for initial
+	                     kk := 1;
+	                     q3 := q2; cx3 := cx2; cy3 := cy2; cz3 := cz2;
+                           while ( kk <= upb ) repeat
+	                     kk := old kk + 1;
+	                     q3 := old q3[old kk: 0.0D0 ];
+	                     cx3 := old cx3[old kk: 0.0D0 ];
+	                     cy3 := old cy3[old kk: 0.0D0 ];
+	                     cz3 := old cz3[old kk: 0.0D0 ];
+	                   returns value of q3
+				   value of cx3
+				   value of cy3
+				   value of cz3
+	                   end for;
+
+      sumf1 := 0.0D0;
+      sumf2 := 0.0D0;
+      sumf3 := 0.0D0;
+
+      l   := 1;
+    while ( l <= nlop ) repeat
+      l := old l + 1;
+
+      y3,  x3, vz3, vx3, vy3,
+      cx3, cy3, cz3,  q3,
+      sumf1, sumf2, sumf3 := 
+        parmvr( dt,qmult,wmult,kbound,ibcdr,ibcdl,l3,l4,ex,ey,ez,bx,by,bz,
+                xmax,ymax,xright,xleft,hxi,hyi,nx2,
+                old vz3, old y3, old x3,old vx3,
+                old vy3,old cx3,old cy3,old cz3,old q3 );
+
+    returns value of y3 value of x3
+	    value of vz3 value of vx3
+            value of vy3 value of cx3
+	    value of cy3 value of cz3
+            value of q3 value of sumf1
+	    value of sumf2 value of sumf3
+    end for;
+in
+  y1,yh1,x1,xh1,vx1,vxh1, vy1,
+  y2, x2, vz2, vx2, vy2,
+  y3, x3, vz3, vx3,vy3, cx3, cy3, cz3, q3, 
+  sumf1, sumf2, sumf3
+end let
+end function

@@ -1,0 +1,374 @@
+define main
+
+type double = double_real;
+type OneDim = array[double];
+type TwoDim = array[OneDim];
+
+global log10(x: double returns double)
+global cos  (x: double returns double)
+global sin  (x: double returns double)
+global atan (x: double returns double)
+
+
+function log2(n: integer returns integer)
+
+  integer(log10(double_real(n)) / log10(2.0d0))
+
+end function % log2
+
+
+function cadd(re1, im1, re2, im2: double returns double, double)
+
+  re1 + re2, im1 + im2
+
+end function % cadd
+
+
+function cmult(re1, im1, re2, im2: double returns double, double)
+
+  re1 * re2 - im1 * im2, re1 * im2 + im1 * re2
+
+end function % cmult
+
+
+function data(n: integer returns OneDim, OneDim)
+
+  for i in 0, n - 1
+      tt := 8.0d0 * atan(1.0d0) / double_real(n) 
+  returns array of cos(tt * double_real(i))
+          array of 0.0d0
+  end for
+
+end function % data
+
+
+function W_n(n: integer
+   returns OneDim, OneDim, OneDim, OneDim, OneDim, OneDim)
+
+  for initial
+    m   :=  0;
+    pin :=  4.0d0 * atan(1.0d0) / double_real(n);
+    dre := -2.0d0 * sin(pin) * sin(pin);
+    dim :=  sin(2.0d0 * pin);
+
+    tre,  tim  := 1.0d0, 0.0d0;
+    w1re, w1im := 1.0d0, 0.0d0;
+    w2re, w2im := 1.0d0, 0.0d0;
+    w3re, w3im := 1.0d0, 0.0d0
+  while m < n / 4 - 1 repeat
+    m          := old m + 1;
+    tre,  tim  := old tre + (old tre * dre) - (old tim * dim),
+                  old tim + (old tim * dre) + (old tre * dim);
+    w1re, w1im := tre, - tim;
+    w2re, w2im := cmult(w1re, w1im, w1re, w1im);
+    w3re, w3im := cmult(w1re, w1im, w2re, w2im) 
+  returns array of w1re array of w1im
+          array of w2re array of w2im
+          array of w3re array of w3im
+  end for
+
+ end function % W_n
+
+
+function W(n: integer
+   returns TwoDim, TwoDim, TwoDim, TwoDim, TwoDim, TwoDim)
+
+  for initial
+    m := if mod(log2(n), 2) = 0 then 4 else 8 end if;
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+  while m < n repeat
+    m := old m * 4;
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+  returns array of array_setl(w1re, 0) array of array_setl(w1im, 0)
+          array of array_setl(w2re, 0) array of array_setl(w2im, 0)
+          array of array_setl(w3re, 0) array of array_setl(w3im, 0)
+  end for
+
+end function % W
+
+
+function fft_4_2(are, aim, bre, bim, cre, cim, dre, dim: double;
+                 wre1, wim1, wre2, wim2, wre3, wim3    : double
+         returns double, double, double, double,
+                 double, double, double, double)
+
+  let
+      wbre, wbim := cmult(wre1, wim1, bre, bim);
+      wcre, wcim := cmult(wre2, wim2, cre, cim);
+      wdre, wdim := cmult(wre3, wim3, dre, dim);
+
+      a1re, a1im := cadd(are,  aim,  wcre, wcim);
+      b1re, b1im := cadd(wbre, wbim, wdre, wdim);
+      c1re, c1im := cadd(are,  aim,  - wcre, - wcim);
+      d1re, d1im := cadd(wbre, wbim, - wdre, - wdim)
+  in
+     cadd(a1re, a1im,   b1re,   b1im),
+     cadd(a1re, a1im, - b1re, - b1im),
+     cadd(c1re, c1im,   d1im, - d1re),
+     cadd(c1re, c1im, - d1im,   d1re)
+  end let
+
+end function % fft_4_2
+
+
+function Pack_j(cards, p0, p1, p2, p3             : integer;
+                xre, xim                          : OneDim;
+                w1re, w1im, w2re, w2im, w3re, w3im: double
+        returns OneDim, OneDim, OneDim, OneDim, OneDim, OneDim, OneDim, OneDim)
+
+  for k in 0, cards / 4 - 1
+    are, aim, bre, bim,
+    cre, cim, dre, dim :=
+         fft_4_2(xre[k + p0], xim[k + p0], xre[k + p1], xim[k + p1],
+                 xre[k + p2], xim[k + p2], xre[k + p3], xim[k + p3],
+                 w1re, w1im, w2re, w2im, w3re, w3im)
+  returns array of are array of aim
+          array of bre array of bim
+          array of cre array of cim
+          array of dre array of dim
+  end for
+
+end function % Pack_j
+
+
+function levelA_i(cards, packs                      : integer;
+                  xre, xim                          : OneDim;
+                  w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+          returns OneDim, OneDim)
+
+  let
+    Are, Aim, Bre, Bim,
+    Cre, Cim, Dre, Dim :=
+         for j in 0, packs - 1
+           p0 := j * cards;
+           p1 := cards / 4 + p0;
+           p2 := cards / 4 + p1;
+           p3 := cards / 4 + p2;
+           Are, Aim, Bre, Bim,
+           Cre, Cim, Dre, Dim :=
+                Pack_j(cards, p0, p1, p2, p3, xre, xim,
+                       w1re[j], w1im[j], w2re[j], w2im[j], w3re[j], w3im[j])
+         returns value of catenate Are value of catenate Aim 
+                 value of catenate Bre value of catenate Bim 
+                 value of catenate Cre value of catenate Cim 
+                 value of catenate Dre value of catenate Dim 
+         end for
+  in
+    array_setl(Are || Cre || Bre || Dre, 0),
+    array_setl(Aim || Cim || Bim || Dim, 0)
+  end let
+
+end function % levelA_i
+
+
+function levelA_g(cards, packs                      : integer;
+                  xre, xim                          : OneDim;
+                  w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+          returns OneDim, OneDim)
+
+  let
+    Are, Aim, Bre, Bim,
+    Cre, Cim, Dre, Dim :=
+         for j in 0, packs - 1
+           p0 := j * cards;
+           p1 := cards / 4 + p0;
+           p2 := cards / 4 + p1;
+           p3 := cards / 4 + p2;
+           Are, Aim, Bre, Bim,
+           Cre, Cim, Dre, Dim :=
+                Pack_j(cards, p0, p1, p2, p3, xre, xim,
+                       w1re[j], w1im[j], w2re[j], w2im[j], w3re[j], w3im[j])
+         returns value of catenate array_addh(Are, 0.0d0)
+                 value of catenate array_addh(Aim, 0.0d0)
+                 value of catenate array_addh(Bre, 0.0d0)
+                 value of catenate array_addh(Bim, 0.0d0)
+                 value of catenate array_addh(Cre, 0.0d0)
+                 value of catenate array_addh(Cim, 0.0d0)
+                 value of catenate array_addh(Dre, 0.0d0)
+                 value of catenate array_addh(Dim, 0.0d0)
+         end for
+  in
+    array_setl(Are || Cre || Bre || Dre, 0),
+    array_setl(Aim || Cim || Bim || Dim, 0)
+  end let
+
+end function % levelA_g
+
+
+function levelA_B(cards, packs                      : integer;
+                  xre,  xim                         : OneDim;
+                  w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+          returns OneDim, OneDim)
+
+  let
+     xre_i, xim_i :=
+            for i in 0, cards / 4 - 1
+              Are, Aim, Bre, Bim,
+              Cre, Cim, Dre, Dim :=
+                   for j in 0, packs - 1
+                     p0 := cards * j + i + j;
+                     p1 := p0 + cards / 4;
+                     p2 := p1 + cards / 4;
+                     p3 := p2 + cards / 4;
+                     are, aim, bre, bim,
+                     cre, cim, dre, dim :=
+                          fft_4_2(xre[p0], xim[p0], xre[p1], xim[p1],
+                                  xre[p2], xim[p2], xre[p3], xim[p3],
+                                  w1re[j], w1im[j], w2re[j],
+                                  w2im[j], w3re[j], w3im[j])
+                   returns array of are array of aim
+                           array of bre array of bim
+                           array of cre array of cim
+                           array of dre array of dim
+                   end for
+              returns value of catenate (Are || Cre || Bre || Dre)
+                      value of catenate (Aim || Cim || Bim || Dim)
+              end for
+  in
+     array_setl(xre_i, 0), array_setl(xim_i, 0)
+  end let
+     
+end function % levelA_B
+
+
+function levelB_i(n, cards, packs                   : integer;
+                  xre, xim                          : OneDim;
+                  w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+          returns OneDim, OneDim)
+
+  let
+    xre_i, xim_i :=
+           for j in 0, packs / 4 - 1
+             p0 := j * cards;
+             p1 := n / 4 + p0;
+             p2 := n / 4 + p1;
+             p3 := n / 4 + p2;
+             Are, Aim, Bre, Bim,
+             Cre, Cim, Dre, Dim :=
+                  for k in 0, cards - 1
+                    are, aim, bre, bim,
+                    cre, cim, dre, dim :=
+                         fft_4_2(xre[k + p0], xim[k + p0],
+                                 xre[k + p1], xim[k + p1],
+                                 xre[k + p2], xim[k + p2],
+                                 xre[k + p3], xim[k + p3],
+                                 w1re[k], w1im[k], w2re[k],
+                                 w2im[k], w3re[k], w3im[k])
+                  returns array of are array of aim
+                          array of bre array of bim
+                          array of cre array of cim
+                          array of dre array of dim
+                  end for
+             returns value of catenate (Are || Cre || Bre || Dre)
+                     value of catenate (Aim || Cim || Bim || Dim)
+             end for
+  in
+    array_setl(xre_i, 0), array_setl(xim_i, 0)
+  end let
+
+end function % levelB_i
+
+
+function level_1(n: integer; xre, xim: OneDim
+         returns integer, integer, integer, OneDim, OneDim)
+
+  if mod(log2(n), 2) = 0 then
+     let
+       Are, Aim, Bre, Bim,
+       Cre, Cim, Dre, Dim :=
+            Pack_j(n, 0, n/4, n/2, 3*n/4, xre, xim,
+                   1.d0, 0.d0, 1.d0, 0.d0, 1.d0, 0.d0)
+     in
+       1, n/4, 4, Are || Cre || Bre || Dre, Aim || Cim || Bim || Dim
+     end let
+  else
+    let
+      A1re, A1im, B1re, B1im :=
+            for i in 0, n / 2 - 1
+            returns array of xre[i] + xre[i + n/2]
+                    array of xim[i] + xim[i + n/2]
+                    array of xre[i] - xre[i + n/2]
+                    array of xim[i] - xim[i + n/2]
+            end for;
+       A2re, A2im, B2re, B2im,
+       C2re, C2im, D2re, D2im :=
+            Pack_j(n/2, 0, n/8, n/4, 3*n/8, A1re, A1im,
+                   1.d0, 0.d0, 1.d0, 0.d0, 1.d0, 0.d0);
+       E2re, E2im, F2re, F2im,
+       G2re, G2im, H2re, H2im :=
+            Pack_j(n/2, 0, n/8, n/4, 3*n/8, B1re, B1im,
+                   7.071067811865475d-01, -7.071067811865475d-01,
+                   0.d0, -1.d0,
+                   -7.071067811865474d-01, -7.071067811865474d-01)
+    in
+      1, n/8, 8, A2re || E2re || C2re || G2re || B2re || F2re || D2re || H2re,
+                 A2im || E2im || C2im || G2im || B2im || F2im || D2im || H2im
+    end let
+  end if
+
+end function % level_1
+
+
+function fft_4(n                                 : integer;
+               xre,  xim                         : OneDim;
+               w1re, w1im, w2re, w2im, w3re, w3im: TwoDim
+       returns OneDim, OneDim)
+          
+  for initial
+    log_n := log2(n);
+    iters := log_n / 2;
+    gap_i := iters / 2;
+    A_B_i := gap_i + 1;
+
+    i, cards, packs, xre_i, xim_i := level_1(n, xre, xim)
+
+  while i < iters repeat
+
+    i := old i + 1;
+
+    cards,
+    packs,
+    xre_i,
+    xim_i := if i < gap_i | iters < 4 then
+                old cards / 4,
+                old packs * 4,
+                levelA_i(old cards, old packs, old xre_i, old xim_i,
+                         w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+             elseif i = gap_i then
+                old cards / 4,
+                old packs * 4,
+                levelA_g(old cards, old packs, old xre_i, old xim_i,
+                         w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+             elseif i = A_B_i then
+                old packs * 4,
+                old cards / 4,
+                levelA_B(old cards, old packs, old xre_i, old xim_i,
+                         w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+             else
+                old cards * 4,
+                old packs / 4,
+                levelB_i(n, old cards, old packs, old xre_i, old xim_i,
+                         w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+             end if
+
+  returns value of xre_i
+          value of xim_i
+  end for
+
+end function % fft_4
+
+
+function main (n: integer  returns OneDim, OneDim)
+
+  let
+    xre, xim := data(n)
+  in
+    if n = 2 then
+       array [0: xre[0] + xre[1], xre[0] - xre[1]],
+       array [0: xim[0] + xim[1], xim[0] - xim[1]]
+    else
+       fft_4(n, xre, xim, W(n))
+    end if
+  end let
+
+end function % main

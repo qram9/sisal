@@ -1,0 +1,47 @@
+DEFINE Specam
+
+type ArrInt1 = Array[integer];
+type ArrReal1 = Array[real];
+type CplexReal = Record[Repart,Impart:real];
+type ArrCplexReal = Array[CplexReal]
+
+global SQRTR(num : real RETURNS real)
+
+%----------------------------
+function Specam(jx, mx : integer; kmjx : ArrInt1; 
+		asq, ww, grav :  real; 
+		c, p, z : ArrCplexReal
+		RETURNS ArrReal1, ArrReal1, ArrReal1)
+LET 
+ampk, ampvor, ampz := 
+	FOR m in 1, mx
+	ampk_m, ampvor_m, ampz_m := 
+		FOR j in 1, jx
+		jm := kmjx[m] + j;
+
+		c_R,c_I := c[jm].Repart, c[jm].Impart;
+		p_R,p_I := p[jm].Repart, p[jm].Impart;
+		z_R,z_I := z[jm].Repart, z[jm].Impart;
+		
+		div := c_R * c_R + c_I * c_I;
+		vor := p_R * p_R + p_I * p_I;
+		sq := z_R * z_R + z_I * z_I;
+
+		divsq, vorsq, zsq := 
+		 if m > 1 then 2.0 * div, 2.0 * vor, 2.0 * sq
+		        else div, vor, sq
+		 end if;
+
+		RETURNS VALUE of SUM divsq
+			VALUE of SUM vorsq
+			VALUE of SUM zsq
+		END FOR;
+	
+	RETURNS ARRAY of SQRTR(ampk_m) / ww * 10.0
+		ARRAY of SQRTR(ampvor_m) / ww
+		ARRAY of SQRTR(ampz_m) * asq / grav
+	END FOR;
+IN
+ampk, ampvor, ampz
+end LET
+end function

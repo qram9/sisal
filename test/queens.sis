@@ -1,0 +1,57 @@
+define queens
+
+type position = array[integer]; % position[col] = row of queen in that col.
+type queens = array [ position] % a list of partial solutions being completed
+
+function queens (n: integer returns queens)
+% this should return an array of placements of queens on an n x n 
+%chessboard.  It does so by making n passes over an array of
+% "prefix" solutions.  At the end of pass k the array should
+%  should contain all valid placements of queens on columns 1..k.
+
+   function Append_queen( k,n: integer; q : queens returns queens)
+   % This should receive a stream of partial solutions for the n x n
+   % queens problem which has columns 1.. (k-1) filled in.  It will
+   % extend whatever solutions it can to column k.
+
+        function ok( k: integer; p: position returns boolean)
+         % this functionchecks whether it is possible to place
+         % a queen in row k of the next unfilled coulmn.
+             for i in 1 , array_limh(p)
+               L:= array_limh(p)+1
+              returns value of
+                 product (~(p[i]-k = 0) & ~(L-i = abs(k-p[i])))
+             end for
+        end function % "ok"
+
+      %body of append_queen
+       if k = 1 then
+            for i in 1,N returns array of array[1:i] end for
+       elseif array_size(q) =0  then
+             array queens []
+       else for x in q
+	    returns value of catenate 
+		for m in 1,n 
+                returns 
+                    array of array_addh(x,m) when ok(m,x)
+		end for
+             end for
+       end if
+     end function %append_queen
+
+%body of main function
+for initial
+k:=1;
+q:= append_queen(1,n,array queens [])
+while k < n 
+repeat
+  k := old k + 1;
+  q := append_queen(k, n, old q)
+returns value of q
+end for
+end function
+
+
+function main(n: integer returns queens)
+queens(n)
+end function

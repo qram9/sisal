@@ -1,0 +1,37 @@
+define Main
+
+type OneDimReal = array[ integer ];
+
+type BTree = union[	Data: integer;
+			NonData: record[ L, R: BTree ]
+		  ]
+
+% Main will produce the BTree representation of the input array A
+
+function Main( A: OneDimReal returns BTree )
+  if array_size( A ) = 1 then
+    union BTree[ Data: A[ array_liml( A ) ] ]
+  else
+    let
+      Mid := array_liml( A ) + array_size( A ) / 2;
+      L := Main( array_adjust( A, array_liml( A ), Mid-1 ) );
+      R := Main( array_adjust( A, Mid, array_limh( A ) ) )
+    in
+      tagcase L1 := L
+      tag NonData:
+        union BTree[ NonData: record[ L:L; R:R ] ]
+      tag Data:
+        tagcase R1 := R
+	tag NonData:
+	  union BTree[ NonData: record[  L:L; R:R ] ]
+	tag Data:
+	  if L1=R1 then
+	    L
+	  else
+	    union BTree[ NonData: record[ L:L; R:R ] ]
+	  end if
+	end tagcase
+      end tagcase
+    end let
+  end if
+end function % Main

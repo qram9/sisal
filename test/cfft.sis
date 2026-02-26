@@ -1,0 +1,517 @@
+% FFT: cray-2 version FORWARD TRANSFORM
+
+define main
+
+type OneD   = array[real];
+type TwoD   = array[OneD];
+type ThreeD = array[TwoD];
+
+type Work   = record [ wrs,wis:ThreeD; log2n,n,mult2,sw,odd:integer ];
+
+global sqrt( x:real returns real )
+global atan( x:real returns real )
+global  sin( x:real returns real )
+global  cos( x:real returns real )
+
+
+function gen( log2n:integer returns OneD, OneD )
+  for i in 1,exp(2,log2n)
+  returns array of real(i-1)
+          array of 0.0
+  end for
+end function
+
+
+function cmult( Ar,Ai:real; Br,Bi:real returns real, real )
+  Ar*Br - Ai*Bi, Ar*Bi + Ai*Br
+end function
+
+function cadd( Ar,Ai:real; Br,Bi:real returns real, real )
+  Ar+Br, Ai+Bi
+end function
+
+function csub( Ar,Ai:real; Br,Bi:real returns real, real )
+  Ar-Br, Ai-Bi
+end function
+
+
+% INITSFFT: INITIALIZE SFFT WORKSPACE FOR 2^log2n FORWARD TRANSFORMS
+
+function initsfft( log2n:integer returns Work )
+  let
+    n     := exp(2,log2n);
+    mult2 := log2n/2;
+    sw    := (mult2-floor(sqrt(real(mult2))));
+    odd   := mod(log2n,2);
+
+    pin   := (4.0E0*atan(1.0E0))/real(n);
+
+    wr0,wi0 := for i in 2,n/2
+	       returns array of cos( 2.0E0*pin*real(i-1) )
+	               array of sin( 2.0E0*pin*real(i-1) )
+               end for;
+
+    wr1 := array_addl( wr0, 1.0 );
+    wi1 := array_addl( wi0, 0.0 );
+
+    wr2,wi2 := for i in 1,n/4
+	       returns array of -wr1[i]
+		       array of -wi1[i]
+	       end for;
+
+    wr,wi := wr1||wr2, wi1||wi2;
+
+    wrs1, 
+    wis1 := for ll in sw+1,log2n/2
+              l    := ll*2-1;
+              i2l  := exp(2,l); 
+              i2l1 := 2*i2l;
+              n2l1 := n/i2l1;
+
+	      w1r,w1i,
+	      w2r,w2i,
+	      w3r,w3i := for kk in 1,i2l/2
+                           k := kk-1;
+                           wkr  := wr[k*n2l1+1];   wki  := wi[k*n2l1+1];
+                           w2kr := wr[2*n2l1*k+1]; w2ki := wi[2*n2l1*k+1];
+                           w3kr := wr[3*n2l1*k+1]; w3ki := wi[3*n2l1*k+1];
+		     returns array of wkr  array of wki
+                             array of w2kr array of w2ki
+                             array of w3kr array of w3ki
+                     end for;
+            returns array of array[1: w1r, w2r, w3r ]
+                    array of array[1: w1i, w2i, w3i ]
+            end for;
+
+     wrs := array_addh( wrs1, array[1: wr ] );
+     wis := array_addh( wis1, array[1: wi ] );
+  in
+    if ( log2n < 2 ) then
+      error[Work]
+    else
+      record Work [ wrs:wrs; wis:wis; log2n:log2n; n:n;
+                    mult2:mult2; sw:sw; odd:odd ]
+    end if
+  end let
+end function
+
+
+function Radix2( wkr,wki, Ar,Ai,Ir,Ii:real returns real,real,real,real )
+  let
+    Tr1,Ti1 := cmult( wkr,wki, Ir,Ii );
+    nAr,nAi := cadd( Ar,Ai, Tr1,Ti1 );
+    nIr,nIi := csub( Ar,Ai, Tr1,Ti1 );
+  in
+    nAr,nAi, nIr,nIi
+  end let
+end function
+
+
+function Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi:real; 
+                returns real,real,real,real, real,real,real,real         )
+  let
+    Tr1,Ti1 := cmult( wkr,wki, Er,Ei );
+    Tr2,Ti2 := cmult( w3kr,w3ki, Mr,Mi );
+    nEr,nEi := cadd( Tr1,Ti1, Tr2,Ti2 );
+    nMr,nMi := csub( Tr1,Ti1, Tr2,Ti2 );
+
+    Tr3,Ti3 := cmult( w2kr,w2ki, Ir,Ii );
+    nAr,nAi := cadd( Ar,Ai, Tr3,Ti3 );
+    nIr,nIi := csub( Ar,Ai, Tr3,Ti3 );
+
+    Tr4,Ti4 := cmult( 0.0,1.0, nMr,nMi );
+
+    nnAr,nnAi := cadd( nAr,nAi, nEr,nEi );
+    nnIr,nnIi := csub( nAr,nAi, nEr,nEi );
+    nnEr,nnEi := cadd( nIr,nIi, Tr4,Ti4 );
+    nnMr,nnMi := csub( nIr,nIi, Tr4,Ti4 );
+  in
+    nnAr,nnAi, nnIr,nnIi,
+    nnEr,nnEi, nnMr,nnMi
+  end let
+end function
+
+
+function sfft2A( fr,fi,wr,wi:OneD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l);
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    pair := n/exp(2,l+1);
+    next := pair*2;
+
+    r1,r2,
+    i1,i2 := for k in 0,i2l-1
+               off := k*next;
+
+               wkr := wr[n2l1*k+1];
+               wki := wi[n2l1*k+1];
+
+               r1,r2,
+               i1,i2 := for i in 1,n2l1
+                          Ar := fr[off+i]; Ir := fr[off+pair+i];
+                          Ai := fi[off+i]; Ii := fi[off+pair+i];
+
+			  nAr,nAi, nIr,nIi := Radix2( wkr,wki, Ar,Ai,Ir,Ii );
+
+                        returns array of nAr array of nIr
+                                array of nAi array of nIi
+                        end for;
+
+             returns value of catenate r1 value of catenate r2
+                     value of catenate i1 value of catenate i2
+             end for
+  in
+    r1||r2, i1||i2
+  end let
+end function
+
+
+function sfft4A0( fr,fi:OneD; n:integer returns OneD, OneD )
+  let
+    l    := 1;
+    i2l  := exp(2,l);
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    pair := n/i2l;
+    next := pair*2;
+
+    off1 := 0;
+    off2 := n2l1;
+
+    wkr  := 1.0; wki  := 0.0;
+    w2kr := 1.0; w2ki := 0.0;
+    w3kr := 1.0; w3ki := 0.0;
+
+    rQ1,rQ2,
+    rQ3,rQ4,
+    iQ1,iQ2,
+    iQ3,iQ4 := for i in 1,n2l1
+
+                 Ar := fr[off1+i]; Ir := fr[off1+pair+i];
+                 Ai := fi[off1+i]; Ii := fi[off1+pair+i];
+
+                 Er := fr[off2+i]; Mr := fr[off2+pair+i];
+                 Ei := fi[off2+i]; Mi := fi[off2+pair+i];
+
+                 rQ1,iQ1,
+		 rQ3,iQ3,
+                 rQ2,iQ2,
+		 rQ4,iQ4 := Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, 
+				    Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi   );
+
+               returns array of rQ1 array of rQ2
+                       array of rQ3 array of rQ4
+                       array of iQ1 array of iQ2
+                       array of iQ3 array of iQ4
+               end for;
+  in
+    rQ1||rQ2||rQ3||rQ4,
+    iQ1||iQ2||iQ3||iQ4
+  end let
+end function
+
+
+function sfft4A( fr,fi,wr,wi:OneD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l);
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    pair := n/i2l;
+    next := pair*2;
+
+    rQ1,rQ2,
+    rQ3,rQ4,
+    iQ1,iQ2,
+    iQ3,iQ4 := for k in 0,i2l/2-1
+                 off1 := k*next+1;
+                 off2 := k*next+n2l1+1;
+
+                 wkr  := wr[k*n2l1+1];   wki  := wi[k*n2l1+1];
+		 w2kr := wr[2*k*n2l1+1]; w2ki := wi[2*k*n2l1+1];
+                 w3kr := wr[3*k*n2l1+1]; w3ki := wi[3*k*n2l1+1];
+
+                 rQ1,rQ2,
+                 rQ3,rQ4,
+                 iQ1,iQ2,
+                 iQ3,iQ4 := for i in 0,n2l1-1
+
+                              Ar := fr[off1+i]; Ir := fr[off1+pair+i];
+                              Ai := fi[off1+i]; Ii := fi[off1+pair+i];
+
+                              Er := fr[off2+i]; Mr := fr[off2+pair+i];
+                              Ei := fi[off2+i]; Mi := fi[off2+pair+i];
+
+                              rQ1,iQ1,
+			      rQ3,iQ3,
+                              rQ2,iQ2,
+			      rQ4,iQ4 := Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, 
+				                 Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi   );
+
+                        returns array of rQ1 array of rQ2
+                                array of rQ3 array of rQ4
+                                array of iQ1 array of iQ2
+                                array of iQ3 array of iQ4
+                        end for;
+
+             returns value of catenate rQ1 value of catenate rQ2
+                     value of catenate rQ3 value of catenate rQ4
+                     value of catenate iQ1 value of catenate iQ2
+                     value of catenate iQ3 value of catenate iQ4
+                     
+             end for
+  in
+    rQ1||rQ2||rQ3||rQ4,
+    iQ1||iQ2||iQ3||iQ4
+  end let
+end function
+
+
+function sfft4AT( fr,fi,wr,wi:OneD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l);
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    pair := n/i2l;
+    next := pair*2;
+
+    rQ1,rQ2,
+    rQ3,rQ4,
+    iQ1,iQ2,
+    iQ3,iQ4 := for k in 0,i2l/2-1
+                 off1 := k*next+1;
+                 off2 := k*next+n2l1+1;
+
+                 wkr  := wr[k*n2l1+1];   wki  := wi[k*n2l1+1];
+                 w2kr := wr[2*k*n2l1+1]; w2ki := wi[2*k*n2l1+1];
+                 w3kr := wr[3*k*n2l1+1]; w3ki := wi[3*k*n2l1+1];
+
+                 rQ1,rQ2,
+                 rQ3,rQ4,
+                 iQ1,iQ2,
+                 iQ3,iQ4 := for i in 0,n2l1-1
+
+                              Ar := fr[off1+i];      Ai := fi[off1+i];
+                              Ir := fr[off1+pair+i]; Ii := fi[off1+pair+i];
+                              Er := fr[off2+i];      Ei := fi[off2+i];
+                              Mr := fr[off2+pair+i]; Mi := fi[off2+pair+i];
+
+                              rQ1,iQ1,
+		              rQ3,iQ3,
+                              rQ2,iQ2,
+		              rQ4,iQ4 := Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, 
+				                 Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi   );
+
+                        returns array of rQ1 array of rQ2
+                                array of rQ3 array of rQ4
+                                array of iQ1 array of iQ2
+                                array of iQ3 array of iQ4
+                        end for;
+
+             returns value of catenate array_addh(rQ1,0.0)
+                     value of catenate array_addh(rQ2,0.0)
+                     value of catenate array_addh(rQ3,0.0)
+                     value of catenate array_addh(rQ4,0.0)
+                     value of catenate array_addh(iQ1,0.0)
+                     value of catenate array_addh(iQ2,0.0)
+                     value of catenate array_addh(iQ3,0.0)
+                     value of catenate array_addh(iQ4,0.0)
+             end for
+  in
+    rQ1||rQ2||rQ3||rQ4,
+    iQ1||iQ2||iQ3||iQ4
+  end let
+end function
+
+
+function sfft4BT( fr,fi:OneD; wrs,wis:ThreeD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l); 
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    wr1 := wrs[l/2+1,1]; wr2 := wrs[l/2+1,2]; wr3 := wrs[l/2+1,3];
+    wi1 := wis[l/2+1,1]; wi2 := wis[l/2+1,2]; wi3 := wis[l/2+1,3];
+
+    next := i2l/2;
+    pair := n/exp(2,l);
+
+    r1,i1 := for i in 0,n2l1-1
+               off1 := i+1;
+
+               rQ1,rQ2,
+               rQ3,rQ4,
+               iQ1,iQ2,
+               iQ3,iQ4 := for k in 0,i2l/2-1
+                            pad1 := pair*2*k+k;
+                            pad2 := pad1+pair/2;
+
+                            wkr  := wr1[k+1]; wki  := wi1[k+1];
+                            w2kr := wr2[k+1]; w2ki := wi2[k+1];
+                            w3kr := wr3[k+1]; w3ki := wi3[k+1];
+
+                            Ar := fr[off1+pad1];      Ai := fi[off1+pad1];
+                            Ir := fr[off1+pair+pad1]; Ii := fi[off1+pair+pad1];
+                            Er := fr[off1+pad2];      Ei := fi[off1+pad2];
+                            Mr := fr[off1+pair+pad2]; Mi := fi[off1+pair+pad2];
+
+                            rQ1,iQ1,
+                            rQ3,iQ3,
+                            rQ2,iQ2,
+		            rQ4,iQ4 := Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, 
+				               Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi   );
+ 
+                          returns array of rQ1 array of rQ2
+                                  array of rQ3 array of rQ4
+                                  array of iQ1 array of iQ2
+                                  array of iQ3 array of iQ4
+                          end for;
+
+             returns value of catenate rQ1 || rQ2 || rQ3 || rQ4
+                     value of catenate iQ1 || iQ2 || iQ3 || iQ4
+             end for
+  in
+    r1,i1
+  end let
+end function
+
+
+function sfft4B( fr,fi:OneD; wrs,wis:ThreeD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l); 
+    i2l1 := 2*i2l;
+    n2l1 := n/i2l1;
+
+    wr1 := wrs[l/2+1,1]; wr2 := wrs[l/2+1,2]; wr3 := wrs[l/2+1,3];
+    wi1 := wis[l/2+1,1]; wi2 := wis[l/2+1,2]; wi3 := wis[l/2+1,3];
+
+    pair := n/2;
+    next := i2l/2;
+
+    r1,i1 := for i in 0,n2l1-1
+               off1 := i*next+1;
+               off2 := i*next+1+n/4;
+
+               rQ1,rQ2,
+               rQ3,rQ4,
+               iQ1,iQ2,
+               iQ3,iQ4 := for k in 0,i2l/2-1
+
+                            wkr  := wr1[k+1]; wki  := wi1[k+1];
+			    w2kr := wr2[k+1]; w2ki := wi2[k+1];
+                            w3kr := wr3[k+1]; w3ki := wi3[k+1];
+
+                            Ar := fr[off1+k];      Ai := fi[off1+k];
+                            Ir := fr[off1+pair+k]; Ii := fi[off1+pair+k];
+                            Er := fr[off2+k];      Ei := fi[off2+k];
+                            Mr := fr[off2+pair+k]; Mi := fi[off2+pair+k];
+
+                            rQ1,iQ1,
+                            rQ3,iQ3,
+                            rQ2,iQ2,
+		            rQ4,iQ4 := Radix4( wkr,w2kr,w3kr,wki,w2ki,w3ki, 
+				               Ar,Ai,Ir,Ii,Er,Ei,Mr,Mi   );
+ 
+                         returns array of rQ1 array of rQ2
+                                 array of rQ3 array of rQ4
+                                 array of iQ1 array of iQ2
+                                 array of iQ3 array of iQ4
+                         end for;
+
+             returns value of catenate rQ1 || rQ2 || rQ3 || rQ4
+                     value of catenate iQ1 || iQ2 || iQ3 || iQ4
+             end for
+  in
+    r1,i1
+  end let
+end function
+
+
+function sfft2B( fr,fi,wr,wi:OneD; l,n:integer returns OneD, OneD )
+  let
+    i2l  := exp(2,l);
+    pair := n/2;
+
+    r1,r2,
+    i1,i2 := for k in 1,i2l
+
+               wkr := wr[k];
+               wki := wi[k];
+
+               Ar := fr[k];      Ai := fi[+k];
+               Ir := fr[k+pair]; Ii := fi[k+pair];
+
+	       nAr,nAi, nIr,nIi := Radix2( wkr,wki, Ar,Ai,Ir,Ii );
+
+             returns array of nAr array of nIr
+                     array of nAi array of nIi
+             end for;
+  in
+    r1||r2, i1||i2
+  end let
+end function
+
+
+% SFFT: COMPUTE THE FFT OF (frin,fiin) USING WORK SPACE work.
+function sfft( frin,fiin:OneD; work:Work returns OneD, OneD )
+  let
+    log2n := work.log2n;
+    n     := work.n;
+    mult2 := work.mult2;
+    sw    := work.sw;
+    odd   := work.odd;
+
+    wrs := work.wrs;
+    wis := work.wis;
+    wr  := work.wrs[log2n/2+1,1];
+    wi  := work.wis[log2n/2+1,1];
+
+    fr0,fi0 := sfft4A0( frin,fiin, n );
+  in
+    if ( log2n = 2 ) then
+      fr0, fi0
+    elseif ( log2n = 3 ) then
+      sfft2A( fr0,fi0, wr,wi, 2,n )
+    elseif ( log2n = 4 ) then
+      sfft4A( fr0,fi0, wr,wi, 3,n )
+    elseif ( log2n = 5 ) then
+      sfft2A( sfft4A( fr0,fi0, wr,wi, 3,n ), wr,wi, 4,n )
+    else
+      for initial
+        l1 := 2; 
+        fr,fi := fr0,fi0;
+      while ( l1 <= mult2+odd ) repeat
+        l1 := old l1 + 1;
+        l  := old l1*2-1;
+
+        fr,fi := if ( old l1 < sw ) then
+                   sfft4A( old fr,old fi, wr,wi, l, n )
+                 elseif ( old l1 = sw ) then
+                   sfft4AT( old fr,old fi, wr,wi, l, n )
+                 elseif ( old l1 = sw+1 ) then
+                   sfft4BT( old fr,old fi, wrs,wis, l, n )
+                 elseif ( old l1 <= mult2 ) then
+                   sfft4B( old fr,old fi, wrs,wis, l, n )
+                 else
+                   sfft2B( old fr,old fi, wr,wi, log2n-1, n )
+                 end if;
+      returns value of fr
+              value of fi
+      end for
+    end if
+  end let
+end function
+
+
+function main( log2n:integer returns OneD, OneD )
+  let
+    fr,fi := gen(log2n);
+    work  := initsfft(log2n);
+  in
+    sfft( fr,fi, work )
+  end let
+end function

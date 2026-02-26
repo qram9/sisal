@@ -1,0 +1,40 @@
+Define main
+
+type double = double_real;
+type OneDim = array[double];
+type TwoDim = array[OneDim];
+
+
+function main(A: TwoDim returns TwoDim, TwoDim)
+
+for initial
+
+    i := 1;
+    n := array_size(A);
+
+    P := A[1];
+    M := for k in 2, n
+         returns array of A[k, 1] / A[1, 1]
+         end for;
+    R := for k in 2, n cross l in 2, n
+         returns array of A[k, l] - M[k] * A[1, l]
+         end for
+
+while i < n repeat
+
+    i := old i + 1;
+
+    P := old R[i];
+    M := for k in i+1,n
+         returns array of old R[k, i] / old R[i, i]
+         end for;
+    R := for k in i+1,n cross l in i+1,n
+         returns array of old R[k, l] - M[k] * old R[i, l]
+         end for
+
+returns array of P
+        array of M
+end for
+
+end function % LU
+

@@ -1,0 +1,27 @@
+% this is not insertion sort
+define Main
+
+type OneDim = array[ double_real ]
+
+function Main( N : integer; Input: OneDim returns OneDim )
+  for initial
+    I := 2;
+    A := Input;
+  while I <= N repeat
+    A :=
+      for initial
+        J := old I;
+	B := old A;
+      while ( J > 1 ) repeat
+        J, B := if ( old B[ old J ] < old B[ old J-1 ]) then
+                  old J - 1,
+                  old B[ old J - 1: old B[ old J ], old B[ old J - 1 ] ]
+                else
+	          1, old B
+                end if;
+      returns value of B  
+      end for;
+    I := old I + 1;
+  returns value of A
+  end for
+end function % Main

@@ -1,0 +1,6 @@
+define main
+function main( a:integer returns array[array[double_real]] )
+for i in 1, a cross j in 1, a
+returns array of double_real( a - j + 1)
+end for
+end function

@@ -1,0 +1,196 @@
+% Generates data for sp.sis, a sparse matrix solver
+%
+
+define main
+
+
+type double   = double_real;
+type OneDim   = array [real];
+type TwoDim   = array [OneDim];
+type OneDimI  = array [integer];
+type TwoDimI  = array [OneDimI];
+type fourplex = array [integer];
+
+
+%==============================================================================
+%  F U N C T I O N   D E F I N I T I O N S
+%==============================================================================
+
+% Returns a * b where both a and b are 4 12-bit integers and the
+% multiplication is done piecemeal.
+%
+function ranf_mod_mult(a, b: fourplex  returns fourplex)
+
+   let 
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array [0: mod(k0, 4096), mod(k1, 4096), mod(k2, 4096), mod(k3, 4096)]
+   end let
+
+end function % mod_mult
+
+
+
+% Returns the starting seed, a fourplex.   If seed_in is 0, the
+% starting seed is set to [3281, 4041, 595, 2376] which is stat-
+% istically the best starting seed.
+%
+function rans(seed: integer  returns fourplex)
+
+   if seed ~= 0 then
+      array [0: abs(seed), 0, 0, 0]
+   else
+      array [0: 3281, 4041, 595, 2376]
+   end if
+
+end function % rans
+
+
+% Returns the next random number and seed in the series. The seed's
+% bits shifted to the right 48 places are the bits  of  the  random
+% number.  The next seed is the product of the current seed and the
+% series' multiplier.
+%
+function ranf(seed: fourplex  returns double, fourplex)
+
+   double_real(seed[3]) / 4096.0d0 +
+   double_real(seed[2]) / 16777216.0d0 +
+   double_real(seed[1]) / 68719476736.0d0 +
+   double_real(seed[0]) / 281474976710656.0d0,
+
+   ranf_mod_mult(array [0: 373, 3707, 1442, 647], seed)
+
+end function % ranf
+
+function Build_A(rows, cols : integer;
+                 seed       : fourplex
+        returns TwoDim, fourplex)
+
+  for initial
+
+    i          := 1;
+    row, seed1 := for initial
+                    j        := 1;
+                    x, seed2 := ranf(seed)
+                  while j < cols repeat
+                    j        := old j + 1;
+                    x, seed2 := ranf(old seed2)
+                  returns array of real(x)
+                          value of seed2
+                  end for
+
+  while i < rows repeat
+
+    i          := old i + 1;
+    row, seed1 := for initial
+                    j        := 1;
+                    x, seed2 := ranf(old seed1)
+                  while j < cols repeat
+                    j        := old j + 1;
+                    x, seed2 := ranf(old seed2)
+                  returns array of real(x)
+                          value of seed2
+                  end for
+  returns array of row
+          value of seed1
+  end for
+
+end function % Build_A
+
+function Build_AJ(rows, cols : integer;
+                  seed       : fourplex
+         returns TwoDimI, fourplex)
+
+  for initial
+
+    i          := 1;
+    row, seed1 := for initial
+                    j        := 1;
+                    x, seed2 := ranf(seed);
+                    xi       := trunc(double_real(cols - 1) * x);
+                    xii      := if xi = j then cols else xi end if
+                  while j < cols repeat
+                    j        := old j + 1;
+                    x, seed2 := ranf(old seed2);
+                    xi       := trunc(double_real(cols - 1) * x);
+                    xii      := if xi = j then cols else xi end if
+                  returns array of xii
+                          value of seed2
+                  end for
+
+  while i < rows repeat
+
+    i          := old i + 1;
+    row, seed1 := for initial
+                    j        := 1;
+                    x, seed2 := ranf(old seed1);
+                    xi       := trunc(double_real(cols - 1) * x);
+                    xii      := if xi = j then cols else xi end if
+                  while j < cols repeat
+                    j        := old j + 1;
+                    x, seed2 := ranf(old seed2);
+                    xi       := trunc(double_real(cols - 1) * x);
+                    xii      := if xi = j then cols else xi end if
+                  returns array of xii
+                          value of seed2
+                  end for
+  returns array of row
+          value of seed1
+  end for
+
+end function % Build_AJ
+
+function Build_x(n    : integer;
+                 seed : fourplex
+        returns OneDim, fourplex)
+
+   for initial
+     j        := 1;
+     x, seed2 := ranf(seed)
+   while j < n repeat
+     j        := old j + 1;
+     x, seed2 := ranf(old seed2)
+   returns array of real(x)
+     value of seed2
+   end for
+
+end function % Build_x
+
+function main( returns integer, TwoDim, TwoDimI, OneDim, OneDim)
+
+  let
+      k         := 4;
+      % n         := 32767;
+      n := 262143;
+      A1, seed1 := Build_A(k, n, rans(0));
+      D         := for i in 1, n
+                   returns array of
+                       10.0 + 
+                       A1[1, i] + A1[2, i] + A1[3, i] + A1[4, i]
+                   end for;
+      A         := for i in 1, k cross j in 1, n
+                   returns array of - A1[i, j] / D[j]
+                   end for;
+      B         := for i in 1, n
+                   returns array of
+                       D[i] +
+                       A1[1, i] + A1[2, i] + A1[3, i] + A1[4, i]
+                   end for;
+      AJ, seed2 := Build_AJ(k, n, seed1);
+      g         := for i in 1, n
+                   returns array of B[i] / D[i]
+                   end for;
+      x, seed3  := Build_x(n, seed2)
+
+  in
+     n, A, AJ, x, g
+  end let
+
+end function % main

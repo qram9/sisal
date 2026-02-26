@@ -1,0 +1,30 @@
+define main
+
+% This package is a test module for the SISAL version of the RANF random
+% number generator, as implemented by J. Feo and T. DeBoni.
+
+%==============================================================================
+%  D E C L A R A T I O N S
+%==============================================================================
+
+#include "ranf.h"
+
+global rans( N_In, Seed1 : integer returns array[ Four_Plex ] )
+global ranf( Seed: Four_Plex
+               returns double,                  % Random Number
+                       Four_Plex)               % New Seed
+
+%==============================================================================
+%  F U N C T I O N   D E F I N I T I O N S
+%==============================================================================
+
+function main(segments:integer returns array[double])
+    let
+        seed := rans(segments, 0)
+    in
+        for i in 1,segments
+            val, new_seed := ranf(seed[i])
+        returns array of val
+        end for
+    end let
+end function

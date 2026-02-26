@@ -1,0 +1,37 @@
+DEFINE PassFreq
+
+type ArrReal1 = Array[real]
+
+global IFACTm_2ETC(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		    a, ci, trigs : ArrReal1 
+		    RETURNS ArrReal1)
+
+global IFACTm_3(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		    a, ci, trigs : ArrReal1
+		    RETURNS ArrReal1)
+
+global IFACTm_4(m, la, iink, jink, jump, inc1, inc2 : integer; 
+		    a, ci, trigs : ArrReal1 
+	    	  RETURNS ArrReal1)
+
+function PassFreq(inc1, inc2, n, ifac, la : integer; 
+		    a, c, trigs : ArrReal1
+		    RETURNS ArrReal1) % c
+LET
+m := n / ifac;
+jink := inc2 * m;
+iink := inc1 * la;
+jump := (ifac - 1) * iink;
+igo := ifac - 1;
+c_return := 	
+    IF igo=2 
+	THEN IFACTm_3(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+    ELSEIF igo=3 
+	THEN IFACTm_4(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+							
+    ELSE IFACTm_2ETC(m, la, iink, jink, jump, inc1, inc2, a, c, trigs)
+    END IF;
+
+IN c_return
+end LET
+end function

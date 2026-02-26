@@ -1,0 +1,24 @@
+%%%  The paraffins problem from Turner (FP conference 1981, pp 85-92 )
+%%%  88/3/7 sks
+
+define Invert, Rotate, Swap
+
+%$include( "types.sis" )
+
+function Invert( Molecule: Paraffin returns Paraffin )
+  tagcase Radical := Molecule[ 1 ]
+  tag Hydrogen:
+    Molecule
+  tag Carbon:
+    array_addh( Radical, union Radical[ Carbon: array_setl( array_adjust( Molecule, 2, 4 ), 1 ) ] )
+  end tagcase
+end function % Invert
+
+function Rotate( Molecule: Paraffin returns Paraffin )
+  array Paraffin[1: Molecule[2], Molecule[3], Molecule[4], Molecule[1] ]
+end function % Rotate
+
+function Swap( Molecule: Paraffin returns Paraffin )
+  Molecule[1: Molecule[2], Molecule[1] ]
+end function % Swap
+
