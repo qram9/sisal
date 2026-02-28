@@ -536,9 +536,9 @@ and has_node i ingr = NM.mem i (get_node_map ingr)
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
   with _ ->
-    failwith
-      (Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
-       " ISSUE WITH NODE LOOK UP")
+    let stack = Printexc.get_callstack 5 in
+    print_endline (Printexc.raw_backtrace_to_string stack);
+    failwith " ISSUE WITH NODE LOOK UP"
 
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
@@ -3159,7 +3159,7 @@ and string_of_node_ty ?(offset = 2) in_gr n =
               (cate_nicer
                  (string_of_int lab ^ " " ^ string_of_int ty)
                  (string_of_pragmas pl) " ")
-              (string_of_graph_thin ~offset:(offset + 2) g)
+              (string_of_graph ~offset:(offset + 2) g)
               "\n")
            (string_of_node_sym sy) " ")
         (List.fold_right
@@ -3384,7 +3384,7 @@ and string_of_graph_thin ?(offset = 0) in_gr =
 and string_of_graph2 (_, gr) = string_of_graph gr
 
 and graph_printer fmt gr =
-  Format.fprintf fmt "-------\n%s\n" (string_of_graph_thin ~offset:2 gr)
+  Format.fprintf fmt "-------\n%s\n" (string_of_graph ~offset:2 gr)
 
 and int_map_printer fmt inmap =
   Format.fprintf fmt "-------\n%s\n"
@@ -3463,66 +3463,74 @@ and bind_name nam (n, p, ty) in_gr =
 
 and get_symbol_id v in_gr =
   let cs, ps = get_symtab in_gr in
-  if SM.mem v cs = true then
-    let { val_ty = t; val_name = _; val_def = aa; def_port = p } =
-      SM.find v cs
-    in
-    ((aa, p, t), in_gr)
-  else if SM.mem v ps = true then
-    let { val_ty = t; val_name = vv_n; val_def = _; def_port = _ } =
-      SM.find v ps
-    in
-    let ap = boundary_in_port_count in_gr in
+  (* 1. Check current scope *)
+  if SM.mem v cs then
+    let entry = SM.find v cs in
+    ((entry.val_def, entry.def_port, entry.val_ty), in_gr)
+    (* 2. Check parent scope for automatic boundary import *)
+  else if SM.mem v ps then
+    let p_entry = SM.find v ps in
+    let next_port = boundary_in_port_count in_gr in
+    (* Define the symbol in current scope as an input from the boundary (Node 0) *)
     let cs =
-      SM.add v { val_ty = t; val_name = vv_n; val_def = 0; def_port = ap } cs
+      SM.add v
+        {
+          val_ty = p_entry.val_ty;
+          val_name = p_entry.val_name;
+          val_def = 0;
+          def_port = next_port;
+        }
+        cs
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
-    let { val_ty = t; val_name = _; val_def = aa; def_port = _ } =
-      SM.find v cs
-    in
-    ((aa, ap, t), add_to_boundary_inputs ~namen:v 0 ap in_gr)
+    (* Physically add the port to the IF1 boundary metadata *)
+    ( (0, next_port, p_entry.val_ty),
+      add_to_boundary_inputs ~namen:v 0 next_port in_gr )
   else (
-    print_endline v;
+    print_endline ("Symbol lookup failed for name: " ^ v);
     outs_syms in_gr;
-    raise
-      (Printexc.print_raw_backtrace stdout (Printexc.get_callstack 150);
-       Node_not_found ("Symbol lookup failed for name: " ^ v)))
+    raise (Node_not_found v))
 
 and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in
-  if SM.mem ("OLD " ^ v) cs = true then
-    let { val_ty = t; val_name = _; val_def = aa; def_port = p } =
-      SM.find v cs
-    in
-    ((aa, p, t), in_gr)
-  else if SM.mem v cs = true then
-    let { val_ty = t; val_name = vv; val_def = aa; def_port = p } =
-      SM.find v cs
-    in
+  let old_name = "OLD " ^ v in
+
+  (* 1. Check current scope for an existing "OLD" entry *)
+  if SM.mem old_name cs then
+    let entry = SM.find old_name cs in
+    ((entry.val_def, entry.def_port, entry.val_ty), in_gr)
+    (* 2. Check current scope for "v" and create "OLD" alias *)
+  else if SM.mem v cs then
+    let entry = SM.find v cs in
+    let cs = SM.add old_name { entry with val_name = old_name } cs in
+    ( (entry.val_def, entry.def_port, entry.val_ty),
+      { in_gr with symtab = (cs, ps) } )
+    (* 3. Check parent scope for "OLD v" and import through boundary *)
+  else if SM.mem old_name ps then
+    let p_entry = SM.find old_name ps in
+    let next_port = boundary_in_port_count in_gr in
     let cs =
-      SM.add ("OLD " ^ vv)
-        { val_ty = t; val_name = "OLD " ^ vv; val_def = aa; def_port = p }
+      SM.add old_name { p_entry with val_def = 0; def_port = next_port } cs
+    in
+    let in_gr = { in_gr with symtab = (cs, ps) } in
+    ( (0, next_port, p_entry.val_ty),
+      add_to_boundary_inputs ~namen:old_name 0 next_port in_gr )
+    (* 4. Check parent scope for "v" and import as "OLD" through boundary *)
+  else if SM.mem v ps then
+    let p_entry = SM.find v ps in
+    let next_port = boundary_in_port_count in_gr in
+    let cs =
+      SM.add old_name
+        { p_entry with val_name = old_name; val_def = 0; def_port = next_port }
         cs
     in
-    ((aa, p, t), { in_gr with symtab = (cs, ps) })
-  else if SM.mem ("OLD " ^ v) ps = true then
-    let { val_ty = t; val_name = _; val_def = aa; def_port = p } =
-      SM.find v ps
-    in
-    ((aa, p, t), in_gr)
-  else if SM.mem v ps = true then
-    let { val_ty = t; val_name = vv; val_def = aa; def_port = p } =
-      SM.find v ps
-    in
-    let ps =
-      SM.add ("OLD " ^ vv)
-        { val_ty = t; val_name = "OLD " ^ vv; val_def = aa; def_port = p }
-        ps
-    in
-    ((aa, p, t), { in_gr with symtab = (cs, ps) })
+    let in_gr = { in_gr with symtab = (cs, ps) } in
+    ( (0, next_port, p_entry.val_ty),
+      add_to_boundary_inputs ~namen:old_name 0 next_port in_gr )
   else
     raise
-      (Node_not_found ("Symbol not found in current or parent symtab: OLD " ^ v))
+      (Node_not_found
+         ("Symbol not found in current or parent symtab: " ^ old_name))
 
 and is_outer_var vv = function
   | { nmap = _; eset = _; symtab = _, ps; typemap = _; w = _ } -> SM.mem vv ps
@@ -3616,10 +3624,15 @@ let intrinsic_lib =
      let float_1_1_lib_funs =
        List.map
          (fun ty_id ->
+           Compound_type (Sisal_function_type ("", [ ty_id ], [ ty_id ])))
+         basic_float_list
+     in
+     let float_2_1_lib_funs =
+       List.map
+         (fun ty_id ->
            Compound_type (Sisal_function_type ("", [ ty_id; ty_id ], [ ty_id ])))
          basic_float_list
      in
-
      let all_1_1_lib_funs =
        List.map
          (fun ty_id ->
@@ -3653,6 +3666,15 @@ let intrinsic_lib =
        (* reverse because fold_left/cons flips the order *)
      in
      let added_float_type_1_1_ids = List.rev added_float_type_1_1_ids in
+     let in_gr, added_float_type_2_1_ids =
+       List.fold_left
+         (fun (gr, ids) func_ty ->
+           let (_, _, new_id), res_gr = add_sisal_type gr func_ty in
+           (res_gr, new_id :: ids))
+         (in_gr, []) float_2_1_lib_funs
+       (* reverse because fold_left/cons flips the order *)
+     in
+     let added_float_type_2_1_ids = List.rev added_float_type_2_1_ids in
      let (_, _, spl_case_riexp), in_gr =
        add_sisal_type in_gr
          (Compound_type
@@ -3688,9 +3710,59 @@ let intrinsic_lib =
            added_type_2_1_ids
        @ List.combine
            (List.map
+              (fun ty -> Ast.mangle_intrinsic "ATAN" [ ty; ty ] [ ty ])
+              basic_float_list)
+           added_float_type_2_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "ATAN" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "TAN" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "COS" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "LOGE" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "LOG10" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "SINH" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "RADIANS" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "DEGREES" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
               (fun ty -> Ast.mangle_intrinsic "ABS" [ ty ] [ ty ])
               basic_type_list)
            added_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "SIN" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
        @ List.combine
            (List.map
               (fun ty -> Ast.mangle_intrinsic "TRUNC" [ ty ] [ ty ])

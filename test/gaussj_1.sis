@@ -1,0 +1,114 @@
+define Main
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+function main( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( abs(A[old i]) > abs(A[old max24]) ) then 
+	       old i 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+define Main
+type Onei   = array[integer];
+type Oned   = array[double];
+type Twod   = array[Oned];
+function idfamax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( abs(A[old i]) > abs(A[old max24]) ) then 
+	       old i 
+	     else 
+	       old max24 
+	     end if;
+  returns value of max24
+  end for
+end function
+function idfmax( A:OneD; n:integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i := old i + 1;
+    max24 := if ( A[old i] > A[old max24] ) then old i else old max24 end if;
+  returns value of max24
+  end for
+end function
+function GetPivot(n: integer; A: TwoD; PIVR: Onei
+                  returns integer, integer)
+   let cols, maxs :=
+       for i in 1, n
+           col, max := if PIVR[i] = 0 then
+			 let
+                           imax := idfamax( A[i], n );
+			 in
+			   imax, abs(A[i,imax])
+			 end let
+                       else
+                          0, -1.0d0
+                       end if
+       returns array of col
+               array of max
+       end for;
+   in
+       let 
+       irow := idfmax( maxs, n );
+       in
+       cols[irow], irow
+       end let
+   end let
+end function
+function Compute(n, pvtrow: integer; Ain: TwoD; Bin: OneD
+                 returns TwoD, OneD) 
+                 let pvtele := Ain[pvtrow, pvtrow]
+                 in
+   for i in 1, n
+       Arow, Bele := if i = pvtrow then
+                       for j in 1,n
+                       returns array of Ain[i,j] / pvtele
+                       end for,
+                       Bin[i] / pvtele
+                     else
+		       let
+                         multipler := Ain[i, pvtrow] / pvtele;
+		       in
+                         for j in 1,n
+                         returns array of Ain[i,j] - multipler * Ain[pvtrow, j]
+                         end for,
+                         Bin[i] - multipler * Bin[pvtrow]
+		       end let
+                     end if
+   returns array of Arow
+           array of Bele
+   end for
+   end let
+end function
+function Main(n: integer; Ain :TwoD; Bin: OneD  returns OneD)
+   for initial
+       I    := 0;
+       A, B := Ain, Bin;
+       PIVR := array_fill(1,n,0)
+   while I < n repeat
+       I := old I + 1;
+       Icol, Irow := GetPivot(n, old A, old PIVR);
+       A1, B1 := if ( Icol ~= Irow ) then
+                     old A[Icol: old A[Irow]; Irow: old A[Icol]],
+                     old B[Icol: old B[Irow]; Irow: old B[Icol]]
+ 	         else
+ 	             old A, old B
+                 end if;
+       PIVR := old PIVR[Icol: 1];
+       A, B := Compute(n, Icol, A1, B1)
+   returns value of B
+   end for
+end function
