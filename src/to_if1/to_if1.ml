@@ -3049,16 +3049,6 @@ and do_simple_exp in_gr in_sim_ex =
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
-        (* Build Return-Signature To Provide To Outer
-          Loop In Order To Build Its Returns Graph. *)
-        let return_action_list, _, _ =
-          List.fold_right
-            (fun (y, x, tt) (outL, sm, cou) ->
-              if If1.IntMap.mem x sm = true then
-                ((y, tt, If1.IntMap.find x sm) :: outL, sm, cou)
-              else ((y, tt, cou) :: outL, If1.IntMap.add x cou sm, cou + 1))
-            return_action_list ([], If1.IntMap.empty, 1)
-        in
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
@@ -3615,7 +3605,8 @@ and verify_function_returns fn_ty_id in_gr =
       (fun exp act ->
         if exp <> act then
           raise
-            (If1.Sem_error
+            (If1.outs_graph in_gr;
+             If1.Sem_error
                (Printf.sprintf
                   "Return Type Mismatch: Expected %s (#%d), but found %s (#%d)"
                   (If1.rev_lookup_ty_name exp)
@@ -3695,7 +3686,10 @@ and do_internals (names, in_gr) f =
         point_edges_to_boundary frm elp elt new_fun_gr_
       in
       let new_fun_gr_ = If1.graph_clean_multiarity new_fun_gr_ in
-      let () = verify_function_returns fn_ty new_fun_gr_ in
+      let () =
+        print_endline ("VERIFY " ^ Ast.internals 1 f);
+        verify_function_returns fn_ty new_fun_gr_
+      in
       let (aa, bb, _), in_gr =
         If1.add_node_2
           (`Compound
@@ -3726,8 +3720,10 @@ and do_internals (names, in_gr) f =
       do_internals (names @ [ fn_name ], in_gr) tl
 
 and do_function_def in_gr = function
-  | Ast.Function f ->
+  | Ast.Function f as x ->
+      print_endline ("Looking at function " ^ Ast.str_function_def 0 x);
       let _, in_gr_ = do_internals ([], in_gr) f in
+      print_endline ("Out of function " ^ Ast.str_function_def 0 x);
       ((0, 0, 0), in_gr_)
   | Forward_function f -> do_function_header in_gr f
 
