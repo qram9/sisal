@@ -152,6 +152,7 @@ let digit = ['0'-'9']
 let hex = ("0x" | "0X") ( digit | ['a'-'f' 'A'-'F'] )+
 let dec = digit+
 let exp = ['e' 'E'] ['+' '-']? digit+
+let dexp = ['d' 'D'] ['+' '-']? digit+
 let flonum = (digit+ '.' digit* | '.' digit+ | digit+) exp
            | digit+ '.' digit*
            | '.' digit+
@@ -207,20 +208,32 @@ and sisal_lex = parse eof {
  (* ULONG: Strictly positive (Unsigned) *)
  | (digit+ | hex) (['u' 'U'] ['l' 'L'] | ['l' 'L'] ['u' 'U']) as lxm
    { ULONG(Int64.of_string (String.sub lxm 0 (String.length lxm - 2))) }
+(* 1. Scientific Double (Mandatory d/D exponent: -1.0d0, 12d5) *)
+ | (digit+ ('.' digit*)? | '.' digit+) dexp as lxm
+   { 
+     let sanitized = String.map (function 'd'|'D' -> 'e' | c -> c) lxm in
+     DOUBLE(float_of_string sanitized) 
+   }
 
- (* DOUBLE: Handles 1.23D, 123D *)
- | (digit+ ('.' digit*)? | '.' digit+) exp? ['d' 'D'] as lxm
-   { DOUBLE(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
-
- (* FLOAT: Handles 1.23F, 123F *)
+ (* 2. Suffix-based Float/Half (e.g., 1.2f, 123f, 1.2e5f) *)
  | (digit+ ('.' digit*)? | '.' digit+) exp? ['f' 'F'] as lxm
    { FLOAT(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
- (* HALF: Handles 1.23H, 123H *)
- | (digit+ ('.' digit*)? | '.' digit+) exp? ['h' 'H'] as lxm(* DOUBLE: Handles -1.23D, -123D *)
+ | (digit+ ('.' digit*)? | '.' digit+) exp? ['h' 'H'] as lxm
    { HALF(float_of_string (String.sub lxm 0 (String.length lxm - 1))) }
 
- | '%' {
+ (* 3. Standard Scientific & Floating Point (MUST be above dec) *)
+ | flonum as f {
+     padded_lex_msg 5 ": %s>\n" f;
+     FLOAT (float_of_string f)
+   }
+
+ (* 4. Integers (The "Fallthrough" for numbers) *)
+ | dec as d {
+     padded_lex_msg 5 ": %s>\n" d;
+     INT (int_of_string d)
+   }
+| '%' {
      padded_lex_msg 5 "_cmts:>\n";
      read_comment lexbuf
    }
@@ -242,15 +255,6 @@ and sisal_lex = parse eof {
      Lexing.new_line lexbuf;
      sisal_lex lexbuf
    }
- |  flonum as f {
-     padded_lex_msg 5 ": %s>\n" f;
-     FLOAT (float_of_string f)
-   }
- |  dec as d {
-     padded_lex_msg 5 ": %s>\n" d;
-     INT (int_of_string d)
-   }
-
  | "INCLUDE" { 
      padded_lex_msg 5 "_include_start:>\n";
      (* Use our 'Bucket' worker to get the filename! *)

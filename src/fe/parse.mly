@@ -956,12 +956,20 @@ declids_list :
 ;
 
 decldef_part :
-  decldef
-    { [$1] }
-| decldef_part SEMICOLON decldef
-  { $3 :: $1 }
-| decldef_part ANDKW decldef
-  { $3 :: $1 }
+  | decldef_list opt_semicolon
+      { List.rev $1 }
+
+decldef_list :
+  | decldef
+      { [$1] }
+  | decldef_list separator decldef
+      { $3 :: $1 }
+;
+
+separator :
+  | SEMICOLON { () }
+  | ANDKW     { () }
+  | SEMICOLON ANDKW { () }
 ;
 
 let_in_exp :
