@@ -581,7 +581,7 @@ function_name_list :
       iterator_terminator
       RETURNS return_exp_list
       END FOR
-      { For_initial (Decldef_part (List.rev $3), $4, (List.rev $6)) }
+      { For_initial (Decldef_part $3, $4, (List.rev $6)) }
 | FOR
     INITIAL
     decldef_part
@@ -589,7 +589,7 @@ function_name_list :
     iterator_terminator
     RETURNS return_exp_list
     END FOR
-    { For_initial (Decldef_part (List.rev $3), $5, List.rev $7) }
+    { For_initial (Decldef_part $3, $5, List.rev $7) }
 | FOR
     in_exp_list
     RETURNS
@@ -603,7 +603,7 @@ function_name_list :
     RETURNS
     return_exp_list
     END FOR
-    { For_all ($2,Decldef_part (List.rev $3), List.rev $5)  }
+    { For_all ($2,Decldef_part $3, List.rev $5)  }
 |   FOR
     in_exp_list
     decldef_part
@@ -611,7 +611,7 @@ function_name_list :
     RETURNS
     return_exp_list
     END FOR
-    { For_all ($2,Decldef_part (List.rev $3), List.rev $6) }
+    { For_all ($2,Decldef_part  $3, List.rev $6) }
   ;
 
   iterator_terminator:
@@ -635,7 +635,7 @@ function_name_list :
 
   iterator_body :
     decldef_part opt_semicolon
-      { Decldef_part (List.rev $1) }
+      { Decldef_part $1 }
 
   ;
 
@@ -974,9 +974,9 @@ separator :
 
 let_in_exp :
   LET decldef_part IN expression END LET
-    { Let (Decldef_part (List.rev $2), $4) }
+    { Let (Decldef_part $2, $4) }
 | LET REC decldef_part IN expression END LET
-  { Let_rec (Decldef_part (List.rev $3), $5) }
+  { Let_rec (Decldef_part $3, $5) }
 ;
 
 value_name : NAME

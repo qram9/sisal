@@ -331,6 +331,24 @@ let str_type_trace () =
       acc ^ entry (* Concatenate current entry to the accumulator *))
     "=== SISAL TYPE HISTORY DUMP ===\n" (List.rev !type_trace)
 
+(* Edge Trace: (Source Node * Port | Dest Node * Port | Type Description * Stack) *)
+let edge_trace : (string * string * string * string) list ref = ref []
+
+let str_edge_trace in_gr =
+  List.fold_left
+    (fun acc (src, dest, ty_desc, stack) ->
+      let entry =
+        Printf.sprintf
+          "--------------------------\n\
+           EDGE: %s -> %s\n\
+           TYPE: %s\n\
+           Source Trace:\n\
+           %s\n"
+          src dest ty_desc stack
+      in
+      acc ^ entry)
+    "=== SISAL EDGE HISTORY DUMP (Boundary Edges) ===\n" (List.rev !edge_trace)
+
 let get_stack_trace n =
   let raw_stack = Printexc.get_callstack n in
   Printexc.raw_backtrace_to_string raw_stack
@@ -2060,6 +2078,25 @@ and add_node_2 nn in_gr =
 
 and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let pe = get_edge_set in_gr in
+  (* Trace boundary edges (to Node 0) to debug Return Mismatches *)
+  let _ =
+    if n2 = 0 || n1 = 0 then
+      let stack = get_stack_trace 5 in
+      (* Use your new recursive printer for the edge type *)
+      let ty_desc =
+        "(#" ^ string_of_int ed_ty ^ "): " ^ printable_full_type in_gr ed_ty
+      in
+      let src_str =
+        if n1 = 0 then Printf.sprintf "Boundary:%d[P:%d]" n1 p1
+        else Printf.sprintf "Node:%d[P:%d]" n1 p1
+      in
+      let dest_str =
+        if n1 = 0 then Printf.sprintf "Node:%d[P:%d]" n2 p2
+        else Printf.sprintf "Boundary%d[P:%d]" n2 p2
+      in
+      edge_trace := (src_str, dest_str, ty_desc, stack) :: !edge_trace
+    else ()
+  in
   { in_gr with eset = ES.add ((n1, p1), (n2, p2), ed_ty) pe }
 
 and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
@@ -2401,16 +2438,17 @@ and merge_typeblobs tyblob1 tyblob2 =
   let out_tmn = MM.merge merge_fn g_tmn inc_blob_tmn in
   (out_ty_idx, out_tm, out_tmn)
 
-and is_record_ty = function Record _ -> true | _ -> false
-
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
   let _ =
-    if is_record_ty ood then
-      let stack = get_stack_trace 5 in
-      let desc = string_of_if1_ty ood in
-      type_trace := (id, desc, stack) :: !type_trace
-    else ()
+    match ood with
+    | Array_ty _ | Record _ | Function_ty _ | Union _ | Tuple_ty _ | Field _
+    | Tag _ ->
+        let stack = get_stack_trace 5 in
+        let desc = string_of_if1_ty ood in
+        type_trace := (id, desc, stack) :: !type_trace
+    | _ -> ()
+    (* Skip basic types like integer/double unless you suspect them too *)
   in
   ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
@@ -2479,6 +2517,85 @@ and add_compound_type in_gr = function
       in
       add_type_to_typemap (Function_ty (arg_fst, res_fst, fn_name)) in_gr
   | _ -> raise (Node_not_found "In compound type")
+
+and string_of_if1_ty_recursive in_gr seen ty =
+  match ty with
+  | Basic _ | Multiple _ | ERROR _ | Unknown_ty ->
+      (* Leaf items: use your existing printer *)
+      string_of_if1_ty ty
+  | Array_ty l -> "array[" ^ resolve_and_print in_gr seen l ^ "]"
+  | Stream l -> "stream[" ^ resolve_and_print in_gr seen l ^ "]"
+  | Tuple_ty (l1, l2) ->
+      "("
+      ^ resolve_and_print in_gr seen l1
+      ^ " * "
+      ^ resolve_and_print in_gr seen l2
+      ^ ")"
+  | Function_ty (input_l, output_l, name) ->
+      let in_str = resolve_and_print in_gr seen input_l in
+      let out_str = resolve_and_print in_gr seen output_l in
+      Printf.sprintf "function %s(%s) returns %s" name in_str out_str
+  | Record (field_l, _, name) ->
+      let name_str = if name = "" then "" else name ^ " " in
+      name_str ^ "record{" ^ resolve_and_print in_gr seen field_l ^ "}"
+  | Field labels ->
+      let inner = List.map (resolve_and_print in_gr seen) labels in
+      String.concat "; " inner
+  | Tag labels ->
+      let inner = List.map (resolve_and_print in_gr seen) labels in
+      "union{" ^ String.concat " | " inner ^ "}"
+  | Union (tag_l, _, name) ->
+      let name_str = if name = "" then "" else name ^ " " in
+      name_str ^ "union{" ^ resolve_and_print in_gr seen tag_l ^ "}"
+  | If1Type_name l -> "alias(" ^ resolve_and_print in_gr seen l ^ ")"
+
+and resolve_and_print in_gr seen id =
+  (* Cycle Detection: If we've seen this ID in the current branch, just print the ID *)
+  if List.mem id seen then "REC_ID:" ^ string_of_int id
+  else
+    let tm = get_typemap_tm in_gr in
+    match TM.find_opt id tm with
+    | Some ty -> string_of_if1_ty_recursive in_gr (id :: seen) ty
+    | None -> "MISSING_ID:" ^ string_of_int id
+
+and printable_full_type in_gr id = resolve_and_print in_gr [] id
+
+(* seen: (int * int) list *)
+and structurally_equal in_gr seen t1 t2 =
+  match (t1, t2) with
+  (* --- The Error Monad Guard --- *)
+  | ERROR s1, ERROR s2 -> s1 = s2
+  | ERROR _, _ | _, ERROR _ -> false
+  (* --- Standard Structural Matching --- *)
+  | Basic b1, Basic b2 -> b1 = b2
+  | Array_ty l1, Array_ty l2 -> resolve_and_compare in_gr seen l1 l2
+  | Tuple_ty (l1_a, l1_b), Tuple_ty (l2_a, l2_b) ->
+      resolve_and_compare in_gr seen l1_a l2_a
+      && resolve_and_compare in_gr seen l1_b l2_b
+  | Record (f1, _, _), Record (f2, _, _) -> resolve_and_compare in_gr seen f1 f2
+  | Field labels1, Field labels2 ->
+      if List.length labels1 <> List.length labels2 then false
+      else
+        List.for_all2
+          (fun l1 l2 -> resolve_and_compare in_gr seen l1 l2)
+          labels1 labels2
+  | Function_ty (in1, out1, _), Function_ty (in2, out2, _) ->
+      resolve_and_compare in_gr seen in1 in2
+      && resolve_and_compare in_gr seen out1 out2
+  | Multiple b1, Multiple b2 -> b1 = b2
+  | _, _ -> false
+
+and resolve_and_compare in_gr seen id1 id2 =
+  (* If we've already compared these two labels in this recursion branch, 
+     we've hit a cycle (like a recursive Record). Assume they match. *)
+  if List.exists (fun (l1, l2) -> l1 = id1 && l2 = id2) seen then true
+  else
+    let tm = get_typemap_tm in_gr in
+    match (TM.find_opt id1 tm, TM.find_opt id2 tm) with
+    | Some ty1, Some ty2 ->
+        (* Pass the updated 'seen' list down with the current labels added *)
+        structurally_equal in_gr ((id1, id2) :: seen) ty1 ty2
+    | _ -> false
 
 and lookup_ty ij in_gr =
   let tm = get_typemap_tm in_gr in
@@ -3420,7 +3537,6 @@ and outs_syms { nmap = _; eset = _; symtab = cs, ps; typemap = _, tm, _; w = _ }
 
 and string_of_triples_list in_gr triplets =
   let _, tm, _ = in_gr.typemap in
-
   let string_of_triple (n_idx, p_idx, t_idx) =
     (* 1. Resolve Node Name (Opcode) *)
     let node_name =
