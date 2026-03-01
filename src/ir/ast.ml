@@ -287,14 +287,14 @@ let mypad1 c d =
   match d with "" -> "" | _ -> k ^ d
 
 let mypad c d = match d with "" -> "" | _ -> c ^ d
-let semicolon_fold = myfold ";"
+let semicolon_fold = myfold "; "
 
 let semicolon_newline_fold ?offset =
   let o = match offset with None -> 0 | Some r -> r in
   let k = String.make o ' ' in
   List.fold_left (fun last fs -> space_cate last (mypad k fs) ";\n") ""
 
-let comma_fold = myfold ","
+let comma_fold = myfold ", "
 let space_fold = myfold " "
 
 let basic_type_list =
@@ -513,9 +513,9 @@ let newline_fold ?offset =
   List.fold_left (fun last fs -> space_cate last (mypad k fs) "\n") ""
 
 let dot_fold = myfold "."
-let paren exp = "(" ^ exp ^ ")"
-let brack exp = "[" ^ exp ^ "]"
-let elseif_fold = myfold "\nELSE IF "
+let paren exp = "(" ^ exp ^ " )"
+let brack exp = "[ " ^ exp ^ " ]"
+let elseif_fold offset = myfold ("\n" ^ mypad1 offset "  ELSE IF ")
 
 let rec str_tagnames = function Tagnames tn -> comma_fold tn
 
@@ -551,23 +551,23 @@ and str_reduction = function
 
 and str_return_exp = function
   | Value_of (d, r, e) ->
-      space_fold
-        [ "VALUE OF"; str_direction d; str_reduction r; str_simple_exp e ]
-  | Array_of e -> "ARRAY OF " ^ str_simple_exp e
-  | Stream_of e -> "STREAM OF " ^ str_simple_exp e
+      "VALUE OF"
+      ^ space_fold [ str_direction d; str_reduction r; str_simple_exp e ]
+  | Array_of e -> "ARRAY OF" ^ str_simple_exp ~preceed_space:1 e
+  | Stream_of e -> "STREAM OF" ^ str_simple_exp e
 
 and str_masking_clause = function
-  | Unless e -> "UNLESS " ^ str_simple_exp e
-  | When e -> "WHEN " ^ str_simple_exp e
+  | Unless e -> "UNLESS" ^ str_simple_exp e
+  | When e -> "WHEN" ^ str_simple_exp e
   | No_mask -> ""
 
 and str_iterator ?(offset = 0) = function
   | Repeat dp ->
-      mypad1 offset "REPEAT\n" ^ str_decldef_part ~offset:(offset + 2) dp
+      mypad1 offset "REPEAT" ^ str_decldef_part ~offset:(offset + 2) dp
 
 and str_termination = function
-  | While e -> "WHILE " ^ str_exp e
-  | Until e -> "UNTIL " ^ str_exp e
+  | While e -> "WHILE " ^ str_exp ~preceed_space:1 e
+  | Until e -> "UNTIL " ^ str_exp ~preceed_space:1 e
 
 and str_return_clause = function
   | Old_ret (re, mc) ->
@@ -594,7 +594,7 @@ and str_compound_type = function
       "UNION ["
       ^ semicolon_fold
           (List.fold_right
-             (fun (x, y) z -> (comma_fold x ^ " : " ^ str_sisal_type y) :: z)
+             (fun (x, y) z -> (comma_fold x ^ ":" ^ str_sisal_type y) :: z)
              union_ty_v [])
       ^ "]"
   (*(space_cate ("UNION [" ^ (comma_fold stl)) (str_sisal_type s) ":") ^ "]"*)
@@ -702,7 +702,7 @@ and str_vec_type = function
 and str_constant = function
   | Byte b -> "0b" ^ string_of_int b
   | Char st -> "\"" ^ st ^ "\""
-  | Double d -> string_of_float d ^ "d"
+  | Double d -> string_of_float d ^ "d0"
   | Error st -> "ERROR [" ^ str_sisal_type st ^ "]"
   | False -> "FALSE"
   | Float f -> string_of_float f ^ "f"
@@ -724,28 +724,31 @@ and str_val = function Value_name vl -> String.concat "." vl
 and str_val_names = function
   | Value_names v ->
       List.fold_right
-        (fun x z -> if x = "" then z else if z = "" then x else x ^ "," ^ z)
+        (fun x z -> if x = "" then z else if z = "" then x else x ^ ", " ^ z)
         v ""
 
-and str_exp ?(offset = 0) = function
-  | Exp e -> comma_fold (List.map (str_simple_exp ~offset) e)
+and str_exp ?(offset = 0) ?(preceed_space = 1) = function
+  | Exp e -> comma_fold (List.map (str_simple_exp ~offset ~preceed_space) e)
   | Empty -> ""
 
 and str_sexp_pair = function
-  | SExpr_pair (e, f) -> str_simple_exp e ^ ":" ^ str_exp f
+  | SExpr_pair (e, f) ->
+      str_simple_exp e ~offset:0 ~preceed_space:0 ^ " :" ^ str_exp f
 
 and str_field_name = function Field_name f -> f
 
 and str_field_exp = function
-  | Field_exp (f, e) -> str_field f ^ ":" ^ str_simple_exp e
+  | Field_exp (f, e) -> str_field f ^ " :" ^ str_simple_exp e
 
 and str_field = function Field fl -> dot_fold (List.map str_field_name fl)
 
 and str_field_def = function
-  | Field_def (fn, ex) -> str_field_name fn ^ ":" ^ str_simple_exp ex
+  | Field_def (fn, ex) -> str_field_name fn ^ " :" ^ str_simple_exp ex
 
-and str_cond ?(offset = 0) = function
-  | Cond (c, e) -> str_exp c ^ " THEN\n" ^ str_exp ~offset:(offset + 2) e
+and str_cond ?(offset = 0) ?(preceed_space = 0) = function
+  | Cond (c, e) ->
+      str_exp ~preceed_space:0 c ^ "\n" ^ mypad1 offset "  THEN"
+      ^ str_exp ~offset:(offset + 2) e
 
 and str_in_exp = function
   | In_exp (vn, e) -> str_val vn ^ " IN " ^ str_exp e
@@ -753,10 +756,12 @@ and str_in_exp = function
   | Dot (ie1, ie2) -> str_in_exp ie1 ^ " DOT " ^ str_in_exp ie2
   | Cross (ie1, ie2) -> str_in_exp ie2 ^ " CROSS " ^ str_in_exp ie1
 
-and str_if ?(offset = 0) f = "IF " ^ elseif_fold (List.map (str_cond ~offset) f)
+and str_if ?(offset = 0) f =
+  "\n" ^ mypad1 offset "IF "
+  ^ elseif_fold offset (List.map (str_cond ~offset ~preceed_space:1) f)
 
 and str_else ?(offset = 0) = function
-  | Else e -> "\n" ^ mypad1 offset "ELSE " ^ str_exp ~offset e
+  | Else e -> "\n" ^ mypad1 offset "  ELSE" ^ str_exp ~offset:(offset + 2) e
 
 and str_tag_exp = function
   | Tag_name tn -> tn
@@ -781,13 +786,16 @@ and str_prefix_name = function
 and str_decldef ?(offset = 0) = function
   | Decldef (deca, expn) ->
       let chars_with_colon_eq =
-        mypad1 offset (comma_fold (List.map (str_decl ~offset) deca)) ^ " := "
+        mypad1 offset (comma_fold (List.map (str_decl ~offset) deca)) ^ " :="
       in
       chars_with_colon_eq ^ str_exp ~offset expn
 
 and str_decldef_part ?(offset = 0) = function
   | Decldef_part f ->
-      semicolon_newline_fold (List.map (str_decldef ~offset:(offset + 2)) f)
+      let x =
+        semicolon_newline_fold (List.map (str_decldef ~offset:(offset + 2)) f)
+      in
+      "\n" ^ x
 
 and str_decl_id ?(_offset = 0) = function
   | Decl_name nam -> nam
@@ -795,12 +803,16 @@ and str_decl_id ?(_offset = 0) = function
 
 and str_decl ?(offset = 0) = function
   | Decl_with_type (x, y) ->
-      comma_fold (List.map (str_decl_id ~_offset:offset) x)
-      ^ ":" ^ str_sisal_type y
+      " "
+      ^ comma_fold (List.map (str_decl_id ~_offset:offset) x)
+      ^ " : " ^ str_sisal_type y
   | Decl_no_type x -> comma_fold (List.map (str_decl_id ~_offset:offset) x)
 
 and str_function_name = function Function_name lf -> String.concat "." lf
-and str_arg = function Arg e -> str_exp e
+
+and str_arg ?(preceed_space = 1) = function
+  | Arg e -> str_exp ~offset:0 ~preceed_space e
+
 and get_vec_len x = int_of_string (str_vec_len x)
 
 and str_vec_len = function
@@ -822,94 +834,107 @@ and str_vec_len = function
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
 and get_mat_dim = function Mat2 -> 2 | Mat3 -> 3 | Mat4 -> 4
 
-and str_simple_exp ?(offset = 0) = function
-  | Constant x -> str_constant x
-  | Old v -> "OLD " ^ str_val v
-  | Val v -> str_val v
-  | Paren e -> "(" ^ str_exp e ^ ")"
-  | Invocation (fn, arg) -> str_function_name fn ^ "(" ^ str_arg arg ^ ")"
+and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
+  | Constant x -> mypad1 preceed_space (str_constant x)
+  | Old v -> " OLD " ^ str_val v
+  | Val v -> mypad1 preceed_space (str_val v)
+  | Paren e -> mypad1 preceed_space (paren (str_exp e ~offset ~preceed_space:0))
+  | Invocation (fn, arg) ->
+      mypad1 preceed_space (str_function_name fn) ^ paren (str_arg arg)
   | Lambda (header, e) ->
-      "LAMBDA " ^ str_function_header header ^ "\n"
+      " LAMBDA " ^ str_function_header header ^ "\n"
       ^ mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)
       ^ "\n" ^ mypad1 offset "END LAMBDA"
   | Vec (vect, exp) ->
-      "VEC" ^ str_vec_len vect ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
+      " VEC" ^ str_vec_len vect ^ paren (comma_fold (List.map str_exp exp))
   | Mat (mat_t, exp) ->
-      "MAT" ^ str_mat_len mat_t ^ "(" ^ comma_fold (List.map str_exp exp) ^ ")"
-  | Not e -> "~" ^ str_simple_exp e
-  | Negate e -> "-" ^ str_simple_exp e
-  | Pipe (a, b) -> str_simple_exp a ^ " || " ^ str_simple_exp b
-  | And (a, b) -> str_simple_exp a ^ " & " ^ str_simple_exp b
-  | Divide (a, b) -> str_simple_exp a ^ " / " ^ str_simple_exp b
-  | Multiply (a, b) -> str_simple_exp a ^ " * " ^ str_simple_exp b
-  | Subtract (a, b) -> str_simple_exp a ^ " - " ^ str_simple_exp b
-  | Add (a, b) -> str_simple_exp a ^ " + " ^ str_simple_exp b
-  | Or (a, b) -> str_simple_exp a ^ " | " ^ str_simple_exp b
-  | Not_equal (a, b) -> str_simple_exp a ^ " ~= " ^ str_simple_exp b
-  | Equal (a, b) -> str_simple_exp a ^ " = " ^ str_simple_exp b
-  | Lesser_equal (a, b) -> str_simple_exp a ^ " <= " ^ str_simple_exp b
-  | Lesser (a, b) -> str_simple_exp a ^ " < " ^ str_simple_exp b
-  | Greater_equal (a, b) -> str_simple_exp a ^ " >= " ^ str_simple_exp b
-  | Greater (a, b) -> str_simple_exp a ^ " > " ^ str_simple_exp b
-  | Array_ref (se, e) -> str_simple_exp se ^ "[" ^ str_exp e ^ "]"
+      " MAT" ^ str_mat_len mat_t ^ paren (comma_fold (List.map str_exp exp))
+  | Not e -> " ~" ^ str_simple_exp ~offset ~preceed_space:0 e
+  | Negate e -> " -" ^ str_simple_exp ~offset ~preceed_space:0 e
+  | Pipe (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " ||" ^ str_simple_exp b
+  | And (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " &" ^ str_simple_exp b
+  | Divide (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " /" ^ str_simple_exp b
+  | Multiply (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " *" ^ str_simple_exp b
+  | Subtract (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " -" ^ str_simple_exp b
+  | Add (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " +" ^ str_simple_exp b
+  | Or (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " |" ^ str_simple_exp b
+  | Not_equal (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " ~= " ^ str_simple_exp b
+  | Equal (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " =" ^ str_simple_exp b
+  | Lesser_equal (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " <=" ^ str_simple_exp b
+  | Lesser (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " <" ^ str_simple_exp b
+  | Greater_equal (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " >=" ^ str_simple_exp b
+  | Greater (a, b) ->
+      mypad1 preceed_space (str_simple_exp a) ^ " >" ^ str_simple_exp b
+  | Array_ref (se, e) ->
+      str_simple_exp ~preceed_space se
+      ^ brack (str_exp ~offset ~preceed_space:0 e)
   | Array_generator_named tn -> "ARRAY " ^ tn ^ "[]"
   | Array_generator_named_addr (tn, ep) ->
-      "ARRAY " ^ tn ^ " [" ^ str_sexp_pair ep ^ "]"
-  | Array_generator_unnamed ep -> "ARRAY " ^ " [" ^ str_sexp_pair ep ^ "]"
+      "ARRAY " ^ tn ^ brack (str_sexp_pair ep)
+  | Array_generator_unnamed ep -> "ARRAY " ^ brack (str_sexp_pair ep)
   | Array_replace (p, epl) ->
-      space_fold
-        [
-          str_simple_exp p;
-          "[";
-          semicolon_fold (List.map str_sexp_pair epl);
-          "]";
-        ]
-  | Record_ref (e, fn) -> str_simple_exp e ^ "." ^ str_field_name fn
+      str_simple_exp ~offset:0 ~preceed_space:0 p
+      ^ brack (semicolon_fold (List.map str_sexp_pair epl))
+  | Record_ref (e, fn) -> " " ^ str_simple_exp e ^ "." ^ str_field_name fn
   | Record_generator_primary (e, fdle) ->
-      space_fold
-        [
-          str_simple_exp e;
-          "REPLACE [";
-          semicolon_fold (List.map str_field_exp fdle);
-          "]";
-        ]
+      " "
+      ^ space_fold
+          [
+            str_simple_exp e;
+            "REPLACE [";
+            semicolon_fold (List.map str_field_exp fdle);
+            "]";
+          ]
   | Record_generator_unnamed fdl ->
-      space_fold
-        [ "RECORD ["; semicolon_fold (List.map str_field_def fdl); "]" ]
+      " "
+      ^ space_fold
+          [ "RECORD ["; semicolon_fold (List.map str_field_def fdl); "]" ]
   | Record_generator_named (tn, fdl) ->
-      space_fold
-        [ "RECORD ["; tn; semicolon_fold (List.map str_field_def fdl); "]" ]
-  | Stream_generator tn -> "STREAM " ^ tn ^ "[]"
-  | Stream_generator_exp (tn, e) -> "STREAM " ^ tn ^ "[" ^ str_exp e ^ "]"
-  | Stream_generator_unknown_exp e -> "STREAM " ^ "[" ^ str_exp e ^ "]"
-  | Is (tn, e) -> "IS " ^ tn ^ "(" ^ str_exp e ^ ")"
+      " "
+      ^ space_fold
+          [ "RECORD ["; tn; semicolon_fold (List.map str_field_def fdl); "]" ]
+  | Stream_generator tn -> " " ^ "STREAM " ^ tn ^ "[]"
+  | Stream_generator_exp (tn, e) -> " " ^ "STREAM " ^ tn ^ "[" ^ str_exp e ^ "]"
+  | Stream_generator_unknown_exp e -> " " ^ "STREAM " ^ "[" ^ str_exp e ^ "]"
+  | Is (tn, e) -> " " ^ "IS " ^ tn ^ paren (str_exp e)
   | Union_generator (tn, te) ->
-      space_fold [ "UNION"; tn; "["; str_tag_exp te; "]" ]
-  | Prefix_operation (pn, e) -> str_prefix_name pn ^ "(" ^ str_exp e ^ ")"
-  | Is_error e -> "IS ERROR (" ^ str_exp e ^ ")"
+      " " ^ space_fold [ "UNION"; tn; brack (str_tag_exp te) ]
+  | Prefix_operation (pn, e) -> " " ^ str_prefix_name pn ^ paren (str_exp e)
+  | Is_error e -> " " ^ "IS ERROR (" ^ str_exp e ^ ")"
   | Let_rec (dp, e) ->
-      "LET_REC\n"
+      "\n" ^ mypad1 offset "LET_REC"
       ^ str_decldef_part ~offset:(offset + 2) dp
-      ^ " IN\n"
+      ^ mypad1 offset "IN"
       ^ mypad1 offset (str_exp ~offset e)
       ^ "\n" ^ mypad1 offset "END LET"
   | Let (dp, e) ->
-      "LET\n"
-      ^ str_decldef_part ~offset:(offset + 2) dp
-      ^ "\n"
-      ^ mypad1 (offset + 2) "IN\n"
-      ^ mypad1 offset (str_exp ~offset e)
-      ^ "\n" ^ mypad1 offset "END LET"
+      "\n" ^ mypad1 offset "LET"
+      ^ str_decldef_part ~offset dp
+      ^ "\n" ^ mypad1 offset "IN" ^ str_exp ~offset e ^ "\n"
+      ^ mypad1 offset "END LET"
   | Tagcase (ae, tc, o) ->
       newline_fold [ str_tagcase_exp ae; str_taglist_list tc; str_otherwise o ]
   | If (cl, el) ->
-      str_if ~offset cl ^ str_else ~offset el ^ "\n" ^ mypad1 offset "END IF"
+      str_if ~offset:(offset + 2) cl
+      ^ str_else ~offset:(offset + 2) el
+      ^ "\n" ^ mypad1 offset "  END IF\n"
   | For_all (i, d, r) ->
-      "FOR " ^ str_in_exp i ^ "\n"
-      ^ newline_fold ~offset:(offset + 2)
-          [ str_decldef_part ~offset:(offset + 4) d; "RETURNS" ]
-      ^ "\n"
-      ^ newline_fold ~offset:(offset + 4) (List.map str_return_clause r)
+      "\n" ^ mypad1 offset "FOR " ^ str_in_exp i
+      ^ newline_fold ~offset [ str_decldef_part ~offset d ]
+      ^ mypad1 (offset + 2) "RETURNS\n"
+      ^ newline_fold ~offset:(offset + 2) (List.map str_return_clause r)
       ^ "\n"
       ^ newline_fold ~offset [ "END FOR" ]
   | For_initial (d, i, r) ->
@@ -917,28 +942,26 @@ and str_simple_exp ?(offset = 0) = function
         match i with
         | Iterator_termination (ii, t) ->
             let k =
-              newline_fold ~offset
-                [
-                  str_iterator ~offset:(offset + 2) ii;
-                  str_termination t;
-                  "RETURNS " ^ space_fold (List.map str_return_clause r);
-                ]
+              newline_fold ~offset:(offset + 2)
+                [ str_iterator ~offset:(offset + 2) ii; str_termination t ]
+              ^ mypad1 (offset + 2) "RETURNS "
+              ^ space_fold (List.map str_return_clause r)
             in
-            let l = str_decldef_part ~offset:(offset + 2) d in
-            let m = "FOR INITIAL" in
-            m ^ newline_fold ~offset [ l; "\n"; k; mypad1 offset "END FOR" ]
+            let l = str_decldef_part ~offset d in
+            let m = "\n" ^ mypad1 offset "FOR INITIAL" in
+            m
+            ^ newline_fold ~offset [ l; "\n"; k ]
+            ^ "\n" ^ mypad1 offset "END FOR"
         | Termination_iterator (t, ii) ->
-            let k = "FOR INITIAL" in
+            let k = "\n" ^ mypad1 offset "FOR INITIAL" in
             let l = str_decldef_part ~offset:(offset + 2) d in
             let m =
               newline_fold ~offset
-                [
-                  str_termination t;
-                  str_iterator ~offset:(offset + 2) ii;
-                  "RETURNS " ^ space_fold (List.map str_return_clause r);
-                ]
+                [ str_termination t; str_iterator ~offset:(offset + 2) ii ]
+              ^ mypad1 (offset + 2) "RETURNS "
+              ^ space_fold (List.map str_return_clause r)
             in
-            k ^ newline_fold ~offset [ l; m; mypad1 offset "END FOR" ]
+            k ^ newline_fold ~offset [ l; m ] ^ "\n" ^ mypad1 offset "END FOR"
       in
       loopAOrB i
 
@@ -987,7 +1010,7 @@ and internals o f =
       in
       let q = mypad1 (o + 2) (str_exp ~offset:(o + 2) e) in
       let r = mypad1 o "END FUNCTION" in
-      let p = newline_fold [ s; t; q; r; internals o tl ] in
+      let p = newline_fold [ s; t ] ^ newline_fold [ q; r; internals o tl ] in
       p
 
 and str_function_def o k =

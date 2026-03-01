@@ -16,10 +16,6 @@ function main( A:OneD; n:integer returns integer )
   returns value of max24
   end for
 end function
-define Main
-type Onei   = array[integer];
-type Oned   = array[double];
-type Twod   = array[Oned];
 function idfamax( A:OneD; n:integer returns integer )
   for initial
     i := 2;

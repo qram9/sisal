@@ -1872,12 +1872,6 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
       in
       tag_builder t1 in_gr tagcase_g tl vn_n jj tag_gr_map
 
-and buildList n =
-  let rec get_a_list_of_N acc i =
-    if i <= n then get_a_list_of_N (i :: acc) (i + 1) else List.rev acc
-  in
-  get_a_list_of_N [] 0
-
 and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
   (* Propagate outputs of inner compound nodes to the
       recursive caller, using If1.MULTIARITY. Make sure that they
@@ -2296,6 +2290,39 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "ARRAY_FILL" ->
+          let in_ports = Array.make 3 "" in
+          let out_ports = Array.make 1 "" in
+
+          let (n, _, _), in_gr =
+            If1.add_node_2 (`Simple (If1.AFILL, in_ports, out_ports, [])) in_gr
+          in
+
+          let final_ty, in_gr =
+            match arg with
+            | Ast.Arg (Ast.Exp aexps) ->
+                let arg_count, array_element_ty, in_gr =
+                  List.fold_left
+                    (fun (cou, element_ty, gr) x ->
+                      let (l, m, tt), gr = do_simple_exp gr x in
+                      let element_ty = if cou = 2 then tt else element_ty in
+                      (cou + 1, element_ty, If1.add_edge l m n cou tt gr))
+                    (0, 0, in_gr) aexps
+                in
+
+                if arg_count <> 3 then
+                  raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
+
+                (* FIX: Correctly destructure the return of add_type_to_typemap *)
+                let id_triple, in_gr =
+                  If1.add_type_to_typemap (If1.Array_ty array_element_ty) in_gr
+                in
+                let arr_ty_id, _, _ = id_triple in
+                (arr_ty_id, in_gr)
+            | _ -> raise (If1.Sem_error "Invalid arguments for ARRAY_FILL")
+          in
+
+          ((n, 0, final_ty), in_gr)
       | "ARRAY_SIZE" ->
           let in_port_00 = Array.make 1 "" in
           let out_port_00 = Array.make 1 "" in
@@ -2384,7 +2411,7 @@ and do_simple_exp in_gr in_sim_ex =
           let _, mmm =
             List.fold_right
               (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
-              (List.rev tml)
+              tml
               (List.length tml - 1, [])
           in
 
@@ -3041,8 +3068,8 @@ and do_simple_exp in_gr in_sim_ex =
           in
           If1.inherit_parent_syms init_gr body_gr
         in
-        let (_, _, _), body_gr = do_iterator (build_body_graph init_gr) bi in
-
+        let bbr = build_body_graph init_gr in
+        let (_, _, _), body_gr = do_iterator bbr bi in
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
@@ -3546,7 +3573,7 @@ and do_compilation_unit = function
       (* Return our finished graph containing all our IF1 subgraphs *)
       final_gr
 
-and verify_function_returns fn_ty_id in_gr =
+and verify_function_returns f fn_ty_id in_gr =
   let _, tm, _ = If1.get_typemap in_gr in
   (* 1. Extract the Return Tuple ID from the Function Type *)
   let ret_tuple_id =
@@ -3604,15 +3631,26 @@ and verify_function_returns fn_ty_id in_gr =
     List.iter2
       (fun exp act ->
         if exp <> act then
-          raise
-            (If1.outs_graph in_gr;
-             If1.Sem_error
-               (Printf.sprintf
-                  "Return Type Mismatch: Expected %s (#%d), but found %s (#%d)"
-                  (If1.rev_lookup_ty_name exp)
-                  exp
-                  (If1.rev_lookup_ty_name act)
-                  act)))
+          let tm = If1.get_typemap_tm in_gr in
+          match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
+          | Some ty_exp, Some ty_act ->
+              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then
+                (* Check if the mismatch is due to an unexpected Error Type *)
+                let err_msg =
+                  match ty_act with
+                  | ERROR s -> Printf.sprintf "Hardware Trap/Error found: %s" s
+                  | _ ->
+                      Printf.sprintf
+                        "Type error: Expected %s (#%d), but found %s (#%d)"
+                        (If1.printable_full_type in_gr exp)
+                        exp
+                        (If1.printable_full_type in_gr act)
+                        act
+                in
+                raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg))
+          | _ ->
+              raise
+                (If1.Sem_error "Verification Error: Typemap resolution failed"))
       expected_ids actual_ids;
 
   print_endline
@@ -3621,8 +3659,7 @@ and verify_function_returns fn_ty_id in_gr =
 and do_type_def in_gr = function
   | Type_def (n, t) ->
       let _, in_gr = If1.add_sisal_typename in_gr n (-1) in
-      (* -1 is for not
-                                                               yet defined *)
+      (* -1 is for not yet defined *)
       let (id_t, ii, tt), in_gr = If1.add_sisal_type in_gr t in
       let id_, in_gr = If1.add_sisal_typename in_gr n tt in
       ((id_t, ii, id_), in_gr)
@@ -3687,8 +3724,9 @@ and do_internals (names, in_gr) f =
       in
       let new_fun_gr_ = If1.graph_clean_multiarity new_fun_gr_ in
       let () =
-        print_endline ("VERIFY " ^ Ast.internals 1 f);
-        verify_function_returns fn_ty new_fun_gr_
+        let strs = Ast.internals 1 f in
+        print_endline ("VERIFY " ^ strs);
+        verify_function_returns f fn_ty new_fun_gr_
       in
       let (aa, bb, _), in_gr =
         If1.add_node_2
@@ -3723,7 +3761,6 @@ and do_function_def in_gr = function
   | Ast.Function f as x ->
       print_endline ("Looking at function " ^ Ast.str_function_def 0 x);
       let _, in_gr_ = do_internals ([], in_gr) f in
-      print_endline ("Out of function " ^ Ast.str_function_def 0 x);
       ((0, 0, 0), in_gr_)
   | Forward_function f -> do_function_header in_gr f
 
