@@ -2084,7 +2084,8 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
       let stack = get_stack_trace 5 in
       (* Use your new recursive printer for the edge type *)
       let ty_desc =
-        "(#" ^ string_of_int ed_ty ^ "): " ^ printable_full_type in_gr ed_ty
+        "(#" ^ string_of_int ed_ty ^ "): "
+        ^ printable_full_type (get_typemap_tm in_gr) ed_ty
       in
       let src_str =
         if n1 = 0 then Printf.sprintf "Boundary:%d[P:%d]" n1 p1
@@ -2518,47 +2519,46 @@ and add_compound_type in_gr = function
       add_type_to_typemap (Function_ty (arg_fst, res_fst, fn_name)) in_gr
   | _ -> raise (Node_not_found "In compound type")
 
-and string_of_if1_ty_recursive in_gr seen ty =
+and string_of_if1_ty_recursive tm seen ty =
   match ty with
   | Basic _ | Multiple _ | ERROR _ | Unknown_ty ->
       (* Leaf items: use your existing printer *)
       string_of_if1_ty ty
-  | Array_ty l -> "array[" ^ resolve_and_print in_gr seen l ^ "]"
-  | Stream l -> "stream[" ^ resolve_and_print in_gr seen l ^ "]"
+  | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
+  | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
       "("
-      ^ resolve_and_print in_gr seen l1
+      ^ resolve_and_print tm seen l1
       ^ " * "
-      ^ resolve_and_print in_gr seen l2
+      ^ resolve_and_print tm seen l2
       ^ ")"
   | Function_ty (input_l, output_l, name) ->
-      let in_str = resolve_and_print in_gr seen input_l in
-      let out_str = resolve_and_print in_gr seen output_l in
+      let in_str = resolve_and_print tm seen input_l in
+      let out_str = resolve_and_print tm seen output_l in
       Printf.sprintf "function %s(%s) returns %s" name in_str out_str
   | Record (field_l, _, name) ->
       let name_str = if name = "" then "" else name ^ " " in
-      name_str ^ "record{" ^ resolve_and_print in_gr seen field_l ^ "}"
+      name_str ^ "record{" ^ resolve_and_print tm seen field_l ^ "}"
   | Field labels ->
-      let inner = List.map (resolve_and_print in_gr seen) labels in
+      let inner = List.map (resolve_and_print tm seen) labels in
       String.concat "; " inner
   | Tag labels ->
-      let inner = List.map (resolve_and_print in_gr seen) labels in
+      let inner = List.map (resolve_and_print tm seen) labels in
       "union{" ^ String.concat " | " inner ^ "}"
   | Union (tag_l, _, name) ->
       let name_str = if name = "" then "" else name ^ " " in
-      name_str ^ "union{" ^ resolve_and_print in_gr seen tag_l ^ "}"
-  | If1Type_name l -> "alias(" ^ resolve_and_print in_gr seen l ^ ")"
+      name_str ^ "union{" ^ resolve_and_print tm seen tag_l ^ "}"
+  | If1Type_name l -> "alias(" ^ resolve_and_print tm seen l ^ ")"
 
-and resolve_and_print in_gr seen id =
+and resolve_and_print tm seen id =
   (* Cycle Detection: If we've seen this ID in the current branch, just print the ID *)
   if List.mem id seen then "REC_ID:" ^ string_of_int id
   else
-    let tm = get_typemap_tm in_gr in
     match TM.find_opt id tm with
-    | Some ty -> string_of_if1_ty_recursive in_gr (id :: seen) ty
+    | Some ty -> string_of_if1_ty_recursive tm (id :: seen) ty
     | None -> "MISSING_ID:" ^ string_of_int id
 
-and printable_full_type in_gr id = resolve_and_print in_gr [] id
+and printable_full_type tm id = resolve_and_print tm [] id
 
 (* seen: (int * int) list *)
 and structurally_equal in_gr seen t1 t2 =
@@ -3235,6 +3235,9 @@ and string_of_if1_basic_ty bc =
   | USHORT4 -> "USHORT4"
   | USHORT8 -> "USHORT8"
 
+and is_basic_int_scalar bc =
+  match bc with INTEGRAL | LONG -> true | _ -> false
+
 and string_of_ports pa =
   "[|" ^ Array.fold_right (fun x y -> cate_nicer x y ",") pa "" ^ "|]"
 
@@ -3899,6 +3902,18 @@ let intrinsic_lib =
                [ Ast.Double_real ],
              spl_case_diexp );
          ]
+     in
+
+     let in_gr =
+       let add_basic_type_entry gr (id, t_def) =
+         let m, td, tm = gr.typemap in
+         {
+           gr with
+           typemap =
+             (m, TM.add id t_def td, MM.add (rev_lookup_ty_name id) id tm);
+         }
+       in
+       List.fold_left add_basic_type_entry in_gr basic_types
      in
      (* 7. Zip them together: (TypeID * MangledName) *)
      let _, ps = in_gr.symtab in

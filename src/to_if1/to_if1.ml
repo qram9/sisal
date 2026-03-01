@@ -2290,6 +2290,82 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "ARRAY_SETL" ->
+          let expl, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
+                | Empty -> ([], in_gr))
+          in
+          let expl =
+            List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
+          in
+          print_endline "After following through incoming regular node";
+          print_endline
+            (String.concat ", "
+               (List.map
+                  (fun (x, y, z) ->
+                    string_of_int x ^ ": " ^ string_of_int y ^ ": "
+                    ^ string_of_int z)
+                  expl));
+          flush stdout;
+          let in_ports = Array.make 2 "" in
+          let out_ports = Array.make 1 "" in
+
+          let (n, _, _), in_gr =
+            If1.add_node_2 (`Simple (If1.ASETL, in_ports, out_ports, [])) in_gr
+          in
+          let array_triple, low_limit_triple =
+            match expl with
+            | [
+             (array_node, array_port, array_type);
+             (low_limit_node, low_limit_port, low_limit_type);
+            ] ->
+                ( (array_node, array_port, array_type),
+                  (low_limit_node, low_limit_port, low_limit_type) )
+            | _ ->
+                failwith
+                  ("Incorrect number of arguments for array_setl;"
+                 ^ " Array_setl takes 2 arguments only")
+          in
+          let ( (array_node_id, array_port, array_type_id),
+                (low_limit_node_id, low_limit_port, low_limit_type_id) ) =
+            (array_triple, low_limit_triple)
+          in
+          let _ =
+            match If1.lookup_ty array_type_id in_gr with
+            | Array_ty _ -> ()
+            | _ ->
+                failwith
+                  ("Incorrect type for array-setl; "
+                 ^ "first argument must be an array, but found "
+                  ^ If1.printable_full_type (If1.get_typemap_tm in_gr)
+                      array_type_id)
+          in
+          let _ =
+            match If1.lookup_ty low_limit_type_id in_gr with
+            | Basic bx -> (
+                match If1.is_basic_int_scalar bx with
+                | false ->
+                    failwith
+                      ("Incorrect low limit type for array-setl; "
+                     ^ "second argument must be an integer or long but found "
+                      ^ If1.printable_full_type (If1.get_typemap_tm in_gr)
+                          low_limit_type_id)
+                | true -> ())
+            | _ ->
+                failwith
+                  ("Incorrect low limit type for array-setl; "
+                 ^ "second argument must be an integer or long but found "
+                  ^ If1.printable_full_type (If1.get_typemap_tm in_gr)
+                      low_limit_type_id)
+          in
+          let in_gr =
+            If1.add_edge2 low_limit_node_id low_limit_port n 1 low_limit_type_id
+              (If1.add_edge2 array_node_id array_port n 0 array_type_id in_gr)
+          in
+          ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
           let in_ports = Array.make 3 "" in
           let out_ports = Array.make 1 "" in
@@ -2345,7 +2421,6 @@ and do_simple_exp in_gr in_sim_ex =
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | _ ->
-          let cs, ps = in_gr.If1.symtab in
           let expl, in_gr =
             match arg with
             | Ast.Arg aa -> (
@@ -2353,7 +2428,11 @@ and do_simple_exp in_gr in_sim_ex =
                 | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
                 | Empty -> ([], in_gr))
           in
+          let expl =
+            List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
+          in
           let arg_types = List.map (fun (_, _, t) -> t) expl in
+          let cs, ps = in_gr.If1.symtab in
           let symtab_entry =
             match If1.SM.find_opt deref_fn cs with
             | Some id -> id
@@ -2378,9 +2457,12 @@ and do_simple_exp in_gr in_sim_ex =
                         match discovered with
                         | Some (_, id) -> id
                         | None ->
+                            print_endline ("ARGUMENTS ARE " ^ Ast.str_arg arg);
+                            flush stdout;
                             raise
-                              (If1.Sem_error ("Unknown function: " ^ deref_fn)))
-                    ))
+                              (If1.Sem_error
+                                 ("Unknown function: " ^ deref_fn
+                                ^ " target prefix " ^ target_prefix)))))
           in
           let deref_fn = symtab_entry.val_name in
           let in_port_00 = Array.make (List.length expl) "" in
@@ -3226,6 +3308,8 @@ and do_return_exp in_gr ggg =
       (* AGATHER GETS HERE *)
       (* TODO HERE I NEED TO BUILD AN ARRAY TYPE *)
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      assert (at <> 0);
       (`Array_of, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       (* STREAM GETS HERE *)
@@ -3289,6 +3373,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
               (* Create a type for AGATHER HERE AND ADD ITS TYPE TO
               output return_action_list *)
               let what_ty, out_gr =
+                assert (tt <> 0);
                 try (If1.find_ty in_gr (If1.Array_ty tt), out_gr)
                 with _ ->
                   let aty = If1.Array_ty tt in
@@ -3634,7 +3719,7 @@ and verify_function_returns f fn_ty_id in_gr =
           let tm = If1.get_typemap_tm in_gr in
           match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
           | Some ty_exp, Some ty_act ->
-              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then
+              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then (
                 (* Check if the mismatch is due to an unexpected Error Type *)
                 let err_msg =
                   match ty_act with
@@ -3642,12 +3727,13 @@ and verify_function_returns f fn_ty_id in_gr =
                   | _ ->
                       Printf.sprintf
                         "Type error: Expected %s (#%d), but found %s (#%d)"
-                        (If1.printable_full_type in_gr exp)
+                        (If1.printable_full_type (If1.get_typemap_tm in_gr) exp)
                         exp
-                        (If1.printable_full_type in_gr act)
+                        (If1.printable_full_type (If1.get_typemap_tm in_gr) act)
                         act
                 in
-                raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg))
+                print_endline (If1.str_type_trace ());
+                raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
           | _ ->
               raise
                 (If1.Sem_error "Verification Error: Typemap resolution failed"))
