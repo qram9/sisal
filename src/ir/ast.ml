@@ -302,6 +302,10 @@ let space_cate_trim_right_fst a b cha =
   | "" -> a
   | _ -> ( match a with "" -> b | _ -> trim_right a ^ cha ^ b)
 
+let single_space_cate a b =
+  if b.[0] <> '\n' && b.[0] <> ' ' then String.concat " " [ a; b ]
+  else String.concat "" [ a; b ]
+
 let space2_cate a b cha =
   match b with
   | "" -> a
@@ -550,7 +554,7 @@ let newline_fold ?offset =
 let dot_fold = myfold "."
 let paren exp = "(" ^ String.trim exp ^ ")"
 let brack exp = "[" ^ String.trim exp ^ "]"
-let elseif_fold offset = myfold ("\n" ^ mypad1 offset "  ELSE IF ")
+let elseif_fold offset = myfold ("\n" ^ mypad1 offset "ELSE IF ")
 
 let rec str_tagnames = function Tagnames tn -> comma_fold tn
 
@@ -786,8 +790,8 @@ and str_field_def = function
 
 and str_cond ?(offset = 0) ?(preceed_space = 0) = function
   | Cond (c, e) ->
-      str_exp ~preceed_space:0 c ^ "\n" ^ mypad1 offset "  THEN"
-      ^ str_exp ~offset:(offset + 2) e
+      str_exp ~preceed_space c ^ "\n" ^ mypad1 offset "  "
+      ^ single_space_cate "THEN" (str_exp ~offset:(offset + 2) e)
 
 and str_in_exp = function
   | In_exp (vn, e) -> str_val vn ^ " IN " ^ str_exp e
@@ -800,7 +804,10 @@ and str_if ?(offset = 0) f =
   ^ elseif_fold offset (List.map (str_cond ~offset ~preceed_space:1) f)
 
 and str_else ?(offset = 0) = function
-  | Else e -> "\n" ^ mypad1 offset "  ELSE" ^ str_exp ~offset:(offset + 2) e
+  | Else e ->
+      "\n"
+      ^ mypad1 offset
+          (single_space_cate "ELSE" (str_exp ~offset:(offset + 2) e))
 
 and str_tag_exp = function
   | Tag_name tn -> tn
