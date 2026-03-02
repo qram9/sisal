@@ -3975,7 +3975,6 @@ module If1_View = struct
   let rec render_node_to_json in_gr node =
     match node with
     | Simple (id, sym, pin, pout, prag) ->
-        (* Pragmas added immediately after node name *)
         let label =
           sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
         in
@@ -3986,7 +3985,6 @@ module If1_View = struct
           (esc (string_of_ports pin))
           (esc (string_of_ports pout))
     | Compound (id, sym, ty, prag, sub_gr, _) ->
-        (* Pragmas added after node name for Compound blocks *)
         let label =
           sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
         in
@@ -3995,7 +3993,7 @@ module If1_View = struct
            \"inner_type\": %d, \"subgraph\": %s }"
           id (esc label) ty
           (render_graph_to_json sub_gr)
-    | Literal (id, bc, value, _) ->
+    | Literal (id, _, value, _) ->
         sprintf "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s }" id
           (esc value)
     | Boundary (_, _, _, prag) ->
@@ -4010,100 +4008,206 @@ module If1_View = struct
       |> Seq.map (fun (_, v) -> render_node_to_json in_gr v)
       |> List.of_seq
     in
-    let edges =
-      ES.to_seq in_gr.eset
-      |> Seq.map (fun e -> esc (string_of_edge in_gr e))
-      |> List.of_seq
+
+    (* Helper to determine if an edge is an error edge *)
+    let is_error_edge (_, _, tt) =
+      let _, tm, _ = in_gr.typemap in
+      match TM.find_opt tt tm with Some (ERROR _) -> true | _ -> false
     in
 
-    (* Extract SymTab strings for this specific graph level *)
+    (* Partition the edges *)
+    let e_list = ES.elements in_gr.eset in
+    let err_es, data_es = List.partition is_error_edge e_list in
+
+    let data_edges_json =
+      List.map (fun e -> esc (string_of_edge in_gr e)) data_es
+    in
+    let error_edges_json =
+      List.map (fun e -> esc (string_of_edge in_gr e)) err_es
+    in
+
     let syms = string_of_symtab_gr in_gr in
     let sym_json = sprintf "[%s]" (String.concat ", " (List.map esc syms)) in
 
-    sprintf "{ \"nodes\": [%s], \"edges\": [%s], \"symtab\": %s }"
-      (String.concat ", " nodes) (String.concat ", " edges) sym_json
+    let _, tm, _ = in_gr.typemap in
+    let tm_entries = ref [] in
+    TM.iter
+      (fun id _ ->
+        let full_desc = printable_full_type tm id in
+        tm_entries :=
+          sprintf "{ \"id\": %d, \"desc\": %s }" id (esc full_desc)
+          :: !tm_entries)
+      tm;
+    let tm_json = sprintf "[%s]" (String.concat ", " (List.rev !tm_entries)) in
+
+    sprintf
+      "{ \"nodes\": [%s], \"data_edges\": [%s], \"error_edges\": [%s], \
+       \"symtab\": %s, \"typemap\": %s }"
+      (String.concat ", " nodes)
+      (String.concat ", " data_edges_json)
+      (String.concat ", " error_edges_json)
+      sym_json tm_json
 
   let export_debug_html file_path in_gr =
     let oc = open_out file_path in
     let json_data = render_graph_to_json in_gr in
-
     fprintf oc
       "<html><head><style>\n\
-      \      body { font-family: 'Menlo', monospace; font-size: 12px; \
+      \      :root { --sidebar-width: 450px; }\n\
+      \      body { font-family: 'Menlo', monospace; font-size: 11px; \
        background: #1e1e1e; color: #d4d4d4; margin: 0; display: grid; \
-       grid-template-columns: 1fr 400px; height: 100vh; }\n\
+       grid-template-columns: 1fr 5px var(--sidebar-width); height: 100vh; \
+       overflow: hidden; }\n\
       \      #left-pane { overflow-y: auto; padding: 20px; border-right: 1px \
-       solid #444; }\n\
-      \      #right-pane { overflow-y: auto; padding: 20px; background: \
-       #252526; }\n\
-      \      .graph-box { border-left: 2px solid #444; margin-left: 20px; \
-       padding: 5px; }\n\
+       solid #333; }\n\
+      \      #resizer { cursor: col-resize; background: #333; transition: \
+       background 0.2s; }\n\
+      \      #resizer:hover { background: #569cd6; }\n\
+      \      #right-pane { overflow-y: auto; display: flex; flex-direction: \
+       column; background: #252526; }\n\
+      \      .tabs { display: flex; background: #2d2d2d; border-bottom: 1px \
+       solid #3e3e3e; }\n\
+      \      .tab { padding: 8px 15px; cursor: pointer; border-right: 1px \
+       solid #3e3e3e; color: #888; }\n\
+      \      .tab.active { background: #252526; color: #fff; border-bottom: \
+       2px solid #569cd6; }\n\
+      \      #pane-content { padding: 15px; flex-grow: 1; overflow-y: auto; }\n\
+      \      .graph-box { border-left: 1px solid #444; margin-left: 15px; \
+       padding-left: 10px; }\n\
       \      summary { cursor: pointer; color: #569cd6; font-weight: bold; \
-       padding: 4px; }\n\
-      \      summary:hover { background: #333; outline: 1px solid #555; }\n\
-      \      .sym-entry { margin-bottom: 8px; padding: 4px; border-bottom: 1px \
-       solid #333; font-size: 11px; }\n\
-      \      mark.highlight { background-color: #ff0; color: #000; }\n\
-      \    </style></head><body>";
-
-    fprintf oc
-      "<div id='left-pane'><h3>IF1 Hierarchy</h3><div id='root'></div></div>";
-    fprintf oc
-      "<div id='right-pane'><h3>Symbol Table</h3><div id='sym-content'>Click a \
-       Graph summary to view Symbols</div></div>";
-
-    fprintf oc
-      "<script>\n\
-      \      const data = %s;\n\n\
-      \      function showSymTab(syms) {\n\
-      \        const container = document.getElementById('sym-content');\n\
-      \        container.innerHTML = syms.length ? '' : 'No symbols at this \
-       level';\n\
-      \        syms.forEach(s => {\n\
-      \          const div = document.createElement('div');\n\
-      \          div.className = 'sym-entry';\n\
-      \          div.textContent = s;\n\
-      \          container.appendChild(div);\n\
-      \        });\n\
+       padding: 2px; }\n\
+      \      .node-item { color: #ce9178; margin: 1px 0; }\n\
+      \      .edge-item { color: #b5cea8; opacity: 0.8; }\n\
+      \      .tm-id { color: #4ec9b0; font-weight: bold; margin-right: 8px; }\n\
+      \      mark.highlight { background-color: #f0f000; color: #000; \
+       font-weight: bold; }\n\
+      \    </style></head><body>\n\
+      \    <div id='left-pane'><h3>IF1 Hierarchy</h3><div id='root'></div></div>\n\
+      \    <div id='resizer'></div>\n\
+      \    <div id='right-pane'>\n\
+      \      <div class='tabs'><div id='tab-sym' class='tab active' \
+       onclick='switchTab(\"sym\")'>Symbols</div><div id='tab-tm' class='tab' \
+       onclick='switchTab(\"tm\")'>TypeMap</div></div>\n\
+      \      <div id='pane-content'>Click a Graph to see symbols</div>\n\
+      \    </div>\n\
+      \    <script>\n\
+      \      const data = %s;\n\
+      \      let currentGraph = data;\n\
+      \      let activeTab = 'sym';\n\n\
+      \      // Smart Highlight Logic (selectionchange)\n\
+      \      document.addEventListener('selectionchange', () => {\n\
+      \        const selection = window.getSelection().toString().trim();\n\
+      \        document.querySelectorAll('mark.highlight').forEach(el => \
+       el.replaceWith(el.textContent));\n\
+      \        if (selection.length > 1) {\n\
+      \          const walker = document.createTreeWalker(document.body, \
+       NodeFilter.SHOW_TEXT);\n\
+      \          const nodes = [];\n\
+      \          while(walker.nextNode()) \
+       if(walker.currentNode.textContent.includes(selection) && \
+       walker.currentNode.parentElement.tagName !== 'SCRIPT' && \
+       walker.currentNode.parentElement.tagName !== 'STYLE') \
+       nodes.push(walker.currentNode);\n\
+      \          nodes.forEach(node => {\n\
+      \            const span = document.createElement('span');\n\
+      \            span.innerHTML = node.textContent.replace(new \
+       RegExp(`(${selection})`, 'g'), '<mark class=\"highlight\">$1</mark>');\n\
+      \            node.replaceWith(...span.childNodes);\n\
+      \          });\n\
+      \        }\n\
+      \      });\n\n\
+      \      const resizer = document.getElementById('resizer');\n\
+      \      let isResizing = false;\n\
+      \      resizer.addEventListener('mousedown', () => { isResizing = true; \
+       });\n\
+      \      document.addEventListener('mousemove', (e) => {\n\
+      \        if (!isResizing) return;\n\
+      \        const width = window.innerWidth - e.clientX;\n\
+      \        if (width > 100 && width < window.innerWidth * 0.8) \
+       document.body.style.setProperty('--sidebar-width', width + 'px');\n\
+      \      });\n\
+      \      document.addEventListener('mouseup', () => isResizing = false);\n\n\
+      \      function switchTab(tab) {\n\
+      \        activeTab = tab;\n\
+      \        document.getElementById('tab-sym').classList.toggle('active', \
+       tab === 'sym');\n\
+      \        document.getElementById('tab-tm').classList.toggle('active', \
+       tab === 'tm');\n\
+      \        updateRightPane();\n\
+      \      }\n\n\
+      \      function updateRightPane() {\n\
+      \        const container = document.getElementById('pane-content');\n\
+      \        container.innerHTML = '';\n\
+      \        if (activeTab === 'sym') {\n\
+      \          (currentGraph.symtab || []).forEach(s => {\n\
+      \            const div = document.createElement('div'); \
+       div.className='sym-entry'; div.textContent = s; \
+       container.appendChild(div);\n\
+      \          });\n\
+      \        } else {\n\
+      \          const search = document.createElement('input'); \
+       search.placeholder='Filter types...'; search.oninput=(e)=> {\n\
+      \            const val = e.target.value.toLowerCase();\n\
+      \            document.querySelectorAll('.tm-entry').forEach(el => \
+       el.style.display = el.textContent.toLowerCase().includes(val) ? '' : \
+       'none');\n\
+      \          };\n\
+      \          container.appendChild(search);\n\
+      \          data.typemap.forEach(t => {\n\
+      \            const div = document.createElement('div'); \
+       div.className='tm-entry'; div.innerHTML = `<span \
+       class='tm-id'>[${t.id}]</span>${t.desc}`; container.appendChild(div);\n\
+      \          });\n\
+      \        }\n\
       \      }\n\n\
       \      function buildTree(container, graph, isRoot = false) {\n\
       \        const details = document.createElement('details');\n\
       \        details.open = isRoot;\n\
       \        const summary = document.createElement('summary');\n\
-      \        summary.textContent = `Graph { ${graph.nodes.length} nodes }`;\n\
-      \        \n\
-      \        // Populate Right Pane on click\n\
-      \        summary.onclick = (e) => { \n\
-      \            e.stopPropagation();\n\
-      \            showSymTab(graph.symtab); \n\
-      \        };\n\n\
-      \        details.appendChild(summary);\n\
+      \        summary.textContent = `Graph {${graph.nodes.length} nodes}`;\n\
+      \        summary.onclick = (e) => { e.stopPropagation(); currentGraph = \
+       graph; updateRightPane(); };\n\
+      \        details.appendChild(summary);\n\n\
       \        const content = document.createElement('div');\n\
       \        content.className = 'graph-box';\n\
       \        \n\
+      \        // 1. Render Nodes\n\
       \        graph.nodes.forEach(n => {\n\
       \          const div = document.createElement('div');\n\
       \          if (n.subgraph) {\n\
-      \            const sub = document.createElement('div');\n\
-      \            sub.innerHTML = `<b>Node ${n.id}: ${n.label} (Compound)</b>`;\n\
-      \            buildTree(sub, n.subgraph, false);\n\
-      \            div.appendChild(sub);\n\
+      \            div.innerHTML = `<b>Node ${n.id}: ${n.label}</b>`;\n\
+      \            buildTree(div, n.subgraph, false);\n\
       \          } else {\n\
       \            div.className = 'node-item';\n\
       \            div.textContent = `Node ${n.id}: ${n.label || n.type}`;\n\
       \          }\n\
       \          content.appendChild(div);\n\
       \        });\n\n\
-      \        graph.edges.forEach(e => {\n\
-      \          const div = document.createElement('div');\n\
-      \          div.className = 'edge-item';\n\
-      \          div.textContent = '  ' + e;\n\
-      \          content.appendChild(div);\n\
-      \        });\n\n\
+      \        // 2. Render Data Edges (Default Open)\n\
+      \        const dataDetails = document.createElement('details');\n\
+      \        dataDetails.open = true;\n\
+      \        dataDetails.innerHTML = '<summary style=\"color: \
+       #b5cea8;\">Data Edges (' + graph.data_edges.length + ')</summary>';\n\
+      \        graph.data_edges.forEach(e => {\n\
+      \          const d = document.createElement('div'); \
+       d.className='edge-item'; d.textContent='  ' + e;\n\
+      \          dataDetails.appendChild(d);\n\
+      \        });\n\
+      \        content.appendChild(dataDetails);\n\n\
+      \        // 3. Render Error Edges (Default Closed)\n\
+      \        const errorDetails = document.createElement('details');\n\
+      \        errorDetails.innerHTML = '<summary style=\"color: \
+       #c62828;\">Error Edges (' + graph.error_edges.length + ')</summary>';\n\
+      \        graph.error_edges.forEach(e => {\n\
+      \          const d = document.createElement('div'); \
+       d.className='edge-item'; \n\
+      \          d.style.color = '#ff6b6b'; d.textContent='  ' + e;\n\
+      \          errorDetails.appendChild(d);\n\
+      \        });\n\
+      \        content.appendChild(errorDetails);\n\n\
       \        details.appendChild(content);\n\
       \        container.appendChild(details);\n\
       \      }\n\
-      \      \n\
       \      buildTree(document.getElementById('root'), data, true);\n\
       \    </script></body></html>"
       json_data;
