@@ -31,6 +31,7 @@ let main () =
     in
     print_endline (Ast.str_compilation_unit sisal_ast);
     let ou = To_if1_.do_compilation_unit sisal_ast in
+    If1.If1_View.export_debug_html "compiler_dump.html" ou;
     print_endline "Result graph";
     print_endline (If1.string_of_graph_thin ou);
 (*    print_endline (Ast.str_compilation_unit sisal_ast); *)

@@ -2827,13 +2827,13 @@ and do_simple_exp in_gr in_sim_ex =
   | Ast.Tagcase (ae, tc, o) -> (
       (* Each tag is a graph, tagcase is a
        compound graph with one "input",
-       which is the If1.union. So Ast.while creating
+       which is the If1.union. So while creating
        a graph for a tag, we have to provide
        the tag's type as the incoming type in its
        boundary--- will need to get a symbol name from
-       tagcase_exp and an If1.union type from the RHS
-       add the vn_n as a If1.symtab entry of type tyy
-       will need to add the above symbol name to the
+       tagcase_exp and an If1.union type from the RHS to
+       add the vn_n as a If1.symtab entry of type tyy.
+       Finally, will need to add the above symbol name to the
        boundaries of a new graph and set the type from the
        tag name. *)
       let (_, _, aunion_type), in_gr, vn_n =
@@ -3301,6 +3301,9 @@ and do_return_exp in_gr ggg =
         | Ast.No_red -> "NoRed"
       in
       let (val_of, val_po, val_ty), in_gr = do_simple_exp in_gr expn in
+      let val_of, val_po, val_ty =
+        If1.find_incoming_regular_node (val_of, val_po, val_ty) in_gr
+      in
       if String.equal reduc_name "NoRed" then
         (`FinalVal, (val_of, val_po, val_ty), in_gr)
       else (`Reduce (reduc_dir, reduc_name), (val_of, val_po, val_ty), in_gr)
@@ -3361,6 +3364,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
       | hd_a :: tl_return_action_list, hd_c :: tl_mask_ty_list -> (
           match hd_a with
           | `Array_of, tt, aa ->
+              assert (tt <> 0);
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
@@ -3738,7 +3742,13 @@ and verify_function_returns f fn_ty_id in_gr =
               raise
                 (If1.Sem_error "Verification Error: Typemap resolution failed"))
       expected_ids actual_ids;
-
+  (*
+if List.length expected_ids <> List.length actual_ids then (
+    If1_JSON.export_to_json "compiler_crash.json" in_gr;
+    Printf.printf "\n[CRITICAL] Arity mismatch! State saved to compiler_crash.json\n%!";
+    raise (If1.Sem_error "Return Arity Mismatch")
+)
+     *)
   print_endline
     "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
 

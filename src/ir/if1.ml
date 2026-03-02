@@ -2519,6 +2519,8 @@ and add_compound_type in_gr = function
       add_type_to_typemap (Function_ty (arg_fst, res_fst, fn_name)) in_gr
   | _ -> raise (Node_not_found "In compound type")
 
+(* Helper to unroll Tuple_ty chains into a list of strings *)
+
 and string_of_if1_ty_recursive tm seen ty =
   match ty with
   | Basic _ | Multiple _ | ERROR _ | Unknown_ty ->
@@ -2527,15 +2529,34 @@ and string_of_if1_ty_recursive tm seen ty =
   | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
   | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
-      "("
-      ^ resolve_and_print tm seen l1
-      ^ " * "
-      ^ resolve_and_print tm seen l2
-      ^ ")"
+      if l2 = 0 then "(" ^ resolve_and_print tm seen l1 ^ ")"
+      else
+        "("
+        ^ resolve_and_print tm seen l1
+        ^ " * "
+        ^ resolve_and_print tm seen l2
+        ^ ")"
+  (* Updated Function_ty case in your string_of_if1_ty *)
   | Function_ty (input_l, output_l, name) ->
-      let in_str = resolve_and_print tm seen input_l in
-      let out_str = resolve_and_print tm seen output_l in
-      Printf.sprintf "function %s(%s) returns %s" name in_str out_str
+      (* Helper to unroll Tuple_ty chains into a list of strings *)
+      let rec flatten_tuple tm seen label =
+        if label <> 0 then
+          match TM.find_opt label tm with
+          | Some (Tuple_ty (current, next)) ->
+              let current_str = resolve_and_print tm seen current in
+              current_str :: flatten_tuple tm seen next
+          | Some other_ty ->
+              [ resolve_and_print tm seen label ] (* Base case: not a tuple *)
+          | None -> [ "UNKNOWN" ]
+        else []
+      in
+
+      let inputs = flatten_tuple tm seen input_l in
+      let outputs = flatten_tuple tm seen output_l in
+      sprintf "FUNCTION %s (%s) RETURNS (%s)"
+        (String.uppercase_ascii name)
+        (String.concat ", " inputs)
+        (String.concat ", " outputs)
   | Record (field_l, _, name) ->
       let name_str = if name = "" then "" else name ^ " " in
       name_str ^ "record{" ^ resolve_and_print tm seen field_l ^ "}"
@@ -3238,6 +3259,8 @@ and string_of_if1_basic_ty bc =
 and is_basic_int_scalar bc =
   match bc with INTEGRAL | LONG -> true | _ -> false
 
+and graph_clean_multiarity in_gr = cleanup_multiarity in_gr
+
 and string_of_ports pa =
   "[|" ^ Array.fold_right (fun x y -> cate_nicer x y ",") pa "" ^ "|]"
 
@@ -3320,7 +3343,7 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
   let is_error, type_desc =
     match TM.find_opt tt tm with
     | Some (ERROR s) -> (true, "ERR:" ^ s)
-    | Some t -> (false, string_of_if1_ty t)
+    | Some _ -> (false, printable_full_type (get_typemap_tm in_gr) tt)
     | None -> (false, "UNKNOWN")
   in
 
@@ -3338,8 +3361,6 @@ and string_of_edge_set in_gr ne =
   let ee = ES.fold (fun x y -> string_of_edge in_gr x :: y) ne [] in
   match ee with [] -> [] | _ -> "----EDGES----" :: ee
 
-and graph_clean_multiarity in_gr = cleanup_multiarity in_gr
-
 and string_of_node_map ?(offset = 2) in_gr =
   let mn = in_gr.nmap in
   let nn =
@@ -3351,10 +3372,10 @@ and string_of_if1_value tm = function
   | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
       let ttt =
         match TM.mem ii tm with
-        | true -> string_of_if1_ty (TM.find ii tm)
+        | true -> printable_full_type tm ii
         | false -> ""
       in
-      ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ":" ^ string_of_int p
+      ttt ^ "; " ^ st ^ "; " ^ "(" ^ string_of_int jj ^ " : " ^ string_of_int p
       ^ ")"
 
 and string_of_if1_value_in tm = function
@@ -3945,3 +3966,146 @@ let lookup_partial_mangled_name target_prefix =
   let intrinsic_syms, _ = Lazy.force intrinsic_lib in
   SM.to_seq intrinsic_syms
   |> Seq.find (fun (name, _) -> String.starts_with ~prefix:target_prefix name)
+
+module If1_View = struct
+  open Printf
+
+  let esc s = "\"" ^ String.escaped s ^ "\""
+
+  let rec render_node_to_json in_gr node =
+    match node with
+    | Simple (id, sym, pin, pout, prag) ->
+        (* Pragmas added immediately after node name *)
+        let label =
+          sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
+        in
+        sprintf
+          "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"ports\": { \
+           \"in\": %s, \"out\": %s } }"
+          id (esc label)
+          (esc (string_of_ports pin))
+          (esc (string_of_ports pout))
+    | Compound (id, sym, ty, prag, sub_gr, _) ->
+        (* Pragmas added after node name for Compound blocks *)
+        let label =
+          sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
+        in
+        sprintf
+          "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \
+           \"inner_type\": %d, \"subgraph\": %s }"
+          id (esc label) ty
+          (render_graph_to_json sub_gr)
+    | Literal (id, bc, value, _) ->
+        sprintf "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s }" id
+          (esc value)
+    | Boundary (_, _, _, prag) ->
+        let label = sprintf "BOUNDARY [%s]" (string_of_pragmas prag) in
+        sprintf "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s }"
+          (esc label)
+    | _ -> "{ \"type\": \"Unknown\" }"
+
+  and render_graph_to_json in_gr =
+    let nodes =
+      NM.to_seq in_gr.nmap
+      |> Seq.map (fun (_, v) -> render_node_to_json in_gr v)
+      |> List.of_seq
+    in
+    let edges =
+      ES.to_seq in_gr.eset
+      |> Seq.map (fun e -> esc (string_of_edge in_gr e))
+      |> List.of_seq
+    in
+
+    (* Extract SymTab strings for this specific graph level *)
+    let syms = string_of_symtab_gr in_gr in
+    let sym_json = sprintf "[%s]" (String.concat ", " (List.map esc syms)) in
+
+    sprintf "{ \"nodes\": [%s], \"edges\": [%s], \"symtab\": %s }"
+      (String.concat ", " nodes) (String.concat ", " edges) sym_json
+
+  let export_debug_html file_path in_gr =
+    let oc = open_out file_path in
+    let json_data = render_graph_to_json in_gr in
+
+    fprintf oc
+      "<html><head><style>\n\
+      \      body { font-family: 'Menlo', monospace; font-size: 12px; \
+       background: #1e1e1e; color: #d4d4d4; margin: 0; display: grid; \
+       grid-template-columns: 1fr 400px; height: 100vh; }\n\
+      \      #left-pane { overflow-y: auto; padding: 20px; border-right: 1px \
+       solid #444; }\n\
+      \      #right-pane { overflow-y: auto; padding: 20px; background: \
+       #252526; }\n\
+      \      .graph-box { border-left: 2px solid #444; margin-left: 20px; \
+       padding: 5px; }\n\
+      \      summary { cursor: pointer; color: #569cd6; font-weight: bold; \
+       padding: 4px; }\n\
+      \      summary:hover { background: #333; outline: 1px solid #555; }\n\
+      \      .sym-entry { margin-bottom: 8px; padding: 4px; border-bottom: 1px \
+       solid #333; font-size: 11px; }\n\
+      \      mark.highlight { background-color: #ff0; color: #000; }\n\
+      \    </style></head><body>";
+
+    fprintf oc
+      "<div id='left-pane'><h3>IF1 Hierarchy</h3><div id='root'></div></div>";
+    fprintf oc
+      "<div id='right-pane'><h3>Symbol Table</h3><div id='sym-content'>Click a \
+       Graph summary to view Symbols</div></div>";
+
+    fprintf oc
+      "<script>\n\
+      \      const data = %s;\n\n\
+      \      function showSymTab(syms) {\n\
+      \        const container = document.getElementById('sym-content');\n\
+      \        container.innerHTML = syms.length ? '' : 'No symbols at this \
+       level';\n\
+      \        syms.forEach(s => {\n\
+      \          const div = document.createElement('div');\n\
+      \          div.className = 'sym-entry';\n\
+      \          div.textContent = s;\n\
+      \          container.appendChild(div);\n\
+      \        });\n\
+      \      }\n\n\
+      \      function buildTree(container, graph, isRoot = false) {\n\
+      \        const details = document.createElement('details');\n\
+      \        details.open = isRoot;\n\
+      \        const summary = document.createElement('summary');\n\
+      \        summary.textContent = `Graph { ${graph.nodes.length} nodes }`;\n\
+      \        \n\
+      \        // Populate Right Pane on click\n\
+      \        summary.onclick = (e) => { \n\
+      \            e.stopPropagation();\n\
+      \            showSymTab(graph.symtab); \n\
+      \        };\n\n\
+      \        details.appendChild(summary);\n\
+      \        const content = document.createElement('div');\n\
+      \        content.className = 'graph-box';\n\
+      \        \n\
+      \        graph.nodes.forEach(n => {\n\
+      \          const div = document.createElement('div');\n\
+      \          if (n.subgraph) {\n\
+      \            const sub = document.createElement('div');\n\
+      \            sub.innerHTML = `<b>Node ${n.id}: ${n.label} (Compound)</b>`;\n\
+      \            buildTree(sub, n.subgraph, false);\n\
+      \            div.appendChild(sub);\n\
+      \          } else {\n\
+      \            div.className = 'node-item';\n\
+      \            div.textContent = `Node ${n.id}: ${n.label || n.type}`;\n\
+      \          }\n\
+      \          content.appendChild(div);\n\
+      \        });\n\n\
+      \        graph.edges.forEach(e => {\n\
+      \          const div = document.createElement('div');\n\
+      \          div.className = 'edge-item';\n\
+      \          div.textContent = '  ' + e;\n\
+      \          content.appendChild(div);\n\
+      \        });\n\n\
+      \        details.appendChild(content);\n\
+      \        container.appendChild(details);\n\
+      \      }\n\
+      \      \n\
+      \      buildTree(document.getElementById('root'), data, true);\n\
+      \    </script></body></html>"
+      json_data;
+    close_out oc
+end
