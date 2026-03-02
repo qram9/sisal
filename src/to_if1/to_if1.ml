@@ -275,10 +275,8 @@ and new_check_rec_ty field_type_list tm out_acc =
           (fun k v acc ->
             match (acc, v) with
             | If1.Emp, If1.Record (actual_type, _, actual_name) ->
-                if actual_name = f_name && actual_type == f_type_idx then (
-                  Printf.printf " FOUND FIELD: %s (Type Index: %d)\n" f_name
-                    f_type_idx;
-                  If1.Som k)
+                if actual_name = f_name && actual_type == f_type_idx then
+                  If1.Som k
                 else acc
             | _ -> acc)
           tm If1.Emp
@@ -859,6 +857,7 @@ and tie_outer_scope_to_inner from_gr to_gr to_node =
 and do_for_all inexp bodyexp retexp in_gr =
   (* Use Array input's dimensions to
       set Array output's dimensions*)
+  let fall = Ast.For_all (inexp, bodyexp, retexp) in
   let rec get_cross_exp_lis inexp retl =
     (* Create a list of index expressions.
         Ast.Cross would be for nested loops and so would At.*)
@@ -958,6 +957,7 @@ and do_for_all inexp bodyexp retexp in_gr =
 
         let (rn, _, _), forall_gr, return_action_list =
           add_ret body_gr return_action_list mask_ty_list
+            (String.concat "\n" (List.map Ast.str_return_clause retexp))
         in
 
         let (gn, _, _), forall_gr =
@@ -1009,7 +1009,7 @@ and do_for_all inexp bodyexp retexp in_gr =
           (* Add Returns Graph To Forall_Gr. *)
           let (rn, _, _), forall_gr, return_action_list =
             let _, mask_ty_list = organize_ret_info inner_ret mask_ty_list in
-            add_return_gr forall_gr gen_gr inner_ret mask_ty_list
+            add_return_gr forall_gr gen_gr inner_ret mask_ty_list ""
           in
 
           (* Add Body_Nest_Gr In Place Of A "Body" Subgraph. *)
@@ -1067,7 +1067,12 @@ and do_for_all inexp bodyexp retexp in_gr =
   let forall_gr = get_ports_unified forall_gr forall_gr forall_gr in
   let (fx, _, _), in_gr =
     If1.add_node_2
-      (`Compound (forall_gr, If1.INTERNAL, 0, [ If1.Name "FORALL" ], subgr_ids))
+      (`Compound
+         ( forall_gr,
+           If1.INTERNAL,
+           0,
+           [ If1.Name "FORALL"; If1.Ast_type (Ast.str_simple_exp fall) ],
+           subgr_ids ))
       in_gr
   in
 
@@ -2023,14 +2028,14 @@ and organize_ret_info return_action_list mask_ty_list =
   in
   (return_action_list, mask_ty_list)
 
-and add_ret in_gr return_action_list mask_ty_list =
+and add_ret in_gr return_action_list mask_ty_list prag =
   (* Build Return-Signature To Provide To Outer
            Loop In Ord  er To Build Its Returns Graph. *)
   let return_action_list, mask_ty_list =
     organize_ret_info return_action_list mask_ty_list
   in
   let for_gr = If1.get_a_new_graph in_gr in
-  add_return_gr for_gr in_gr return_action_list mask_ty_list
+  add_return_gr for_gr in_gr return_action_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
   match If1.get_node frm in_gr with
@@ -2301,18 +2306,8 @@ and do_simple_exp in_gr in_sim_ex =
           let expl =
             List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
           in
-          print_endline "After following through incoming regular node";
-          print_endline
-            (String.concat ", "
-               (List.map
-                  (fun (x, y, z) ->
-                    string_of_int x ^ ": " ^ string_of_int y ^ ": "
-                    ^ string_of_int z)
-                  expl));
-          flush stdout;
           let in_ports = Array.make 2 "" in
           let out_ports = Array.make 1 "" in
-
           let (n, _, _), in_gr =
             If1.add_node_2 (`Simple (If1.ASETL, in_ports, out_ports, [])) in_gr
           in
@@ -2957,7 +2952,7 @@ and do_simple_exp in_gr in_sim_ex =
         |> If1.add_edge typecast_arg_node typecast_arg_out_port typecast_node 0
              typecast_arg_type )
   | Is_error e -> do_exp in_gr e
-  | If (cl, Else el) ->
+  | If (cl, Else el) as if_ast ->
       (* Work an example with [1,2]
         and [1,2,3] and [1,2,3,4] *)
       (* How are outputs tied to the
@@ -2972,7 +2967,7 @@ and do_simple_exp in_gr in_sim_ex =
               if_builder tl xyz grr_th els (curr_num + 1) ty_lis_ret
             in
 
-            let _, else_p, else_t = else_outs in
+            let _, else_p, else_t, ast_str = else_outs in
 
             let (else_n, _, _), in_gr_if =
               If1.add_node_2
@@ -2980,7 +2975,10 @@ and do_simple_exp in_gr in_sim_ex =
                    ( else_gr,
                      If1.INTERNAL,
                      0,
-                     [ If1.Name ("ELSE" ^ string_of_int curr_num) ],
+                     [
+                       If1.Name ("ELSE" ^ string_of_int curr_num);
+                       If1.Ast_type ast_str;
+                     ],
                      [] ))
                 in_gr_if
             in
@@ -2995,6 +2993,7 @@ and do_simple_exp in_gr in_sim_ex =
             in
 
             let then_s, then_p, then_t = in_outs in
+            let in_outs = (then_s, then_p, then_t, "") in
             let then_s, then_p, then_t =
               If1.find_incoming_regular_node (then_s, then_p, then_t) then_gr
             in
@@ -3008,7 +3007,10 @@ and do_simple_exp in_gr in_sim_ex =
                    ( then_gr,
                      If1.INTERNAL,
                      0,
-                     [ If1.Name ("BODY" ^ string_of_int curr_num) ],
+                     [
+                       If1.Name ("BODY" ^ string_of_int curr_num);
+                       If1.Ast_type (Ast.str_exp body);
+                     ],
                      [] ))
                 in_gr_if
             in
@@ -3042,7 +3044,10 @@ and do_simple_exp in_gr in_sim_ex =
                    ( predicate_gr,
                      If1.INTERNAL,
                      0,
-                     [ If1.Name ("PREDICATE" ^ string_of_int curr_num) ],
+                     [
+                       If1.Name ("PREDICATE" ^ string_of_int curr_num);
+                       If1.Ast_type (Ast.str_exp predicate);
+                     ],
                      [] ))
                 in_gr_if
             in
@@ -3070,8 +3075,7 @@ and do_simple_exp in_gr in_sim_ex =
             in
 
             let i_gr = point_edges_to_boundary else_n else_p else_t i_gr in
-
-            (ty_lis, (else_n, else_p, else_t), i_gr)
+            (ty_lis, (else_n, else_p, else_t, Ast.str_exp els), i_gr)
       in
       let sai, gai =
         let ty_lis, _, regar =
@@ -3088,7 +3092,11 @@ and do_simple_exp in_gr in_sim_ex =
         let (sn, _, _), in_gr =
           If1.add_node_2
             (`Compound
-               (regar, If1.INTERNAL, 0, [ If1.Name "SELECT" ], boundary_ooo))
+               ( regar,
+                 If1.INTERNAL,
+                 0,
+                 [ If1.Name "SELECT"; If1.Ast_type (Ast.str_simple_exp if_ast) ],
+                 boundary_ooo ))
             in_gr
         in
         add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT"
@@ -3103,7 +3111,7 @@ and do_simple_exp in_gr in_sim_ex =
       (* How Do We Tie Up Results To Calling Function
         Or To A Let Var *)
       ((fx, fy, fz), in_gr)
-  | For_initial (d, i, r) ->
+  | For_initial (d, i, r) as finit ->
       let add_decls in_gr dp =
         let build_init_graph in_gr =
           let init_gr =
@@ -3161,11 +3169,13 @@ and do_simple_exp in_gr in_sim_ex =
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
-      let add_comp_node in_gr namen to_gr =
+      let add_comp_node in_gr namen ?(prag = "") to_gr =
+        let prags =
+          if prag <> "" then If1.Name namen :: [ If1.Ast_type prag ]
+          else [ If1.Name namen ]
+        in
         let _, on =
-          If1.add_node_2
-            (`Compound (in_gr, If1.INTERNAL, 0, [ If1.Name namen ], []))
-            to_gr
+          If1.add_node_2 (`Compound (in_gr, If1.INTERNAL, 0, prags, [])) to_gr
         in
         on
       in
@@ -3180,10 +3190,23 @@ and do_simple_exp in_gr in_sim_ex =
             in
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
+                (String.concat "\n" (List.map Ast.str_return_clause r))
             in
-            let for_gr = add_comp_node body_gr "BODY" for_gr in
-            let for_gr = add_comp_node test_gr "TEST" for_gr in
-            let for_gr = add_comp_node decl_gr "INIT" for_gr in
+            let for_gr =
+              add_comp_node body_gr "BODY"
+                ~prag:
+                  (Ast.str_decldef_part d ^ "\n" ^ Ast.str_iterator ii ^ "\n"
+                 ^ Ast.str_termination t)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node test_gr "TEST"
+                ~prag:(Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node decl_gr "INIT" ~prag:(Ast.str_decldef_part d) for_gr
+            in
             let for_gr = get_ports_unified for_gr body_gr decl_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
@@ -3191,7 +3214,9 @@ and do_simple_exp in_gr in_sim_ex =
                    ( for_gr,
                      If1.INTERNAL,
                      0,
-                     [ If1.Name "LoopA" ],
+                     [
+                       If1.Name "LoopA"; If1.Ast_type (Ast.str_simple_exp finit);
+                     ],
                      let lis = get_assoc_list_loopAOrB for_gr in
                      List.length lis :: lis ))
                 in_gr
@@ -3221,10 +3246,23 @@ and do_simple_exp in_gr in_sim_ex =
             in
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
+                (String.concat "\n" (List.map Ast.str_return_clause r))
             in
-            let for_gr = add_comp_node body_gr "BODY" for_gr in
-            let for_gr = add_comp_node test_gr "TEST" for_gr in
-            let for_gr = add_comp_node decl_gr "INIT" for_gr in
+            let for_gr =
+              add_comp_node body_gr "BODY"
+                ~prag:
+                  (Ast.str_decldef_part d ^ "\n" ^ Ast.str_termination t ^ "\n"
+                 ^ Ast.str_iterator ii)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node test_gr "TEST"
+                ~prag:(Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node decl_gr "INIT" ~prag:(Ast.str_decldef_part d) for_gr
+            in
             let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
@@ -3232,7 +3270,9 @@ and do_simple_exp in_gr in_sim_ex =
                    ( for_gr,
                      If1.INTERNAL,
                      0,
-                     [ If1.Name "LoopB" ],
+                     [
+                       If1.Name "LoopB"; If1.Ast_type (Ast.str_simple_exp finit);
+                     ],
                      let lis = get_assoc_list_loopAOrB for_gr in
                      List.length lis :: lis ))
                 in_gr
@@ -3319,7 +3359,7 @@ and do_return_exp in_gr ggg =
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       (`Stream_of, (sn, sp, st), in_gr)
 
-and add_return_gr in_gr body_gr return_action_list mask_ty_list =
+and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
   let ret_gr =
     try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
     with _ -> failwith "create subgraph symtab"
@@ -3448,9 +3488,11 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list =
   in
 
   let xyz, in_gr =
-    If1.add_node_2
-      (`Compound (ret_gr, If1.INTERNAL, 0, [ If1.Name "RETURN" ], []))
-      in_gr
+    let pragms =
+      if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag ]
+      else [ If1.Name "RETURNS" ]
+    in
+    If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
   in
   (xyz, in_gr, out_lis)
 
@@ -3480,7 +3522,7 @@ and get_assoc_list_loopAOrB inner_gr =
     | `Nth -> raise (If1.Sem_error "Didnt find Init in for loop")
   in
   let ret_lab =
-    let xyz = find_in_graph_from_pragma inner_gr "RETURN" in
+    let xyz = find_in_graph_from_pragma inner_gr "RETURNS" in
     match xyz with
     | `Found_one (lab, _, _, _, _) -> lab
     | `Nth -> raise (If1.Sem_error "Didnt find RETURN in for loop")
@@ -3507,7 +3549,7 @@ and get_assoc_list inner_gr =
   in
 
   let for_returns =
-    let xyz = find_in_graph_from_pragma inner_gr "RETURN" in
+    let xyz = find_in_graph_from_pragma inner_gr "RETURNS" in
     match xyz with
     | `Found_one (lab, _, _, _, _) -> lab
     | `Nth -> raise (If1.Sem_error "Didnt find Returns in Inner loop")
@@ -3662,7 +3704,7 @@ and do_compilation_unit = function
       (* Return our finished graph containing all our IF1 subgraphs *)
       final_gr
 
-and verify_function_returns f fn_ty_id in_gr =
+and verify_function_returns strs fn_ty_id in_gr =
   let _, tm, _ = If1.get_typemap in_gr in
   (* 1. Extract the Return Tuple ID from the Function Type *)
   let ret_tuple_id =
@@ -3671,7 +3713,8 @@ and verify_function_returns f fn_ty_id in_gr =
     | _ ->
         raise
           (If1.Sem_error
-             "verify_function_returns: fn_ty_id is not a Function_ty")
+             ("verify_function_returns: fn_ty_id is not a Function_ty for "
+            ^ strs))
   in
 
   (* 2. Flatten the Tuple into a list of expected Type IDs *)
@@ -3822,7 +3865,7 @@ and do_internals (names, in_gr) f =
       let () =
         let strs = Ast.internals 1 f in
         print_endline ("VERIFY " ^ strs);
-        verify_function_returns f fn_ty new_fun_gr_
+        verify_function_returns strs fn_ty new_fun_gr_
       in
       let (aa, bb, _), in_gr =
         If1.add_node_2
@@ -3830,7 +3873,10 @@ and do_internals (names, in_gr) f =
              ( new_fun_gr_,
                If1.INTERNAL,
                0,
-               [ If1.Name (String.concat "." fn_name) ],
+               [
+                 If1.Name (String.concat "." fn_name);
+                 If1.Ast_type (Ast.internals 0 f);
+               ],
                [] ))
           in_gr
       in

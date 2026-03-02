@@ -250,6 +250,7 @@ type pragma =
   | Pointer
   | Contiguous
   | No_pragma
+  | Ast_type of string
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -334,7 +335,7 @@ let str_type_trace () =
 (* Edge Trace: (Source Node * Port | Dest Node * Port | Type Description * Stack) *)
 let edge_trace : (string * string * string * string) list ref = ref []
 
-let str_edge_trace in_gr =
+let str_edge_trace =
   List.fold_left
     (fun acc (src, dest, ty_desc, stack) ->
       let entry =
@@ -2545,7 +2546,7 @@ and string_of_if1_ty_recursive tm seen ty =
           | Some (Tuple_ty (current, next)) ->
               let current_str = resolve_and_print tm seen current in
               current_str :: flatten_tuple tm seen next
-          | Some other_ty ->
+          | Some _ ->
               [ resolve_and_print tm seen label ] (* Base case: not a tuple *)
           | None -> [ "UNKNOWN" ]
         else []
@@ -3112,6 +3113,7 @@ and string_of_pragmas p =
         | Pointer -> "Pointer"
         | Contiguous -> "Contiguous"
         | No_pragma -> ""
+        | Ast_type _ -> ""
       in
       cate_nicer l q " ,")
     p ""
@@ -3972,11 +3974,40 @@ module If1_View = struct
 
   let esc s = "\"" ^ String.escaped s ^ "\""
 
-  let rec render_node_to_json in_gr node =
+  (* Helper to extract AST string specifically for the sidebar *)
+  let extract_ast pragmas =
+    List.fold_left
+      (fun acc p -> match p with Ast_type s -> s | _ -> acc)
+      "" pragmas
+
+  (* Filters out Ast_type so it doesn't clutter the graph nodes *)
+  let string_of_pragmas_no_ast p =
+    List.fold_right
+      (fun pr q ->
+        let l =
+          match pr with
+          | Ast_type _ -> "" (* Moved to Sidebar *)
+          | Bounds (i, j) -> sprintf "Bounds(%d,%d)" i j
+          | SrcLine (i, j) -> sprintf "SrcLine(%d,%d)" i j
+          | OpNum i -> "OpNum " ^ string_of_int i
+          | Ar i -> "Ar " ^ string_of_int i
+          | Of i -> "Of " ^ string_of_int i
+          | Lazy -> "Lazy"
+          | Name str -> "%na=" ^ str
+          | Ref -> "Ref"
+          | Pointer -> "Pointer"
+          | Contiguous -> "Contiguous"
+          | No_pragma -> ""
+        in
+        if l = "" then q else cate_nicer l q " ,")
+      p ""
+
+  let rec render_node_to_json node =
     match node with
     | Simple (id, sym, pin, pout, prag) ->
         let label =
-          sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
+          sprintf "%s [%s]" (string_of_node_sym sym)
+            (string_of_pragmas_no_ast prag)
         in
         sprintf
           "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"ports\": { \
@@ -3986,46 +4017,40 @@ module If1_View = struct
           (esc (string_of_ports pout))
     | Compound (id, sym, ty, prag, sub_gr, _) ->
         let label =
-          sprintf "%s [%s]" (string_of_node_sym sym) (string_of_pragmas prag)
+          sprintf "%s [%s]" (string_of_node_sym sym)
+            (string_of_pragmas_no_ast prag)
         in
+        let ast = extract_ast prag in
         sprintf
           "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \
            \"inner_type\": %d, \"subgraph\": %s }"
           id (esc label) ty
-          (render_graph_to_json sub_gr)
+          (render_graph_to_json ~ast sub_gr)
     | Literal (id, _, value, _) ->
         sprintf "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s }" id
           (esc value)
     | Boundary (_, _, _, prag) ->
-        let label = sprintf "BOUNDARY [%s]" (string_of_pragmas prag) in
+        let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
         sprintf "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s }"
           (esc label)
     | _ -> "{ \"type\": \"Unknown\" }"
 
-  and render_graph_to_json in_gr =
+  and render_graph_to_json ?(ast = "") in_gr =
     let nodes =
       NM.to_seq in_gr.nmap
-      |> Seq.map (fun (_, v) -> render_node_to_json in_gr v)
+      |> Seq.map (fun (_, v) -> render_node_to_json v)
       |> List.of_seq
     in
-
-    (* Helper to determine if an edge is an error edge *)
-    let is_error_edge (_, _, tt) =
-      let _, tm, _ = in_gr.typemap in
-      match TM.find_opt tt tm with Some (ERROR _) -> true | _ -> false
-    in
-
-    (* Partition the edges *)
     let e_list = ES.elements in_gr.eset in
-    let err_es, data_es = List.partition is_error_edge e_list in
-
-    let data_edges_json =
-      List.map (fun e -> esc (string_of_edge in_gr e)) data_es
+    let is_err (_, _, tt) =
+      match TM.find_opt tt (get_typemap_tm in_gr) with
+      | Some (ERROR _) -> true
+      | _ -> false
     in
-    let error_edges_json =
-      List.map (fun e -> esc (string_of_edge in_gr e)) err_es
-    in
+    let err_es, data_es = List.partition is_err e_list in
 
+    let data_edges = List.map (fun e -> esc (string_of_edge in_gr e)) data_es in
+    let error_edges = List.map (fun e -> esc (string_of_edge in_gr e)) err_es in
     let syms = string_of_symtab_gr in_gr in
     let sym_json = sprintf "[%s]" (String.concat ", " (List.map esc syms)) in
 
@@ -4042,91 +4067,129 @@ module If1_View = struct
 
     sprintf
       "{ \"nodes\": [%s], \"data_edges\": [%s], \"error_edges\": [%s], \
-       \"symtab\": %s, \"typemap\": %s }"
+       \"symtab\": %s, \"typemap\": %s, \"ast\": %s }"
       (String.concat ", " nodes)
-      (String.concat ", " data_edges_json)
-      (String.concat ", " error_edges_json)
-      sym_json tm_json
+      (String.concat ", " data_edges)
+      (String.concat ", " error_edges)
+      sym_json tm_json (esc ast)
 
   let export_debug_html file_path in_gr =
     let oc = open_out file_path in
     let json_data = render_graph_to_json in_gr in
-    fprintf oc
+
+    (* 1. CSS & Header - One clean block *)
+    fprintf oc "%s"
       "<html><head><style>\n\
-      \      :root { --sidebar-width: 450px; }\n\
-      \      body { font-family: 'Menlo', monospace; font-size: 11px; \
-       background: #1e1e1e; color: #d4d4d4; margin: 0; display: grid; \
-       grid-template-columns: 1fr 5px var(--sidebar-width); height: 100vh; \
-       overflow: hidden; }\n\
-      \      #left-pane { overflow-y: auto; padding: 20px; border-right: 1px \
+      \      :root { --sidebar-width: 550px; --ast-height: 300px; }\n\
+      \      body { \n\
+      \        font-family: 'Menlo', monospace; font-size: 11px; background: \
+       #1e1e1e; color: #d4d4d4; \n\
+      \        margin: 0; display: grid; grid-template-columns: 1fr 5px \
+       var(--sidebar-width); height: 100vh; \n\
+      \        overflow: hidden; \n\
+      \      }\n\n\
+       .mermaid .edgeLabel rect {\n\
+      \    fill: #2d2d2d !important;      /* Dark Gray/Black box */\n\
+      \    stroke: #9370db !important;    /* Purple border to make it pop */\n\
+      \    stroke-width: 1.5px !important;\n\
+      \    rx: 2px;                       /* Very slight rounding for \
+       sharpness */\n\
+      \    opacity: 0.71 !important;         /* 100% solid, no softness */\n\
+       }\n\n\
+       .mermaid .edgeLabel {\n\
+      \    color: #8b0000 !important;      /* Pure white text */\n\
+      \    font-weight: 900 !important;   /* Extra Bold */\n\
+      \    font-size: 13px !important;    /* Large enough to read easily */\n\
+      \    font-family: 'Menlo', monospace;\n\
+      \    text-shadow: none !important;  /* Remove all \"dreamy\" shadows */\n\
+       }\n\n\
+       /* 3. The Edges: Darker Green for better text overlay */\n\
+       .mermaid path.edgePath {\n\
+      \    stroke: #2d8a39 !important;    /* Solid Forest Green */\n\
+      \    stroke-width: 2.5px !important;\n\
+       }\n\
+      \      #left-pane { overflow: auto; padding: 20px; border-right: 1px \
        solid #333; }\n\
       \      #resizer { cursor: col-resize; background: #333; transition: \
        background 0.2s; }\n\
       \      #resizer:hover { background: #569cd6; }\n\
-      \      #right-pane { overflow-y: auto; display: flex; flex-direction: \
-       column; background: #252526; }\n\
-      \      .tabs { display: flex; background: #2d2d2d; border-bottom: 1px \
-       solid #3e3e3e; }\n\
+      \      #right-pane { display: grid; grid-template-rows: 1fr 5px \
+       var(--ast-height); background: #252526; height: 100vh; overflow: \
+       hidden; }\n\
+      \      #top-right { overflow-y: auto; display: flex; flex-direction: \
+       column; }\n\
+      \      #h-resizer { cursor: row-resize; background: #333; transition: \
+       background 0.2s; z-index: 10; }\n\
+      \      #h-resizer:hover { background: #569cd6; }\n\
+      \      #ast-pane { overflow: auto; background: #1a1a1a; position: \
+       relative; border-top: 1px solid #111; }\n\
+      \      .tabs { position: sticky; top: 0; display: flex; background: \
+       #2d2d2d; border-bottom: 1px solid #3e3e3e; z-index: 5; }\n\
       \      .tab { padding: 8px 15px; cursor: pointer; border-right: 1px \
        solid #3e3e3e; color: #888; }\n\
       \      .tab.active { background: #252526; color: #fff; border-bottom: \
        2px solid #569cd6; }\n\
-      \      #pane-content { padding: 15px; flex-grow: 1; overflow-y: auto; }\n\
+      \      .ast-header { position: sticky; top: 0; left: 0; background: \
+       #111; color: #569cd6; font-weight: bold; padding: 8px 15px; font-size: \
+       10px; z-index: 4; border-bottom: 1px solid #333; display: flex; \
+       justify-content: space-between; align-items: center; }\n\
+      \      .pin-btn { cursor: pointer; padding: 2px 8px; border: 1px solid \
+       #444; border-radius: 3px; background: #2d2d2d; color: #888; }\n\
+      \      .pin-btn.active { background: #569cd6; color: #fff; border-color: \
+       #fff; }\n\
       \      .graph-box { border-left: 1px solid #444; margin-left: 15px; \
        padding-left: 10px; }\n\
       \      summary { cursor: pointer; color: #569cd6; font-weight: bold; \
        padding: 2px; }\n\
       \      .node-item { color: #ce9178; margin: 1px 0; }\n\
-      \      .edge-item { color: #b5cea8; opacity: 0.8; }\n\
-      \      .tm-id { color: #4ec9b0; font-weight: bold; margin-right: 8px; }\n\
       \      mark.highlight { background-color: #f0f000; color: #000; \
        font-weight: bold; }\n\
+      \      #dag-modal { display: none; position: fixed; z-index: 100; left: \
+       0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); }\n\
+      \      #dag-content { background: #1e1e1e; margin: 5% auto; padding: \
+       20px; width: 90%; height: 80%; overflow: auto; border-radius: 8px; \
+       border: 1px solid #444; }\n\
+      \      .render-btn { font-size: 9px; cursor: pointer; background: \
+       #3e3e3e; color: #b5cea8; border: 1px solid #555; border-radius: 3px; \
+       margin-left: 10px; padding: 1px 4px; }\n\
+      \      .render-btn:hover { background: #569cd6; color: #fff; }\n\
       \    </style></head><body>\n\
       \    <div id='left-pane'><h3>IF1 Hierarchy</h3><div id='root'></div></div>\n\
       \    <div id='resizer'></div>\n\
       \    <div id='right-pane'>\n\
-      \      <div class='tabs'><div id='tab-sym' class='tab active' \
+      \      <div id='top-right'>\n\
+      \        <div class='tabs'><div id='tab-sym' class='tab active' \
        onclick='switchTab(\"sym\")'>Symbols</div><div id='tab-tm' class='tab' \
        onclick='switchTab(\"tm\")'>TypeMap</div></div>\n\
-      \      <div id='pane-content'>Click a Graph to see symbols</div>\n\
+      \        <div id='pane-content'>Select a Graph to see symbols</div>\n\
+      \      </div>\n\
+      \      <div id='h-resizer'></div>\n\
+      \      <div id='ast-pane'>\n\
+      \        <div class='ast-header'><span>AST ORIGIN</span><button \
+       id='pin-ast' class='pin-btn' onclick='togglePin()'>Pin 📌</button></div>\n\
+      \        <div id='ast-content' class='ast-body'>Select a Graph to view \
+       AST origin...</div>\n\
+      \      </div>\n\
       \    </div>\n\
-      \    <script>\n\
-      \      const data = %s;\n\
+      \    <div id='dag-modal' onclick='this.style.display=\"none\"'><div \
+       id='dag-content' onclick='event.stopPropagation()'></div></div>\n\
+      \    <script \
+       src='https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js'></script>\n\
+      \    <script>";
+
+    fprintf oc "const data = %s;" json_data;
+
+    fprintf oc "%s"
+      "\n\
       \      let currentGraph = data;\n\
-      \      let activeTab = 'sym';\n\n\
-      \      // Smart Highlight Logic (selectionchange)\n\
-      \      document.addEventListener('selectionchange', () => {\n\
-      \        const selection = window.getSelection().toString().trim();\n\
-      \        document.querySelectorAll('mark.highlight').forEach(el => \
-       el.replaceWith(el.textContent));\n\
-      \        if (selection.length > 1) {\n\
-      \          const walker = document.createTreeWalker(document.body, \
-       NodeFilter.SHOW_TEXT);\n\
-      \          const nodes = [];\n\
-      \          while(walker.nextNode()) \
-       if(walker.currentNode.textContent.includes(selection) && \
-       walker.currentNode.parentElement.tagName !== 'SCRIPT' && \
-       walker.currentNode.parentElement.tagName !== 'STYLE') \
-       nodes.push(walker.currentNode);\n\
-      \          nodes.forEach(node => {\n\
-      \            const span = document.createElement('span');\n\
-      \            span.innerHTML = node.textContent.replace(new \
-       RegExp(`(${selection})`, 'g'), '<mark class=\"highlight\">$1</mark>');\n\
-      \            node.replaceWith(...span.childNodes);\n\
-      \          });\n\
-      \        }\n\
-      \      });\n\n\
-      \      const resizer = document.getElementById('resizer');\n\
-      \      let isResizing = false;\n\
-      \      resizer.addEventListener('mousedown', () => { isResizing = true; \
-       });\n\
-      \      document.addEventListener('mousemove', (e) => {\n\
-      \        if (!isResizing) return;\n\
-      \        const width = window.innerWidth - e.clientX;\n\
-      \        if (width > 100 && width < window.innerWidth * 0.8) \
-       document.body.style.setProperty('--sidebar-width', width + 'px');\n\
-      \      });\n\
-      \      document.addEventListener('mouseup', () => isResizing = false);\n\n\
+      \      let activeTab = 'sym';\n\
+      \      let isPinned = false;\n\n\
+      \      function togglePin() {\n\
+      \        isPinned = !isPinned;\n\
+      \        const btn = document.getElementById('pin-ast');\n\
+      \        btn.classList.toggle('active', isPinned);\n\
+      \        btn.textContent = isPinned ? 'Pinned 📍' : 'Pin 📌';\n\
+      \      }\n\n\
       \      function switchTab(tab) {\n\
       \        activeTab = tab;\n\
       \        document.getElementById('tab-sym').classList.toggle('active', \
@@ -4136,30 +4199,105 @@ module If1_View = struct
       \        updateRightPane();\n\
       \      }\n\n\
       \      function updateRightPane() {\n\
+      \        if (!isPinned) \
+       document.getElementById('ast-content').textContent = currentGraph.ast \
+       || 'No AST Pragma attached.';\n\
       \        const container = document.getElementById('pane-content');\n\
       \        container.innerHTML = '';\n\
       \        if (activeTab === 'sym') {\n\
       \          (currentGraph.symtab || []).forEach(s => {\n\
-      \            const div = document.createElement('div'); \
-       div.className='sym-entry'; div.textContent = s; \
-       container.appendChild(div);\n\
+      \            const div = document.createElement('div'); div.textContent \
+       = s; container.appendChild(div);\n\
       \          });\n\
       \        } else {\n\
-      \          const search = document.createElement('input'); \
-       search.placeholder='Filter types...'; search.oninput=(e)=> {\n\
-      \            const val = e.target.value.toLowerCase();\n\
-      \            document.querySelectorAll('.tm-entry').forEach(el => \
-       el.style.display = el.textContent.toLowerCase().includes(val) ? '' : \
-       'none');\n\
-      \          };\n\
-      \          container.appendChild(search);\n\
       \          data.typemap.forEach(t => {\n\
-      \            const div = document.createElement('div'); \
-       div.className='tm-entry'; div.innerHTML = `<span \
-       class='tm-id'>[${t.id}]</span>${t.desc}`; container.appendChild(div);\n\
+      \            const div = document.createElement('div'); div.innerHTML = \
+       `<span style='color:#4ec9b0'>[${t.id}]</span> ${t.desc}`; \
+       container.appendChild(div);\n\
       \          });\n\
       \        }\n\
-      \      }\n\n\
+      \      }";
+
+    fprintf oc "%s"
+      "\n\
+      \      async function renderDAG(graph) {\n\
+      \        const modal = document.getElementById('dag-modal');\n\
+      \        const content = document.getElementById('dag-content');\n\
+      \  \n\
+      \         // 1. Show modal and WIPE the old content entirely\n\
+      \        modal.style.display = 'block';\n\
+      \        content.innerHTML = ''; \n\
+      \        // 2. Create a fresh PRE element\n\
+      \        const pre = document.createElement('pre');\n\
+      \        pre.className = 'mermaid';\n\
+      \        pre.textContent = generateMermaidCode(graph);\n\
+      \        content.appendChild(pre);\n\
+      \      \n\
+      \        // 3. The Secret Sauce: Wait 10ms\n\
+      \        // This ensures the DOM has actually rendered the text \n\
+      \        // before the Mermaid parser starts its work.\n\
+      \        await new Promise(r => setTimeout(r, 10));\n\
+      \        try {\n\
+      \          // 4. Run specifically on the NEW element\n\
+      \          await mermaid.run({\n\
+      \            nodes: [pre]\n\
+      \          });\n\
+      \        } catch (err) {\n\
+      \          console.error(\"Mermaid Error:\", err);\n\
+      \          // If it fails, show the code so you can debug the syntax\n\
+      \          content.innerHTML += `<div style=\"color:red;font-size:10px;\">\n\
+      \                                  ${err.message}<br>\n\
+      \                                  <pre>${pre.textContent}</pre>\n\
+      \                                </div>`;\n\
+      \        }\n\
+      \      }";
+
+    fprintf oc "%s"
+      "\n\
+      \      function generateMermaidCode(graph) {\n\
+      \        let lines = [\"graph TD\"];\n\
+      \        \n\
+      \        // 1. Virtualize the Boundary Nodes\n\
+      \        lines.push('  N0_IN{{\"Boundary IN (Node 0)\"}}');\n\
+      \        lines.push('  N0_OUT{{\"Boundary OUT (Node 0)\"}}');\n\
+      \        \n\
+      \        // 2. High-Contrast Light Styles (VS Code Palette)\n\
+      \        // Light Green (#b5cea8) for Entry, Light Red (#ce9178) for Exit\n\
+      \        lines.push('  style N0_IN \
+       fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8');\n\
+      \        lines.push('  style N0_OUT \
+       fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178');\n\
+      \        graph.nodes.forEach(n => {\n\
+      \        if (n.id === 0) return;\n\
+      \        // Strip characters that break Mermaid's shape detection\n\
+      \        const label = (n.label || n.type).replace(/[\\[\\]\"{}()]/g, \
+       \"\");\n\
+      \        // Standard square brackets are usually more\n\
+      \        // space-tolerant, but let's keep them tight too\n\
+      \        lines.push(`  N${n.id}((\"${n.id}: ${label}\"))`);\n\
+      \        });\n\
+      \        \n\
+      \        // Wiring up the High-Contrast Edges\n\
+      \        let edgeCount = 0;\n\
+      \        (graph.data_edges || []).forEach(e => {\n\
+      \        const m = e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)/);\n\
+      \        if (m) {\n\
+      \        const s = m[1] === \"0\" ? \"N0_IN\" : \"N\" + m[1];\n\
+      \        const d = m[3] === \"0\" ? \"N0_OUT\" : \"N\" + m[3];\n\
+      \        lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\" --> ${d}`);\n\
+      \        \n\
+      \        // Neon Glow for the edges\n\
+      \        lines.push(`  linkStyle ${edgeCount} \
+       stroke:#4ec9b0,stroke-width:2px`);\n\
+      \        edgeCount++;\n\
+      \        }\n\
+      \        });\n\
+      \        \n\
+      \        return lines.join(\"\\n\");\n\
+      \      }";
+
+    fprintf oc "%s"
+      "\n\
       \      function buildTree(container, graph, isRoot = false) {\n\
       \        const details = document.createElement('details');\n\
       \        details.open = isRoot;\n\
@@ -4168,48 +4306,77 @@ module If1_View = struct
       \        summary.onclick = (e) => { e.stopPropagation(); currentGraph = \
        graph; updateRightPane(); };\n\
       \        details.appendChild(summary);\n\n\
-      \        const content = document.createElement('div');\n\
-      \        content.className = 'graph-box';\n\
+      \        const box = document.createElement('div'); \n\
+      \        box.className = 'graph-box';\n\
       \        \n\
-      \        // 1. Render Nodes\n\
       \        graph.nodes.forEach(n => {\n\
-      \          const div = document.createElement('div');\n\
+      \          const d = document.createElement('div');\n\
       \          if (n.subgraph) {\n\
-      \            div.innerHTML = `<b>Node ${n.id}: ${n.label}</b>`;\n\
-      \            buildTree(div, n.subgraph, false);\n\
+      \            d.innerHTML = `<b>Node ${n.id}: ${n.label}</b>`;\n\
+      \            buildTree(d, n.subgraph, false);\n\
       \          } else {\n\
-      \            div.className = 'node-item';\n\
-      \            div.textContent = `Node ${n.id}: ${n.label || n.type}`;\n\
+      \            d.className = 'node-item'; \n\
+      \            d.textContent = `Node ${n.id}: ${n.label || n.type}`;\n\
       \          }\n\
-      \          content.appendChild(div);\n\
+      \          box.appendChild(d);\n\
       \        });\n\n\
-      \        // 2. Render Data Edges (Default Open)\n\
-      \        const dataDetails = document.createElement('details');\n\
-      \        dataDetails.open = true;\n\
-      \        dataDetails.innerHTML = '<summary style=\"color: \
-       #b5cea8;\">Data Edges (' + graph.data_edges.length + ')</summary>';\n\
-      \        graph.data_edges.forEach(e => {\n\
+      \        // Data Edges with DAG Button\n\
+      \        const de = document.createElement('details'); de.open = true;\n\
+      \        const deSum = document.createElement('summary');\n\
+      \        deSum.style.color = '#b5cea8';\n\
+      \        deSum.textContent = `Data Edges (${graph.data_edges.length})`;\n\
+      \        \n\
+      \        const btn = document.createElement('button');\n\
+      \        btn.className = 'render-btn';\n\
+      \        btn.textContent = 'Render DAG 🎨';\n\
+      \        btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); \
+       renderDAG(graph); };\n\
+      \        \n\
+      \        deSum.appendChild(btn);\n\
+      \        de.appendChild(deSum);\n\
+      \        graph.data_edges.forEach(e => { \n\
       \          const d = document.createElement('div'); \
-       d.className='edge-item'; d.textContent='  ' + e;\n\
-      \          dataDetails.appendChild(d);\n\
+       d.style.color='#b5cea8'; d.textContent='  ' + e; de.appendChild(d); \n\
       \        });\n\
-      \        content.appendChild(dataDetails);\n\n\
-      \        // 3. Render Error Edges (Default Closed)\n\
-      \        const errorDetails = document.createElement('details');\n\
-      \        errorDetails.innerHTML = '<summary style=\"color: \
-       #c62828;\">Error Edges (' + graph.error_edges.length + ')</summary>';\n\
-      \        graph.error_edges.forEach(e => {\n\
+      \        box.appendChild(de);\n\n\
+      \        // Error Edges\n\
+      \        const ee = document.createElement('details');\n\
+      \        ee.innerHTML = `<summary style='color:#c62828'>Error Edges \
+       (${graph.error_edges.length})</summary>`;\n\
+      \        graph.error_edges.forEach(e => { \n\
       \          const d = document.createElement('div'); \
-       d.className='edge-item'; \n\
-      \          d.style.color = '#ff6b6b'; d.textContent='  ' + e;\n\
-      \          errorDetails.appendChild(d);\n\
+       d.style.color='#ff6b6b'; d.textContent='  ' + e; ee.appendChild(d); \n\
       \        });\n\
-      \        content.appendChild(errorDetails);\n\n\
-      \        details.appendChild(content);\n\
+      \        box.appendChild(ee);\n\n\
+      \        details.appendChild(box); \n\
       \        container.appendChild(details);\n\
       \      }\n\
+      \      \n\
+      \      // Resizer Logic (Vertical)\n\
+      \      const vResizer = document.getElementById('resizer');\n\
+      \      let isVResizing = false;\n\
+      \      vResizer.onmousedown = () => { isVResizing = true; \
+       document.body.style.userSelect = 'none'; };\n\n\
+      \      // Resizer Logic (Horizontal)\n\
+      \      const hResizer = document.getElementById('h-resizer');\n\
+      \      let isHResizing = false;\n\
+      \      hResizer.onmousedown = () => { isHResizing = true; \
+       document.body.style.userSelect = 'none'; };\n\n\
+      \      document.onmousemove = (e) => {\n\
+      \        if (isVResizing) {\n\
+      \          const width = window.innerWidth - e.clientX;\n\
+      \          if (width > 150) \
+       document.body.style.setProperty('--sidebar-width', width + 'px');\n\
+      \        }\n\
+      \        if (isHResizing) {\n\
+      \          const height = window.innerHeight - e.clientY;\n\
+      \          if (height > 50) \
+       document.body.style.setProperty('--ast-height', height + 'px');\n\
+      \        }\n\
+      \      };\n\
+      \      document.onmouseup = () => { isVResizing = isHResizing = false; \
+       document.body.style.userSelect = 'auto'; };\n\n\
       \      buildTree(document.getElementById('root'), data, true);\n\
-      \    </script></body></html>"
-      json_data;
+      \    </script></body></html>";
     close_out oc
 end
