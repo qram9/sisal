@@ -61,7 +61,7 @@ max_val:=
 index:=
    for j in 1,count
       returns value of least
-         if (abs(sx[j+start-1])=max_val)
+        value of if (abs(sx[j+start-1])=max_val)
 	    then j
 	 else
 	    count

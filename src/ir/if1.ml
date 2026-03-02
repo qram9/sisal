@@ -4129,10 +4129,20 @@ module If1_View = struct
        solid #3e3e3e; color: #888; }\n\
       \      .tab.active { background: #252526; color: #fff; border-bottom: \
        2px solid #569cd6; }\n\
-      \      .ast-header { position: sticky; top: 0; left: 0; background: \
-       #111; color: #569cd6; font-weight: bold; padding: 8px 15px; font-size: \
-       10px; z-index: 4; border-bottom: 1px solid #333; display: flex; \
-       justify-content: space-between; align-items: center; }\n\
+       .ast-body { \n\
+      \    color: #9cdcfe; \n\
+      \    white-space: pre-wrap; /* This preserves \n\
+      \ and wraps long lines */\n\
+      \    font-family: 'Menlo', 'Monaco', monospace; \n\
+      \    font-size: 11px; \n\
+      \    padding: 15px; \n\
+      \    display: inline-block;\n\
+      \    min-width: 100%;       /* Ensures background covers the width */\n\
+       }\n\
+      \            .ast-header { position: sticky; top: 0; left: 0; \
+       background: #111; color: #569cd6; font-weight: bold; padding: 8px 15px; \
+       font-size: 10px; z-index: 4; border-bottom: 1px solid #333; display: \
+       flex; justify-content: space-between; align-items: center; }\n\
       \      .pin-btn { cursor: pointer; padding: 2px 8px; border: 1px solid \
        #444; border-radius: 3px; background: #2d2d2d; color: #888; }\n\
       \      .pin-btn.active { background: #569cd6; color: #fff; border-color: \
