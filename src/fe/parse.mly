@@ -77,6 +77,11 @@ let parse_msg level fmt =
 %token LEAST
 %token LEFT
 %token LET
+%token END_LET
+%token END_FUNCTION
+%token END_IF
+%token END_FOR
+%token END_TAGCASE
 %token NIL
 %token NULL
 %token OF
@@ -288,26 +293,23 @@ function_name_list :
     { Function $1 }
   ;
 
-  function_nest:
-    FUNCTION function_header function_nest expression END FUNCTION
-      { let t =
-          ($2,[],$3,$4)
-        in [Function_single t] }
-|   FUNCTION function_header type_def_part opt_semicolon function_nest expression END FUNCTION
-    { let t =
-        ($2,$3,$5,$6)
-      in [Function_single t] }
+/* Use the existing function_def_list to avoid redundancy */
+function_nest:
+  /* Header + Body only */
+  | FUNCTION function_header expression END_FUNCTION
+      { let t = ($2, [], [], $3) in [Function_single t] }
 
-| FUNCTION function_header expression END FUNCTION
-    { let t =
-        ($2,[],[],$3)
-      in [Function_single t] }
-|   FUNCTION function_header type_def_part opt_semicolon expression END FUNCTION
-    { let t =
-        ($2,$3,[],$5)
-      in [Function_single t] }
+  /* Header + Sub-functions + Body */
+  | FUNCTION function_header function_def_list expression END_FUNCTION
+      { let t = ($2, [], List.rev $3, $4) in [Function_single t] }
 
-  ;
+  /* Header + Types + Sub-functions + Body */
+  | FUNCTION function_header type_def_part opt_semicolon function_def_list expression END_FUNCTION
+      { let t = ($2, $3, List.rev $5, $6) in [Function_single t] }
+
+  /* Header + Types + Body */
+  | FUNCTION function_header type_def_part opt_semicolon expression END_FUNCTION
+      { let t = ($2, $3, [], $5) in [Function_single t] }
 
   function_header :
     function_name LPAREN RETURNS type_list RPAREN
@@ -485,7 +487,7 @@ function_name_list :
   ;
 
   simple_expr_pair :
-    simple_expression COLON expression
+    expression COLON expression
       { SExpr_pair ($1,$3) }
   ;
   stream_generator :
@@ -534,14 +536,14 @@ function_name_list :
   ;
 
   tagcase_exp :
-    TAGCASE simple_expression tag_list_colon_expression_list END TAGCASE
+    TAGCASE simple_expression tag_list_colon_expression_list END_TAGCASE
       { Tagcase (Tagcase_exp $2, List.rev $3, Otherwise Empty)  }
-| TAGCASE simple_expression tag_list_colon_expression_list OTHERWISE COLON expression END TAGCASE
+| TAGCASE simple_expression tag_list_colon_expression_list OTHERWISE COLON expression END_TAGCASE
     { Tagcase (Tagcase_exp $2, List.rev $3, Otherwise $6)  }
-| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list END TAGCASE
+| TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list END_TAGCASE
     { Tagcase (Assign (Value_name [$2],$4), List.rev $5, Otherwise Empty)  }
 | TAGCASE value_name ASSIGN simple_expression tag_list_colon_expression_list
-    OTHERWISE COLON expression END TAGCASE
+    OTHERWISE COLON expression END_TAGCASE
     { Tagcase (Assign (Value_name [$2], $4), List.rev $5, Otherwise $8)  }
   ;
 
@@ -580,7 +582,7 @@ function_name_list :
       decldef_part
       iterator_terminator
       RETURNS return_exp_list
-      END FOR
+      END_FOR
       { For_initial (Decldef_part $3, $4, (List.rev $6)) }
 | FOR
     INITIAL
@@ -588,13 +590,13 @@ function_name_list :
     SEMICOLON
     iterator_terminator
     RETURNS return_exp_list
-    END FOR
+    END_FOR
     { For_initial (Decldef_part $3, $5, List.rev $7) }
 | FOR
     in_exp_list
     RETURNS
     return_exp_list
-    END FOR
+    END_FOR
     { For_all ($2,Decldef_part [], List.rev $4) }
 
 | FOR
@@ -602,7 +604,7 @@ function_name_list :
     decldef_part
     RETURNS
     return_exp_list
-    END FOR
+    END_FOR
     { For_all ($2,Decldef_part $3, List.rev $5)  }
 |   FOR
     in_exp_list
@@ -610,7 +612,7 @@ function_name_list :
     SEMICOLON
     RETURNS
     return_exp_list
-    END FOR
+    END_FOR
     { For_all ($2,Decldef_part  $3, List.rev $6) }
   ;
 
@@ -718,9 +720,9 @@ function_name_list :
   ;
 
   conditional_exp:
-    conditional_ifexp conditional_else END IF
+    conditional_ifexp conditional_else END_IF
       { If ([$1],$2) }
-|   conditional_ifexp conditional_elseif conditional_else END IF
+|   conditional_ifexp conditional_elseif conditional_else END_IF
     { If ($1::(List.rev $2),$3) }
   ;
 
@@ -971,11 +973,15 @@ separator :
   | ANDKW     { () }
   | SEMICOLON ANDKW { () }
 ;
+opt_end_let :
+            | END_LET { () }
+            | { () }
+            ;
 
 let_in_exp :
-  LET decldef_part IN expression END LET
+  LET decldef_part IN expression opt_end_let
     { Let (Decldef_part $2, $4) }
-| LET REC decldef_part IN expression END LET
+| LET REC decldef_part IN expression opt_end_let
   { Let_rec (Decldef_part $3, $5) }
 ;
 

@@ -82,6 +82,8 @@ let str_type_trace () =
   ) (List.rev !type_trace);
   Buffer.contents buf *)
 
+let dbg_trace : string ref = ref ""
+
 let in_port_1 =
   (* memory allocate arrays *)
   let in_array = Array.make 2 "" in
@@ -144,7 +146,7 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
   (* Helper function that code generates
       IF1 tree for building arrays *)
   | Ast.SExpr_pair (e, f) -> (
-      let (e, p, t1), in_gr = do_simple_exp in_gr e in
+      let (e, p, t1), in_gr = do_exp in_gr e in
       match f with
       | Ast.Empty -> ((0, 0, 0), in_gr)
       | Ast.Exp fe_lis ->
@@ -402,7 +404,12 @@ and add_edges_in_list exp_list anode portnum in_gr =
         (If1.add_edge hd_node in_port anode portnum tt in_gr)
   | [] -> in_gr
 
-and do_iterator in_gr = function Ast.Repeat dp -> do_decldef_part in_gr dp
+and do_iterator in_gr = function
+  | Ast.Repeat dp ->
+      let _ =
+        dbg_trace := "For initial loop\n" ^ Ast.str_iterator (Ast.Repeat dp)
+      in
+      do_decldef_part in_gr dp
 
 and do_termination in_gr = function
   | Ast.While e -> do_exp in_gr e
@@ -495,14 +502,15 @@ and extr_types in_gr = function
   | (xx, yy, zz), res ->
       let res, in_gr =
         let nm = in_gr.If1.nmap in
-        let myn = If1.NM.find xx nm in
+        let myn = If1.NM.find_opt xx nm in
         match myn with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
             let k = If1.all_types_ending_at xx in_gr res in
             (k, in_gr)
-        | _ ->
+        | Some _ ->
             let res = If1.IntMap.add yy zz res in
             (res, in_gr)
+        | _ -> failwith "failed to extract types in multiarity"
       in
       (res, in_gr)
 
@@ -563,11 +571,12 @@ and add_exp in_gr ex _ ret_lis =
           match alis with
           | (ahd, apo, aed_ty) :: atl ->
               let new_alis, new_oth_lis =
-                match If1.NM.find ahd nm with
-                | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+                match If1.NM.find_opt ahd nm with
+                | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
                     ( If1.all_nodes_joining_at (ahd, apo, aed_ty) in_gr @ atl,
                       oth_lis )
-                | _ -> (atl, oth_lis @ [ (ahd, apo, aed_ty) ])
+                | Some _ -> (atl, oth_lis @ [ (ahd, apo, aed_ty) ])
+                | None -> failwith "Node not found, in To_if1:add_exp"
               in
               fold_away_multiarity_nodes new_alis new_oth_lis
           | [] -> (alis, oth_lis)
@@ -1137,7 +1146,6 @@ and do_decldef_part_in_let_stmt kind in_gr = function
             process_each_in_list f in_gr
         | `None -> in_gr
       in
-
       let xyz, _, _, in_gr =
         let rec process_each_in_list f xyz expl_rev decl_rev in_gr =
           match f with
@@ -1251,7 +1259,15 @@ and do_decldef in_gr delc =
             let rec add_to_curr_expl cur_count howmany port_type_map nodeid expl
                 =
               if cur_count < howmany then
-                (nodeid, cur_count, If1.IntMap.find cur_count port_type_map)
+                ( nodeid,
+                  cur_count,
+                  match If1.IntMap.find_opt cur_count port_type_map with
+                  | Some x -> x
+                  | None ->
+                      failwith
+                        (print_endline (If1.get_stack_trace 25);
+                         print_endline ("Debug trace " ^ !dbg_trace);
+                         "Error in push_pop") )
                 :: add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
                      expl
               else expl
@@ -1455,7 +1471,11 @@ and pop_or_push_to_exp_stack2 expl expl_in_rev exps in_gr =
           let howmany = If1.IntMap.cardinal port_type_map in
           let rec add_to_curr_expl cur_count howmany port_type_map nodeid expl =
             if cur_count < howmany then
-              (nodeid, cur_count, If1.IntMap.find cur_count port_type_map)
+              ( nodeid,
+                cur_count,
+                match If1.IntMap.find_opt cur_count port_type_map with
+                | Some x -> x
+                | None -> failwith "Port not found in push_or_pop2" )
               :: add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
                    expl
             else expl
@@ -1608,17 +1628,17 @@ and do_arg in_gr = function Ast.Arg e -> do_exp in_gr e
 
 and find_an_union_ty iiee in_gr =
   let tmn = If1.get_typemap_tm in_gr in
-  match If1.TM.find iiee tmn with
-  | If1.Union (lt, _, _) -> lt
-  | _ -> raise (If1.Node_not_found "If1.Union type expected")
+  match If1.TM.find_opt iiee tmn with
+  | Some (If1.Union (lt, _, _)) -> lt
+  | _ -> failwith "If1.Union type expected"
 
 and enumerate_union_tags iiee in_gr =
   let tmn = If1.get_typemap_tm in_gr in
   let rec lookup_tags mmm tmn tag_l =
-    match If1.TM.find mmm tmn with
-    | If1.Union (_, nxt, _) ->
+    match If1.TM.find_opt mmm tmn with
+    | Some (If1.Union (_, nxt, _)) ->
         if nxt = 0 then mmm :: tag_l else lookup_tags nxt tmn (mmm :: tag_l)
-    | _ -> raise (If1.Node_not_found "If1.Union type expected")
+    | _ -> failwith "If1.Union type expected"
   in
   lookup_tags iiee tmn []
 
@@ -1688,10 +1708,10 @@ and get_new_tagcase_graph in_gr vntt e =
 and filter_data_types in_gr ty_map =
   If1.IntMap.filter (fun _ ty_id -> not (If1.is_error_port ty_id in_gr)) ty_map
 
-and check_subgr_tys ingr msg jj prev =
+and check_subgr_tys in_gr msg jj prev =
   (* 1. Strip the Railway edges *)
-  let jj_data = filter_data_types ingr jj in
-  let prev_data = filter_data_types ingr prev in
+  let jj_data = filter_data_types in_gr jj in
+  let prev_data = filter_data_types in_gr prev in
 
   (* 2. Fast Arity Check: Do they have the same number of pure data ports? *)
   if If1.IntMap.cardinal jj_data <> If1.IntMap.cardinal prev_data then
@@ -1706,14 +1726,27 @@ and check_subgr_tys ingr msg jj prev =
 
     (* 4. Compare the sequences directly *)
     List.iter2
-      (fun fst snd ->
-        if fst <> snd then
-          failwith
-            (If1.outs_graph ingr;
-             Printf.sprintf "Mismatched types %s vs %s AT %s"
-               (If1.rev_lookup_ty_name fst)
-               (If1.rev_lookup_ty_name snd)
-               msg))
+      (fun exp act ->
+        if exp <> act then
+          let tm = If1.get_typemap_tm in_gr in
+          match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
+          | Some ty_exp, Some ty_act ->
+              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then (
+                (* Check if the mismatch is due to an unexpected Error Type *)
+                let err_msg =
+                  match ty_act with
+                  | ERROR s -> Printf.sprintf "Hardware Trap/Error found: %s" s
+                  | _ ->
+                      Printf.sprintf
+                        "Type error: Expected %s (#%d), but found %s (#%d)"
+                        (If1.printable_full_type (If1.get_typemap_tm in_gr) exp)
+                        exp
+                        (If1.printable_full_type (If1.get_typemap_tm in_gr) act)
+                        act
+                in
+                print_endline (If1.str_type_trace ());
+                failwith ("Type Mismatch: " ^ err_msg))
+          | _ -> failwith "Verification Error: Typemap resolution failed")
       jj_types prev_types
 
 and boundary_node_lookup in_gr =
@@ -2526,6 +2559,8 @@ and do_simple_exp in_gr in_sim_ex =
                        print_endline
                          (Ast.str_simple_exp aap ^ " Fails for "
                         ^ string_of_int att);
+                       If1.If1_View.export_debug_html "compiler_failure.html"
+                         in_gr;
                        If1.Sem_error
                          ("Situation:"
                          ^ If1.string_of_if1_ty (If1.lookup_ty att in_gr)))
@@ -2654,7 +2689,7 @@ and do_simple_exp in_gr in_sim_ex =
               | Empty -> raise (If1.Node_not_found "badly formed array replace")
               | Ast.Exp aexp ->
                   let bbu, in_gr = If1.map_exp in_gr aexp [] do_simple_exp in
-                  let (idxnum, idxport, t2), in_gr = do_simple_exp in_gr idx in
+                  let (idxnum, idxport, t2), in_gr = do_exp in_gr idx in
                   let (bb, pp, _), in_gr =
                     If1.add_node_2
                       (`Simple
@@ -3195,8 +3230,8 @@ and do_simple_exp in_gr in_sim_ex =
             let for_gr =
               add_comp_node body_gr "BODY"
                 ~prag:
-                  (Ast.str_decldef_part d ^ "\n" ^ Ast.str_iterator ii ^ "\n"
-                 ^ Ast.str_termination t)
+                  (Ast.str_decldef_part (`Loop_type d)
+                  ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
                 for_gr
             in
             let for_gr =
@@ -3205,7 +3240,9 @@ and do_simple_exp in_gr in_sim_ex =
                 for_gr
             in
             let for_gr =
-              add_comp_node decl_gr "INIT" ~prag:(Ast.str_decldef_part d) for_gr
+              add_comp_node decl_gr "INIT"
+                ~prag:(Ast.str_decldef_part (`Loop_type d))
+                for_gr
             in
             let for_gr = get_ports_unified for_gr body_gr decl_gr in
             let (fx, _, _), in_gr =
@@ -3251,8 +3288,8 @@ and do_simple_exp in_gr in_sim_ex =
             let for_gr =
               add_comp_node body_gr "BODY"
                 ~prag:
-                  (Ast.str_decldef_part d ^ "\n" ^ Ast.str_termination t ^ "\n"
-                 ^ Ast.str_iterator ii)
+                  (Ast.str_decldef_part (`Loop_type d)
+                  ^ "\n" ^ Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
                 for_gr
             in
             let for_gr =
@@ -3261,7 +3298,9 @@ and do_simple_exp in_gr in_sim_ex =
                 for_gr
             in
             let for_gr =
-              add_comp_node decl_gr "INIT" ~prag:(Ast.str_decldef_part d) for_gr
+              add_comp_node decl_gr "INIT"
+                ~prag:(Ast.str_decldef_part (`Loop_type d))
+                for_gr
             in
             let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
@@ -3322,6 +3361,7 @@ and find_in_graph_from_pragma in_gr namen =
   gen_gr 0
 
 and do_return_exp in_gr ggg =
+  print_endline (Ast.str_return_exp ggg);
   match ggg with
   | Ast.Value_of (reduc_dir, reduc_name, expn) ->
       let reduc_dir =
@@ -3633,7 +3673,12 @@ and redeem_and_merge_library current_gr voucher_info =
 
   (* 3. FIND: Locate the specific symbol in the library's finished symtab *)
   let lib_globals, _ = stab in
-  let target_info = If1.SM.find original_name lib_globals in
+  let target_info = If1.SM.find_opt original_name lib_globals in
+  let target_info =
+    match target_info with
+    | Some t -> t
+    | _ -> failwith ("Symtab missing original name " ^ original_name)
+  in
 
   (* 4. REMAP: If there is an alias (e.g., 'M'), rename the symbol for OUR context *)
   let local_name =
@@ -3856,7 +3901,9 @@ and do_internals (names, in_gr) f =
       let (_, _, _), new_fun_gr_ =
         If1.add_each_in_list new_fun_gr_ tdefs 0 do_type_def
       in
-      let _, new_fun_gr_ = do_internals ([], new_fun_gr_) nest in
+      let _, new_fun_gr_ =
+        If1.add_each_in_list new_fun_gr_ nest 0 do_function_def
+      in
       let new_fun_gr_ =
         let (frm, elp, elt), new_fun_gr_ = do_exp new_fun_gr_ e in
         point_edges_to_boundary frm elp elt new_fun_gr_
@@ -3915,11 +3962,11 @@ and do_function_header in_gr = function
       let nm = in_gr.If1.nmap in
       let nm =
         If1.NM.add 0
-          (let bound_node = If1.NM.find 0 nm in
+          (let bound_node = If1.NM.find_opt 0 nm in
            match bound_node with
-           | If1.Boundary (k, j, e, p) ->
+           | Some (If1.Boundary (k, j, e, p)) ->
                If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
-           | _ -> bound_node)
+           | _ -> failwith "Boundary node missing in graph")
           nm
       in
       let in_gr = { in_gr with If1.nmap = nm } in

@@ -52,19 +52,16 @@ let keyword_table =
       ("END",END);
       ("ERROR",ERROR);
       ("FALSE",FALSE);
-      ("FOR",FOR);
       ("FLOAT", REAL);
       ("FORWARD",FORWARD);
-      ("FUNCTION",FUNCTION);
       ("GLOBAL",GLOBAL);
       ("GREATEST",GREATEST);
-      ("IF",IF);
+      ("LEAST",LEAST);
       ("IN",IN);
       ("INTEGER",INTEGER);
       ("IS",IS);
       ("INITIAL",INITIAL);
       ("LEFT",LEFT);
-      ("LET",LET);
       ("REC", REC);
       ("NIL",NIL);
       ("NULL",NULL);
@@ -81,7 +78,6 @@ let keyword_table =
       ("STREAM",STREAM);
       ("SUM",SUM);
       ("TAG",TAG);
-      ("TAGCASE",TAGCASE);
       ("THEN",THEN);
       ("TREE",TREE);
       ("TRUE",TRUE);
@@ -116,6 +112,7 @@ let keyword_table =
       ("LONG16", LONG16_TY);
       ("ULONG16", ULONG16_TY);
     ]
+(* Case-insensitive keyword fragments *)
 
 let predef_fn_table =
   List.fold_left
@@ -268,6 +265,18 @@ and sisal_lex = parse eof {
        sisal_lex new_lb (* Teleport! *)
      | _ -> lex_error lexbuf
    }
+(* 🚀 FUSED MULTI-WORD KEYWORDS *)
+  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['F' 'f'] ['U' 'u'] ['N' 'n'] ['C' 'c'] ['T' 't'] ['I' 'i'] ['O' 'o'] ['N' 'n'] { END_FUNCTION }
+  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['L' 'l'] ['E' 'e'] ['T' 't'] { END_LET }
+  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['F' 'f'] ['O' 'o'] ['R' 'r']{ END_FOR }
+  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['I' 'i'] ['F' 'f'] { END_IF }
+  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+  ['T' 't'] ['A' 'a']['G' 'g'] ['C' 'c'] ['A' 'a'] ['S' 's'] ['E' 'e'] { END_TAGCASE }
+
+              | ['F' 'f'] ['U' 'u'] ['N' 'n'] ['C' 'c'] ['T' 't'] ['I' 'i'] ['O' 'o'] ['N' 'n'] { FUNCTION }
+| ['L' 'l'] ['E' 'e'] ['T' 't'] { LET }
+              | ['F' 'f'] ['O' 'o'] ['R' 'r']{ FOR }
+              |['I' 'i'] ['F' 'f'] { IF }
+              | ['T' 't'] ['A' 'a']['G' 'g'] ['C' 'c'] ['A' 'a'] ['S' 's'] ['E' 'e'] { TAGCASE }
 
  | id as ident_or_kw {
      let lookup_name = String.uppercase_ascii ident_or_kw in
