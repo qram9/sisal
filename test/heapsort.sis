@@ -2,6 +2,8 @@ define Main
 
 type ArrayInt = array[ integer ];
 
+function  HeapSort (list : ArrayInt returns ArrayInt )
+
   function exchange ( list : ArrayInt; low, high : integer returns ArrayInt )
      let
        lowtemp  := list[low];
@@ -11,7 +13,6 @@ type ArrayInt = array[ integer ];
      end let
   end function
   
-
   function Heapify ( list : ArrayInt; low, high :integer returns ArrayInt )
      let 
        child1        := low * 2;
@@ -58,7 +59,6 @@ type ArrayInt = array[ integer ];
      end for
   end function
 
-function  HeapSort (list : ArrayInt returns ArrayInt )
 %
 % Heapsort Body
 %

@@ -58,17 +58,25 @@ max_val:=
    for i in 1,count
       returns value of greatest abs(sx[i+start-1])
       end for;
-index:=
+in
+let index:=
+  let absarray :=
    for j in 1,count
-      returns value of least
-        value of if (abs(sx[j+start-1])=max_val)
+      returns
+        array of if (abs(sx[j+start-1])=max_val)
 	    then j
 	 else
 	    count
       end if
    end for
+   in 
+   for j in  1, count
+    returns value of least absarray[j]
+    end for
+  end let
 in
 index
+end let
 end let
 end function	
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

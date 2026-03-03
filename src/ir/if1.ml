@@ -1067,7 +1067,13 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
       let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
-      let annod = NM.find srcn nm in
+      let annod =
+        match NM.find_opt srcn nm with
+        | Some x -> x
+        | None ->
+            failwith
+              ("exception in add_to_boundary_outputs" ^ string_of_int srcn)
+      in
       let annod =
         match annod with
         | Simple (lab, n, pin, pont, prag) ->
@@ -1986,10 +1992,10 @@ and find_sym_opt val_name in_gr =
   | _ as re -> re
 
 and fold_ret_ty_lis ret_ty tm =
-  match TM.find ret_ty tm with
-  | Tuple_ty (fty, nty) ->
+  match TM.find_opt ret_ty tm with
+  | Some (Tuple_ty (fty, nty)) ->
       if nty = 0 then [ fty ] else fty :: fold_ret_ty_lis nty tm
-  | _ -> raise (Sem_error "Incorrect function type in")
+  | _ -> failwith "Incorrect function type in"
 
 and lookup_fn_ty in_fn_name in_gr =
   (* this looks at the typemap table and return type
@@ -2103,8 +2109,8 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
 
 and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
   let nm, pe = get_node_map_and_edge_set in_gr in
-  match NM.find n1 nm with
-  | Simple (_, MULTIARITY, _, _, _) ->
+  match NM.find_opt n1 nm with
+  | Some (Simple (_, MULTIARITY, _, _, _)) ->
       let ending_at = all_edges_ending_at_port n1 p1 in_gr in
       let nes =
         if ES.cardinal ending_at <> 1 then
@@ -2122,7 +2128,8 @@ and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
           ES.union (ES.remove ((n1, p1), (n2, p2), aty) pe) nending_at
       in
       { in_gr with eset = nes }
-  | _ -> in_gr
+  | Some _ -> in_gr
+  | None -> failwith "Exception node not found in fix_incoming_multiarity"
 
 and all_edges n1 n2 in_gr =
   let pe = get_edge_set in_gr in
@@ -2188,12 +2195,18 @@ and all_edges_starting_at n1 in_gr =
 
 and check_for_multiarity n1 n2 in_gr =
   let nm = get_node_map in_gr in
-  match NM.find n1 nm with
-  | Simple (_, MULTIARITY, _, _, _) -> (
-      match NM.find n2 nm with
-      | Simple (_, MULTIARITY, _, _, _) -> true
-      | _ -> false)
-  | _ -> false
+  match NM.find_opt n1 nm with
+  | Some (Simple (_, MULTIARITY, _, _, _)) -> (
+      match NM.find_opt n2 nm with
+      | Some (Simple (_, MULTIARITY, _, _, _)) -> true
+      | Some _ -> false
+      | None ->
+          failwith
+            ("Exception in check_for_multiarity on Node " ^ string_of_int n2))
+  | Some _ -> false
+  | None ->
+      failwith
+        ("Exception in check_for_multiarity Node not found " ^ string_of_int n1)
 
 and cleanup_multiarity in_gr =
   let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
@@ -3384,7 +3397,11 @@ and string_of_if1_value_in tm = function
   | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
       let ttt =
         match TM.mem ii tm with
-        | true -> string_of_if1_ty (TM.find ii tm)
+        | true ->
+            string_of_if1_ty
+              (match TM.find_opt ii tm with
+              | Some x -> x
+              | None -> failwith "Error in string_of_if1_value_in")
         | false -> ""
       in
       if jj = 0 then
@@ -3396,7 +3413,11 @@ and string_of_if1_value_out tm = function
   | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
       let ttt =
         match TM.mem ii tm with
-        | true -> string_of_if1_ty (TM.find ii tm)
+        | true ->
+            string_of_if1_ty
+              (match TM.find_opt ii tm with
+              | Some x -> x
+              | None -> failwith "Error in string_of_if1_value_in")
         | false -> ""
       in
       if jj <> 0 then
@@ -3567,15 +3588,17 @@ and string_of_triples_list in_gr triplets =
     (* 1. Resolve Node Name (Opcode) *)
     let node_name =
       try
-        let node_data = NM.find n_idx in_gr.nmap in
-        match node_data with
-        | Simple (_, sym, _, _, _) -> string_of_node_sym sym
-        | Literal (_, _, val_str, _) -> "LITERAL(" ^ val_str ^ ")"
-        | Compound (_, sym, _, _, _, _) ->
-            "COMPOUND(" ^ string_of_node_sym sym ^ ")"
-        | Boundary _ -> "BOUNDARY"
-        | Unknown_node -> "UNKNOWN"
-      with Not_found -> "NODE_NOT_FOUND(" ^ string_of_int n_idx ^ ")"
+        let node_data =
+          match NM.find n_idx in_gr.nmap with
+          | Simple (_, sym, _, _, _) -> string_of_node_sym sym
+          | Literal (_, _, val_str, _) -> "LITERAL(" ^ val_str ^ ")"
+          | Compound (_, sym, _, _, _, _) ->
+              "COMPOUND(" ^ string_of_node_sym sym ^ ")"
+          | Boundary _ -> "BOUNDARY"
+          | Unknown_node -> "UNKNOWN"
+        in
+        node_data
+      with _ -> "NODE_NOT_FOUND(" ^ string_of_int n_idx ^ ")"
     in
 
     (* 2. Resolve Type Name from Typemap *)
@@ -3583,7 +3606,7 @@ and string_of_triples_list in_gr triplets =
       try
         let ty_struct = TM.find t_idx tm in
         string_of_if1_ty ty_struct
-      with Not_found -> "TYPE_NOT_FOUND(" ^ string_of_int t_idx ^ ")"
+      with _ -> "TYPE_NOT_FOUND(" ^ string_of_int t_idx ^ ")"
     in
 
     (* 3. Format the triple string *)
