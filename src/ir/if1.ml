@@ -87,6 +87,7 @@ type node_sym =
   | BOUNDARY
   | CONSTANT
   | EQUAL
+  | ERROR_NODE
   | FDIVIDE
   | FINALVALUE
   | GRAPH
@@ -235,6 +236,7 @@ type if1_ty =
   | Field of label list
   | Tag of label list
   | ERROR of string
+  | Typed_error of label
 
 type port = string
 
@@ -334,8 +336,16 @@ let str_type_trace () =
 
 (* Edge Trace: (Source Node * Port | Dest Node * Port | Type Description * Stack) *)
 let edge_trace : (string * string * string * string) list ref = ref []
+let node_trace : (string * string) list ref = ref []
 
-let str_edge_trace =
+let str_node_trace () =
+  List.fold_left
+    (fun acc (src, stack) ->
+      let entry = src ^ stack in
+      acc ^ entry)
+    "=== SISAL NODE HISTORY DUMP ===\n" (List.rev !node_trace)
+
+let str_edge_trace () =
   List.fold_left
     (fun acc (src, dest, ty_desc, stack) ->
       let entry =
@@ -555,9 +565,10 @@ and has_node i ingr = NM.mem i (get_node_map ingr)
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
   with _ ->
-    let stack = Printexc.get_callstack 5 in
-    print_endline (Printexc.raw_backtrace_to_string stack);
-    failwith " ISSUE WITH NODE LOOK UP"
+    failwith
+      ((let stack = Printexc.get_callstack 5 in
+        Printexc.raw_backtrace_to_string stack)
+      ^ " ISSUE WITH NODE LOOK UP")
 
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
@@ -1581,8 +1592,15 @@ and add_node nn in_gr =
   let { nmap = nm; eset = _; symtab = par_cs, par_ps; typemap = tm; w = pi } =
     in_gr
   in
+
   match nn with
   | `Simple (n, pin, pout, prag) ->
+      let _ =
+        let stack = Printexc.get_callstack 5 in
+        node_trace :=
+          (Printf.sprintf "%d" in_gr.w, Printexc.raw_backtrace_to_string stack)
+          :: !node_trace
+      in
       {
         in_gr with
         nmap = NM.add pi (Simple (pi, n, pin, pout, prag)) nm;
@@ -2087,13 +2105,14 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let pe = get_edge_set in_gr in
   (* Trace boundary edges (to Node 0) to debug Return Mismatches *)
   let _ =
+    let stack = get_stack_trace 5 in
+    (* Use your new recursive printer for the edge type *)
+    let ty_desc =
+      "(#" ^ string_of_int ed_ty ^ "): "
+      ^ printable_full_type (get_typemap_tm in_gr) ed_ty
+    in
     if n2 = 0 || n1 = 0 then
-      let stack = get_stack_trace 5 in
-      (* Use your new recursive printer for the edge type *)
-      let ty_desc =
-        "(#" ^ string_of_int ed_ty ^ "): "
-        ^ printable_full_type (get_typemap_tm in_gr) ed_ty
-      in
+      (*
       let src_str =
         if n1 = 0 then Printf.sprintf "Boundary:%d[P:%d]" n1 p1
         else Printf.sprintf "Node:%d[P:%d]" n1 p1
@@ -2102,8 +2121,17 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
         if n1 = 0 then Printf.sprintf "Node:%d[P:%d]" n2 p2
         else Printf.sprintf "Boundary%d[P:%d]" n2 p2
       in
-      edge_trace := (src_str, dest_str, ty_desc, stack) :: !edge_trace
-    else ()
+      edge_trace := (src_str, dest_str, ty_desc, stack) :: !edge_trace*)
+      ()
+    else
+      let dest_str = string_of_node n2 in_gr in
+      let src_str = string_of_node n1 in_gr in
+      edge_trace :=
+        ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
+          Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
+          ty_desc,
+          stack )
+        :: !edge_trace
   in
   { in_gr with eset = ES.add ((n1, p1), (n2, p2), ed_ty) pe }
 
@@ -2148,7 +2176,11 @@ and all_edges_ending_at n2 in_gr =
 
 and all_edges_ending_at_ports_types n2 in_gr =
   let pe = get_edge_set in_gr in
-  let edges = ES.filter (fun ((_, _), (y, _), _) -> y = n2) pe in
+  let edges =
+    ES.filter
+      (fun ((_, _), (y, _), ty) -> y = n2 && not (is_error_port ty in_gr))
+      pe
+  in
   ES.fold (fun ((_, _), (_, yp), y_ty) z -> (yp, y_ty) :: z) edges []
 
 and all_nodes_joining_at (n2, _, _) in_gr =
@@ -2165,19 +2197,38 @@ and all_nodes_incoming n2 in_gr =
     (fun ((x, xp), (_, _), y_ty) zz -> (x, xp, y_ty) :: zz)
     (ES.elements edges) []
 
-and all_types_ending_at n2 in_gr res =
+and all_types_ending_at_no_err_ty n2 in_gr res =
   let pe = get_edge_set in_gr in
   let map_tnem =
     ES.fold
       (fun ((_, _), (y, yp), y_ty) acc ->
-        if y = n2 then IntMap.add yp y_ty acc else acc)
+        if y = n2 && not (is_error_port y_ty in_gr) then IntMap.add yp y_ty acc
+        else acc)
       pe res
   in
   map_tnem
 
+and is_typed_error_port ty_id in_gr =
+  let _, tm, _ = get_typemap in_gr in
+  match TM.find_opt ty_id tm with Some (ERROR _) -> true | _ -> false
+
 and is_error_port ty_id in_gr =
   let _, tm, _ = get_typemap in_gr in
   match TM.find_opt ty_id tm with Some (ERROR _) -> true | _ -> false
+
+and is_typed_error_ty ty_id in_gr =
+  let _, tm, _ = get_typemap in_gr in
+  match TM.find_opt ty_id tm with Some (Typed_error _) -> true | _ -> false
+
+and type_of_error_ty ty_id in_gr =
+  let _, tm, _ = get_typemap in_gr in
+  match TM.find_opt ty_id tm with
+  | Some (Typed_error xy) -> xy
+  | _ ->
+      failwith
+        ("Excepted Typed error type, but got "
+        ^ printable_full_type tm ty_id
+        ^ "\n")
 
 and connect_one_to_one in_lis to_n in_gr =
   let in_gr, _ =
@@ -2296,20 +2347,35 @@ and inject_vouchers_into_symtab in_gr usings =
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
   (*print_endline "Calltrace:";
     Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
+  let _ =
+    let stack = get_stack_trace 5 in
+    (* Use your new recursive printer for the edge type *)
+    let ty_desc =
+      "(#" ^ string_of_int ed_ty ^ "): "
+      ^ printable_full_type (get_typemap_tm in_gr) ed_ty
+    in
+    let dest_str = string_of_node n2 in_gr in
+    let src_str = string_of_node n1 in_gr in
+    edge_trace :=
+      ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
+        Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
+        ty_desc,
+        stack )
+      :: !edge_trace
+  in
   let n1, p1, ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0 then add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr
   else
     let in_gr = if n1 = 0 then add_to_boundary_inputs 0 p1 in_gr else in_gr in
-
     let in_gr = add_edge2 n1 p1 n2 p2 ed_ty in_gr in
     in_gr
 
-and redirect_edges n2 es =
+and redirect_edges n2 es start_port =
   ES.fold
-    (fun hde (res, p2) ->
-      let (x, xp), (_, _), yt = hde in
-      (ES.add ((x, xp), (n2, p2), yt) res, p2 + 1))
-    es (ES.empty, 0)
+    (fun hde (res, start_port) ->
+      let (x, xp), (_, yp), yt = hde in
+      (ES.add ((x, xp), (n2, start_port + yp), yt) res, start_port))
+    es (ES.empty, start_port)
 
 and incoming_arity n1 in_gr =
   let edges = all_edges_ending_at n1 in_gr in
@@ -2319,10 +2385,19 @@ and outgoing_arity n1 in_gr =
   let edges = all_edges_starting_at n1 in_gr in
   ES.cardinal edges
 
+and filter_data_edges in_gr =
+  ES.filter (fun ((_, _), (_, _), ty_id) -> not (is_error_port ty_id in_gr))
+
 and fold_multiarity_edge n1 n2 in_gr =
   let edges = all_edges n1 n2 in_gr in
   let ending_at = all_edges_ending_at n1 in_gr in
-  let redir_set, _ = redirect_edges n2 (ES.diff ending_at edges) in
+  let existing_in_edges_n2 =
+    filter_data_edges in_gr (all_edges_ending_at n2 in_gr)
+  in
+  let redir_set, _ =
+    redirect_edges n2 (ES.diff ending_at edges)
+      (ES.cardinal existing_in_edges_n2)
+  in
   let { nmap = _; eset = _; symtab = _; typemap = _; w = _ } = in_gr in
   let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
     ES.fold
@@ -2458,7 +2533,7 @@ and add_type_to_typemap ood in_gr =
   let _ =
     match ood with
     | Array_ty _ | Record _ | Function_ty _ | Union _ | Tuple_ty _ | Field _
-    | Tag _ ->
+    | Tag _ | Typed_error _ ->
         let stack = get_stack_trace 5 in
         let desc = string_of_if1_ty ood in
         type_trace := (id, desc, stack) :: !type_trace
@@ -2540,6 +2615,7 @@ and string_of_if1_ty_recursive tm seen ty =
   | Basic _ | Multiple _ | ERROR _ | Unknown_ty ->
       (* Leaf items: use your existing printer *)
       string_of_if1_ty ty
+  | Typed_error l -> "ERROR [" ^ resolve_and_print tm seen l ^ "]"
   | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
   | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
@@ -2594,11 +2670,13 @@ and resolve_and_print tm seen id =
     | None -> "MISSING_ID:" ^ string_of_int id
 
 and printable_full_type tm id = resolve_and_print tm [] id
+and p_f_t in_gr = printable_full_type (get_typemap_tm in_gr)
 
 (* seen: (int * int) list *)
 and structurally_equal in_gr seen t1 t2 =
   match (t1, t2) with
   (* --- The Error Monad Guard --- *)
+  | Typed_error t1, Typed_error t2 -> t1 = t2
   | ERROR s1, ERROR s2 -> s1 = s2
   | ERROR _, _ | _, ERROR _ -> false
   (* --- Standard Structural Matching --- *)
@@ -2781,7 +2859,6 @@ and add_sisal_type
     { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
   in
   match aty with
-  | Error_ty e -> add_type_to_typemap (ERROR e) in_gr
   | Boolean -> (lookup_tyid_triple BOOLEAN, in_gr)
   | Character -> (lookup_tyid_triple CHARACTER, in_gr)
   | Double_real -> (lookup_tyid_triple DOUBLE, in_gr)
@@ -2876,6 +2953,7 @@ and add_sisal_type
       add_compound_type
         { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
         ct
+  | Ast.Error_ty st -> add_type_to_typemap (ERROR st) in_gr
   | Ast.Type_name ty -> (
       match MM.mem ty tmn with
       | true -> ((MM.find ty tmn, 0, MM.find ty tmn), in_gr)
@@ -2978,6 +3056,7 @@ and num_to_node_sym = function
   | 59 -> TYPECAST
   | 60 -> ACREATE
   | 61 -> FDIVIDE
+  | 62 -> ERROR_NODE
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3043,6 +3122,7 @@ and node_sym_to_num = function
   | VEC -> 54
   | VBUILD -> 56
   | VSPLAT -> 55
+  | ERROR_NODE -> 62
 
 and string_of_node_sym = function
   | AADDH -> "AADDH"
@@ -3107,6 +3187,7 @@ and string_of_node_sym = function
   | VEC -> "VEC"
   | VBUILD -> "VBUILD"
   | VSPLAT -> "VSPLAT"
+  | ERROR_NODE -> "ERROR"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3136,6 +3217,7 @@ and quick_lookup_native_type a =
 
 and string_of_if1_ty ity =
   match ity with
+  | Typed_error a -> "ERROR " ^ quick_lookup_native_type a
   | Array_ty a -> "ARRAY " ^ quick_lookup_native_type a
   | Basic bc -> string_of_if1_basic_ty bc
   | Function_ty (if1l, if2l, fn_name) ->
@@ -3533,7 +3615,7 @@ and string_of_tyblob (x, y, z) =
     "\n"
 
 and string_of_triple_int (i, j, k) =
-  "(" ^ string_of_int i ^ "," ^ string_of_int j ^ "," ^ string_of_int k ^ ")"
+  "(" ^ string_of_int i ^ ", " ^ string_of_int j ^ ", " ^ string_of_int k ^ ")"
 
 and string_of_triple_int_list zz =
   List.fold_left (fun zz (i, j, k) -> zz ^ string_of_triple_int (i, j, k)) "" zz
@@ -3651,10 +3733,12 @@ and get_symbol_id v in_gr =
     (* Physically add the port to the IF1 boundary metadata *)
     ( (0, next_port, p_entry.val_ty),
       add_to_boundary_inputs ~namen:v 0 next_port in_gr )
-  else (
-    print_endline ("Symbol lookup failed for name: " ^ v);
-    outs_syms in_gr;
-    raise (Node_not_found v))
+  else
+    failwith
+      (let stack =
+         Printexc.raw_backtrace_to_string (Printexc.get_callstack 15)
+       in
+       "Nsasaode not found " ^ v ^ "\n" ^ stack)
 
 and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in
@@ -3901,6 +3985,11 @@ let intrinsic_lib =
        @ List.combine
            (List.map
               (fun ty -> Ast.mangle_intrinsic "LOG10" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "SQRT" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
        @ List.combine

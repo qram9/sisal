@@ -963,7 +963,7 @@ decldef_part :
 
 decldef_list :
   | decldef
-      { [$1] }
+      {  [$1] }
   | decldef_list separator decldef
       { $3 :: $1 }
 ;

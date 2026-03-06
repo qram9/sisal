@@ -163,7 +163,10 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
           let in_gr = If1.add_edge e p arrnum 0 t1 in_gr in
           let in_gr = add_each_edge exp_l arrnum 1 in_gr in
           let t1, in_gr =
-            let _, _, ofty = List.hd exp_l in
+            let _, _, ofty =
+              assert (List.length exp_l <> 0);
+              List.hd exp_l
+            in
             if inc_typ = 0 then
               try
                 let aty = If1.Array_ty ofty in
@@ -240,7 +243,7 @@ and union_builder in_gr utags iornone =
   let hdty =
     match hdty with
     | If1.Som _ -> hdty
-    | If1.Emp -> raise (If1.Node_not_found "unknown field in an If1.union")
+    | If1.Emp -> failwith "unknown field in an If1.union"
   in
   let aout =
     match iornone with
@@ -294,7 +297,7 @@ and new_check_rec_ty field_type_list tm out_acc =
                 "Type Error: Field '%s' with type %d not found in Typemap"
                 f_name f_type_idx
             in
-            raise (If1.Node_not_found msg)
+            failwith msg
       in
 
       (* Recurse and accumulate the list of validated type indices *)
@@ -328,7 +331,7 @@ and check_rec_ty tty_lis tm outlis =
       let _ =
         match hdty with
         | If1.Som anum -> anum
-        | If1.Emp -> raise (If1.Node_not_found "unknown field in a If1.record")
+        | If1.Emp -> failwith "unknown field in a If1.record"
       in
       hdty :: check_rec_ty tl tm outlis
   | [] -> outlis
@@ -404,12 +407,7 @@ and add_edges_in_list exp_list anode portnum in_gr =
         (If1.add_edge hd_node in_port anode portnum tt in_gr)
   | [] -> in_gr
 
-and do_iterator in_gr = function
-  | Ast.Repeat dp ->
-      let _ =
-        dbg_trace := "For initial loop\n" ^ Ast.str_iterator (Ast.Repeat dp)
-      in
-      do_decldef_part in_gr dp
+and do_iterator in_gr = function Ast.Repeat dp -> do_decldef_part in_gr dp
 
 and do_termination in_gr = function
   | Ast.While e -> do_exp in_gr e
@@ -438,8 +436,22 @@ and do_constant in_gr xx =
       If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
   | Ast.String st ->
       If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
-  | Ast.Error _ ->
-      raise (If1.Node_not_found "Error type- don't know what to do")
+  | Ast.Error ast_typ ->
+      let (_, _, err_ty_id), in_gr = If1.add_sisal_type in_gr ast_typ in
+      let (_, _, err_ty_id), in_gr =
+        If1.add_type_to_typemap (Typed_error err_ty_id) in_gr
+      in
+      let node_config =
+        `Simple
+          ( If1.ERROR_NODE,
+            Array.make 1 "",
+            (* Input ports: fields + optional base *)
+            Array.make 1 "",
+            (* Output ports *)
+            [ If1.No_pragma ] )
+      in
+      let (node_id, port_id, _), in_gr = If1.add_node_2 node_config in_gr in
+      ((node_id, port_id, err_ty_id), in_gr)
   | Ast.Short s ->
       If1.add_node_2 (`Literal (If1.SHORT, string_of_int s, out_port_1)) in_gr
   | Ast.Ushort s ->
@@ -464,14 +476,10 @@ and do_constant in_gr xx =
         in_gr
 
 and do_val_internal in_gr v =
-  (* 'v' may be a name of a variable or
-      an 'old v' which may be used in
-      for_initial bodies to keep copies
-      from the previous iteration. *)
-  let (nn, np, nty), in_gr =
+  let ((nn, np, nty), in_gr), av =
     match v with
-    | `Std10 v -> If1.get_symbol_id v in_gr
-    | `OldMob v -> If1.get_symbol_id_old v in_gr
+    | `Std10 v -> (If1.get_symbol_id v in_gr, v)
+    | `OldMob v -> (If1.get_symbol_id_old v in_gr, v)
   in
   let nn, np, nty =
     match If1.get_node nn in_gr with
@@ -505,7 +513,14 @@ and extr_types in_gr = function
         let myn = If1.NM.find_opt xx nm in
         match myn with
         | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
-            let k = If1.all_types_ending_at xx in_gr res in
+            let port_type_map =
+              If1.all_types_ending_at_no_err_ty xx in_gr res
+            in
+            let k =
+              If1.IntMap.filter
+                (fun _ tid -> not (If1.is_error_port tid in_gr))
+                port_type_map
+            in
             (k, in_gr)
         | Some _ ->
             let res = If1.IntMap.add yy zz res in
@@ -516,8 +531,14 @@ and extr_types in_gr = function
 
 and first_incoming_type_to_multiarity e in_gr =
   let pe = in_gr.If1.eset in
-  let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
+  let edges =
+    If1.ES.filter
+      (fun ((_, _), (y, _), ty_id) ->
+        y = e && not (If1.is_error_port ty_id in_gr))
+      pe
+  in
   let _, _, t1 =
+    assert (List.length (If1.ES.elements edges) <> 0);
     try List.hd (If1.ES.elements edges)
     with _ ->
       raise (If1.Sem_error "Error looking up first type in multiarity")
@@ -528,6 +549,7 @@ and first_incoming_triple_to_multiarity e in_gr =
   let pe = in_gr.If1.eset in
   let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
   let (x, xp), (_, _), aty =
+    assert (List.length (If1.ES.elements edges) <> 0);
     try List.hd (If1.ES.elements edges)
     with _ ->
       raise
@@ -561,7 +583,8 @@ and add_exp in_gr ex _ ret_lis =
         in
         let (oo, op, ot), in_gr =
           If1.add_node_2
-            (`Simple (If1.MULTIARITY, in_port_1, out_port_1, [ If1.Name "LET" ]))
+            (`Simple
+               (If1.MULTIARITY, in_port_1, out_port_1, [ If1.Name "FOR_DO_EXP" ]))
             in_gr
         in
         let nm = in_gr.If1.nmap in
@@ -790,7 +813,7 @@ and build_alim in_gr =
     (`Simple (If1.ALIML, in_port_1, out_port_1, [ If1.Name "ALimL" ]))
     in_gr
 
-and build_multiarity siz in_gr =
+and build_multiarity ?(nam = "") siz in_gr =
   (* Helper function building a If1.MULTIARITY node *)
   let in_port_1 =
     let in_array = Array.make siz "" in
@@ -805,7 +828,7 @@ and build_multiarity siz in_gr =
        ( If1.MULTIARITY,
          in_port_1,
          out_port_1,
-         [ If1.Name ("multiARITY_" ^ string_of_int siz) ] ))
+         [ If1.Name ("multiARITY_" ^ nam) ] ))
     in_gr
 
 and get_ports_unified of_gr basis_gr parent_gr =
@@ -1086,7 +1109,7 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
 
   let (mul_n, mul_p, mul_t), in_gr =
-    build_multiarity (List.length return_action_list) in_gr
+    build_multiarity ~nam:"FOR_ALL" (List.length return_action_list) in_gr
   in
 
   let _, _, in_gr =
@@ -1222,81 +1245,82 @@ and do_decldef in_gr delc =
         else in_gr
     | None -> in_gr
   (* let check_decl_type *)
-  and do_each_decl alldecls exps expl in_gr =
-    match alldecls with
+  and do_each_decl lhs_decl_names rhs_exps expl in_gr =
+    match lhs_decl_names with
     | Ast.Decl_with_type (decls, atype) :: decllist_tail ->
-        let expl, exps, in_gr =
-          bind_exp_to_decl expl exps decls (Some atype) in_gr
+        let expl, rhs_exps, in_gr =
+          bind_exp_to_decl expl rhs_exps decls (Some atype) in_gr
         in
-        do_each_decl decllist_tail exps expl in_gr
+        do_each_decl decllist_tail rhs_exps expl in_gr
     | Decl_no_type decls :: decllist_tail ->
-        let expl, exps, in_gr = bind_exp_to_decl expl exps decls None in_gr in
-        do_each_decl decllist_tail exps expl in_gr
+        let expl, rhs_exps, in_gr =
+          bind_exp_to_decl expl rhs_exps decls None in_gr
+        in
+        do_each_decl decllist_tail rhs_exps expl in_gr
     | [] -> in_gr
-  and pop_or_push_to_exp_stack expl exps in_gr =
-    try (List.hd expl, exps, List.tl expl, in_gr)
-    with _ ->
-      let exphhd = List.hd exps in
-      let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
-      let expty =
-        match If1.get_node expnum in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            first_incoming_type_to_multiarity expnum in_gr
-        | _ -> expty
-      in
-      (* When the expression produces a multiarity,
-           each output port and output type is added to
-           the expression stack, so that the recursive
-           visitor will match the next decl with the top
-           of the stack. *)
-      let expl =
-        match If1.get_node expnum in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            let port_type_map =
-              If1.all_types_ending_at expnum in_gr If1.IntMap.empty
-            in
-            let howmany = If1.IntMap.cardinal port_type_map in
-            let rec add_to_curr_expl cur_count howmany port_type_map nodeid expl
-                =
-              if cur_count < howmany then
-                ( nodeid,
-                  cur_count,
-                  match If1.IntMap.find_opt cur_count port_type_map with
-                  | Some x -> x
-                  | None ->
-                      failwith
-                        (print_endline (If1.get_stack_trace 25);
-                         print_endline ("Debug trace " ^ !dbg_trace);
-                         "Error in push_pop") )
-                :: add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
-                     expl
-              else expl
-            in
-            add_to_curr_expl 0 howmany port_type_map expnum expl
-        | _ -> (expnum, expport, expty) :: expl
-      in
-      (List.hd expl, List.tl exps, List.tl expl, in_gr)
-  and bind_exp_to_decl expl exps decls atyp in_gr =
-    match decls with
-    | dechd :: dectl ->
-        (* ending let (expnum, expport, ...) *)
-        let expl, exps, in_gr =
-          match dechd with
-          | Ast.Decl_name dechd ->
-              let (expnum, expport, expty), exps, expl, in_gr =
-                pop_or_push_to_exp_stack expl exps in_gr
+  and pop_or_push_to_exp_stack expl rhs_exps in_gr =
+    match expl with
+    | head_expl :: tl_expl -> (head_expl, rhs_exps, tl_expl, in_gr)
+    | [] ->
+        if List.length rhs_exps = 0 then (
+          Printexc.print_raw_backtrace stdout (Printexc.get_callstack 50);
+          flush stdout);
+        assert (List.length rhs_exps <> 0);
+        let exphhd = List.hd rhs_exps in
+        let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
+        let expty =
+          match If1.get_node expnum in_gr with
+          | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+              first_incoming_type_to_multiarity expnum in_gr
+          | _ -> expty
+        in
+        let expl =
+          match If1.get_node expnum in_gr with
+          | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+              let port_type_map =
+                If1.all_types_ending_at_no_err_ty expnum in_gr If1.IntMap.empty
               in
-              (* Fix: If we have a list of expected types, use the one matching the current index *)
+              let port_type_map =
+                If1.IntMap.filter
+                  (fun _ tid -> not (If1.is_error_port tid in_gr))
+                  port_type_map
+              in
+              If1.IntMap.fold
+                (fun ke va retl -> (expnum, ke, va) :: retl)
+                port_type_map expl
+          | _ -> (expnum, expport, expty) :: expl
+        in
+        let expl = List.rev expl in
+        let expl_hd =
+          match expl with hd_expl :: _ -> hd_expl | [] -> (0, 0, 0)
+        in
+        let expl_tl = match expl with _ :: tl_expl -> tl_expl | [] -> [] in
+        let xom =
+          match rhs_exps with
+          | _ :: exp_tl -> (expl_hd, exp_tl, expl_tl, in_gr)
+          | [] -> (expl_hd, [], expl_tl, in_gr)
+        in
+        xom
+  and bind_exp_to_decl expl rhs_exps decls atyp in_gr =
+    match decls with
+    | current_name :: remaining_names ->
+        (* ending let (expnum, expport, ...) *)
+        let expl, rhs_exps, in_gr =
+          match current_name with
+          | Ast.Decl_name current_name ->
+              let (expnum, expport, expty), rhs_exps, expl, in_gr =
+                pop_or_push_to_exp_stack expl rhs_exps in_gr
+              in
               let in_gr = check_decl_type atyp expty in_gr in
               let localsyms, globsyms = in_gr.If1.symtab in
               ( expl,
-                exps,
+                rhs_exps,
                 {
                   in_gr with
                   If1.symtab =
-                    ( If1.SM.add dechd
+                    ( If1.SM.add current_name
                         {
-                          If1.val_name = dechd;
+                          If1.val_name = current_name;
                           If1.val_ty = expty;
                           If1.val_def = expnum;
                           If1.def_port = expport;
@@ -1304,19 +1328,19 @@ and do_decldef in_gr delc =
                         localsyms,
                       globsyms );
                 } )
-          | Decl_func dechd ->
+          | Decl_func current_name ->
               let (_, _, _), in_gr_ =
-                do_function_header (If1.get_a_new_graph in_gr) dechd
+                do_function_header (If1.get_a_new_graph in_gr) current_name
               in
               let fn =
-                match dechd with
+                match current_name with
                 | Ast.Function_header (Ast.Function_name fn_path, _, _) ->
                     String.concat "." fn_path
                 | Ast.Function_header_nodec (Ast.Function_name fn_path, _) ->
                     String.concat "." fn_path
               in
-              let (_, _, expty), exps, expl, in_gr_ =
-                pop_or_push_to_exp_stack expl exps in_gr_
+              let (_, _, expty), rhs_exps, expl, in_gr_ =
+                pop_or_push_to_exp_stack expl rhs_exps in_gr_
               in
               let in_gr_ = check_decl_type atyp expty in_gr_ in
               let in_gr_ = If1.graph_clean_multiarity in_gr_ in
@@ -1325,13 +1349,13 @@ and do_decldef in_gr delc =
                   (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
                   in_gr
               in
-              (expl, exps, in_gr)
+              (expl, rhs_exps, in_gr)
         in
-        bind_exp_to_decl expl exps dectl atyp in_gr
-    | [] -> (expl, exps, in_gr)
+        bind_exp_to_decl expl rhs_exps remaining_names atyp in_gr
+    | [] -> (expl, rhs_exps, in_gr)
   in
   match delc with
-  | Ast.Decldef (alldecls, Ast.Exp exps) ->
+  | Ast.Decldef (lhs_decl_names, Ast.Exp rhs_exps) ->
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
@@ -1342,7 +1366,7 @@ and do_decldef in_gr delc =
        correspondance between each decl
        and each exp. Only after an exp is
        lowered do we have one-one connectivity. *)
-      ((0, 0, 0), do_each_decl alldecls exps [] in_gr)
+      ((0, 0, 0), do_each_decl lhs_decl_names rhs_exps [] in_gr)
   | _ -> raise (If1.Sem_error "Internal compiler error")
 
 and check_decl_type atyp expty in_gr =
@@ -1364,36 +1388,50 @@ and check_decl_type atyp expty in_gr =
   | None -> in_gr
 (* let check_decl_type *)
 
-and do_each_decl2 alldecls exps expl expl_rev decl_rev in_gr =
-  match alldecls with
-  | Ast.Decl_with_type (decls, atype) :: decllist_tail ->
-      let expl, expl_rev, decl_rev, exps, in_gr =
-        do_exp_for_decl expl expl_rev decl_rev exps decls (Some atype) in_gr
+and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
+    in_gr =
+  match lhs_decldef_names with
+  | Ast.Decl_with_type (decl_names, atype) :: decllist_tail ->
+      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
+        (* Take the first LHS item and get the rhs expression lowered.
+         * There can be more than one name. So each group may
+         * expect the expression to have as many results as
+         * names in the group. In this decl, the expected type
+         * of each name is also given in the source. *)
+        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names
+          (Some atype) in_gr
       in
-      do_each_decl2 decllist_tail exps expl expl_rev decl_rev in_gr
-  | Decl_no_type decls :: decllist_tail ->
-      let expl, expl_rev, decl_rev, exps, in_gr =
-        do_exp_for_decl expl expl_rev decl_rev exps decls None in_gr
+      (* Now go on to the next decl in the LHS. *)
+      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
+  | Decl_no_type decl_names :: decllist_tail ->
+      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
+        (* Same as above, but no types are attached to the LHS names *)
+        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None
+          in_gr
       in
-      do_each_decl2 decllist_tail exps expl expl_rev decl_rev in_gr
+      (* Now go on to the next decl in the LHS. *)
+      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
   | [] -> (expl_rev, decl_rev, in_gr)
 
-and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
-  match decls with
-  | dechd :: dectl ->
+and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
+  match lhs_names with
+  | current_name :: remaining_names ->
       (* ending let (expnum, expport, ...) *)
-      let expl, expl_rev, decl_rev, exps, in_gr =
-        match dechd with
-        | Ast.Decl_name dechd ->
-            let (expnum, expport, expty), exps, expl, in_gr, expl_rev =
-              pop_or_push_to_exp_stack2 expl expl_rev exps in_gr
+      let exp_stack, expl_rev, decl_rev, rhs_exps, in_gr =
+        match current_name with
+        | Ast.Decl_name current_name ->
+            (* current_name are each of the names that are on the LHS *)
+            let (expnum, expport, expty), rhs_exps, exp_stack, in_gr, expl_rev =
+              pop_or_push_to_exp_stack2 exp_stack expl_rev rhs_exps in_gr
             in
+            (* if atyp is set, it needs to be the same as the lowered
+             * expression's type *)
             let in_gr = check_decl_type atyp expty in_gr in
             let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
-              If1.SM.add dechd
+              If1.SM.add current_name
                 {
-                  If1.val_name = dechd;
+                  If1.val_name = current_name;
                   If1.val_ty = expty;
                   If1.val_def = expnum;
                   If1.def_port = expport;
@@ -1401,10 +1439,10 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
                 localsyms
             in
             let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
-            (expl, expl_rev, dechd :: decl_rev, exps, in_gr)
-        | Decl_func dechd ->
+            (exp_stack, expl_rev, current_name :: decl_rev, rhs_exps, in_gr)
+        | Decl_func current_name ->
             let fn, _ =
-              match dechd with
+              match current_name with
               | Ast.Function_header (Ast.Function_name fn_path, decls, _) ->
                   (String.concat "." fn_path, decls)
               | Ast.Function_header_nodec (Ast.Function_name fn_path, _) ->
@@ -1413,10 +1451,10 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
             let (_, funport, funty), in_gr_ =
               do_function_header
                 (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
-                dechd
+                current_name
             in
-            let (_, _, expty), exps, expl, in_gr_, expl_rev =
-              pop_or_push_to_exp_stack2 expl expl_rev exps in_gr_
+            let (_, _, expty), rhs_exps, exp_stack, in_gr_, expl_rev =
+              pop_or_push_to_exp_stack2 exp_stack expl_rev rhs_exps in_gr_
             in
             let in_gr_ = check_decl_type atyp expty in_gr_ in
             let in_gr_ = If1.graph_clean_multiarity in_gr_ in
@@ -1437,84 +1475,89 @@ and do_exp_for_decl expl expl_rev decl_rev exps decls atyp in_gr =
                 localsyms
             in
             let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
-            ( expl,
+            ( exp_stack,
               (expnum, funport, funty) :: expl_rev,
               fn :: decl_rev,
-              exps,
+              rhs_exps,
               in_gr )
       in
-      do_exp_for_decl expl expl_rev decl_rev exps dectl atyp in_gr
-  | [] -> (expl, expl_rev, decl_rev, exps, in_gr)
+      do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps remaining_names atyp
+        in_gr
+  | [] -> (exp_stack, expl_rev, decl_rev, rhs_exps, in_gr)
 
-and pop_or_push_to_exp_stack2 expl expl_in_rev exps in_gr =
-  try (List.hd expl, exps, List.tl expl, in_gr, List.hd expl :: expl_in_rev)
-  with _ ->
-    let exphhd = List.hd exps in
-    let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
-    let expty =
-      match If1.get_node expnum in_gr with
-      | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-          first_incoming_type_to_multiarity expnum in_gr
-      | _ -> expty
-    in
-    (* When the expression produces a multiarity,
-         each output port and output type is added to
-         the expression stack, so that the recursive
-         visitor will match the next decl with the top
-         of the stack. *)
-    let expl =
-      match If1.get_node expnum in_gr with
-      | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-          let port_type_map =
-            If1.all_types_ending_at expnum in_gr If1.IntMap.empty
-          in
-          let howmany = If1.IntMap.cardinal port_type_map in
-          let rec add_to_curr_expl cur_count howmany port_type_map nodeid expl =
-            if cur_count < howmany then
-              ( nodeid,
-                cur_count,
-                match If1.IntMap.find_opt cur_count port_type_map with
-                | Some x -> x
-                | None -> failwith "Port not found in push_or_pop2" )
-              :: add_to_curr_expl (cur_count + 1) howmany port_type_map nodeid
-                   expl
-            else expl
-          in
-          add_to_curr_expl 0 howmany port_type_map expnum expl
-      | _ -> (expnum, expport, expty) :: expl
-    in
-    ( List.hd expl,
-      List.tl exps,
-      List.tl expl,
-      in_gr,
-      List.hd expl :: expl_in_rev )
+and pop_or_push_to_exp_stack2 exp_stack expl_in_rev rhs_exps in_gr =
+  (* Check if there is an item in the first list;
+   * else we need to look in the rhs_exps.
+   * Put the head of the list in a return
+   * list in reverse. *)
+  match exp_stack with
+  | hd_exp_stack :: tl_exp_stack ->
+      (hd_exp_stack, rhs_exps, tl_exp_stack, in_gr, hd_exp_stack :: expl_in_rev)
+  | [] ->
+      assert (List.length rhs_exps > 0);
+      let exphhd = List.hd rhs_exps in
+      let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
+      let expty =
+        match If1.get_node expnum in_gr with
+        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+            first_incoming_type_to_multiarity expnum in_gr
+        | _ -> expty
+      in
+      let exp_stack =
+        match If1.get_node expnum in_gr with
+        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+            let port_type_map =
+              If1.all_types_ending_at_no_err_ty expnum in_gr If1.IntMap.empty
+            in
+            let port_type_map =
+              If1.IntMap.filter
+                (fun _ tid -> not (If1.is_error_port tid in_gr))
+                port_type_map
+            in
+            If1.IntMap.fold
+              (fun ke va retl -> (expnum, ke, va) :: retl)
+              port_type_map exp_stack
+        | _ -> (expnum, expport, expty) :: exp_stack
+      in
+      let exp_stack = List.rev exp_stack in
+      let res =
+        match exp_stack with
+        | hd_exp_stack :: tl_exp_stack ->
+            ( hd_exp_stack,
+              rhs_exps,
+              tl_exp_stack,
+              in_gr,
+              hd_exp_stack :: expl_in_rev )
+        | [] -> failwith "This time we need to see a non empty exp_stack"
+      in
+      res
 
 and do_decldef2 in_gr delc expl_rev decl_rev =
   match delc with
-  | Ast.Decldef (alldecls, Ast.Exp exps) ->
+  | Ast.Decldef (lhs_decldef_names, Ast.Exp rhs_decldef_exps) ->
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
        Ast.Decl_with_type type-spec or Decl_no_type.
-
        Second component in a Ast.Decldef is
        an exp-list. There is no one-one
        correspondance between each decl
        and each exp. Only after an exp is
        lowered do we have one-one connectivity. *)
       let rev_expl, decl_rev, in_gr =
-        do_each_decl2 alldecls exps [] expl_rev decl_rev in_gr
+        do_each_decl2 lhs_decldef_names rhs_decldef_exps [] expl_rev decl_rev
+          in_gr
       in
       ((0, 0, 0), rev_expl, decl_rev, in_gr)
   | _ -> raise (If1.Sem_error "Internal compiler error")
 
 and map_names_to_type decls atyp in_gr =
   match decls with
-  | dechd :: dectl ->
+  | current_name :: remaining_names ->
       (* ending let (expnum, expport, ...) *)
       let in_gr =
-        match dechd with
-        | Ast.Decl_name dechd ->
+        match current_name with
+        | Ast.Decl_name current_name ->
             let (_, _, typenum), in_gr =
               match atyp with
               | `A atyp -> If1.add_sisal_type in_gr atyp
@@ -1525,9 +1568,9 @@ and map_names_to_type decls atyp in_gr =
 
             let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
-              If1.SM.add dechd
+              If1.SM.add current_name
                 {
-                  If1.val_name = dechd;
+                  If1.val_name = current_name;
                   If1.val_ty = typenum;
                   If1.val_def = 0;
                   (* these are unknown at this time *)
@@ -1536,7 +1579,7 @@ and map_names_to_type decls atyp in_gr =
                 localsyms
             in
             { in_gr with If1.symtab = (localsyms, globsyms) }
-        | Decl_func dechd ->
+        | Decl_func current_name ->
             let _ =
               match atyp with
               | `A _ ->
@@ -1547,7 +1590,7 @@ and map_names_to_type decls atyp in_gr =
               | `None -> ()
             in
             let fn_name, decls, tl =
-              match dechd with
+              match current_name with
               | Ast.Function_header (Ast.Function_name fn_path, decls, tl) ->
                   (String.concat "." fn_path, decls, tl)
               | Ast.Function_header_nodec (Ast.Function_name fn_path, tl) ->
@@ -1573,11 +1616,11 @@ and map_names_to_type decls atyp in_gr =
             in
             { in_gr with If1.symtab = (localsyms, globsyms) }
       in
-      map_names_to_type dectl atyp in_gr
+      map_names_to_type remaining_names atyp in_gr
   | [] -> in_gr
 
-and add_symbols_before_exp alldecls in_gr =
-  match alldecls with
+and add_symbols_before_exp lhs_decl_names in_gr =
+  match lhs_decl_names with
   | Ast.Decl_with_type (decls, atype) :: _ ->
       map_names_to_type decls (`A atype) in_gr
   | Ast.Decl_no_type decls :: _ -> map_names_to_type decls `None in_gr
@@ -1585,7 +1628,7 @@ and add_symbols_before_exp alldecls in_gr =
 
 and do_decldef_let_rec_symbols in_gr delc =
   match delc with
-  | Ast.Decldef (alldecls, Ast.Exp _) ->
+  | Ast.Decldef (lhs_decl_names, Ast.Exp _) ->
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
@@ -1596,13 +1639,13 @@ and do_decldef_let_rec_symbols in_gr delc =
        correspondance between each decl
        and each exp. Only after an exp is
        lowered do we have one-one connectivity. *)
-      let in_gr = add_symbols_before_exp alldecls in_gr in
+      let in_gr = add_symbols_before_exp lhs_decl_names in_gr in
       in_gr
   | _ -> raise (If1.Sem_error "Internal compiler error")
 
 and do_decldef_let_rec in_gr delc expl_rev decl_rev =
   match delc with
-  | Ast.Decldef (alldecls, Ast.Exp exps) ->
+  | Ast.Decldef (lhs_decldef_names, Ast.Exp rhs_decldef_exps) ->
       (* Ast.Decldef:
        First component in a Ast.Decldef is a list of
        lists of declids. Each list is either a
@@ -1614,7 +1657,8 @@ and do_decldef_let_rec in_gr delc expl_rev decl_rev =
        and each exp. Only after an exp is
        lowered do we have one-one connectivity. *)
       let rev_expl, decl_rev, in_gr =
-        do_each_decl2 alldecls exps [] expl_rev decl_rev in_gr
+        do_each_decl2 lhs_decldef_names rhs_decldef_exps [] expl_rev decl_rev
+          in_gr
       in
       ((0, 0, 0), rev_expl, decl_rev, in_gr)
   | _ -> raise (If1.Sem_error "Internal compiler error")
@@ -1706,7 +1750,17 @@ and get_new_tagcase_graph in_gr vntt e =
 
 (* Helper to strip Monad/Error edges from the comparison map *)
 and filter_data_types in_gr ty_map =
-  If1.IntMap.filter (fun _ ty_id -> not (If1.is_error_port ty_id in_gr)) ty_map
+  let filtered =
+    If1.IntMap.filter
+      (fun _ ty_id -> not (If1.is_error_port ty_id in_gr))
+      ty_map
+  in
+  If1.IntMap.fold
+    (fun ke ty_id out_map ->
+      if If1.is_typed_error_ty ty_id in_gr then
+        If1.IntMap.add ke (If1.type_of_error_ty ty_id in_gr) out_map
+      else If1.IntMap.add ke ty_id out_map)
+    filtered If1.IntMap.empty
 
 and check_subgr_tys in_gr msg jj prev =
   (* 1. Strip the Railway edges *)
@@ -2071,6 +2125,7 @@ and add_ret in_gr return_action_list mask_ty_list prag =
   add_return_gr for_gr in_gr return_action_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
+  (* all edges ending at frm now to end at Boundary *)
   match If1.get_node frm in_gr with
   | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
       (*In case frm is a If1.MULTIARITY, redirect
@@ -2078,10 +2133,24 @@ and point_edges_to_boundary frm elp elt in_gr =
       let pe = in_gr.If1.eset in
       let unwanted_edges = If1.all_edges_ending_at frm in_gr in
       let nes = pe in
-      let red_nes, _ = If1.redirect_edges 0 unwanted_edges in
+      let start_in_port_for_boundary =
+        If1.ES.cardinal
+          (If1.filter_data_edges in_gr (If1.all_edges_ending_at 0 in_gr))
+      in
+      let red_nes, _ =
+        If1.redirect_edges 0 (* 0 is Boundary *)
+          unwanted_edges start_in_port_for_boundary
+      in
       let nes = If1.ES.union nes red_nes in
       { in_gr with If1.eset = nes }
-  | _ -> If1.add_edge frm elp 0 0 elt in_gr
+  | _ ->
+      (* 3. Get the actual edges reaching the boundary node (ID 0) *)
+      (* Only edges with non-ERROR types are treated as logical returns *)
+      let start_port_num =
+        If1.ES.cardinal
+          (If1.filter_data_edges in_gr (If1.all_edges_ending_at 0 in_gr))
+      in
+      If1.add_edge frm elp 0 start_port_num elt in_gr
 
 and create_bool_bin_op a b in_gr op =
   let (nod_num, nod_po, _), in_gr = bin_exp a b in_gr op in
@@ -2581,7 +2650,9 @@ and do_simple_exp in_gr in_sim_ex =
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
 
       (* 2. Identify and Segregate Ports on Inner Boundary *)
-      let port_type_map = If1.all_types_ending_at 0 let_gr If1.IntMap.empty in
+      let port_type_map =
+        If1.all_types_ending_at_no_err_ty 0 let_gr If1.IntMap.empty
+      in
       let data_ports =
         If1.IntMap.filter
           (fun _ tid -> not (If1.is_error_port tid let_gr))
@@ -2602,7 +2673,9 @@ and do_simple_exp in_gr in_sim_ex =
 
       (* 4. PATH A: Scalarize Data Results *)
       let data_arity = If1.IntMap.cardinal data_ports in
-      let (multinum, _, _), in_gr = build_multiarity data_arity in_gr in
+      let (multinum, _, _), in_gr =
+        build_multiarity ~nam:"LET_REC" data_arity in_gr
+      in
       let in_gr =
         If1.IntMap.fold
           (fun port_idx tid acc_gr ->
@@ -2633,13 +2706,22 @@ and do_simple_exp in_gr in_sim_ex =
           error_ports in_gr
       in
       ((multinum, 0, 0), in_gr)
-  | Let (dp, e) ->
+  | Let (dp, in_exp) ->
+      (* create a new graph with parent syms in ps and empty cs *)
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
+      (* Give the dp argument to do_decldef_part_in_let_stmt *)
       let _, let_gr = do_decldef_part_in_let_stmt `None let_gr dp in
-      let (frm, elp, elt), let_gr = do_exp let_gr e in
+      (* lower the exp or the in component of a "let dp in exp"*)
+      let (frm, elp, elt), let_gr = do_exp let_gr in_exp in
+      (* connect the results from the expressions to the boundary *)
+      (* When there is more than one output, the exp will
+       * end with a MULTIARITY, and we need to connect each
+       * incoming port to the multiarity to the boundary *)
       let let_gr = point_edges_to_boundary frm elp elt let_gr in
       (* 1. Identify all ports on the inner boundary *)
-      let port_type_map = If1.all_types_ending_at 0 let_gr If1.IntMap.empty in
+      let port_type_map =
+        If1.all_types_ending_at_no_err_ty 0 let_gr If1.IntMap.empty
+      in
       (* 2. Segregate Data vs Errors *)
       let data_ports =
         If1.IntMap.filter
@@ -2647,21 +2729,32 @@ and do_simple_exp in_gr in_sim_ex =
           port_type_map
       in
       (* 3. Create the Compound Node *)
-      (* Note: add_node_2 now internally calls propagate_error_ports to lift inner errors to the node's face *)
+      (* Note: add_node_2 now internally calls
+       * propagate_error_ports to lift inner errors
+       * to the node's face *)
       let (aa, _, _), in_gr =
         If1.add_node_2
-          (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_NON_REC" ], []))
+          (`Compound
+             ( let_gr,
+               If1.INTERNAL,
+               0,
+               [
+                 If1.Name "LET_NON_REC";
+                 If1.Ast_type (Ast.str_simple_exp (Let (dp, in_exp)));
+               ],
+               [] ))
           in_gr
       in
-
       (* 4. PATH A: Wire Data to MULTIARITY *)
       let data_arity = If1.IntMap.cardinal data_ports in
-      let (multinum, _, _), in_gr = build_multiarity data_arity in_gr in
-      let in_gr =
+      let (multinum, _, _), in_gr =
+        build_multiarity data_arity in_gr ~nam:"LET_NON_REC"
+      in
+      let _, in_gr =
         If1.IntMap.fold
-          (fun port_idx tid acc_gr ->
-            If1.add_edge aa port_idx multinum port_idx tid acc_gr)
-          data_ports in_gr
+          (fun port_idx tid (cur_num, acc_gr) ->
+            (cur_num + 1, If1.add_edge aa port_idx multinum cur_num tid acc_gr))
+          data_ports (0, in_gr)
       in
       ((multinum, 0, 0), in_gr)
   | Old (Ast.Value_name v) ->
@@ -2686,7 +2779,7 @@ and do_simple_exp in_gr in_sim_ex =
         | Ast.SExpr_pair (idx, values) :: tl ->
             let (al, ap), in_gr =
               match values with
-              | Empty -> raise (If1.Node_not_found "badly formed array replace")
+              | Empty -> failwith "Badly formed array replace"
               | Ast.Exp aexp ->
                   let bbu, in_gr = If1.map_exp in_gr aexp [] do_simple_exp in
                   let (idxnum, idxport, t2), in_gr = do_exp in_gr idx in
@@ -2874,7 +2967,7 @@ and do_simple_exp in_gr in_sim_ex =
             in
             let (an, po, tyy), in_gr = do_simple_exp in_gr e in
             ((an, po, tyy), in_gr, vn_n)
-        | Tagcase_exp _ -> raise (If1.Node_not_found "what do we do here")
+        | Tagcase_exp _ -> failwith " WHAT DO WE DO HERE?"
       in
       (* Walk over If1.typemap lists and collect
         the union's tag#s *)
@@ -2940,7 +3033,7 @@ and do_simple_exp in_gr in_sim_ex =
       let tm = If1.get_typemap_tm in_gr in
       let tn_ty =
         match find_matching_union_str tag_nam tm with
-        | If1.Emp -> raise (If1.Node_not_found "Unknown tag in an If1.union")
+        | If1.Emp -> failwith "UNKNOWN TAG IN AN UNION"
         | If1.Som k -> k
       in
       let (un_num, un_po, un_ty), in_gr = do_exp in_gr e in
@@ -2988,15 +3081,9 @@ and do_simple_exp in_gr in_sim_ex =
              typecast_arg_type )
   | Is_error e -> do_exp in_gr e
   | If (cl, Else el) as if_ast ->
-      (* Work an example with [1,2]
-        and [1,2,3] and [1,2,3,4] *)
-      (* How are outputs tied to the
-        compound node's outputs?
-        Same with inputs *)
       let rec if_builder cl xyz in_gr_if els curr_num ty_lis_ret =
         match cl with
         | Ast.Cond (predicate, body) :: tl ->
-            (* Provide a new graph to add tl to it *)
             let ty_lis_else, else_outs, else_gr =
               let grr_th = If1.get_a_new_graph in_gr_if in
               if_builder tl xyz grr_th els (curr_num + 1) ty_lis_ret
@@ -3017,21 +3104,13 @@ and do_simple_exp in_gr in_sim_ex =
                      [] ))
                 in_gr_if
             in
-
-            (* TODO: GO HERE: if we add a subgraph to a compound node,
-            we need to tie outgoing with add_edges_to_boundary, so
-            why not do both in one function? *)
             let in_gr_if = add_edges_to_boundary else_gr in_gr_if else_n in
             let in_outs, then_gr = do_exp (If1.get_a_new_graph in_gr_if) body in
             let ty_lis_then, then_gr =
               extr_types then_gr (in_outs, If1.IntMap.empty)
             in
-
             let then_s, then_p, then_t = in_outs in
             let in_outs = (then_s, then_p, then_t, "") in
-            let then_s, then_p, then_t =
-              If1.find_incoming_regular_node (then_s, then_p, then_t) then_gr
-            in
             let then_gr =
               point_edges_to_boundary then_s then_p then_t then_gr
             in
@@ -3049,7 +3128,6 @@ and do_simple_exp in_gr in_sim_ex =
                      [] ))
                 in_gr_if
             in
-
             let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_n in
             let _ =
               check_subgr_tys in_gr_if
@@ -3066,10 +3144,6 @@ and do_simple_exp in_gr in_sim_ex =
             in
 
             let pred_s, pred_p, pred_t = pred_out in
-            let _, pp, pt =
-              If1.find_incoming_regular_node (pred_s, pred_p, pred_t)
-                predicate_gr
-            in
             let predicate_gr =
               point_edges_to_boundary pred_s pred_p pred_t predicate_gr
             in
@@ -3090,25 +3164,18 @@ and do_simple_exp in_gr in_sim_ex =
             let in_gr_if =
               If1.output_to_boundary
                 [
-                  (pn, pp, pt);
+                  (pn, 0, pred_t);
                   (else_n, else_p, else_t);
                   (then_n, then_p, then_t);
                 ]
                 in_gr_if
             in
-
             (ty_lis_then, in_outs, in_gr_if)
         | [] ->
             let (else_n, else_p, else_t), i_gr = do_exp in_gr_if els in
-
             let ty_lis, i_gr =
               extr_types i_gr ((else_n, else_p, else_t), If1.IntMap.empty)
             in
-
-            let else_n, else_p, else_t =
-              If1.find_incoming_regular_node (else_n, else_p, else_t) i_gr
-            in
-
             let i_gr = point_edges_to_boundary else_n else_p else_t i_gr in
             (ty_lis, (else_n, else_p, else_t, Ast.str_exp els), i_gr)
       in
@@ -3124,13 +3191,23 @@ and do_simple_exp in_gr in_sim_ex =
               [ 3; pn; else_n; then_n ]
           | _ -> []
         in
+        let name_it =
+          If1.IntMap.fold
+            (fun _ ed_ty out_str ->
+              If1.printable_full_type (If1.get_typemap_tm in_gr) ed_ty
+              ^ "; " ^ out_str)
+            ty_lis ""
+        in
         let (sn, _, _), in_gr =
           If1.add_node_2
             (`Compound
                ( regar,
                  If1.INTERNAL,
                  0,
-                 [ If1.Name "SELECT"; If1.Ast_type (Ast.str_simple_exp if_ast) ],
+                 [
+                   If1.Name ("SELECT_" ^ name_it);
+                   If1.Ast_type (Ast.str_simple_exp if_ast);
+                 ],
                  boundary_ooo ))
             in_gr
         in
@@ -3181,6 +3258,7 @@ and do_simple_exp in_gr in_sim_ex =
           If1.inherit_parent_syms init_gr term_gr
         in
         let (tn, tp, tt), init_gr =
+          If1.outs_syms init_gr;
           do_termination (build_term_graph init_gr) t
         in
         ((tn, tp, tt), If1.output_to_boundary [ (tn, tp, tt) ] init_gr)
@@ -3259,7 +3337,9 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr
             in
             let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity (List.length return_action_list) in_gr
+              build_multiarity
+                (List.length return_action_list)
+                in_gr ~nam:"FOR_INITIAL_LOOP_A"
             in
 
             let _, _, in_gr =
@@ -3318,7 +3398,9 @@ and do_simple_exp in_gr in_sim_ex =
             in
 
             let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity (List.length return_action_list) in_gr
+              build_multiarity
+                (List.length return_action_list)
+                in_gr ~nam:"FOR_INITIAL_LOOP_B"
             in
 
             let _, _, in_gr =
@@ -3598,8 +3680,7 @@ and get_assoc_list inner_gr =
 
 and do_returns_clause in_gr ret_clause =
   match ret_clause with
-  | Ast.Old_ret (_, _) ->
-      raise (If1.Node_not_found "Dont know how to handle this one")
+  | Ast.Old_ret (_, _) -> failwith "DON't KNOW WHAT TO DO HERE"
   | Ast.Return_exp (rexp, mask_clause) ->
       let msk, in_gr =
         match mask_clause with
@@ -3825,6 +3906,7 @@ and verify_function_returns strs fn_ty_id in_gr =
                         act
                 in
                 print_endline (If1.str_type_trace ());
+                If1.If1_View.export_debug_html "CRASHED.html" in_gr;
                 raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
           | _ ->
               raise
