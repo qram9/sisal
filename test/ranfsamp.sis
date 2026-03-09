@@ -7,7 +7,7 @@ define main
 %  D E C L A R A T I O N S
 %==============================================================================
 
-#include "ranf.h"
+%#include "ranf.h"
 
 global rans( N_In, Seed1 : integer returns array[ Four_Plex ] )
 global ranf( Seed: Four_Plex

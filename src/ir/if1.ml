@@ -4377,7 +4377,8 @@ module If1_View = struct
     fprintf oc "%s"
       "\n\
       \      function generateMermaidCode(graph) {\n\
-      \        let lines = [\"graph TD\"];\n\
+      \        let lines = [\"---\\nconfig:\\nlayout: tidy-tree\\n---\\ngraph \
+       TD\"];\n\
       \        \n\
       \        // 1. Virtualize the Boundary Nodes\n\
       \        lines.push('  N0_IN{{\"Boundary IN (Node 0)\"}}');\n\
@@ -4402,11 +4403,12 @@ module If1_View = struct
       \        // Wiring up the High-Contrast Edges\n\
       \        let edgeCount = 0;\n\
       \        (graph.data_edges || []).forEach(e => {\n\
-      \        const m = e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)/);\n\
+      \        const m = \
+       e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)\\s*(.*)/);\n\
       \        if (m) {\n\
       \        const s = m[1] === \"0\" ? \"N0_IN\" : \"N\" + m[1];\n\
       \        const d = m[3] === \"0\" ? \"N0_OUT\" : \"N\" + m[3];\n\
-      \        lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\" --> ${d}`);\n\
+      \        lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\\n${m[5]}\" --> ${d}`);\n\
       \        \n\
       \        // Neon Glow for the edges\n\
       \        lines.push(`  linkStyle ${edgeCount} \

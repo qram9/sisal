@@ -303,6 +303,7 @@ and sisal_lex = parse eof {
  | '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
  | '+' {padded_lex_msg 5 " + >\n"; PLUS}
  | '-' {padded_lex_msg 5 " - >\n"; MINUS}
+ | '#' {padded_lex_msg 5 " ( >\n"; HASH}
  | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
  | ')' {padded_lex_msg 5 " ) >\n"; RPAREN}
  | '[' {padded_lex_msg 5 " [ >\n"; LBRACK}

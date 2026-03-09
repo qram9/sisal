@@ -5,6 +5,13 @@ open Ir.Ast
      (*open Parsing*)
   let debug_level = ref 3
 
+exception SyntaxInconsistent of string * Lexing.position * Lexing.position
+
+let validate_list_len names types start_pos end_pos =
+  if ( List.length names) <> (List.length types) then
+        raise (SyntaxInconsistent 
+        ("Type list arity not matching tuple list", start_pos, end_pos))
+      else names, types
 let parse_msg level fmt =
   let print_at_level str = 
     if !debug_level >= level then (print_string str; print_newline ()) 
@@ -36,6 +43,7 @@ let parse_msg level fmt =
 %token RBRACK
 %token SHL
 %token SHR
+%token HASH
 %token<string> PREDEF_FN
 %token<int64> LONG
 %token<int64> ULONG
@@ -334,6 +342,11 @@ function_nest:
 |  exp_list COMMA simple_expression
     { $3 :: $1 }
   ;
+
+  opt_comma:
+    | { () }
+| COMMA { () }
+
   opt_semicolon:
     |         /* empty */ { ()  }
 | SEMICOLON   { ()  }
@@ -570,6 +583,8 @@ function_nest:
     { Old (Value_name [$2]) }
 |   value_name
     {Val (Value_name [$1]) }
+|   HASH LPAREN expression RPAREN
+  { Tuple $3 }
 |   LPAREN expression RPAREN
     { Paren $2  }
 |   invocation
@@ -613,7 +628,7 @@ function_nest:
     RETURNS
     return_exp_list
     END_FOR
-    { For_all ($2,Decldef_part  $3, List.rev $6) }
+    { For_all ($2, Decldef_part  $3, List.rev $6) }
   ;
 
   iterator_terminator:
@@ -940,21 +955,51 @@ declids :
 ;
 
 decldef :
-  declids_list ASSIGN expression
-    { (*TODO decldef can contain a list of declids COLON type_specs*)
-      Decldef ($1, $3) }
+  declids_typed ASSIGN expression
+    { Decldef ($1, $3) }
 |
 declids ASSIGN expression
   { Decldef ([Decl_no_type (List.rev $1)], $3) }
-;
+| HASH LPAREN declids RPAREN ASSIGN expression
+  { Decldef ([Decl_tuple_no_type (List.rev $3)], $6) }
+| HASH LPAREN d = declids RPAREN COLON HASH LPAREN t = type_list RPAREN ASSIGN expression
+  { let (names, types) = validate_list_len d t $startpos $endpos in
+        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], $11) }
+| HASH LPAREN d = declids COMMA RPAREN COLON HASH LPAREN t = type_list
+  RPAREN ASSIGN e = expression
+{ let (names, types) = validate_list_len d t $startpos $endpos in
+        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) }
+| HASH LPAREN d = declids RPAREN COLON HASH LPAREN t = type_list
+  COMMA RPAREN ASSIGN e = expression
+{
+let (names, types) = validate_list_len d t $startpos $endpos in
+        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e)
+}
+| HASH LPAREN d = declids COMMA RPAREN COLON HASH LPAREN t = type_list
+  COMMA RPAREN ASSIGN e = expression
+{
+let (names, types) = validate_list_len d t $startpos $endpos in
+        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e)
+}
+| d = declids COLON HASH LPAREN t = type_list RPAREN ASSIGN e = expression 
+{
+let (names, types) = d, t in
+  Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
+}
+| names = declids COLON HASH LPAREN types = type_list COMMA RPAREN ASSIGN e = expression 
+{
+  Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
+}
 
-declids_list :
-  | declids_list COMMA declids COLON type_spec
-    { Decl_with_type (List.rev $3, $5) :: (List.rev $1) }
-
+declids_typed :
+| declids_typed COMMA declids COLON HASH LPAREN type_list COMMA RPAREN
+  { Decl_tuple_with_type (List.rev $3, $7) :: (List.rev $1) }
+| declids_typed COMMA declids COLON HASH LPAREN type_list RPAREN
+  { Decl_tuple_with_type (List.rev $3, $7) :: (List.rev $1) }
+| declids_typed COMMA declids COLON type_spec
+  { Decl_with_type (List.rev $3, $5) :: (List.rev $1) }
 | declids COLON type_spec
   { [Decl_with_type (List.rev $1, $3)] }
-
 ;
 
 decldef_part :
