@@ -157,7 +157,6 @@ let flonum = (digit+ '.' digit* | '.' digit+ | digit+) exp
 
 let alpha = ['a'-'z' 'A'-'Z']
 let id = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '_' '0'-'9']*
-let match_char = '\'' ['a'-'z'] '\''
 
 let string_chars =  (
   ['a'-'z' 'A'-'Z'
@@ -178,10 +177,13 @@ let special_chars =
   | ('\\' 'n') | ('\\' 'r') | ('\\' 't') | ('\\')
   | ('\\' ['0'-'9'] ['0'-'9'] ['0'-'9']) (* Octal num *)
 
+let match_char = '\'' ( string_chars
+                   | special_chars | ('\\' string_chars )) '\''
+
 let match_string = ( string_chars
                    | special_chars | ('\\' string_chars ))+
 
-                   rule read_comment = parse
+rule read_comment = parse
                  | '\n' { Lexing.new_line lexbuf; sisal_lex lexbuf }
                  | eof  { EOF }
                  | _    { read_comment lexbuf }
@@ -303,7 +305,7 @@ and sisal_lex = parse eof {
  | '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
  | '+' {padded_lex_msg 5 " + >\n"; PLUS}
  | '-' {padded_lex_msg 5 " - >\n"; MINUS}
- | '#' {padded_lex_msg 5 " ( >\n"; HASH}
+ | "#(" {padded_lex_msg 5 " ( >\n"; HASH_LPAREN}
  | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
  | ')' {padded_lex_msg 5 " ) >\n"; RPAREN}
  | '[' {padded_lex_msg 5 " [ >\n"; LBRACK}

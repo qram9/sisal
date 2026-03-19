@@ -67,6 +67,7 @@ type label_or_none = Som of int | Emp
 type node_sym =
   | AADDH
   | AADDL
+  | AADJUST
   | ABUILD
   | ACATENATE
   | ACREATE
@@ -1913,6 +1914,7 @@ and rev_lookup_ty_name = function
   | 80 -> "MAT2"
   | 81 -> "MAT3"
   | 82 -> "MAT4"
+  | -2 -> "U__NKNOWN"
   | _ -> "UNKNOWN"
 
 and lookup_tyid_triple = function
@@ -2542,6 +2544,10 @@ and add_type_to_typemap ood in_gr =
   in
   ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
+and change_type_in_typemap idI ood in_gr =
+  let id, tm, tmn = get_typemap in_gr in
+  ((id, 0, id), { in_gr with typemap = (id, TM.add idI ood tm, tmn) })
+
 and map_exp in_gr in_explist expl appl =
   match in_explist with
   | [] -> (expl, in_gr)
@@ -2550,7 +2556,13 @@ and map_exp in_gr in_explist expl appl =
       map_exp in_gr tl (expl @ [ (lasti, pp, tt) ]) appl
 
 and add_a_tag (namen, tagty, _) ((id, _, _), in_gr) =
-  let (tt_id, _, _), in_gr = add_sisal_type in_gr tagty in
+  let (tt_id, _, _), in_gr =
+    match tagty with
+    | Type_name tagn ->
+        let tmn = get_typename_map in_gr in
+        ((MM.find tagn tmn, 0, MM.find tagn tmn), in_gr)
+    | _ -> add_sisal_type in_gr tagty
+  in
   add_type_to_typemap (Union (tt_id, id, namen)) in_gr
 
 and add_a_field (namen, tag_ty, _) ((id, _, _), in_gr) =
@@ -2570,25 +2582,25 @@ and add_compound_type in_gr = function
   | Sisal_stream s ->
       let (iii, _, _), in_gr = add_sisal_type in_gr s in
       add_type_to_typemap (Stream iii) in_gr
-  | Sisal_union rrr ->
+  | Sisal_union union_field_and_type_list ->
       let (tag_fst, _, _), in_gr =
         List.fold_right
           (fun (tag_names_l, tag_ty) y ->
             List.fold_right add_a_tag
               (List.map (fun namen -> (namen, tag_ty, 0)) tag_names_l)
               y)
-          rrr
+          union_field_and_type_list
           ((0, 0, 0), in_gr)
       in
       add_type_to_typemap (Union (0, tag_fst, "")) in_gr
-  | Sisal_record rrr ->
+  | Sisal_record record_field_and_type_list ->
       let (rec_fst, _, _), in_gr =
         List.fold_right
           (fun (rec_names_l, rec_ty) y ->
             List.fold_right add_a_field
               (List.map (fun namen -> (namen, rec_ty, 0)) rec_names_l)
               y)
-          rrr
+          record_field_and_type_list
           ((0, 0, 0), in_gr)
       in
       add_type_to_typemap (Record (0, rec_fst, "")) in_gr
@@ -2761,6 +2773,9 @@ and find_ty in_gr aty =
   else lookin_vals
 
 and add_sisal_typename in_gr namen ty_id =
+  let stack = get_stack_trace 5 in
+  let desc = namen in
+  type_trace := (ty_id, desc, stack) :: !type_trace;
   let id, tm, tmn = get_typemap in_gr in
   (ty_id, { in_gr with typemap = (id, tm, MM.add namen ty_id tmn) })
 
@@ -3057,6 +3072,7 @@ and num_to_node_sym = function
   | 60 -> ACREATE
   | 61 -> FDIVIDE
   | 62 -> ERROR_NODE
+  | 63 -> AADJUST
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3123,27 +3139,29 @@ and node_sym_to_num = function
   | VBUILD -> 56
   | VSPLAT -> 55
   | ERROR_NODE -> 62
+  | AADJUST -> 63
 
 and string_of_node_sym = function
-  | AADDH -> "AADDH"
-  | AADDL -> "AADDL"
-  | ABUILD -> "ABUILD"
-  | ACATENATE -> "ACATENATE"
-  | ACREATE -> "ACREATE"
+  | AADDH -> "ARRAY_ADDH"
+  | AADDL -> "ARRAY_ADDL"
+  | ABUILD -> "ARRAY_BUILD"
+  | ACATENATE -> "ARRAY_CATENATE"
+  | ACREATE -> "ARRAY_CREATE"
   | ADD -> "ADD"
-  | AELEMENT -> "AELEMENT"
-  | AFILL -> "AFILL"
-  | AGATHER -> "AGATHER"
+  | AELEMENT -> "ARRAY_ELEMENT"
+  | AFILL -> "ARRAY_FILL"
+  | AGATHER -> "ARRAY_GATHER"
   | AISEMPTY -> "AISEMPTY"
-  | ALIMH -> "ALIMH"
-  | ALIML -> "ALIML"
+  | ALIMH -> "ARRAY_LIMH"
+  | ALIML -> "ARRAY_LIML"
+  | AADJUST -> "ARRAY_ADJUST"
   | AND -> "AND"
-  | AREMH -> "AREMH"
-  | AREML -> "AREML"
-  | AREPLACE -> "AREPLACE"
-  | ASCATTER -> "ASCATTER"
-  | ASETL -> "ASETL"
-  | ASIZE -> "ASIZE"
+  | AREMH -> "ARRAY_REMH"
+  | AREML -> "ARRAY_REML"
+  | AREPLACE -> "ARRAY_REPLACE"
+  | ASCATTER -> "ARRAY_SCATTER"
+  | ASETL -> "ARRAY_SETL"
+  | ASIZE -> "ARRAY_SIZE"
   | BOUNDARY -> "BOUNDARY"
   | CONSTANT -> "CONSTANT"
   | EQUAL -> "EQUAL"
@@ -3441,7 +3459,7 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
     match TM.find_opt tt tm with
     | Some (ERROR s) -> (true, "ERR:" ^ s)
     | Some _ -> (false, printable_full_type (get_typemap_tm in_gr) tt)
-    | None -> (false, "UNKNOWN")
+    | None -> (false, "U_NKNOWN")
   in
 
   (* 2. Use double-colon '::' for Railroad edges, single ':' for Math edges *)
@@ -3738,7 +3756,7 @@ and get_symbol_id v in_gr =
       (let stack =
          Printexc.raw_backtrace_to_string (Printexc.get_callstack 15)
        in
-       "Nsasaode not found " ^ v ^ "\n" ^ stack)
+       "Node not found " ^ v ^ "\n" ^ stack)
 
 and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in
@@ -3974,6 +3992,16 @@ let intrinsic_lib =
            added_float_type_1_1_ids
        @ List.combine
            (List.map
+              (fun ty -> Ast.mangle_intrinsic "ASIN" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "ACOS" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
               (fun ty -> Ast.mangle_intrinsic "COS" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
@@ -4080,6 +4108,17 @@ let lookup_partial_mangled_name target_prefix =
   let intrinsic_syms, _ = Lazy.force intrinsic_lib in
   SM.to_seq intrinsic_syms
   |> Seq.find (fun (name, _) -> String.starts_with ~prefix:target_prefix name)
+
+let dump_typemap tm =
+  let tm_entries = ref [] in
+  TM.iter
+    (fun id _ ->
+      let full_desc = printable_full_type tm id in
+      tm_entries :=
+        sprintf "{ \"id\": %d, \"desc\": %s }" id full_desc :: !tm_entries)
+    tm;
+  let tm_json = sprintf "[%s]" (String.concat ", " (List.rev !tm_entries)) in
+  Printf.printf "%s\n" tm_json
 
 module If1_View = struct
   open Printf

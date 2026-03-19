@@ -40,6 +40,7 @@ and simple_exp =
   | Stream_generator_exp of type_name * exp
   | Stream_generator_unknown_exp of exp
   | Record_ref of simple_exp * field_name
+  | Record_array_ref of simple_exp * exp
   | Record_generator_named of type_name * field_def list
   | Record_generator_unnamed of field_def list
   | Record_generator_primary of simple_exp * field_exp list
@@ -360,62 +361,107 @@ let index_of s sub =
   in
   loop 0
 
-(* 2. Helper: Counts leading spaces in a string *)
-let count_leading_spaces s =
-  let len = String.length s in
-  let rec loop i =
-    if i >= len then i else if s.[i] = ' ' then loop (i + 1) else i
+(* 2. Helper: Groups names into lines based on a max character limit *)
+let group_names names limit =
+  let rec aux acc_lines current_line current_len = function
+    | [] ->
+        if current_line = [] then List.rev acc_lines
+        else List.rev (List.rev current_line :: acc_lines)
+    | w :: rest ->
+        let w_len = String.length w in
+        if current_line = [] then aux acc_lines [ w ] w_len rest
+        else
+          let new_len = current_len + 2 + w_len in
+          if new_len > limit then
+            aux (List.rev current_line :: acc_lines) [ w ] w_len rest
+          else aux acc_lines (w :: current_line) new_len rest
   in
-  loop 0
+  let grouped_lists = aux [] [] 0 names in
+  List.map (fun words -> String.concat ", " words) grouped_lists
 
-(* 3. Main logic: Shifts multiline blocks as a single unit *)
-let align_strings sub lst =
-  let with_indices = List.map (fun s -> (s, index_of s sub)) lst in
+(* 3. Main Aligner *)
+let align_strings sub ?(limit = 0) ?(offset = 0) lst =
+  (* Step A: Parse and group the LHS *)
+  let processed =
+    List.map
+      (fun s ->
+        match index_of s sub with
+        | None -> (s, "", [])
+        | Some i ->
+            let lhs = String.sub s 0 i |> String.trim in
+            (* Note: RHS is strictly extracted, no trimming happens here *)
+            let rhs =
+              String.sub s
+                (i + String.length sub)
+                (String.length s - i - String.length sub)
+            in
+            let names = String.split_on_char ',' lhs |> List.map String.trim in
+            let grouped_lhs = group_names names limit in
+            (lhs, rhs, grouped_lhs))
+      lst
+  in
 
-  let max_pos_opt =
+  (* Step B: Calculate the maximum width of any single LHS line *)
+  let max_lhs_width =
     List.fold_left
-      (fun acc (_, idx_opt) ->
-        match (acc, idx_opt) with
-        | None, None -> None
-        | Some m, None | None, Some m -> Some m
-        | Some m, Some idx -> Some (max m idx))
-      None with_indices
+      (fun acc (_, _, grouped_lhs) ->
+        let rec max_in_group acc_g = function
+          | [] -> acc_g
+          | [ last ] -> max acc_g (String.length last)
+          | head :: tail ->
+              max acc_g (String.length head + 1) |> fun m -> max_in_group m tail
+        in
+        max acc (max_in_group 0 grouped_lhs))
+      0 processed
   in
 
-  match max_pos_opt with
-  | None -> lst
-  | Some max_p ->
-      List.map
-        (fun (s, idx_opt) ->
-          match idx_opt with
-          | None -> s
-          | Some idx -> (
-              let first_line_padding = String.make (max_p - idx) ' ' in
-              let lines = String.split_on_char '\n' s in
+  (* The column index where `:=` starts (LHS width + 1 space) *)
+  let target_rhs_col = max 2 (max_lhs_width - 2) in
 
-              match lines with
-              | [] -> ""
-              | [ single_line ] ->
-                  (* Only one line, just pad it normally *)
-                  first_line_padding ^ single_line
-              | first_line :: second_line :: rest ->
-                  let padded_first = first_line_padding ^ first_line in
-                  (* Check the leading spaces of the VERY FIRST newline (second line) *)
-                  let second_line_spaces = count_leading_spaces second_line in
+  (* Step C: Reconstruct and justify both sides *)
+  List.map
+    (fun (orig, rhs, grouped_lhs) ->
+      if rhs = "" then orig
+      else
+        (* -- Process RHS: Offset newlines only -- *)
+        let lines_rhs = String.split_on_char '\n' rhs in
+        let formatted_rhs =
+          match lines_rhs with
+          | [] -> ""
+          | first :: rest ->
+              (* Calculate the new pad length: target minus the length of the first line *)
+              (* max 0 ensures we never pass a negative number to String.make *)
+              let pad_len = max 0 (target_rhs_col - String.length first) in
+              let pad = String.make pad_len ' ' in
 
-                  (* Calculate the uniform padding for the whole block *)
-                  let diff = max 2 (max_p - second_line_spaces - 2) in
-                  let block_padding = String.make diff ' ' in
+              let aligned_rest =
+                List.map (fun line -> if line = "" then "" else pad ^ line) rest
+              in
+              String.concat "\n" (first :: aligned_rest)
+        in
 
-                  (* Apply the exact same padding to all subsequent lines *)
-                  let padded_rest =
-                    List.map
-                      (fun line -> block_padding ^ line)
-                      (second_line :: rest)
-                  in
-
-                  String.concat "\n" (padded_first :: padded_rest)))
-        with_indices
+        (* -- Process LHS -- *)
+        let rec format_lhs = function
+          | [] -> []
+          | [ last ] ->
+              let pad =
+                String.make
+                  (offset + max 0 (max_lhs_width - String.length last))
+                  ' '
+              in
+              [ pad ^ last ^ " " ^ sub ^ formatted_rhs ]
+          | head :: tail ->
+              let head_with_comma = head ^ "," in
+              let pad =
+                String.make
+                  (offset
+                  + max 0 (max_lhs_width - String.length head_with_comma))
+                  ' '
+              in
+              (pad ^ head_with_comma) :: format_lhs tail
+        in
+        String.concat "\n" (format_lhs grouped_lhs))
+    processed
 
 let basic_type_list =
   [
@@ -640,7 +686,7 @@ let paren ?(offset = 0) exp =
 let brack exp =
   if exp.[0] = '\n' then "[" ^ exp ^ "]" else "[" ^ String.trim exp ^ "]"
 
-let elseif_fold offset = myfold (mypad1 offset "ELSE IF ")
+let elseif_fold offset = myfold ("\n" ^ mypad1 offset "ELSE IF ")
 
 let rec str_tagnames = function Tagnames tn -> comma_fold tn
 
@@ -900,9 +946,10 @@ and str_if ?(offset = 0) f =
 
 and str_else ?(offset = 0) = function
   | Else e ->
-      mypad1 offset
-        (single_newline_cate "ELSE"
-           (mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)))
+      "\n"
+      ^ mypad1 offset
+          (single_newline_cate "ELSE"
+             (mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)))
 
 and str_tag_exp = function
   | Tag_name tn -> tn
@@ -937,26 +984,13 @@ and str_decldef ?(offset = 0) = function
 
 and str_decldef_part ?(offset = 0) context =
   match context with
-  | `Let_type (Decldef_part f) ->
-      (* Classic behavior: flat, semicolon-separated list *)
-      let decldef_lis = List.map (str_decldef ~offset) f in
-      let aligned_decldef_lis = align_strings ":=" decldef_lis in
-      let x = semicolon_newline_fold aligned_decldef_lis in
-      x
-  | `Loop_type (Decldef_part f) ->
+  | `Let_type (Decldef_part f) | `Loop_type (Decldef_part f) ->
       let decldef_lis = List.map (str_decldef ~offset:(offset + 2)) f in
-      let aligned_decldef_lis = align_strings ":=" decldef_lis in
+      let aligned_decldef_lis =
+        align_strings ":=" ~limit:13 ~offset decldef_lis
+      in
       let x = semicolon_newline_fold aligned_decldef_lis in
       x
-(* Modern ML behavior: sequential LET ... IN ... blocks *)
-(* let rec build_loop_lets = function
-        | [] -> ""
-        | d :: tl ->
-            "\n" ^ mypad1 offset "LET" ^ " "
-            ^ String.trim (str_decldef ~offset d)
-            ^ "\n" ^ mypad1 offset "IN" ^ build_loop_lets tl
-      in
-      build_loop_lets f *)
 
 and str_decl_id ?(offset = 0) = function
   | Decl_name nam -> nam
@@ -1073,6 +1107,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       str_simple_exp ~offset:0 ~preceed_space:0 p
       ^ brack (semicolon_fold (List.map str_sexp_pair epl))
   | Record_ref (e, fn) -> " " ^ str_simple_exp e ^ "." ^ str_field_name fn
+  | Record_array_ref (e, fn) -> " " ^ str_simple_exp e ^ brack (str_exp fn)
   | Record_generator_primary (e, fdle) ->
       " "
       ^ space_fold
@@ -1107,13 +1142,18 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
            if k.[0] <> '\n' && k.[0] <> ' ' then " " ^ k else k)
   | Let (dp, e) ->
       "\n" ^ mypad1 offset "LET\n"
-      ^ str_decldef_part ~offset (`Let_type dp)
+      ^ str_decldef_part ~offset:(offset + 2) (`Let_type dp)
       ^ "\n" ^ mypad1 offset "IN"
       ^
       let k = str_exp ~offset e in
       if k.[0] <> '\n' then "\n" ^ mypad1 offset (String.trim k) else k
   | Tagcase (ae, tc, o) ->
-      newline_fold [ str_tagcase_exp ae; str_taglist_list tc; str_otherwise o ]
+      let kk =
+        single_newline_cate
+          (single_newline_cate (str_tagcase_exp ae) (str_taglist_list tc))
+          (str_otherwise o)
+      in
+      kk
   | If (cl, el) ->
       let kk =
         single_newline_cate
@@ -1124,10 +1164,8 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       in
       kk
   | For_all (i, d, r) ->
-      "\n" ^ mypad1 offset "FOR " ^ str_in_exp i
-      ^ trim_right
-          (newline_fold ~offset
-             [ "\n" ^ str_decldef_part ~offset (`Loop_type d) ])
+      "\n" ^ mypad1 offset "FOR " ^ str_in_exp i ^ "\n"
+      ^ str_decldef_part ~offset:(offset + 2) (`Loop_type d)
       ^ "\n" ^ mypad1 offset "RETURNS" ^ "\n"
       ^ newline_fold ~offset:(offset + 2) (List.map str_return_clause r)
       ^ "\n"

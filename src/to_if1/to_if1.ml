@@ -229,21 +229,21 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
           in
           ((arrnum, arrport, t1), in_gr))
 
-and add_each_edge edg_lis anode nn in_gr =
+and add_each_edge edg_lis tail_node nn in_gr =
   (* Call If1.add_edge for a list, connected
-      to anode, starting at port nn*)
+      to tail_node, starting at port nn*)
   match edg_lis with
   | (edghd, edgp, tty) :: edgtl ->
-      add_each_edge edgtl anode (nn + 1)
-        (If1.add_edge edghd edgp anode nn tty in_gr)
+      add_each_edge edgtl tail_node (nn + 1)
+        (If1.add_edge edghd edgp tail_node nn tty in_gr)
   | [] -> in_gr
 
-and add_edges_for_fields edg_lis anode nn in_gr =
+and add_edges_for_fields edg_lis tail_node nn in_gr =
   (* Minor variant of above function, add_each_edge *)
   match edg_lis with
   | (_, (edghd, edgp, tty)) :: edgtl ->
-      add_edges_for_fields edgtl anode (nn + 1)
-        (If1.add_edge edghd edgp anode nn tty in_gr)
+      add_edges_for_fields edgtl tail_node (nn + 1)
+        (If1.add_edge edghd edgp tail_node nn tty in_gr)
   | [] -> in_gr
 
 and do_each_exp_in_strm in_gr = function
@@ -321,43 +321,7 @@ and crack_swizzle_mask mask =
   in
   List.init (String.length mask) (fun i -> char_to_int mask.[i])
 
-and new_check_rec_ty field_type_list tm out_acc =
-  match field_type_list with
-  | (f_name, f_type_idx) :: tl ->
-      (* Find the type index (k) where the
-       * record definition matches our field *)
-      let found_type =
-        If1.TM.fold
-          (fun k v acc ->
-            match (acc, v) with
-            | If1.Emp, If1.Record (actual_type, _, actual_name) ->
-                if actual_name = f_name && actual_type == f_type_idx then
-                  If1.Som k
-                else acc
-            | _ -> acc)
-          tm If1.Emp
-      in
-
-      (* Validation: Ensure the field is
-       * actually registered in the IF1 Typemap *)
-      let validated_type =
-        match found_type with
-        | If1.Som idx -> idx
-        | If1.Emp ->
-            let msg =
-              Printf.sprintf
-                "Type Error: Field '%s' with type %d not found in Typemap"
-                f_name f_type_idx
-            in
-            failwith msg
-      in
-
-      (* Recurse and accumulate the
-       * list of validated type indices *)
-      If1.Som validated_type :: check_rec_ty tl tm out_acc
-  | [] -> out_acc
-
-and check_rec_ty tty_lis tm outlis =
+and check_rec_ty in_gr tty_lis tm outlis =
   (* Do a type check recursively *)
   (* beef this up *)
   match tty_lis with
@@ -369,24 +333,32 @@ and check_rec_ty tty_lis tm outlis =
             | If1.Emp -> (
                 let bar xx lt =
                   if xx = hdf && lt == hd then (
-                    print_string " FOUND ";
-                    print_string hdf;
-                    print_string " ";
-                    print_int hd;
-                    print_endline "";
                     If1.Som k)
                   else z
                 in
-                match v with If1.Record (lt, _, xx) -> bar xx lt | _ -> z)
+                match v with
+                | If1.Record (lt, _, xx) -> bar xx lt
+                | If1.Union (lt, _, xx) -> bar xx lt
+                | _ -> z)
             | _ -> z)
           tm If1.Emp
       in
       let _ =
+        let hdmsg =
+          Printf.sprintf "Unknown field in If1.record %s %d\n" hdf hd
+        in
         match hdty with
         | If1.Som anum -> anum
-        | If1.Emp -> failwith "unknown field in a If1.record"
+        | If1.Emp ->
+            print_endline (If1.str_type_trace ());
+            let stack = Printexc.get_callstack 5 in
+            (* Capture top 5 frames *)
+            (*If1.dump_typemap tm;*)
+            print_endline (Printexc.raw_backtrace_to_string stack);
+            If1.If1_View.export_debug_html "CRASHED.html" in_gr;
+            failwith hdmsg
       in
-      hdty :: check_rec_ty tl tm outlis
+      hdty :: check_rec_ty in_gr tl tm outlis
   | [] -> outlis
 
 and find_matching_record eee tm =
@@ -414,7 +386,7 @@ and record_builder in_gr field_defs io_type =
   (* 2. Type Resolution & Validation *)
   let tm = If1.get_typemap_tm in_gr in
   let field_types = get_tys fields [] in
-  let resolved_types = check_rec_ty field_types tm [] in
+  let resolved_types = check_rec_ty in_gr field_types tm [] in
 
   (* Determine the output type index (aout) *)
   let aout =
@@ -451,13 +423,13 @@ and record_builder in_gr field_defs io_type =
 
   ((node_id, port_id, aout), in_gr)
 
-and add_edges_in_list exp_list anode portnum in_gr =
-  (* Add edges from anode, starting at portnum and
+and add_edges_in_list exp_list tail_node portnum in_gr =
+  (* Add edges from tail_node, starting at portnum and
       ending IF1 node tuple *)
   match exp_list with
-  | (hd_node, in_port, tt) :: tl ->
-      add_edges_in_list tl anode (portnum + 1)
-        (If1.add_edge hd_node in_port anode portnum tt in_gr)
+  | (head_node, head_port, tt) :: tl ->
+      add_edges_in_list tl tail_node (portnum + 1)
+        (If1.add_edge head_node head_port tail_node portnum tt in_gr)
   | [] -> in_gr
 
 and do_iterator in_gr = function Ast.Repeat dp -> do_decldef_part in_gr dp
@@ -819,7 +791,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                  ( If1.SM.add vv
                      {
                        If1.val_name = vv;
-                       If1.val_ty = If1.lookup_tyid If1.LONG;
+                       If1.val_ty = If1.lookup_tyid If1.INTEGRAL;
                        If1.val_def = aa;
                        If1.def_port = bb + 1;
                      }
@@ -1549,7 +1521,9 @@ and pop_or_push_to_exp_stack2 exp_stack expl_in_rev rhs_exps in_gr =
   | [] ->
       assert (List.length rhs_exps > 0);
       let exphhd = List.hd rhs_exps in
-      let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
+      let (expnum, expport, expty), in_gr =
+        do_simple_exp in_gr exphhd
+      in
       let expty =
         match If1.get_node expnum in_gr with
         | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
@@ -1962,9 +1936,32 @@ and tag_typecheck_fail vn_n in_gr jj prev =
         print_endline k;
         k))
 
-and check_tag_types vn_n jj prev _ =
+and check_tag_types vn_n jj prev in_gr =
   if jj = prev then true
-  else raise (If1.Sem_error ("Output types do not match for:" ^ vn_n))
+  else
+    let name_it_prev =
+      If1.IntMap.fold
+        (fun _ ed_ty out_str ->
+          If1.printable_full_type (If1.get_typemap_tm in_gr) ed_ty
+          ^ "; " ^ out_str)
+        prev ""
+    in
+    let name_it_jj =
+      If1.IntMap.fold
+        (fun _ ed_ty out_str ->
+          If1.printable_full_type (If1.get_typemap_tm in_gr) ed_ty
+          ^ "; " ^ out_str)
+        jj ""
+    in
+    raise
+      (let stack = Printexc.get_callstack 5 in
+       (* Capture top 5 frames *)
+       (*If1.dump_typemap tm;*)
+       print_endline (Printexc.raw_backtrace_to_string stack);
+       If1.If1_View.export_debug_html "CRASHED.html" in_gr;
+       If1.Sem_error
+         ("Output types do not match for:" ^ name_it_jj ^ ", " ^ vn_n ^ ", "
+        ^ name_it_prev))
 
 and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
   (* A recursive visitor that builds subgraphs for each variant
@@ -2429,6 +2426,27 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "ARRAY_ADJUST" ->
+          let in_port_00 = Array.make 3 "" in
+          let out_port_00 = Array.make 1 "" in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.AADJUST, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let _, in_gr, type_lis =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (cou, in_gr, pa) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        (cou + 1, If1.add_edge l m n cou tt in_gr, tt :: pa))
+                      aexps (0, in_gr, [])
+                | _ -> (0, in_gr, []))
+          in
+          ((n, 0, List.hd type_lis), in_gr)
       | "ARRAY_LIML" ->
           let in_port_00 = Array.make 1 "" in
           let out_port_00 = Array.make 1 "" in
@@ -2640,24 +2658,25 @@ and do_simple_exp in_gr in_sim_ex =
                     If1.fold_ret_ty_lis ret_ty intrinsic_types
                 | _ -> failwith "Function type missing in typemap")
           in
-          let _, mmm =
+          let _, output_triple_list =
             List.fold_right
               (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
               tml
               (List.length tml - 1, [])
           in
-
-          let k123 = mmm in
           let in_gr = add_edges_in_list expl n 0 in_gr in
-          let (n1, _, _), in_gr =
-            let in_port_01 = Array.make (List.length tml) "" in
-            let out_port_01 = Array.make (List.length tml) "" in
-            If1.add_node_2
-              (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
-              in_gr
-          in
-          let in_gr = add_edges_in_list k123 n1 0 in_gr in
-          ((n1, 0, 0), in_gr))
+          if List.length output_triple_list = 1 then
+            (List.hd output_triple_list, in_gr)
+          else
+            let (n1, _, _), in_gr =
+              let in_port_01 = Array.make (List.length tml) "" in
+              let out_port_01 = Array.make (List.length tml) "" in
+              If1.add_node_2
+                (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+                in_gr
+            in
+            let in_gr = add_edges_in_list output_triple_list n1 0 in_gr in
+            ((n1, 0, 0), in_gr))
   | Array_ref (ar_a, ar_b) as aap ->
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
       let (res_node, res_port, tt), in_gr_res =
@@ -2860,6 +2879,9 @@ and do_simple_exp in_gr in_sim_ex =
       ((oa, oup, arr_type), in_gr)
   | Ast.Record_ref (e, fn) ->
       let (ain, apo, tt1), in_gr = do_simple_exp in_gr e in
+      let ain, apo, tt1 =
+        If1.find_incoming_regular_node (ain, apo, tt1) in_gr
+      in
       let input_type = If1.lookup_ty tt1 in_gr in
       if If1.is_vector_type input_type = true then
         let fn = Ast.str_field_name fn in
@@ -2933,6 +2955,18 @@ and do_simple_exp in_gr in_sim_ex =
             in_gr
         in
         ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
+  | Ast.Record_array_ref (e, n) as re ->
+      let (ain, apn, tt0), in_gr = do_simple_exp in_gr e in
+      let (aim, apm, tt1), in_gr = do_exp in_gr n in
+      let (bb, pp, _), in_gr =
+        let in_porst = Array.make 2 "" in
+        in_porst.(0) <- Ast.str_simple_exp re;
+        If1.add_node_2
+          (`Simple (If1.RELEMENTS, in_porst, Array.make 2 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      ( (bb, pp, tt1),
+        If1.add_edge ain apn bb 1 tt1 (If1.add_edge aim apm bb 0 tt0 in_gr) )
   | Ast.Record_generator_primary (e, fdle) ->
       let (e, p, inctt), in_gr = do_simple_exp in_gr e in
       let rec do_each_field ((a, b, tt), in_gr) = function
@@ -3042,11 +3076,17 @@ and do_simple_exp in_gr in_sim_ex =
       in
       match o with
       | Otherwise e ->
-          let outlis, _, gr_o =
-            get_new_tagcase_graph tagcase_gr_ `OtherwiseTag e
+          let gr_o =
+            match e with
+            | Ast.Empty -> tagcase_gr_
+            | _ ->
+                let outlis, _, gr_o =
+                  get_new_tagcase_graph tagcase_gr_ `OtherwiseTag e
+                in
+                let jj, gr_o = extr_types gr_o (outlis, If1.IntMap.empty) in
+                let _ = check_tag_types vn_n jj output_type_list tagcase_gr_ in
+                tagcase_gr_
           in
-          let jj, gr_o = extr_types gr_o (outlis, If1.IntMap.empty) in
-          let _ = check_tag_types vn_n jj output_type_list tagcase_gr_ in
           let (aa, _, _), tagcase_gr =
             If1.add_node_2
               (`Compound (gr_o, If1.INTERNAL, 0, [ If1.Name "OTHERWISE" ], []))
@@ -3497,7 +3537,6 @@ and find_in_graph_from_pragma in_gr namen =
   gen_gr 0
 
 and do_return_exp in_gr ggg =
-  print_endline (Ast.str_return_exp ggg);
   match ggg with
   | Ast.Value_of (reduc_dir, reduc_name, expn) ->
       let reduc_dir =
@@ -3524,14 +3563,11 @@ and do_return_exp in_gr ggg =
         (`FinalVal, (val_of, val_po, val_ty), in_gr)
       else (`Reduce (reduc_dir, reduc_name), (val_of, val_po, val_ty), in_gr)
   | Ast.Array_of e ->
-      (* AGATHER GETS HERE *)
-      (* TODO HERE I NEED TO BUILD AN ARRAY TYPE *)
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
       (`Array_of, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
-      (* STREAM GETS HERE *)
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       (`Stream_of, (sn, sp, st), in_gr)
 
@@ -3855,7 +3891,7 @@ and do_compilation_unit = function
              We add these to our Typemap. Because we List.rev'd in the parser, 
              these are now in the correct upright order. *)
                 let (_, _, _), next_gr =
-                  If1.add_each_in_list gr type_defs 0 do_type_def
+                  If1.add_each_in_list gr type_defs 0 do_typedef
                 in
                 next_gr
             | Ast.F_Globals globals ->
@@ -3976,13 +4012,30 @@ if List.length expected_ids <> List.length actual_ids then (
   print_endline
     "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
 
-and do_type_def in_gr = function
+and do_typedef in_gr = function
   | Type_def (n, t) ->
-      let _, in_gr = If1.add_sisal_typename in_gr n (-1) in
+      let _, in_gr = If1.add_sisal_typename in_gr n (-2) in
       (* -1 is for not yet defined *)
       let (id_t, ii, tt), in_gr = If1.add_sisal_type in_gr t in
       let id_, in_gr = If1.add_sisal_typename in_gr n tt in
-      ((id_t, ii, id_), in_gr)
+      let tyid, tm, tmn = in_gr.typemap in
+      let tm =
+        If1.TM.fold
+          (fun ke va z ->
+            let va =
+              match va with
+              | If1.Record (-2, -2, namen) -> If1.Record (tt, tt, namen)
+              | If1.Record (-2, nfty, namen) -> If1.Record (tt, nfty, namen)
+              | If1.Record (flt, -2, namen) -> If1.Record (flt, tt, namen)
+              | If1.Union (-2, -2, namen) -> If1.Union (tt, tt, namen)
+              | If1.Union (-2, nfty, namen) -> If1.Union (tt, nfty, namen)
+              | If1.Union (flt, -2, namen) -> If1.Union (flt, tt, namen)
+              | _ -> va
+            in
+            If1.TM.add ke va z)
+          tm If1.TM.empty
+      in
+      ((id_t, ii, id_), { in_gr with typemap = (tyid, tm, tmn) })
 
 and do_internals (names, in_gr) f =
   match f with
@@ -4035,7 +4088,7 @@ and do_internals (names, in_gr) f =
         }
       in
       let (_, _, _), new_fun_gr_ =
-        If1.add_each_in_list new_fun_gr_ tdefs 0 do_type_def
+        If1.add_each_in_list new_fun_gr_ tdefs 0 do_typedef
       in
       let _, new_fun_gr_ =
         If1.add_each_in_list new_fun_gr_ nest 0 do_function_def

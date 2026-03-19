@@ -43,6 +43,7 @@ let parse_msg level fmt =
 %token RBRACK
 %token SHL
 %token SHR
+%token HASH_LPAREN
 %token HASH
 %token<string> PREDEF_FN
 %token<int64> LONG
@@ -454,6 +455,9 @@ function_nest:
     { $1 }
 |   stream_generator
     { $1 }
+|   record_ref LBRACK expression RBRACK
+    { 
+    Record_array_ref ($1, $3) }
 |   record_ref
     { $1 }
 |   record_generator
@@ -523,7 +527,7 @@ function_nest:
       { Record_generator_named ($2, List.rev $4)  }
 |  RECORD LBRACK field_def_list opt_semicolon RBRACK
     { Record_generator_unnamed (List.rev $3)  }
-|  primary REPLACE LBRACK field_list opt_semicolon RBRACK
+|  simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK
     { Record_generator_primary ($1, (List.rev $4))  }
   ;
 
@@ -583,8 +587,8 @@ function_nest:
     { Old (Value_name [$2]) }
 |   value_name
     {Val (Value_name [$1]) }
-|   HASH LPAREN expression RPAREN
-  { Tuple $3 }
+|   HASH_LPAREN e = expression RPAREN
+  { assert (0 = 1);Tuple e }
 |   LPAREN expression RPAREN
     { Paren $2  }
 |   invocation
@@ -916,7 +920,9 @@ names : names COMMA NAME
 ;
 
 declids_spec_list :
-  | declids_spec_list SEMICOLON declids COLON type_spec
+  | declids_spec_list_ SEMICOLON {$1} | declids_spec_list_ {$1}
+declids_spec_list_ :
+  | declids_spec_list_ SEMICOLON declids COLON type_spec
     { (List.rev $3, $5) :: $1 }
 | declids COLON type_spec
   { [(List.rev $1, $3)] }
@@ -935,8 +941,13 @@ compound_type_spec :
   { Sisal_union_enum (List.rev $3) }
 ;
 
+
 tag_spec_list :
-  | tag_spec_list SEMICOLON names COLON type_spec
+              | tag_spec_list_ SEMICOLON { $1 } | tag_spec_list_ { $1 }
+;
+
+tag_spec_list_ :
+  | tag_spec_list_ SEMICOLON names COLON type_spec
     { ($3, $5) :: $1 }
 | names COLON type_spec
   { [($1, $3)] }
@@ -960,46 +971,46 @@ decldef :
 |
 declids ASSIGN expression
   { Decldef ([Decl_no_type (List.rev $1)], $3) }
-| HASH LPAREN declids RPAREN ASSIGN expression
-  { Decldef ([Decl_tuple_no_type (List.rev $3)], $6) }
-| HASH LPAREN d = declids RPAREN COLON HASH LPAREN t = type_list RPAREN ASSIGN expression
+| HASH_LPAREN d = declids RPAREN ASSIGN e = expression
+  { Decldef ([Decl_tuple_no_type (List.rev d)], e) }
+| HASH_LPAREN d = declids RPAREN COLON HASH_LPAREN t = type_list RPAREN ASSIGN e = expression
   { let (names, types) = validate_list_len d t $startpos $endpos in
-        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], $11) }
-| HASH LPAREN d = declids COMMA RPAREN COLON HASH LPAREN t = type_list
+        Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) }
+| HASH_LPAREN d = declids COMMA RPAREN COLON HASH_LPAREN t = type_list
   RPAREN ASSIGN e = expression
 { let (names, types) = validate_list_len d t $startpos $endpos in
         Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) }
-| HASH LPAREN d = declids RPAREN COLON HASH LPAREN t = type_list
+| HASH_LPAREN d = declids RPAREN COLON HASH_LPAREN t = type_list
   COMMA RPAREN ASSIGN e = expression
 {
 let (names, types) = validate_list_len d t $startpos $endpos in
         Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e)
 }
-| HASH LPAREN d = declids COMMA RPAREN COLON HASH LPAREN t = type_list
+| HASH_LPAREN d = declids COMMA RPAREN COLON HASH_LPAREN t = type_list
   COMMA RPAREN ASSIGN e = expression
 {
 let (names, types) = validate_list_len d t $startpos $endpos in
         Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e)
 }
-| d = declids COLON HASH LPAREN t = type_list RPAREN ASSIGN e = expression 
+| d = declids COLON HASH_LPAREN t = type_list RPAREN ASSIGN e = expression 
 {
 let (names, types) = d, t in
   Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
 }
-| names = declids COLON HASH LPAREN types = type_list COMMA RPAREN ASSIGN e = expression 
+| names = declids COLON HASH_LPAREN types = type_list COMMA RPAREN ASSIGN e = expression 
 {
   Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
 }
 
 declids_typed :
-| declids_typed COMMA declids COLON HASH LPAREN type_list COMMA RPAREN
-  { Decl_tuple_with_type (List.rev $3, $7) :: (List.rev $1) }
-| declids_typed COMMA declids COLON HASH LPAREN type_list RPAREN
-  { Decl_tuple_with_type (List.rev $3, $7) :: (List.rev $1) }
-| declids_typed COMMA declids COLON type_spec
-  { Decl_with_type (List.rev $3, $5) :: (List.rev $1) }
-| declids COLON type_spec
-  { [Decl_with_type (List.rev $1, $3)] }
+| dt = declids_typed COMMA d = declids COLON HASH_LPAREN tl = type_list COMMA RPAREN
+  { Decl_tuple_with_type (List.rev d, tl) :: (List.rev dt) }
+| dt = declids_typed COMMA d = declids COLON HASH_LPAREN tl = type_list RPAREN
+  { Decl_tuple_with_type (List.rev d, tl) :: (List.rev dt) }
+| dt = declids_typed COMMA d = declids COLON t = type_spec
+  { Decl_with_type (List.rev d, t) :: (List.rev dt) }
+| d = declids COLON t = type_spec
+  { [Decl_with_type (List.rev d, t)] }
 ;
 
 decldef_part :
@@ -1052,6 +1063,7 @@ field : field_name
 field_name : NAME
     { Field_name $1 }
 ;
+
 
 main: compilation_unit
     { $1 }
