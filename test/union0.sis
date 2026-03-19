@@ -5,7 +5,7 @@ type ar		= array[integer];
 type un		= union[a : integer; b : real; d : ar];
 
 
-type double = double_real;
+%type double = double_real;
 type OneD   = array[double];
 
 

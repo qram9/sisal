@@ -3,7 +3,7 @@
 
 define Main
 
-type Double = double_real;
+%type Double = double_real;
 
 type Oned = array[Double];
 type Twod = array[Oned];

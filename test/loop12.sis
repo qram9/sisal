@@ -2,7 +2,7 @@
 
 Define  Main
 
-type double = double_real;
+%type double = double_real;
 type OneD   = array[double];
 
 function Loop12( n:integer; Y:OneD returns OneD )

@@ -35,7 +35,7 @@ ucreate, utag,
 rfloor, dfloor, rinteger, dinteger, rtrunc, dtrunc,
 ireal, idouble, dreal, rdouble, cinteger, icharacter
 
-type double	= double_real;
+%type double	= double_real;
 type ar		= array[integer];
 type st		= stream[integer];
 type rec	= record[a : integer; b : real; c : double; d : ar];

@@ -1,7 +1,7 @@
 
 Define  Main
 
-type double = double_real;
+%type double = double_real;
 type OneD   = array[double];
 
 function Main( X, Eps : real returns real )

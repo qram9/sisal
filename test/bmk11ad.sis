@@ -1,6 +1,6 @@
 define main
 
-type double = double_real;
+%type double = double_real;
 type OneD = array[double];
 type OneI = array[integer];
 

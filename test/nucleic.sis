@@ -18,12 +18,6 @@ type var       = record[tfo: tfo; nuc: nuc; label: integer];
 type solution  = array[var];
 type solution1 = array[solution];
 
-#define P9       p0, p1, p2, p3, p4, p5, p6, p7, p8
-#define T12      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11
-
-#define DOUBLE12 double, double, double, double, double, double,\
-                 double, double, double, double, double, double
-
 global cos   (x: double returns double)
 global acos  (x: double returns double)
 global sin   (x: double returns double)
@@ -2864,7 +2858,7 @@ function atom_pos(params: OneDim; i: integer; tfo: tfo
 end function % atom_pos
 
 
-function atom_pos_pt(params: OneDim; i: integer; T12: double
+function atom_pos_pt(params: OneDim; i: integer; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
              returns double, double, double)
 
      params[i+0] * t0 + params[i+1] * t3 +
@@ -2879,7 +2873,7 @@ function atom_pos_pt(params: OneDim; i: integer; T12: double
 end function % atom_pos_pt
 
 
-function tfo_align(P9: double; returns DOUBLE12)
+function tfo_align(p0, p1, p2, p3, p4, p5, p6, p7, p8: double; returns double, double, double, double, double, double, double, double, double, double, double, double)
 
    let
 
@@ -2933,7 +2927,7 @@ function tfo_align(P9: double; returns DOUBLE12)
 end function % tfo_align
 
 
-function tfo_inv_ortho(T12: double returns DOUBLE12)
+function tfo_inv_ortho(t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double returns double, double, double, double, double, double, double, double, double, double, double, double)
 
    t0, t3, t6,
    t1, t4, t7,
@@ -2946,7 +2940,7 @@ function tfo_inv_ortho(T12: double returns DOUBLE12)
 end function % tfo_inv_ortho
 
 
-function tfo_combine(a: tfo; T12: double returns DOUBLE12)
+function tfo_combine(a: tfo; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double returns double, double, double, double, double, double, double, double, double, double, double, double)
 
    a[0]*t0 + a[1]*t3 + a[2]*t6,
    a[0]*t1 + a[1]*t4 + a[2]*t7,
@@ -2967,7 +2961,7 @@ function tfo_combine(a: tfo; T12: double returns DOUBLE12)
 end function % tfo_combine
 
 
-function tfo2_combine(a,  b: tfo; T12: double returns DOUBLE12)
+function tfo2_combine(a,  b: tfo; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double returns double, double, double, double, double, double, double, double, double, double, double, double)
 
    let
       n0, n1, n2, n3, n4,  n5,
@@ -3009,7 +3003,7 @@ function tfo2_combine(a,  b: tfo; T12: double returns DOUBLE12)
 end function % tfo2_combine
 
 
-function make_t(j: integer; sol: solution returns DOUBLE12)
+function make_t(j: integer; sol: solution returns double, double, double, double, double, double, double, double, double, double, double, double)
 
   let
      ref := get_var(j, sol);
@@ -3022,10 +3016,10 @@ function make_t(j: integer; sol: solution returns DOUBLE12)
 end function % make_t
 
 
-function dgf_base(t: tfo; ref: var; n: nuc returns DOUBLE12)
+function dgf_base(t: tfo; ref: var; n: nuc returns double, double, double, double, double, double, double, double, double, double, double, double)
 
    let
-     P9 := if ref.nuc[0,0] = 0.d0 then         % type A
+     p0, p1, p2, p3, p4, p5, p6, p7, p8 := if ref.nuc[0,0] = 0.d0 then         % type A
               atom_pos(ref.nuc[5], 30, ref.tfo),     % c1_
               atom_pos(ref.nuc[6],  6, ref.tfo),     % n9
               atom_pos(ref.nuc[5], 66, ref.tfo)      % c4
@@ -3043,19 +3037,19 @@ function dgf_base(t: tfo; ref: var; n: nuc returns DOUBLE12)
               atom_pos(ref.nuc[5], 63, ref.tfo)      % c2
            end if
    in
-      tfo2_combine( n[1], t, tfo_inv_ortho( tfo_align(P9) ) )
+      tfo2_combine( n[1], t, tfo_inv_ortho( tfo_align(p0, p1, p2, p3, p4, p5, p6, p7, p8) ) )
    end let
 
 end function % dgf_base
 function pseudoknot_constraint(n  : nuc;      i  : integer;
-                               sol: solution; T12: double
+                               sol: solution; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
                        returns boolean)
 
   if i = 18 then
      let
         ref              := get_var(19, sol);
         px, py, pz       := atom_pos(ref.nuc[5], 0, ref.tfo);   % p
-        o3_x, o3_y, o3_z := atom_pos_pt(n[5],   54, T12)        % o3_
+        o3_x, o3_y, o3_z := atom_pos_pt(n[5],   54, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)        % o3_
      in
         pt_dist(px, py, pz, o3_x, o3_y, o3_z) <= 4.0d0
      end let
@@ -3064,7 +3058,7 @@ function pseudoknot_constraint(n  : nuc;      i  : integer;
      let
         ref              := get_var(7, sol);
         px, py, pz       := atom_pos(ref.nuc[5], 0, ref.tfo);   % p
-        o3_x, o3_y, o3_z := atom_pos_pt(n[5],   54, T12)        % o3_
+        o3_x, o3_y, o3_z := atom_pos_pt(n[5],   54, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11)        % o3_
      in
         pt_dist(px, py, pz, o3_x, o3_y, o3_z) <= 4.5d0
      end let
@@ -3076,9 +3070,9 @@ function pseudoknot_constraint(n  : nuc;      i  : integer;
 end function % pseudoknot_constraint
 
 
-function try(n: nuc; i: integer; T12: double returns var)
+function try(n: nuc; i: integer; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double returns var)
 
-   record [ tfo: array[0: T12]; nuc: n; label: i ]
+   record [ tfo: array[0: t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]; nuc: n; label: i ]
 
 end function % try
 
@@ -3117,11 +3111,11 @@ function wc_dumas (t       : tfo;      n        : nuc;
            returns solution, solution1)
 
    let
-      T12 := dgf_base(t, get_var(j, stack), n)
+      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11 := dgf_base(t, get_var(j, stack), n)
    in
-      if pseudoknot_constraint(n, i, stack, T12) then
+      if pseudoknot_constraint(n, i, stack, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11) then
          let
-           var        := try(n, i, T12);
+           var        := try(n, i, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11);
            stack1     := array_addh(stack, var);
 
            stack2, 
@@ -3144,11 +3138,11 @@ function helix3   (t       : tfo;      n        : nuc;
            returns solution, solution1)
 
    let
-      T12 := dgf_base(t, get_var(j, stack), n)
+      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11 := dgf_base(t, get_var(j, stack), n)
    in
-      if pseudoknot_constraint(n, i, stack, T12) then
+      if pseudoknot_constraint(n, i, stack, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11) then
          let
-           var        := try(n, i, T12);
+           var        := try(n, i, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11);
            stack1     := array_addh(stack, var);
 
            stack2, 
@@ -3171,11 +3165,11 @@ function G37_A38  (t       : tfo;      n        : nuc;
            returns solution, solution1)
 
    let
-      T12 := dgf_base(t, get_var(j, stack), n)
+      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11 := dgf_base(t, get_var(j, stack), n)
    in
-      if pseudoknot_constraint(n, i, stack, T12) then
+      if pseudoknot_constraint(n, i, stack, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11) then
          let
-           var        := try(n, i, T12);
+           var        := try(n, i, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11);
            stack1     := array_addh(stack, var);
 
            stack2, 
@@ -3198,11 +3192,11 @@ function helix5   (t       : tfo;      n        : nuc;
            returns solution, solution1)
 
    let
-      T12 := dgf_base(t, get_var(j, stack), n)
+      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11 := dgf_base(t, get_var(j, stack), n)
    in
-      if pseudoknot_constraint(n, i, stack, T12) then
+      if pseudoknot_constraint(n, i, stack, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11) then
          let
-           var        := try(n, i, T12);
+           var        := try(n, i, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11);
            stack1     := array_addh(stack, var);
 
            stack2, 
@@ -3218,15 +3212,15 @@ function helix5   (t       : tfo;      n        : nuc;
 end function % helix5
 
 
-function P_O3a    (T12  : double;
+function P_O3a    (t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11  : double;
                    n    : nuc;      i, k     : integer;
                    tfos : tfo1;     nucs     : nuc2;
                    stack: solution; solutions: solution1
            returns solution, solution1)
 
-  if pseudoknot_constraint(n, i, stack, T12) then
+  if pseudoknot_constraint(n, i, stack, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11) then
      let
-         var        := try(n, i, T12);
+         var        := try(n, i, t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11);
          stack1     := array_addh(stack, var);
 
          stack2,
@@ -3249,33 +3243,33 @@ function P_O3     (ns      : nuc1;
 
    for initial
        m   := 1;
-       T12 := make_t(j, stack);
+       t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11 := make_t(j, stack);
 
        stack1, solutions1 :=
-          P_O3a(tfo_combine(ns[m, 4], T12),
+          P_O3a(tfo_combine(ns[m, 4], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, stack, solutions);
 
        stack2, solutions2 :=
-          P_O3a(tfo_combine(ns[m, 3], T12),
+          P_O3a(tfo_combine(ns[m, 3], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, stack1, solutions1);
 
        stack3, solutions3 :=
-          P_O3a(tfo_combine(ns[m, 2], T12),
+          P_O3a(tfo_combine(ns[m, 2], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, stack2, solutions2)
 
    while m < array_limh(ns) repeat
        m := old m + 1;
 
        stack1, solutions1 :=
-          P_O3a(tfo_combine(ns[m, 4], T12),
+          P_O3a(tfo_combine(ns[m, 4], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, old stack3, old solutions3);
 
        stack2, solutions2 :=
-          P_O3a(tfo_combine(ns[m, 3], T12),
+          P_O3a(tfo_combine(ns[m, 3], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, stack1, solutions1);
 
        stack3, solutions3 :=
-          P_O3a(tfo_combine(ns[m, 2], T12),
+          P_O3a(tfo_combine(ns[m, 2], t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11),
                 ns[m], i, k, tfos, nucs, stack2, solutions2)
 
    returns value of stack3

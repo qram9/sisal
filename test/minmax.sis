@@ -4,7 +4,7 @@
 
 Define  Main
 
-type double = double_real;
+%type double = double_real;
 type OneD   = array[double];
 
 function imin( n:integer; X:OneD returns integer )

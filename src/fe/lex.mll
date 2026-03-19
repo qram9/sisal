@@ -154,6 +154,8 @@ let flonum = (digit+ '.' digit* | '.' digit+ | digit+) exp
            | digit+ '.' digit*
            | '.' digit+
                         
+(* Define a case-insensitive regex for 'include' *)
+let inc_kw = ['i' 'I'] ['n' 'N'] ['c' 'C'] ['l' 'L'] ['u' 'U'] ['d' 'D'] ['e' 'E']
 
 let alpha = ['a'-'z' 'A'-'Z']
 let id = ['a'-'z' 'A'-'Z' '_'] ['a'-'z' 'A'-'Z' '_' '0'-'9']*
@@ -232,6 +234,28 @@ and sisal_lex = parse eof {
      padded_lex_msg 5 ": %s>\n" d;
      INT (int_of_string d)
    }
+| "%$" [' ' '\t']* inc_kw [' ' '\t']+ ([^ ' ' '\t' '\n' ]+ as file) [^ '\n']*
+      {
+        padded_lex_msg 5 "_include_start:>\n";
+        
+        try
+          let chan = open_in file in
+          let new_lb = Lexing.from_channel chan in
+          
+          (* Tell the new belt its name for error messages *)
+          new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
+          
+          (* Push the OLD lexbuf and the NEW channel to the stack *)
+          include_stack := (lexbuf, chan) :: !include_stack;
+          
+          (* Teleport! *)
+          sisal_lex new_lb
+          
+        with Sys_error msg ->
+          (* Graceful failure if the file is missing *)
+          Printf.eprintf "Warning: Could not include '%s': %s\n" file msg;
+          sisal_lex lexbuf
+      }
 | '%' {
      padded_lex_msg 5 "_cmts:>\n";
      read_comment lexbuf
@@ -253,19 +277,6 @@ and sisal_lex = parse eof {
      padded_lex_msg 5 ": newline %c>\n" mynewlines;
      Lexing.new_line lexbuf;
      sisal_lex lexbuf
-   }
- | "INCLUDE" { 
-     padded_lex_msg 5 "_include_start:>\n";
-     (* Use our 'Bucket' worker to get the filename! *)
-     match read_string "" lexbuf with
-     | STRING file -> 
-       let chan = open_in file in
-       let new_lb = Lexing.from_channel chan in
-       (* Tell the new belt its name for error messages *)
-       new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
-       include_stack := (lexbuf, chan) :: !include_stack;
-       sisal_lex new_lb (* Teleport! *)
-     | _ -> lex_error lexbuf
    }
 (* 🚀 FUSED MULTI-WORD KEYWORDS *)
   | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['F' 'f'] ['U' 'u'] ['N' 'n'] ['C' 'c'] ['T' 't'] ['I' 'i'] ['O' 'o'] ['N' 'n'] { END_FUNCTION }

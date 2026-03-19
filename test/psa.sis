@@ -18,7 +18,7 @@ type Tuple_Type = record [ Class, Subject,
 type Swap_Type  = record [ Tuple : Tuple_Type;
                            From, To, Index, Ea, Er : integer ];
 
-type double        = double_real;
+%type double        = double_real;
 type OneDim        = array [integer];
 type OneReal       = array [real];
 type TwoDim        = array [OneDim];

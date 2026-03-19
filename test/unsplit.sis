@@ -19,8 +19,6 @@ Define MainWithoutStripMining
 % D A T A   A N D   C O N T R O L   V A L U E S
 %==============================================================================
 
-#define NCX_PARAM  4
-#define NVAR_PARAM 4
 
 % nvar		number of conserved quantities
 % ncx		number of bndry cells for integrator
@@ -378,7 +376,7 @@ let
 
   ny  := Data.NYCell;
   nx  := Data.NXCell;
-  ncx := NCX_PARAM;
+  ncx := 4;
 
   xperiod := Data.XPeriod;
   yperiod := Data.YPeriod;
@@ -1665,9 +1663,9 @@ let
   gamma    := Data.Gamma;
   difmag   := Data.DifMag;
   lnewton  := Data.LNewton;
-  ncx      := NCX_PARAM;
+  ncx      := 4;
   niter    := Data.NIter;
-  nvar     := NVAR_PARAM;
+  nvar     := 4;
   godorder := Data.GodOrder;
 
   one     := 1.0d0;

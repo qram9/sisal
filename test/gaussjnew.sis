@@ -12,7 +12,7 @@
 
 define Main
 
-type double = double_real;
+%type double = double_real;
 type Onei   = array[integer];
 type Oned   = array[double];
 type Twod   = array[Oned];

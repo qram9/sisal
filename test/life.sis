@@ -14,7 +14,7 @@ define Main
 % Main(Iterations,Rows,Columns)
 %
 
-type   double  = double_real;
+%type   double  = double_real;
 type   OneDim  = array[integer];
 type   TwoDim  = array[OneDim];
 type     Grid  = array[OneDim];

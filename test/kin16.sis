@@ -5,7 +5,7 @@ define Main
 % of polyacrylamide. Diffusion coefficient corrected.
 % 1 designates monomer; 2, dimer
 
-type Double = double_real;
+%type Double = double_real;
 type OneD   = array[Double];
 type TwoD   = array[OneD];
 

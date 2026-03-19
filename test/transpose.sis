@@ -1,4 +1,4 @@
-%$entry=transpose
+%  $entry=transpose
 define transpose
 
 type OneD = array[ double_real ];

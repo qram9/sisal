@@ -4,7 +4,7 @@
 define main
 
 
-type double   = double_real;
+%type double   = double_real;
 type OneDim   = array [real];
 type TwoDim   = array [OneDim];
 type OneDimI  = array [integer];

@@ -3,7 +3,7 @@
 
 Define  Main
 
-type double = double_real;
+%type double = double_real;
 type OneD   = array[double];
 
 function Loop19( n:integer; STIn: double;

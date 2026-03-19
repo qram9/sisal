@@ -3,7 +3,7 @@
 
 Define  Main
 
-type double = double_real;
+%type double = double_real;
 type ThreeD   = array[array[array[double]]];
 
 function Main( n,m:integer; Y:ThreeD returns integer, integer )
