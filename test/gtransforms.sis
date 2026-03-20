@@ -1,3 +1,4 @@
+%$include "para.sis"
 global Invert( Molecule: Paraffin returns Paraffin )
 global Rotate( Molecule: Paraffin returns Paraffin )
 global Swap( Molecule: Paraffin returns Paraffin )

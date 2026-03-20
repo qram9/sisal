@@ -199,8 +199,8 @@ function new_edge_list (pts       : pt_array;
 % Also experiment with sorting before concatenating
 
 let
-  long,
-  short := for t in y_bucket
+  along,
+  ashort := for t in y_bucket
 	     yr    := real (y);
 	     tri   := triangles[t];
              xlo   := pts[tri.vlo].xp;
@@ -242,8 +242,8 @@ let
            end for
 
 in
-  long || short
-% sort_edges(long) || sort_edges(short)
+  along || ashort
+% sort_edges(along) || sort_edges(ashort)
 end let
 end function
 

@@ -85,6 +85,9 @@ type node_sym =
   | ASCATTER
   | ASETL
   | ASIZE
+  | BITAND
+  | BITOR
+  | BITXOR
   | BOUNDARY
   | CONSTANT
   | EQUAL
@@ -120,6 +123,9 @@ type node_sym =
   | SBUILD
   | SELECT
   | STREAM
+  | STRM_APPEND
+  | STRM_FIRST
+  | STRM_REST
   | SUBTRACT
   | SWIZZLE
   | TAGCASE
@@ -488,6 +494,7 @@ let basic_types =
     (80, Basic MAT2);
     (81, Basic MAT3);
     (82, Basic MAT4);
+    (83, Basic NULL);
   ]
 
 let basic_map_tyid inc_map =
@@ -1742,6 +1749,7 @@ and lookup_tyid = function
   | MAT2 -> 80
   | MAT3 -> 81
   | MAT4 -> 82
+  | NULL -> 83
   | _ as gg ->
       failwith
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
@@ -1914,6 +1922,7 @@ and rev_lookup_ty_name = function
   | 80 -> "MAT2"
   | 81 -> "MAT3"
   | 82 -> "MAT4"
+  | 83 -> "NULL"
   | -2 -> "U__NKNOWN"
   | _ -> "UNKNOWN"
 
@@ -2000,6 +2009,7 @@ and lookup_tyid_triple = function
   | MAT2 -> (80, 0, 80)
   | MAT3 -> (81, 0, 81)
   | MAT4 -> (82, 0, 82)
+  | NULL -> (83, 0, 83)
   | _ as f ->
       failwith
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
@@ -2454,6 +2464,13 @@ and add_each_in_list_to_node olis in_gr ex out_e ni appl =
       add_each_in_list_to_node ((lasti, pp, tt1) :: olis) in_gr_ tl out_e
         (ni + width) appl
 
+and map_exp in_gr in_explist expl appl =
+  match in_explist with
+  | [] -> (expl, in_gr)
+  | hde :: tl ->
+      let (lasti, pp, tt), in_gr = appl in_gr hde in
+      map_exp in_gr tl (expl @ [ (lasti, pp, tt) ]) appl
+
 and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
   match get_node in_n in_gr with
   | Simple (_, MULTIARITY, _, _, _) ->
@@ -2474,7 +2491,6 @@ and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
         in_gr ll
   | _ -> add_edge in_n in_p out_n out_p tt1 in_gr
 
-(* this function just mixes up two typemaps together - in case of the local_tytab and global_tytab scenario it may just mix up the local ty tab and return *)
 and get_types_from_graph g inc_blob =
   let g_ty_idx, g_tm, g_tmn =
     let { nmap = _; eset = _; symtab = _; typemap = tyblob; w = _ } = g in
@@ -2532,28 +2548,28 @@ and merge_typeblobs tyblob1 tyblob2 =
 
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
-  let _ =
-    match ood with
-    | Array_ty _ | Record _ | Function_ty _ | Union _ | Tuple_ty _ | Field _
-    | Tag _ | Typed_error _ ->
-        let stack = get_stack_trace 5 in
-        let desc = string_of_if1_ty ood in
-        type_trace := (id, desc, stack) :: !type_trace
-    | _ -> ()
-    (* Skip basic types like integer/double unless you suspect them too *)
-  in
-  ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
+
+  (* INCREMENTAL CHECK: Search for an existing structural match *)
+  match find_ty_safe_opt in_gr ood with
+  | Some existing_id ->
+      (* Type already exists! Return its ID and the unchanged graph *)
+      ((existing_id, 0, existing_id), in_gr)
+  | None ->
+      (* Truly a new type structure *)
+      let _ =
+        match ood with
+        | Array_ty _ | Record _ | Function_ty _ | Union _ | Tuple_ty _ | Field _
+        | Tag _ | Typed_error _ ->
+            let stack = get_stack_trace 5 in
+            let desc = string_of_if1_ty ood in
+            type_trace := (id, desc, stack) :: !type_trace
+        | _ -> ()
+      in
+      ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
 and change_type_in_typemap idI ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
   ((id, 0, id), { in_gr with typemap = (id, TM.add idI ood tm, tmn) })
-
-and map_exp in_gr in_explist expl appl =
-  match in_explist with
-  | [] -> (expl, in_gr)
-  | hde :: tl ->
-      let (lasti, pp, tt), in_gr = appl in_gr hde in
-      map_exp in_gr tl (expl @ [ (lasti, pp, tt) ]) appl
 
 and add_a_tag (namen, tagty, _) ((id, _, _), in_gr) =
   let (tt_id, _, _), in_gr =
@@ -2732,13 +2748,21 @@ and lookup_ty ij in_gr =
 
 and find_ty_safe_opt in_gr aty =
   let _, tm, _ = get_typemap in_gr in
-  match TM.to_seq tm |> Seq.find (fun (_, va) -> va = aty) with
+  match
+    TM.to_seq tm
+    |> Seq.find (fun (_, va) ->
+        if aty = va then true else structurally_equal in_gr [] aty va)
+  with
   | Some (id, _) -> Some id
   | None -> None
 
 and find_ty_safe in_gr aty =
   let _, tm, _ = get_typemap in_gr in
-  match TM.to_seq tm |> Seq.find (fun (_, va) -> va = aty) with
+  match
+    TM.to_seq tm
+    |> Seq.find (fun (_, va) ->
+        if aty = va then true else structurally_equal in_gr [] aty va)
+  with
   | Some (id, _) -> id
   | None ->
       raise
@@ -2750,7 +2774,10 @@ and find_ty in_gr aty =
   let lookin_vals =
     try
       TM.fold
-        (fun ke va z -> if aty = va then raise (Val_is_found ke) else z)
+        (fun ke va z ->
+          if aty = va then raise (Val_is_found ke)
+          else if structurally_equal in_gr [] aty va in_ge then Val_is_found ke
+          else z)
         tm 0
     with Val_is_found ke -> ke
   in
@@ -3073,6 +3100,12 @@ and num_to_node_sym = function
   | 61 -> FDIVIDE
   | 62 -> ERROR_NODE
   | 63 -> AADJUST
+  | 64 -> STRM_FIRST
+  | 65 -> STRM_REST
+  | 66 -> BITAND
+  | 67 -> BITOR
+  | 68 -> BITXOR
+  | 69 -> STRM_APPEND
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3140,6 +3173,12 @@ and node_sym_to_num = function
   | VSPLAT -> 55
   | ERROR_NODE -> 62
   | AADJUST -> 63
+  | STRM_FIRST -> 64
+  | STRM_REST -> 65
+  | BITAND -> 66
+  | BITXOR -> 67
+  | BITOR -> 68
+  | STRM_APPEND -> 69
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3162,6 +3201,9 @@ and string_of_node_sym = function
   | ASCATTER -> "ARRAY_SCATTER"
   | ASETL -> "ARRAY_SETL"
   | ASIZE -> "ARRAY_SIZE"
+  | BITAND -> "BITWISE_AND"
+  | BITOR -> "BITWISE_OR"
+  | BITXOR -> "BITWISE_XOR"
   | BOUNDARY -> "BOUNDARY"
   | CONSTANT -> "CONSTANT"
   | EQUAL -> "EQUAL"
@@ -3206,6 +3248,9 @@ and string_of_node_sym = function
   | VBUILD -> "VBUILD"
   | VSPLAT -> "VSPLAT"
   | ERROR_NODE -> "ERROR"
+  | STRM_APPEND -> "STREAM_APPEND"
+  | STRM_FIRST -> "STREAM_FIRST"
+  | STRM_REST -> "STREAM_REST"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3942,7 +3987,17 @@ let intrinsic_lib =
        (* reverse because fold_left/cons flips the order *)
      in
      let added_float_type_2_1_ids = List.rev added_float_type_2_1_ids in
+     let (_, _, spl_case_dlexp), in_gr =
+       add_sisal_type in_gr
+         (Compound_type
+            (Sisal_function_type ("", [ Ast.Double_real ], [ Ast.Long_ty ])))
+     in
      let (_, _, spl_case_riexp), in_gr =
+       add_sisal_type in_gr
+         (Compound_type
+            (Sisal_function_type ("", [ Ast.Real ], [ Ast.Integer ])))
+     in
+     let (_, _, spl_case_rirexp), in_gr =
        add_sisal_type in_gr
          (Compound_type
             (Sisal_function_type ("", [ Ast.Real; Ast.Integer ], [ Ast.Real ])))
@@ -3960,6 +4015,21 @@ let intrinsic_lib =
             (fun ty -> Ast.mangle_intrinsic "EXP" [ ty; ty ] [ ty ])
             basic_type_list)
          added_type_2_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "BITWISE_AND" [ ty; ty ] [ ty ])
+              basic_type_list)
+           added_type_2_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "BITWISE_OR" [ ty; ty ] [ ty ])
+              basic_type_list)
+           added_type_2_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "BITWISE_XOR" [ ty; ty ] [ ty ])
+              basic_type_list)
+           added_type_2_1_ids
        @ List.combine
            (List.map
               (fun ty -> Ast.mangle_intrinsic "MOD" [ ty; ty ] [ ty ])
@@ -4007,12 +4077,17 @@ let intrinsic_lib =
            added_float_type_1_1_ids
        @ List.combine
            (List.map
-              (fun ty -> Ast.mangle_intrinsic "LOGE" [ ty ] [ ty ])
+              (fun ty -> Ast.mangle_intrinsic "LOG" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
        @ List.combine
            (List.map
               (fun ty -> Ast.mangle_intrinsic "LOG10" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "SQRTR" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
        @ List.combine
@@ -4037,6 +4112,11 @@ let intrinsic_lib =
            added_float_type_1_1_ids
        @ List.combine
            (List.map
+              (fun ty -> Ast.mangle_intrinsic "EXP" [ ty ] [ ty ])
+              basic_type_list)
+           added_type_1_1_ids
+       @ List.combine
+           (List.map
               (fun ty -> Ast.mangle_intrinsic "ABS" [ ty ] [ ty ])
               basic_type_list)
            added_type_1_1_ids
@@ -4045,19 +4125,9 @@ let intrinsic_lib =
               (fun ty -> Ast.mangle_intrinsic "SIN" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
-       @ List.combine
-           (List.map
-              (fun ty -> Ast.mangle_intrinsic "TRUNC" [ ty ] [ ty ])
-              basic_float_list)
-           added_float_type_1_1_ids
-       @ List.combine
-           (List.map
-              (fun ty -> Ast.mangle_intrinsic "FLOOR" [ ty ] [ ty ])
-              basic_float_list)
-           added_float_type_1_1_ids
        @ [
            ( Ast.mangle_intrinsic "EXP" [ Ast.Real; Ast.Integer ] [ Ast.Real ],
-             spl_case_riexp );
+             spl_case_rirexp );
          ]
        @ [
            ( Ast.mangle_intrinsic "EXP"
@@ -4065,6 +4135,20 @@ let intrinsic_lib =
                [ Ast.Double_real ],
              spl_case_diexp );
          ]
+       @ [
+           ( Ast.mangle_intrinsic "FLOOR" [ Ast.Double_real ] [ Ast.Long_ty ],
+             spl_case_dlexp );
+           ( Ast.mangle_intrinsic "FLOOR" [ Ast.Real ] [ Ast.Integer ],
+             spl_case_riexp );
+         ]
+         (* TODO * MORE REQUIRED HERE *)
+       @ [
+           ( Ast.mangle_intrinsic "TRUNC" [ Ast.Double_real ] [ Ast.Long_ty ],
+             spl_case_dlexp );
+           ( Ast.mangle_intrinsic "TRUNC" [ Ast.Real ] [ Ast.Integer ],
+             spl_case_riexp );
+         ]
+       (* TODO * MORE REQUIRED HERE *)
      in
 
      let in_gr =

@@ -9,6 +9,9 @@ global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 global Cmul(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)
 
+%$include ("SIFuncs.sis")
+%$include ("CpxFuncs.sis")
+
 FUNCTION bcplx( r,i:real returns CplexReal )
   record CplexReal [ Repart:r; Impart:i ]
 END FUNCTION

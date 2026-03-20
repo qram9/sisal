@@ -2,6 +2,7 @@ define Main
 
 type queen_list = array[integer];
 type solution_list = array [queen_list]
+%$include "8queens.sis"
 
 forward function in_check(row, column: integer;
 			  queens: queen_list returns boolean)

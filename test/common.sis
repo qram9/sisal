@@ -1,5 +1,6 @@
 %$INCLUDE ("com_defines")
 %$INCLUDE ("types")
+%$include "inverse.sis"
 
 global find_inverse (a : real_array2 returns real_array2)
 

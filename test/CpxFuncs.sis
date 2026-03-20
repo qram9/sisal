@@ -1,3 +1,4 @@
+%$include "SIFuncs.sis"
 DEFINE Cadd, Csub, Cmul, Cdiv, Crmul, Crsub, Crdiv, Conjg, Cneg, 
        Csqrt, Cabs, CabsSqr
 

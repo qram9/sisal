@@ -193,13 +193,13 @@ function new_edge_list (pts       : pt_array;
 % scene at this scan line. Each triangle contributes two edges.
 
 % As experiment, might sort two arrays to create a 'left' and 'right'
-% array (instead of long, short) and merge these. May improve later sorting.
+% array (instead of along, short) and merge these. May improve later sorting.
 
 % Also experiment with sorting before concatenating
 
 let
-  long,
-  short := for t in y_bucket
+  along,
+  ashort := for t in y_bucket
 	     yr    := real (y);
 	     tri   := triangles[t];
              xlo   := pts[tri.vlo].xp;
@@ -241,8 +241,8 @@ let
            end for
 
 in
-  long || short
-% sort_edges(long) || sort_edges(short)
+  along || ashort
+% sort_edges(along) || sort_edges(ashort)
 end let
 end function
 

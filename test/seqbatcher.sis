@@ -2,7 +2,7 @@ define Main
 
 type aint = array[ integer ]
 
-global And( a,b:integer returns integer )
+global Bitwise_And( a,b:integer returns integer )
 
 function CSwap( A:aint; I, J:integer returns aint )
 if ( A[I] > A[J] ) then
@@ -46,7 +46,7 @@ function Main( K: aint returns aint )
 	    while ( I + old D < N ) repeat
 	      I  := old I + 1;
 	      AA :=
-		if ( And( old I, old P ) = old R ) then
+		if ( Bitwise_And( old I, old P ) = old R ) then
 		  CSwap( old AA, old I+1, old I+old D+1 )
 		else
 		  old AA

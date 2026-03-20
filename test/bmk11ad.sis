@@ -118,7 +118,7 @@ in
 
 % 60:
     y, yh := BCNDUpdate1( lb, old y,old yh, ymax );
-               yIN,yhIN,xIN,xhIN,vxIN,vxhIN:OneD;
+%               yIN,yhIN,xIN,xhIN,vxIN,vxhIN:OneD;
   returns value of y value of yh
           value of x value of xh
           value of vx value of vxh

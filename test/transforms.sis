@@ -4,6 +4,7 @@
 define Invert, Rotate, Swap
 
 %$include( "types.sis" )
+%$include "para.sis"
 
 function Invert( Molecule: Paraffin returns Paraffin )
   tagcase Radical := Molecule[ 1 ]

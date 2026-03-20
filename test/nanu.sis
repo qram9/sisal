@@ -1,23 +1,23 @@
-From cann@ocfmail.ocf.llnl.gov Wed Mar 20 16:41:14 1991
-Return-Path: <cann@ocfmail.ocf.llnl.gov>
-Received: from diego.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
-	id AA14393; Wed, 20 Mar 91 16:41:11 PST
-Received: from lll-crg.llnl.gov by diego.llnl.gov (4.0/LLNL-1.17)
-	id AA16226; Wed, 20 Mar 91 16:38:19 PST
-Received: from ocfmail.ocf.llnl.gov by lll-crg.llnl.gov (5.61/LLNL-1.17)
-	id AA07796; Wed, 20 Mar 91 16:40:36 -0800
-Received: from ocf.llnl.gov (ocf.ocf.llnl.gov) by ocfmail.ocf.llnl.gov (4.1/SMI-4.0)
-	id AA11487; Wed, 20 Mar 91 16:41:32 PST
-Received:  by ocf.llnl.gov
-	id AA52537; 5.61/CRI-%I%; Wed, 20 Mar 91 16:44:47 -0800
-Date: Wed, 20 Mar 91 16:44:47 -0800
-From: Cann  David C.   L-306 <cann@ocfmail.ocf.llnl.gov>
-Message-Id: <9103210044.AA52537@ocf.llnl.gov>
-Apparently-To: cann
-Status: R
-
-To: cann
-
+%From cann@ocfmail.ocf.llnl.gov Wed Mar 20 16:41:14 1991
+%Return-Path: <cann@ocfmail.ocf.llnl.gov>
+%Received: from diego.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
+%	id AA14393; Wed, 20 Mar 91 16:41:11 PST
+%Received: from lll-crg.llnl.gov by diego.llnl.gov (4.0/LLNL-1.17)
+%	id AA16226; Wed, 20 Mar 91 16:38:19 PST
+%Received: from ocfmail.ocf.llnl.gov by lll-crg.llnl.gov (5.61/LLNL-1.17)
+%	id AA07796; Wed, 20 Mar 91 16:40:36 -0800
+%Received: from ocf.llnl.gov (ocf.ocf.llnl.gov) by ocfmail.ocf.llnl.gov (4.1/SMI-4.0)
+%	id AA11487; Wed, 20 Mar 91 16:41:32 PST
+%Received:  by ocf.llnl.gov
+%	id AA52537; 5.61/CRI-%I%; Wed, 20 Mar 91 16:44:47 -0800
+%Date: Wed, 20 Mar 91 16:44:47 -0800
+%From: Cann  David C.   L-306 <cann@ocfmail.ocf.llnl.gov>
+%Message-Id: <9103210044.AA52537@ocf.llnl.gov>
+%Apparently-To: cann
+%Status: R
+%
+%To: cann
+%
 %
 % A is an input matrix of NxN double_real floating point numbers.  B
 % is a matrix of NxN double_real floating point numbers.  The  program
@@ -28,9 +28,9 @@ To: cann
  
 define Main
  
-type double = real;
+%type double = real;
 type Onei   = array[integer];
-type Oned   = array[double];
+type Oned   = array[real];
 type Twod   = array[Oned];
  
 % global rand (returns integer)
@@ -64,7 +64,7 @@ function Setupb(n,s:integer returns Twod)
 end function
  
 function Compute(n,I,K: integer; Ain: TwoD; Bin: TwoD
-                 returns  double)
+                 returns  real)
 
        for j in 1,n
           returns value of sum  Ain[I,J] * Bin[J,K]

@@ -35,8 +35,8 @@ define expon, get_nu0, form_knots, form_col_pts, s_int,
 % --------------------------------------------------
 type RealVector = array[real];
 type RealMatrix = array[RealVector]
-global ln(x : real returns real)
-global etothe(x : real returns real)
+global log(x : real returns real)
+global exp(x : real returns real)
 % *************************************************
 %                   expon
 % *************************************************
@@ -46,7 +46,7 @@ function expon(x : real returns real)
 % --------------------------------------------------------
   if (x < -88.028) then 0.0  %  trap underflow
   elseif (x > 88.028) then 0.0  % sks error[real]  %  trap overflow
-  else etothe(x)
+  else exp(x)
   end if
 end function
 % **********************************************
@@ -54,7 +54,7 @@ end function
 % ************************************************
 function g(alpha, c : real; returns real)
 % ----------------------------------------------
- 2.0*alpha/c + ln((1.0 - alpha)/(1.0 + alpha))
+ 2.0*alpha/c + log((1.0 - alpha)/(1.0 + alpha))
 end function
 % *************************************************
 %                g_prime
@@ -449,9 +449,9 @@ let
 % ----------- int_0^1 g ------------------------------------
       0.5*length
 % -------------------- add log --------------------------
-      + if (y = 1.0) then - nu*ln(length)
+      + if (y = 1.0) then - nu*log(length)
         elseif (y ~= 0.0) then
-          nu*phi_ev_l(y)*ln(abs((1.0 - y)/y))
+          nu*phi_ev_l(y)*log(abs((1.0 - y)/y))
         else 0.0
         end if
 % ------------------ add int (g(x) - g(y))/(x - y) dx ------
@@ -509,9 +509,9 @@ let
       0.5*length
 % -------------------- add log --------------------------
       + if (y = 0.0) then
-          nu*ln(length)
+          nu*log(length)
         elseif (y ~= 1.0) then
-          nu*phi_ev_r(y)*ln(abs((1.0 - y)/y))
+          nu*phi_ev_r(y)*log(abs((1.0 - y)/y))
         else 0.0
         end if
 % ------------------ add int (g(x) - g(y))/(x - y) dx ------
@@ -560,7 +560,7 @@ let
     pvint_ev_r(xc,length_r, nu)
   else
     0.5*(length_l + length_r) +
-    nu*ln(length_r/length_l)
+    nu*log(length_r/length_l)
   end if
 in
   pv
@@ -617,7 +617,7 @@ let
       - length*length/12.0
 % -------------------- add log --------------------------
       + if ((y ~= 1.0) & (y ~= 0.0))
-        then nu*length*phi_od_l(y)*ln(abs((1.0 - y)/y))
+        then nu*length*phi_od_l(y)*log(abs((1.0 - y)/y))
         else 0.0
         end if
 % ------------------ add int (g(x) - g(y))/(x - y) dx ------
@@ -675,7 +675,7 @@ let
       length*length/12.0
 % -------------------- add log --------------------------
       + if ((y ~= 1.0) & (y ~= 0.0)) then
-          nu*length*phi_od_r(y)*ln(abs((1.0 - y)/y))
+          nu*length*phi_od_r(y)*log(abs((1.0 - y)/y))
         else 0.0
         end if
 % ------------------ add int (g(x) - g(y))/(x - y) dx ------
@@ -745,11 +745,11 @@ function lambda(nu, c : real; returns real)
 %   nu,  the pole
 % -------------------------------------------------
 if ((-1.0 < nu) & (nu < 1.0)) then
-  1.0 + 0.5*c*nu*ln((1.0 - nu)/(1.0 + nu))
+  1.0 + 0.5*c*nu*log((1.0 - nu)/(1.0 + nu))
 elseif (nu = -1.0) then
-  1.0 + 0.5*c*nu*ln(2.0)
+  1.0 + 0.5*c*nu*log(2.0)
 elseif (nu = 1.0) then
-  1.0 - 0.5*c*nu*ln(2.0)
+  1.0 - 0.5*c*nu*log(2.0)
 else 0.0  % sks error[real]
 end if
 end function
@@ -803,7 +803,7 @@ let
         2.0*lambda(col_pt, c)*phi_ev_r((col_pt - knot_c)/hr)
     else  %  col_pt on central knot
       - c*(0.5*(hl + hr) +
-        col_pt*ln(hr/hl)) +
+        col_pt*log(hr/hl)) +
         2.0*lambda(col_pt, c)
     end if
 in b_alpha
@@ -837,7 +837,7 @@ let
       then -c*pvint_ev_r(knot_c, hr, col_pt) +
         2.0*lambda(col_pt, c)*phi_ev_r((col_pt - knot_c)/hr)
     else  %  col_pt on knot -1
-      2.0 - c*(hr/2.0 + 5.0/6.0 + ln(2.0/hr))
+      2.0 - c*(hr/2.0 + 5.0/6.0 + log(2.0/hr))
     end if
 in b_alpha
 end let
@@ -869,7 +869,7 @@ let
       then -c*pvint_ev_l(knot_l, hl, col_pt) +
         2.0*lambda(col_pt, c)*phi_ev_l((col_pt - knot_l)/hl)
     else  %  col_pt on last knot
-      2.0 - c*(hl/2.0 + 5.0/6.0 + ln(2.0/hl))
+      2.0 - c*(hl/2.0 + 5.0/6.0 + log(2.0/hl))
     end if
 in b_alpha
 end let

@@ -1,6 +1,8 @@
 define Initialize_System
 
 %$include ("anneal.sish")
+%$include "random.sis"
+%$include "switch.sis"
 
 %==============================================================================
 %  G L O B A L   F U N C T I O N   D E C L A R A T I O N S

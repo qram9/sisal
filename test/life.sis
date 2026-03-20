@@ -18,6 +18,7 @@ define Main
 type   OneDim  = array[integer];
 type   TwoDim  = array[OneDim];
 type     Grid  = array[OneDim];
+%$include "random.sis"
 
 global ranf( Seed:OneDim returns double, OneDim )
 global rans( N,Seed1:integer returns TwoDim )

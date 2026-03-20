@@ -21,6 +21,8 @@ define slab
 %  J. Quant. Spectrosc. Radiat. Transfer 39 (1988), 205--217.
 %
 % ::::::::::::::::::::::::::::::::::::::::::::::::::
+%$include "faces.sis"
+%$include "stand_alone_gauss.sis"
 type RealVector = array[real];
 type RealMatrix = array[RealVector]
 global get_nu0(c, eps : real returns real)
@@ -97,7 +99,7 @@ let
     returns array of row
     end for;  %  the whole matrix
 % --------------------- solve ------------------------
-  l, u := factor(2*block_size, b);
+  l, u := factor(b, 2*block_size);
   y := solve_down(2*block_size, l, k);
   x := solve_up(2*block_size, u, y);
   coef_l, coef_r := for j in 1, block_size

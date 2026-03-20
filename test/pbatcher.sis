@@ -2,7 +2,7 @@ define Main
 
 type OneDim = array[ integer ];
 
-global And( a,b:integer returns integer )
+global BITWISE_AND( a,b:integer returns integer )
 
 function CeilingOfLog2( N: integer returns integer )
   for initial
@@ -27,9 +27,9 @@ function Main( K: OneDim returns OneDim )
 	  C :=
 	    for Elt in old C at I
 	      NewElt :=
-		if ( And( I, old P ) = old R ) & ( I + old D < N ) then
+		if ( BITWISE_AND( I, old P ) = old R ) & ( I + old D < N ) then
 		  min( Elt, old C[ I+old D ] )
-		elseif ( And( I-old D, old P ) = old R ) & ( I >= old D ) then
+		elseif ( BITWISE_AND( I-old D, old P ) = old R ) & ( I >= old D ) then
 		  max( Elt, old C[ I-old D ] )
 		else
 		  Elt

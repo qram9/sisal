@@ -20,18 +20,18 @@ function main( A:OneD; n:integer returns integer )
   returns value of max24
   end for
 end function
-From cann@medusa.llnl.gov Wed Sep 12 22:36:32 1990
-Return-Path: <cann@medusa.llnl.gov>
-Received: from medusa.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
-	id AA15326; Wed, 12 Sep 90 22:36:29 PDT
-Received: by medusa.llnl.gov (5.0/1.15)
-	id AA03592; Wed, 12 Sep 90 22:37:04 PDT
-Date: Wed, 12 Sep 90 22:37:04 PDT
-From: cann@medusa.llnl.gov (David Cann)
-Message-Id: <9009130537.AA03592@medusa.llnl.gov>
-To: cann@medusa.llnl.gov
-Subject: gaussj.sis
-Status: R
+%From cann@medusa.llnl.gov Wed Sep 12 22:36:32 1990
+%Return-Path: <cann@medusa.llnl.gov>
+%Received: from medusa.llnl.gov by antonio.llnl.gov (4.0/LLNL-1.17)
+%	id AA15326; Wed, 12 Sep 90 22:36:29 PDT
+%Received: by medusa.llnl.gov (5.0/1.15)
+%	id AA03592; Wed, 12 Sep 90 22:37:04 PDT
+%Date: Wed, 12 Sep 90 22:37:04 PDT
+%From: cann@medusa.llnl.gov (David Cann)
+%Message-Id: <9009130537.AA03592@medusa.llnl.gov>
+%To: cann@medusa.llnl.gov
+%Subject: gaussj.sis
+%Status: R
 
 % Gauss-Jordan elimination linear equation solver; based on the routine given
 % in the book "Numerical Recipes-The Art of Scientific Computing" (Press,

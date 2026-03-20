@@ -82,7 +82,7 @@ type	escrec 		= record[
 
 
 
-global 	Ln (q:double_real returns double_real)
+global 	LOG (q:double_real returns double_real)
 
 global 	Sin (q:double_real returns double_real)
 
@@ -527,8 +527,8 @@ returns 		double_real)
       let
         e := 2.7182817459106445d0;
         q := 0.15398973d0;
-        fstlog := Ln(u1*(6.0d0 + u1*(3.0d0 + u1)));
-        sndlog := Ln(u2*(6.0d0 + u2*(3.0d0 + u2)));
+        fstlog := LOG(u1*(6.0d0 + u1*(3.0d0 + u1)));
+        sndlog := LOG(u2*(6.0d0 + u2*(3.0d0 + u2)));
       in
         q * (exp(e,fstlog-u1) - exp(e,sndlog-u2))
       end let
@@ -1104,7 +1104,7 @@ returns			double_real,		% seed
   else
     let
       seed1 := Random(seed);
-      dist := -Ln(seed1)/scatter.sig;
+      dist := -LOG(seed1)/scatter.sig;
       dcen := (tcen - p.age)*2.99793d10;
     in
       if ((dbound < dist) & (dbound < dcen)) then

@@ -117,7 +117,7 @@ type K_ARRAY = array[ K_VECTOR ];	% All six Runge-Kutta coefficients for
 
 global sqrt( Q : real returns real )
 
-global ln( X : real returns real )
+global LOG( X : real returns real )
 
 %==============================================================================
 % F O R W A R D   F U N C T I O N   D E C L A R A T I O N S 
@@ -526,7 +526,7 @@ function log_base_10 ( X : real returns real )
 
 let	log_of_e : real :=  0.434294482
 
-in	log_of_e * ln( X )
+in	log_of_e * LOG( X )
 end let
 
 end function % log_base_10

@@ -1,3 +1,4 @@
+%$include "types.h"
 define Main
 
 type OneDime = array[ double_real ];

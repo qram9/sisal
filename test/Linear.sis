@@ -5,6 +5,8 @@ type ArrReal1 = Array[real];
 type CplexReal = Record[Repart,Impart:real];
 type ArrCplexReal = Array[CplexReal]
 
+%$include "CpxFuncs.sis"
+
 global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 global Cadd(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 global Crmul(cons : real; cnum : CplexReal RETURNS CplexReal)

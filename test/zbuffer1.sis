@@ -2,6 +2,7 @@ define main
 
 %$INCLUDE ("types")
 %$INCLUDE ("globals")
+%$INCLUDE ("common.sis")
 
 %******************************************************************************
 %*************    B U I L D _ T R I A N G L E _ D E P T H S    ****************

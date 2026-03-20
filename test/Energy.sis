@@ -1,4 +1,5 @@
 DEFINE Energy
+%$include "CpxFuncs.sis"
 
 type CplexReal = Record[Repart,Impart:real];
 type ArrCplexReal = Array[CplexReal]

@@ -1,4 +1,5 @@
 DEFINE MdFFTFreq
+%$include "PassFreq.sis"
 
 type ArrInt1 = Array[integer];
 type ArrReal1 = Array[real]

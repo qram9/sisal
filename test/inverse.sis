@@ -1,5 +1,5 @@
 define Main
-% define find_inverse
+define find_inverse
 
 type OneI = array[integer];
 type OneD = array[real];
@@ -106,8 +106,8 @@ function Compute( N,Irow,Icol:integer; A:TwoD returns TwoD )
     end let
 end function
 
-function Main( A:TwoD returns TwoD )
-% function find_inverse( A:TwoD returns TwoD )
+%function Main( A:TwoD returns TwoD )
+function find_inverse( A:TwoD returns TwoD )
     let
 	N := array_size( A );
 	NewA,

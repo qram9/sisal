@@ -2,6 +2,7 @@ define main
 
 type RealVector = array[real];
 type RealMatrix = array[RealVector]
+%$include "slab.sis"
 
 %% FOR insides.sis VERSION OF SLAB
 %% global slab( interv : integer returns RealVector, 

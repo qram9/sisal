@@ -1,4 +1,7 @@
 DEFINE MAIN
+%$include "CpxFuncs.sis"
+%$include "Inital.sis"
+%$include "InitFFT.sis"
 
 type ArrInt1 = Array[integer];
 type ArrReal1 = Array[real];

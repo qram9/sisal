@@ -1,6 +1,7 @@
 define Anneal
 
 %$include ("anneal.sish")
+%$include "choose.sis"
 
 global Pick_Change ( SI : Sys_State; seed : Seed_Type
 	returns Change_Type, Seed_Type, integer )

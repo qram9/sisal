@@ -6,6 +6,11 @@ type ArrReal2 = Array[ArrReal1];
 type ArrReal3 = Array[ArrReal2];
 type CplexReal = Record[Repart,Impart:real];
 type ArrCplexReal = Array[CplexReal];
+%$include "CpxFuncs.sis"
+%$include "CpxConv.sis"
+%$include "Spec.sis"
+%$include "UVSpec.sis"
+%$include "MdFFTGrid.sis"
 
 global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 

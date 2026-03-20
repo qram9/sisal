@@ -1,3 +1,5 @@
+%$include "SIFuncs.sis"
+%$include "CpxFuncs.sis"
 DEFINE AngMom
 
 TYPE CplexReal = Record [Repart, Impart : real];

@@ -1,4 +1,5 @@
 define main
+%$include "para.sis"
 
 global paraffin( N: integer returns array[ array[ character ] ] )
 

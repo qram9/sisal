@@ -2,7 +2,7 @@ define Main
 
 type OneDim = array[ integer ];
 
-global And( a,b:integer returns integer )
+global Bitwise_And( a,b:integer returns integer )
 
 function CSwap( A:OneDim; I, J:integer returns OneDim )
   if ( A[I] > A[J] ) then A[I:A[J];J:A[I]] else A end if
@@ -32,7 +32,7 @@ function Main( K: OneDim returns OneDim )
 		    I := 0; E := old C; 
 	          while ( I+old D < N ) repeat
 	            I := old I + 1;
-	            E := if ( And( I-1, old P ) = old R ) then
+	            E := if (Bitwise_And( I-1, old P ) = old R ) then
 		           CSwap( old E, I, I+old D )
 		         else
 		           old E

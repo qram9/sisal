@@ -7,8 +7,6 @@ type Twod = array[Oned];
 type Onei = array[integer];
 type Twoi = array[Onei];
 
-global LOG( x:Double returns Double )
-
 
 function RUNKUT(COF1,COF2,COF3,COF4,COF5,COF6,RATIO:Double; 
 		LN:Twod; N:integer returns Twod )

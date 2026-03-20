@@ -1,6 +1,12 @@
 DEFINE PassFreq
 
 type ArrReal1 = Array[real]
+%$include "IFg_2ETC.sis"
+%$include "IFg_3.sis"
+%$include "IFg_4.sis"
+%$include "IFm_2ETC.sis"
+%$include "IFm_3.sis"
+%$include "IFm_4.sis"
 
 global IFACTm_2ETC(m, la, iink, jink, jump, inc1, inc2 : integer; 
 		    a, ci, trigs : ArrReal1 

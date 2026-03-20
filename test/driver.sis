@@ -1,4 +1,5 @@
 define main
+%$include "cdf.sis"
 
 % cdf.types -- define types for a record isomorphic to a subset of Candis
 type cdf_cline = array[character];

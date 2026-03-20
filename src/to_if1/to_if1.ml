@@ -124,6 +124,13 @@
 module Ast = Ir.Ast
 module If1 = Ir.If1
 module Slurper = Utils.Slurper
+
+module StructMap = Map.Make (struct
+  type t = If1.if1_ty
+
+  let compare = compare
+end)
+
 (*
 let str_type_trace () =
   let buf = Buffer.create 1024 in
@@ -321,9 +328,42 @@ and crack_swizzle_mask mask =
   in
   List.init (String.length mask) (fun i -> char_to_int mask.[i])
 
+and deduplicate_types typemap =
+  (* 1. Helper to rewrite a type's internal labels based on a translation map *)
+  let rewrite_labels subst_map ty =
+    let find id = If1.TM.find_opt id subst_map |> Option.value ~default:id in
+    match ty with
+    | If1.Array_ty l -> If1.Array_ty (find l)
+    | If1.Function_ty (l1, l2, s) -> If1.Function_ty (find l1, find l2, s)
+    | If1.Record (l1, l2, s) -> If1.Record (find l1, find l2, s)
+    | If1.Tuple_ty (l1, l2) -> If1.Tuple_ty (find l1, find l2)
+    | If1.Union (l1, l2, s) -> If1.Union (find l1, find l2, s)
+    | If1.Field labels -> If1.Field (List.map find labels)
+    | If1.Tag labels -> If1.Tag (List.map find labels)
+    | other -> other
+  in
+
+  (* 2. The Core Fold: Build a "Canonical Map" and a "Substitution Map" *)
+  (* acc = (NewTypeMap, SubstitutionMap, StructToIdMap) *)
+  let final_map, subst_map, _ =
+    If1.TM.fold
+      (fun id ty (new_map, subst, structs) ->
+        let normalized_ty = rewrite_labels subst ty in
+        match StructMap.find_opt normalized_ty structs with
+        | Some existing_id ->
+            (* Duplicate found! Map this ID to the one we already kept *)
+            (new_map, If1.TM.add id existing_id subst, structs)
+        | None ->
+            (* First time seeing this structure; keep it *)
+            ( If1.TM.add id normalized_ty new_map,
+              If1.TM.add id id subst,
+              StructMap.add normalized_ty id structs ))
+      typemap
+      (If1.TM.empty, If1.TM.empty, StructMap.empty)
+  in
+  (final_map, subst_map)
+
 and check_rec_ty in_gr tty_lis tm outlis =
-  (* Do a type check recursively *)
-  (* beef this up *)
   match tty_lis with
   | (hdf, hd) :: tl ->
       let hdty =
@@ -332,8 +372,12 @@ and check_rec_ty in_gr tty_lis tm outlis =
             match z with
             | If1.Emp -> (
                 let bar xx lt =
-                  if xx = hdf && lt == hd then (
-                    If1.Som k)
+                  if
+                    xx = hdf
+                    && (lt = hd
+                       || If1.structurally_equal in_gr [] (If1.TM.find lt tm)
+                            (If1.TM.find hd tm))
+                  then If1.Som k
                   else z
                 in
                 match v with
@@ -351,7 +395,7 @@ and check_rec_ty in_gr tty_lis tm outlis =
         | If1.Som anum -> anum
         | If1.Emp ->
             print_endline (If1.str_type_trace ());
-            let stack = Printexc.get_callstack 5 in
+            let stack = Printexc.get_callstack 50 in
             (* Capture top 5 frames *)
             (*If1.dump_typemap tm;*)
             print_endline (Printexc.raw_backtrace_to_string stack);
@@ -378,9 +422,16 @@ and record_builder in_gr field_defs io_type =
   let fields, in_gr =
     List.fold_left
       (fun (acc, g) (Ast.Field_def (Ast.Field_name fn, ex1)) ->
+        let _ = Printf.printf "simple exp is %s\n" (Ast.str_simple_exp ex1) in
         let exp_l, g' = do_simple_exp g ex1 in
         ((fn, exp_l) :: acc, g'))
       ([], in_gr) field_defs
+  in
+  let _ =
+    List.map
+      (fun (aname, (o, t, th)) ->
+        Printf.printf "(%d, %d, %d) %s\n" o t th aname)
+      fields
   in
 
   (* 2. Type Resolution & Validation *)
@@ -463,7 +514,7 @@ and do_constant in_gr xx =
       If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
   | Ast.Error ast_typ ->
       let (_, _, err_ty_id), in_gr = If1.add_sisal_type in_gr ast_typ in
-      let (_, _, err_ty_id), in_gr =
+      let (_, _, _), in_gr =
         If1.add_type_to_typemap (Typed_error err_ty_id) in_gr
       in
       let node_config =
@@ -1521,9 +1572,7 @@ and pop_or_push_to_exp_stack2 exp_stack expl_in_rev rhs_exps in_gr =
   | [] ->
       assert (List.length rhs_exps > 0);
       let exphhd = List.hd rhs_exps in
-      let (expnum, expport, expty), in_gr =
-        do_simple_exp in_gr exphhd
-      in
+      let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
       let expty =
         match If1.get_node expnum in_gr with
         | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
@@ -1812,7 +1861,7 @@ and check_subgr_tys in_gr msg jj prev =
           let tm = If1.get_typemap_tm in_gr in
           match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
           | Some ty_exp, Some ty_act ->
-              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then (
+              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then
                 (* Check if the mismatch is due to an unexpected Error Type *)
                 let err_msg =
                   match ty_act with
@@ -1825,8 +1874,9 @@ and check_subgr_tys in_gr msg jj prev =
                         (If1.printable_full_type (If1.get_typemap_tm in_gr) act)
                         act
                 in
-                print_endline (If1.str_type_trace ());
-                failwith ("Type Mismatch: " ^ err_msg))
+                (*
+                print_endline (If1.str_type_trace ());*)
+                failwith ("Type Mismatch: " ^ err_msg)
           | _ -> failwith "Verification Error: Typemap resolution failed")
       jj_types prev_types
 
@@ -2112,7 +2162,7 @@ and bin_exp a b in_gr node_tag =
           first_incoming_triple_to_multiarity d i_gr
       | _ -> (d, pi2, qq2)
     in
-    match qq1 = qq2 with
+    match qq1 = qq2 || If1.resolve_and_compare in_gr [] qq1 qq2 with
     | true ->
         let out_gr = If1.add_edge c pi1 z 0 qq1 out_gr in
         let out_gr = If1.add_edge d pi2 z 1 qq2 out_gr in
@@ -2121,6 +2171,7 @@ and bin_exp a b in_gr node_tag =
         raise
           (If1.Sem_error
              (let _ =
+                If1.outs_graph in_gr;
                 let kkk =
                   If1.cate_list
                     [
@@ -2133,8 +2184,7 @@ and bin_exp a b in_gr node_tag =
                     ]
                     "\n"
                 in
-                print_endline kkk;
-                If1.outs_graph in_gr
+                print_endline kkk
               in
               "ERROR: Bad type in binary exp---"))
   in
@@ -2382,12 +2432,18 @@ and do_simple_exp in_gr in_sim_ex =
             If1.add_compound_type in_gr (Ast.Sisal_array Ast.Null)
           in
           ((n, p, arr_typ), in_gr)
-      | "ARRAY_ADDH" ->
+      | ("ARRAY_ADDH" | "ARRAY_ADDL") as array_addx ->
           let (n, _, _), in_gr =
             let in_port_00 = Array.make 1 "" in
             let out_port_00 = Array.make 1 "" in
             If1.add_node_2
-              (`Simple (If1.AADDH, in_port_00, out_port_00, []))
+              (`Simple
+                 ( (match array_addx with
+                   | "ARRAY_ADDH" -> If1.AADDH
+                   | _ -> If1.AADDL),
+                   in_port_00,
+                   out_port_00,
+                   [] ))
               in_gr
           in
           let tt, in_gr =
@@ -2402,7 +2458,8 @@ and do_simple_exp in_gr in_sim_ex =
                     (tt, in_gr)
                 | _ ->
                     raise
-                      (If1.Sem_error ("Incorrect usage" ^ " for array_addh")))
+                      (If1.Sem_error ("Incorrect usage" ^ " for " ^ array_addx))
+                )
           in
           ((n, 0, tt), in_gr)
       | "ARRAY_LIMH" ->
@@ -2588,6 +2645,67 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | ("STREAM_APPEND" | "STREAM_FIRST" | "STREAM_REST") as strm ->
+          let in_port_00 = Array.make 1 "" in
+          let out_port_00 = Array.make 1 "" in
+          let node_name =
+            match strm with
+            | "STREAM_FIRST" -> If1.STRM_FIRST
+            | "STREAM_REST" -> If1.STRM_REST
+            | "STREAM_APPEND" -> If1.STRM_APPEND
+            | _ -> failwith "Unknown function during stream processing"
+          in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (node_name, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let incoming_type, _, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (prev, cou, in_gr) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        let l, m, tt =
+                          If1.find_incoming_regular_node (l, m, tt) in_gr
+                        in
+                        (tt :: prev, cou + 1, If1.add_edge l m n cou tt in_gr))
+                      aexps ([], 0, in_gr)
+                | _ -> ([], 0, in_gr))
+          in
+          let asty =
+            if strm = "STREAM_FIRST" then
+              match
+                If1.TM.find_opt (List.hd incoming_type)
+                  (If1.get_typemap_tm in_gr)
+              with
+              | None ->
+                  failwith
+                    ("Expected a stream data type for"
+                   ^ " argument to stream_first")
+              | Some (Stream bc) -> bc
+              | Some xy ->
+                  failwith
+                    ("Expected a stream data type for"
+                   ^ " argument to stream_first and found "
+                    ^ If1.printable_full_type (If1.get_typemap_tm in_gr)
+                        (List.hd incoming_type))
+            else List.hd incoming_type
+          in
+          let _ =
+            if strm = "STREAM_APPEND" then
+              let _ = assert (List.length incoming_type == 2) in
+              match incoming_type with
+              | [ _; s ] ->
+                  if asty != s then
+                    failwith "Stream append element type does not match"
+                  else ()
+              | _ -> failwith "Syntax error in STREAM_APPEND"
+            else ()
+          in
+          ((n, 0, asty), in_gr)
       | _ ->
           let expl, in_gr =
             match arg with
@@ -2601,6 +2719,11 @@ and do_simple_exp in_gr in_sim_ex =
           in
           let arg_types = List.map (fun (_, _, t) -> t) expl in
           let cs, ps = in_gr.If1.symtab in
+          let deref_fn =
+            match String.uppercase_ascii deref_fn with
+            | "ETOTHE" -> "EXP"
+            | _ -> deref_fn
+          in
           let symtab_entry =
             match If1.SM.find_opt deref_fn cs with
             | Some id -> id
@@ -2831,7 +2954,7 @@ and do_simple_exp in_gr in_sim_ex =
       ((multinum, 0, 0), in_gr)
   | Old (Ast.Value_name v) ->
       do_val_internal in_gr (`OldMob (String.concat "." v))
-  | Val v -> do_val in_gr v
+  | Val (Ast.Value_name v as m) -> do_val in_gr m
   | Paren e -> do_exp in_gr e
   (*| Tuple x -> (* Make a tuple type and insert it with a type*)*)
   | Array_generator_named tn ->
@@ -3173,8 +3296,23 @@ and do_simple_exp in_gr in_sim_ex =
         in_gr
         |> If1.add_edge typecast_arg_node typecast_arg_out_port typecast_node 0
              typecast_arg_type )
-  | Is_error e -> do_exp in_gr e
+  | Is_error e ->
+      let (n, p, t), in_gr = do_exp in_gr e in
+      let n, p, t = first_incoming_triple_to_multiarity n in_gr in
+      let node_config =
+        `Simple
+          ( If1.ERROR_NODE,
+            Array.make 1 "",
+            (* Input ports: fields + optional base *)
+            Array.make 1 "",
+            (* Output ports *)
+            [ If1.No_pragma ] )
+      in
+      let (node_id, port_id, _), in_gr = If1.add_node_2 node_config in_gr in
+      let in_gr = If1.add_edge2 n p node_id 0 t in_gr in
+      ((node_id, port_id, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | If (cl, Else el) as if_ast ->
+      Printf.printf "GOING TO DO IF %s\n" (Ast.str_simple_exp if_ast);
       let rec if_builder cl xyz in_gr_if els curr_num ty_lis_ret =
         match cl with
         | Ast.Cond (predicate, body) :: tl ->
@@ -3223,6 +3361,7 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_n in
+            If1.If1_View.export_debug_html "CRASHING.html" in_gr_if;
             let _ =
               check_subgr_tys in_gr_if
                 (Ast.str_cond (Ast.Cond (predicate, body)))
@@ -3969,8 +4108,7 @@ and verify_function_returns strs fn_ty_id in_gr =
   if List.length expected_ids <> List.length actual_ids then
     raise
       (If1.Sem_error
-         (If1.write_any_dot_file "ERROR.dot" in_gr;
-          If1.outs_graph in_gr;
+         (If1.If1_View.export_debug_html "CRASHED.html" in_gr;
           Printf.sprintf
             "Return Arity Mismatch: Header expects %d data values, but graph \
              returns %d (excluding errors)"
@@ -4014,28 +4152,41 @@ if List.length expected_ids <> List.length actual_ids then (
 
 and do_typedef in_gr = function
   | Type_def (n, t) ->
+      (* 1. Placeholder binding *)
       let _, in_gr = If1.add_sisal_typename in_gr n (-2) in
-      (* -1 is for not yet defined *)
+
+      (* 2. Incremental Lowering *)
       let (id_t, ii, tt), in_gr = If1.add_sisal_type in_gr t in
+
+      (* 3. Update the name map MM.t *)
       let id_, in_gr = If1.add_sisal_typename in_gr n tt in
-      let tyid, tm, tmn = in_gr.typemap in
+
+      (* 4. TARGETED PATCHING (The Replacement for the Global Fold) *)
+      let next_id, tm, mm = in_gr.typemap in
+      let patch id = if id = -2 then tt else id in
+
       let tm =
-        If1.TM.fold
-          (fun ke va z ->
-            let va =
-              match va with
-              | If1.Record (-2, -2, namen) -> If1.Record (tt, tt, namen)
-              | If1.Record (-2, nfty, namen) -> If1.Record (tt, nfty, namen)
-              | If1.Record (flt, -2, namen) -> If1.Record (flt, tt, namen)
-              | If1.Union (-2, -2, namen) -> If1.Union (tt, tt, namen)
-              | If1.Union (-2, nfty, namen) -> If1.Union (tt, nfty, namen)
-              | If1.Union (flt, -2, namen) -> If1.Union (flt, tt, namen)
-              | _ -> va
-            in
-            If1.TM.add ke va z)
-          tm If1.TM.empty
+        match If1.TM.find_opt tt tm with
+        | Some (If1.Record (ty_l, next_l, s)) ->
+            If1.TM.add tt (If1.Record (patch ty_l, patch next_l, s)) tm
+        | Some (If1.Union (ty_l, next_l, s)) ->
+            If1.TM.add tt (If1.Union (patch ty_l, patch next_l, s)) tm
+        | Some (If1.Function_ty (in_l, out_l, s)) ->
+            If1.TM.add tt (If1.Function_ty (patch in_l, patch out_l, s)) tm
+        | Some (If1.Array_ty l) -> If1.TM.add tt (If1.Array_ty (patch l)) tm
+        | Some (If1.Tuple_ty (l1, l2)) ->
+            If1.TM.add tt (If1.Tuple_ty (patch l1, patch l2)) tm
+        | Some (If1.Stream l) -> If1.TM.add tt (If1.Stream (patch l)) tm
+        | Some (If1.Field labels) ->
+            If1.TM.add tt (If1.Field (List.map patch labels)) tm
+        | Some (If1.Tag labels) ->
+            If1.TM.add tt (If1.Tag (List.map patch labels)) tm
+        | Some (If1.Typed_error l) ->
+            If1.TM.add tt (If1.Typed_error (patch l)) tm
+        | _ -> tm (* Non-recursive or basic types *)
       in
-      ((id_t, ii, id_), { in_gr with typemap = (tyid, tm, tmn) })
+      let final_gr = { in_gr with If1.typemap = (next_id, tm, mm) } in
+      ((id_t, ii, id_), final_gr)
 
 and do_internals (names, in_gr) f =
   match f with

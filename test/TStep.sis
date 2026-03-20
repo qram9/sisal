@@ -1,4 +1,5 @@
 DEFINE TStep
+%$include "CpxFuncs.sis"
 
 type ArrInt1 = Array[integer];
 type ArrReal1 = Array[real];

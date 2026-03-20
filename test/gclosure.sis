@@ -1,3 +1,4 @@
+%$include "para.sis"
 global IsMember( Set: Class; Candidate: Paraffin returns Boolean )
 global Equiv( A, B: Paraffin returns Boolean )
 global Equivclass( A: Paraffin returns Class )

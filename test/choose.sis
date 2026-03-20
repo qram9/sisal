@@ -3,6 +3,7 @@ define Pick_Change, Accept
 
 %$include ("anneal.sish")
 
+%$include "random.sis"
 %----------------------------------------------------------------------------
 
 global ranf ( Seed : Four_Plex returns double_real, Four_Plex )

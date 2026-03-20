@@ -281,9 +281,6 @@ and top_fragment =
 
 (* Stringify *)
 
-let space_cate a b cha =
-  match b with "" -> a | _ -> ( match a with "" -> b | _ -> a ^ cha ^ b)
-
 let space_cate_chk a b cha =
   match b with
   | "" -> a
@@ -296,23 +293,6 @@ let space_cate_chk a b cha =
           if b.[0] = ' ' then cha ^ String.trim b
           else if b.[0] = '\n' then String.trim cha ^ b
           else cha ^ b)
-
-let trim_right s =
-  let n = String.length s in
-  let rec find_end i =
-    if i < 0 then 0
-    else
-      match String.get s i with
-      | ' ' | '\n' | '\r' | '\t' -> find_end (i - 1)
-      | _ -> i + 1
-  in
-  let len = find_end (n - 1) in
-  String.sub s 0 len
-
-let space_cate_trim_right_fst a b cha =
-  match b with
-  | "" -> a
-  | _ -> ( match a with "" -> b | _ -> trim_right a ^ cha ^ b)
 
 let single_newline_cate a b = if b.[0] <> '\n' then a ^ "\n" ^ b else a ^ b
 
@@ -337,8 +317,25 @@ let mypad1 c d =
   let k = String.make c ' ' in
   match d with "" -> "" | _ -> k ^ d
 
-let mypad c d = match d with "" -> "" | _ -> c ^ d
 let semicolon_fold = myfold "; "
+let mypad c d = match d with "" -> "" | _ -> c ^ d
+
+let trim_right s =
+  let n = String.length s in
+  let rec find_end i =
+    if i < 0 then 0
+    else
+      match String.get s i with
+      | ' ' | '\n' | '\r' | '\t' -> find_end (i - 1)
+      | _ -> i + 1
+  in
+  let len = find_end (n - 1) in
+  String.sub s 0 len
+
+let space_cate_trim_right_fst a b cha =
+  match b with
+  | "" -> a
+  | _ -> ( match a with "" -> b | _ -> trim_right a ^ cha ^ b)
 
 let semicolon_newline_fold ?offset =
   let o = match offset with None -> 0 | Some r -> r in
@@ -416,7 +413,7 @@ let align_strings sub ?(limit = 0) ?(offset = 0) lst =
   in
 
   (* The column index where `:=` starts (LHS width + 1 space) *)
-  let target_rhs_col = max 2 (max_lhs_width - 2) in
+  let target_rhs_col = max 0 max_lhs_width in
 
   (* Step C: Reconstruct and justify both sides *)
   List.map
@@ -429,17 +426,13 @@ let align_strings sub ?(limit = 0) ?(offset = 0) lst =
           match lines_rhs with
           | [] -> ""
           | first :: rest ->
-              (* Calculate the new pad length: target minus the length of the first line *)
-              (* max 0 ensures we never pass a negative number to String.make *)
-              let pad_len = max 0 (target_rhs_col - String.length first) in
+              let pad_len = max 0 (-String.length first + target_rhs_col - 4) in
               let pad = String.make pad_len ' ' in
-
               let aligned_rest =
                 List.map (fun line -> if line = "" then "" else pad ^ line) rest
               in
               String.concat "\n" (first :: aligned_rest)
         in
-
         (* -- Process LHS -- *)
         let rec format_lhs = function
           | [] -> []
@@ -673,10 +666,15 @@ end
 
 module TM = Map.Make (T)
 
-let newline_fold ?offset =
-  let o = match offset with None -> 0 | Some r -> r in
-  let k = String.make o ' ' in
-  List.fold_left (fun last fs -> space_cate last (mypad k fs) "\n") ""
+let join_with a b cha =
+  match b with "" -> a | _ -> ( match a with "" -> b | _ -> a ^ cha ^ b)
+
+let newline_fold ?(offset = 0) list =
+  let k = String.make offset ' ' in
+  list
+  |> List.map (mypad k) (* Apply padding to everything *)
+  |> List.filter (fun s -> s <> "") (* Remove empty strings to avoid extra \n *)
+  |> String.concat "\n" (* Join them with \n in between *)
 
 let dot_fold = myfold "."
 
@@ -736,8 +734,7 @@ and str_masking_clause = function
   | No_mask -> ""
 
 and str_iterator ?(offset = 0) = function
-  | Repeat dp ->
-      mypad1 offset "REPEAT" ^ "\n" ^ str_decldef_part ~offset (`Loop_type dp)
+  | Repeat dp -> "REPEAT" ^ "\n" ^ str_decldef_part ~offset (`Loop_type dp)
 
 and str_termination ?(offset = 0) = function
   | While e ->
@@ -776,7 +773,7 @@ and str_compound_type = function
              (fun (x, y) z -> (comma_fold x ^ ":" ^ str_sisal_type y) :: z)
              union_ty_v [])
       ^ "]"
-  (*(space_cate ("UNION [" ^ (comma_fold stl)) (str_sisal_type s) ":") ^ "]"*)
+  (*(join_with ("UNION [" ^ (comma_fold stl)) (str_sisal_type s) ":") ^ "]"*)
   | Sisal_union_enum stl -> "UNION [" ^ comma_fold stl ^ "]"
   | Sisal_record ff ->
       "RECORD [" ^ semicolon_fold (List.map str_colon_spec ff) ^ "]"
@@ -942,7 +939,8 @@ and str_if ?(offset = 0) f =
   "\n"
   ^ mypad1 offset
       (single_space_cate "IF"
-         (elseif_fold offset (List.map (str_cond ~offset ~preceed_space:1) f)))
+         (elseif_fold offset
+            (List.map (str_cond ~offset:(offset + 2) ~preceed_space:1) f)))
 
 and str_else ?(offset = 0) = function
   | Else e ->
@@ -985,11 +983,16 @@ and str_decldef ?(offset = 0) = function
 and str_decldef_part ?(offset = 0) context =
   match context with
   | `Let_type (Decldef_part f) | `Loop_type (Decldef_part f) ->
-      let decldef_lis = List.map (str_decldef ~offset:(offset + 2)) f in
+      let decldef_lis =
+        List.map
+          (fun f -> trim_right (str_decldef ~offset:(offset + 2) f) ^ ";\n")
+          f
+      in
+      (* TODO maybe this one
       let aligned_decldef_lis =
         align_strings ":=" ~limit:13 ~offset decldef_lis
-      in
-      let x = semicolon_newline_fold aligned_decldef_lis in
+      in*)
+      let x = String.concat "" decldef_lis in
       x
 
 and str_decl_id ?(offset = 0) = function
@@ -1105,7 +1108,11 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Array_generator_unnamed ep -> "ARRAY " ^ brack (str_sexp_pair ep)
   | Array_replace (p, epl) ->
       str_simple_exp ~offset:0 ~preceed_space:0 p
-      ^ brack (semicolon_fold (List.map str_sexp_pair epl))
+      ^ brack
+          (semicolon_fold
+             (List.map str_sexp_pair epl
+             |> List.concat_map (String.split_on_char '\n')
+             |> List.filter (fun s -> s <> "")))
   | Record_ref (e, fn) -> " " ^ str_simple_exp e ^ "." ^ str_field_name fn
   | Record_array_ref (e, fn) -> " " ^ str_simple_exp e ^ brack (str_exp fn)
   | Record_generator_primary (e, fdle) ->
@@ -1142,7 +1149,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
            if k.[0] <> '\n' && k.[0] <> ' ' then " " ^ k else k)
   | Let (dp, e) ->
       "\n" ^ mypad1 offset "LET\n"
-      ^ str_decldef_part ~offset:(offset + 2) (`Let_type dp)
+      ^ trim_right (str_decldef_part ~offset (`Let_type dp))
       ^ "\n" ^ mypad1 offset "IN"
       ^
       let k = str_exp ~offset e in
@@ -1157,17 +1164,20 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | If (cl, el) ->
       let kk =
         single_newline_cate
-          (single_newline_cate
-             (str_if ~offset:(offset + 2) cl)
+          (single_newline_cate (str_if ~offset cl)
              (str_else ~offset:(offset + 2) el))
-          (mypad1 offset "  END IF")
+          (mypad1 offset "END IF")
       in
       kk
   | For_all (i, d, r) ->
-      "\n" ^ mypad1 offset "FOR " ^ str_in_exp i ^ "\n"
-      ^ str_decldef_part ~offset:(offset + 2) (`Loop_type d)
+      let decldef_str = str_decldef_part ~offset (`Loop_type d) in
+      "\n" ^ mypad1 offset "FOR " ^ str_in_exp i
+      ^ (if String.trim decldef_str = "" then "" else "\n" ^ decldef_str)
       ^ "\n" ^ mypad1 offset "RETURNS" ^ "\n"
-      ^ newline_fold ~offset:(offset + 2) (List.map str_return_clause r)
+      ^ newline_fold ~offset:(offset + 2)
+          (List.map str_return_clause r
+          |> List.concat_map (String.split_on_char '\n')
+          |> List.filter (fun s -> s <> ""))
       ^ "\n"
       ^ newline_fold ~offset [ "END FOR" ]
   | For_initial (d, i, r) ->
@@ -1176,13 +1186,16 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
         | Iterator_termination (ii, t) ->
             let k =
               let iter, term =
-                (str_iterator ~offset ii, str_termination ~offset t)
+                ( mypad1 offset (str_iterator ~offset ii),
+                  str_termination ~offset t )
               in
               if term.[0] = '\n' then iter ^ term
               else
                 iter ^ "\n" ^ term ^ "\n" ^ mypad1 offset "RETURNS\n"
                 ^ newline_fold ~offset:(offset + 2)
-                    (List.map str_return_clause r)
+                    (List.map str_return_clause r
+                    |> List.concat_map (String.split_on_char '\n')
+                    |> List.filter (fun s -> s <> ""))
                 ^ "\n"
             in
             let l = "\n" ^ str_decldef_part ~offset (`Loop_type d) in
@@ -1194,13 +1207,21 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
             let k = "\n" ^ mypad1 offset "FOR INITIAL" in
             let l = "\n" ^ str_decldef_part ~offset (`Loop_type d) in
             let m =
-              newline_fold
-                [ str_termination ~offset t; str_iterator ~offset ii ]
+              trim_right
+                (newline_fold
+                   [
+                     str_termination ~offset t;
+                     mypad1 offset (str_iterator ~offset ii);
+                   ])
               ^ "\n" ^ mypad1 offset "RETURNS\n"
-              ^ newline_fold ~offset:(offset + 2) (List.map str_return_clause r)
+              ^ newline_fold ~offset:(offset + 2)
+                  (List.map str_return_clause r
+                  |> List.concat_map (String.split_on_char '\n')
+                  |> List.filter (fun s -> s <> ""))
               ^ "\n"
             in
-            k ^ mypad1 offset l
+            k
+            ^ mypad1 offset (trim_right l)
             ^ (if m.[0] = '\n' then "" else "\n")
             ^ m ^ mypad1 offset "END FOR"
       in
