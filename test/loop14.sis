@@ -20,12 +20,12 @@ function Loop14( rep,n:integer; FLX:double;
                         OneD,OneD,OneD,OneD,OneD )
   let DEX1,EX1,IR1,IX1,RX1,VX1,XI1,XX1 :=
         for i in 1,n
-            j := Trunc(GRD[i]);
+            j := integer(Trunc(GRD[i]));
             EX := EXin[j];
             DEX := DEXin[j];
             XI := Double_Real(j);
             VX := EX - DEX * XI;
-            k  := Trunc(VX + FLX);
+            k  := integer(Trunc(VX + FLX));
             IR := MOD2N(k,512) + 1;
             RX := VX + FLX - Double_Real(k);
             XX := VX + FLX - Double_Real(k) + Double_Real(IR)

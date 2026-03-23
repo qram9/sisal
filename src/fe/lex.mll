@@ -10,18 +10,12 @@ let error msg start finish =
 let lex_error lexbuf =
   raise (LexErr (error (lexeme lexbuf) (lexeme_start_p lexbuf) (lexeme_end_p lexbuf)))
 
-let include_stack = ref []
+let include_stack : (Lexing.lexbuf * in_channel * string) list ref = ref []
 
-let return x = fun _ -> x 
+let return x = fun _ -> x
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
-let debug_level = ref 3
-
-let padded_lex_msg level fmt =
-  let print_at_level str
-    = if !debug_level >= level
-    then print_string ("              <Matched" ^ str) in
-  Format.ksprintf print_at_level fmt
+let lex_msg lvl fmt = Ir.Debug.msg "lex" lvl fmt
 
 module KeywordTable =
   Map.Make(struct
@@ -144,56 +138,66 @@ and internal_lex = parse
 
  (* 3. Standard Scientific & Floating Point *)
  | flonum as f {
-     padded_lex_msg 5 ": %s>\n" f;
+     lex_msg 5 ": %s" f;
      FLOAT (float_of_string f)
    }
 
  (* 4. Integers *)
  | dec as d {
-     padded_lex_msg 5 ": %s>\n" d;
+     lex_msg 5 ": %s" d;
      INT (int_of_string d)
    }
 
  (* 5. Include Directive *)
  | "%$" ws inc_kw ws '('? ws '"' ([^ '"' '\n']+ as file) '"' ws ')'? [^ '\n']*
       {
+        (* Resolve relative includes against the current file's directory *)
+        let cur_file = lexbuf.lex_curr_p.pos_fname in
+        let resolved =
+          if Filename.is_relative file then
+            let dir = Filename.dirname cur_file in
+            if dir = "." then file else Filename.concat dir file
+          else file
+        in
+        if List.exists (fun (_, _, f) -> f = resolved) !include_stack then begin
+          Printf.eprintf "Error: Cyclic include detected: '%s' is already being included\n" resolved;
+          internal_lex lexbuf
+        end else
         try
-          let chan = open_in file in
+          let chan = open_in resolved in
           let new_lb = Lexing.from_channel chan in
-          new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = file };
-          include_stack := (new_lb, chan) :: !include_stack;
-          padded_lex_msg 5 "_include_start:>\n";
-          
-          (* Grab the first token of the included file *)
+          new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = resolved };
+          include_stack := (new_lb, chan, resolved) :: !include_stack;
+          lex_msg 5 "_include_start:";
           internal_lex new_lb
         with Sys_error msg ->
-          Printf.eprintf "Warning: Could not include '%s': %s\n" file msg;
+          Printf.eprintf "Warning: Could not include '%s': %s\n" resolved msg;
           internal_lex lexbuf
       }
 
  (* 6. Comments *)
  | '%' {
-     padded_lex_msg 5 "_cmts:>\n";
+     lex_msg 5 "_cmts:";
      read_comment lexbuf
    }
 
  (* 7. Strings and Chars *)
  | '\"' { 
-     padded_lex_msg 5 "_string: starting recursive read...>\n";
+     lex_msg 5 "_string: starting recursive read...";
      read_string "" lexbuf 
    }
  | match_char as ch {
-     padded_lex_msg 5 "_char: %s>\n" ch;
+     lex_msg 5 "_char: %s" ch;
      CHAR ch
    }
 
  (* 8. Whitespace *)
  | ([' ' '\t'])+ as spaces {
-     padded_lex_msg 5 "bunch of spaces: %d>\n" (String.length spaces);
+     lex_msg 5 "bunch of spaces: %d" (String.length spaces);
      internal_lex lexbuf
    }
  | ('\n')  as mynewlines {
-     padded_lex_msg 5 ": newline %c>\n" mynewlines;
+     lex_msg 5 ": newline %c" mynewlines;
      Lexing.new_line lexbuf;
      internal_lex lexbuf
    }
@@ -216,41 +220,41 @@ and internal_lex = parse
      let lookup_name = String.uppercase_ascii ident_or_kw in
      try
        let k = KeywordTable.find lookup_name keyword_table in
-       padded_lex_msg 5 ": Keyword:%s>\n" lookup_name;
+       lex_msg 5 ": Keyword:%s" lookup_name;
        k
      with Not_found ->
-       padded_lex_msg 5 ": NAME:%s>\n" lookup_name;
+       lex_msg 5 ": NAME:%s" lookup_name;
        NAME lookup_name
    }
 
  (* 11. Symbols & Operators *)
- | ',' {padded_lex_msg 5 " , >\n"; COMMA}
- | '.' {padded_lex_msg 5 " . >\n"; DOTSTOP}
- | "<=" {padded_lex_msg 5 " <=\n"; LE}
- | "<" {padded_lex_msg 5 " <=\n"; LT}
- | ">=" {padded_lex_msg 5 " <=\n"; GE}
- | ">" {padded_lex_msg 5 " <=\n"; GT}
- | "<<" {padded_lex_msg 5 " << >\n"; SHL}
- | ">>" {padded_lex_msg 5 " >> >\n"; SHR}
- | '*' {padded_lex_msg 5 " * >\n"; STAR}
- | '/'  {padded_lex_msg 5 " / >\n"; DIVIDE}
- | '+' {padded_lex_msg 5 " + >\n"; PLUS}
- | '-' {padded_lex_msg 5 " - >\n"; MINUS}
- | "#(" {padded_lex_msg 5 " ( >\n"; HASH_LPAREN}
- | '(' {padded_lex_msg 5 " ( >\n"; LPAREN}
- | ')' {padded_lex_msg 5 " ) >\n"; RPAREN}
- | '[' {padded_lex_msg 5 " [ >\n"; LBRACK}
- | ']' {padded_lex_msg 5 " ] >\n"; RBRACK}
- | '=' {padded_lex_msg 5 " ] >\n"; EQ}
- | ":=" {padded_lex_msg 5 " := >\n"; ASSIGN}
- | ':' {padded_lex_msg 5 " : >\n"; COLON}
- | "||" {padded_lex_msg 5 " || >\n"; PIPE}
- | '|' {padded_lex_msg 5 " | >\n"; OR}
- | "~=" {padded_lex_msg 5 " ~ >\n"; NE}
- | '~' {padded_lex_msg 5 " ~ >\n"; NOT}
- | '&' {padded_lex_msg 5 " & >\n"; AND}
+ | ',' {lex_msg 5 " , "; COMMA}
+ | '.' {lex_msg 5 " . "; DOTSTOP}
+ | "<=" {lex_msg 5 " <=\n"; LE}
+ | "<" {lex_msg 5 " <=\n"; LT}
+ | ">=" {lex_msg 5 " <=\n"; GE}
+ | ">" {lex_msg 5 " <=\n"; GT}
+ | "<<" {lex_msg 5 " << "; SHL}
+ | ">>" {lex_msg 5 " >> "; SHR}
+ | '*' {lex_msg 5 " * "; STAR}
+ | '/'  {lex_msg 5 " / "; DIVIDE}
+ | '+' {lex_msg 5 " + "; PLUS}
+ | '-' {lex_msg 5 " - "; MINUS}
+ | "#(" {lex_msg 5 " ( "; HASH_LPAREN}
+ | '(' {lex_msg 5 " ( "; LPAREN}
+ | ')' {lex_msg 5 " ) "; RPAREN}
+ | '[' {lex_msg 5 " [ "; LBRACK}
+ | ']' {lex_msg 5 " ] "; RBRACK}
+ | '=' {lex_msg 5 " ] "; EQ}
+ | ":=" {lex_msg 5 " := "; ASSIGN}
+ | ':' {lex_msg 5 " : "; COLON}
+ | "||" {lex_msg 5 " || "; PIPE}
+ | '|' {lex_msg 5 " | "; OR}
+ | "~=" {lex_msg 5 " ~ "; NE}
+ | '~' {lex_msg 5 " ~ "; NOT}
+ | '&' {lex_msg 5 " & "; AND}
  | [';'] {
-  padded_lex_msg 5 " ; >\n";
+  lex_msg 5 " ; ";
   SEMICOLON
  } 
  | _ { lex_error lexbuf }
@@ -264,7 +268,7 @@ and internal_lex = parse
   let rec sisal_lex original_lexbuf =
     let active_lexbuf =
       match !include_stack with
-      | (lb, _) :: _ -> lb
+      | (lb, _, _) :: _ -> lb
       | [] -> original_lexbuf
     in
     
@@ -272,10 +276,10 @@ and internal_lex = parse
     
     if tok = EOF && !include_stack <> [] then begin
        match !include_stack with
-       | (_, chan) :: rest ->
+       | (_, chan, _) :: rest ->
            close_in chan;
            include_stack := rest;
-           padded_lex_msg 5 "_include_end:<\n";
+           lex_msg 5 "_include_end:<\n";
            
            (* Included file is done. Immediately fetch the next token 
               from the parent file to keep the parser happy. *)

@@ -11,7 +11,9 @@
 %
 %
 %$include "ranf.sis"
-%$include "choose.sis"
+%$include "switch.sis"
+%$include "batcher.sis"
+%$include "types.h"
 function BackTrack(FinalPtrs: Seg_TwoDim;
 		   N: Integer
                   returns

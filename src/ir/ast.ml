@@ -70,6 +70,7 @@ and simple_exp =
   | Greater_equal of simple_exp * simple_exp
   | Greater of simple_exp * simple_exp
   | Lambda of function_header * exp
+  | Pos of (int * int) * simple_exp
 
 and exp = Exp of simple_exp list | Empty
 and cond = Cond of exp * exp
@@ -547,6 +548,64 @@ let basic_type_list =
     StringMap.empty
     [("a", 1); ("b", 2); ("c", 3)]*)
 
+let basic_int_list =
+  [
+    Byte_ty;
+    Integer;
+    Long_ty;
+    Short_ty;
+    Ubyte_ty;
+    Uchar_ty;
+    Uint_ty;
+    Ulong_ty;
+    Ushort_ty;
+    Vec_ty Byte2;
+    Vec_ty Byte3;
+    Vec_ty Byte4;
+    Vec_ty Byte8;
+    Vec_ty Byte16;
+    Vec_ty Int2;
+    Vec_ty Int3;
+    Vec_ty Int4;
+    Vec_ty Int8;
+    Vec_ty Int16;
+    Vec_ty Long2;
+    Vec_ty Long3;
+    Vec_ty Long4;
+    Vec_ty Long8;
+    Vec_ty Long16;
+    Vec_ty Short2;
+    Vec_ty Short3;
+    Vec_ty Short4;
+    Vec_ty Short8;
+    Vec_ty Short16;
+    Vec_ty Ubyte2;
+    Vec_ty Ubyte3;
+    Vec_ty Ubyte4;
+    Vec_ty Ubyte8;
+    Vec_ty Ubyte16;
+    Vec_ty Uchar2;
+    Vec_ty Uchar3;
+    Vec_ty Uchar4;
+    Vec_ty Uchar8;
+    Vec_ty Uchar16;
+    Vec_ty Uint2;
+    Vec_ty Uint3;
+    Vec_ty Uint4;
+    Vec_ty Uint8;
+    Vec_ty Uint16;
+    Vec_ty Ulong2;
+    Vec_ty Ulong3;
+    Vec_ty Ulong4;
+    Vec_ty Ulong8;
+    Vec_ty Ulong16;
+    Vec_ty Ushort2;
+    Vec_ty Ushort3;
+    Vec_ty Ushort4;
+    Vec_ty Ushort8;
+    Vec_ty Ushort16;
+  ]
+
 let basic_float_list =
   [
     Double_real;
@@ -679,10 +738,15 @@ let newline_fold ?(offset = 0) list =
 let dot_fold = myfold "."
 
 let paren ?(offset = 0) exp =
-  if exp.[0] = '\n' then "(" ^ exp ^ ")" else "(" ^ String.trim exp ^ ")"
+  ignore offset;
+  if String.length exp = 0 then "()"
+  else if exp.[0] = '\n' then "(" ^ exp ^ ")"
+  else "(" ^ String.trim exp ^ ")"
 
 let brack exp =
-  if exp.[0] = '\n' then "[" ^ exp ^ "]" else "[" ^ String.trim exp ^ "]"
+  if String.length exp = 0 then "[]"
+  else if exp.[0] = '\n' then "[" ^ exp ^ "]"
+  else "[" ^ String.trim exp ^ "]"
 
 let elseif_fold offset = myfold ("\n" ^ mypad1 offset "ELSE IF ")
 
@@ -995,7 +1059,9 @@ and str_decldef_part ?(offset = 0) context =
       let x = String.concat "" decldef_lis in
       x
 
-and str_decl_id ?(offset = 0) = function
+and str_decl_id ?(offset = 0) decl_id =
+  ignore offset;
+  match decl_id with
   | Decl_name nam -> nam
   | Decl_func func -> str_function_header func
 
@@ -1097,6 +1163,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Lesser (a, b) -> fst_snd_opnd_exp ~offset "<" a b
   | Greater_equal (a, b) -> fst_snd_opnd_exp ~offset ">=" a b
   | Greater (a, b) -> fst_snd_opnd_exp ~offset ">" a b
+  | Pos (_, e) -> str_simple_exp ~offset ~preceed_space e
   | Array_ref (se, e) ->
       let first_part = str_simple_exp ~preceed_space se in
       let extra_padding_len = String.length first_part in

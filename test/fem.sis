@@ -164,7 +164,7 @@ function truss(loc:loc;nodal:nodal returns chipstream)
       x2:=nodal.x[loc.ien[2]];
       y1:=nodal.y[loc.ien[1]];
       y2:=nodal.y[loc.ien[2]];      
-      length:=sqrt(exp((x2-x1),2)+exp((y2-y1),2));
+      length:=sqrt(exp(real(x2-x1),2.f)+exp(real(y2-y1),2.f));
       ym:=1.;
       area:=1.;
       const:=ym*area/length;
@@ -189,9 +189,9 @@ function truss(loc:loc;nodal:nodal returns chipstream)
         for j in 1,4
         returns stream of
                      if i>=j then
-                       record[x:loc.lm[i];y:loc.lm[j];val:kelem[i,j]]
+                       record[x:loc.lm[i];y:loc.lm[j];val:real(kelem[i,j])]
                      else
-                       record[x:loc.lm[i];y:loc.lm[j];val:kelem[j,i]]
+                       record[x:loc.lm[i];y:loc.lm[j];val:real(kelem[j,i])]
                      end if
         end for
     end for

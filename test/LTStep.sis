@@ -11,6 +11,14 @@ type ArrCplexReal = Array[CplexReal];
 %$include "Spec.sis"
 %$include "UVSpec.sis"
 %$include "MdFFTGrid.sis"
+%$include "MdFFTFreq.sis"
+%$include "VSphere.sis"
+%$include "Freq.sis"
+%$include "Linear.sis"
+%$include "TStep.sis"
+%$include "Energy.sis"
+%$include "AngMom.sis"
+%$include "Specam.sis"
 
 global Csub(cnum1, cnum2 : CplexReal RETURNS CplexReal)
 

@@ -25,14 +25,14 @@ function Loop13( n:integer;
       P := Pin
   while i < n repeat
       i := old i + 1;
-      i1 := 1 + MOD2N(Trunc(old P[1,i]),64);
-      j1 := 1 + MOD2N(Trunc(old P[2,i]),64);
+      i1 := 1 + MOD2N(integer(Trunc(old P[1,i]),64));
+      j1 := 1 + MOD2N(integer(Trunc(old P[2,i]),64));
       P1 := old P[4,i: old P[4,i] + C[i1,j1];
                   3,i: old P[3,i] + B[i1,j1];
                   2,i: old P[2,i] + old P[4,i] + C[i1,j1];
                   1,i: old P[1,i] + old P[3,i] + B[i1,j1]];
-      i2 := MOD2N(Trunc(P1[1,i]),64);
-      j2 := MOD2N(Trunc(P1[2,i]),64);
+      i2 := MOD2N(integer(Trunc(P1[1,i]),64));
+      j2 := MOD2N(integer(Trunc(P1[2,i]),64));
       i3 := i2 + E[i2+32];
       j3 := j2 + F[j2+32];
       P := P1[1,i: P1[1,i] + Y[i2+32];

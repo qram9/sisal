@@ -1,4 +1,5 @@
 DEFINE MdFFTGrid
+%$include "PassGrid.sis"
 
 TYPE ArrInt1 = Array[integer];
 TYPE ArrReal1 = Array[real]

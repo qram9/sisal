@@ -42,6 +42,8 @@ open Ast
 open Format
 open Printf
 
+let if1_msg lvl fmt = Debug.msg "if1" lvl fmt
+
 (** TODO: FOLDING OF MULTIARITY SEEMS IFFY **)
 
 module IntMap = Map.Make (struct
@@ -124,6 +126,7 @@ type node_sym =
   | SELECT
   | STREAM
   | STRM_APPEND
+  | STRM_EMPTY
   | STRM_FIRST
   | STRM_REST
   | SUBTRACT
@@ -1189,19 +1192,57 @@ and defs_of_bound_names in_gr =
       IntMap.add def k xx)
     cs IntMap.empty
 
-and output_bound_names_for_subgraphs ?(_start_port = 0) alis in_gr =
-  let bound_ports = defs_of_bound_names in_gr in
-  let alis, in_gr =
-    List.fold_right
-      (fun (x, y, z) (yy, in_gr_) ->
-        if IntMap.mem x bound_ports then
-          match get_old_var_port (IntMap.find x bound_ports) in_gr with
-          | `Not_there -> ((x, y, z) :: yy, in_gr_)
-          | `Found_one cou -> (yy, add_edge2 x y 0 cou z in_gr_)
-        else ((x, y, z) :: yy, in_gr_))
-      alis ([], in_gr)
+and dump_boundary_outputs in_gr =
+  let tm = get_typemap_tm in_gr in
+  let edges =
+    ES.fold
+      (fun ((srcn, srcp), (dstn, dstp), ty) acc ->
+        if dstn = 0 then (srcn, srcp, dstp, ty) :: acc else acc)
+      in_gr.eset []
+    |> List.sort (fun (_, _, p1, _) (_, _, p2, _) -> compare p1 p2)
   in
-  output_to_boundary ~start_port:(boundary_out_port_count in_gr) alis in_gr
+  if1_msg 3 "boundary: %d output port(s)" (List.length edges);
+  List.iter
+    (fun (srcn, srcp, dstp, ty) ->
+      if1_msg 3 "  edge %d:%d -> 0:%d [%s]" srcn srcp dstp
+        (printable_full_type tm ty))
+    edges
+
+and output_bound_names_for_subgraphs ?(_start_port = 0) alis in_gr =
+  let alis = List.rev alis in
+  let bound_ports = defs_of_bound_names in_gr in
+  if1_msg 3 "output_bound_names: %d candidate(s), %d bound name(s) in symtab"
+    (List.length alis)
+    (IntMap.cardinal bound_ports);
+  let out_gr =
+    List.fold_left
+      (fun (idx, in_gr_) (x, y, z) ->
+        if IntMap.mem x bound_ports then (
+          let vname = IntMap.find x bound_ports in
+          match get_old_var_port vname in_gr with
+          | `Not_there ->
+              if1_msg 4
+                "output_bound_names: port %d node=%d (%s) bound but no OLD \
+                 var, wiring to boundary"
+                idx x vname;
+              (idx + 1, add_to_boundary_outputs ~start_port:idx x y z in_gr_)
+          | `Found_one _cou ->
+              if1_msg 4
+                "output_bound_names: port %d node=%d (%s) OLD var, wiring to \
+                 boundary"
+                idx x vname;
+              (idx + 1, add_edge2 x y 0 idx z in_gr_))
+        else begin
+          if1_msg 4
+            "output_bound_names: port %d node=%d not bound, wiring to boundary"
+            idx x;
+          (idx + 1, add_to_boundary_outputs ~start_port:idx x y z in_gr_)
+        end)
+      (0, in_gr) alis
+    |> snd
+  in
+  dump_boundary_outputs out_gr;
+  out_gr
 
 and output_to_boundary ?(start_port = 0) alis in_gr =
   match alis with
@@ -1639,6 +1680,21 @@ and add_node nn in_gr =
         nmap = NM.add 0 (Boundary ([], [], [], [])) nm;
         symtab = (par_cs, par_ps);
       }
+
+and set_node_srcline node_id line col in_gr =
+  let nm = in_gr.nmap in
+  match NM.find_opt node_id nm with
+  | None -> in_gr
+  | Some nd ->
+      let nd' =
+        match nd with
+        | Simple (lab, sym, pin, pout, prag) ->
+            Simple (lab, sym, pin, pout, SrcLine (line, col) :: prag)
+        | Compound (lab, sym, ty, prag, subgr, assoc) ->
+            Compound (lab, sym, ty, SrcLine (line, col) :: prag, subgr, assoc)
+        | Literal _ | Boundary _ | Unknown_node -> nd
+      in
+      { in_gr with nmap = NM.add node_id nd' nm }
 
 and is_real_type gg =
   match gg with
@@ -2548,42 +2604,27 @@ and merge_typeblobs tyblob1 tyblob2 =
 
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
+  let stack = get_stack_trace 5 in
+  let desc = string_of_if1_ty ood in
+  type_trace := (id, desc, stack) :: !type_trace;
+  ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
-  (* INCREMENTAL CHECK: Search for an existing structural match *)
+and add_type_to_typemap_dedup ood in_gr =
   match find_ty_safe_opt in_gr ood with
-  | Some existing_id ->
-      (* Type already exists! Return its ID and the unchanged graph *)
-      ((existing_id, 0, existing_id), in_gr)
-  | None ->
-      (* Truly a new type structure *)
-      let _ =
-        match ood with
-        | Array_ty _ | Record _ | Function_ty _ | Union _ | Tuple_ty _ | Field _
-        | Tag _ | Typed_error _ ->
-            let stack = get_stack_trace 5 in
-            let desc = string_of_if1_ty ood in
-            type_trace := (id, desc, stack) :: !type_trace
-        | _ -> ()
-      in
-      ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
+  | Some existing_id -> ((existing_id, 0, existing_id), in_gr)
+  | None -> add_type_to_typemap ood in_gr
 
 and change_type_in_typemap idI ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
   ((id, 0, id), { in_gr with typemap = (id, TM.add idI ood tm, tmn) })
 
 and add_a_tag (namen, tagty, _) ((id, _, _), in_gr) =
-  let (tt_id, _, _), in_gr =
-    match tagty with
-    | Type_name tagn ->
-        let tmn = get_typename_map in_gr in
-        ((MM.find tagn tmn, 0, MM.find tagn tmn), in_gr)
-    | _ -> add_sisal_type in_gr tagty
-  in
-  add_type_to_typemap (Union (tt_id, id, namen)) in_gr
+  let (tt_id, _, _), in_gr = add_sisal_type in_gr tagty in
+  add_type_to_typemap_dedup (Union (tt_id, id, namen)) in_gr
 
-and add_a_field (namen, tag_ty, _) ((id, _, _), in_gr) =
-  let (tt_id, _, _), in_gr = add_sisal_type in_gr tag_ty in
-  add_type_to_typemap (Record (tt_id, id, namen)) in_gr
+and add_a_field (namen, tagty, _) ((id, _, _), in_gr) =
+  let (tt_id, _, _), in_gr = add_sisal_type in_gr tagty in
+  add_type_to_typemap_dedup (Record (tt_id, id, namen)) in_gr
 
 and add_tag_spec (strlis, tl, _) in_gr = ((strlis, tl, 0), in_gr)
 
@@ -2594,10 +2635,10 @@ and add_a_tuple_entry tup_ty ((id, _, _), in_gr) =
 and add_compound_type in_gr = function
   | Sisal_array s ->
       let (iii, _, _), in_gr = add_sisal_type in_gr s in
-      add_type_to_typemap (Array_ty iii) in_gr
+      add_type_to_typemap_dedup (Array_ty iii) in_gr
   | Sisal_stream s ->
       let (iii, _, _), in_gr = add_sisal_type in_gr s in
-      add_type_to_typemap (Stream iii) in_gr
+      add_type_to_typemap_dedup (Stream iii) in_gr
   | Sisal_union union_field_and_type_list ->
       let (tag_fst, _, _), in_gr =
         List.fold_right
@@ -2608,7 +2649,7 @@ and add_compound_type in_gr = function
           union_field_and_type_list
           ((0, 0, 0), in_gr)
       in
-      add_type_to_typemap (Union (0, tag_fst, "")) in_gr
+      add_type_to_typemap_dedup (Union (0, tag_fst, "")) in_gr
   | Sisal_record record_field_and_type_list ->
       let (rec_fst, _, _), in_gr =
         List.fold_right
@@ -2619,7 +2660,7 @@ and add_compound_type in_gr = function
           record_field_and_type_list
           ((0, 0, 0), in_gr)
       in
-      add_type_to_typemap (Record (0, rec_fst, "")) in_gr
+      add_type_to_typemap_dedup (Record (0, rec_fst, "")) in_gr
   | Sisal_function_type (fn_name, tyargs, tyres) ->
       let (res_fst, _, _), in_gr =
         List.fold_right
@@ -2633,7 +2674,7 @@ and add_compound_type in_gr = function
           tyargs
           ((0, 0, 0), in_gr)
       in
-      add_type_to_typemap (Function_ty (arg_fst, res_fst, fn_name)) in_gr
+      add_type_to_typemap_dedup (Function_ty (arg_fst, res_fst, fn_name)) in_gr
   | _ -> raise (Node_not_found "In compound type")
 
 (* Helper to unroll Tuple_ty chains into a list of strings *)
@@ -2713,7 +2754,13 @@ and structurally_equal in_gr seen t1 t2 =
   | Tuple_ty (l1_a, l1_b), Tuple_ty (l2_a, l2_b) ->
       resolve_and_compare in_gr seen l1_a l2_a
       && resolve_and_compare in_gr seen l1_b l2_b
-  | Record (f1, _, _), Record (f2, _, _) -> resolve_and_compare in_gr seen f1 f2
+  | Record (f1, n1, fn1), Record (f2, n2, fn2) ->
+      let fs, sn, tr =
+        ( resolve_and_compare in_gr seen f1 f2,
+          resolve_and_compare in_gr seen n1 n2,
+          String.equal fn1 fn2 )
+      in
+      fs && sn && tr
   | Field labels1, Field labels2 ->
       if List.length labels1 <> List.length labels2 then false
       else
@@ -2724,18 +2771,31 @@ and structurally_equal in_gr seen t1 t2 =
       resolve_and_compare in_gr seen in1 in2
       && resolve_and_compare in_gr seen out1 out2
   | Multiple b1, Multiple b2 -> b1 = b2
+  | Stream l1, Stream l2 -> resolve_and_compare in_gr seen l1 l2
+  | Union (f1, n1, fn1), Union (f2, n2, fn2) ->
+      resolve_and_compare in_gr seen f1 f2
+      && resolve_and_compare in_gr seen n1 n2
+      && String.equal fn1 fn2
+  | Tag labels1, Tag labels2 ->
+      if List.length labels1 <> List.length labels2 then false
+      else
+        List.for_all2
+          (fun l1 l2 -> resolve_and_compare in_gr seen l1 l2)
+          labels1 labels2
+  | If1Type_name l1, If1Type_name l2 -> resolve_and_compare in_gr seen l1 l2
+  | Unknown_ty, Unknown_ty -> true
   | _, _ -> false
 
 and resolve_and_compare in_gr seen id1 id2 =
-  (* If we've already compared these two labels in this recursion branch, 
+  (* If we've already compared these two labels in this recursion branch,
      we've hit a cycle (like a recursive Record). Assume they match. *)
   if List.exists (fun (l1, l2) -> l1 = id1 && l2 = id2) seen then true
   else
     let tm = get_typemap_tm in_gr in
     match (TM.find_opt id1 tm, TM.find_opt id2 tm) with
     | Some ty1, Some ty2 ->
-        (* Pass the updated 'seen' list down with the current labels added *)
         structurally_equal in_gr ((id1, id2) :: seen) ty1 ty2
+    | None, None -> id1 = 0 && id2 = 0 (* null terminator at end of chain *)
     | _ -> false
 
 and lookup_ty ij in_gr =
@@ -2746,12 +2806,14 @@ and lookup_ty ij in_gr =
     print_endline ("When looking up " ^ string_of_int ij);
     raise (Sem_error "Error looking up type")
 
+and lookup_ty_safe ij in_gr =
+  let tm = get_typemap_tm in_gr in
+  TM.find_opt ij tm
+
 and find_ty_safe_opt in_gr aty =
   let _, tm, _ = get_typemap in_gr in
   match
-    TM.to_seq tm
-    |> Seq.find (fun (_, va) ->
-        if aty = va then true else structurally_equal in_gr [] aty va)
+    TM.to_seq tm |> Seq.find (fun (_, va) -> structurally_equal in_gr [] aty va)
   with
   | Some (id, _) -> Some id
   | None -> None
@@ -2759,9 +2821,7 @@ and find_ty_safe_opt in_gr aty =
 and find_ty_safe in_gr aty =
   let _, tm, _ = get_typemap in_gr in
   match
-    TM.to_seq tm
-    |> Seq.find (fun (_, va) ->
-        if aty = va then true else structurally_equal in_gr [] aty va)
+    TM.to_seq tm |> Seq.find (fun (_, va) -> structurally_equal in_gr [] aty va)
   with
   | Some (id, _) -> id
   | None ->
@@ -2776,7 +2836,8 @@ and find_ty in_gr aty =
       TM.fold
         (fun ke va z ->
           if aty = va then raise (Val_is_found ke)
-          else if structurally_equal in_gr [] aty va in_ge then Val_is_found ke
+          else if structurally_equal in_gr [] aty va then
+            raise (Val_is_found ke)
           else z)
         tm 0
     with Val_is_found ke -> ke
@@ -3106,6 +3167,7 @@ and num_to_node_sym = function
   | 67 -> BITOR
   | 68 -> BITXOR
   | 69 -> STRM_APPEND
+  | 70 -> STRM_EMPTY
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3179,6 +3241,7 @@ and node_sym_to_num = function
   | BITXOR -> 67
   | BITOR -> 68
   | STRM_APPEND -> 69
+  | STRM_EMPTY -> 70
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3249,6 +3312,7 @@ and string_of_node_sym = function
   | VSPLAT -> "VSPLAT"
   | ERROR_NODE -> "ERROR"
   | STRM_APPEND -> "STREAM_APPEND"
+  | STRM_EMPTY -> "STREAM_EMPTY"
   | STRM_FIRST -> "STREAM_FIRST"
   | STRM_REST -> "STREAM_REST"
 
@@ -3904,7 +3968,7 @@ and dot_of_node_ty id in_gr =
   | Compound (lab, _, _, pl, g, _) ->
       "subgraph cluster_" ^ string_of_int id ^ string_of_int lab ^ " {\n"
       ^ "label=\"" ^ string_of_int lab ^ " " ^ string_of_pragmas pl ^ "\";\n"
-      ^ dot_of_graph (int_of_string (string_of_int id ^ string_of_int lab)) g
+      ^ dot_of_graph (Hashtbl.hash (id, lab)) g
       ^ "\n" ^ "}"
   | Unknown_node -> "Unknown"
   | Boundary (_, yy, _, pp) ->
@@ -3951,6 +4015,12 @@ let intrinsic_lib =
            Compound_type (Sisal_function_type ("", [ ty_id ], [ ty_id ])))
          basic_type_list
      in
+     let int_1_1_lib_funs =
+       List.map
+         (fun ty_id ->
+           Compound_type (Sisal_function_type ("", [ ty_id ], [ ty_id ])))
+         basic_int_list
+     in
      (* 5. Register and Collect IDs *)
      (* We use fold_left to thread the graph, but accumulate the resulting IDs *)
      let in_gr, added_type_1_1_ids =
@@ -3987,6 +4057,14 @@ let intrinsic_lib =
        (* reverse because fold_left/cons flips the order *)
      in
      let added_float_type_2_1_ids = List.rev added_float_type_2_1_ids in
+     let in_gr, added_int_type_1_1_ids =
+       List.fold_left
+         (fun (gr, ids) func_ty ->
+           let (_, _, new_id), res_gr = add_sisal_type gr func_ty in
+           (res_gr, new_id :: ids))
+         (in_gr, []) int_1_1_lib_funs
+     in
+     let added_int_type_1_1_ids = List.rev added_int_type_1_1_ids in
      let (_, _, spl_case_dlexp), in_gr =
        add_sisal_type in_gr
          (Compound_type
@@ -4007,6 +4085,40 @@ let intrinsic_lib =
          (Compound_type
             (Sisal_function_type
                ("", [ Ast.Double_real; Ast.Integer ], [ Ast.Double_real ])))
+     in
+     let (_, _, spl_case_hisexp), in_gr =
+       add_sisal_type in_gr
+         (Compound_type
+            (Sisal_function_type ("", [ Ast.Half_ty ], [ Ast.Short_ty ])))
+     in
+     let vec_floor_trunc_pairs =
+       [
+         (Ast.Vec_ty Ast.Double2, Ast.Vec_ty Ast.Long2);
+         (Ast.Vec_ty Ast.Double3, Ast.Vec_ty Ast.Long3);
+         (Ast.Vec_ty Ast.Double4, Ast.Vec_ty Ast.Long4);
+         (Ast.Vec_ty Ast.Double8, Ast.Vec_ty Ast.Long8);
+         (Ast.Vec_ty Ast.Double16, Ast.Vec_ty Ast.Long16);
+         (Ast.Vec_ty Ast.Float2, Ast.Vec_ty Ast.Int2);
+         (Ast.Vec_ty Ast.Float3, Ast.Vec_ty Ast.Int3);
+         (Ast.Vec_ty Ast.Float4, Ast.Vec_ty Ast.Int4);
+         (Ast.Vec_ty Ast.Float8, Ast.Vec_ty Ast.Int8);
+         (Ast.Vec_ty Ast.Float16, Ast.Vec_ty Ast.Int16);
+         (Ast.Vec_ty Ast.Half2, Ast.Vec_ty Ast.Short2);
+         (Ast.Vec_ty Ast.Half3, Ast.Vec_ty Ast.Short3);
+         (Ast.Vec_ty Ast.Half4, Ast.Vec_ty Ast.Short4);
+         (Ast.Vec_ty Ast.Half8, Ast.Vec_ty Ast.Short8);
+         (Ast.Vec_ty Ast.Half16, Ast.Vec_ty Ast.Short16);
+       ]
+     in
+     let in_gr, vec_floor_trunc_type_ids =
+       List.fold_left
+         (fun (gr, ids) (in_ty, out_ty) ->
+           let (_, _, ty_id), gr =
+             add_sisal_type gr
+               (Compound_type (Sisal_function_type ("", [ in_ty ], [ out_ty ])))
+           in
+           (gr, ids @ [ (in_ty, out_ty, ty_id) ]))
+         (in_gr, []) vec_floor_trunc_pairs
      in
      (* 6. Generate Mangled Names based on the same basic_type_list *)
      let lib_registry =
@@ -4102,6 +4214,16 @@ let intrinsic_lib =
            added_float_type_1_1_ids
        @ List.combine
            (List.map
+              (fun ty -> Ast.mangle_intrinsic "COSH" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "TANH" [ ty ] [ ty ])
+              basic_float_list)
+           added_float_type_1_1_ids
+       @ List.combine
+           (List.map
               (fun ty -> Ast.mangle_intrinsic "RADIANS" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids
@@ -4112,7 +4234,7 @@ let intrinsic_lib =
            added_float_type_1_1_ids
        @ List.combine
            (List.map
-              (fun ty -> Ast.mangle_intrinsic "EXP" [ ty ] [ ty ])
+              (fun ty -> Ast.mangle_intrinsic "ETOTHE" [ ty ] [ ty ])
               basic_type_list)
            added_type_1_1_ids
        @ List.combine
@@ -4120,6 +4242,11 @@ let intrinsic_lib =
               (fun ty -> Ast.mangle_intrinsic "ABS" [ ty ] [ ty ])
               basic_type_list)
            added_type_1_1_ids
+       @ List.combine
+           (List.map
+              (fun ty -> Ast.mangle_intrinsic "SQRT" [ ty ] [ ty ])
+              basic_int_list)
+           added_int_type_1_1_ids
        @ List.combine
            (List.map
               (fun ty -> Ast.mangle_intrinsic "SIN" [ ty ] [ ty ])
@@ -4140,15 +4267,24 @@ let intrinsic_lib =
              spl_case_dlexp );
            ( Ast.mangle_intrinsic "FLOOR" [ Ast.Real ] [ Ast.Integer ],
              spl_case_riexp );
+           ( Ast.mangle_intrinsic "FLOOR" [ Ast.Half_ty ] [ Ast.Short_ty ],
+             spl_case_hisexp );
          ]
-         (* TODO * MORE REQUIRED HERE *)
        @ [
            ( Ast.mangle_intrinsic "TRUNC" [ Ast.Double_real ] [ Ast.Long_ty ],
              spl_case_dlexp );
            ( Ast.mangle_intrinsic "TRUNC" [ Ast.Real ] [ Ast.Integer ],
              spl_case_riexp );
+           ( Ast.mangle_intrinsic "TRUNC" [ Ast.Half_ty ] [ Ast.Short_ty ],
+             spl_case_hisexp );
          ]
-       (* TODO * MORE REQUIRED HERE *)
+       @ List.concat_map
+           (fun (in_ty, out_ty, ty_id) ->
+             [
+               (Ast.mangle_intrinsic "FLOOR" [ in_ty ] [ out_ty ], ty_id);
+               (Ast.mangle_intrinsic "TRUNC" [ in_ty ] [ out_ty ], ty_id);
+             ])
+           vec_floor_trunc_type_ids
      in
 
      let in_gr =
@@ -4563,7 +4699,8 @@ module If1_View = struct
       \            buildTree(d, n.subgraph, false);\n\
       \          } else {\n\
       \            d.className = 'node-item'; \n\
-      \            d.textContent = `Node ${n.id}: ${n.label || n.type}`;\n\
+      \            d.textContent = `Node ${n.id}: ${n.label ? n.label + ' ' : \
+       ''}[${n.type}: ${n.value}]`;\n\
       \          }\n\
       \          box.appendChild(d);\n\
       \        });\n\n\

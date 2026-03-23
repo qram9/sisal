@@ -1,0 +1,66 @@
+%******************************************************************************
+%****************************    T Y P E S    *********************************
+%******************************************************************************
+
+type int_array1   = array  [integer];
+type int_array2   = array  [int_array1];
+
+type real_array1  = array  [real];
+type real_array2  = array  [real_array1];
+
+type surf_rec     = record [color     : integer;
+		            spec_refl : real;
+			    spec_n    : real];
+
+type surf_array   = array  [surf_rec];
+
+type pt_rec       = record [xp, yp, zp : real];
+type light_rec    = record [color : integer;
+		 	    pos   : pt_rec];
+
+type light_array  = array  [light_rec];
+
+type pt_array     = array  [pt_rec];
+
+type pln_eqn_rec  = record [a, b, c, d : real];
+
+type tri_rec      = record [surf,
+			    v1, v2, v3     : integer];
+
+type tri_array    = array  [tri_rec];
+
+type screen_tri_rec = record [vhi, vmid, vlo,
+			      mid_scan_line,
+			      last_scan_line : integer;
+			      dxdy_lh,
+			      dxdy_lm,
+			      dxdy_mh        : real;
+			      world_pln_eqn,
+			      screen_pln_eqn : pln_eqn_rec];
+
+type screen_tri_array = array  [screen_tri_rec];
+
+type rgb_rec          = record [r, g, b : real];
+type rgb_array1       = array  [rgb_rec];
+type rgb_array2       = array  [rgb_array1];
+
+type edge_rec         = record [x         : real;
+				tri       : integer;
+				edge_num  : integer;
+				left_edge : boolean];
+
+type edge_array1      = array [edge_rec];
+type edge_array2      = array [edge_array1];
+
+type depth_rec        = record [tri    : integer;
+		    	        depth : real];
+
+type depth_array1     = array  [depth_rec];
+type depth_array2     = array  [depth_array1];
+
+%******************************************************************************
+%****************    G L O B A L   F U N C T I O N S    ***********************
+%******************************************************************************
+
+global sqr  (a : real returns real)
+global sqrt (a : real returns real)

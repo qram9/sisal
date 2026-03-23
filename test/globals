@@ -1,0 +1,69 @@
+global   find_inverse (a : real_array2
+		       returns real_array2)
+
+global   mat_mult (m1, m2 : real_array2
+		   returns real_array2)
+
+global   build_world_to_screen (xpixels, ypixels   : integer;
+				xlo, xhi, ylo, yhi : real;
+				gtr                : real_array2
+				returns real_array2)
+
+global   find_eye (gtr : real_array2;
+		   returns pt_rec)
+
+
+global   transform_pt (pt  : pt_rec;
+		       mat : real_array2
+                       returns pt_rec)
+
+global   build_screen_pts (w2s   : real_array2;
+			   w_pts : pt_array
+			   returns pt_array)
+
+global   find_pln_eqn (v1, v2, v3 : pt_rec
+		       returns pln_eqn_rec)
+
+global   order_pts (v1, v2, v3 : integer;
+		    pts        : pt_array
+		    returns integer,
+			    integer,
+			    integer)
+
+global   up (x : real
+	     returns integer)
+
+global   dn (x : real
+	     returns integer)
+
+global   build_screen_triangles (w_pts, s_pts : pt_array;
+				 triangles    : tri_array
+				 returns screen_tri_array)
+
+global   aalias_weight (n : integer
+			returns real_array2)
+
+global   dither_weight (dsize : integer
+			returns real_array2)
+
+global   aalias_and_dither (fs, dsize     : INTEGER;
+                            nr, ng, nb    : INTEGER;
+			    mat           : rgb_array2
+			    returns int_array2)
+
+global   dither (dsize      : INTEGER;
+                 nr, ng, nb : INTEGER;
+		 mat        : rgb_array2;
+		 returns int_array2)
+
+global   find_dir (p1, p2 : pt_rec
+		   returns pt_rec)
+
+global   compute_color(pt      : pt_rec;
+		       eye     : pt_rec;
+		       normal  : pln_eqn_rec;
+		       surface : surf_rec;
+		       lights  : light_array;
+		       colors  : rgb_array1;
+		       ambient : integer
+		       returns rgb_rec)

@@ -150,10 +150,10 @@ let
   w1, w2, w3, w4 := for l in l3,l4
                       rx  := hxi*xIN[l] + 1.5D0;
                       ry  := hyi*yIN[l] + 1.5D0;
-                      i   := trunc(rx);            % i = rx
+                      i   := integer(trunc(rx));            % i = rx
                       fx  := rx - double_real(trunc(rx)); % aint
                       fxc := 1.0D0 - fx;
-                      j   := trunc(ry);            % j = ry
+                      j   := integer(trunc(ry));            % j = ry
                       fy  := ry - double_real(trunc(ry)); % aint
                       fyc := 1.0D0 - fy;
                     returns array of i
@@ -230,10 +230,10 @@ let
   w11, w21, w31, w41 := for l in l3,l4
                           rx  := hxi*x1[l] + 1.5D0;
                           ry  := hyi*y1[l] + 1.5D0;
-                          i   := trunc(rx);
+                          i   := integer(trunc(rx));
                           fx  := rx - double_real(trunc(rx));
                           fxc := 1.0D0 - fx;
-                          j   := trunc(ry);
+                          j   := integer(trunc(ry));
                           fy  := ry - double_real(trunc(ry));
                           fyc := 1.0D0 - fy;
                         returns array of i
@@ -303,10 +303,10 @@ let
   w1, w2, w3, w4 := for l in l3,l4
                       rx  := hxi*xIN[l] + 1.5D0;
                       ry  := hyi*yIN[l] + 1.5D0;
-                      i   := trunc(rx);            % i = rx
+                      i   := integer(trunc(rx));            % i = rx
                       fx  := rx - double_real(trunc(rx)); % aint
                       fxc := 1.0D0 - fx;
-                      j   := trunc(ry);            % j = ry
+                      j   := integer(trunc(ry));            % j = ry
                       fy  := ry - double_real(trunc(ry)); % aint
                       fyc := 1.0D0 - fy;
                     returns array of i
@@ -405,10 +405,10 @@ let
   w11, w21, w31, w41 := for l in l3,l4
                           rx  := hxi*xh1[l] + 1.5D0;
                           ry  := hyi*yh1[l] + 1.5D0;
-                          i   := trunc(rx);
+                          i   := integer(trunc(rx));
                           fx  := rx - double_real(trunc(rx));
                           fxc := 1.0D0 - fx;
-                          j   := trunc(ry);
+                          j   := integer(trunc(ry));
                           fy  := ry - double_real(trunc(ry));
                           fyc := 1.0D0 - fy;
                         returns array of i
@@ -479,10 +479,10 @@ let
   w12, w22, w32, w42 := for l in l3,l4
                           rx  := hxi*x1[l] + 1.5D0;
                           ry  := hyi*y1[l] + 1.5D0;
-                          i   := trunc(rx);
+                          i   := integer(trunc(rx));
                           fx  := rx - double_real(trunc(rx));
                           fxc := 1.0D0 - fx;
-                          j   := trunc(ry);
+                          j   := integer(trunc(ry));
                           fy  := ry - double_real(trunc(ry));
                           fyc := 1.0D0 - fy;
                         returns array of i
@@ -564,10 +564,10 @@ let
   w1, w2, w3, w4 := for l in l3,l4
                       rx  := hxi*xIN[l] + 1.5D0;
                       ry  := hyi*yIN[l] + 1.5D0;
-                      i   := trunc(rx);            % i = rx
+                      i   := integer(trunc(rx));            % i = rx
                       fx  := rx - double_real(trunc(rx)); % aint
                       fxc := 1.0D0 - fx;
-                      j   := trunc(ry);            % j = ry
+                      j   := integer(trunc(ry));            % j = ry
                       fy  := ry - double_real(trunc(ry)); % aint
                       fyc := 1.0D0 - fy;
                     returns array of i
@@ -687,10 +687,10 @@ let
   w11, w21, w31, w41 := for l in l3,l4
                           rx  := hxi*xh1[l] + 1.5D0;
                           ry  := hyi*yh1[l] + 1.5D0;
-                          i   := trunc(rx);
+                          i   := integer(trunc(rx));
                           fx  := rx - double_real(trunc(rx));
                           fxc := 1.0D0 - fx;
-                          j   := trunc(ry);
+                          j   := integer(trunc(ry));
                           fy  := ry - double_real(trunc(ry));
                           fyc := 1.0D0 - fy;
                         returns array of i
@@ -762,10 +762,10 @@ let
   w12, w22, w32, w42 := for l in l3,l4
                           rx  := hxi*x1[l] + 1.5D0;
                           ry  := hyi*y1[l] + 1.5D0;
-                          i   := trunc(rx);
+                          i   := integer(trunc(rx));
                           fx  := rx - double_real(trunc(rx));
                           fxc := 1.0D0 - fx;
-                          j   := trunc(ry);
+                          j   := integer(trunc(ry));
                           fy  := ry - double_real(trunc(ry));
                           fyc := 1.0D0 - fy;
                         returns array of i

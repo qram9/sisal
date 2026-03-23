@@ -1,0 +1,52 @@
+define sieve_top
+
+% Helper to turn boolean flags back into actual odd numbers
+function convert(x: array[boolean] returns array[integer])
+    for i in array_liml(x), array_limh(x)
+        returns array of (2*i + 1) when x[i]
+    end for
+end function
+
+% The core Sifting logic (striking out multiples)
+function sift(k: integer; A: array[boolean] returns array[boolean])
+    let 
+        p := 2*k + 1;  % The actual prime value
+        limit := array_limh(A)
+    in
+        for j in 1, limit
+            % Logic: If index j is >= p^2 index AND is a multiple of p, mark false
+            returns array of if (j >= k + k*p) & (mod(j - k, p) = 0) 
+                             then false 
+                             else A[j] 
+                             end if
+        end for
+    end let
+end function
+
+% The main logic handling the (n-1)/2 adjustment and the number 2
+function sieve_top(n: integer returns array[integer])
+    let
+        % Determine the max index k needed to cover up to n
+        max_k := if mod(n, 2) = 0 then n/2 else (n-1)/2 end if;
+        
+        % Run the sieve on odd numbers only
+        sifted_odds :=
+        for initial
+            X := array_fill(1, max_k, true);
+            % Index 1 represents 2(1)+1 = 3. 1 is not prime, but we start at k=1 (3).
+            k := 1
+        while (2*k + 1) * (2*k + 1) <= n  % Only sift up to sqrt(n)
+        repeat
+            k := old k + 1;
+            % Only sift if the current k is still marked as prime
+            X := if (old X)[old k] then sift(old k, old X) else old X end if
+        returns value of X
+        end for;
+        
+        % Convert booleans to integers
+        odd_primes := convert(sifted_odds)
+    in
+        % Special case: Manually prepend '2' to the list of odd primes
+        array_addl(odd_primes, 2)
+    end let
+end function

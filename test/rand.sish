@@ -1,0 +1,21 @@
+
+%==============================================================================
+%  Type declarations for random number routines
+%==============================================================================
+
+type Four_Plex = array[ integer ];	% The four 12-bit integers that when
+					% used together simulate a 48-bit
+					% integer or the mantissa of a 64-bit
+					% floating point number.
+
+type Seed_Array = array[ Four_Plex ];	% One seed per process.
+
+type Bit_Array = array[ integer ];	% The binary expansion of a Four_Plex.
+
+
+type Seed_Type = Four_Plex;		% Needed for generic routines
+
+
+
+
+

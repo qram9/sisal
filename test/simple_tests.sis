@@ -158,11 +158,11 @@ end function
 
 %------------------------------------------------------------
 function rfloor(x : real returns integer) floor(x) end function
-function dfloor(x : double returns integer) floor(x) end function
+function dfloor(x : double returns integer) integer( floor(x) )end function
 function rinteger(x : real returns integer) integer(x) end function
 function dinteger(x : double returns integer) integer(x) end function
 function rtrunc(x : real returns integer) trunc(x) end function
-function dtrunc(x : double returns integer) trunc(x) end function
+function dtrunc(x : double returns integer) integer(trunc(x)) end function
 function ireal(x : integer returns real) real(x) end function
 function idouble(x : integer returns double) double_real(x) end function
 function dreal(x : double returns real) real(x) end function

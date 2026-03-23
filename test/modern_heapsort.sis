@@ -1,0 +1,87 @@
+type ArrayInt = array[ integer ];
+
+FUNCTION HEAPSORT(LIST : ARRAYINT RETURNS ARRAYINT)
+  
+  FUNCTION EXCHANGE(LIST : ARRAYINT; LOW, HIGH : INTEGER RETURNS ARRAYINT)
+      LET LOWTEMP := LIST[LOW]
+      IN
+      LET HIGHTEMP := LIST[HIGH]
+      IN
+    LIST[LOW : HIGHTEMP; HIGH : LOWTEMP]
+  END FUNCTION
+  
+  FUNCTION HEAPIFY(LIST : ARRAYINT; LOW, HIGH : INTEGER RETURNS ARRAYINT)
+      LET CHILD1 := LOW * 2
+      IN
+      LET CHILD2 := CHILD1 + 1
+      IN
+      LET DONE, LARGEST :=
+        IF (CHILD1 < HIGH)
+        THEN
+          FALSE,
+            IF (LIST[CHILD1] < LIST[CHILD2])
+            THEN
+              CHILD2
+            ELSE
+               CHILD1
+            END IF
+        ELSE
+          IF (CHILD1 = HIGH)
+            THEN
+              FALSE
+            ELSE
+               TRUE
+            END IF, CHILD1
+        END IF
+      IN
+      LET NEWLIST, MIDDLE :=
+        IF (~DONE)
+        THEN
+          IF (LIST[LOW] < LIST[LARGEST])
+            THEN
+              EXCHANGE(LIST, LOW, LARGEST), LARGEST
+            ELSE
+              LIST, LOW
+            END IF
+        ELSE
+          LIST, LOW
+        END IF
+      IN
+      IF (MIDDLE ~= LOW)
+      THEN
+        HEAPIFY(NEWLIST, MIDDLE, HIGH)
+      ELSE
+         NEWLIST
+      END IF
+  END FUNCTION
+  
+  FUNCTION BUILDHEAP(LIST : ARRAYINT; LOW, HIGH : INTEGER RETURNS ARRAYINT)
+    FOR INITIAL    
+      I := HIGH / 2;
+      NEWLIST := LIST
+    WHILE I >= LOW
+        REPEAT
+        NEWLIST, I := HEAPIFY(OLD NEWLIST, OLD I, HIGH), OLD I - 1
+    RETURNS
+      VALUE OF NEWLIST
+    END FOR
+  END FUNCTION
+    LET HIGH := ARRAY_LIMH(LIST)
+    IN
+    LET LOW := ARRAY_LIML(LIST)
+    IN
+    LET NEWLIST := BUILDHEAP(LIST, LOW, HIGH)
+    IN
+  FOR INITIAL  
+    ITERLIST := NEWLIST;
+    I := HIGH
+  WHILE I > LOW
+    REPEAT
+      ITERLIST, I :=
+        LET NEWLIST := EXCHANGE(OLD ITERLIST, 1, OLD I)
+        IN
+      HEAPIFY(NEWLIST, 1, OLD I - 1), OLD I - 1
+  RETURNS
+    VALUE OF ITERLIST
+  END FOR
+END FUNCTION

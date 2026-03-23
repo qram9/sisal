@@ -3,20 +3,14 @@
 open Ir.Ast
      (*open Lexing*)
      (*open Parsing*)
-  let debug_level = ref 3
-
 exception SyntaxInconsistent of string * Lexing.position * Lexing.position
 
 let validate_list_len names types start_pos end_pos =
   if ( List.length names) <> (List.length types) then
-        raise (SyntaxInconsistent 
+        raise (SyntaxInconsistent
         ("Type list arity not matching tuple list", start_pos, end_pos))
       else names, types
-let parse_msg level fmt =
-  let print_at_level str = 
-    if !debug_level >= level then (print_string str; print_newline ()) 
-  in
-  Format.ksprintf print_at_level fmt
+let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
      %}
 
 %token AS
@@ -354,7 +348,7 @@ function_nest:
 
     simple_expression:
     primary_part2
-      { $1
+      { let p = $startpos in Pos ((p.Lexing.pos_lnum, p.Lexing.pos_cnum - p.Lexing.pos_bol), $1)
       }
 | simple_expression   GT simple_expression
     { Greater ($1,$3) }
@@ -948,9 +942,9 @@ tag_spec_list :
 
 tag_spec_list_ :
   | tag_spec_list_ SEMICOLON names COLON type_spec
-    { ($3, $5) :: $1 }
+    { (List.rev $3, $5) :: $1 }
 | names COLON type_spec
-  { [($1, $3)] }
+  { [(List.rev $1, $3)] }
 ;
 
 declids :

@@ -29,7 +29,7 @@ function absc(a:complex returns real)
     sqrt(a.r*a.r + a.i*a.i)
 end function % absc
 
-function fft(z:array[complex] returns array[complex])
+% function fft(z:array[complex] returns array[complex])
 % Return the complex FFT of input array z.
 % Assume that array_liml(z) = 0 and that array_size(z) is a power of 2.
 % This routine is based on procedure Oscar() in bench.p, and does not

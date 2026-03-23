@@ -42,7 +42,7 @@ function BuildGrid( Rows, Columns : integer returns Grid )
 end function
 
 function Compute( G : Grid; I : integer; J : integer returns double_real )
-        (G[I][J-1] + G[I][J+1] + G[I+1][J] + G[I-1][J]) / 4.0D0
+        (G[I,J-1] + G[I,J+1] + G[I+1,J] + G[I-1,J]) / 4.0D0
 end function
 
 function DoWork( G : Grid; Rows, Columns : integer returns Grid )
@@ -54,8 +54,8 @@ function DoWork( G : Grid; Rows, Columns : integer returns Grid )
 				 V := Compute( G, I, J );
 			     returns array of V
 			     end for;
-                      Row := array_addl( Mid, G[I][0] );
-                  returns array of array_addh( Row, G[I][Clast] )
+                      Row := array_addl( Mid, G[I,0] );
+                  returns array of array_addh( Row, G[I,Clast] )
 		  end for;
     in
 	array_addl( array_addh( Middle, G[Rlast] ), G[0] )

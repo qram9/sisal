@@ -16,8 +16,13 @@ let error msg lexbuf =
        (finish.pos_cnum - finish.pos_bol))
 
 let main () =
+  let args = Array.to_list Sys.argv |> List.tl in
+  let args = List.filter (fun a ->
+    if String.length a > 8 && String.sub a 0 8 = "--debug=" then begin
+      Ir.Debug.level := int_of_string (String.sub a 8 (String.length a - 8)); false
+    end else true) args in
   let lexbuf =
-    if Array.length Sys.argv > 1 then Lexing.from_channel (open_in Sys.argv.(1))
+    if args <> [] then Lexing.from_channel (open_in (List.hd args))
     else Lex.get_lex_buf
   in
   try
@@ -27,7 +32,7 @@ let main () =
       lexbuf
     in
     let sisal_ast =
-      Parse.main Lex.sisal_lex (set_filename Sys.argv.(1) lexbuf)
+      Parse.main Lex.sisal_lex (set_filename (List.hd args) lexbuf)
     in
     print_endline (Ast.str_compilation_unit sisal_ast);
     let ou = To_if1_.do_compilation_unit sisal_ast in

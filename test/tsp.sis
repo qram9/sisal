@@ -12,6 +12,7 @@ define Main, Set_Energy
 % July 1991
 
 %$include ("anneal.sish")
+%$include "initialize.sis"
 
 %===========================================================================
 

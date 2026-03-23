@@ -1,4 +1,5 @@
 DEFINE InitFFT
+%$include "SIFuncs.sis"
 
 type ArrInt1 = Array[integer];
 type ArrReal1 = Array[real]

@@ -63,7 +63,10 @@ global answers(interv, jmu : integer; mu, knots, lengths,
 % *********************************************
 %                    form_b12_in
 % *********************************************
-%$include faces.sis
+
+%$include "faces.sis"
+%$include "stand_alone_gauss.sis"
+
 function form_b12_in(interv : integer; c : real;
   knots, lengths, col_pts : RealVector; eps : real
   returns RealMatrix)

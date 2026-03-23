@@ -114,12 +114,12 @@ function Build_AJ(rows, cols : integer;
     row, seed1 := for initial
                     j        := 1;
                     x, seed2 := ranf(seed);
-                    xi       := trunc(double_real(cols - 1) * x);
+                    xi       := integer(trunc(double_real(cols - 1) * x));
                     xii      := if xi = j then cols else xi end if
                   while j < cols repeat
                     j        := old j + 1;
                     x, seed2 := ranf(old seed2);
-                    xi       := trunc(double_real(cols - 1) * x);
+                    xi       := integer(trunc(double_real(cols - 1) * x));
                     xii      := if xi = j then cols else xi end if
                   returns array of xii
                           value of seed2
@@ -131,12 +131,12 @@ function Build_AJ(rows, cols : integer;
     row, seed1 := for initial
                     j        := 1;
                     x, seed2 := ranf(old seed1);
-                    xi       := trunc(double_real(cols - 1) * x);
+                    xi       := integer(trunc(double_real(cols - 1) * x));
                     xii      := if xi = j then cols else xi end if
                   while j < cols repeat
                     j        := old j + 1;
                     x, seed2 := ranf(old seed2);
-                    xi       := trunc(double_real(cols - 1) * x);
+                    xi       := integer(trunc(double_real(cols - 1) * x));
                     xii      := if xi = j then cols else xi end if
                   returns array of xii
                           value of seed2

@@ -36,8 +36,8 @@ function DoWork( G : Grid; Rows, Columns : integer returns Grid )
 				 V := Compute( G, I, J );
 			     returns array of V
 			     end for;
-                      Row := array_addl( Mid, G[I][0] );
-                  returns array of array_addh( Row, G[I][Clast] )
+                      Row := array_addl( Mid, G[I,0] );
+                  returns array of array_addh( Row, G[I,Clast] )
 		  end for;
     in
 	array_addl( array_addh( Middle, G[Rlast] ), G[0] )

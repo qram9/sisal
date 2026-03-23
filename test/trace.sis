@@ -8,6 +8,10 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %$include "types.h"
+
+global Batcher (K : Sort_OneDim
+                 returns
+                  Sort_OneDim)
 function FindMax (Rec1,             %
                   Rec2: MaxRec
                  returns

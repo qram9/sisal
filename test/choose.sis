@@ -21,14 +21,14 @@ function Choose_Random ( Seed : Four_Plex; Itinerary : Itin_Type;
 let
 	random, seed1 := ranf (Seed);
 	size := double_real(array_size(Itinerary) - 1);
-	I := trunc ( random * size ) + 1;
+	I := integer(trunc ( random * size )) + 1;
 	J,new_seed := for initial ran2, seed2 := ranf (seed1)
-		until (trunc (ran2 * size ) + 1 < I - 1) |
-			(trunc (ran2 * size ) + 1 > I + 1)
+		until (integer(trunc (ran2 * size )) + 1 < I - 1) |
+			(integer(trunc (ran2 * size )) + 1 > I + 1)
 		repeat
 			ran2, seed2 := ranf (old seed2)
 		returns
-			value of trunc (ran2 * size ) + 1
+			value of integer(trunc (ran2 * size )) + 1
 			value of seed2
 		end for;
 	E1, E2 :=
@@ -52,7 +52,7 @@ function Choose_Crossed ( Seed : Four_Plex; Crosses : Cross_List;
 let
 	random, seed1 := ranf (Seed);
 	size := double_real(array_size(Crosses));
-	index := trunc ( random * size ) + 1;
+	index := integer(trunc ( random * size )) + 1;
 	E1, E2 := Crosses [index, 1], Crosses [index, 2];
 	I,J := for initial NI :=1;
 			I1,J1 := 0,0;
@@ -133,6 +133,7 @@ in
 end let
 
 end function  % Pick_Change
+%$include ("anneal.sis")
 
 %==========================================================================
 

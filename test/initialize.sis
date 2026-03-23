@@ -8,7 +8,9 @@ define Initialize_System
 %  G L O B A L   F U N C T I O N   D E C L A R A T I O N S
 %==============================================================================
 
-global my_sqrt( X : real returns real )
+Function my_sqrt( X : real returns real )
+sqrt(X)
+end function
 
 global Single_Change ( SI : Sys_State; seed_in : Four_Plex
 	returns Sys_State, Four_Plex, Energy_Type )

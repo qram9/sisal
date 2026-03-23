@@ -125,6 +125,8 @@ module Ast = Ir.Ast
 module If1 = Ir.If1
 module Slurper = Utils.Slurper
 
+let to_if1_msg lvl fmt = Ir.Debug.msg "to_if1" lvl fmt
+
 module StructMap = Map.Make (struct
   type t = If1.if1_ty
 
@@ -220,18 +222,21 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
           let in_gr = If1.add_edge e p arrnum 0 t1 in_gr in
           let in_gr = add_each_edge exp_l arrnum 1 in_gr in
           let t1, in_gr =
-            let _, _, ofty =
+            let nn, pp, ofty =
               assert (List.length exp_l <> 0);
               List.hd exp_l
             in
+            (* Resolve type through MULTIARITY nodes (e.g. for-loop results) *)
+            let _, _, ofty =
+              if ofty = 0 then
+                If1.find_incoming_regular_node (nn, pp, ofty) in_gr
+              else (nn, pp, ofty)
+            in
             if inc_typ = 0 then
-              try
-                let aty = If1.Array_ty ofty in
-                (If1.find_ty_safe in_gr aty, in_gr)
-              with _ ->
-                let aty = If1.Array_ty ofty in
-                let _, in_gr = If1.add_type_to_typemap aty in_gr in
-                (If1.find_ty_safe in_gr aty, in_gr)
+              let (id, _, _), in_gr =
+                If1.add_type_to_typemap_dedup (If1.Array_ty ofty) in_gr
+              in
+              (id, in_gr)
             else (inc_typ, in_gr)
           in
           ((arrnum, arrport, t1), in_gr))
@@ -254,16 +259,36 @@ and add_edges_for_fields edg_lis tail_node nn in_gr =
   | [] -> in_gr
 
 and do_each_exp_in_strm in_gr = function
-  (* Helper function for stream SAPPEND expression *)
-  | (hdn, hdp, _) :: tll ->
-      let (i, j, tt), in_gr = do_each_exp_in_strm in_gr tll in
+  (* Helper function for stream SAPPEND expression.
+     Builds right-to-left: SBUILD <- SAPPEND(e_last) <- SAPPEND(e_{n-1}) <- ... *)
+  | (hdn, hdp, elt_ty) :: tll ->
+      let (i, j, strm_ty), in_gr = do_each_exp_in_strm in_gr tll in
+      (* strm_ty is the stream type from the recursive call; recover element type
+         from the stream type if strm_ty is already a Stream, else derive it *)
+      let elt_ty, strm_ty, in_gr =
+        if strm_ty = 0 then
+          (* base case returned SBUILD with type 0; create Stream type now *)
+          let (stream_id, _, _), in_gr =
+            If1.add_type_to_typemap_dedup (If1.Stream elt_ty) in_gr
+          in
+          (elt_ty, stream_id, in_gr)
+        else
+          (* already have a stream type; recover element type from it *)
+          let elem_ty =
+            match If1.lookup_ty strm_ty in_gr with
+            | If1.Stream e -> e
+            | _ -> elt_ty
+          in
+          (elem_ty, strm_ty, in_gr)
+      in
       let (k, l, _), in_gr =
         If1.add_node_2
           (`Simple
              (If1.SAPPEND, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
           in_gr
       in
-      ((k, l, tt), If1.add_edge hdn hdp k 0 tt (If1.add_edge i j k 1 tt in_gr))
+      ( (k, l, strm_ty),
+        If1.add_edge hdn hdp k 0 elt_ty (If1.add_edge i j k 1 strm_ty in_gr) )
   | [] ->
       If1.add_node_2
         (`Simple
@@ -371,15 +396,7 @@ and check_rec_ty in_gr tty_lis tm outlis =
           (fun k v z ->
             match z with
             | If1.Emp -> (
-                let bar xx lt =
-                  if
-                    xx = hdf
-                    && (lt = hd
-                       || If1.structurally_equal in_gr [] (If1.TM.find lt tm)
-                            (If1.TM.find hd tm))
-                  then If1.Som k
-                  else z
-                in
+                let bar xx lt = if xx = hdf && lt = hd then If1.Som k else z in
                 match v with
                 | If1.Record (lt, _, xx) -> bar xx lt
                 | If1.Union (lt, _, xx) -> bar xx lt
@@ -402,6 +419,11 @@ and check_rec_ty in_gr tty_lis tm outlis =
             If1.If1_View.export_debug_html "CRASHED.html" in_gr;
             failwith hdmsg
       in
+      let _ =
+        match hdty with
+        | If1.Som anum -> Printf.printf "curr %s\n" (If1.p_f_t in_gr anum)
+        | _ -> ()
+      in
       hdty :: check_rec_ty in_gr tl tm outlis
   | [] -> outlis
 
@@ -411,27 +433,21 @@ and find_matching_record eee tm =
       match z with
       | If1.Emp -> (
           match v with
-          | If1.Record (_, nxt, _) -> (
-              match nxt = eee with true -> If1.Som k | false -> z)
+          | If1.Record (0, nxt, "") -> if nxt = eee then If1.Som k else z
           | _ -> z)
       | _ -> z)
     tm If1.Emp
 
 and record_builder in_gr field_defs io_type =
   (* 1. Accumulate fields and update Graph state *)
+  to_if1_msg 3 "record_builder: lowering %d field(s)" (List.length field_defs);
   let fields, in_gr =
     List.fold_left
       (fun (acc, g) (Ast.Field_def (Ast.Field_name fn, ex1)) ->
-        let _ = Printf.printf "simple exp is %s\n" (Ast.str_simple_exp ex1) in
+        to_if1_msg 3 "record_builder: lowering field %s" fn;
         let exp_l, g' = do_simple_exp g ex1 in
         ((fn, exp_l) :: acc, g'))
       ([], in_gr) field_defs
-  in
-  let _ =
-    List.map
-      (fun (aname, (o, t, th)) ->
-        Printf.printf "(%d, %d, %d) %s\n" o t th aname)
-      fields
   in
 
   (* 2. Type Resolution & Validation *)
@@ -454,6 +470,7 @@ and record_builder in_gr field_defs io_type =
         | _ -> failwith "Record_builder: Could not resolve field types"
       end
   in
+  to_if1_msg 3 "record_builder: resolved output type %s" (If1.p_f_t in_gr aout);
 
   (* 3. Node Generation *)
   let num_fields = List.length field_defs in
@@ -468,9 +485,14 @@ and record_builder in_gr field_defs io_type =
   in
 
   let (node_id, port_id, _), in_gr = If1.add_node_2 node_config in_gr in
+  to_if1_msg 3 "record_builder: RBUILD node %d, wiring fields: %s" node_id
+    (String.concat "; "
+       (List.map
+          (fun (n, (_, _, z)) -> Printf.sprintf "%s:%s" n (If1.p_f_t in_gr z))
+          fields));
 
   (* 4. Edge Wiring *)
-  let in_gr = add_edges_for_fields fields node_id port_id in_gr in
+  let in_gr = add_edges_for_fields (List.rev fields) node_id port_id in_gr in
 
   ((node_id, port_id, aout), in_gr)
 
@@ -511,11 +533,19 @@ and do_constant in_gr xx =
   | Ast.Char st ->
       If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
   | Ast.String st ->
-      If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
+      let (arr_char_ty, _, _), in_gr =
+        If1.add_type_to_typemap_dedup
+          (If1.Array_ty (If1.lookup_tyid If1.CHARACTER))
+          in_gr
+      in
+      let (node_id, port_id, _), in_gr =
+        If1.add_node_2 (`Literal (If1.CHARACTER, st, out_port_1)) in_gr
+      in
+      ((node_id, port_id, arr_char_ty), in_gr)
   | Ast.Error ast_typ ->
       let (_, _, err_ty_id), in_gr = If1.add_sisal_type in_gr ast_typ in
       let (_, _, _), in_gr =
-        If1.add_type_to_typemap (Typed_error err_ty_id) in_gr
+        If1.add_type_to_typemap_dedup (Typed_error err_ty_id) in_gr
       in
       let node_config =
         `Simple
@@ -672,8 +702,20 @@ and add_exp in_gr ex _ ret_lis =
               let new_alis, new_oth_lis =
                 match If1.NM.find_opt ahd nm with
                 | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
-                    ( If1.all_nodes_joining_at (ahd, apo, aed_ty) in_gr @ atl,
-                      oth_lis )
+                    (* Sort by destination port (the multiarity's input port cc=0,1,...)
+                       to preserve the ordering established when edges were created.
+                       all_nodes_joining_at sorts by source, which is wrong here. *)
+                    let incoming = If1.all_edges_ending_at ahd in_gr in
+                    let sorted =
+                      List.sort
+                        (fun ((_, _), (_, yp1), _) ((_, _), (_, yp2), _) ->
+                          compare yp1 yp2)
+                        (If1.ES.elements incoming)
+                    in
+                    let nodes =
+                      List.map (fun ((x, xp), (_, _), ty) -> (x, xp, ty)) sorted
+                    in
+                    (nodes @ atl, oth_lis)
                 | Some _ -> (atl, oth_lis @ [ (ahd, apo, aed_ty) ])
                 | None -> failwith "Node not found, in To_if1:add_exp"
               in
@@ -764,6 +806,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                     let lookup_array_ty curr_ty in_gr =
                       match If1.lookup_ty curr_ty in_gr with
                       | If1.Array_ty ij -> (curr_ty, ij)
+                      | If1.Stream ij -> (curr_ty, ij)
                       | _ ->
                           raise
                             (If1.Sem_error
@@ -970,7 +1013,7 @@ and do_for_all inexp bodyexp retexp in_gr =
     (* Create a list of index expressions.
         Ast.Cross would be for nested loops and so would At.*)
     match inexp with
-    | Ast.Cross (ie1, ie2) -> get_cross_exp_lis ie2 ((1, ie1) :: retl)
+    | Ast.Cross (ie1, ie2) -> get_cross_exp_lis ie1 ((1, ie2) :: retl)
     | Ast.At_exp (_, Value_names vns) ->
         let _, oul =
           List.fold_right
@@ -1027,6 +1070,7 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
 
   let build_gen_graph curr_lev in_gr gen_exp =
+    to_if1_msg 3 "For_all: lowering GENERATOR (level %d)" curr_lev;
     let gen_gr = get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr in
     let xyz, gen_gr = do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
     let gen_gr =
@@ -1043,6 +1087,7 @@ and do_for_all inexp bodyexp retexp in_gr =
         let _, gen_gr = build_gen_graph curr_lev in_gr gen_exp_inner in
 
         (* Put The Decldefs (Loop Code) In The Body. *)
+        to_if1_msg 3 "For_all: lowering BODY";
         let _, body_gr =
           (* Create Body Graph Based On In_Gr. *)
           let body_gr =
@@ -1054,6 +1099,7 @@ and do_for_all inexp bodyexp retexp in_gr =
           do_decldef_part body_gr bodyexp
         in
         (* Insert Expressions Inside Return Clauses To Body Graph. *)
+        to_if1_msg 3 "For_all: lowering RETURNS";
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr retexp [] [] []
         in
@@ -1289,6 +1335,9 @@ and do_params_decl po in_gr z =
       let p, q, u = add_all_to_sm u x 0 [] in
       ((p + po, q, type_num), { in_gr with If1.symtab = (u, v) })
   | Decl_no_type _ -> raise (If1.Sem_error "Declaration must provide a type")
+  | Decl_tuple_no_type _ | Decl_tuple_with_type _ ->
+      raise
+        (If1.Sem_error "Tuple pattern in function parameters not yet supported")
 
 and extract_types_from_decl_list dl =
   List.fold_left
@@ -1300,7 +1349,10 @@ and extract_types_from_decl_list dl =
       | Decl_no_type _ ->
           raise
             (If1.Sem_error
-               "Declaration without a type spec is not allowed in this context"))
+               "Declaration without a type spec is not allowed in this context")
+      | Decl_tuple_no_type _ | Decl_tuple_with_type _ ->
+          raise
+            (If1.Sem_error "Tuple decl in type extraction not yet supported"))
     [] dl
 
 and do_decldef in_gr delc =
@@ -1309,15 +1361,27 @@ and do_decldef in_gr delc =
     | Some atype ->
         let (_, _, typenum), in_gr = If1.add_sisal_type in_gr atype in
         if typenum <> expty then
-          raise
-            (If1.outs_graph in_gr;
-             print_string " Inferred type: ";
-             print_int expty;
-             print_string " Expected type: ";
-             print_int typenum;
-             print_endline "";
-             print_endline (Ast.str_sisal_type atype);
-             If1.Sem_error " Incorrect expression type bound to declaration")
+          (* Allow numeric widening/narrowing coercions *)
+          let is_numeric_compat =
+            match (numeric_rank expty in_gr, numeric_rank typenum in_gr) with
+            | Some _, Some _ -> true
+            | _ -> false
+          in
+          if is_numeric_compat then in_gr
+          else
+            raise
+              (print_string " Inferred type: ";
+               print_int expty;
+               print_string " (";
+               print_string (If1.p_f_t in_gr expty);
+               print_string ") Expected type: ";
+               print_int typenum;
+               print_string " (";
+               print_string (If1.p_f_t in_gr typenum);
+               print_string ")";
+               print_endline "";
+               print_endline (Ast.str_sisal_type atype);
+               If1.Sem_error " Incorrect expression type bound to declaration")
         else in_gr
     | None -> in_gr
   (* let check_decl_type *)
@@ -1333,6 +1397,8 @@ and do_decldef in_gr delc =
           bind_exp_to_decl expl rhs_exps decls None in_gr
         in
         do_each_decl decllist_tail rhs_exps expl in_gr
+    | (Decl_tuple_no_type _ | Decl_tuple_with_type _) :: _ ->
+        raise (If1.Sem_error "Tuple pattern in let decl not yet supported")
     | [] -> in_gr
   and pop_or_push_to_exp_stack expl rhs_exps in_gr =
     match expl with
@@ -1442,6 +1508,8 @@ and do_decldef in_gr delc =
        correspondance between each decl
        and each exp. Only after an exp is
        lowered do we have one-one connectivity. *)
+      (* Grammar produces declids_typed groups in reverse source order; reverse. *)
+      let lhs_decl_names = List.rev lhs_decl_names in
       ((0, 0, 0), do_each_decl lhs_decl_names rhs_exps [] in_gr)
   | _ -> raise (If1.Sem_error "Internal compiler error")
 
@@ -1450,16 +1518,27 @@ and check_decl_type atyp expty in_gr =
   | Some atype ->
       let (_, _, typenum), in_gr = If1.add_sisal_type in_gr atype in
       if typenum <> expty then
-        raise
-          (If1.outs_graph in_gr;
-           print_endline (If1.str_type_trace ());
-           print_string " Inferred type: ";
-           print_int expty;
-           print_string " Expected type: ";
-           print_int typenum;
-           print_endline "";
-           print_endline (Ast.str_sisal_type atype);
-           If1.Sem_error " Incorrect expression type bound to declaration")
+        let is_numeric_compat =
+          match (numeric_rank expty in_gr, numeric_rank typenum in_gr) with
+          | Some _, Some _ -> true
+          | _ -> false
+        in
+        if is_numeric_compat then in_gr
+        else
+          raise
+            (print_endline (If1.str_type_trace ());
+             print_string " Inferred type: ";
+             print_int expty;
+             print_string " (";
+             print_string (If1.p_f_t in_gr expty);
+             print_string ") Expected type: ";
+             print_int typenum;
+             print_string " (";
+             print_string (If1.p_f_t in_gr typenum);
+             print_string ")";
+             print_endline "";
+             print_endline (Ast.str_sisal_type atype);
+             If1.Sem_error " Incorrect expression type bound to declaration")
       else in_gr
   | None -> in_gr
 (* let check_decl_type *)
@@ -1487,6 +1566,8 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
       in
       (* Now go on to the next decl in the LHS. *)
       do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
+  | (Decl_tuple_no_type _ | Decl_tuple_with_type _) :: _ ->
+      raise (If1.Sem_error "Tuple pattern in decldef not yet supported")
   | [] -> (expl_rev, decl_rev, in_gr)
 
 and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
@@ -1619,7 +1700,10 @@ and do_decldef2 in_gr delc expl_rev decl_rev =
        an exp-list. There is no one-one
        correspondance between each decl
        and each exp. Only after an exp is
-       lowered do we have one-one connectivity. *)
+       lowered do we have one-one connectivity.
+       Note: the grammar for declids_typed builds the list in reverse
+       source order; reverse it here to restore correct binding order. *)
+      let lhs_decldef_names = List.rev lhs_decldef_names in
       let rev_expl, decl_rev, in_gr =
         do_each_decl2 lhs_decldef_names rhs_decldef_exps [] expl_rev decl_rev
           in_gr
@@ -1700,6 +1784,7 @@ and add_symbols_before_exp lhs_decl_names in_gr =
   | Ast.Decl_with_type (decls, atype) :: _ ->
       map_names_to_type decls (`A atype) in_gr
   | Ast.Decl_no_type decls :: _ -> map_names_to_type decls `None in_gr
+  | (Ast.Decl_tuple_no_type _ | Ast.Decl_tuple_with_type _) :: _ -> in_gr
   | [] -> in_gr
 
 and do_decldef_let_rec_symbols in_gr delc =
@@ -1874,8 +1959,6 @@ and check_subgr_tys in_gr msg jj prev =
                         (If1.printable_full_type (If1.get_typemap_tm in_gr) act)
                         act
                 in
-                (*
-                print_endline (If1.str_type_trace ());*)
                 failwith ("Type Mismatch: " ^ err_msg)
           | _ -> failwith "Verification Error: Typemap resolution failed")
       jj_types prev_types
@@ -2132,6 +2215,38 @@ and unary_exp nou in_gr e node_tag =
   let (e, pi, t1), in_gr = do_simple_exp in_gr e in
   unary_internal nou e pi t1 in_gr node_tag
 
+(* Insert a TYPECAST node to coerce node (src, sp) from src_ty to tgt_ty. *)
+and insert_typecast src sp src_ty tgt_ty in_gr =
+  let (cast_n, _, _), in_gr =
+    If1.add_node_2
+      (`Simple
+         (If1.TYPECAST, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+      in_gr
+  in
+  let in_gr = If1.add_edge src sp cast_n 0 src_ty in_gr in
+  ((cast_n, 0, tgt_ty), in_gr)
+
+(* Numeric type rank for widening coercion: higher = wider.
+   Returns None if the type is not a widening-eligible numeric type. *)
+and numeric_rank ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Basic If1.INTEGRAL) -> Some 10
+  | Some (If1.Basic If1.SHORT) -> Some 8
+  | Some (If1.Basic If1.LONG) -> Some 20
+  | Some (If1.Basic If1.REAL) -> Some 30
+  | Some (If1.Basic If1.DOUBLE) -> Some 40
+  | _ -> None
+
+(* Try to coerce (src, sp, src_ty) to tgt_ty if they are compatible
+   numeric types; otherwise return the triple unchanged. *)
+and maybe_coerce src sp src_ty tgt_ty in_gr =
+  if src_ty = tgt_ty then ((src, sp, src_ty), in_gr)
+  else
+    match (numeric_rank src_ty in_gr, numeric_rank tgt_ty in_gr) with
+    | Some r1, Some r2 when r1 < r2 ->
+        insert_typecast src sp src_ty tgt_ty in_gr
+    | _ -> ((src, sp, src_ty), in_gr)
+
 and bin_exp a b in_gr node_tag =
   let get_simple_bin in_gr node_tag =
     let in_port_2 =
@@ -2162,31 +2277,46 @@ and bin_exp a b in_gr node_tag =
           first_incoming_triple_to_multiarity d i_gr
       | _ -> (d, pi2, qq2)
     in
-    match qq1 = qq2 || If1.resolve_and_compare in_gr [] qq1 qq2 with
-    | true ->
-        let out_gr = If1.add_edge c pi1 z 0 qq1 out_gr in
-        let out_gr = If1.add_edge d pi2 z 1 qq2 out_gr in
-        ((z, 0, qq1), out_gr)
-    | false ->
-        raise
-          (If1.Sem_error
-             (let _ =
-                If1.outs_graph in_gr;
-                let kkk =
-                  If1.cate_list
-                    [
-                      Ast.str_simple_exp ~offset:2 a;
-                      " of type:" ^ string_of_int qq1 ^ " maps to "
-                      ^ If1.rev_lookup_ty_name qq1;
-                      Ast.str_simple_exp ~offset:2 b;
-                      " of type:" ^ string_of_int qq2 ^ " maps to "
-                      ^ If1.rev_lookup_ty_name qq2;
-                    ]
-                    "\n"
-                in
-                print_endline kkk
+    (* Determine common type, widening if needed *)
+    let (c, pi1, qq1), (d, pi2, qq2), common_ty, out_gr =
+      if qq1 = qq2 then ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
+      else
+        match (numeric_rank qq1 out_gr, numeric_rank qq2 out_gr) with
+        | Some r1, Some r2 ->
+            if r1 < r2 then
+              let (c, pi1, qq1), out_gr =
+                insert_typecast c pi1 qq1 qq2 out_gr
               in
-              "ERROR: Bad type in binary exp---"))
+              ((c, pi1, qq1), (d, pi2, qq2), qq2, out_gr)
+            else if r2 < r1 then
+              let (d, pi2, qq2), out_gr =
+                insert_typecast d pi2 qq2 qq1 out_gr
+              in
+              ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
+            else ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
+        | _ ->
+            raise
+              (If1.Sem_error
+                 (let _ =
+                    let kkk =
+                      If1.cate_list
+                        [
+                          Ast.str_simple_exp ~offset:2 a;
+                          " of type:" ^ string_of_int qq1 ^ " maps to "
+                          ^ If1.p_f_t in_gr qq1;
+                          Ast.str_simple_exp ~offset:2 b;
+                          " of type:" ^ string_of_int qq2 ^ " maps to "
+                          ^ If1.p_f_t in_gr qq2;
+                        ]
+                        "\n"
+                    in
+                    print_endline kkk
+                  in
+                  "ERROR: Bad type in binary exp---"))
+    in
+    let out_gr = If1.add_edge c pi1 z 0 common_ty out_gr in
+    let out_gr = If1.add_edge d pi2 z 1 common_ty out_gr in
+    ((z, 0, common_ty), out_gr)
   in
   base_case_bin a b node_tag in_gr
 
@@ -2237,10 +2367,21 @@ and point_edges_to_boundary frm elp elt in_gr =
         If1.ES.cardinal
           (If1.filter_data_edges in_gr (If1.all_edges_ending_at 0 in_gr))
       in
+      to_if1_msg 4
+        "point_edges_to_boundary: MULTIARITY node=%d, start_port=%d, %d edges \
+         to redirect"
+        frm start_in_port_for_boundary
+        (If1.ES.cardinal unwanted_edges);
       let red_nes, _ =
         If1.redirect_edges 0 (* 0 is Boundary *)
           unwanted_edges start_in_port_for_boundary
       in
+      to_if1_msg 4 "point_edges_to_boundary: redirected edges: [%s]"
+        (String.concat "; "
+           (List.map
+              (fun ((n1, p1), (n2, p2), _) ->
+                Printf.sprintf "%d:%d->%d:%d" n1 p1 n2 p2)
+              (If1.ES.elements red_nes)));
       let nes = If1.ES.union nes red_nes in
       { in_gr with If1.eset = nes }
   | _ ->
@@ -2315,6 +2456,10 @@ and do_simple_exp in_gr in_sim_ex =
       in
       ((div_node, div_port, div_ty), in_gr)
   | Lambda _ -> raise (If1.Sem_error "TBD LAMBDA ")
+  | Pos ((line, col), inner_exp) ->
+      let (n, p, ty), in_gr = do_simple_exp in_gr inner_exp in
+      let in_gr = If1.set_node_srcline n line col in_gr in
+      ((n, p, ty), in_gr)
   | Multiply (a, b) -> bin_exp a b in_gr TIMES
   | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
   | Add (a, b) -> bin_exp a b in_gr ADD
@@ -2420,7 +2565,9 @@ and do_simple_exp in_gr in_sim_ex =
       let deref_fn = String.concat "." fn in
       match deref_fn with
       (*TODO: More libs *)
-      | "ACREATE" ->
+      | "ACREATE"
+        when let cs, ps = in_gr.If1.symtab in
+             not (If1.SM.mem "ACREATE" cs || If1.SM.mem "ACREATE" ps) ->
           let in_port_00 = Array.make 1 "" in
           let out_port_00 = Array.make 1 "" in
           let (n, p, _), in_gr =
@@ -2525,6 +2672,30 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | ("ARRAY_REML" | "ARRAY_REMH") as array_remx ->
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple
+                 ( (match array_remx with
+                   | "ARRAY_REML" -> If1.AREML
+                   | _ -> If1.AREMH),
+                   Array.make 1 "",
+                   Array.make 1 "",
+                   [] ))
+              in_gr
+          in
+          let arr_ty, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp [ arr_exp ] ->
+                    let (l, m, tt), in_gr = do_simple_exp in_gr arr_exp in
+                    let in_gr = If1.add_edge l m n 0 tt in_gr in
+                    (tt, in_gr)
+                | _ ->
+                    raise (If1.Sem_error ("Incorrect usage for " ^ array_remx)))
+          in
+          ((n, 0, arr_ty), in_gr)
       | "ARRAY_SETL" ->
           let expl, in_gr =
             match arg with
@@ -2614,17 +2785,16 @@ and do_simple_exp in_gr in_sim_ex =
                 if arg_count <> 3 then
                   raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
 
-                (* FIX: Correctly destructure the return of add_type_to_typemap *)
-                let id_triple, in_gr =
-                  If1.add_type_to_typemap (If1.Array_ty array_element_ty) in_gr
+                let (arr_ty_id, _, _), in_gr =
+                  If1.add_type_to_typemap_dedup (If1.Array_ty array_element_ty)
+                    in_gr
                 in
-                let arr_ty_id, _, _ = id_triple in
                 (arr_ty_id, in_gr)
             | _ -> raise (If1.Sem_error "Invalid arguments for ARRAY_FILL")
           in
 
           ((n, 0, final_ty), in_gr)
-      | "ARRAY_SIZE" ->
+      | "ARRAY_SIZE" | "ARRAY_PREFIXSIZE" ->
           let in_port_00 = Array.make 1 "" in
           let out_port_00 = Array.make 1 "" in
           let (n, _, _), in_gr =
@@ -2645,6 +2815,20 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "STREAM_EMPTY" ->
+          let (n, p, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.STRM_EMPTY, Array.make 1 "", Array.make 1 "", []))
+              in_gr
+          in
+          let in_gr =
+            match arg with
+            | Ast.Arg (Ast.Exp [ expr ]) ->
+                let (l, m, tt), in_gr = do_simple_exp in_gr expr in
+                If1.add_edge l m n 0 tt in_gr
+            | _ -> failwith "STREAM_EMPTY expects a single stream argument"
+          in
+          ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
       | ("STREAM_APPEND" | "STREAM_FIRST" | "STREAM_REST") as strm ->
           let in_port_00 = Array.make 1 "" in
           let out_port_00 = Array.make 1 "" in
@@ -2698,8 +2882,13 @@ and do_simple_exp in_gr in_sim_ex =
             if strm = "STREAM_APPEND" then
               let _ = assert (List.length incoming_type == 2) in
               match incoming_type with
-              | [ _; s ] ->
-                  if asty != s then
+              | [ stream_ty; elem_ty ] ->
+                  let stream_elem_ty =
+                    match If1.lookup_ty stream_ty in_gr with
+                    | If1.Stream e -> e
+                    | _ -> stream_ty
+                  in
+                  if stream_elem_ty <> elem_ty then
                     failwith "Stream append element type does not match"
                   else ()
               | _ -> failwith "Syntax error in STREAM_APPEND"
@@ -2720,9 +2909,7 @@ and do_simple_exp in_gr in_sim_ex =
           let arg_types = List.map (fun (_, _, t) -> t) expl in
           let cs, ps = in_gr.If1.symtab in
           let deref_fn =
-            match String.uppercase_ascii deref_fn with
-            | "ETOTHE" -> "EXP"
-            | _ -> deref_fn
+            match String.uppercase_ascii deref_fn with _ -> deref_fn
           in
           let symtab_entry =
             match If1.SM.find_opt deref_fn cs with
@@ -2752,8 +2939,10 @@ and do_simple_exp in_gr in_sim_ex =
                             flush stdout;
                             raise
                               (If1.Sem_error
-                                 ("Unknown function: " ^ deref_fn
-                                ^ " target prefix " ^ target_prefix)))))
+                                 (If1.If1_View.export_debug_html "CRASHED_.html"
+                                    in_gr;
+                                  "Unknown function: " ^ deref_fn
+                                  ^ " target prefix " ^ target_prefix)))))
           in
           let deref_fn = symtab_entry.val_name in
           let in_port_00 = Array.make (List.length expl) "" in
@@ -2769,7 +2958,8 @@ and do_simple_exp in_gr in_sim_ex =
             | Some x -> (
                 match x with
                 | If1.Function_ty (_, ret_ty, _) ->
-                    If1.fold_ret_ty_lis ret_ty tm
+                    let result = If1.fold_ret_ty_lis ret_ty tm in
+                    result
                 | _ ->
                     failwith
                       ("Expected function type but found: "
@@ -2819,8 +3009,7 @@ and do_simple_exp in_gr in_sim_ex =
                 | If1.Array_ty ij -> ij
                 | _ ->
                     raise
-                      (If1.outs_graph in_gr;
-                       print_endline
+                      (print_endline
                          (Ast.str_simple_exp aap ^ " Fails for "
                         ^ string_of_int att);
                        If1.If1_View.export_debug_html "compiler_failure.html"
@@ -2902,6 +3091,7 @@ and do_simple_exp in_gr in_sim_ex =
       in
       ((multinum, 0, 0), in_gr)
   | Let (dp, in_exp) ->
+      to_if1_msg 2 "Let: %s" (Ast.str_simple_exp (Let (dp, in_exp)));
       (* create a new graph with parent syms in ps and empty cs *)
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
       (* Give the dp argument to do_decldef_part_in_let_stmt *)
@@ -3001,13 +3191,17 @@ and do_simple_exp in_gr in_sim_ex =
       let (oa, oup), in_gr = do_array_replace ((sn, sp), in_gr) epl in
       ((oa, oup, arr_type), in_gr)
   | Ast.Record_ref (e, fn) ->
+      to_if1_msg 2 "Record_ref: %s.%s" (Ast.str_simple_exp e)
+        (Ast.str_field_name fn);
       let (ain, apo, tt1), in_gr = do_simple_exp in_gr e in
       let ain, apo, tt1 =
         If1.find_incoming_regular_node (ain, apo, tt1) in_gr
       in
       let input_type = If1.lookup_ty tt1 in_gr in
-      if If1.is_vector_type input_type = true then
+      if If1.is_vector_type input_type = true then (
         let fn = Ast.str_field_name fn in
+        to_if1_msg 3 "Record_ref: vector swizzle %s on type %s" fn
+          (If1.p_f_t in_gr tt1);
         let indices = crack_swizzle_mask (String.lowercase_ascii fn) in
         let (en, ep, input_ty), in_gr = ((ain, apo, tt1), in_gr) in
         let mask_len = List.length indices in
@@ -3065,9 +3259,11 @@ and do_simple_exp in_gr in_sim_ex =
           in_gr
           |> If1.add_edge an ap sn 1 at (* Mask goes to Port 1 *)
           |> If1.add_edge en ep sn 0
-               input_ty (* Data goes to Port 0 (uses input_ty) *) )
+               input_ty (* Data goes to Port 0 (uses input_ty) *) ))
       else
         let fn = match fn with Ast.Field_name fn -> fn in
+        to_if1_msg 3 "Record_ref: RELEMENTS field %s from type %s" fn
+          (If1.p_f_t in_gr tt1);
         let _, tt2 = If1.get_record_field in_gr tt1 fn in
         let (bb, pp, _), in_gr =
           let in_porst = Array.make 2 "" in
@@ -3079,17 +3275,58 @@ and do_simple_exp in_gr in_sim_ex =
         in
         ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
   | Ast.Record_array_ref (e, n) as re ->
+      to_if1_msg 2 "Record_array_ref: %s splits as %s %s"
+        (Ast.str_simple_exp re) (Ast.str_simple_exp e) (Ast.str_exp n);
       let (ain, apn, tt0), in_gr = do_simple_exp in_gr e in
-      let (aim, apm, tt1), in_gr = do_exp in_gr n in
-      let (bb, pp, _), in_gr =
-        let in_porst = Array.make 2 "" in
-        in_porst.(0) <- Ast.str_simple_exp re;
-        If1.add_node_2
-          (`Simple (If1.RELEMENTS, in_porst, Array.make 2 "", [ If1.No_pragma ]))
-          in_gr
+      (* If the record field resolves to an array type, use AELEMENT subscripting
+         (like Array_ref) to handle multi-index access like rec.field[i, j]. *)
+      let is_array_ty =
+        match If1.lookup_ty_safe tt0 in_gr with
+        | Some (If1.Array_ty _) -> true
+        | _ -> false
       in
-      ( (bb, pp, tt1),
-        If1.add_edge ain apn bb 1 tt1 (If1.add_edge aim apm bb 0 tt0 in_gr) )
+      if is_array_ty then
+        let add_basic_arr_elem ((aaa, bbb, att), in_gr) arr_indx =
+          let (idxnum, idxport, tt), in_gr = do_simple_exp in_gr arr_indx in
+          let (arrnum, arrport, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.AELEMENT, Array.make 2 "", Array.make 1 "", []))
+              in_gr
+          in
+          let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
+          let in_gr = If1.add_edge aaa bbb arrnum 0 att in_gr in
+          let inner_ty_num =
+            match If1.lookup_ty att in_gr with
+            | If1.Array_ty ij -> ij
+            | _ -> att
+          in
+          ((arrnum, arrport, inner_ty_num), in_gr)
+        in
+        let ex_lis = match n with Ast.Exp l -> l | _ -> [] in
+        let (res_node, res_port, tt), in_gr_res =
+          List.fold_left add_basic_arr_elem ((ain, apn, tt0), in_gr) ex_lis
+        in
+        ((res_node, res_port, tt), in_gr_res)
+      else
+        let (aim, apm, tt1), in_gr = do_exp in_gr n in
+        let elem_ty =
+          match If1.lookup_ty tt0 in_gr with
+          | If1.Array_ty elem_id -> elem_id
+          | _ -> tt0
+        in
+        to_if1_msg 3
+          "Record_array_ref: array type %s, index type %s, elem type %s"
+          (If1.p_f_t in_gr tt0) (If1.p_f_t in_gr tt1) (If1.p_f_t in_gr elem_ty);
+        let (bb, pp, _), in_gr =
+          let in_porst = Array.make 2 "" in
+          in_porst.(0) <- Ast.str_simple_exp re;
+          If1.add_node_2
+            (`Simple
+               (If1.RELEMENTS, in_porst, Array.make 2 "", [ If1.No_pragma ]))
+            in_gr
+        in
+        ( (bb, pp, elem_ty),
+          If1.add_edge ain apn bb 1 tt0 (If1.add_edge aim apm bb 0 tt1 in_gr) )
   | Ast.Record_generator_primary (e, fdle) ->
       let (e, p, inctt), in_gr = do_simple_exp in_gr e in
       let rec do_each_field ((a, b, tt), in_gr) = function
@@ -3131,12 +3368,15 @@ and do_simple_exp in_gr in_sim_ex =
         check that the return types are correct. *)
       let xx = If1.lookup_by_typename in_gr tn in
       record_builder in_gr fdl (If1.Som xx)
-  | Ast.Stream_generator _ ->
-      print_endline " Streams are untested";
-      If1.add_node_2
-        (`Simple
-           (If1.SBUILD, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
-        in_gr
+  | Ast.Stream_generator tn ->
+      let ty_id = If1.lookup_by_typename in_gr tn in
+      let (n, p, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             (If1.SBUILD, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      ((n, p, ty_id), in_gr)
   | Ast.Stream_generator_exp (_, aexp) ->
       print_endline " Streams are untested";
       let myll, in_gr =
@@ -3159,6 +3399,7 @@ and do_simple_exp in_gr in_sim_ex =
       let xx = If1.lookup_by_typename in_gr tn in
       union_builder in_gr te (If1.Som xx)
   | Ast.Tagcase (ae, tc, o) -> (
+      to_if1_msg 2 "Tagcase: %s" (Ast.str_simple_exp (Ast.Tagcase (ae, tc, o)));
       (* Each tag is a graph, tagcase is a
        compound graph with one "input",
        which is the If1.union. So while creating
@@ -3178,7 +3419,9 @@ and do_simple_exp in_gr in_sim_ex =
             in
             let (an, po, tyy), in_gr = do_simple_exp in_gr e in
             ((an, po, tyy), in_gr, vn_n)
-        | Tagcase_exp _ -> failwith " WHAT DO WE DO HERE?"
+        | Tagcase_exp e ->
+            let (an, po, tyy), in_gr = do_simple_exp in_gr e in
+            ((an, po, tyy), in_gr, "__tagcase_expr__")
       in
       (* Walk over If1.typemap lists and collect
         the union's tag#s *)
@@ -3238,8 +3481,14 @@ and do_simple_exp in_gr in_sim_ex =
               in_gr
           in
 
+          to_if1_msg 4 "tagcase: before add_edges_to_boundary fin_node=%d"
+            fin_node;
           let tagcase_g = add_edges_to_boundary tagcase_gr out_gr fin_node in
-          ((fin_node, fin_por, fin_tyy), tagcase_g))
+          if If1.IntMap.is_empty output_type_list then
+            ((fin_node, fin_por, fin_tyy), tagcase_g)
+          else
+            add_edges_from_inner_to_outer output_type_list tagcase_g fin_node
+              "TAGCASE")
   | Is (tag_nam, e) ->
       (* In addition to the true and false literals
         that are returned by Is, we may also need to
@@ -3312,10 +3561,12 @@ and do_simple_exp in_gr in_sim_ex =
       let in_gr = If1.add_edge2 n p node_id 0 t in_gr in
       ((node_id, port_id, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | If (cl, Else el) as if_ast ->
-      Printf.printf "GOING TO DO IF %s\n" (Ast.str_simple_exp if_ast);
+      to_if1_msg 2 "If: %s" (Ast.str_simple_exp if_ast);
       let rec if_builder cl xyz in_gr_if els curr_num ty_lis_ret =
         match cl with
         | Ast.Cond (predicate, body) :: tl ->
+            to_if1_msg 3 "If: lowering ELSE%d: %s" curr_num
+              (Ast.str_exp predicate);
             let ty_lis_else, else_outs, else_gr =
               let grr_th = If1.get_a_new_graph in_gr_if in
               if_builder tl xyz grr_th els (curr_num + 1) ty_lis_ret
@@ -3337,6 +3588,8 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary else_gr in_gr_if else_n in
+            to_if1_msg 3 "If: lowering BODY%d (then-branch): %s" curr_num
+              (Ast.str_exp body);
             let in_outs, then_gr = do_exp (If1.get_a_new_graph in_gr_if) body in
             let ty_lis_then, then_gr =
               extr_types then_gr (in_outs, If1.IntMap.empty)
@@ -3361,13 +3614,30 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_n in
-            If1.If1_View.export_debug_html "CRASHING.html" in_gr_if;
+            let fmt_ty_map m =
+              let tm = If1.get_typemap_tm in_gr_if in
+              let bindings =
+                If1.IntMap.bindings (filter_data_types in_gr_if m)
+              in
+              "["
+              ^ String.concat "; "
+                  (List.map
+                     (fun (port, tid) ->
+                       Printf.sprintf "p%d:%s" port
+                         (If1.printable_full_type tm tid))
+                     bindings)
+              ^ "]"
+            in
+            to_if1_msg 3 "If: check subgraph tys cond%d: then=%s else=%s"
+              curr_num (fmt_ty_map ty_lis_then) (fmt_ty_map ty_lis_else);
             let _ =
               check_subgr_tys in_gr_if
                 (Ast.str_cond (Ast.Cond (predicate, body)))
                 ty_lis_then ty_lis_else
             in
 
+            to_if1_msg 3 "If: lowering PREDICATE%d: %s" curr_num
+              (Ast.str_exp predicate);
             let pred_out, predicate_gr =
               do_exp (If1.get_a_new_graph in_gr_if) predicate
             in
@@ -3405,6 +3675,7 @@ and do_simple_exp in_gr in_sim_ex =
             in
             (ty_lis_then, in_outs, in_gr_if)
         | [] ->
+            to_if1_msg 3 "If: lowering final ELSE: %s" (Ast.str_exp els);
             let (else_n, else_p, else_t), i_gr = do_exp in_gr_if els in
             let ty_lis, i_gr =
               extr_types i_gr ((else_n, else_p, else_t), If1.IntMap.empty)
@@ -3448,6 +3719,7 @@ and do_simple_exp in_gr in_sim_ex =
       in
       (sai, gai)
   | For_all (i, d, r) ->
+      to_if1_msg 2 "For_all: %s" (Ast.str_simple_exp (For_all (i, d, r)));
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
@@ -3457,7 +3729,9 @@ and do_simple_exp in_gr in_sim_ex =
         Or To A Let Var *)
       ((fx, fy, fz), in_gr)
   | For_initial (d, i, r) as finit ->
+      to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
       let add_decls in_gr dp =
+        to_if1_msg 3 "For_initial: lowering INIT";
         let build_init_graph in_gr =
           let init_gr =
             get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr
@@ -3484,6 +3758,7 @@ and do_simple_exp in_gr in_sim_ex =
       in
 
       let add_terminator init_gr t =
+        to_if1_msg 3 "For_initial: lowering TEST";
         let build_term_graph init_gr =
           let term_gr =
             get_ports_unified (If1.get_a_new_graph init_gr) init_gr init_gr
@@ -3491,13 +3766,13 @@ and do_simple_exp in_gr in_sim_ex =
           If1.inherit_parent_syms init_gr term_gr
         in
         let (tn, tp, tt), init_gr =
-          If1.outs_syms init_gr;
           do_termination (build_term_graph init_gr) t
         in
         ((tn, tp, tt), If1.output_to_boundary [ (tn, tp, tt) ] init_gr)
       in
 
       let add_body init_gr bi rclau =
+        to_if1_msg 3 "For_initial: lowering BODY";
         let build_body_graph init_gr =
           let body_gr =
             get_ports_unified (If1.get_a_new_graph init_gr) init_gr init_gr
@@ -3509,9 +3784,11 @@ and do_simple_exp in_gr in_sim_ex =
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
+        If1.If1_View.export_debug_html "BEFORE.html" body_gr;
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
+        If1.If1_View.export_debug_html "AFTER.html" body_gr;
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
@@ -3529,11 +3806,20 @@ and do_simple_exp in_gr in_sim_ex =
       let loopAOrB i in_gr =
         match i with
         | Ast.Iterator_termination (ii, t) ->
+            to_if1_msg 3 "LoopA: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
-            let (_, _, _), test_gr = add_terminator decl_gr t in
+            (* Build BODY before TEST: the repeat body may declare variables
+               (e.g. x_error) that are referenced in the until/while condition. *)
+            to_if1_msg 3 "LoopA: building BODY iterator: %s"
+              (Ast.str_iterator ii);
             let body_gr, return_action_list, _, mask_ty_list =
-              add_body test_gr ii r
+              add_body decl_gr ii r
             in
+            to_if1_msg 3 "LoopA: building TEST termination: %s"
+              (Ast.str_termination t);
+            let (_, _, _), test_gr = add_terminator body_gr t in
+            to_if1_msg 3 "LoopA: building RETURNS (%d clauses)"
+              (List.length return_action_list);
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
@@ -3569,31 +3855,43 @@ and do_simple_exp in_gr in_sim_ex =
                      List.length lis :: lis ))
                 in_gr
             in
+            to_if1_msg 3
+              "LoopA: outer compound node=%d, building multiarity for %d \
+               return(s)"
+              fx
+              (List.length return_action_list);
             let (mul_n, mul_p, mul_t), in_gr =
               build_multiarity
                 (List.length return_action_list)
                 in_gr ~nam:"FOR_INITIAL_LOOP_A"
             in
-
             let _, _, in_gr =
               List.fold_right
                 (fun (wh, tt, aa) (cc, outl, iigr) ->
+                  to_if1_msg 4 "LoopA: wiring fx:%d -> mul_n:%d ty=%s" aa cc
+                    (If1.p_f_t iigr tt);
                   ( cc + 1,
                     (wh, tt, fx, cc) :: outl,
                     If1.add_edge2 fx aa mul_n cc tt iigr ))
                 return_action_list (0, [], in_gr)
             in
+            to_if1_msg 3 "LoopA: tying outer scope to inner, multiarity node=%d"
+              mul_n;
             let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
             ((mul_n, mul_p, mul_t), in_gr)
         | Termination_iterator (t, ii) ->
-            (* TODO: GO HERE*)
-            (* Let's get the graph and populate current If1.symtab with
-            its parent *)
+            to_if1_msg 3 "LoopB: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
+            to_if1_msg 3 "LoopB: building TEST termination: %s"
+              (Ast.str_termination t);
             let (_, _, _), test_gr = add_terminator decl_gr t in
+            to_if1_msg 3 "LoopB: building BODY iterator: %s"
+              (Ast.str_iterator ii);
             let body_gr, return_action_list, _, mask_ty_list =
               add_body test_gr ii r
             in
+            to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
+              (List.length return_action_list);
             let (_, _, _), for_gr, return_action_list =
               add_ret body_gr return_action_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
@@ -3630,25 +3928,35 @@ and do_simple_exp in_gr in_sim_ex =
                 in_gr
             in
 
+            to_if1_msg 3
+              "LoopB: outer compound node=%d, building multiarity for %d \
+               return(s)"
+              fx
+              (List.length return_action_list);
             let (mul_n, mul_p, mul_t), in_gr =
               build_multiarity
                 (List.length return_action_list)
                 in_gr ~nam:"FOR_INITIAL_LOOP_B"
             in
-
             let _, _, in_gr =
               List.fold_right
                 (fun (wh, tt, aa) (cc, outl, iigr) ->
+                  to_if1_msg 4 "LoopB: wiring return port %d ty=%s" cc
+                    (If1.p_f_t iigr tt);
                   ( cc + 1,
                     (wh, tt, fx, cc) :: outl,
                     If1.add_edge2 fx aa mul_n cc tt iigr ))
                 return_action_list (0, [], in_gr)
             in
-
+            to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
+              mul_n;
             let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
             ((mul_n, mul_p, mul_t), in_gr)
       in
       loopAOrB i in_gr
+  | Tuple e ->
+      (* #(expr) - tuple expression: lower the inner exp and pass through *)
+      do_exp in_gr e
 
 and find_in_graph_from_pragma in_gr namen =
   let tail = in_gr.If1.w in
@@ -3708,6 +4016,8 @@ and do_return_exp in_gr ggg =
       (`Array_of, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
+      let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
+      assert (st <> 0);
       (`Stream_of, (sn, sp, st), in_gr)
 
 and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
@@ -3769,13 +4079,10 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               output return_action_list *)
               let what_ty, out_gr =
                 assert (tt <> 0);
-                try (If1.find_ty in_gr (If1.Array_ty tt), out_gr)
-                with _ ->
-                  let aty = If1.Array_ty tt in
-                  let (id_x, _, _), out_gr =
-                    If1.add_type_to_typemap aty out_gr
-                  in
-                  (id_x, out_gr)
+                let (id_x, _, _), out_gr =
+                  If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
+                in
+                (id_x, out_gr)
               in
               let out_gr =
                 If1.add_edge 0 0 dd 0 5 (*integer type for indx*) out_gr
@@ -3788,9 +4095,12 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 | None -> out_gr
               in
               create_return_nodes out_gr (in_count + 2) (out_count + 1)
-                (out_lis @ [ (`Array_of, what_ty, aa) ])
+                (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
+              to_if1_msg 4
+                "create_return_nodes: FinalVal in_port=%d out_port=%d ty=%s" aa
+                out_count (If1.p_f_t out_gr tt);
               let out_gr =
                 let (dd, ee, _), out_gr =
                   If1.add_node_2
@@ -3805,33 +4115,56 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 If1.add_to_boundary_outputs dd ee tt out_gr
               in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`FinalVal, tt, aa) ])
+                (out_lis @ [ (`FinalVal, tt, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Reduce (`JustReduce, red_fn), tt, aa ->
               let out_gr =
                 do_reduc ((`JustReduce, red_fn), tt, aa) hd_c in_gr
               in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`Reduce (`JustReduce, red_fn), tt, aa) ])
+                (out_lis @ [ (`Reduce (`JustReduce, red_fn), tt, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Reduce (`RedLeft, red_fn), tt, aa ->
               let out_gr = do_reduc ((`RedLeft, red_fn), tt, aa) hd_c in_gr in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`Reduce (`RedLeft, red_fn), tt, aa) ])
+                (out_lis @ [ (`Reduce (`RedLeft, red_fn), tt, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Reduce (`RedRight, red_fn), tt, aa ->
               let out_gr = do_reduc ((`RedRight, red_fn), tt, aa) hd_c in_gr in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`Reduce (`RedRight, red_fn), tt, aa) ])
+                (out_lis @ [ (`Reduce (`RedRight, red_fn), tt, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Reduce (`RedTree, red_fn), tt, aa ->
               let out_gr = do_reduc ((`RedTree, red_fn), tt, aa) hd_c in_gr in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`Reduce (`RedTree, red_fn), tt, aa) ])
+                (out_lis @ [ (`Reduce (`RedTree, red_fn), tt, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Stream_of, tt, aa ->
+              assert (tt <> 0);
+              let (dd, ee, _), out_gr =
+                If1.add_node_2
+                  (`Simple
+                     ( (If1.STREAM : If1.node_sym),
+                       Array.make 1 "",
+                       Array.make 1 "",
+                       [ If1.No_pragma ] ))
+                  out_gr
+              in
+              let what_ty, out_gr =
+                let (id_x, _, _), out_gr =
+                  If1.add_type_to_typemap_dedup (If1.Stream tt) out_gr
+                in
+                (id_x, out_gr)
+              in
+              let out_gr = If1.add_edge 0 aa dd 0 tt out_gr in
+              let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
+              let out_gr =
+                match hd_c with
+                | Some (aty, pnum) -> If1.add_edge 0 pnum dd 1 aty out_gr
+                | None -> out_gr
+              in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
-                (out_lis @ [ (`Stream_of, tt, aa) ])
+                (out_lis @ [ (`Stream_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list)
       | _, _ -> raise (If1.Sem_error "Invalid combination for return graph")
     in
@@ -3932,15 +4265,38 @@ and do_returns_clause in_gr ret_clause =
       let return_action, node_tup, in_gr = do_return_exp in_gr rexp in
       (return_action, node_tup, msk, in_gr)
 
-and do_returns_clause_list in_gr ret_clause_list ret_action_list ret_tuple_list
-    mask_ty_list =
+and do_returns_clause_list ?(clause_idx = 1) in_gr ret_clause_list
+    ret_action_list ret_tuple_list mask_ty_list =
   (* ret_action_list, return_tuple_list, mask_ty_list *)
   match ret_clause_list with
   | hd :: tl ->
       let ret_action, (node_n, node_p, node_t), mask_ty, in_gr =
         do_returns_clause in_gr hd
       in
-      do_returns_clause_list in_gr tl
+      let action_str =
+        match ret_action with
+        | `FinalVal -> "value"
+        | `Array_of -> "array_of"
+        | `Stream_of -> "stream_of"
+        | `Reduce (dir, name) ->
+            let dir_str =
+              match dir with
+              | `JustReduce -> ""
+              | `RedLeft -> "/left"
+              | `RedRight -> "/right"
+              | `RedTree -> "/tree"
+            in
+            "reduce:" ^ name ^ dir_str
+      in
+      let mask_str =
+        match mask_ty with
+        | None -> "no_mask"
+        | Some (mn, _, mt) ->
+            Printf.sprintf "mask(node=%d,ty=%s)" mn (If1.p_f_t in_gr mt)
+      in
+      to_if1_msg 3 "returns clause #%d: action=%s node=%d port=%d ty=%s %s"
+        clause_idx action_str node_n node_p (If1.p_f_t in_gr node_t) mask_str;
+      do_returns_clause_list ~clause_idx:(clause_idx + 1) in_gr tl
         ((ret_action, node_n, node_t) :: ret_action_list)
         ((node_n, node_p, node_t) :: ret_tuple_list)
         (mask_ty :: mask_ty_list)
@@ -3952,7 +4308,40 @@ and do_defines in_gr = function
         callable functions here *)
       If1.add_each_in_list in_gr dn 0 do_function_name
 
-and do_global in_gr f = do_function_header in_gr f
+and is_intrinsic_global fn_name =
+  (* Check if a global declaration is for an intrinsic function that is
+     already handled via the mangled-name mechanism in intrinsic_lib.
+     These do NOT need to be registered in the symtab. *)
+  let prefix = Printf.sprintf "_S%s__" (String.uppercase_ascii fn_name) in
+  match If1.lookup_partial_mangled_name prefix with
+  | Some _ -> true
+  | None -> false
+
+and do_global in_gr f =
+  let fn_name =
+    match f with
+    | Ast.Function_header (Ast.Function_name fn, _, _) -> String.concat "." fn
+    | Ast.Function_header_nodec (Ast.Function_name fn, _) ->
+        String.concat "." fn
+  in
+  let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+  if is_intrinsic_global fn_name then ((0, 0, fn_ty), in_gr)
+  else
+    let localsyms, globsyms = If1.get_symtab in_gr in
+    ( (0, 0, fn_ty),
+      {
+        in_gr with
+        If1.symtab =
+          ( localsyms,
+            If1.SM.add fn_name
+              {
+                If1.val_name = fn_name;
+                If1.val_ty = fn_ty;
+                If1.val_def = 0;
+                If1.def_port = 0;
+              }
+              globsyms );
+      } )
 
 and parse_voucher proxy_str =
   match String.split_on_char '#' proxy_str with
@@ -4015,44 +4404,42 @@ and do_compilation_unit = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
       let in_gr = If1.get_empty_graph 1 88 in
-      (* Our Chronological Sweep: This is where 'Lexical Reach' is born *)
-      let final_gr =
+      (* PASS 1: Register all types, usings, and global signatures across ALL
+         fragments before lowering any function body. This ensures mutual
+         references between functions in different fragments are visible. *)
+      let in_gr =
         List.fold_left
           (fun gr fragment ->
             match fragment with
             | Ast.F_Using (Ast.Using usings) ->
-                (* ISSUING VOUCHERS: 
-             We add -1 sentinels for every import in this fragment.
-             If an alias is reused, this If1.SM.add shadows the old one. *)
                 If1.inject_vouchers_into_symtab gr usings
             | Ast.F_Types type_defs ->
-                (* TYPE REACH: 
-             We add these to our Typemap. Because we List.rev'd in the parser, 
-             these are now in the correct upright order. *)
                 let (_, _, _), next_gr =
                   If1.add_each_in_list gr type_defs 0 do_typedef
                 in
                 next_gr
             | Ast.F_Globals globals ->
-                (* SIGNATURE REACH: 
-             Register function headers so they are visible for calls. *)
                 let (_, _, _), next_gr =
                   If1.add_each_in_list gr globals 0 do_global
                 in
                 next_gr
-            | F_Functions fdefs ->
-                (* REDEMPTION & LOWERING: 
-             We lower the actual bodies. This uses the 'Lazy Slurper' 
-             if a call hits a voucher issued in a previous fragment. *)
+            | Ast.F_Functions _ | Ast.F_Define _ | Ast.F_Skip -> gr)
+          in_gr fragments
+      in
+      (* PASS 2: Lower all function bodies now that all signatures are visible. *)
+      let final_gr =
+        List.fold_left
+          (fun gr fragment ->
+            match fragment with
+            | Ast.F_Functions fdefs ->
                 let (_, _, _), next_gr =
                   If1.add_each_in_list gr fdefs 0 do_function_def
                 in
                 next_gr
-            | F_Define d ->
-                (* We can track the DEFINE list to filter our final exported IF1 *)
+            | Ast.F_Define d ->
                 let (_, _, _), gr = do_defines gr d in
                 gr
-            | F_Skip -> gr)
+            | Ast.F_Using _ | Ast.F_Types _ | Ast.F_Globals _ | Ast.F_Skip -> gr)
           in_gr fragments
       in
 
@@ -4064,7 +4451,10 @@ and verify_function_returns strs fn_ty_id in_gr =
   (* 1. Extract the Return Tuple ID from the Function Type *)
   let ret_tuple_id =
     match If1.TM.find_opt fn_ty_id tm with
-    | Some (Function_ty (_, r, _)) -> r
+    | Some (Function_ty (_, r, _) as f) ->
+        to_if1_msg 3 "verify_returns: fn type=%s sig=%s"
+          (If1.p_f_t in_gr fn_ty_id) (If1.string_of_if1_ty f);
+        r
     | _ ->
         raise
           (If1.Sem_error
@@ -4085,9 +4475,20 @@ and verify_function_returns strs fn_ty_id in_gr =
                ("Missing tuple/type definition for ID: " ^ string_of_int tid))
   in
   let expected_ids = get_expected_ids ret_tuple_id in
+  to_if1_msg 3 "verify_returns: expected (%d): [%s]" (List.length expected_ids)
+    (String.concat "; "
+       (List.mapi
+          (fun i tid -> Printf.sprintf "#%d:%s" i (If1.p_f_t in_gr tid))
+          expected_ids));
 
   (* 3. Get the actual edges reaching the boundary node (ID 0) *)
   let actual_edges = If1.all_edges_ending_at_ports_types 0 in_gr in
+  to_if1_msg 4 "verify_returns: raw boundary edges (%d): [%s]"
+    (List.length actual_edges)
+    (String.concat "; "
+       (List.map
+          (fun (p, ty) -> Printf.sprintf "port%d:%s" p (If1.p_f_t in_gr ty))
+          actual_edges));
 
   (* SEPARATION: Filter out the Railway Monad error ports *)
   (* Only edges with non-ERROR types are treated as logical returns *)
@@ -4096,6 +4497,12 @@ and verify_function_returns strs fn_ty_id in_gr =
       (fun (_, ty_id) -> not (If1.is_error_port ty_id in_gr))
       actual_edges
   in
+  to_if1_msg 4 "verify_returns: data boundary edges (%d): [%s]"
+    (List.length data_edges)
+    (String.concat "; "
+       (List.map
+          (fun (p, ty) -> Printf.sprintf "port%d:%s" p (If1.p_f_t in_gr ty))
+          data_edges));
 
   (* Sort by port index to ensure we are matching in order *)
   let actual_ids =
@@ -4103,6 +4510,11 @@ and verify_function_returns strs fn_ty_id in_gr =
     |> List.sort (fun (p1, _) (p2, _) -> compare p1 p2)
     |> List.map snd
   in
+  to_if1_msg 3 "verify_returns: actual   (%d): [%s]" (List.length actual_ids)
+    (String.concat "; "
+       (List.mapi
+          (fun i tid -> Printf.sprintf "#%d:%s" i (If1.p_f_t in_gr tid))
+          actual_ids));
 
   (* 4. THE VALIDATION CHECK (Now Error-Blind) *)
   if List.length expected_ids <> List.length actual_ids then
@@ -4114,32 +4526,53 @@ and verify_function_returns strs fn_ty_id in_gr =
              returns %d (excluding errors)"
             (List.length expected_ids) (List.length actual_ids)))
   else
-    List.iter2
-      (fun exp act ->
-        if exp <> act then
-          let tm = If1.get_typemap_tm in_gr in
-          match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
-          | Some ty_exp, Some ty_act ->
-              if not (If1.structurally_equal in_gr [] ty_exp ty_act) then (
-                (* Check if the mismatch is due to an unexpected Error Type *)
-                let err_msg =
-                  match ty_act with
-                  | ERROR s -> Printf.sprintf "Hardware Trap/Error found: %s" s
-                  | _ ->
-                      Printf.sprintf
-                        "Type error: Expected %s (#%d), but found %s (#%d)"
-                        (If1.printable_full_type (If1.get_typemap_tm in_gr) exp)
-                        exp
-                        (If1.printable_full_type (If1.get_typemap_tm in_gr) act)
-                        act
-                in
-                print_endline (If1.str_type_trace ());
-                If1.If1_View.export_debug_html "CRASHED.html" in_gr;
-                raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
-          | _ ->
-              raise
-                (If1.Sem_error "Verification Error: Typemap resolution failed"))
-      expected_ids actual_ids;
+    List.fold_left2
+      (fun idx exp act ->
+        (if exp <> act then
+           let tm = If1.get_typemap_tm in_gr in
+           match (If1.TM.find_opt exp tm, If1.TM.find_opt act tm) with
+           | Some ty_exp, Some ty_act ->
+               if ty_exp <> ty_act then
+                 (* Allow numeric type mismatches (widening/narrowing between numeric families) *)
+                 let is_numeric_compat =
+                   match (numeric_rank exp in_gr, numeric_rank act in_gr) with
+                   | Some _, Some _ -> true
+                   | _ -> false
+                 in
+                 if not is_numeric_compat then (
+                   (* Check if the mismatch is due to an unexpected Error Type *)
+                   let err_msg =
+                     match ty_act with
+                     | ERROR s ->
+                         Printf.sprintf
+                           "return value #%d: Hardware Trap/Error found: %s" idx
+                           s
+                     | _ ->
+                         Printf.sprintf
+                           "return value #%d: Expected %s (#%d), but found %s \
+                            (#%d)"
+                           idx
+                           (If1.printable_full_type (If1.get_typemap_tm in_gr)
+                              exp)
+                           exp
+                           (If1.printable_full_type (If1.get_typemap_tm in_gr)
+                              act)
+                           act
+                   in
+                   (*print_endline (If1.str_type_trace ()); *)
+                   If1.If1_View.export_debug_html "CRASHED.html" in_gr;
+                   raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
+           | _ ->
+               raise
+                 (failwith
+                    (Printf.printf
+                       "Verification Error: Typemap resolution failed return \
+                        value #%d exp=%d act=%d"
+                       idx exp act;
+                     "TYPEMAP RESOLUTION FAILED")));
+        idx + 1)
+      1 expected_ids actual_ids
+    |> ignore;
   (*
 if List.length expected_ids <> List.length actual_ids then (
     If1_JSON.export_to_json "compiler_crash.json" in_gr;
@@ -4161,30 +4594,27 @@ and do_typedef in_gr = function
       (* 3. Update the name map MM.t *)
       let id_, in_gr = If1.add_sisal_typename in_gr n tt in
 
-      (* 4. TARGETED PATCHING (The Replacement for the Global Fold) *)
+      (* 4. DEEP PATCHING: Replace ALL occurrences of -2 (the placeholder) with
+         the actual type ID `tt` throughout the entire typemap. The targeted
+         single-entry patch missed nested references — e.g. for a recursive
+         type like  type Radical = union[...; Carbon: array[Radical]]
+         the Array_ty(-2) entry is a sibling in the typemap, not a child of
+         the union head, so it was never patched. *)
       let next_id, tm, mm = in_gr.typemap in
       let patch id = if id = -2 then tt else id in
-
-      let tm =
-        match If1.TM.find_opt tt tm with
-        | Some (If1.Record (ty_l, next_l, s)) ->
-            If1.TM.add tt (If1.Record (patch ty_l, patch next_l, s)) tm
-        | Some (If1.Union (ty_l, next_l, s)) ->
-            If1.TM.add tt (If1.Union (patch ty_l, patch next_l, s)) tm
-        | Some (If1.Function_ty (in_l, out_l, s)) ->
-            If1.TM.add tt (If1.Function_ty (patch in_l, patch out_l, s)) tm
-        | Some (If1.Array_ty l) -> If1.TM.add tt (If1.Array_ty (patch l)) tm
-        | Some (If1.Tuple_ty (l1, l2)) ->
-            If1.TM.add tt (If1.Tuple_ty (patch l1, patch l2)) tm
-        | Some (If1.Stream l) -> If1.TM.add tt (If1.Stream (patch l)) tm
-        | Some (If1.Field labels) ->
-            If1.TM.add tt (If1.Field (List.map patch labels)) tm
-        | Some (If1.Tag labels) ->
-            If1.TM.add tt (If1.Tag (List.map patch labels)) tm
-        | Some (If1.Typed_error l) ->
-            If1.TM.add tt (If1.Typed_error (patch l)) tm
-        | _ -> tm (* Non-recursive or basic types *)
+      let patch_ty = function
+        | If1.Record (a, b, s) -> If1.Record (patch a, patch b, s)
+        | If1.Union (a, b, s) -> If1.Union (patch a, patch b, s)
+        | If1.Function_ty (a, b, s) -> If1.Function_ty (patch a, patch b, s)
+        | If1.Array_ty a -> If1.Array_ty (patch a)
+        | If1.Stream a -> If1.Stream (patch a)
+        | If1.Tuple_ty (a, b) -> If1.Tuple_ty (patch a, patch b)
+        | If1.Field ls -> If1.Field (List.map patch ls)
+        | If1.Tag ls -> If1.Tag (List.map patch ls)
+        | If1.Typed_error a -> If1.Typed_error (patch a)
+        | other -> other
       in
+      let tm = If1.TM.map patch_ty tm in
       let final_gr = { in_gr with If1.typemap = (next_id, tm, mm) } in
       ((id_t, ii, id_), final_gr)
 
@@ -4251,7 +4681,7 @@ and do_internals (names, in_gr) f =
       let new_fun_gr_ = If1.graph_clean_multiarity new_fun_gr_ in
       let () =
         let strs = Ast.internals 1 f in
-        print_endline ("VERIFY " ^ strs);
+        to_if1_msg 2 "verify_returns: function %s" (String.concat "." fn_name);
         verify_function_returns strs fn_ty new_fun_gr_
       in
       let (aa, bb, _), in_gr =
@@ -4287,11 +4717,33 @@ and do_internals (names, in_gr) f =
       do_internals (names @ [ fn_name ], in_gr) tl
 
 and do_function_def in_gr = function
-  | Ast.Function f as x ->
-      print_endline ("Looking at function " ^ Ast.str_function_def 0 x);
+  | Ast.Function f ->
       let _, in_gr_ = do_internals ([], in_gr) f in
       ((0, 0, 0), in_gr_)
-  | Forward_function f -> do_function_header in_gr f
+  | Forward_function f ->
+      let fn_name =
+        match f with
+        | Ast.Function_header_nodec (Ast.Function_name fn, _) ->
+            String.concat "." fn
+        | Ast.Function_header (Ast.Function_name fn, _, _) ->
+            String.concat "." fn
+      in
+      let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+      let localsyms, globsyms = If1.get_symtab in_gr in
+      ( (0, 0, fn_ty),
+        {
+          in_gr with
+          If1.symtab =
+            ( If1.SM.add fn_name
+                {
+                  If1.val_name = fn_name;
+                  If1.val_ty = fn_ty;
+                  If1.val_def = 0;
+                  If1.def_port = 0;
+                }
+                localsyms,
+              globsyms );
+        } )
 
 and do_function_header in_gr = function
   | Ast.Function_header_nodec (fn, tl) ->

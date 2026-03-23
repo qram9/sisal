@@ -1,6 +1,7 @@
 define main
 
 %$include( "types.sis" )
+%$include "para.sis"
 global para( N: integer returns array[ Radical ] )
 global Format( C: array[ Radical ]  returns array[ array[ character ] ] )
 

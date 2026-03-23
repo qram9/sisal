@@ -1,11 +1,11 @@
 type OneDimReal = array[ real ];
 
-type OneDimBTree = array[ BTree ];
-
 type BTree =	union[
 		  Scalar: real;
 		  NonScalar: record[ L, R: BTree ]
 		  ]; % union BTree
+
+type OneDimBTree = array[ BTree ];
 
 type BinTree =	record[
 		  Order, Padding: integer;

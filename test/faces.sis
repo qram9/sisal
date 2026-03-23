@@ -36,17 +36,17 @@ define expon, get_nu0, form_knots, form_col_pts, s_int,
 type RealVector = array[real];
 type RealMatrix = array[RealVector]
 global log(x : real returns real)
-global exp(x : real returns real)
+global etothe(x : real returns real)
 % *************************************************
 %                   expon
 % *************************************************
 function expon(x : real returns real)
-% this function computes exp(x) with traps for overflow 
+% this function computes etothe(x) with traps for overflow 
 % and underflow.  the traps are machine dependent.
 % --------------------------------------------------------
   if (x < -88.028) then 0.0  %  trap underflow
   elseif (x > 88.028) then 0.0  % sks error[real]  %  trap overflow
-  else exp(x)
+  else etothe(x)
   end if
 end function
 % **********************************************

@@ -5,6 +5,7 @@
 define Make_Change, Single_Change
 
 %$include ("anneal.sish")
+%$include "crossovers.sis"
 
 global Remove_Edge ( C : Cross_List; E : Edge_Type
 	returns Cross_List )
@@ -95,7 +96,9 @@ end let
 
 end function
 	
+%$include "choose.sis"
 %==========================================================================
+
 
 function Single_Change ( SI : Sys_State; seed : Four_Plex
 	returns Sys_State, Four_Plex, Energy_Type )

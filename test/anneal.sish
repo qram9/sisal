@@ -1,0 +1,39 @@
+
+%==============================================================================
+%  T Y P E   D E C L A R A T I O N S
+%==============================================================================
+
+type Node_type = record [x,y:integer];
+
+type Node_List = array [Node_Type];
+
+type Dist_Type = array [ array [real] ];
+
+type Edge_Type = array [integer];
+
+type Cross_Type = array [Edge_type];
+
+type Cross_List = array [Cross_type];
+
+type Itin_Type = array [integer];
+
+type Soln_Type = array [real];
+
+type Energy_Type = real;
+
+type Sys_State = record [Itinerary:Itin_Type;
+			 Crosses : Cross_List;
+			 Distances : Dist_Type;
+			 Nodes : Node_List;
+			 factor : real ];
+
+type Change_Type = record [ E1, E2 : Edge_Type ;
+				E1_Index, E2_Index : integer;
+				Delta_E : Energy_Type ];
+
+
+%$include ("rand.sish")
+
+
+
+

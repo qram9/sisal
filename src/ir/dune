@@ -1,4 +1,5 @@
 (library
  (name ir)
  (public_name sisal.ir)
+ (flags (:standard -w -27-50))
 (libraries unix))

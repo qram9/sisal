@@ -176,7 +176,7 @@ function Ceiling (
 returns			integer) 
 
   if (r > double_real(floor(r))) then
-    floor(r) + 1
+    integer(floor(r)) + 1
   else
     integer(r)
   end if
@@ -473,7 +473,7 @@ returns			double_real)
         xm := 1.62d0;
         h := 0.18d0;
         d := (z - xm) / h;
-        i := trunc(d);
+        i := integer(trunc(d));
         dr := d - double_real(i);
         dm := dr - 1.0d0;
         dn := dm - 1.0d0;
@@ -692,7 +692,7 @@ returns			double_real, 		% edep
     edep := efrac*volume;
     xpht := edep/bwgt;
     newseed := Random(seed);
-    npht := trunc(xpht + newseed);
+    npht := integer(trunc(xpht + newseed));
     epgain,nploss,phwgt := if (npht <= 0) then
 			     -edep,1,0.0d0
                            else
@@ -904,7 +904,7 @@ returns			double_real,		% seed
     let
       r := ximp[p.id]/ximp[idold];
       zeta := Random(seed);
-      ir1 := trunc(r);
+      ir1 := integer(trunc(r));
       r1 := double_real(ir1);
       ir0 := ir1 - 1;
       r0 := r - r1;
@@ -955,7 +955,7 @@ returns			double_real,		% seed
     seed,p,0.0d0,0,0,1
   else
     let
-      ir0 := trunc(p.newgt);
+      ir0 := integer(trunc(p.newgt));
       ir1 := ir0 - 1;
     in
       if (ir1 <= 0) then  % continue tracking
@@ -1051,7 +1051,7 @@ returns			double_real,
        -0.89000577d0,-0.90156417d0,-0.91299119d0,-0.92428964d0,-0.93546224d0,
        -0.94651168d0,-0.95744053d0,-0.96825135d0,-0.9789466d0,-0.98952871d0];
     seed1 := Random(seed);
-    index := trunc(seed1*128.0d0 + 1.0d0);
+    index := integer(trunc(seed1*128.0d0 + 1.0d0));
     sctang := csn[index];
     seed2 := Random(seed1);
     t3 := 6.2831853d0*seed2;
