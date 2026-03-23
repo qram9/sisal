@@ -1,0 +1,9 @@
+FUNCTION n_itial (ir : integer RETURNS integer)
+Let Z : #(integer,double,) := #(8, 9.3)
+ in
+Let #(x,y)  := #(5, 5)
+in
+Let #(a, b) := z
+ in
+    y * a * b
+end function
