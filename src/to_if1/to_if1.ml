@@ -142,6 +142,7 @@ let str_type_trace () =
   Buffer.contents buf *)
 
 let dbg_trace : string ref = ref ""
+let current_src_pos : (int * int) ref = ref (0, 0)
 
 let in_port_1 =
   (* memory allocate arrays *)
@@ -343,6 +344,31 @@ and union_builder in_gr utags iornone =
   let in_gr = If1.add_edge edghd edgp bb t1 tty in_gr in
   ((bb, pp, aout), in_gr)
 
+and extract_vec_components (vn, vp, vt) dim in_gr =
+  (* Extract `dim` scalar components from a vector via SWIZZLE nodes.
+     Returns a list of (node, port, type) triples, one per component. *)
+  let scalar_ty =
+    let row_if1_ty = If1.lookup_ty vt in_gr in
+    If1.find_ty in_gr (If1.get_element_type row_if1_ty)
+  in
+  List.fold_right
+    (fun idx (acc, g) ->
+      let (ln, lp, lt), g =
+        If1.add_node_2 (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |])) g
+      in
+      let (an, ap, at), g =
+        If1.add_node_2 (`Simple (If1.ABUILD, [| "" |], [| "" |], [])) g
+      in
+      let g = If1.add_edge ln lp an 0 lt g in
+      let (sn, sp, _), g =
+        If1.add_node_2 (`Simple (If1.SWIZZLE, [| ""; "" |], [| "" |], [])) g
+      in
+      let g = If1.add_edge vn vp sn 0 vt g in
+      let g = If1.add_edge an ap sn 1 at g in
+      ((sn, sp, scalar_ty) :: acc, g))
+    (List.init dim (fun i -> i))
+    ([], in_gr)
+
 and crack_swizzle_mask mask =
   let char_to_int = function
     | 'x' | 'r' | 's' | '0' -> 0
@@ -418,11 +444,6 @@ and check_rec_ty in_gr tty_lis tm outlis =
             print_endline (Printexc.raw_backtrace_to_string stack);
             If1.If1_View.export_debug_html "CRASHED.html" in_gr;
             failwith hdmsg
-      in
-      let _ =
-        match hdty with
-        | If1.Som anum -> Printf.printf "curr %s\n" (If1.p_f_t in_gr anum)
-        | _ -> ()
       in
       hdty :: check_rec_ty in_gr tl tm outlis
   | [] -> outlis
@@ -509,7 +530,15 @@ and do_iterator in_gr = function Ast.Repeat dp -> do_decldef_part in_gr dp
 
 and do_termination in_gr = function
   | Ast.While e -> do_exp in_gr e
-  | Until e -> do_exp in_gr e
+  | Until e ->
+      let (en, ep, et), in_gr = do_exp in_gr e in
+      let (nn, np, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.NOT, Array.make 1 "", Array.make 1 "", []))
+          in_gr
+      in
+      let in_gr = If1.add_edge en ep nn 0 et in_gr in
+      ((nn, np, If1.lookup_tyid If1.BOOLEAN), in_gr)
 
 and do_constant in_gr xx =
   (* Return an IF1 node for
@@ -1049,11 +1078,14 @@ and do_for_all inexp bodyexp retexp in_gr =
     | `ArrLim xy ->
         let ainx = get_lower_lim gen_exp_outer in
         let (ai, ay, _), in_gr = do_simple_exp in_gr ainx in
-        let (aa1, bb, ci), in_gr = unary_internal 2 fx aa tt in_gr If1.ASETL in
-        let in_gr = If1.add_edge ai ay aa1 bb ci in_gr in
+        let (aa1, _, _), in_gr = unary_internal 1 fx aa tt in_gr If1.ASETL in
         let in_gr =
-          if mul_n = 0 then If1.add_to_boundary_outputs aa1 cc tt in_gr
-          else If1.add_edge2 aa1 cc mul_n cc tt in_gr
+          If1.add_edge ai ay aa1 1 (If1.lookup_tyid If1.INTEGRAL) in_gr
+        in
+        let in_gr =
+          if mul_n = 0 then
+            If1.add_to_boundary_outputs ~start_port:cc aa1 0 tt in_gr
+          else If1.add_edge2 aa1 0 mul_n cc tt in_gr
         in
         (xy, in_gr)
     | `AScatt xy ->
@@ -1397,8 +1429,22 @@ and do_decldef in_gr delc =
           bind_exp_to_decl expl rhs_exps decls None in_gr
         in
         do_each_decl decllist_tail rhs_exps expl in_gr
-    | (Decl_tuple_no_type _ | Decl_tuple_with_type _) :: _ ->
-        raise (If1.Sem_error "Tuple pattern in let decl not yet supported")
+    | Decl_tuple_no_type decl_names :: decllist_tail ->
+        let expl, rhs_exps, in_gr =
+          bind_exp_to_decl expl rhs_exps decl_names None in_gr
+        in
+        do_each_decl decllist_tail rhs_exps expl in_gr
+    | Decl_tuple_with_type (decl_names, type_list) :: decllist_tail ->
+        let expl, rhs_exps, in_gr =
+          if List.length decl_names = List.length type_list then
+            List.fold_left2
+              (fun (expl, rhs, igr) dn typ ->
+                bind_exp_to_decl expl rhs [dn] (Some typ) igr)
+              (expl, rhs_exps, in_gr) decl_names type_list
+          else
+            bind_exp_to_decl expl rhs_exps decl_names None in_gr
+        in
+        do_each_decl decllist_tail rhs_exps expl in_gr
     | [] -> in_gr
   and pop_or_push_to_exp_stack expl rhs_exps in_gr =
     match expl with
@@ -1428,7 +1474,13 @@ and do_decldef in_gr delc =
                   port_type_map
               in
               If1.IntMap.fold
-                (fun ke va retl -> (expnum, ke, va) :: retl)
+                (fun ke va retl ->
+                  (* Resolve through the MULTIARITY to the actual producer so that
+                     if this name is later returned as a boundary output,
+                     point_edges_to_boundary sees the real node — not the MULTIARITY —
+                     and does not incorrectly unravel all ports. *)
+                  let actual = If1.find_incoming_regular_node (expnum, ke, va) in_gr in
+                  actual :: retl)
                 port_type_map expl
           | _ -> (expnum, expport, expty) :: expl
         in
@@ -1566,8 +1618,23 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
       in
       (* Now go on to the next decl in the LHS. *)
       do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
-  | (Decl_tuple_no_type _ | Decl_tuple_with_type _) :: _ ->
-      raise (If1.Sem_error "Tuple pattern in decldef not yet supported")
+  | Decl_tuple_no_type decl_names :: decllist_tail ->
+      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
+        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None in_gr
+      in
+      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
+  | Decl_tuple_with_type (decl_names, type_list) :: decllist_tail ->
+      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
+        if List.length decl_names = List.length type_list then
+          List.fold_left2
+            (fun (expl, xrev, drev, rhs, igr) dn typ ->
+              do_exp_for_decl expl xrev drev rhs [dn] (Some typ) igr)
+            (expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr)
+            decl_names type_list
+        else
+          do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None in_gr
+      in
+      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
   | [] -> (expl_rev, decl_rev, in_gr)
 
 and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
@@ -2457,10 +2524,68 @@ and do_simple_exp in_gr in_sim_ex =
       ((div_node, div_port, div_ty), in_gr)
   | Lambda _ -> raise (If1.Sem_error "TBD LAMBDA ")
   | Pos ((line, col), inner_exp) ->
+      current_src_pos := (line, col);
       let (n, p, ty), in_gr = do_simple_exp in_gr inner_exp in
       let in_gr = If1.set_node_srcline n line col in_gr in
       ((n, p, ty), in_gr)
-  | Multiply (a, b) -> bin_exp a b in_gr TIMES
+  | Multiply (a, b) ->
+      (* Lower both sides first to check their types *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      (* Unwrap MULTIARITY nodes (e.g. for-loop results) to get actual type *)
+      let an, ap, at =
+        match If1.get_node an in_gr with
+        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+            first_incoming_triple_to_multiarity an in_gr
+        | _ -> (an, ap, at)
+      in
+      let bn, bp, bt =
+        match If1.get_node bn in_gr with
+        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+            first_incoming_triple_to_multiarity bn in_gr
+        | _ -> (bn, bp, bt)
+      in
+      let a_ty = If1.lookup_ty at in_gr in
+      let b_ty = If1.lookup_ty bt in_gr in
+      (match (If1.is_mat_type a_ty, If1.is_vector_type a_ty,
+              If1.is_mat_type b_ty, If1.is_vector_type b_ty) with
+      | true, _, true, _ ->
+          (* mat * mat → MATMUL, result is same mat type *)
+          let (mn, mp, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.MATMUL, [| ""; "" |], [| "" |], [])) in_gr
+          in
+          let in_gr = If1.add_edge an ap mn 0 at in_gr in
+          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
+          ((mn, mp, at), in_gr)
+      | true, _, false, true ->
+          (* mat * vec → MATVECMUL, result is the vec type *)
+          let (mn, mp, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.MATVECMUL, [| ""; "" |], [| "" |], [])) in_gr
+          in
+          let in_gr = If1.add_edge an ap mn 0 at in_gr in
+          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
+          ((mn, mp, bt), in_gr)
+      | false, true, true, _ ->
+          (* vec * mat → VECMATMUL, result is the vec type *)
+          let (mn, mp, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.VECMATMUL, [| ""; "" |], [| "" |], [])) in_gr
+          in
+          let in_gr = If1.add_edge an ap mn 0 at in_gr in
+          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
+          ((mn, mp, at), in_gr)
+      | _ ->
+          (* scalar * scalar (or vec * vec element-wise) → TIMES *)
+          let (tn, tp, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.TIMES, [| ""; "" |], [| "" |], [])) in_gr
+          in
+          let common_ty = at in
+          let in_gr = If1.add_edge an ap tn 0 common_ty in_gr in
+          let in_gr = If1.add_edge bn bp tn 1 common_ty in_gr in
+          ((tn, tp, common_ty), in_gr))
   | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
   | Add (a, b) -> bin_exp a b in_gr ADD
   | And (a, b) -> bin_exp a b in_gr AND
@@ -2517,18 +2642,19 @@ and do_simple_exp in_gr in_sim_ex =
       in
       ((vn, vp, vt), in_gr)
   | Mat (mat_t, el) ->
-      (* 1. Determine dimension (e.g., Mat4 -> 4, so 16 elements total) *)
+      (* 1. Determine dimension (e.g., Mat2 -> 2, so 4 elements total) *)
       let dim = Ast.get_mat_dim mat_t in
       let expected_len = dim * dim in
       let actual_len = List.length el in
 
-      (* 2. Validate *)
-      if actual_len <> 1 && actual_len <> expected_len then
-        failwith
-          (Printf.sprintf "Type Error: %s expects 1 or %d args, got %d"
-             (Ast.str_mat_type mat_t) expected_len actual_len);
+      (* 2. Validate: 1 (splat), dim (row vectors), or dim*dim (flat scalars) *)
+      if actual_len <> 1 && actual_len <> dim && actual_len <> expected_len then
+        raise
+          (If1.Sem_error
+             (Printf.sprintf "Type Error: %s expects 1, %d (rows), or %d args, got %d"
+                (Ast.str_mat_type mat_t) dim expected_len actual_len));
 
-      (* 3. Process elements *)
+      (* 3. Lower all argument expressions *)
       let ports_info, in_gr =
         List.fold_left
           (fun (acc, g) e ->
@@ -2538,11 +2664,22 @@ and do_simple_exp in_gr in_sim_ex =
       in
       let ports_info = List.rev ports_info in
 
+      (* 3b. If row-vector mode, expand each float-N row into dim scalar ports *)
+      let ports_info, in_gr =
+        if actual_len = dim then
+          List.fold_right
+            (fun row_triple (acc, g) ->
+              let scalars, g = extract_vec_components row_triple dim g in
+              (scalars @ acc, g))
+            ports_info ([], in_gr)
+        else (ports_info, in_gr)
+      in
+
       (* 4. Opcode (MATSPLAT vs MATBUILD) *)
       let opcode = if actual_len = 1 then If1.MATSPLAT else If1.MATBUILD in
 
       (* 5. Create Node and Edges *)
-      let (mn, mp, mt), in_gr =
+      let (mn, mp, _), in_gr =
         If1.add_node_2
           (`Simple
              ( opcode,
@@ -2551,7 +2688,7 @@ and do_simple_exp in_gr in_sim_ex =
                [ If1.No_pragma ] ))
           in_gr
       in
-
+      let mt = If1.lookup_tyid (If1.ast_mat_if1_type mat_t) in
       let in_gr =
         List.fold_left2
           (fun g i (en, ep, et) -> If1.add_edge en ep mn i et g)
@@ -2815,6 +2952,45 @@ and do_simple_exp in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "INNERPRODUCT" ->
+          (* innerproduct(a, b) dispatches on types:
+             vec * vec  → DOT       (scalar result)
+             mat * mat  → MATMUL    (mat result)
+             mat * vec  → MATVECMUL (vec result)
+             vec * mat  → VECMATMUL (vec result) *)
+          let args =
+            match arg with
+            | Ast.Arg (Ast.Exp exps) -> exps
+            | _ -> raise (If1.Sem_error "innerproduct() requires two arguments")
+          in
+          if List.length args <> 2 then
+            raise (If1.Sem_error "innerproduct() requires exactly two arguments");
+          let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
+          let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
+          let a_ty = If1.lookup_ty at in_gr in
+          let b_ty = If1.lookup_ty bt in_gr in
+          let opcode, result_ty =
+            match (If1.is_mat_type a_ty, If1.is_vector_type a_ty,
+                   If1.is_mat_type b_ty, If1.is_vector_type b_ty) with
+            | true, _, true, _ -> (If1.MATMUL,    at)
+            | true, _, false, true -> (If1.MATVECMUL, bt)
+            | false, true, true, _ -> (If1.VECMATMUL, at)
+            | false, true, false, true ->
+                let scalar_ty =
+                  If1.find_ty in_gr (If1.get_element_type a_ty)
+                in
+                (If1.DOT, scalar_ty)
+            | _ ->
+                raise (If1.Sem_error
+                  "innerproduct() requires mat or vec arguments")
+          in
+          let (rn, rp, _), in_gr =
+            If1.add_node_2
+              (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
+          in
+          let in_gr = If1.add_edge an ap rn 0 at in_gr in
+          let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
+          ((rn, rp, result_ty), in_gr)
       | "STREAM_EMPTY" ->
           let (n, p, _), in_gr =
             If1.add_node_2
@@ -3378,7 +3554,6 @@ and do_simple_exp in_gr in_sim_ex =
       in
       ((n, p, ty_id), in_gr)
   | Ast.Stream_generator_exp (_, aexp) ->
-      print_endline " Streams are untested";
       let myll, in_gr =
         match aexp with
         | Ast.Exp axep -> If1.map_exp in_gr axep [] do_simple_exp
@@ -3562,58 +3737,64 @@ and do_simple_exp in_gr in_sim_ex =
       ((node_id, port_id, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | If (cl, Else el) as if_ast ->
       to_if1_msg 2 "If: %s" (Ast.str_simple_exp if_ast);
-      let rec if_builder cl xyz in_gr_if els curr_num ty_lis_ret =
+      (* if_builder cl in_gr_if els
+         Builds all subgraphs (PREDICATE, BODY, ELSE compounds) and SELECT nodes
+         inside in_gr_if.  On return, in_gr_if's boundary exports the N final
+         selected result values at consecutive ports 0..N-1.
+         Returns (ty_lis, in_gr_if) where ty_lis has N type entries. *)
+      (* Helper: after creating a compound node from a subgraph with N data outputs,
+         reconstruct a MULTIARITY in the outer graph with edges coming in from the
+         compound's output ports (which mirror the subgraph's boundary outputs).
+         Returns (compound_n, multiarity_n, updated_outer_gr). *)
+      let build_compound_and_ma sub_gr ty_lis pragmas outer_gr =
+        let (cn, _, _), outer_gr =
+          If1.add_node_2 (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, [])) outer_gr
+        in
+        let n = If1.IntMap.cardinal ty_lis in
+        let (ma_n, _, _), outer_gr = build_multiarity n outer_gr ~nam:"BRANCH_MA" in
+        let outer_gr, _ =
+          If1.IntMap.fold
+            (fun _ result_ty (gr, k) ->
+              (If1.add_edge cn k ma_n k result_ty gr, k + 1))
+            ty_lis (outer_gr, 0)
+        in
+        (cn, ma_n, outer_gr)
+      in
+      let rec if_builder cl in_gr_if els =
         match cl with
         | Ast.Cond (predicate, body) :: tl ->
-            to_if1_msg 3 "If: lowering ELSE%d: %s" curr_num
-              (Ast.str_exp predicate);
-            let ty_lis_else, else_outs, else_gr =
+            to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
+            (* 1. Build else chain in its own subgraph; unravel to boundary,
+               then reconstruct MULTIARITY in in_gr_if from compound outputs. *)
+            let ty_lis_else, else_gr =
               let grr_th = If1.get_a_new_graph in_gr_if in
-              if_builder tl xyz grr_th els (curr_num + 1) ty_lis_ret
+              if_builder tl grr_th els
             in
-
-            let _, else_p, else_t, ast_str = else_outs in
-
-            let (else_n, _, _), in_gr_if =
-              If1.add_node_2
-                (`Compound
-                   ( else_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name ("ELSE" ^ string_of_int curr_num);
-                       If1.Ast_type ast_str;
-                     ],
-                     [] ))
+            let else_cn, else_ma, in_gr_if =
+              build_compound_and_ma else_gr ty_lis_else
+                [ If1.Name "ELSE"; If1.Ast_type (Ast.str_exp els) ]
                 in_gr_if
             in
-            let in_gr_if = add_edges_to_boundary else_gr in_gr_if else_n in
-            to_if1_msg 3 "If: lowering BODY%d (then-branch): %s" curr_num
-              (Ast.str_exp body);
+            let in_gr_if = add_edges_to_boundary else_gr in_gr_if else_cn in
+
+            (* 2. Build then body; unravel to boundary, reconstruct MULTIARITY. *)
+            to_if1_msg 3 "If: lowering BODY: %s" (Ast.str_exp body);
             let in_outs, then_gr = do_exp (If1.get_a_new_graph in_gr_if) body in
             let ty_lis_then, then_gr =
               extr_types then_gr (in_outs, If1.IntMap.empty)
             in
             let then_s, then_p, then_t = in_outs in
-            let in_outs = (then_s, then_p, then_t, "") in
             let then_gr =
               point_edges_to_boundary then_s then_p then_t then_gr
             in
-
-            let (then_n, _, _), in_gr_if =
-              If1.add_node_2
-                (`Compound
-                   ( then_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name ("BODY" ^ string_of_int curr_num);
-                       If1.Ast_type (Ast.str_exp body);
-                     ],
-                     [] ))
+            let then_cn, then_ma, in_gr_if =
+              build_compound_and_ma then_gr ty_lis_then
+                [ If1.Name "BODY"; If1.Ast_type (Ast.str_exp body) ]
                 in_gr_if
             in
-            let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_n in
+            let in_gr_if = add_edges_to_boundary then_gr in_gr_if then_cn in
+
+            (* 3. Check arity *)
             let fmt_ty_map m =
               let tm = If1.get_typemap_tm in_gr_if in
               let bindings =
@@ -3628,24 +3809,22 @@ and do_simple_exp in_gr in_sim_ex =
                      bindings)
               ^ "]"
             in
-            to_if1_msg 3 "If: check subgraph tys cond%d: then=%s else=%s"
-              curr_num (fmt_ty_map ty_lis_then) (fmt_ty_map ty_lis_else);
+            to_if1_msg 3 "If: check subgraph tys: then=%s else=%s"
+              (fmt_ty_map ty_lis_then) (fmt_ty_map ty_lis_else);
             let _ =
               check_subgr_tys in_gr_if
                 (Ast.str_cond (Ast.Cond (predicate, body)))
                 ty_lis_then ty_lis_else
             in
 
-            to_if1_msg 3 "If: lowering PREDICATE%d: %s" curr_num
-              (Ast.str_exp predicate);
+            (* 4. Build predicate *)
+            to_if1_msg 3 "If: lowering PREDICATE: %s" (Ast.str_exp predicate);
             let pred_out, predicate_gr =
               do_exp (If1.get_a_new_graph in_gr_if) predicate
             in
-
             let _, predicate_gr =
               extr_types predicate_gr (pred_out, If1.IntMap.empty)
             in
-
             let pred_s, pred_p, pred_t = pred_out in
             let predicate_gr =
               point_edges_to_boundary pred_s pred_p pred_t predicate_gr
@@ -3657,44 +3836,74 @@ and do_simple_exp in_gr in_sim_ex =
                      If1.INTERNAL,
                      0,
                      [
-                       If1.Name ("PREDICATE" ^ string_of_int curr_num);
+                       If1.Name "PREDICATE";
                        If1.Ast_type (Ast.str_exp predicate);
                      ],
                      [] ))
                 in_gr_if
             in
             let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
+
+            (* 5. Create one SELECT node per output value.
+               SELECT_k: input 0 = pred bool, input 1 = then_ma:k, input 2 = else_ma:k.
+               then_ma/else_ma are MULTIARITYs whose k-th input comes from the
+               respective branch compound's k-th output. *)
+            let in_gr_if, sel_results =
+              If1.IntMap.fold
+                (fun _ result_ty (gr, (k, results)) ->
+                  let (sel_n, _, _), gr =
+                    If1.add_node_2
+                      (`Simple
+                         ( If1.SELECT,
+                           Array.make 3 "",
+                           Array.make 1 "",
+                           [ If1.Name (Printf.sprintf "SELECT_%d" k) ] ))
+                      gr
+                  in
+                  let gr = If1.add_edge pn 0 sel_n 0 pred_t gr in
+                  let gr = If1.add_edge then_ma k sel_n 1 result_ty gr in
+                  let gr = If1.add_edge else_ma k sel_n 2 result_ty gr in
+                  (gr, (k + 1, results @ [ (sel_n, result_ty) ])))
+                ty_lis_then (in_gr_if, (0, []))
+            in
+            let _, sel_results = sel_results in
+
+            (* 6. Collect SELECT outputs into a MULTIARITY, then unravel it to
+               this graph's boundary — mirrors the pattern used for THEN/ELSE. *)
+            let n_sel = List.length sel_results in
+            let (sel_ma, _, _), in_gr_if =
+              build_multiarity n_sel in_gr_if ~nam:"SEL_MA"
+            in
+            let in_gr_if, _ =
+              List.fold_left
+                (fun (gr, k) (sel_n, result_ty) ->
+                  (If1.add_edge sel_n 0 sel_ma k result_ty gr, k + 1))
+                (in_gr_if, 0) sel_results
+            in
+            let first_sel_ty = snd (List.hd sel_results) in
             let in_gr_if =
-              If1.output_to_boundary
-                [
-                  (pn, 0, pred_t);
-                  (else_n, else_p, else_t);
-                  (then_n, then_p, then_t);
-                ]
-                in_gr_if
+              point_edges_to_boundary sel_ma 0 first_sel_ty in_gr_if
             in
-            (ty_lis_then, in_outs, in_gr_if)
+            (ty_lis_then, in_gr_if)
         | [] ->
+            (* Final else: evaluate, wire to boundary, return types *)
             to_if1_msg 3 "If: lowering final ELSE: %s" (Ast.str_exp els);
-            let (else_n, else_p, else_t), i_gr = do_exp in_gr_if els in
+            let (else_s, else_p, else_t), i_gr = do_exp in_gr_if els in
             let ty_lis, i_gr =
-              extr_types i_gr ((else_n, else_p, else_t), If1.IntMap.empty)
+              extr_types i_gr ((else_s, else_p, else_t), If1.IntMap.empty)
             in
-            let i_gr = point_edges_to_boundary else_n else_p else_t i_gr in
-            (ty_lis, (else_n, else_p, else_t, Ast.str_exp els), i_gr)
+            let i_gr = point_edges_to_boundary else_s else_p else_t i_gr in
+            (* i_gr boundary now has N outputs at consecutive ports 0..N-1 *)
+            (ty_lis, i_gr)
       in
       let sai, gai =
-        let ty_lis, _, regar =
+        let ty_lis, regar =
           let regar = If1.get_a_new_graph in_gr in
-          if_builder cl (0, 0, 0) regar el 0 []
+          if_builder cl regar el
         in
-        let boundary_ooo =
-          let nm = regar.If1.nmap in
-          match If1.NM.find 0 nm with
-          | If1.Boundary (_, [ (pn, _); (else_n, _); (then_n, _) ], _, _) ->
-              [ 3; pn; else_n; then_n ]
-          | _ -> []
-        in
+        (* regar's boundary has N outputs = SELECT results.
+           Create the outer compound, then always reconstruct a MULTIARITY
+           collecting its outputs so callers get a uniform MULTIARITY handle. *)
         let name_it =
           If1.IntMap.fold
             (fun _ ed_ty out_str ->
@@ -3709,13 +3918,26 @@ and do_simple_exp in_gr in_sim_ex =
                  If1.INTERNAL,
                  0,
                  [
-                   If1.Name ("SELECT_" ^ name_it);
+                   If1.Name ("IF_" ^ name_it);
                    If1.Ast_type (Ast.str_simple_exp if_ast);
                  ],
-                 boundary_ooo ))
+                 [] ))
             in_gr
         in
-        add_edges_from_inner_to_outer ty_lis in_gr sn "SELECT"
+        (* Always reconstruct MULTIARITY from sn:0..N-1 (even for N=1) so
+           callers receive all N values through the standard mechanism. *)
+        let n = If1.IntMap.cardinal ty_lis in
+        let (ma_n, _, _), in_gr =
+          build_multiarity n in_gr ~nam:"IF_RESULT"
+        in
+        let in_gr, _ =
+          If1.IntMap.fold
+            (fun _ result_ty (gr, k) ->
+              (If1.add_edge sn k ma_n k result_ty gr, k + 1))
+            ty_lis (in_gr, 0)
+        in
+        let _, first_ty = If1.IntMap.min_binding ty_lis in
+        ((ma_n, 0, first_ty), in_gr)
       in
       (sai, gai)
   | For_all (i, d, r) ->
@@ -4564,12 +4786,11 @@ and verify_function_returns strs fn_ty_id in_gr =
                    raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
            | _ ->
                raise
-                 (failwith
-                    (Printf.printf
-                       "Verification Error: Typemap resolution failed return \
-                        value #%d exp=%d act=%d"
-                       idx exp act;
-                     "TYPEMAP RESOLUTION FAILED")));
+                 (If1.Sem_error
+                    (Printf.sprintf
+                       "Return Type Mismatch: return value #%d: type ID %d or \
+                        %d not found in typemap"
+                       idx exp act)));
         idx + 1)
       1 expected_ids actual_ids
     |> ignore;
@@ -4579,9 +4800,9 @@ if List.length expected_ids <> List.length actual_ids then (
     Printf.printf "\n[CRITICAL] Arity mismatch! State saved to compiler_crash.json\n%!";
     raise (If1.Sem_error "Return Arity Mismatch")
 )
-     *)
   print_endline
     "VALIDATION SUCCESS: Data results match signature (Railway errors ignored)."
+     *)
 
 and do_typedef in_gr = function
   | Type_def (n, t) ->

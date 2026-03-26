@@ -44,7 +44,7 @@ let keyword_table =
       ("REPEAT",REPEAT); ("REPLACE",REPLACE); ("RETURNS",RETURNS);
       ("RIGHT",RIGHT); ("STREAM",STREAM); ("SUM",SUM);
       ("TAG",TAG); ("THEN",THEN); ("TREE",TREE);
-      ("TRUE",TRUE); ("TYPE",TYPE); ("UNION",UNION);
+      ("TRUE",TRUE); ("TUPLE",TUPLE); ("TYPE",TYPE); ("UNION",UNION);
       ("UNLESS",UNLESS); ("UNTIL",UNTIL); ("USING", USING);
       ("VALUE",VALUE); ("WHILE",WHILE); ("WHEN",WHEN);
       ("FLOAT2", FLOAT2_TY); ("FLOAT3", FLOAT3_TY); ("FLOAT4", FLOAT4_TY); 
@@ -208,7 +208,7 @@ and internal_lex = parse
  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['F' 'f'] ['O' 'o'] ['R' 'r']{ END_FOR }
  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+ ['I' 'i'] ['F' 'f'] { END_IF }
  | ['E' 'e'] ['N' 'n'] ['D' 'd'] [' ' '\t' '\n' '\r']+  ['T' 't'] ['A' 'a']['G' 'g'] ['C' 'c'] ['A' 'a'] ['S' 's'] ['E' 'e'] { END_TAGCASE }
-
+ 
  | ['F' 'f'] ['U' 'u'] ['N' 'n'] ['C' 'c'] ['T' 't'] ['I' 'i'] ['O' 'o'] ['N' 'n'] { FUNCTION }
  | ['L' 'l'] ['E' 'e'] ['T' 't'] { LET }
  | ['F' 'f'] ['O' 'o'] ['R' 'r']{ FOR }

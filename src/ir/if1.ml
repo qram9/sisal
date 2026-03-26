@@ -107,6 +107,10 @@ type node_sym =
   | MAT
   | MATBUILD
   | MATSPLAT
+  | MATMUL
+  | MATVECMUL
+  | VECMATMUL
+  | DOT
   | MULTIARITY
   | NEGATE
   | NOT
@@ -2675,6 +2679,14 @@ and add_compound_type in_gr = function
           ((0, 0, 0), in_gr)
       in
       add_type_to_typemap_dedup (Function_ty (arg_fst, res_fst, fn_name)) in_gr
+  | Sisal_tuple type_list ->
+      let (tup_fst, _, _), in_gr =
+        List.fold_right
+          (fun curr_t out_stf -> add_a_tuple_entry curr_t out_stf)
+          type_list
+          ((0, 0, 0), in_gr)
+      in
+      ((tup_fst, 0, tup_fst), in_gr)
   | _ -> raise (Node_not_found "In compound type")
 
 (* Helper to unroll Tuple_ty chains into a list of strings *)
@@ -2940,6 +2952,22 @@ and ast_if1_type aty =
   | Ulong8 -> ULONG8
   | Ulong16 -> ULONG16
 
+and ast_mat_if1_type = function
+  | Ast.Mat2 -> MAT2
+  | Ast.Mat3 -> MAT3
+  | Ast.Mat4 -> MAT4
+
+and is_mat_type = function
+  | Basic MAT2 | Basic MAT3 | Basic MAT4 -> true
+  | _ -> false
+
+(* For a mat type, return the corresponding float-N vec type for its rows/columns *)
+and mat_vec_type = function
+  | Basic MAT2 -> Basic FLOAT2
+  | Basic MAT3 -> Basic FLOAT3
+  | Basic MAT4 -> Basic FLOAT4
+  | t -> failwith ("mat_vec_type: not a mat type: " ^ string_of_if1_ty t)
+
 and get_typecast_type = function
   | Boolean_prefix -> BOOLEAN
   | Char_prefix -> CHARACTER
@@ -3168,6 +3196,10 @@ and num_to_node_sym = function
   | 68 -> BITXOR
   | 69 -> STRM_APPEND
   | 70 -> STRM_EMPTY
+  | 71 -> MATMUL
+  | 72 -> MATVECMUL
+  | 73 -> VECMATMUL
+  | 74 -> DOT
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3206,6 +3238,10 @@ and node_sym_to_num = function
   | MAT -> 53
   | MATBUILD -> 58
   | MATSPLAT -> 57
+  | MATMUL -> 71
+  | MATVECMUL -> 72
+  | VECMATMUL -> 73
+  | DOT -> 74
   | MULTIARITY -> 51
   | NEGATE -> 7
   | NOT -> 6
@@ -3283,6 +3319,10 @@ and string_of_node_sym = function
   | MAT -> "MAT"
   | MATBUILD -> "MATBUILD"
   | MATSPLAT -> "MATSPLAT"
+  | MATMUL -> "MATMUL"
+  | MATVECMUL -> "MATVECMUL"
+  | VECMATMUL -> "VECMATMUL"
+  | DOT -> "DOT"
   | MULTIARITY -> "MULTIARITY"
   | NEGATE -> "NEGATE"
   | NOT -> "NOT"

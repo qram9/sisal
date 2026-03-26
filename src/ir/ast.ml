@@ -267,6 +267,7 @@ and compound_type =
   | Sisal_union of (string list * sisal_type) list
   | Sisal_function_type of (string * sisal_type list * sisal_type list)
   | Sisal_union_enum of string list
+  | Sisal_tuple of sisal_type list
 
 and tag_name = string
 and type_name = string
@@ -748,7 +749,7 @@ let brack exp =
   else if exp.[0] = '\n' then "[" ^ exp ^ "]"
   else "[" ^ String.trim exp ^ "]"
 
-let elseif_fold offset = myfold ("\n" ^ mypad1 offset "ELSE IF ")
+let elseif_fold offset = myfold ("\n" ^ mypad1 offset "ELSEIF ")
 
 let rec str_tagnames = function Tagnames tn -> comma_fold tn
 
@@ -847,6 +848,7 @@ and str_compound_type = function
       ^ " returns "
       ^ comma_fold (List.map (fun x -> str_sisal_type x) tyres)
       ^ ")"
+  | Sisal_tuple tl -> "#(" ^ comma_fold (List.map str_sisal_type tl) ^ ")"
 
 and str_sisal_type = function
   | Boolean -> "BOOLEAN"
@@ -1198,7 +1200,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Record_generator_named (tn, fdl) ->
       " "
       ^ space_fold
-          [ "RECORD ["; tn; semicolon_fold (List.map str_field_def fdl); "]" ]
+          [ "RECORD"; tn; "[" ^ semicolon_fold (List.map str_field_def fdl) ^ "]" ]
   | Stream_generator tn -> " " ^ "STREAM " ^ tn ^ "[]"
   | Stream_generator_exp (tn, e) -> " " ^ "STREAM " ^ tn ^ brack (str_exp e)
   | Stream_generator_unknown_exp e -> " " ^ "STREAM " ^ brack (str_exp e)
@@ -1219,8 +1221,9 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       ^ trim_right (str_decldef_part ~offset (`Let_type dp))
       ^ "\n" ^ mypad1 offset "IN"
       ^
-      let k = str_exp ~offset e in
-      if k.[0] <> '\n' then "\n" ^ mypad1 offset (String.trim k) else k
+      (let k = str_exp ~offset e in
+      if k.[0] <> '\n' then "\n" ^ mypad1 offset (String.trim k) else k)
+      ^ "\n" ^ mypad1 offset "END LET"
   | Tagcase (ae, tc, o) ->
       let kk =
         single_newline_cate

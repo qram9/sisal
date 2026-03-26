@@ -113,6 +113,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token TRUE
 %token TYPE
 %token UNION
+%token TUPLE
 %token UNLESS
 %token UNTIL
 %token VALUE
@@ -232,7 +233,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
  /* 1. Our individual import (e.g., "lib.sis" AS Math) */
 using_item:
   | s = STRING               { (s, None) }
-  | s = STRING AS n = NAME   { (s, Some n) }
+  | s = STRING AS n = plain_name   { (s, Some n) }
 
 /* 2. Our comma-separated list (e.g., "a.sis", "b.sis" AS B) */
 using_decl_list:
@@ -277,9 +278,9 @@ def_func_name_list:
       { Define (List.rev $2) }
   ;
 function_name_list :
-    function_name_list COMMA NAME
+    function_name_list COMMA plain_name
       { (Function_name [$3]) :: $1 }
-| NAME
+| plain_name
     { [Function_name [$1]] }
   ;
 
@@ -582,7 +583,9 @@ function_nest:
 |   value_name
     {Val (Value_name [$1]) }
 |   HASH_LPAREN e = expression RPAREN
-  { assert (0 = 1);Tuple e }
+  { Tuple e }
+|   TUPLE LPAREN e = expression RPAREN
+  { Tuple e }
 |   LPAREN expression RPAREN
     { Paren $2  }
 |   invocation
@@ -663,7 +666,7 @@ function_nest:
   ;
 
   in_exp:
-    NAME IN expression
+    plain_name IN expression
       { In_exp (Value_name [$1], $3) }
 |   in_exp AT names
     { At_exp ($1, Value_names (List.rev $3)) }
@@ -770,7 +773,7 @@ error_test :
   IS ERROR LPAREN expression RPAREN
     { Is_error $4 }
 ;
-tag_name : NAME
+tag_name : plain_name
     { $1 }
 ;
 
@@ -848,11 +851,21 @@ type_spec : basic_type_spec
   { Type_name $1  }
 |   v = vec_type 
     { Vec_ty v }
-|   m = mat_type 
+|   m = mat_type
     { Mat_ty m }
+|   HASH_LPAREN tl = type_list RPAREN
+    { Compound_type (Sisal_tuple (List.rev tl)) }
+|   HASH_LPAREN tl = type_list COMMA RPAREN
+    { Compound_type (Sisal_tuple (List.rev tl)) }
+|   TUPLE LPAREN tl = type_list RPAREN
+    { Compound_type (Sisal_tuple (List.rev tl)) }
+|   TUPLE LPAREN tl = type_list COMMA RPAREN
+    { Compound_type (Sisal_tuple (List.rev tl)) }
 ;
 
-type_name : NAME
+plain_name : NAME { $1 } | TUPLE { "TUPLE" } ;
+
+type_name : plain_name
     { $1  }
 ;
 
@@ -907,9 +920,9 @@ vec_type:
   | ULONG2_TY {Ulong2 } | ULONG3_TY { Ulong3} | ULONG4_TY { Ulong4 } | ULONG8_TY { Ulong8 }
   | ULONG16_TY { Ulong16 }
 ;
-names : names COMMA NAME
+names : names COMMA plain_name
     { $3 :: $1 }
-|   NAME
+|   plain_name
   { [$1] }
 ;
 
@@ -951,9 +964,9 @@ declids :
   function_header
     { (*TODO*)
       [Decl_func $1] }
-| NAME
+| plain_name
   { [Decl_name $1] }
-| declids COMMA NAME
+| declids COMMA plain_name
   { (Decl_name $3) :: $1 }
 | declids COMMA function_header
   { (Decl_func $3) :: $1 }
@@ -991,10 +1004,20 @@ let (names, types) = validate_list_len d t $startpos $endpos in
 let (names, types) = d, t in
   Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
 }
-| names = declids COLON HASH_LPAREN types = type_list COMMA RPAREN ASSIGN e = expression 
+| names = declids COLON HASH_LPAREN types = type_list COMMA RPAREN ASSIGN e = expression
 {
-  Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e) 
+  Decldef ( [Decl_tuple_with_type (List.rev names, List.rev types)], e)
 }
+| TUPLE LPAREN d = declids RPAREN ASSIGN e = expression
+  { Decldef ([Decl_tuple_no_type (List.rev d)], e) }
+| TUPLE LPAREN d = declids COMMA RPAREN ASSIGN e = expression
+  { Decldef ([Decl_tuple_no_type (List.rev d)], e) }
+| TUPLE LPAREN d = declids RPAREN COLON TUPLE LPAREN t = type_list RPAREN ASSIGN e = expression
+  { let (names, types) = validate_list_len d t $startpos $endpos in
+    Decldef ([Decl_tuple_with_type (List.rev names, List.rev types)], e) }
+| TUPLE LPAREN d = declids COMMA RPAREN COLON TUPLE LPAREN t = type_list RPAREN ASSIGN e = expression
+  { let (names, types) = validate_list_len d t $startpos $endpos in
+    Decldef ([Decl_tuple_with_type (List.rev names, List.rev types)], e) }
 
 declids_typed :
 | dt = declids_typed COMMA d = declids COLON HASH_LPAREN tl = type_list COMMA RPAREN
@@ -1035,7 +1058,7 @@ let_in_exp :
   { Let_rec (Decldef_part $3, $5) }
 ;
 
-value_name : NAME
+value_name : plain_name
     { $1 }
 ;
 
@@ -1054,7 +1077,7 @@ field : field_name
   { $3 :: $1 }
 ;
 
-field_name : NAME
+field_name : plain_name
     { Field_name $1 }
 ;
 

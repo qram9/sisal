@@ -26,8 +26,7 @@ function Compute( G : Grid; I : integer; J : integer returns integer )
                  G[I,J-1]   + G[I,J+1];
     in
         if ( G[I,J] = 1 & Total > 5 ) then 0 
-	else if ( Total ~= 3 ) then 1 else 0 end if 
-	end if
+	ELSEIF ( Total ~= 3 ) then 1 else 0 end if
     end let
 end function
 
