@@ -861,6 +861,10 @@ type_spec : basic_type_spec
     { Compound_type (Sisal_tuple (List.rev tl)) }
 |   TUPLE LPAREN tl = type_list COMMA RPAREN
     { Compound_type (Sisal_tuple (List.rev tl)) }
+|   FUNCTION LPAREN tyargs = type_list RETURNS tyres = type_list RPAREN
+    { 
+      Compound_type (Sisal_function_type ("", List.rev tyargs, List.rev tyres)) 
+    }
 ;
 
 plain_name : NAME { $1 } | TUPLE { "TUPLE" } ;
