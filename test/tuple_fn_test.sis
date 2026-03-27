@@ -1,0 +1,9 @@
+function Add1 ( X : integer returns integer ) X + 1 end function
+function Add2 ( X : integer returns integer ) X + 2 end function
+
+function Main ( N : integer returns integer, integer )
+  let #(f, g) := #(Add1, Add2)
+  in
+    f(N), g(N)
+  end let
+end function

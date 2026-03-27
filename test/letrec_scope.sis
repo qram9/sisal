@@ -1,0 +1,25 @@
+% Scope rules for let rec:
+%   - Each binding may call its siblings (the AND parts)
+%   - Internal variables of one sibling are NOT visible to others
+
+FUNCTION Main( RETURNS INTEGER )
+  LET REC
+    F(N : INTEGER RETURNS INTEGER) :=
+      LET InternalF := N * 2    % InternalF must NOT be visible to G
+      IN
+        IF N <= 0 THEN 0
+        ELSE InternalF + G(N - 1)
+        END IF
+      END LET
+  AND
+    G(N : INTEGER RETURNS INTEGER) :=
+      LET InternalG := N + 10   % InternalG must NOT be visible to F
+      IN
+        IF N <= 0 THEN 0
+        ELSE InternalG + F(N - 1)
+        END IF
+      END LET
+  IN
+    F(3)
+  END LET
+END FUNCTION

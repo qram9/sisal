@@ -1,0 +1,16 @@
+define mat3_ops,
+  mat3_times_mat3,
+  mat3_times_vec3,
+  vec3_times_mat3
+
+function mat3_times_mat3( a : mat3; b : mat3 returns mat3 )
+  a * b
+end function
+
+function mat3_times_vec3( m : mat3; v : float3 returns float3 )
+  m * v
+end function
+
+function vec3_times_mat3( v : float3; m : mat3 returns float3 )
+  v * m
+end function

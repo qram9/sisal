@@ -222,6 +222,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %left AND               /* Logical AND / Bitwise AND */
 %left LT GT EQ NE LE GE /* Comparisons must happen AFTER arithmetic but BEFORE logic */
 %left PLUS MINUS        /* Addition/Subtraction */
+%left SHL SHR           /* Bit shifts */
 %left STAR DIVIDE       /* Multiplication/Division */
 %left UMINUS            /* Unary Minus (e.g., -eel) */
 %left DOTSTOP           /* Swizzle/Record Access */
@@ -385,6 +386,16 @@ function_nest:
     { Subtract ($1,$3) }
 
 | simple_expression
+    SHL
+    simple_expression
+    { Shl ($1,$3) }
+
+| simple_expression
+    SHR
+    simple_expression
+    { Shr ($1,$3) }
+
+| simple_expression
     OR
     simple_expression
     { Or ($1,$3) }
@@ -472,6 +483,8 @@ function_nest:
 |   tagcase_exp
     { $1 }
 |   iteration_exp
+    { $1 }
+|   function_literal
     { $1 }
 
   array_ref :
@@ -1054,6 +1067,19 @@ opt_end_let :
             | END_LET { () }
             | { () }
             ;
+
+lambda_header :
+  LPAREN RETURNS tl = type_list RPAREN
+    { Function_header_nodec (Function_name [], List.rev tl) }
+| LPAREN dl = declids_spec_list RETURNS tl = type_list RPAREN
+    { let wrapped = List.map (fun (x,y) -> Decl_with_type (x,y)) (List.rev dl) in
+      Function_header (Function_name [], wrapped, List.rev tl) }
+;
+
+function_literal :
+  FUNCTION lh = lambda_header e = expression END_FUNCTION
+    { Lambda (lh, e) }
+;
 
 let_in_exp :
   LET decldef_part IN expression opt_end_let

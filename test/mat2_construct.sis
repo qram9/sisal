@@ -1,0 +1,21 @@
+define mat2_construct,
+  mat2_flat,
+  mat2_splat,
+  mat2_rows
+
+% Flat: 4 scalars, row-major order
+function mat2_flat( returns mat2 )
+  mat2(1.0f, 0.0f,
+       0.0f, 1.0f)
+end function
+
+% Splat: single scalar fills all 4 slots
+function mat2_splat( s : real returns mat2 )
+  mat2(s)
+end function
+
+% Row vectors: 2 float2 rows
+function mat2_rows( returns mat2 )
+  mat2( float2(1.0f, 0.0f),
+        float2(0.0f, 1.0f) )
+end function

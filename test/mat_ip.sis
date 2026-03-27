@@ -1,0 +1,52 @@
+define mat_ip,
+  ip_mat2_mat2,
+  ip_mat2_vec2,
+  ip_vec2_mat2,
+  ip_mat3_mat3,
+  ip_mat3_vec3,
+  ip_vec3_mat3,
+  ip_mat4_mat4,
+  ip_mat4_vec4,
+  ip_vec4_mat4
+
+% --- Matrix * matrix (→ matrix) ---
+
+function ip_mat2_mat2( a : mat2; b : mat2 returns mat2 )
+  innerproduct(a, b)
+end function
+
+function ip_mat3_mat3( a : mat3; b : mat3 returns mat3 )
+  innerproduct(a, b)
+end function
+
+function ip_mat4_mat4( a : mat4; b : mat4 returns mat4 )
+  innerproduct(a, b)
+end function
+
+% --- Matrix * column vector (→ vector) ---
+
+function ip_mat2_vec2( m : mat2; v : float2 returns float2 )
+  innerproduct(m, v)
+end function
+
+function ip_mat3_vec3( m : mat3; v : float3 returns float3 )
+  innerproduct(m, v)
+end function
+
+function ip_mat4_vec4( m : mat4; v : float4 returns float4 )
+  innerproduct(m, v)
+end function
+
+% --- Row vector * matrix (→ vector) ---
+
+function ip_vec2_mat2( v : float2; m : mat2 returns float2 )
+  innerproduct(v, m)
+end function
+
+function ip_vec3_mat3( v : float3; m : mat3 returns float3 )
+  innerproduct(v, m)
+end function
+
+function ip_vec4_mat4( v : float4; m : mat4 returns float4 )
+  innerproduct(v, m)
+end function

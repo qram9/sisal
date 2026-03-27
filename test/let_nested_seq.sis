@@ -1,0 +1,12 @@
+% Nested lets for sequential computation where inner scope sees outer
+FUNCTION Main( RETURNS INTEGER )
+  LET X := 10
+  IN
+    LET Y := X + 5
+    IN
+      LET Z := X + Y
+      IN Z
+      END LET
+    END LET
+  END LET
+END FUNCTION

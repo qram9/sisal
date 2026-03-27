@@ -63,6 +63,8 @@ and simple_exp =
   | Or of simple_exp * simple_exp
   | Subtract of simple_exp * simple_exp
   | Add of simple_exp * simple_exp
+  | Shl of simple_exp * simple_exp
+  | Shr of simple_exp * simple_exp
   | Not_equal of simple_exp * simple_exp
   | Equal of simple_exp * simple_exp
   | Lesser_equal of simple_exp * simple_exp
@@ -842,11 +844,11 @@ and str_compound_type = function
   | Sisal_union_enum stl -> "UNION [" ^ comma_fold stl ^ "]"
   | Sisal_record ff ->
       "RECORD [" ^ semicolon_fold (List.map str_colon_spec ff) ^ "]"
-  | Sisal_function_type (fn_name, tyargs, tyres) ->
-      fn_name ^ "("
-      ^ comma_fold (List.map (fun x -> str_sisal_type x) tyargs)
-      ^ " returns "
-      ^ comma_fold (List.map (fun x -> str_sisal_type x) tyres)
+  | Sisal_function_type (_, tyargs, tyres) ->
+      "FUNCTION("
+      ^ comma_fold (List.map str_sisal_type tyargs)
+      ^ " RETURNS "
+      ^ comma_fold (List.map str_sisal_type tyres)
       ^ ")"
   | Sisal_tuple tl -> "#(" ^ comma_fold (List.map str_sisal_type tl) ^ ")"
 
@@ -1143,9 +1145,9 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
           ~offset:(offset + String.length first_part)
           (str_arg ~offset:(offset + String.length first_part) arg)
   | Lambda (header, e) ->
-      " LAMBDA " ^ str_function_header header ^ "\n"
+      " FUNCTION " ^ str_function_header header ^ "\n"
       ^ mypad1 (offset + 2) (str_exp ~offset:(offset + 2) e)
-      ^ "\n" ^ mypad1 offset "END LAMBDA"
+      ^ "\n" ^ mypad1 offset "END FUNCTION"
   | Vec (vect, exp) ->
       " VEC" ^ str_vec_len vect ^ paren (comma_fold (List.map str_exp exp))
   | Mat (mat_t, exp) ->
@@ -1158,6 +1160,8 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Multiply (a, b) -> fst_snd_opnd_exp ~offset "*" a b
   | Subtract (a, b) -> fst_snd_opnd_exp ~offset "-" a b
   | Add (a, b) -> fst_snd_opnd_exp ~offset "+" a b
+  | Shl (a, b) -> fst_snd_opnd_exp ~offset "<<" a b
+  | Shr (a, b) -> fst_snd_opnd_exp ~offset ">>" a b
   | Or (a, b) -> fst_snd_opnd_exp ~offset "|" a b
   | Not_equal (a, b) -> fst_snd_opnd_exp ~offset "~=" a b
   | Equal (a, b) -> fst_snd_opnd_exp ~offset "=" a b

@@ -1,0 +1,559 @@
+DEFINE MAT_MULT, BUILD_WORLD_TO_SCREEN, FIND_EYE, TRANSFORM_PT, BUILD_SCREEN_PTS, FIND_PLN_EQN, ORDER_PTS, UP, DN, BUILD_SCREEN_TRIANGLES, AALIAS_WEIGHT, DITHER_WEIGHT, AALIAS_AND_DITHER, DITHER, FIND_DIR, COMPUTE_COLOR
+TYPE INT_ARRAY1 = ARRAY [INTEGER]
+TYPE INT_ARRAY2 = ARRAY [INT_ARRAY1]
+TYPE REAL_ARRAY1 = ARRAY [REAL]
+TYPE REAL_ARRAY2 = ARRAY [REAL_ARRAY1]
+TYPE SURF_REC = RECORD [COLOR:INTEGER; SPEC_REFL:REAL; SPEC_N:REAL]
+TYPE SURF_ARRAY = ARRAY [SURF_REC]
+TYPE PT_REC = RECORD [XP, YP, ZP:REAL]
+TYPE LIGHT_REC = RECORD [COLOR:INTEGER; POS:PT_REC]
+TYPE LIGHT_ARRAY = ARRAY [LIGHT_REC]
+TYPE PT_ARRAY = ARRAY [PT_REC]
+TYPE PLN_EQN_REC = RECORD [A, B, C, D:REAL]
+TYPE TRI_REC = RECORD [SURF, V1, V2, V3:INTEGER]
+TYPE TRI_ARRAY = ARRAY [TRI_REC]
+TYPE SCREEN_TRI_REC = RECORD [VHI, VMID, VLO, MID_SCAN_LINE, LAST_SCAN_LINE:INTEGER; DXDY_LH, DXDY_LM, DXDY_MH:REAL; WORLD_PLN_EQN, SCREEN_PLN_EQN:PLN_EQN_REC]
+TYPE SCREEN_TRI_ARRAY = ARRAY [SCREEN_TRI_REC]
+TYPE RGB_REC = RECORD [R, G, B:REAL]
+TYPE RGB_ARRAY1 = ARRAY [RGB_REC]
+TYPE RGB_ARRAY2 = ARRAY [RGB_ARRAY1]
+TYPE EDGE_REC = RECORD [X:REAL; TRI:INTEGER; EDGE_NUM:INTEGER; LEFT_EDGE:BOOLEAN]
+TYPE EDGE_ARRAY1 = ARRAY [EDGE_REC]
+TYPE EDGE_ARRAY2 = ARRAY [EDGE_ARRAY1]
+TYPE DEPTH_REC = RECORD [TRI:INTEGER; DEPTH:REAL]
+TYPE DEPTH_ARRAY1 = ARRAY [DEPTH_REC]
+TYPE DEPTH_ARRAY2 = ARRAY [DEPTH_ARRAY1]
+GLOBAL SQR(A : REAL RETURNS REAL)
+GLOBAL SQRT(A : REAL RETURNS REAL)
+DEFINE MAIN
+DEFINE FIND_INVERSE
+TYPE ONEI = ARRAY [INTEGER]
+TYPE ONED = ARRAY [REAL]
+TYPE TWOD = ARRAY [ONED]
+
+FUNCTION LARGEST(N : INTEGER; A : ONED; IPIV : ONEI RETURNS REAL, INTEGER)
+  FOR INITIAL  
+    K := 1;
+    IDX := 0;
+    BIG := - 1.f;
+  WHILE (K <= N)
+  REPEAT
+    K := OLD K + 1;
+    BIG, IDX :=
+      IF (IPIV[OLD K] = 0)
+        THEN
+          IF (ABS(A[OLD K]) >= OLD BIG)
+            THEN
+              ABS(A[OLD K]), OLD K
+            ELSE
+              OLD BIG, OLD IDX
+          END IF
+        ELSE
+          OLD BIG, OLD IDX
+      END IF;
+  RETURNS
+    VALUE OF BIG
+    VALUE OF IDX
+  END FOR
+END FUNCTION
+
+FUNCTION GETPIVOT(N : INTEGER; A : TWOD; IPIV : ONEI RETURNS INTEGER, INTEGER)
+  LET
+    RBIGS, CIDXS :=
+      FOR ROW IN  A AT J
+        BIG, IDX :=
+          IF (IPIV[J] ~= 1)
+            THEN
+              LARGEST(N, ROW, IPIV)
+            ELSE
+              - 1.f, 0
+          END IF;
+
+      RETURNS
+        ARRAY OF BIG
+        ARRAY OF IDX
+      END FOR;
+    CBIG :=
+      FOR ELEM IN  RBIGS
+      RETURNS
+        VALUE OF GREATEST ELEM
+      END FOR;
+    IROW :=
+      FOR ELEM IN  RBIGS AT I
+        IROW :=
+          IF (ELEM = CBIG)
+            THEN
+              I
+            ELSE
+               0
+          END IF;
+
+      RETURNS
+        VALUE OF GREATEST IROW
+      END FOR;
+    ICOL := CIDXS[IROW];
+  IN
+  IROW, ICOL
+END FUNCTION
+
+FUNCTION COMPUTE(N, IROW, ICOL : INTEGER; A : TWOD RETURNS TWOD)
+  LET
+    TMP1A :=
+      IF (IROW ~= ICOL)
+        THEN
+          A[IROW : A[ICOL]; ICOL : A[IROW]]
+        ELSE
+           A
+      END IF;
+    PIVINV := 1.f / TMP1A[ICOL, ICOL];
+    TMP2A := TMP1A[ICOL, ICOL : 1.f];
+    TMP1R :=
+      FOR INITIAL      
+        I := 1;
+        NEWROW := TMP2A[ICOL];
+      WHILE (I <= N)
+      REPEAT
+        I := OLD I + 1;
+        NEWROW := OLD NEWROW[OLD I : OLD NEWROW[OLD I] * PIVINV];
+      RETURNS
+        VALUE OF NEWROW
+      END FOR;
+    TMP3A := TMP2A[ICOL : TMP1R];
+  IN
+  FOR INITIAL  
+    I := 1;
+    NEWTMP3A := TMP3A;
+  WHILE (I <= N)
+  REPEAT
+    I := OLD I + 1;
+    NEWTMP3A :=
+      IF (OLD I = ICOL)
+        THEN
+          OLD NEWTMP3A
+        ELSE
+          
+          LET
+            AROW := OLD NEWTMP3A[OLD I];
+            TMP3AROW := OLD NEWTMP3A[ICOL];
+            DUM := AROW[ICOL];
+            TMP1R := AROW[ICOL : 0.f];
+            NEWTMP1R :=
+              FOR INITIAL              
+                J := 1;
+                T := TMP1R;
+              WHILE (J <= N)
+              REPEAT
+                J := OLD J + 1;
+                T := OLD T[OLD J : OLD T[OLD J] - TMP3AROW[OLD J] * DUM];
+              RETURNS
+                VALUE OF T
+              END FOR;
+          IN
+          OLD NEWTMP3A[OLD I : NEWTMP1R]
+      END IF;
+  RETURNS
+    VALUE OF NEWTMP3A
+  END FOR
+END FUNCTION
+
+FUNCTION FIND_INVERSE(A : TWOD RETURNS TWOD)
+  LET
+    N := ARRAY_SIZE(A);
+    NEWA, INDXR, INDXC :=
+      FOR INITIAL      
+        I := 1;
+        IPIV :=
+          FOR J IN 1, N
+          RETURNS
+            ARRAY OF 0
+          END FOR;
+        INDXR := ARRAY ONEI[];
+        INDXC := ARRAY ONEI[];
+        TMPA := A;
+      WHILE (I <= N)
+      REPEAT
+        I := OLD I + 1;
+        IROW, ICOL := GETPIVOT(N, OLD TMPA, OLD IPIV);
+        IPIV := OLD IPIV[ICOL : OLD IPIV[ICOL] + 1];
+        INDXR := ARRAY_ADDH(OLD INDXR, IROW);
+        INDXC := ARRAY_ADDH(OLD INDXC, ICOL);
+        TMPA := COMPUTE(N, IROW, ICOL, OLD TMPA);
+      RETURNS
+        VALUE OF TMPA
+        VALUE OF INDXR
+        VALUE OF INDXC
+      END FOR;
+    INVA :=
+      FOR INITIAL      
+        L := N;
+        INVA := NEWA;
+      WHILE (L >= 1)
+      REPEAT
+        L := OLD L - 1;
+        IDXR := INDXR[OLD L];
+        IDXC := INDXC[OLD L];
+        INVA :=
+          FOR INITIAL          
+            I := 1;
+            NEWINVA := OLD INVA;
+          WHILE (I <= N)
+          REPEAT
+            I := OLD I + 1;
+            AROW := OLD NEWINVA[OLD I];
+            NEWAROW := AROW[IDXR : AROW[IDXC]; IDXC : AROW[IDXR]];
+            NEWINVA := OLD NEWINVA[OLD I : NEWAROW];
+          RETURNS
+            VALUE OF NEWINVA
+          END FOR;
+      RETURNS
+        VALUE OF INVA
+      END FOR;
+  IN
+  INVA
+END FUNCTION
+GLOBAL FIND_INVERSE(A : REAL_ARRAY2 RETURNS REAL_ARRAY2)
+
+FUNCTION MAT_MULT(M1, M2 : REAL_ARRAY2 RETURNS REAL_ARRAY2)
+  FOR J IN ARRAY_LIML(M2[1]), ARRAY_LIMH(M2[1]) CROSS I IN ARRAY_LIML(M1), ARRAY_LIMH(M1)
+  RETURNS
+    ARRAY OF
+    FOR K IN ARRAY_LIML(M1[1]), ARRAY_LIMH(M1[1])
+    RETURNS
+      VALUE OF SUM M1[I, K] * M2[K, J]
+    END FOR
+  END FOR
+END FUNCTION
+
+FUNCTION BUILD_WORLD_TO_SCREEN(XPIXELS, YPIXELS : INTEGER; XLO, XHI, YLO, YHI : REAL; GTR : REAL_ARRAY2 RETURNS REAL_ARRAY2)
+  LET
+    NDC_TO_PIXEL := REAL(MIN(XPIXELS, YPIXELS));
+    SX := NDC_TO_PIXEL * (XHI - XLO) / 2.f;
+    TX := NDC_TO_PIXEL * (XHI + XLO) / 2.f;
+    SY := NDC_TO_PIXEL * (YHI - YLO) / 2.f;
+    TY := NDC_TO_PIXEL * (YHI + YLO) / 2.f;
+    C2S := ARRAY [1 :ARRAY [1 :SX, 0.f, 0.f, 0.f], ARRAY [1 :0.f, SY, 0.f, 0.f], ARRAY [1 :0.f, 0.f, 1.f, 0.f], ARRAY [1 :TX, TY, 0.f, 1.f]];
+  IN
+  MAT_MULT(GTR, C2S)
+END FUNCTION
+
+FUNCTION FIND_EYE(GTR : REAL_ARRAY2 RETURNS PT_REC)
+  LET
+    INV := FIND_INVERSE(GTR);
+    W := INV[3, 4];
+  IN
+  IF W = 0.f
+    THEN
+      RECORD PT_REC [XP : 0.f; YP : 0.f; ZP : 10000000000.f]
+    ELSE
+       RECORD PT_REC [XP : INV[3, 1] / W; YP : INV[3, 2] / W; ZP : INV[3, 3] / W]
+  END IF
+END FUNCTION
+
+FUNCTION TRANSFORM_PT(PT : PT_REC; MAT : REAL_ARRAY2 RETURNS PT_REC)
+  LET
+    W := PT.XP * MAT[1, 4] +  PT.YP * MAT[2, 4] +  PT.ZP * MAT[3, 4] + MAT[4, 4];
+  IN
+  RECORD PT_REC [XP : (PT.XP * MAT[1, 1] +  PT.YP * MAT[2, 1] +  PT.ZP * MAT[3, 1] + MAT[4, 1]) / W; YP : (PT.XP * MAT[1, 2] +  PT.YP * MAT[2, 2] +  PT.ZP * MAT[3, 2] + MAT[4, 2]) / W; ZP : (PT.XP * MAT[1, 3] +  PT.YP * MAT[2, 3] +  PT.ZP * MAT[3, 3] + MAT[4, 3]) / W]
+END FUNCTION
+
+FUNCTION BUILD_SCREEN_PTS(W2S : REAL_ARRAY2; W_PTS : PT_ARRAY RETURNS PT_ARRAY)
+  FOR PT IN  W_PTS
+  RETURNS
+    ARRAY OF TRANSFORM_PT(PT, W2S)
+  END FOR
+END FUNCTION
+
+FUNCTION FIND_PLN_EQN(V1, V2, V3 : PT_REC RETURNS PLN_EQN_REC)
+  LET
+    AX := (V2.ZP +  V1.ZP) * (V2.YP -  V1.YP) + (V3.ZP +  V2.ZP) * (V3.YP -  V2.YP) + (V1.ZP +  V3.ZP) * (V1.YP -  V3.YP);
+    AY := (V2.XP +  V1.XP) * (V2.ZP -  V1.ZP) + (V3.XP +  V2.XP) * (V3.ZP -  V2.ZP) + (V1.XP +  V3.XP) * (V1.ZP -  V3.ZP);
+    AZ := (V2.YP +  V1.YP) * (V2.XP -  V1.XP) + (V3.YP +  V2.YP) * (V3.XP -  V2.XP) + (V1.YP +  V3.YP) * (V1.XP -  V3.XP);
+    SX := V1.XP +  V2.XP +  V3.XP;
+    SY := V1.YP +  V2.YP +  V3.YP;
+    SZ := V1.ZP +  V2.ZP +  V3.ZP;
+    L := SQRT(AX * AX + AY * AY + AZ * AZ);
+    A := AX / L;
+    B := AY / L;
+    C := AZ / L;
+  IN
+  RECORD PLN_EQN_REC [A : A; B : B; C : C; D : - (A * SX + B * SY + C * SZ) / 3.f]
+END FUNCTION
+
+FUNCTION ORDER_PTS(V1, V2, V3 : INTEGER; PTS : PT_ARRAY RETURNS INTEGER, INTEGER, INTEGER)
+  
+  FUNCTION ORDER2(VA, VB : INTEGER; PTS : PT_ARRAY RETURNS INTEGER, INTEGER)
+    IF  PTS[VA].YP <=  PTS[VB].YP
+      THEN
+        VA, VB
+      ELSE
+        VB, VA
+    END IF
+  END FUNCTION
+  LET
+    L1, M1 := ORDER2(V1, V2, PTS);
+    L2, M2 := ORDER2(L1, V3, PTS);
+  IN
+  L2, ORDER2(M1, M2, PTS)
+END FUNCTION
+
+FUNCTION UP(X : REAL RETURNS INTEGER)
+  LET
+    XI := TRUNC(X);
+  IN
+  IF X = REAL(XI)
+    THEN
+      XI
+  ELSEIF X > 0.f
+    THEN
+      XI + 1
+    ELSE
+       XI
+  END IF
+END FUNCTION
+
+FUNCTION DN(X : REAL RETURNS INTEGER)
+  LET
+    XI := TRUNC(X);
+  IN
+  IF X = REAL(XI)
+    THEN
+      XI
+  ELSEIF X > 0.f
+    THEN
+      XI
+    ELSE
+       XI - 1
+  END IF
+END FUNCTION
+
+FUNCTION BUILD_SCREEN_TRIANGLES(W_PTS, S_PTS : PT_ARRAY; TRIANGLES : TRI_ARRAY RETURNS SCREEN_TRI_ARRAY)
+  
+  FUNCTION DXDY(P1, P2 : INTEGER; PTS : PT_ARRAY RETURNS REAL)
+    LET
+      DX := PTS[P2].XP -  PTS[P1].XP;
+      DY := PTS[P2].YP -  PTS[P1].YP;
+    IN
+    IF DY = 0.f
+      THEN
+        0.f
+      ELSE
+         DX / DY
+    END IF
+  END FUNCTION
+  FOR TRI IN  TRIANGLES
+  RETURNS
+    ARRAY OF (
+    LET
+      LO, MID, HI := ORDER_PTS(TRI.V1, TRI.V2, TRI.V3, S_PTS);
+    IN
+    RECORD SCREEN_TRI_REC [VHI : HI; VMID : MID; VLO : LO; MID_SCAN_LINE : DN(S_PTS[MID].YP); LAST_SCAN_LINE : DN(S_PTS[HI].YP); DXDY_LH : DXDY(LO, HI, S_PTS); DXDY_LM : DXDY(LO, MID, S_PTS); DXDY_MH : DXDY(MID, HI, S_PTS); WORLD_PLN_EQN : FIND_PLN_EQN(W_PTS[HI], W_PTS[MID], W_PTS[LO]); SCREEN_PLN_EQN : FIND_PLN_EQN(S_PTS[HI], S_PTS[MID], S_PTS[LO])])
+  END FOR
+END FUNCTION
+
+FUNCTION AALIAS_WEIGHT(N : INTEGER RETURNS REAL_ARRAY2)
+  LET
+    DENOM := REAL(N * N * N * N);
+    N1 := N - 1;
+    N2 := 2 * N1;
+    WIJ :=
+      FOR J IN 0, N2 CROSS I IN 0, N2
+      RETURNS
+        ARRAY OF (REAL((N - ABS(N1 - I)) * (N - ABS(N1 - J))) / DENOM)
+      END FOR;
+  IN
+  WIJ
+END FUNCTION
+
+FUNCTION DITHER_WEIGHT(DSIZE : INTEGER RETURNS REAL_ARRAY2)
+  LET
+    W :=
+      FOR INITIAL      
+        WI := ARRAY [0 :ARRAY [0 : 0]];
+        S := 1;
+      WHILE (S < DSIZE)
+      REPEAT
+        O := OLD S;
+        M := OLD S * 2 - 1;
+        N := ARRAY_LIMH(OLD WI);
+        WI :=
+          FOR K IN 0, M CROSS J IN 0, M
+          RETURNS
+            ARRAY OF (
+            IF (J <= N) & (K <= N)
+              THEN
+                OLD WI[J, K] * 4
+            ELSEIF (J <= N) & (K > N)
+              THEN
+                OLD WI[J, K - O] * 4 + 3
+            ELSEIF (J > N) & (K <= N)
+              THEN
+                OLD WI[J - O, K] * 4 + 2
+              ELSE
+                 OLD WI[J - O, K - O] * 4 + 1
+            END IF)
+          END FOR;
+        S := OLD S * 2;
+      RETURNS
+        VALUE OF WI
+      END FOR;
+  IN
+  FOR J IN 0, DSIZE - 1 CROSS I IN 0, DSIZE - 1
+  RETURNS
+    ARRAY OF (REAL(W[I, J]) / REAL(DSIZE * DSIZE))
+  END FOR
+END FUNCTION
+
+FUNCTION AALIAS_AND_DITHER(FS, DSIZE : INTEGER; NR, NG, NB : INTEGER; MAT : RGB_ARRAY2 RETURNS INT_ARRAY2)
+  LET
+    ULX := ARRAY_LIMH(MAT[0]);
+    ULY := ARRAY_LIMH(MAT);
+    AWEIGHT := AALIAS_WEIGHT(FS);
+    DWEIGHT := DITHER_WEIGHT(DSIZE);
+  IN
+  FOR X IN 0, (ULX + 1) / FS - 1 CROSS Y IN 0, (ULY + 1) / FS - 1
+  RETURNS
+    ARRAY OF (
+    LET
+      R, G, B :=
+        FOR J IN 0, MIN(2 * FS - 2, ULY - Y * FS) CROSS I IN 0, MIN(2 * FS - 2, ULX - X * FS)
+          XJ := X * FS + I;
+          YI := Y * FS + J;
+          AW := AWEIGHT[I, J];
+        RETURNS
+          VALUE OF SUM MAT[YI, XJ].R * AW
+          VALUE OF SUM MAT[YI, XJ].G * AW
+          VALUE OF SUM MAT[YI, XJ].B * AW
+        END FOR;
+      DW := DWEIGHT[MOD(Y, DSIZE), MOD(X, DSIZE)];
+      RS := REAL(NR - 1) * MAX(0.f, MIN(1.f, R));
+      GS := REAL(NG - 1) * MAX(0.f, MIN(1.f, G));
+      BS := REAL(NB - 1) * MAX(0.f, MIN(1.f, B));
+      RI := TRUNC(RS);
+      GI := TRUNC(GS);
+      BI := TRUNC(BS);
+      RED :=
+        IF (RS - REAL(RI) > DW)
+          THEN
+            RI + 1
+          ELSE
+             RI
+        END IF;
+      GRN :=
+        IF (GS - REAL(GI) > DW)
+          THEN
+            GI + 1
+          ELSE
+             GI
+        END IF;
+      BLU :=
+        IF (BS - REAL(BI) > DW)
+          THEN
+            BI + 1
+          ELSE
+             BI
+        END IF;
+    IN
+    (RED * NR + GRN) * NG + BLU)
+  END FOR
+END FUNCTION
+
+FUNCTION DITHER(DSIZE : INTEGER; NR, NG, NB : INTEGER; MAT : RGB_ARRAY2 RETURNS INT_ARRAY2)
+  LET
+    ULX := ARRAY_LIMH(MAT[0]);
+    ULY := ARRAY_LIMH(MAT);
+    DWEIGHT := DITHER_WEIGHT(DSIZE);
+  IN
+  FOR X IN 0, ULX CROSS Y IN 0, ULY
+  RETURNS
+    ARRAY OF
+    LET
+      DW := DWEIGHT[MOD(Y, DSIZE), MOD(X, DSIZE)];
+      RS := REAL(NR - 1) * MAX(0.f, MIN(1.f, MAT[Y, X].R));
+      GS := REAL(NG - 1) * MAX(0.f, MIN(1.f, MAT[Y, X].G));
+      BS := REAL(NB - 1) * MAX(0.f, MIN(1.f, MAT[Y, X].B));
+      RI := TRUNC(RS);
+      GI := TRUNC(GS);
+      BI := TRUNC(BS);
+      RED :=
+        IF (RS - REAL(RI) > DW)
+          THEN
+            RI + 1
+          ELSE
+             RI
+        END IF;
+      GRN :=
+        IF (GS - REAL(GI) > DW)
+          THEN
+            GI + 1
+          ELSE
+             GI
+        END IF;
+      BLU :=
+        IF (BS - REAL(BI) > DW)
+          THEN
+            BI + 1
+          ELSE
+             BI
+        END IF;
+    IN
+    (RED * NR + GRN) * NG + BLU
+  END FOR
+END FUNCTION
+
+FUNCTION FIND_DIR(P1, P2 : PT_REC RETURNS PT_REC)
+  LET
+    DX := P2.XP -  P1.XP;
+    DY := P2.YP -  P1.YP;
+    DZ := P2.ZP -  P1.ZP;
+    L := SQRT(DX * DX + DY * DY + DZ * DZ);
+  IN
+  RECORD PT_REC [XP : DX / L; YP : DY / L; ZP : DZ / L]
+END FUNCTION
+
+FUNCTION COMPUTE_COLOR(PT : PT_REC; EYE : PT_REC; NORMAL : PLN_EQN_REC; SURFACE : SURF_REC; LIGHTS : LIGHT_ARRAY; COLORS : RGB_ARRAY1; AMBIENT : INTEGER RETURNS RGB_REC)
+  
+  FUNCTION RSIGN(X : REAL RETURNS INTEGER)
+    IF X > 0.f
+      THEN
+        1
+    ELSEIF X < 0.f
+      THEN
+        - 1
+      ELSE
+         0
+    END IF
+  END FUNCTION
+  LET
+    RAW_COLOR := COLORS[SURFACE.COLOR];
+    AMB_COLOR := COLORS[AMBIENT];
+    EYE_DIR := FIND_DIR(PT, EYE);
+    RED, GRN, BLU :=
+      FOR LIGHT IN  LIGHTS
+        LIGHT_DIR := FIND_DIR(PT, LIGHT.POS);
+        NL := NORMAL.A *  LIGHT_DIR.XP +  NORMAL.B *  LIGHT_DIR.YP +  NORMAL.C *  LIGHT_DIR.ZP;
+        NE := NORMAL.A *  EYE.XP +  NORMAL.B *  EYE.YP +  NORMAL.C *  EYE.ZP;
+        LE := LIGHT_DIR.XP *  EYE.XP +  LIGHT_DIR.YP *  EYE.YP +  LIGHT_DIR.ZP *  EYE.ZP;
+        R, G, B :=
+          IF RSIGN(NL) ~= RSIGN(NE)
+            THEN
+              0.f, 0.f, 0.f
+            ELSE
+              
+              LET
+                COS_THETA := ABS(NL);
+                COS_ALPHA := ABS(LE * (2.f * COS_THETA - 1.f));
+                SPEC := SURFACE.SPEC_REFL * EXP(COS_ALPHA, SURFACE.SPEC_N);
+                LIGHT_COLOR := COLORS[LIGHT.COLOR];
+              IN
+              LIGHT_COLOR.R * (RAW_COLOR.R * COS_THETA + SPEC), LIGHT_COLOR.G * (RAW_COLOR.G * COS_THETA + SPEC), LIGHT_COLOR.B * (RAW_COLOR.B * COS_THETA + SPEC)
+          END IF;
+
+      RETURNS
+        VALUE OF SUM R
+        VALUE OF SUM G
+        VALUE OF SUM B
+      END FOR;
+  IN
+  RECORD RGB_REC [R :  AMB_COLOR.R *  RAW_COLOR.R + RED; G :  AMB_COLOR.G *  RAW_COLOR.G + GRN; B :  AMB_COLOR.B *  RAW_COLOR.B + BLU]
+END FUNCTION
+

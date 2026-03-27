@@ -1,0 +1,5 @@
+FUNCTION TupleMixed (X : INTEGER RETURNS INTEGER, REAL)
+let #(A, B) : #(INTEGER, REAL) := #(X, 3.14)
+in A + 1, B * 2.0
+end let
+END FUNCTION

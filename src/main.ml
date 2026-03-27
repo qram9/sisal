@@ -1,6 +1,7 @@
 module Lex = Fe.Lex
 open Lexing
 module Parse = Fe.Parse
+module I = Parse.MenhirInterpreter
 module Ast = Ir.Ast
 module If1 = Ir.If1
 module To_if1_ = To_if1
@@ -14,6 +15,38 @@ let error msg lexbuf =
        msg start.pos_fname start.pos_lnum
        (start.pos_cnum - start.pos_bol)
        (finish.pos_cnum - finish.pos_bol))
+
+(* Incremental parse with error-state message lookup *)
+let rec parse_loop lexbuf checkpoint =
+  match checkpoint with
+  | I.InputNeeded _ ->
+      let token = Lex.sisal_lex lexbuf in
+      let s = lexbuf.lex_start_p and e = lexbuf.lex_curr_p in
+      parse_loop lexbuf (I.offer checkpoint (token, s, e))
+  | I.Shifting _ | I.AboutToReduce _ ->
+      parse_loop lexbuf (I.resume checkpoint)
+  | I.HandlingError env ->
+      let state = I.current_state_number env in
+      let msg =
+        (try String.trim (Fe.Parse_errors.message state)
+         with Not_found -> "syntax error")
+      in
+      let pos = lexbuf.lex_start_p in
+      Printf.eprintf "Parse error in %s, line %d, col %d:\n  %s\n"
+        pos.pos_fname pos.pos_lnum
+        (pos.pos_cnum - pos.pos_bol)
+        msg;
+      exit 1
+  | I.Accepted v -> v
+  | I.Rejected ->
+      Printf.eprintf "Parse error: parser rejected input\n";
+      exit 1
+
+let parse_lexbuf lexbuf =
+  let (Ast.Compilation_unit frags) =
+    parse_loop lexbuf (Parse.Incremental.main lexbuf.lex_curr_p)
+  in
+  frags
 
 (* None = not requested, Some None = stdout, Some (Some f) = file f *)
 type out_dest = Nothing | Stdout | File of string
@@ -43,8 +76,23 @@ let main () =
   let ast_dest  = ref Nothing in
   let if1_dest  = ref Nothing in
   let files     = ref [] in
+  let usage () =
+    print_string
+      ("Usage: main.exe [OPTIONS] [FILE...]\n\n\
+        Options:\n\
+        \  --ast            Print AST to stdout\n\
+        \  --ast=FILE       Write AST to FILE\n\
+        \  --if1            Print IF1 to stdout\n\
+        \  --if1=FILE       Write IF1 to FILE\n\
+        \  --debug=N        Set debug verbosity level to N\n\
+        \  --help           Show this help and exit\n\n\
+        If no FILE is given, reads from stdin.\n\
+        If neither --ast nor --if1 is given, IF1 is written to <input>.if1.\n");
+    exit 0
+  in
   let rec parse = function
     | [] -> ()
+    | "--help" :: _ -> usage ()
     | "--ast" :: rest ->
         ast_dest := Stdout; parse rest
     | a :: rest when String.length a > 6 && String.sub a 0 6 = "--ast=" ->
@@ -53,6 +101,8 @@ let main () =
         if1_dest := Stdout; parse rest
     | a :: rest when String.length a > 6 && String.sub a 0 6 = "--if1=" ->
         if1_dest := File (String.sub a 6 (String.length a - 6)); parse rest
+    | a :: _ when String.length a > 2 && String.sub a 0 2 = "--" ->
+        Printf.eprintf "Unknown option: %s\nTry --help for usage.\n" a; exit 1
     | f :: rest ->
         files := !files @ [f]; parse rest
   in
@@ -71,15 +121,13 @@ let main () =
       if !files = [] then begin
         let lb = set_filename "<stdin>" Lex.get_lex_buf in
         last_lexbuf := lb;
-        let (Ast.Compilation_unit frags) = Parse.main Lex.sisal_lex lb in
-        frags
+        parse_lexbuf lb
       end else
         List.concat_map (fun fname ->
           let lb = Lexing.from_channel (open_in fname) in
           let lb = set_filename fname lb in
           last_lexbuf := lb;
-          let (Ast.Compilation_unit frags) = Parse.main Lex.sisal_lex lb in
-          frags
+          parse_lexbuf lb
         ) !files
     in
     let sisal_ast = Ast.Compilation_unit all_fragments in
@@ -101,6 +149,8 @@ let main () =
           let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
           error msg lexbuf
         end
+    | Sys_error msg ->
+        Printf.eprintf "%s\n" msg
     | _ ->
         let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
         error msg lexbuf);

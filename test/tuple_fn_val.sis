@@ -1,0 +1,6 @@
+FUNCTION Test (I : INTEGER RETURNS INTEGER)
+let T := #(I, FUNCTION (X : INTEGER RETURNS INTEGER) X + I end function)
+and #(N, F) := T
+in F(N)
+end let
+END FUNCTION
