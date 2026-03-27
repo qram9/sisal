@@ -1,0 +1,19 @@
+define mat2_ops,
+  mat2_times_mat2,
+  mat2_times_vec2,
+  vec2_times_mat2
+
+% mat2 * mat2 → mat2
+function mat2_times_mat2( a : mat2; b : mat2 returns mat2 )
+  a * b
+end function
+
+% mat2 * float2 → float2  (column vector transform)
+function mat2_times_vec2( m : mat2; v : float2 returns float2 )
+  m * v
+end function
+
+% float2 * mat2 → float2  (row vector transform)
+function vec2_times_mat2( v : float2; m : mat2 returns float2 )
+  v * m
+end function

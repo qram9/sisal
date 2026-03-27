@@ -1,0 +1,18 @@
+define vec_ip,
+  ip_vec2,
+  ip_vec3,
+  ip_vec4
+
+% Vector dot product (→ scalar)
+
+function ip_vec2( a : float2; b : float2 returns real )
+  innerproduct(a, b)
+end function
+
+function ip_vec3( a : float3; b : float3 returns real )
+  innerproduct(a, b)
+end function
+
+function ip_vec4( a : float4; b : float4 returns real )
+  innerproduct(a, b)
+end function

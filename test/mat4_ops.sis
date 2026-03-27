@@ -1,0 +1,16 @@
+define mat4_ops,
+  mat4_times_mat4,
+  mat4_times_vec4,
+  vec4_times_mat4
+
+function mat4_times_mat4( a : mat4; b : mat4 returns mat4 )
+  a * b
+end function
+
+function mat4_times_vec4( m : mat4; v : float4 returns float4 )
+  m * v
+end function
+
+function vec4_times_mat4( v : float4; m : mat4 returns float4 )
+  v * m
+end function

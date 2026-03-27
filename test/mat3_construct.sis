@@ -1,0 +1,23 @@
+define mat3_construct,
+  mat3_flat,
+  mat3_splat,
+  mat3_rows
+
+% Flat: 9 scalars
+function mat3_flat( returns mat3 )
+  mat3(1.0f, 0.0f, 0.0f,
+       0.0f, 1.0f, 0.0f,
+       0.0f, 0.0f, 1.0f)
+end function
+
+% Splat
+function mat3_splat( s : real returns mat3 )
+  mat3(s)
+end function
+
+% Row vectors: 3 float3 rows
+function mat3_rows( returns mat3 )
+  mat3( float3(1.0f, 0.0f, 0.0f),
+        float3(0.0f, 1.0f, 0.0f),
+        float3(0.0f, 0.0f, 1.0f) )
+end function

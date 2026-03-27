@@ -1,0 +1,28 @@
+define main
+
+function tuple_add(A, B : array[real] returns array[real])
+  let
+    na := array_size(A);
+    nb := array_size(B);
+  in
+    if na = nb then
+      for IA in A dot IB in B
+        returns array of IA + IB
+      end for
+    elseif na = 1 then
+      let a0 := A[array_liml(A)]; in
+        for IB in B
+          returns array of a0 + IB
+        end for
+      end let
+    elseif nb = 1 then
+      let b0 := B[array_liml(B)]; in
+        for IA in A
+          returns array of IA + b0
+        end for
+      end let
+    else
+      error[array[real]]
+    end if
+  end let
+end function

@@ -1,0 +1,10 @@
+FUNCTION Main( RETURNS INTEGER )
+  LET REC
+    Fact(N : INTEGER RETURNS INTEGER) :=
+      IF N <= 1 THEN 1
+      ELSE N * Fact(N - 1)
+      END IF
+  IN
+    Fact(10)
+  END LET
+END FUNCTION

@@ -1,0 +1,10 @@
+% Sequential let bindings: later binding can reference earlier one
+FUNCTION Main( RETURNS INTEGER )
+  LET
+    Base := 5
+  ; Doubled := Base * 2
+  ; Tripled := Base * 3
+  IN
+    Doubled + Tripled
+  END LET
+END FUNCTION

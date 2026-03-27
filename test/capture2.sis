@@ -1,0 +1,9 @@
+FUNCTION TestCapture (I, J, K : INTEGER RETURNS INTEGER)
+
+let F := FUNCTION (X : INTEGER RETURNS INTEGER) X + I + K end function
+
+in F(J)
+
+end let
+
+END FUNCTION

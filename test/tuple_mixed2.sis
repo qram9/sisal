@@ -1,0 +1,5 @@
+FUNCTION TupleMixed (RETURNS INTEGER, REAL)
+let #(A, B) := #(1, 2.0)
+in A, B
+end let
+END FUNCTION

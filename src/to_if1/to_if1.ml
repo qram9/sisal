@@ -238,7 +238,17 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
                 If1.add_type_to_typemap_dedup (If1.Array_ty ofty) in_gr
               in
               (id, in_gr)
-            else (inc_typ, in_gr)
+            else
+              (* inc_typ is a named type: if it's already an array type
+                 (e.g. `ARRAY AR [...]` where AR = ARRAY[INTEGER]), use it
+                 directly.  If it's a non-array type (e.g. a function type),
+                 treat it as the element type and build array[inc_typ]. *)
+              if If1.is_array_type inc_typ in_gr then (inc_typ, in_gr)
+              else
+                let (id, _, _), in_gr =
+                  If1.add_type_to_typemap_dedup (If1.Array_ty inc_typ) in_gr
+                in
+                (id, in_gr)
           in
           ((arrnum, arrport, t1), in_gr))
 
@@ -618,9 +628,17 @@ and do_val_internal in_gr v =
   in
   let nn, np, nty =
     match If1.get_node nn in_gr with
-    (* If the defining node is If1.MULTIARITY
-          type, propagate its operand instead.
-          Not recursive right now.*)
+    (* TUPLE_VAL MULTIARITY: created by a #(…) expression and bound as a
+       whole tuple to a variable.  Do NOT dereference — keep the MULTIARITY
+       reference so that fold_away_multiarity_nodes can expand all ports when
+       the tuple is used as a multi-value return, or follow a specific port
+       when the same tuple is referenced multiple times (destructuring). *)
+    | If1.Simple (_, If1.MULTIARITY, _, _, prags)
+      when List.exists (function If1.Name "TUPLE_VAL" -> true | _ -> false) prags ->
+        (nn, np, nty)
+    (* Regular MULTIARITY: produced by a multi-return function call or
+       other non-tuple multi-value context.  Dereference one level to the
+       actual source at the specific symtab port — original behaviour. *)
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         let nn, np, nty = If1.node_incoming_at_port nn np in_gr in
         (nn, np, nty)
@@ -723,6 +741,37 @@ and add_exp in_gr ex _ ret_lis =
             in_gr
         in
         let nm = in_gr.If1.nmap in
+        let is_tuple_val prags =
+          List.exists (function If1.Name "TUPLE_VAL" -> true | _ -> false) prags
+        in
+        let expand_all_ports ahd atl oth_lis =
+          let incoming = If1.all_edges_ending_at ahd in_gr in
+          let sorted =
+            List.sort
+              (fun ((_, _), (_, yp1), _) ((_, _), (_, yp2), _) ->
+                compare yp1 yp2)
+              (If1.ES.elements incoming)
+          in
+          let nodes =
+            List.map (fun ((x, xp), (_, _), ty) -> (x, xp, ty)) sorted
+          in
+          (nodes @ atl, oth_lis)
+        in
+        (* For TUPLE_VAL nodes pre-count occurrences in ret_lis.
+           A tuple appearing once is a whole-tuple use → expand all ports.
+           A tuple appearing multiple times means each reference is for a
+           specific destructured element → follow only that port. *)
+        let tuple_counts =
+          List.fold_left
+            (fun m (n, _, _) ->
+              match If1.NM.find_opt n nm with
+              | Some (If1.Simple (_, If1.MULTIARITY, _, _, prags))
+                when is_tuple_val prags ->
+                  let c = try If1.IntMap.find n m with Not_found -> 0 in
+                  If1.IntMap.add n (c + 1) m
+              | _ -> m)
+            If1.IntMap.empty ret_lis
+        in
         let rec fold_away_multiarity_nodes alis oth_lis =
           (* Move CAR from alis to oth_lis, but only
              when CAR is non-If1.MULTIARITY *)
@@ -730,21 +779,23 @@ and add_exp in_gr ex _ ret_lis =
           | (ahd, apo, aed_ty) :: atl ->
               let new_alis, new_oth_lis =
                 match If1.NM.find_opt ahd nm with
+                | Some (If1.Simple (_, If1.MULTIARITY, _, _, prags))
+                  when is_tuple_val prags ->
+                    (* TUPLE_VAL: use count to decide expand vs specific-port *)
+                    let count =
+                      try If1.IntMap.find ahd tuple_counts
+                      with Not_found -> 1
+                    in
+                    if count <= 1 then
+                      (* Whole-tuple use: expand all ports *)
+                      expand_all_ports ahd atl oth_lis
+                    else
+                      (* Destructured: each ref carries its specific port *)
+                      let src = If1.node_incoming_at_port ahd apo in_gr in
+                      (src :: atl, oth_lis)
                 | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
-                    (* Sort by destination port (the multiarity's input port cc=0,1,...)
-                       to preserve the ordering established when edges were created.
-                       all_nodes_joining_at sorts by source, which is wrong here. *)
-                    let incoming = If1.all_edges_ending_at ahd in_gr in
-                    let sorted =
-                      List.sort
-                        (fun ((_, _), (_, yp1), _) ((_, _), (_, yp2), _) ->
-                          compare yp1 yp2)
-                        (If1.ES.elements incoming)
-                    in
-                    let nodes =
-                      List.map (fun ((x, xp), (_, _), ty) -> (x, xp, ty)) sorted
-                    in
-                    (nodes @ atl, oth_lis)
+                    (* Regular MULTIARITY (function return etc.): always expand *)
+                    expand_all_ports ahd atl oth_lis
                 | Some _ -> (atl, oth_lis @ [ (ahd, apo, aed_ty) ])
                 | None -> failwith "Node not found, in To_if1:add_exp"
               in
@@ -1348,23 +1399,26 @@ and do_params_decl po in_gr z =
         (id_t, in_gr)
       in
       let u, v = in_gr.If1.symtab in
-      let rec add_all_to_sm umap xli p q =
+      let rec add_all_to_sm umap xli p q in_gr =
         match xli with
         | Ast.Decl_name hdx :: tlx ->
+            let port = p + po in
             let sm_v =
               {
                 If1.val_name = hdx;
                 If1.val_ty = type_num;
                 If1.val_def = 0;
-                If1.def_port = p + po;
+                If1.def_port = port;
               }
             in
+            let in_gr = If1.add_to_boundary_inputs ~namen:hdx 0 port in_gr in
             add_all_to_sm (If1.SM.add hdx sm_v umap) tlx (p + 1) (hdx :: q)
+              in_gr
         | Decl_func _ :: _ ->
             raise (If1.Sem_error "Ast.Function_header by assign TODO")
-        | [] -> (p, q, umap)
+        | [] -> (p, q, umap, in_gr)
       in
-      let p, q, u = add_all_to_sm u x 0 [] in
+      let p, q, u, in_gr = add_all_to_sm u x 0 [] in_gr in
       ((p + po, q, type_num), { in_gr with If1.symtab = (u, v) })
   | Decl_no_type _ -> raise (If1.Sem_error "Declaration must provide a type")
   | Decl_tuple_no_type _ | Decl_tuple_with_type _ ->
@@ -2522,7 +2576,45 @@ and do_simple_exp in_gr in_sim_ex =
         | _ -> in_gr
       in
       ((div_node, div_port, div_ty), in_gr)
-  | Lambda _ -> raise (If1.Sem_error "TBD LAMBDA ")
+  | Lambda (header, e) ->
+      (* Build an anonymous subgraph exactly like do_internals/Function_single,
+         but with no name.  The caller (decldef machinery) will bind the
+         resulting compound node to the lval name. *)
+      let (_, _, fn_ty), new_fun_gr =
+        do_function_header
+          (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
+          header
+      in
+      (* Count how many boundary ports are declared parameters.
+         Any ports added beyond this count during body lowering are captures. *)
+      let n_params = If1.boundary_in_port_count new_fun_gr in
+      let new_fun_gr =
+        let (frm, elp, elt), new_fun_gr = do_exp new_fun_gr e in
+        point_edges_to_boundary frm elp elt new_fun_gr
+      in
+      let new_fun_gr = If1.graph_clean_multiarity new_fun_gr in
+      verify_function_returns "<lambda>" fn_ty new_fun_gr;
+      let (lam_node, lam_port, _), in_gr =
+        If1.add_node_2
+          (`Compound (new_fun_gr, If1.INTERNAL, 0, [ If1.Name "<lambda>" ], []))
+          in_gr
+      in
+      (* Wire captured variables: for each boundary input port added beyond the
+         declared parameters, add an edge from the outer scope's value into the
+         lambda compound node at that port. *)
+      let in_gr =
+        List.fold_left
+          (fun in_gr (_, cap_port, cap_name) ->
+            if cap_port < n_params then in_gr
+            else
+              let (src_n, src_p, src_ty), in_gr =
+                If1.get_symbol_id cap_name in_gr
+              in
+              If1.add_edge src_n src_p lam_node cap_port src_ty in_gr)
+          in_gr
+          (If1.get_named_input_ports new_fun_gr)
+      in
+      ((lam_node, lam_port, fn_ty), in_gr)
   | Pos ((line, col), inner_exp) ->
       current_src_pos := (line, col);
       let (n, p, ty), in_gr = do_simple_exp in_gr inner_exp in
@@ -2588,6 +2680,8 @@ and do_simple_exp in_gr in_sim_ex =
           ((tn, tp, common_ty), in_gr))
   | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
   | Add (a, b) -> bin_exp a b in_gr ADD
+  | Shl (a, b) -> bin_exp a b in_gr SHL
+  | Shr (a, b) -> bin_exp a b in_gr SHR
   | And (a, b) -> bin_exp a b in_gr AND
   | Or (a, b) -> bin_exp a b in_gr OR
   | Not e -> unary_exp 1 in_gr e NOT
@@ -4177,8 +4271,20 @@ and do_simple_exp in_gr in_sim_ex =
       in
       loopAOrB i in_gr
   | Tuple e ->
-      (* #(expr) - tuple expression: lower the inner exp and pass through *)
-      do_exp in_gr e
+      (* #(expr) - tuple expression: lower the inner exp and mark the
+         resulting MULTIARITY (if any) as a TUPLE_VAL so downstream code
+         can distinguish it from a plain multi-value function return. *)
+      let (frm, elp, elt), in_gr = do_exp in_gr e in
+      let in_gr =
+        match If1.get_node frm in_gr with
+        | If1.Simple (lab, If1.MULTIARITY, pin, pout, _) ->
+            let node =
+              If1.Simple (lab, If1.MULTIARITY, pin, pout, [ If1.Name "TUPLE_VAL" ])
+            in
+            { in_gr with If1.nmap = If1.NM.add frm node in_gr.If1.nmap }
+        | _ -> in_gr
+      in
+      ((frm, elp, elt), in_gr)
 
 and find_in_graph_from_pragma in_gr namen =
   let tail = in_gr.If1.w in

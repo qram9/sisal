@@ -1,0 +1,13 @@
+TYPE FnTy = FUNCTION(INTEGER RETURNS INTEGER)
+
+FUNCTION MakeFuncArray (RETURNS ARRAY[FnTy])
+
+let F1 := FUNCTION (X : INTEGER RETURNS INTEGER) X end function
+and F2 := FUNCTION (X : INTEGER RETURNS INTEGER) X + 1 end function
+and A  := ARRAY FnTy [1 : F1, F2]
+
+in A
+
+end let
+
+END FUNCTION

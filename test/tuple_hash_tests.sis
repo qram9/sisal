@@ -1,0 +1,23 @@
+define tuple_hash_tests,
+  tuple_swap,
+  tuple_typed,
+  tuple_sum3
+
+% Test 1: Basic tuple destructuring using #() syntax
+function tuple_swap( a : integer; b : integer returns integer, integer )
+  let #(x, y) := #(b, a) in
+  x, y
+end function
+
+% Test 2: Typed tuple destructuring using #() syntax
+function tuple_typed( a : integer; b : integer returns integer, integer )
+  let #(x, y) : #(integer, integer) := #(a + 1, b + 1) in
+  x, y
+end function
+
+% Test 3: Chained tuple let bindings with #() syntax
+function tuple_sum3( a : integer; b : integer; c : integer returns integer )
+  let #(s, d) := #(a + b, a - b) in
+  let result := s + c in
+  result
+end function

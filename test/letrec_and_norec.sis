@@ -1,0 +1,10 @@
+% let rec AND with non-mutually-recursive functions
+FUNCTION Main( RETURNS INTEGER )
+  LET REC
+    Sq(N : INTEGER RETURNS INTEGER) := N * N
+  AND
+    Cube(N : INTEGER RETURNS INTEGER) := N * N * N
+  IN
+    Sq(4) + Cube(3)
+  END LET
+END FUNCTION

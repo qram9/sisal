@@ -3,7 +3,7 @@ define main
 
 type realmatrix = array[array[real]] ;
 
-function innerproduct(rowsize:integer; a,b:realmatrix; row,column:integer 
+function innerproduct_(rowsize:integer; a,b:realmatrix; row,column:integer 
 			returns real)
     for i in 1, rowsize
     returns value of sum a[row,i]*b[i,column]
@@ -16,7 +16,7 @@ let
     rmb := rma ;
     rmc :=
     for i in 1, rowsize cross j in 1, rowsize
-    returns array of innerproduct(rowsize, rma, rmb, i, j)
+    returns array of innerproduct_(rowsize, rma, rmb, i, j)
     end for
 in
     rmc[1, 1]

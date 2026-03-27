@@ -1,0 +1,2 @@
+(cram
+ (deps %{exe:../src/main.exe} (glob_files *.sis)))

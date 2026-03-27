@@ -133,6 +133,8 @@ type node_sym =
   | STRM_EMPTY
   | STRM_FIRST
   | STRM_REST
+  | SHL
+  | SHR
   | SUBTRACT
   | SWIZZLE
   | TAGCASE
@@ -2884,6 +2886,15 @@ and lookup_by_typename in_gr namen =
   try MM.find namen tmn
   with _ -> raise (Node_not_found "not finding a type in typemap")
 
+and lookup_type_opt ty_id in_gr =
+  let _, td, _ = get_typemap in_gr in
+  TM.find_opt ty_id td
+
+and is_array_type ty_id in_gr =
+  match lookup_type_opt ty_id in_gr with
+  | Some (Array_ty _) -> true
+  | _ -> false
+
 and ast_if1_type aty =
   match aty with
   | Byte2 -> BYTE2
@@ -3276,6 +3287,8 @@ and node_sym_to_num = function
   | BITAND -> 66
   | BITXOR -> 67
   | BITOR -> 68
+  | SHL -> 69
+  | SHR -> 70
   | STRM_APPEND -> 69
   | STRM_EMPTY -> 70
 
@@ -3303,6 +3316,8 @@ and string_of_node_sym = function
   | BITAND -> "BITWISE_AND"
   | BITOR -> "BITWISE_OR"
   | BITXOR -> "BITWISE_XOR"
+  | SHL -> "SHL"
+  | SHR -> "SHR"
   | BOUNDARY -> "BOUNDARY"
   | CONSTANT -> "CONSTANT"
   | EQUAL -> "EQUAL"
@@ -3901,11 +3916,11 @@ and get_symbol_id v in_gr =
     ( (0, next_port, p_entry.val_ty),
       add_to_boundary_inputs ~namen:v 0 next_port in_gr )
   else
-    failwith
-      (let stack =
-         Printexc.raw_backtrace_to_string (Printexc.get_callstack 15)
-       in
-       "Node not found " ^ v ^ "\n" ^ stack)
+    raise
+      (Sem_error
+         ("Undefined name '" ^ v
+          ^ "': not in scope. In a 'let' block, names can only reference \
+             bindings defined earlier - forward references are not allowed."))
 
 and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in

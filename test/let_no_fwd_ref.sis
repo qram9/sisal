@@ -1,0 +1,6 @@
+% Negative test: left binding cannot reference a name defined to its right.
+% Y is declared before X, so Y := X + 1 should fail with "not found X".
+FUNCTION Main( RETURNS INTEGER )
+  LET Y := X + 1 ; X := 5
+  IN Y END LET
+END FUNCTION
