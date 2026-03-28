@@ -39,7 +39,6 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token SHR
 %token HASH_LPAREN
 %token HASH
-%token<string> PREDEF_FN
 %token<int64> LONG
 %token<int64> ULONG
 %token<int> INT
@@ -66,7 +65,6 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token ELSE
 %token USING
 %token ELSEIF
-%token END
 %token ERROR
 %token FALSE
 %token FOR
@@ -339,10 +337,6 @@ function_nest:
 |  exp_list COMMA simple_expression
     { $3 :: $1 }
   ;
-
-  opt_comma:
-    | { () }
-| COMMA { () }
 
   opt_semicolon:
     |         /* empty */ { ()  }
@@ -824,6 +818,8 @@ constant : FALSE
   { Float $1 }
 | DOUBLE
   { Double $1 }
+| HALF
+  { Half $1 }
 | UINT
   { Uint $1 }
 | BYTE
@@ -1037,10 +1033,6 @@ let (names, types) = d, t in
     Decldef ([Decl_tuple_with_type (List.rev names, List.rev types)], e) }
 
 declids_typed :
-| dt = declids_typed COMMA d = declids COLON HASH_LPAREN tl = type_list COMMA RPAREN
-  { Decl_tuple_with_type (List.rev d, tl) :: (List.rev dt) }
-| dt = declids_typed COMMA d = declids COLON HASH_LPAREN tl = type_list RPAREN
-  { Decl_tuple_with_type (List.rev d, tl) :: (List.rev dt) }
 | dt = declids_typed COMMA d = declids COLON t = type_spec
   { Decl_with_type (List.rev d, t) :: (List.rev dt) }
 | d = declids COLON t = type_spec
@@ -1100,6 +1092,13 @@ invocation :
 ;
 function_name : NAME
     { Function_name [$1]  }
+  | ABS   { Function_name ["ABS"]   }
+  | FLOOR { Function_name ["FLOOR"] }
+  | TRUNC { Function_name ["TRUNC"] }
+  | EXP   { Function_name ["EXP"]   }
+  | MOD   { Function_name ["MOD"]   }
+  | MAX   { Function_name ["MAX"]   }
+  | MIN   { Function_name ["MIN"]   }
 ;
 field : field_name
     { [$1] }
