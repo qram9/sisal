@@ -135,6 +135,7 @@ type node_sym =
   | STRM_REST
   | SHL
   | SHR
+  | ASHR
   | SUBTRACT
   | SWIZZLE
   | TAGCASE
@@ -2895,6 +2896,19 @@ and is_array_type ty_id in_gr =
   | Some (Array_ty _) -> true
   | _ -> false
 
+and is_unsigned_type ty_id in_gr =
+  match lookup_type_opt ty_id in_gr with
+  | Some (Basic bc) ->
+      (match bc with
+       | ULONG | UINT | USHORT | UBYTE | UCHAR
+       | ULONG2  | ULONG3  | ULONG4  | ULONG8  | ULONG16
+       | UINT2   | UINT3   | UINT4   | UINT8   | UINT16
+       | USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16
+       | UBYTE2  | UBYTE3  | UBYTE4  | UBYTE8  | UBYTE16
+       | UCHAR2  | UCHAR3  | UCHAR4  | UCHAR8  | UCHAR16 -> true
+       | _ -> false)
+  | _ -> false
+
 and ast_if1_type aty =
   match aty with
   | Byte2 -> BYTE2
@@ -3211,6 +3225,9 @@ and num_to_node_sym = function
   | 72 -> MATVECMUL
   | 73 -> VECMATMUL
   | 74 -> DOT
+  | 75 -> SHL
+  | 76 -> SHR
+  | 77 -> ASHR
   | _ -> raise (Sem_error "Error looking up type")
 
 and node_sym_to_num = function
@@ -3287,10 +3304,11 @@ and node_sym_to_num = function
   | BITAND -> 66
   | BITXOR -> 67
   | BITOR -> 68
-  | SHL -> 69
-  | SHR -> 70
   | STRM_APPEND -> 69
   | STRM_EMPTY -> 70
+  | SHL -> 75
+  | SHR -> 76
+  | ASHR -> 77
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3318,6 +3336,7 @@ and string_of_node_sym = function
   | BITXOR -> "BITWISE_XOR"
   | SHL -> "SHL"
   | SHR -> "SHR"
+  | ASHR -> "ASHR"
   | BOUNDARY -> "BOUNDARY"
   | CONSTANT -> "CONSTANT"
   | EQUAL -> "EQUAL"

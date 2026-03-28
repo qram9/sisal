@@ -2681,7 +2681,12 @@ and do_simple_exp in_gr in_sim_ex =
   | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
   | Add (a, b) -> bin_exp a b in_gr ADD
   | Shl (a, b) -> bin_exp a b in_gr SHL
-  | Shr (a, b) -> bin_exp a b in_gr SHR
+  | Shr (a, b) ->
+      (* OpenGL convention: logical shift (SHR) for unsigned types,
+         arithmetic shift (ASHR, sign-extends) for signed types *)
+      let (_, _, lty), tmp_gr = do_simple_exp in_gr a in
+      let op = if If1.is_unsigned_type lty tmp_gr then If1.SHR else If1.ASHR in
+      bin_exp a b in_gr op
   | And (a, b) -> bin_exp a b in_gr AND
   | Or (a, b) -> bin_exp a b in_gr OR
   | Not e -> unary_exp 1 in_gr e NOT

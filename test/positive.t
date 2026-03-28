@@ -34,6 +34,15 @@ Tuples:
   $ sisal tuple_add.sis
   $ sisal tuple_mixed.sis
 
+Math builtins - scalar:
+  $ sisal builtin_scalar.sis
+
+Math builtins - vector (abs/max/min/mod/floor/trunc on float4/double4/int4):
+  $ sisal builtin_vec.sis
+
+Math builtins - matrix (abs/max/min/sin/cos/sqrt on mat2/mat4):
+  $ sisal builtin_mat.sis
+
 Records and unions:
   $ sisal record.sis
   $ sisal union.sis
