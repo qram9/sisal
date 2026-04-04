@@ -46,7 +46,7 @@ let keyword_table =
       ("TAG",TAG); ("THEN",THEN); ("TREE",TREE);
       ("TRUE",TRUE); ("TUPLE",TUPLE); ("TYPE",TYPE); ("UNION",UNION);
       ("UNLESS",UNLESS); ("UNTIL",UNTIL); ("USING", USING);
-      ("VALUE",VALUE); ("WHILE",WHILE); ("WHEN",WHEN);
+      ("VALUE",VALUE); ("WHILE",WHILE); ("WHEN",WHEN); ("RESHAPE",RESHAPE);
       ("FLOAT2", FLOAT2_TY); ("FLOAT3", FLOAT3_TY); ("FLOAT4", FLOAT4_TY); 
       ("CHAR2", CHAR2_TY);   ("CHAR3", CHAR3_TY);   ("CHAR4", CHAR4_TY);  
       ("HALF2", HALF2_TY);   ("HALF4", HALF4_TY);   ("HALF8", HALF8_TY);  
@@ -229,6 +229,7 @@ and internal_lex = parse
 
  (* 11. Symbols & Operators *)
  | ',' {lex_msg 5 " , "; COMMA}
+ | ".." {lex_msg 5 " .. "; DOTDOT}
  | '.' {lex_msg 5 " . "; DOTSTOP}
  | "<=" {lex_msg 5 " <=\n"; LE}
  | "<" {lex_msg 5 " <=\n"; LT}

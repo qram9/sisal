@@ -145,6 +145,11 @@ type node_sym =
   | VEC
   | VBUILD
   | VSPLAT
+  | DV_CREATE
+  | DV_ELEMENT
+  | DV_REPLACE
+  | DV_GATHER
+  | DV_RESHAPE
 
 type comment = C of string | CDollar of string
 
@@ -241,6 +246,7 @@ type label = int
 
 type if1_ty =
   | Array_ty of label
+  | Array_dv of label * int  (* elem type id, rank *)
   | Basic of basic_code
   | Function_ty of label * label * string
   | Multiple of basic_code
@@ -2701,6 +2707,9 @@ and string_of_if1_ty_recursive tm seen ty =
       string_of_if1_ty ty
   | Typed_error l -> "ERROR [" ^ resolve_and_print tm seen l ^ "]"
   | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
+  | Array_dv (l, rank) ->
+      "array_dv[" ^ string_of_int rank ^ "]["
+      ^ resolve_and_print tm seen l ^ "]"
   | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
       if l2 = 0 then "(" ^ resolve_and_print tm seen l1 ^ ")"
@@ -2766,6 +2775,8 @@ and structurally_equal in_gr seen t1 t2 =
   (* --- Standard Structural Matching --- *)
   | Basic b1, Basic b2 -> b1 = b2
   | Array_ty l1, Array_ty l2 -> resolve_and_compare in_gr seen l1 l2
+  | Array_dv (l1, r1), Array_dv (l2, r2) ->
+      r1 = r2 && resolve_and_compare in_gr seen l1 l2
   | Tuple_ty (l1_a, l1_b), Tuple_ty (l2_a, l2_b) ->
       resolve_and_compare in_gr seen l1_a l2_a
       && resolve_and_compare in_gr seen l1_b l2_b
@@ -2893,7 +2904,7 @@ and lookup_type_opt ty_id in_gr =
 
 and is_array_type ty_id in_gr =
   match lookup_type_opt ty_id in_gr with
-  | Some (Array_ty _) -> true
+  | Some (Array_ty _) | Some (Array_dv _) -> true
   | _ -> false
 
 and is_unsigned_type ty_id in_gr =
@@ -3309,6 +3320,11 @@ and node_sym_to_num = function
   | SHL -> 75
   | SHR -> 76
   | ASHR -> 77
+  | DV_CREATE -> 78
+  | DV_ELEMENT -> 79
+  | DV_REPLACE -> 80
+  | DV_GATHER -> 81
+  | DV_RESHAPE -> 82
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3389,6 +3405,11 @@ and string_of_node_sym = function
   | STRM_EMPTY -> "STREAM_EMPTY"
   | STRM_FIRST -> "STREAM_FIRST"
   | STRM_REST -> "STREAM_REST"
+  | DV_CREATE -> "DV_CREATE"
+  | DV_ELEMENT -> "DV_ELEMENT"
+  | DV_REPLACE -> "DV_REPLACE"
+  | DV_GATHER -> "DV_GATHER"
+  | DV_RESHAPE -> "DV_RESHAPE"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3420,6 +3441,8 @@ and string_of_if1_ty ity =
   match ity with
   | Typed_error a -> "ERROR " ^ quick_lookup_native_type a
   | Array_ty a -> "ARRAY " ^ quick_lookup_native_type a
+  | Array_dv (a, rank) ->
+      "ARRAY_DV[" ^ string_of_int rank ^ "] " ^ quick_lookup_native_type a
   | Basic bc -> string_of_if1_basic_ty bc
   | Function_ty (if1l, if2l, fn_name) ->
       "FUNCTION_TYPE " ^ fn_name ^ " (ARGS: " ^ string_of_int if1l

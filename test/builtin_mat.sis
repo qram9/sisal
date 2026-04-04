@@ -1,0 +1,39 @@
+define builtin_mat,
+  mat_abs_mat2,
+  mat_abs_mat4,
+  mat_max_mat2,
+  mat_min_mat4,
+  mat_sin_mat2,
+  mat_cos_mat4,
+  mat_sqrt_mat2
+
+% abs on matrices (mat2, mat4 are in basic_type_list)
+function mat_abs_mat2 ( m : mat2 returns mat2 )
+  abs(m)
+end function
+
+function mat_abs_mat4 ( m : mat4 returns mat4 )
+  abs(m)
+end function
+
+% max / min on matrices
+function mat_max_mat2 ( a : mat2; b : mat2 returns mat2 )
+  max(a, b)
+end function
+
+function mat_min_mat4 ( a : mat4; b : mat4 returns mat4 )
+  min(a, b)
+end function
+
+% trig / sqrt on matrices (mat is in basic_float_list)
+function mat_sin_mat2 ( m : mat2 returns mat2 )
+  sin(m)
+end function
+
+function mat_cos_mat4 ( m : mat4 returns mat4 )
+  cos(m)
+end function
+
+function mat_sqrt_mat2 ( m : mat2 returns mat2 )
+  sqrt(m)
+end function

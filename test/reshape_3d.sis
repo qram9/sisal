@@ -1,0 +1,28 @@
+% reshape_3d: rank-1 -> rank-3 -> rank-1 round trip.
+%
+% flat[i] = double_real(i) for i in 1..n*m*k
+% vol = reshape(flat, n, m, k)  (rank-3 view)
+% back = reshape(vol, n*m*k)    (back to rank-1)
+%
+% Also slices along vol[1, 1, *] and sums, demonstrating rank-3 indexing.
+
+define reshape_3d
+
+type FlatD = array[double_real];
+
+function test_3d(n, m, k : integer returns double_real)
+let
+  flat :=
+    for i in 1, n * m * k
+    returns array[..] of double_real(i)
+    end for;
+  vol      := reshape(flat, n, m, k);
+  row_sum  :=
+    for p in 1, k
+    returns value of sum vol[1, 1, p]
+    end for;
+  back     := reshape(vol, n * m * k)
+in
+  back[1] + row_sum
+end let
+end function

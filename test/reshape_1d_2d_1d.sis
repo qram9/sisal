@@ -1,0 +1,22 @@
+% reshape_1d_2d_1d: round-trip reshape 1-D -> 2-D -> 1-D
+%
+% Build a flat 1-D dv array of n*m doubles via forall,
+% reshape to rank-2 (n x m), reshape back to rank-1 (n*m).
+% Smoke test: back[1] = flat[1].
+
+define reshape_1d_2d_1d
+
+type FlatD = array[double_real];
+
+function test(n, m : integer returns double_real)
+let
+  flat   :=
+    for i in 1, n * m
+    returns array[..] of double_real(i)
+    end for;
+  mat2d  := reshape(flat, n, m);
+  back1d := reshape(mat2d, n * m)
+in
+  back1d[1]
+end let
+end function

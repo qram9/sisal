@@ -1,0 +1,82 @@
+define builtin_vec,
+  vec_abs_float4,
+  vec_abs_double4,
+  vec_abs_int4,
+  vec_max_float4,
+  vec_max_int4,
+  vec_min_float4,
+  vec_min_int4,
+  vec_mod_int4,
+  vec_floor_float4,
+  vec_floor_double4,
+  vec_trunc_float4,
+  vec_trunc_double4,
+  vec_abs_float2,
+  vec_max_double2,
+  vec_min_long2
+
+% abs on float/double/int vectors
+function vec_abs_float4 ( v : float4 returns float4 )
+  abs(v)
+end function
+
+function vec_abs_double4 ( v : double4 returns double4 )
+  abs(v)
+end function
+
+function vec_abs_int4 ( v : int4 returns int4 )
+  abs(v)
+end function
+
+% max / min on float and int vectors
+function vec_max_float4 ( a : float4; b : float4 returns float4 )
+  max(a, b)
+end function
+
+function vec_max_int4 ( a : int4; b : int4 returns int4 )
+  max(a, b)
+end function
+
+function vec_min_float4 ( a : float4; b : float4 returns float4 )
+  min(a, b)
+end function
+
+function vec_min_int4 ( a : int4; b : int4 returns int4 )
+  min(a, b)
+end function
+
+% mod on integer vectors
+function vec_mod_int4 ( a : int4; b : int4 returns int4 )
+  mod(a, b)
+end function
+
+% floor: float vec -> int vec
+function vec_floor_float4 ( v : float4 returns int4 )
+  floor(v)
+end function
+
+function vec_floor_double4 ( v : double4 returns long4 )
+  floor(v)
+end function
+
+% trunc: float vec -> int vec (toward zero)
+function vec_trunc_float4 ( v : float4 returns int4 )
+  trunc(v)
+end function
+
+function vec_trunc_double4 ( v : double4 returns long4 )
+  trunc(v)
+end function
+
+% width-2 variants
+function vec_abs_float2 ( v : float2 returns float2 )
+  abs(v)
+end function
+
+function vec_max_double2 ( a : double2; b : double2 returns double2 )
+  max(a, b)
+end function
+
+function vec_min_long2 ( a : long2; b : long2 returns long2 )
+  min(a, b)
+end function

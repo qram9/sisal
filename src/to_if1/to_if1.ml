@@ -3279,9 +3279,20 @@ and do_simple_exp in_gr in_sim_ex =
               in
               let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
               let in_gr = If1.add_edge aaa bbb arrnum 0 att in_gr in
-              let inner_ty_num =
+              let inner_ty_num, in_gr =
                 match If1.lookup_ty att in_gr with
-                | If1.Array_ty ij -> ij
+                | If1.Array_ty ij -> (ij, in_gr)
+                | If1.Array_dv (ij, rank) ->
+                    (* Each index consumes one rank dimension.
+                       rank > 1: result is Array_dv(elem, rank-1).
+                       rank = 1: result is the scalar element type ij. *)
+                    if rank <= 1 then (ij, in_gr)
+                    else
+                      let (id, _, _), in_gr =
+                        If1.add_type_to_typemap_dedup
+                          (If1.Array_dv (ij, rank - 1)) in_gr
+                      in
+                      (id, in_gr)
                 | _ ->
                     raise
                       (print_endline
@@ -4275,6 +4286,55 @@ and do_simple_exp in_gr in_sim_ex =
             ((mul_n, mul_p, mul_t), in_gr)
       in
       loopAOrB i in_gr
+  | Dv_create _rank ->
+      (* acreate with tuple arg — placeholder until backend lowering is added *)
+      failwith "Dv_create: not yet implemented"
+  | Reshape (arr, dims) ->
+      (* reshape(A, n, m, ...) → DV_RESHAPE node
+         Port 0: source array (Array_dv rank-1 or higher)
+         Ports 1..N: integer dimension sizes
+         Output: Array_dv(elem_ty, N) where N = List.length dims *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let rank = List.length dims in
+      (* Lower each dimension expression *)
+      let dim_nodes, in_gr =
+        List.fold_left
+          (fun (acc, g) d ->
+            let (dn, dp, dt), g = do_simple_exp g d in
+            let dn, dp, dt = If1.find_incoming_regular_node (dn, dp, dt) g in
+            (acc @ [(dn, dp, dt)], g))
+          ([], in_gr) dims
+      in
+      let in_ports = Array.make (1 + rank) "" in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_RESHAPE, in_ports, Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      (* Wire source array to port 0 *)
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      (* Wire each dimension to ports 1..N *)
+      let in_gr =
+        List.fold_left
+          (fun g (i, (dn, dp, dt)) -> If1.add_edge dn dp rn (i + 1) dt g)
+          in_gr
+          (List.mapi (fun i x -> (i, x)) dim_nodes)
+      in
+      (* Determine element type: unwrap Array_dv or Array_ty *)
+      let elem_ty =
+        match If1.lookup_type_opt at in_gr with
+        | Some (If1.Array_dv (et, _)) -> et
+        | Some (If1.Array_ty et) -> et
+        | _ -> at  (* fallback: treat as scalar *)
+      in
+      let out_ty_id, in_gr =
+        let (id, _, _), g =
+          If1.add_type_to_typemap_dedup (If1.Array_dv (elem_ty, rank)) in_gr
+        in
+        (id, g)
+      in
+      ((rn, rp, out_ty_id), in_gr)
   | Tuple e ->
       (* #(expr) - tuple expression: lower the inner exp and mark the
          resulting MULTIARITY (if any) as a TUPLE_VAL so downstream code
@@ -4347,6 +4407,11 @@ and do_return_exp in_gr ggg =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
       (`Array_of, (an, ap, at), in_gr)
+  | Ast.Dv_array_of (_rank, e) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr e in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      assert (at <> 0);
+      (`Dv_array_of, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
@@ -4429,6 +4494,32 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               in
               create_return_nodes out_gr (in_count + 2) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
+                tl_return_action_list tl_mask_ty_list
+          | `Dv_array_of, tt, aa ->
+              assert (tt <> 0);
+              let (dd, ee, _), out_gr =
+                If1.add_node_2
+                  (`Simple
+                     ( If1.DV_GATHER,
+                       Array.make 2 "",
+                       Array.make 1 "",
+                       [ If1.No_pragma ] ))
+                  out_gr
+              in
+              let what_ty, out_gr =
+                assert (tt <> 0);
+                let (id_x, _, _), out_gr =
+                  If1.add_type_to_typemap_dedup (If1.Array_dv (tt, 1)) out_gr
+                in
+                (id_x, out_gr)
+              in
+              let out_gr =
+                If1.add_edge 0 0 dd 0 5 (*integer type for index*) out_gr
+              in
+              let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
+              let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
+              create_return_nodes out_gr (in_count + 2) (out_count + 1)
+                (out_lis @ [ (`Dv_array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               to_if1_msg 4
@@ -4610,6 +4701,7 @@ and do_returns_clause_list ?(clause_idx = 1) in_gr ret_clause_list
         match ret_action with
         | `FinalVal -> "value"
         | `Array_of -> "array_of"
+        | `Dv_array_of -> "dv_array_of"
         | `Stream_of -> "stream_of"
         | `Reduce (dir, name) ->
             let dir_str =

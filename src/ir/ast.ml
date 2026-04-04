@@ -72,6 +72,8 @@ and simple_exp =
   | Greater_equal of simple_exp * simple_exp
   | Greater of simple_exp * simple_exp
   | Lambda of function_header * exp
+  | Dv_create of int  (* rank: number of .. args to acreate *)
+  | Reshape of simple_exp * simple_exp list  (* array, dimension list *)
   | Pos of (int * int) * simple_exp
 
 and exp = Exp of simple_exp list | Empty
@@ -122,6 +124,7 @@ and value_names = Value_names of string list
 and return_exp =
   | Value_of of direction_op * reduction_op * simple_exp
   | Array_of of simple_exp
+  | Dv_array_of of int * simple_exp  (* rank (number of ..), element expr *)
   | Stream_of of simple_exp
 
 and masking_clause = Unless of simple_exp | When of simple_exp | No_mask
@@ -793,6 +796,9 @@ and str_return_exp = function
       if k.[0] <> '\n' && k.[0] <> ' ' then " " ^ k else k
   | Array_of e ->
       single_space_cate "ARRAY OF" (str_simple_exp ~preceed_space:1 e)
+  | Dv_array_of (rank, e) ->
+      let dots = String.concat ", " (List.init rank (fun _ -> "..")) in
+      single_space_cate ("ARRAY[" ^ dots ^ "] OF") (str_simple_exp ~preceed_space:1 e)
   | Stream_of e -> single_space_cate "STREAM OF" (str_simple_exp e)
 
 and str_masking_clause = function
@@ -1169,6 +1175,12 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Lesser (a, b) -> fst_snd_opnd_exp ~offset "<" a b
   | Greater_equal (a, b) -> fst_snd_opnd_exp ~offset ">=" a b
   | Greater (a, b) -> fst_snd_opnd_exp ~offset ">" a b
+  | Dv_create rank ->
+      let dots = String.concat ", " (List.init rank (fun _ -> "..")) in
+      " ACREATE(" ^ dots ^ ")"
+  | Reshape (arr, dims) ->
+      let dims_str = String.concat ", " (List.map (fun d -> str_simple_exp d) dims) in
+      " RESHAPE(" ^ str_simple_exp arr ^ ", " ^ dims_str ^ ")"
   | Pos (_, e) -> str_simple_exp ~offset ~preceed_space e
   | Array_ref (se, e) ->
       let first_part = str_simple_exp ~preceed_space se in

@@ -29,6 +29,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token COLON
 %token DOT
 %token DOTSTOP
+%token DOTDOT
 %token COMMA
 %token SEMICOLON
 %token LPAREN
@@ -100,6 +101,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token RECORD
 %token REPEAT
 %token REPLACE
+%token RESHAPE
 %token RETURNS
 %token RIGHT
 %token STREAM
@@ -717,8 +719,15 @@ function_nest:
     { Value_of (No_dir,No_red,$3) }
 |   ARRAY OF simple_expression
     { Array_of $3 }
+|   ARRAY LBRACK dotdot_list RBRACK OF simple_expression
+    { Dv_array_of ($3, $6) }
 |   STREAM OF simple_expression
     { Stream_of $3 }
+  ;
+
+  dotdot_list:
+    DOTDOT                          { 1 }
+  | dotdot_list COMMA DOTDOT        { $1 + 1 }
   ;
 
   direction:
@@ -1089,6 +1098,15 @@ invocation :
     { Invocation ($1,Arg Empty)  }
 |   function_name LPAREN expression RPAREN
   { Invocation ($1,Arg $3) }
+| NAME LPAREN dotdot_list RPAREN
+  { Dv_create ($3) }
+| RESHAPE LPAREN simple_expression COMMA reshape_dims RPAREN
+  { Reshape ($3, $5) }
+;
+
+reshape_dims:
+  simple_expression                         { [$1] }
+| reshape_dims COMMA simple_expression      { $1 @ [$3] }
 ;
 function_name : NAME
     { Function_name [$1]  }
