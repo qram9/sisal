@@ -1,0 +1,74 @@
+define builtin_scalar,
+  scalar_abs_int,
+  scalar_abs_real,
+  scalar_abs_double,
+  scalar_max_int,
+  scalar_max_real,
+  scalar_min_int,
+  scalar_min_real,
+  scalar_mod_int,
+  scalar_floor_real,
+  scalar_floor_double,
+  scalar_trunc_real,
+  scalar_trunc_double,
+  scalar_exp_real,
+  scalar_exp_double
+
+function scalar_abs_int ( x : integer returns integer )
+  abs(x)
+end function
+
+function scalar_abs_real ( x : real returns real )
+  abs(x)
+end function
+
+function scalar_abs_double ( x : double returns double )
+  abs(x)
+end function
+
+function scalar_max_int ( a : integer; b : integer returns integer )
+  max(a, b)
+end function
+
+function scalar_max_real ( a : real; b : real returns real )
+  max(a, b)
+end function
+
+function scalar_min_int ( a : integer; b : integer returns integer )
+  min(a, b)
+end function
+
+function scalar_min_real ( a : real; b : real returns real )
+  min(a, b)
+end function
+
+function scalar_mod_int ( a : integer; b : integer returns integer )
+  mod(a, b)
+end function
+
+% floor: float -> integer
+function scalar_floor_real ( x : real returns integer )
+  floor(x)
+end function
+
+function scalar_floor_double ( x : double returns long )
+  floor(x)
+end function
+
+% trunc: float -> integer (truncate toward zero)
+function scalar_trunc_real ( x : real returns integer )
+  trunc(x)
+end function
+
+function scalar_trunc_double ( x : double returns long )
+  trunc(x)
+end function
+
+% exp: base ^ integer-exponent
+function scalar_exp_real ( base : real; n : integer returns real )
+  exp(base, n)
+end function
+
+function scalar_exp_double ( base : double; n : integer returns double )
+  exp(base, n)
+end function

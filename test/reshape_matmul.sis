@@ -1,0 +1,44 @@
+% reshape_matmul: matrix multiply using dv arrays.
+%
+% A is (p x q) and B is (q x r), both built inline as flat rank-1 dv arrays.
+% Reshape to rank-2 for indexing, compute C = A*B (p x r),
+% flatten C back to rank-1; smoke test returns C[1,1].
+%
+% Uses linear-index forall to avoid cross-forall with array[..] of.
+
+define reshape_matmul
+
+type FlatD = array[double_real];
+
+function test(p, q, r : integer returns double_real)
+let
+  % A[i,j] = 1.0 (all ones), row-major
+  A_flat :=
+    for k in 1, p * q
+    returns array[..] of 1.0
+    end for;
+  % B[j,k] = double_real(j + k), row-major, j=(lin-1)/r+1, k=lin-((lin-1)/r)*r
+  B_flat :=
+    for lin in 1, q * r
+      jj := (lin - 1) / r + 1;
+      kk := lin - ((lin - 1) / r) * r
+    returns array[..] of double_real(jj + kk)
+    end for;
+  A := reshape(A_flat, p, q);
+  B := reshape(B_flat, q, r);
+  % C[i,k] = sum over j: A[i,j] * B[j,k]
+  % Linear index: i = (lin-1)/r + 1, k = lin - ((lin-1)/r)*r
+  C_flat :=
+    for lin in 1, p * r
+      ii := (lin - 1) / r + 1;
+      kk := lin - ((lin - 1) / r) * r;
+      Cik := for j in 1, q
+             returns value of sum A[ii, j] * B[j, kk]
+             end for
+    returns array[..] of Cik
+    end for;
+  C := reshape(C_flat, p, r)
+in
+  C[1, 1]
+end let
+end function

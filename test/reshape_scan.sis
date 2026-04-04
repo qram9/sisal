@@ -1,0 +1,28 @@
+% reshape_scan: prefix-sum (triangular numbers) as dv array,
+% reshape to (rows x cols), extract diagonal, flatten back.
+%
+% prefix_sum[i] = i*(i+1)/2  (triangular numbers, computed inline)
+% Reshape to (rows x cols), diagonal elements are mat[d,d].
+% back1d[1] = mat[1,1] = prefix_sum[1] = 1.0
+
+define reshape_scan
+
+type FlatD = array[double_real];
+
+function test(rows, cols : integer returns double_real)
+let
+  flat :=
+    for i in 1, rows * cols
+    returns array[..] of double_real(i * (i + 1)) / 2.0
+    end for;
+  mat    := reshape(flat, rows, cols);
+  sz     := if rows < cols then rows else cols end if;
+  diag   :=
+    for d in 1, sz
+    returns array[..] of mat[d, d]
+    end for;
+  back1d := reshape(diag, sz)
+in
+  back1d[1]
+end let
+end function
