@@ -150,6 +150,44 @@ type node_sym =
   | DV_REPLACE
   | DV_GATHER
   | DV_RESHAPE
+  | DV_SLICE       (* DV_SLICE(A, starts[], sizes[]) → zero-copy view *)
+  | DV_PERMUTE     (* DV_PERMUTE(A, dims[]) → reorder strides, zero-copy *)
+  | DV_ROTATE      (* DV_ROTATE(A, n) → circular shift *)
+  | DV_COMPRESS    (* DV_COMPRESS(A, mask) → Array_sparse *)
+  | DV_OUTERPRODUCT (* DV_OUTERPRODUCT(f, A, B) → outer product *)
+  | DV_GRADE_UP    (* DV_GRADE_UP(A) → ascending sort indices, APL ⍋ *)
+  | DV_GRADE_DOWN  (* DV_GRADE_DOWN(A) → descending sort indices, APL ⍒ *)
+  | DV_SORT        (* DV_SORT(A) → sorted copy *)
+  | DV_REVERSE     (* DV_REVERSE(A) → reversed view, APL monadic ⌽, zero-copy via stride *)
+  | REDUCE_ALL     (* REDUCE_ALL(op, A) → scalar, no forall needed *)
+  | MAP_NODE       (* MAP_NODE(f, A) → same-shape array, APL ¨, also EACH/APPLY *)
+  | FOLDL_NODE     (* FOLDL_NODE(f, init, A) → scalar *)
+  | FOLDR_NODE     (* FOLDR_NODE(f, init, A) → scalar *)
+  | SCAN_NODE      (* SCAN_NODE(f, A) → prefix-scan array, same shape *)
+  | BROADCAST_SCALAR (* BROADCAST_SCALAR(s, A) → replicate scalar to shape of A *)
+  | ARGMAX_NODE      (* ARGMAX(A) or ARGMAX(A, axis) → index/indices of maximum *)
+  | ARGMIN_NODE      (* ARGMIN(A) or ARGMIN(A, axis) → index/indices of minimum *)
+  | NONZERO_NODE     (* NONZERO(A) → Array[int] indices where A ≠ 0 *)
+  | WHERE_NODE       (* WHERE(cond, A, B) → element-wise select *)
+  | REDUCE_AXIS      (* SUM/PRODUCT/LEAST/GREATEST(A, axis) → reduced array *)
+  | MEAN_NODE        (* MEAN(A) or MEAN(A, axis) *)
+  | VARIANCE_NODE    (* VARIANCE(A) or VARIANCE(A, axis) *)
+  | STDDEV_NODE      (* STDDEV(A) or STDDEV(A, axis) *)
+  | ANY_NODE         (* ANY(A) or ANY(A, axis) → boolean reduction *)
+  | ALL_NODE         (* ALL(A) or ALL(A, axis) → boolean reduction *)
+  | NORM_NODE        (* NORM(A, p) → p-norm scalar *)
+  | CUMSUM_NODE      (* CUMSUM(A) → prefix sum, same shape *)
+  | CUMPROD_NODE     (* CUMPROD(A) → prefix product, same shape *)
+  | CONCAT_NODE      (* CONCAT(A, B) → concatenate along last axis *)
+  | TILE_NODE        (* TILE(A, n) → repeat A n times *)
+  | SQUEEZE_NODE     (* SQUEEZE(A) → drop all size-1 dimensions *)
+  | EXPAND_NODE      (* EXPAND(A, k) → insert size-1 dimension at axis k *)
+  | RAVEL_NODE       (* RAVEL(A) → rank-1 view, zero-copy if contiguous, APL monadic , *)
+  | STENCIL_NODE     (* STENCIL(f, A, d0, d1, ..) → sliding window map *)
+  | PAD_NODE         (* PAD(A, lo, hi [, fill]) → padded copy *)
+  | INNERPRODUCT_NODE (* INNERPRODUCT(A,B): dot if rank-1, matmul if rank-2, feeds AMX *)
+  | GET_DOPE_VEC     (* GET_DOPE_VEC(A) → port 0: dope as array[{lo,stride,size}], port 1: A unchanged *)
+  | SHAPE_CHECK      (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
 
 type comment = C of string | CDollar of string
 
@@ -246,7 +284,7 @@ type label = int
 
 type if1_ty =
   | Array_ty of label
-  | Array_dv of label * int  (* elem type id, rank *)
+  | Array_dv of label  (* elem type id; dope-vector array, rank implicit in the DV at runtime *)
   | Basic of basic_code
   | Function_ty of label * label * string
   | Multiple of basic_code
@@ -2649,6 +2687,9 @@ and add_compound_type in_gr = function
   | Sisal_array s ->
       let (iii, _, _), in_gr = add_sisal_type in_gr s in
       add_type_to_typemap_dedup (Array_ty iii) in_gr
+  | Sisal_dv s ->
+      let (iii, _, _), in_gr = add_sisal_type in_gr s in
+      add_type_to_typemap_dedup (Array_dv iii) in_gr
   | Sisal_stream s ->
       let (iii, _, _), in_gr = add_sisal_type in_gr s in
       add_type_to_typemap_dedup (Stream iii) in_gr
@@ -2698,6 +2739,72 @@ and add_compound_type in_gr = function
       ((tup_fst, 0, tup_fst), in_gr)
   | _ -> raise (Node_not_found "In compound type")
 
+(* --------------------------------------------------------------------------
+   Dope-vector type: array[{lo:int, stride:int, size:int}]
+
+   Built lazily the first time it is needed and de-duplicated in the typemap.
+   The Record chain is built from tail → head so the fields appear in the
+   natural order lo/stride/size when printed.
+   -------------------------------------------------------------------------- *)
+
+and ensure_dope_vec_type in_gr =
+  let int_id = lookup_tyid INTEGRAL in
+  (* tail field: size *)
+  let (id_size, _, _), in_gr =
+    add_type_to_typemap_dedup (Record (int_id, 0, "size")) in_gr
+  in
+  (* middle field: stride → size *)
+  let (id_stride, _, _), in_gr =
+    add_type_to_typemap_dedup (Record (int_id, id_size, "stride")) in_gr
+  in
+  (* head field: lo → stride → size *)
+  let (id_lo, _, _), in_gr =
+    add_type_to_typemap_dedup (Record (int_id, id_stride, "lo")) in_gr
+  in
+  (* array[{lo, stride, size}] *)
+  let (dope_ty, _, _), in_gr =
+    add_type_to_typemap_dedup (Array_ty id_lo) in_gr
+  in
+  (dope_ty, in_gr)
+
+(* --------------------------------------------------------------------------
+   Graph traversal: find the node that actually owns the backing store for an
+   array value flowing on edge (n, p).
+
+   Rules:
+   - DV view nodes (ROTATE, REVERSE, SLICE, PERMUTE, RESHAPE, COMPRESS,
+     GATHER) are transparent — the data lives in their first input.
+   - GET_DOPE_VEC port 1 is also transparent (it passes the array through).
+   - Any other node is an allocation site: return it.
+   - Hitting the graph boundary (node 0) or an IF compound node means the
+     data source is ambiguous; raise a meaningful Sem_error.
+   -------------------------------------------------------------------------- *)
+
+and find_array_data_source (n, p) in_gr =
+  (* DV view nodes are zero-copy: the backing store is their port-0 input. *)
+  let dv_transparent =
+    [ DV_ROTATE; DV_REVERSE; DV_SLICE; DV_PERMUTE; DV_RESHAPE; DV_COMPRESS;
+      DV_GATHER ]
+  in
+  if n = 0 then
+    raise
+      (Sem_error
+         "find_array_data_source: reached graph boundary — data source \
+          unknown (array is a function parameter or crossed an IF merge)")
+  else
+    match get_node n in_gr with
+    | Simple (_, sym, _, _, _) when List.mem sym dv_transparent ->
+        (* Traverse through the view node to its source array (port 0 input). *)
+        let src_n, src_p, _ = node_incoming_at_port n 0 in_gr in
+        find_array_data_source (src_n, src_p) in_gr
+    | Simple (_, GET_DOPE_VEC, _, _, _) when p = 1 ->
+        (* Port 1 of GET_DOPE_VEC is the array passthrough; follow port 0. *)
+        let src_n, src_p, _ = node_incoming_at_port n 0 in_gr in
+        find_array_data_source (src_n, src_p) in_gr
+    | _ ->
+        (* Allocation site (forall, for_initial, literal, compound, etc.). *)
+        (n, p)
+
 (* Helper to unroll Tuple_ty chains into a list of strings *)
 
 and string_of_if1_ty_recursive tm seen ty =
@@ -2707,9 +2814,8 @@ and string_of_if1_ty_recursive tm seen ty =
       string_of_if1_ty ty
   | Typed_error l -> "ERROR [" ^ resolve_and_print tm seen l ^ "]"
   | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
-  | Array_dv (l, rank) ->
-      "array_dv[" ^ string_of_int rank ^ "]["
-      ^ resolve_and_print tm seen l ^ "]"
+  | Array_dv l ->
+      "array_dv[" ^ resolve_and_print tm seen l ^ "]"
   | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
       if l2 = 0 then "(" ^ resolve_and_print tm seen l1 ^ ")"
@@ -2775,8 +2881,8 @@ and structurally_equal in_gr seen t1 t2 =
   (* --- Standard Structural Matching --- *)
   | Basic b1, Basic b2 -> b1 = b2
   | Array_ty l1, Array_ty l2 -> resolve_and_compare in_gr seen l1 l2
-  | Array_dv (l1, r1), Array_dv (l2, r2) ->
-      r1 = r2 && resolve_and_compare in_gr seen l1 l2
+  | Array_dv l1, Array_dv l2 ->
+      resolve_and_compare in_gr seen l1 l2
   | Tuple_ty (l1_a, l1_b), Tuple_ty (l2_a, l2_b) ->
       resolve_and_compare in_gr seen l1_a l2_a
       && resolve_and_compare in_gr seen l1_b l2_b
@@ -3325,6 +3431,44 @@ and node_sym_to_num = function
   | DV_REPLACE -> 80
   | DV_GATHER -> 81
   | DV_RESHAPE -> 82
+  | DV_SLICE -> 83
+  | DV_PERMUTE -> 84
+  | DV_ROTATE -> 85
+  | DV_COMPRESS -> 86
+  | DV_OUTERPRODUCT -> 87
+  | DV_GRADE_UP -> 88
+  | DV_GRADE_DOWN -> 89
+  | DV_SORT -> 90
+  | DV_REVERSE -> 91
+  | MAP_NODE -> 92
+  | FOLDL_NODE -> 93
+  | FOLDR_NODE -> 94
+  | SCAN_NODE -> 95
+  | REDUCE_ALL -> 96
+  | BROADCAST_SCALAR -> 97
+  | ARGMAX_NODE -> 98
+  | ARGMIN_NODE -> 99
+  | NONZERO_NODE -> 100
+  | WHERE_NODE -> 101
+  | REDUCE_AXIS -> 102
+  | MEAN_NODE -> 103
+  | VARIANCE_NODE -> 104
+  | STDDEV_NODE -> 105
+  | ANY_NODE -> 106
+  | ALL_NODE -> 107
+  | NORM_NODE -> 108
+  | CUMSUM_NODE -> 109
+  | CUMPROD_NODE -> 110
+  | CONCAT_NODE -> 111
+  | TILE_NODE -> 112
+  | SQUEEZE_NODE -> 113
+  | EXPAND_NODE -> 114
+  | RAVEL_NODE -> 115
+  | STENCIL_NODE -> 116
+  | PAD_NODE -> 117
+  | INNERPRODUCT_NODE -> 118
+  | GET_DOPE_VEC -> 119
+  | SHAPE_CHECK  -> 120
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3410,6 +3554,44 @@ and string_of_node_sym = function
   | DV_REPLACE -> "DV_REPLACE"
   | DV_GATHER -> "DV_GATHER"
   | DV_RESHAPE -> "DV_RESHAPE"
+  | DV_SLICE -> "DV_SLICE"
+  | DV_PERMUTE -> "DV_PERMUTE"
+  | DV_ROTATE -> "DV_ROTATE"
+  | DV_COMPRESS -> "DV_COMPRESS"
+  | DV_OUTERPRODUCT -> "DV_OUTERPRODUCT"
+  | DV_GRADE_UP -> "DV_GRADE_UP"
+  | DV_GRADE_DOWN -> "DV_GRADE_DOWN"
+  | DV_SORT -> "DV_SORT"
+  | DV_REVERSE -> "DV_REVERSE"
+  | MAP_NODE -> "MAP"
+  | REDUCE_ALL -> "REDUCE_ALL"
+  | FOLDL_NODE -> "FOLDL_NODE"
+  | FOLDR_NODE -> "FOLDR_NODE"
+  | SCAN_NODE -> "SCAN_NODE"
+  | BROADCAST_SCALAR -> "BROADCAST_SCALAR"
+  | ARGMAX_NODE -> "ARGMAX"
+  | ARGMIN_NODE -> "ARGMIN"
+  | NONZERO_NODE -> "NONZERO"
+  | WHERE_NODE -> "WHERE"
+  | REDUCE_AXIS -> "REDUCE_AXIS"
+  | MEAN_NODE -> "MEAN"
+  | VARIANCE_NODE -> "VARIANCE"
+  | STDDEV_NODE -> "STDDEV"
+  | ANY_NODE -> "ANY"
+  | ALL_NODE -> "ALL"
+  | NORM_NODE -> "NORM"
+  | CUMSUM_NODE -> "CUMSUM"
+  | CUMPROD_NODE -> "CUMPROD"
+  | CONCAT_NODE -> "CONCAT"
+  | TILE_NODE -> "TILE"
+  | SQUEEZE_NODE -> "SQUEEZE"
+  | EXPAND_NODE -> "EXPAND"
+  | RAVEL_NODE -> "RAVEL"
+  | STENCIL_NODE -> "STENCIL"
+  | PAD_NODE -> "PAD"
+  | INNERPRODUCT_NODE -> "INNERPRODUCT"
+  | GET_DOPE_VEC -> "GET_DOPE_VEC"
+  | SHAPE_CHECK  -> "SHAPE_CHECK"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3441,8 +3623,8 @@ and string_of_if1_ty ity =
   match ity with
   | Typed_error a -> "ERROR " ^ quick_lookup_native_type a
   | Array_ty a -> "ARRAY " ^ quick_lookup_native_type a
-  | Array_dv (a, rank) ->
-      "ARRAY_DV[" ^ string_of_int rank ^ "] " ^ quick_lookup_native_type a
+  | Array_dv a ->
+      "ARRAY_DV " ^ quick_lookup_native_type a
   | Basic bc -> string_of_if1_basic_ty bc
   | Function_ty (if1l, if2l, fn_name) ->
       "FUNCTION_TYPE " ^ fn_name ^ " (ARGS: " ^ string_of_int if1l

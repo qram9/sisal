@@ -74,6 +74,50 @@ and simple_exp =
   | Lambda of function_header * exp
   | Dv_create of int  (* rank: number of .. args to acreate *)
   | Reshape of simple_exp * simple_exp list  (* array, dimension list *)
+  | Permute of simple_exp * simple_exp list  (* PERMUTE(A, d0, d1, ..) reorder dims *)
+  | Reduce of reduction_op * simple_exp               (* SUM(A), PRODUCT(A), etc. *)
+  | Reduce_range of reduction_op * simple_exp * simple_exp * simple_exp (* SUM(A,lo,hi) *)
+  | Each_exp of simple_exp * simple_exp                (* MAP(f, A) *)
+  | Foldl_exp of simple_exp * simple_exp * simple_exp (* FOLDL(f, init, A) *)
+  | Foldr_exp of simple_exp * simple_exp * simple_exp (* FOLDR(f, init, A) *)
+  | Scan_exp of simple_exp * simple_exp               (* SCAN(f, A) prefix scan *)
+  | Take_exp of simple_exp * simple_exp               (* TAKE(N, A) first N elems *)
+  | Drop_exp of simple_exp * simple_exp               (* DROP(N, A) drop first N *)
+  | Rotate_exp of simple_exp * simple_exp             (* ROTATE(N, A) circular shift *)
+  | Compress_exp of simple_exp * simple_exp           (* COMPRESS(mask, A) *)
+  | Outerproduct_exp of simple_exp * simple_exp * simple_exp (* OUTERPRODUCT(f, A, B) *)
+  | Grade_up_exp of simple_exp                         (* GRADE_UP(A) / ARGSORT(A) — ascending sort indices *)
+  | Grade_down_exp of simple_exp                       (* GRADE_DOWN(A) — descending sort indices *)
+  | Sort_exp of simple_exp                            (* SORT(A) *)
+  | Broadcast_exp of simple_exp * simple_exp          (* BROADCAST(scalar, A) *)
+  (* Search / index *)
+  | Argmax_exp of simple_exp * simple_exp option      (* ARGMAX(A) or ARGMAX(A,axis) *)
+  | Argmin_exp of simple_exp * simple_exp option      (* ARGMIN(A) or ARGMIN(A,axis) *)
+  | Nonzero_exp of simple_exp                         (* NONZERO(A) → indices of nonzero *)
+  | Where_exp of simple_exp * simple_exp * simple_exp (* WHERE(cond,A,B) element-wise select *)
+  (* Statistical reductions — optional axis as 2nd positional arg *)
+  | Reduce_axis of reduction_op * simple_exp * simple_exp  (* SUM/PRODUCT/LEAST/GREATEST(A,k) *)
+  | Mean_exp of simple_exp * simple_exp option
+  | Variance_exp of simple_exp * simple_exp option
+  | Stddev_exp of simple_exp * simple_exp option
+  | Any_exp of simple_exp * simple_exp option         (* ANY(A) or ANY(A,axis) *)
+  | All_exp of simple_exp * simple_exp option         (* ALL(A) or ALL(A,axis) *)
+  | Norm_exp of simple_exp * simple_exp               (* NORM(A, p) *)
+  (* Cumulative — sugar over SCAN but named for clarity *)
+  | Cumsum_exp of simple_exp                          (* CUMSUM(A) *)
+  | Cumprod_exp of simple_exp                         (* CUMPROD(A) *)
+  (* Shape manipulation *)
+  | Concat_exp of simple_exp * simple_exp             (* CONCAT(A,B) / CATENATE(A,B) — APL dyadic , *)
+  | Tile_exp of simple_exp * simple_exp               (* TILE(A, n) *)
+  | Squeeze_exp of simple_exp                         (* SQUEEZE(A) drop size-1 dims *)
+  | Expand_exp of simple_exp * simple_exp             (* EXPAND(A, axis) insert size-1 dim *)
+  | Ravel_exp of simple_exp                      (* RAVEL(A) / FLATTEN_DV — rank-1 view, APL monadic , *)
+  | Reverse_exp of simple_exp                    (* REVERSE(A) — APL monadic ⌽ *)
+  (* Stencil / filter *)
+  | Stencil_exp of simple_exp * simple_exp * simple_exp list (* STENCIL(f,A,d0,d1,..) *)
+  | Pad_exp of simple_exp * simple_exp * simple_exp * simple_exp option (* PAD(A,lo,hi[,fill]) *)
+  (* Linear algebra *)
+  | Innerproduct_exp of simple_exp * simple_exp       (* INNERPRODUCT(A,B): dot if 1D, matmul if 2D *)
   | Pos of (int * int) * simple_exp
 
 and exp = Exp of simple_exp list | Empty
@@ -267,6 +311,7 @@ and mat_type =
 
 and compound_type =
   | Sisal_array of sisal_type
+  | Sisal_dv of sisal_type
   | Sisal_stream of sisal_type
   | Sisal_record of (string list * sisal_type) list
   | Sisal_union of (string list * sisal_type) list
@@ -838,6 +883,7 @@ and str_colon_spec = function sl, s -> comma_fold sl ^ ":" ^ str_sisal_type s
 
 and str_compound_type = function
   | Sisal_array s -> "ARRAY " ^ brack (str_sisal_type s)
+  | Sisal_dv s -> "ARRAY_DV " ^ brack (str_sisal_type s)
   | Sisal_stream s -> "STREAM " ^ brack (str_sisal_type s)
   | Sisal_union union_ty_v ->
       "UNION ["
@@ -1181,6 +1227,77 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Reshape (arr, dims) ->
       let dims_str = String.concat ", " (List.map (fun d -> str_simple_exp d) dims) in
       " RESHAPE(" ^ str_simple_exp arr ^ ", " ^ dims_str ^ ")"
+  | Permute (arr, dims) ->
+      let dims_str = String.concat ", " (List.map str_simple_exp dims) in
+      " PERMUTE(" ^ str_simple_exp arr ^ ", " ^ dims_str ^ ")"
+  | Reduce (op, e) ->
+      " " ^ str_reduction op ^ "(" ^ str_simple_exp e ^ ")"
+  | Reduce_range (op, e, lo, hi) ->
+      " " ^ str_reduction op ^ "(" ^ str_simple_exp e ^ ", "
+      ^ str_simple_exp lo ^ ", " ^ str_simple_exp hi ^ ")"
+  | Each_exp (f, a) ->
+      " EACH(" ^ str_simple_exp f ^ ", " ^ str_simple_exp a ^ ")"
+  | Foldl_exp (f, init, a) ->
+      " FOLDL(" ^ str_simple_exp f ^ ", " ^ str_simple_exp init ^ ", " ^ str_simple_exp a ^ ")"
+  | Foldr_exp (f, init, a) ->
+      " FOLDR(" ^ str_simple_exp f ^ ", " ^ str_simple_exp init ^ ", " ^ str_simple_exp a ^ ")"
+  | Scan_exp (f, a) ->
+      " SCAN(" ^ str_simple_exp f ^ ", " ^ str_simple_exp a ^ ")"
+  | Take_exp (n, a) ->
+      " TAKE(" ^ str_simple_exp n ^ ", " ^ str_simple_exp a ^ ")"
+  | Drop_exp (n, a) ->
+      " DROP(" ^ str_simple_exp n ^ ", " ^ str_simple_exp a ^ ")"
+  | Rotate_exp (n, a) ->
+      " ROTATE(" ^ str_simple_exp n ^ ", " ^ str_simple_exp a ^ ")"
+  | Compress_exp (mask, a) ->
+      " COMPRESS(" ^ str_simple_exp mask ^ ", " ^ str_simple_exp a ^ ")"
+  | Outerproduct_exp (f, a, b) ->
+      " OUTERPRODUCT(" ^ str_simple_exp f ^ ", " ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
+  | Grade_up_exp a ->
+      " GRADE_UP(" ^ str_simple_exp a ^ ")"
+  | Grade_down_exp a ->
+      " GRADE_DOWN(" ^ str_simple_exp a ^ ")"
+  | Sort_exp a ->
+      " SORT(" ^ str_simple_exp a ^ ")"
+  | Broadcast_exp (s, a) ->
+      " BROADCAST(" ^ str_simple_exp s ^ ", " ^ str_simple_exp a ^ ")"
+  | Argmax_exp (a, None) -> " ARGMAX(" ^ str_simple_exp a ^ ")"
+  | Argmax_exp (a, Some k) -> " ARGMAX(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Argmin_exp (a, None) -> " ARGMIN(" ^ str_simple_exp a ^ ")"
+  | Argmin_exp (a, Some k) -> " ARGMIN(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Nonzero_exp a -> " NONZERO(" ^ str_simple_exp a ^ ")"
+  | Where_exp (c, a, b) ->
+      " WHERE(" ^ str_simple_exp c ^ ", " ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
+  | Reduce_axis (op, a, k) ->
+      " " ^ str_reduction op ^ "(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Mean_exp (a, None) -> " MEAN(" ^ str_simple_exp a ^ ")"
+  | Mean_exp (a, Some k) -> " MEAN(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Variance_exp (a, None) -> " VARIANCE(" ^ str_simple_exp a ^ ")"
+  | Variance_exp (a, Some k) -> " VARIANCE(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Stddev_exp (a, None) -> " STDDEV(" ^ str_simple_exp a ^ ")"
+  | Stddev_exp (a, Some k) -> " STDDEV(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Any_exp (a, None) -> " ANY(" ^ str_simple_exp a ^ ")"
+  | Any_exp (a, Some k) -> " ANY(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | All_exp (a, None) -> " ALL(" ^ str_simple_exp a ^ ")"
+  | All_exp (a, Some k) -> " ALL(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Norm_exp (a, p) -> " NORM(" ^ str_simple_exp a ^ ", " ^ str_simple_exp p ^ ")"
+  | Cumsum_exp a -> " CUMSUM(" ^ str_simple_exp a ^ ")"
+  | Cumprod_exp a -> " CUMPROD(" ^ str_simple_exp a ^ ")"
+  | Concat_exp (a, b) -> " CONCAT(" ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
+  | Tile_exp (a, n) -> " TILE(" ^ str_simple_exp a ^ ", " ^ str_simple_exp n ^ ")"
+  | Squeeze_exp a -> " SQUEEZE(" ^ str_simple_exp a ^ ")"
+  | Expand_exp (a, k) -> " EXPAND(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Ravel_exp a -> " RAVEL(" ^ str_simple_exp a ^ ")"
+  | Reverse_exp a -> " REVERSE(" ^ str_simple_exp a ^ ")"
+  | Stencil_exp (f, a, dims) ->
+      let ds = String.concat ", " (List.map str_simple_exp dims) in
+      " STENCIL(" ^ str_simple_exp f ^ ", " ^ str_simple_exp a ^ ", " ^ ds ^ ")"
+  | Pad_exp (a, lo, hi, None) ->
+      " PAD(" ^ str_simple_exp a ^ ", " ^ str_simple_exp lo ^ ", " ^ str_simple_exp hi ^ ")"
+  | Pad_exp (a, lo, hi, Some fill) ->
+      " PAD(" ^ str_simple_exp a ^ ", " ^ str_simple_exp lo ^ ", "
+      ^ str_simple_exp hi ^ ", " ^ str_simple_exp fill ^ ")"
+  | Innerproduct_exp (a, b) -> " INNERPRODUCT(" ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
   | Pos (_, e) -> str_simple_exp ~offset ~preceed_space e
   | Array_ref (se, e) ->
       let first_part = str_simple_exp ~preceed_space se in

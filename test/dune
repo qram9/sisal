@@ -1,2 +1,8 @@
 (cram
- (deps %{bin:sisal} (glob_files *.sis)))
+ (deps %{bin:sisal}
+       (glob_files *.sis)
+       (glob_files *.h)
+       (glob_files *.sish)
+       com_defines
+       globals
+       types))

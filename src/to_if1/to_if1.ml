@@ -395,6 +395,7 @@ and deduplicate_types typemap =
     let find id = If1.TM.find_opt id subst_map |> Option.value ~default:id in
     match ty with
     | If1.Array_ty l -> If1.Array_ty (find l)
+    | If1.Array_dv l -> If1.Array_dv (find l)
     | If1.Function_ty (l1, l2, s) -> If1.Function_ty (find l1, find l2, s)
     | If1.Record (l1, l2, s) -> If1.Record (find l1, find l2, s)
     | If1.Tuple_ty (l1, l2) -> If1.Tuple_ty (find l1, find l2)
@@ -886,6 +887,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                     let lookup_array_ty curr_ty in_gr =
                       match If1.lookup_ty curr_ty in_gr with
                       | If1.Array_ty ij -> (curr_ty, ij)
+                      | If1.Array_dv ij -> (curr_ty, ij)
                       | If1.Stream ij -> (curr_ty, ij)
                       | _ ->
                           raise
@@ -2523,10 +2525,244 @@ and create_bool_unary_op nou a in_gr op =
   let (nod_num, nod_po, _), in_gr = unary_exp nou a in_gr op in
   ((nod_num, nod_po, If1.lookup_tyid If1.BOOLEAN), in_gr)
 
+(* Append a GET_DOPE_VEC node after any array-producing expression result.
+   Returns:
+     dope_result  — (node, 0, dope_ty)  : the dope vector on port 0
+     arr_result   — (node, 1, arr_ty)   : the original array passthrough on port 1
+   Both refer to the same GET_DOPE_VEC node so the caller can use whichever
+   port it needs without duplicating work.  The graph is updated once. *)
+(* add_node_2 always returns port 0; GET_DOPE_VEC has 2 out-ports:
+     port 0 = dope   (array[{lo,stride,size}])
+     port 1 = array  (original array passed through unchanged)
+   We therefore hardcode port 1 for the array passthrough. *)
+and emit_get_dope_vec (an, ap, arr_ty) in_gr =
+  let an, ap, arr_ty = If1.find_incoming_regular_node (an, ap, arr_ty) in_gr in
+  let dope_ty, in_gr = If1.ensure_dope_vec_type in_gr in
+  let (gn, _, _), in_gr =
+    If1.add_node_2
+      (`Simple
+         ( If1.GET_DOPE_VEC,
+           Array.make 1 "",
+           [| "dope"; "array" |],
+           [ If1.No_pragma ] ))
+      in_gr
+  in
+  let in_gr = If1.add_edge an ap gn 0 arr_ty in_gr in
+  let dope_result = (gn, 0, dope_ty) in
+  let arr_result  = (gn, 1, arr_ty) in   (* port 1 is the array passthrough *)
+  (dope_result, arr_result, in_gr)
+
+(* Post-processor: if the result of a simple-exp is an array, attach
+   GET_DOPE_VEC so the dope flows explicitly on port 0 of that node.
+   Returns the array passthrough on port 1 as the new expression result.
+   Skips when ty=0 (compound nodes whose type isn't yet tracked here). *)
+and maybe_add_dope (n, p, ty) in_gr =
+  if ty = 0 then ((n, p, ty), in_gr)
+  else
+    match If1.lookup_ty_safe ty in_gr with
+    | Some (If1.Array_ty _) | Some (If1.Array_dv _) ->
+        let _, arr_res, in_gr = emit_get_dope_vec (n, p, ty) in_gr in
+        (arr_res, in_gr)
+    | _ -> ((n, p, ty), in_gr)
+
+(* -----------------------------------------------------------------------
+   Array-lifting helpers
+   Scalar operators (+, -, *, /, comparisons, etc.) are lifted element-wise
+   when one or both operands are arrays.  Broadcasting: if one operand is a
+   scalar the scalar is used directly inside the forall body (no separate
+   BROADCAST_SCALAR node needed).
+
+   Shape-compatibility: we assume equal rank (same Array_ty element type).
+   If both arrays can be statically proven to share the same allocation
+   source (find_array_data_source returns the same node) we skip the runtime
+   check.  Otherwise we wire a SHAPE_MISMATCH error edge using the same
+   pattern as IDIVIDE's DIV0 edge.
+   ----------------------------------------------------------------------- *)
+
+(* Inject an already-lowered value under a fresh name into the current
+   graph's global symtab so a subsequent do_simple_exp can find it. *)
+and inject_sym name (n, p, ty) in_gr =
+  let globals, locals = in_gr.If1.symtab in
+  let entry =
+    { If1.val_name = name; If1.val_ty = ty;
+      If1.val_def = n;     If1.def_port = p }
+  in
+  { in_gr with If1.symtab = (If1.SM.add name entry globals, locals) }
+
+(* true when ty is an array kind *)
+and is_array_ty ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Array_ty _) | Some (If1.Array_dv _) -> true
+  | _ -> false
+
+(* Extract element type id from Array_ty or Array_dv; raises on other types *)
+and array_elem_ty ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Array_ty et) -> et
+  | Some (If1.Array_dv et) -> et
+  | _ -> failwith "array_elem_ty: not an array type"
+
+(* Wire a SHAPE_MISMATCH error edge to the boundary using a SHAPE_CHECK node,
+   unless both arrays are statically proven to share the same allocation source.
+   SHAPE_CHECK takes 2 array inputs and has no normal outputs; its error port 0
+   fires SHAPE_MISMATCH if the array sizes differ at runtime. *)
+and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
+  let same_source =
+    match
+      ( If1.find_array_data_source (an, ap) in_gr,
+        If1.find_array_data_source (bn, bp) in_gr )
+    with
+    | exception _ -> false
+    | src_a, src_b -> src_a = src_b
+  in
+  if same_source then in_gr
+  else
+    let (ck_n, _, _), in_gr =
+      If1.add_node_2
+        (`Simple (If1.SHAPE_CHECK, Array.make 2 "", Array.make 0 "", [ If1.No_pragma ]))
+        in_gr
+    in
+    let in_gr = If1.add_edge an ap ck_n 0 at in_gr in
+    let in_gr = If1.add_edge bn bp ck_n 1 bt in_gr in
+    let (err_ty_id, _, _), in_gr =
+      If1.add_sisal_type in_gr (Ast.Error_ty "SHAPE_MISMATCH")
+    in
+    match If1.get_node_map in_gr |> If1.NM.find 0 with
+    | If1.Boundary (ins, outs, errs, prags) ->
+        let next_err_port = List.length errs + 1 in
+        let in_gr =
+          { in_gr with
+            nmap =
+              If1.NM.add 0
+                (If1.Boundary (ins, outs, errs @ [ (ck_n, err_ty_id) ], prags))
+                in_gr.nmap }
+        in
+        If1.add_edge ck_n 0 0 next_err_port err_ty_id in_gr
+    | _ -> in_gr
+
+(* Build an element-wise forall for a binary op given two already-lowered
+   operands.  va_ref / vb_ref are the AST references to use in the body
+   (either array-index or scalar depending on operand kind).
+   The iterator runs over __VALO..__VAHI (A's bounds when A is an array,
+   or B's bounds when only B is an array). *)
+and lift_binop_forall a_result b_result body_elem in_gr =
+  let (an, ap, at) = a_result and (bn, bp, bt) = b_result in
+  let a_is_arr = is_array_ty at in_gr in
+  let b_is_arr = is_array_ty bt in_gr in
+  (* Choose the array that drives the iteration range *)
+  let (rn, rp, rt) = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
+  let mk_inv fn args =
+    Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+  in
+  (* Inject already-lowered operands under fresh names *)
+  let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+  let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+  let in_gr = inject_sym "__LFRANGE" (rn, rp, rt) in_gr in
+  let range_ref = Ast.Val (Ast.Value_name [ "__LFRANGE" ]) in
+  let lo = mk_inv [ "ARRAY_LIML" ] [ range_ref ] in
+  let hi = mk_inv [ "ARRAY_LIMH" ] [ range_ref ] in
+  let forall =
+    Ast.For_all
+      ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
+        Ast.Decldef_part [],
+        [ Ast.Return_exp (Ast.Array_of body_elem, Ast.No_mask) ] )
+  in
+  let result, in_gr = do_simple_exp_impl in_gr forall in
+  (* Shape check (skipped when same source) *)
+  let in_gr =
+    if a_is_arr && b_is_arr then
+      maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr
+    else in_gr
+  in
+  (result, in_gr)
+
+(* Wire an IF1 binary node from two already-lowered values with widening coercion.
+   Mirrors the inner logic of bin_exp without re-lowering the AST operands. *)
+and direct_scalar_binop (c, pi1, qq1) (d, pi2, qq2) node_tag in_gr =
+  let c, pi1, qq1 =
+    match If1.get_node c in_gr with
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        first_incoming_triple_to_multiarity c in_gr
+    | _ -> (c, pi1, qq1)
+  in
+  let d, pi2, qq2 =
+    match If1.get_node d in_gr with
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        first_incoming_triple_to_multiarity d in_gr
+    | _ -> (d, pi2, qq2)
+  in
+  let (c, pi1, qq1), (d, pi2, qq2), common_ty, in_gr =
+    if qq1 = qq2 then ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+    else
+      match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
+      | Some r1, Some r2 ->
+          if r1 < r2 then
+            let (c, pi1, qq1), in_gr = insert_typecast c pi1 qq1 qq2 in_gr in
+            ((c, pi1, qq1), (d, pi2, qq2), qq2, in_gr)
+          else if r2 < r1 then
+            let (d, pi2, qq2), in_gr = insert_typecast d pi2 qq2 qq1 in_gr in
+            ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+          else ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+      | _ ->
+          raise (If1.Sem_error "Type mismatch in binary op")
+  in
+  let (z, _, _), in_gr =
+    If1.add_node_2
+      (`Simple (node_tag, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+      in_gr
+  in
+  let in_gr = If1.add_edge c pi1 z 0 common_ty in_gr in
+  let in_gr = If1.add_edge d pi2 z 1 common_ty in_gr in
+  ((z, 0, common_ty), in_gr)
+
+(* Wire an IF1 unary node from an already-lowered value. *)
+and direct_scalar_unop (en, ep, et) node_tag in_gr =
+  let en, ep, et =
+    match If1.get_node en in_gr with
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        first_incoming_triple_to_multiarity en in_gr
+    | _ -> (en, ep, et)
+  in
+  let (rn, _, _), in_gr =
+    If1.add_node_2
+      (`Simple (node_tag, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+      in_gr
+  in
+  let in_gr = If1.add_edge en ep rn 0 et in_gr in
+  ((rn, 0, et), in_gr)
+
+(* Build an element-wise forall for a unary op given an already-lowered array.
+   body_fn receives the indexed element (A[i]) and returns the body AST node. *)
+and lift_unop_forall (en, ep, et) body_fn in_gr =
+  let mk_inv fn args =
+    Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+  in
+  let in_gr = inject_sym "__LFE" (en, ep, et) in_gr in
+  let e_ref = Ast.Val (Ast.Value_name [ "__LFE" ]) in
+  let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+  let lo = mk_inv [ "ARRAY_LIML" ] [ e_ref ] in
+  let hi = mk_inv [ "ARRAY_LIMH" ] [ e_ref ] in
+  let body = body_fn (Ast.Array_ref (e_ref, Ast.Exp [ i_ref ])) in
+  let forall =
+    Ast.For_all
+      ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
+        Ast.Decldef_part [],
+        [ Ast.Return_exp (Ast.Array_of body, Ast.No_mask) ] )
+  in
+  do_simple_exp_impl in_gr forall
+
 and do_simple_exp in_gr in_sim_ex =
+  do_simple_exp_impl in_gr in_sim_ex
+
+and do_simple_exp_impl in_gr in_sim_ex =
   match in_sim_ex with
   | Constant x -> do_constant in_gr x
-  | Negate e -> unary_exp 1 in_gr e NEGATE
+  | Negate e ->
+      let (en, ep, et), in_gr = do_simple_exp in_gr e in
+      if is_array_ty et in_gr then
+        lift_unop_forall (en, ep, et) (fun elem -> Ast.Negate elem) in_gr
+      else
+        direct_scalar_unop (en, ep, et) If1.NEGATE in_gr
   | Pipe (a, b) -> bin_exp a b in_gr ACATENATE
   | Divide (left, right) ->
       let (div_node, div_port, div_ty), in_gr =
@@ -2624,6 +2860,15 @@ and do_simple_exp in_gr in_sim_ex =
       (* Lower both sides first to check their types *)
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      (* Element-wise array multiplication takes priority over mat/vec dispatch *)
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Multiply (ae, be)) in_gr
+      else
       (* Unwrap MULTIARITY nodes (e.g. for-loop results) to get actual type *)
       let an, ap, at =
         match If1.get_node an in_gr with
@@ -2678,24 +2923,164 @@ and do_simple_exp in_gr in_sim_ex =
           let in_gr = If1.add_edge an ap tn 0 common_ty in_gr in
           let in_gr = If1.add_edge bn bp tn 1 common_ty in_gr in
           ((tn, tp, common_ty), in_gr))
-  | Subtract (a, b) -> bin_exp a b in_gr SUBTRACT
-  | Add (a, b) -> bin_exp a b in_gr ADD
-  | Shl (a, b) -> bin_exp a b in_gr SHL
+  | Subtract (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Subtract (ae, be)) in_gr
+      else
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.SUBTRACT in_gr
+  | Add (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Add (ae, be)) in_gr
+      else
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.ADD in_gr
+  | Shl (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Shl (ae, be)) in_gr
+      else
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.SHL in_gr
   | Shr (a, b) ->
-      (* OpenGL convention: logical shift (SHR) for unsigned types,
-         arithmetic shift (ASHR, sign-extends) for signed types *)
-      let (_, _, lty), tmp_gr = do_simple_exp in_gr a in
-      let op = if If1.is_unsigned_type lty tmp_gr then If1.SHR else If1.ASHR in
-      bin_exp a b in_gr op
-  | And (a, b) -> bin_exp a b in_gr AND
-  | Or (a, b) -> bin_exp a b in_gr OR
-  | Not e -> unary_exp 1 in_gr e NOT
-  | Not_equal (a, b) -> create_bool_bin_op a b in_gr NOT_EQUAL
-  | Equal (a, b) -> create_bool_bin_op a b in_gr EQUAL
-  | Lesser_equal (a, b) -> create_bool_bin_op a b in_gr LESSER_EQUAL
-  | Lesser (a, b) -> create_bool_bin_op a b in_gr LESSER
-  | Greater_equal (a, b) -> create_bool_bin_op a b in_gr GREATER_EQUAL
-  | Greater (a, b) -> create_bool_bin_op a b in_gr GREATER
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Shr (ae, be)) in_gr
+      else
+        (* OpenGL convention: logical shift for unsigned, arithmetic for signed *)
+        let op = if If1.is_unsigned_type at in_gr then If1.SHR else If1.ASHR in
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) op in_gr
+  | And (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.And (ae, be)) in_gr
+      else
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.AND in_gr
+  | Or (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Or (ae, be)) in_gr
+      else
+        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.OR in_gr
+  | Not e ->
+      let (en, ep, et), in_gr = do_simple_exp in_gr e in
+      if is_array_ty et in_gr then
+        lift_unop_forall (en, ep, et) (fun elem -> Ast.Not elem) in_gr
+      else
+        direct_scalar_unop (en, ep, et) If1.NOT in_gr
+  | Not_equal (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Not_equal (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.NOT_EQUAL in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Equal (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Equal (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.EQUAL in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Lesser_equal (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Lesser_equal (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.LESSER_EQUAL in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Lesser (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Lesser (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.LESSER in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Greater_equal (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Greater_equal (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.GREATER_EQUAL in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Greater (a, b) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      if is_array_ty at in_gr || is_array_ty bt in_gr then
+        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Greater (ae, be)) in_gr
+      else
+        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.GREATER in_gr in
+        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | Vec (vect, el) ->
       (* 1. Determine expected width from the AST type *)
       let expected_len = Ast.get_vec_len vect in
@@ -2800,6 +3185,228 @@ and do_simple_exp in_gr in_sim_ex =
   | Invocation (Ast.Function_name fn, arg) -> (
       let deref_fn = String.concat "." fn in
       match deref_fn with
+      (* SUM/PRODUCT/LEAST/GREATEST as APL bulk reductions.
+         These tokens also appear in reduction_op (for "returns value of sum"),
+         so the grammar routes SUM(arr) through Invocation rather than as
+         explicit grammar rules (which caused shift/reduce conflicts).
+         We dispatch to the Reduce / Reduce_range AST nodes here. *)
+      | ("SUM" | "PRODUCT" | "LEAST" | "GREATEST") as red_fn ->
+          let red_op = match red_fn with
+            | "SUM" -> Ast.Sum | "PRODUCT" -> Ast.Product
+            | "LEAST" -> Ast.Least | _ -> Ast.Greatest
+          in
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Reduce (red_op, arr))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Reduce_axis (red_op, arr, axis))
+          | Ast.Arg (Ast.Exp [arr; lo; hi]) ->
+              do_simple_exp in_gr (Ast.Reduce_range (red_op, arr, lo, hi))
+          | _ ->
+              raise (If1.Sem_error
+                (red_fn ^ ": expected SUM(arr), SUM(arr,axis), or SUM(arr,lo,hi)")))
+      (* ROTATE(arr, k) — APL circular shift.  The grammar routes ROTATE through
+         function_name to avoid a shift/reduce conflict with user-defined 1-arg
+         calls (e.g. Rotate(A) in para.sis).  If ROTATE IS in the symtab, the
+         | _ path below handles it as a regular call.  Here we only intercept the
+         2-arg APL form when ROTATE is not user-defined. *)
+      | "ROTATE"
+          when (let cs, ps = in_gr.If1.symtab in
+                not (If1.SM.mem "ROTATE" cs || If1.SM.mem "ROTATE" ps))
+            && (match arg with Ast.Arg (Ast.Exp [_; _]) -> true | _ -> false)
+        ->
+          let (arr, k) = match arg with
+            | Ast.Arg (Ast.Exp [a; k]) -> (a, k)
+            | _ -> assert false
+          in
+          do_simple_exp in_gr (Ast.Rotate_exp (arr, k))
+      (* APL bulk operations — all arrive as NAME tokens (case-insensitive).
+         Each case dispatches to the corresponding AST node handler. *)
+      | ("MAP" | "EACH" | "APPLY") ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [f; arr]) ->
+              do_simple_exp in_gr (Ast.Each_exp (f, arr))
+          | _ -> raise (If1.Sem_error "MAP: expected MAP(f, arr)"))
+      | "FOLDL" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [f; init; arr]) ->
+              do_simple_exp in_gr (Ast.Foldl_exp (f, init, arr))
+          | _ -> raise (If1.Sem_error "FOLDL: expected FOLDL(f, init, arr)"))
+      | "FOLDR" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [f; init; arr]) ->
+              do_simple_exp in_gr (Ast.Foldr_exp (f, init, arr))
+          | _ -> raise (If1.Sem_error "FOLDR: expected FOLDR(f, init, arr)"))
+      | "SCAN" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [f; arr]) ->
+              do_simple_exp in_gr (Ast.Scan_exp (f, arr))
+          | _ -> raise (If1.Sem_error "SCAN: expected SCAN(f, arr)"))
+      | "TAKE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; n]) ->
+              do_simple_exp in_gr (Ast.Take_exp (arr, n))
+          | _ -> raise (If1.Sem_error "TAKE: expected TAKE(arr, n)"))
+      | "DROP" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; n]) ->
+              do_simple_exp in_gr (Ast.Drop_exp (arr, n))
+          | _ -> raise (If1.Sem_error "DROP: expected DROP(arr, n)"))
+      | "COMPRESS" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [mask; arr]) ->
+              do_simple_exp in_gr (Ast.Compress_exp (mask, arr))
+          | _ -> raise (If1.Sem_error "COMPRESS: expected COMPRESS(mask, arr)"))
+      | "REVERSE"
+          when (let cs, ps = in_gr.If1.symtab in
+                not (If1.SM.mem "REVERSE" cs || If1.SM.mem "REVERSE" ps)) ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Reverse_exp arr)
+          | _ -> raise (If1.Sem_error "REVERSE: expected REVERSE(arr)"))
+      | "SORT"
+          when (let cs, ps = in_gr.If1.symtab in
+                not (If1.SM.mem "SORT" cs || If1.SM.mem "SORT" ps)) ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Sort_exp arr)
+          | _ -> raise (If1.Sem_error "SORT: expected SORT(arr)"))
+      | "OUTERPRODUCT" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [f; a; b]) ->
+              do_simple_exp in_gr (Ast.Outerproduct_exp (f, a, b))
+          | _ -> raise (If1.Sem_error "OUTERPRODUCT: expected OUTERPRODUCT(f, a, b)"))
+      | ("GRADE_UP" | "ARGSORT") ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Grade_up_exp arr)
+          | _ -> raise (If1.Sem_error "GRADE_UP: expected GRADE_UP(arr)"))
+      | "GRADE_DOWN" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Grade_down_exp arr)
+          | _ -> raise (If1.Sem_error "GRADE_DOWN: expected GRADE_DOWN(arr)"))
+      | "ARGMAX" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Argmax_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Argmax_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "ARGMAX: expected ARGMAX(arr) or ARGMAX(arr, axis)"))
+      | "ARGMIN" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Argmin_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Argmin_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "ARGMIN: expected ARGMIN(arr) or ARGMIN(arr, axis)"))
+      | "NONZERO" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Nonzero_exp arr)
+          | _ -> raise (If1.Sem_error "NONZERO: expected NONZERO(arr)"))
+      | "WHERE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [cond; a; b]) ->
+              do_simple_exp in_gr (Ast.Where_exp (cond, a, b))
+          | _ -> raise (If1.Sem_error "WHERE: expected WHERE(cond, a, b)"))
+      | "MEAN" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Mean_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Mean_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "MEAN: expected MEAN(arr) or MEAN(arr, axis)"))
+      | "VARIANCE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Variance_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Variance_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "VARIANCE: expected VARIANCE(arr) or VARIANCE(arr, axis)"))
+      | "STDDEV" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Stddev_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Stddev_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "STDDEV: expected STDDEV(arr) or STDDEV(arr, axis)"))
+      | "ANY" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Any_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.Any_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "ANY: expected ANY(arr) or ANY(arr, axis)"))
+      | "ALL" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.All_exp (arr, None))
+          | Ast.Arg (Ast.Exp [arr; axis]) ->
+              do_simple_exp in_gr (Ast.All_exp (arr, Some axis))
+          | _ -> raise (If1.Sem_error "ALL: expected ALL(arr) or ALL(arr, axis)"))
+      | "NORM" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; p]) ->
+              do_simple_exp in_gr (Ast.Norm_exp (arr, p))
+          | _ -> raise (If1.Sem_error "NORM: expected NORM(arr, p)"))
+      | "CUMSUM" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Cumsum_exp arr)
+          | _ -> raise (If1.Sem_error "CUMSUM: expected CUMSUM(arr)"))
+      | "CUMPROD" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Cumprod_exp arr)
+          | _ -> raise (If1.Sem_error "CUMPROD: expected CUMPROD(arr)"))
+      | ("CONCAT" | "CATENATE_OP") ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [a; b]) ->
+              do_simple_exp in_gr (Ast.Concat_exp (a, b))
+          | _ -> raise (If1.Sem_error "CONCAT: expected CONCAT(a, b)"))
+      | "TILE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; n]) ->
+              do_simple_exp in_gr (Ast.Tile_exp (arr, n))
+          | _ -> raise (If1.Sem_error "TILE: expected TILE(arr, n)"))
+      | "SQUEEZE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Squeeze_exp arr)
+          | _ -> raise (If1.Sem_error "SQUEEZE: expected SQUEEZE(arr)"))
+      | "EXPAND" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; k]) ->
+              do_simple_exp in_gr (Ast.Expand_exp (arr, k))
+          | _ -> raise (If1.Sem_error "EXPAND: expected EXPAND(arr, k)"))
+      | ("RAVEL" | "FLATTEN_DV") ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr]) ->
+              do_simple_exp in_gr (Ast.Ravel_exp arr)
+          | _ -> raise (If1.Sem_error "RAVEL: expected RAVEL(arr)"))
+      | "STENCIL" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp (f :: arr :: dims)) ->
+              do_simple_exp in_gr (Ast.Stencil_exp (f, arr, dims))
+          | _ -> raise (If1.Sem_error "STENCIL: expected STENCIL(f, arr, d1, ...)"))
+      | "PAD" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp [arr; lo; hi]) ->
+              do_simple_exp in_gr (Ast.Pad_exp (arr, lo, hi, None))
+          | Ast.Arg (Ast.Exp [arr; lo; hi; fill]) ->
+              do_simple_exp in_gr (Ast.Pad_exp (arr, lo, hi, Some fill))
+          | _ -> raise (If1.Sem_error "PAD: expected PAD(arr, lo, hi) or PAD(arr, lo, hi, fill)"))
+      | "RESHAPE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp (arr :: dims)) ->
+              do_simple_exp in_gr (Ast.Reshape (arr, dims))
+          | _ -> raise (If1.Sem_error "RESHAPE: expected RESHAPE(arr, d1, ...)"))
+      | "PERMUTE" ->
+          (match arg with
+          | Ast.Arg (Ast.Exp (arr :: dims)) ->
+              do_simple_exp in_gr (Ast.Permute (arr, dims))
+          | _ -> raise (If1.Sem_error "PERMUTE: expected PERMUTE(arr, d1, ...)"))
       (*TODO: More libs *)
       | "ACREATE"
         when let cs, ps = in_gr.If1.symtab in
@@ -3282,17 +3889,10 @@ and do_simple_exp in_gr in_sim_ex =
               let inner_ty_num, in_gr =
                 match If1.lookup_ty att in_gr with
                 | If1.Array_ty ij -> (ij, in_gr)
-                | If1.Array_dv (ij, rank) ->
-                    (* Each index consumes one rank dimension.
-                       rank > 1: result is Array_dv(elem, rank-1).
-                       rank = 1: result is the scalar element type ij. *)
-                    if rank <= 1 then (ij, in_gr)
-                    else
-                      let (id, _, _), in_gr =
-                        If1.add_type_to_typemap_dedup
-                          (If1.Array_dv (ij, rank - 1)) in_gr
-                      in
-                      (id, in_gr)
+                | If1.Array_dv ij ->
+                    (* Indexing a dv array always yields the element type.
+                       Multi-dimensional indexing goes through DV_ELEMENT. *)
+                    (ij, in_gr)
                 | _ ->
                     raise
                       (print_endline
@@ -4055,11 +4655,15 @@ and do_simple_exp in_gr in_sim_ex =
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
-      let (fx, fy, fz), _, in_gr = do_for_all i d r in_gr in
-      (* TODO: Need To Check Vs If1, Add Assoc List *)
-      (* How Do We Tie Up Results To Calling Function
-        Or To A Let Var *)
-      ((fx, fy, fz), in_gr)
+      let (fx, fy, _), ret_actions, in_gr = do_for_all i d r in_gr in
+      (* Propagate the actual array type so maybe_add_dope (called by the
+         do_simple_exp wrapper) can insert GET_DOPE_VEC automatically. *)
+      let ty =
+        match ret_actions with
+        | (`Array_of, arr_ty, _) :: _ -> arr_ty
+        | _ -> 0
+      in
+      ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
       let add_decls in_gr dp =
@@ -4210,7 +4814,7 @@ and do_simple_exp in_gr in_sim_ex =
             to_if1_msg 3 "LoopA: tying outer scope to inner, multiarity node=%d"
               mul_n;
             let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
-            ((mul_n, mul_p, mul_t), in_gr)
+            ((mul_n, mul_p, mul_t), return_action_list, in_gr)
         | Termination_iterator (t, ii) ->
             to_if1_msg 3 "LoopB: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
@@ -4283,9 +4887,15 @@ and do_simple_exp in_gr in_sim_ex =
             to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
               mul_n;
             let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
-            ((mul_n, mul_p, mul_t), in_gr)
+            ((mul_n, mul_p, mul_t), return_action_list, in_gr)
       in
-      loopAOrB i in_gr
+      let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
+      let ty =
+        match ret_actions with
+        | (`Array_of, arr_ty, _) :: _ -> arr_ty
+        | _ -> 0
+      in
+      ((mul_n, mul_p, ty), in_gr)
   | Dv_create _rank ->
       (* acreate with tuple arg — placeholder until backend lowering is added *)
       failwith "Dv_create: not yet implemented"
@@ -4324,17 +4934,1021 @@ and do_simple_exp in_gr in_sim_ex =
       (* Determine element type: unwrap Array_dv or Array_ty *)
       let elem_ty =
         match If1.lookup_type_opt at in_gr with
-        | Some (If1.Array_dv (et, _)) -> et
+        | Some (If1.Array_dv et) -> et
         | Some (If1.Array_ty et) -> et
         | _ -> at  (* fallback: treat as scalar *)
       in
+      let _ = rank in  (* rank is carried by the DV_RESHAPE node's input port count *)
       let out_ty_id, in_gr =
         let (id, _, _), g =
-          If1.add_type_to_typemap_dedup (If1.Array_dv (elem_ty, rank)) in_gr
+          If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty) in_gr
         in
         (id, g)
       in
       ((rn, rp, out_ty_id), in_gr)
+  | Permute (arr, dims) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let rank = List.length dims in
+      let dim_triples, in_gr =
+        List.fold_left (fun (acc, g) d ->
+          let (dn, dp, dt), g = do_simple_exp g d in
+          (acc @ [(dn, dp, dt)], g))
+          ([], in_gr) dims
+      in
+      let in_ports = Array.make (1 + rank) "" in
+      let (pn, pp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_PERMUTE, in_ports, Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap pn 0 at in_gr in
+      let in_gr =
+        List.fold_left (fun g (i, (dn, dp, dt)) ->
+          If1.add_edge dn dp pn (i + 1) dt g)
+          in_gr (List.mapi (fun i t -> (i, t)) dim_triples)
+      in
+      ((pn, pp, at), in_gr)
+  (* ------------------------------------------------------------------ *)
+  (* Helpers shared by the bulk-array cases below                       *)
+  (* ------------------------------------------------------------------ *)
+  | Reduce (op, arr) ->
+      (* for __RX in arr returns <op> of __RX *)
+      do_simple_exp in_gr
+        (Ast.For_all (
+           Ast.In_exp (Ast.Value_name [ "__RX" ], Ast.Exp [ arr ]),
+           Ast.Decldef_part [],
+           [ Ast.Return_exp
+               (Ast.Value_of (Ast.No_dir, op, Ast.Val (Ast.Value_name [ "__RX" ])),
+                Ast.No_mask) ]))
+  | Reduce_range (op, arr, lo, hi) ->
+      (* for __RI in lo..hi returns <op> of arr[__RI] *)
+      do_simple_exp in_gr
+        (Ast.For_all (
+           Ast.In_exp (Ast.Value_name [ "__RI" ], Ast.Exp [ lo; hi ]),
+           Ast.Decldef_part [],
+           [ Ast.Return_exp
+               (Ast.Value_of
+                  ( Ast.No_dir,
+                    op,
+                    Ast.Array_ref (arr, Ast.Exp [ Ast.Val (Ast.Value_name [ "__RI" ]) ]) ),
+                Ast.No_mask) ]))
+  | Each_exp (f_exp, arr) ->
+      (* for __EX in arr returns array of f(__EX) *)
+      let rec unwrap_pos = function
+        | Ast.Pos (_, e) -> unwrap_pos e
+        | e -> e
+      in
+      let fn_parts =
+        match unwrap_pos f_exp with
+        | Ast.Val (Ast.Value_name parts) -> Some parts
+        | _ -> None
+      in
+      (match fn_parts with
+      | Some parts ->
+          do_simple_exp in_gr
+            (Ast.For_all (
+               Ast.In_exp (Ast.Value_name [ "__EX" ], Ast.Exp [ arr ]),
+               Ast.Decldef_part [],
+               [ Ast.Return_exp
+                   (Ast.Array_of
+                      (Ast.Invocation
+                         ( Ast.Function_name parts,
+                           Ast.Arg (Ast.Exp [ Ast.Val (Ast.Value_name [ "__EX" ]) ]) )),
+                    Ast.No_mask) ]))
+      | None ->
+          (* Inline function expression: bind to a temp name, then recurse *)
+          do_simple_exp in_gr
+            (Ast.Let (
+               Ast.Decldef_part
+                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__MAPF" ] ],
+                                Ast.Exp [ f_exp ]) ],
+               Ast.Exp [ Ast.Each_exp (Ast.Val (Ast.Value_name [ "__MAPF" ]), arr) ])))
+  | Foldl_exp (f_exp, init, arr) ->
+      (* let __FA := arr in
+         for initial __FACC := init; __FI := liml(__FA); __FHI := limh(__FA)
+         while __FI <= __FHI repeat
+           __FACC := f(old __FACC, __FA[old __FI]); __FI := old __FI + 1
+         returns value of __FACC *)
+      let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
+      let fn_parts =
+        match unwrap_pos f_exp with
+        | Ast.Val (Ast.Value_name parts) -> Some parts
+        | _ -> None
+      in
+      (match fn_parts with
+      | None ->
+          do_simple_exp in_gr
+            (Ast.Let (
+               Ast.Decldef_part
+                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
+                                Ast.Exp [ f_exp ]) ],
+               Ast.Exp [ Ast.Foldl_exp (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr) ]))
+      | Some fn_parts ->
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+      let a_ref = Ast.Val (Ast.Value_name [ "__FA" ]) in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__FA" ] ], Ast.Exp [ arr ]) ],
+             Ast.Exp
+               [ Ast.For_initial
+                   ( Ast.Decldef_part
+                       [ Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FACC" ] ],
+                             Ast.Exp [ init ] );
+                         Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FI" ] ],
+                             Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                         Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FHI" ] ],
+                             Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
+                     Ast.Termination_iterator
+                       ( Ast.While
+                           (Ast.Exp
+                              [ Ast.Lesser_equal
+                                  ( Ast.Val (Ast.Value_name [ "__FI" ]),
+                                    Ast.Val (Ast.Value_name [ "__FHI" ]) ) ]),
+                         Ast.Repeat
+                           (Ast.Decldef_part
+                              [ Ast.Decldef
+                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FACC" ] ],
+                                    Ast.Exp
+                                      [ mk_inv fn_parts
+                                          [ mk_old "__FACC";
+                                            Ast.Array_ref
+                                              ( a_ref,
+                                                Ast.Exp [ mk_old "__FI" ] ) ] ] );
+                                Ast.Decldef
+                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FI" ] ],
+                                    Ast.Exp
+                                      [ Ast.Add
+                                          ( mk_old "__FI",
+                                            Ast.Constant (Ast.Int 1) ) ] ) ]) ),
+                     [ Ast.Return_exp
+                         ( Ast.Value_of
+                             ( Ast.No_dir,
+                               Ast.No_red,
+                               Ast.Val (Ast.Value_name [ "__FACC" ]) ),
+                           Ast.No_mask ) ] ) ] )))
+  | Foldr_exp (f_exp, init, arr) ->
+      (* Traverse right-to-left: f(A[i], acc) *)
+      let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
+      let fn_parts =
+        match unwrap_pos f_exp with
+        | Ast.Val (Ast.Value_name parts) -> Some parts
+        | _ -> None
+      in
+      (match fn_parts with
+      | None ->
+          do_simple_exp in_gr
+            (Ast.Let (
+               Ast.Decldef_part
+                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
+                                Ast.Exp [ f_exp ]) ],
+               Ast.Exp [ Ast.Foldr_exp (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr) ]))
+      | Some fn_parts ->
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+      let a_ref = Ast.Val (Ast.Value_name [ "__FRA" ]) in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__FRA" ] ], Ast.Exp [ arr ]) ],
+             Ast.Exp
+               [ Ast.For_initial
+                   ( Ast.Decldef_part
+                       [ Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRACC" ] ],
+                             Ast.Exp [ init ] );
+                         Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRI" ] ],
+                             Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] );
+                         Ast.Decldef
+                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRLO" ] ],
+                             Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] ) ],
+                     Ast.Termination_iterator
+                       ( Ast.While
+                           (Ast.Exp
+                              [ Ast.Greater_equal
+                                  ( Ast.Val (Ast.Value_name [ "__FRI" ]),
+                                    Ast.Val (Ast.Value_name [ "__FRLO" ]) ) ]),
+                         Ast.Repeat
+                           (Ast.Decldef_part
+                              [ Ast.Decldef
+                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRACC" ] ],
+                                    Ast.Exp
+                                      [ mk_inv fn_parts
+                                          [ Ast.Array_ref
+                                              ( a_ref,
+                                                Ast.Exp [ mk_old "__FRI" ] );
+                                            mk_old "__FRACC" ] ] );
+                                Ast.Decldef
+                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRI" ] ],
+                                    Ast.Exp
+                                      [ Ast.Subtract
+                                          ( mk_old "__FRI",
+                                            Ast.Constant (Ast.Int 1) ) ] ) ]) ),
+                     [ Ast.Return_exp
+                         ( Ast.Value_of
+                             ( Ast.No_dir,
+                               Ast.No_red,
+                               Ast.Val (Ast.Value_name [ "__FRACC" ]) ),
+                           Ast.No_mask ) ] ) ] )))
+  | Scan_exp (f_exp, arr) ->
+      (* APL f\A — inclusive prefix scan.
+         Empty input → empty output (APL rule).
+         Non-empty: out[lo] = A[lo]; out[lo+k] = f(out[lo+k-1], A[lo+k]). *)
+      let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
+      let fn_parts =
+        match unwrap_pos f_exp with
+        | Ast.Val (Ast.Value_name parts) -> Some parts
+        | _ -> None
+      in
+      (match fn_parts with
+      | None ->
+          do_simple_exp in_gr
+            (Ast.Let (
+               Ast.Decldef_part
+                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__SCNF" ] ],
+                                Ast.Exp [ f_exp ]) ],
+               Ast.Exp [ Ast.Scan_exp (Ast.Val (Ast.Value_name [ "__SCNF" ]), arr) ]))
+      | Some fn_parts ->
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+      let a_ref  = Ast.Val (Ast.Value_name [ "__SCNA" ]) in
+      let lo_ref = Ast.Val (Ast.Value_name [ "__SCNLO" ]) in
+      let hi_ref = Ast.Val (Ast.Value_name [ "__SCNHI" ]) in
+      (* Empty-array case: forall over lo..hi with lo>hi → zero iterations → empty array *)
+      let empty_branch =
+        Ast.For_all
+          ( Ast.In_exp (Ast.Value_name [ "__SCNI" ], Ast.Exp [ lo_ref; hi_ref ]),
+            Ast.Decldef_part [],
+            [ Ast.Return_exp
+                (Ast.Array_of (Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ])),
+                 Ast.No_mask) ] )
+      in
+      let scan_body =
+        Ast.For_initial
+          ( Ast.Decldef_part
+              [ Ast.Decldef
+                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
+                    Ast.Exp [ Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]) ] );
+                Ast.Decldef
+                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
+                    Ast.Exp [ Ast.Add (lo_ref, Ast.Constant (Ast.Int 1)) ] );
+                Ast.Decldef
+                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
+                    Ast.Exp
+                      [ Ast.Array_generator_unnamed
+                          (Ast.SExpr_pair
+                             ( Ast.Exp [ lo_ref ],
+                               Ast.Exp [ Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]) ] )) ] ) ],
+            Ast.Termination_iterator
+              ( Ast.While
+                  (Ast.Exp
+                     [ Ast.Lesser_equal
+                         ( Ast.Val (Ast.Value_name [ "__SCNI" ]),
+                           Ast.Val (Ast.Value_name [ "__SCNHI" ]) ) ]),
+                Ast.Repeat
+                  (Ast.Decldef_part
+                     [ Ast.Decldef
+                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
+                           Ast.Exp
+                             [ mk_inv fn_parts
+                                 [ mk_old "__SCNACC";
+                                   Ast.Array_ref (a_ref, Ast.Exp [ mk_old "__SCNI" ]) ] ] );
+                       Ast.Decldef
+                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
+                           Ast.Exp [ Ast.Add (mk_old "__SCNI", Ast.Constant (Ast.Int 1)) ] );
+                       Ast.Decldef
+                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
+                           Ast.Exp
+                             [ mk_inv [ "ARRAY_ADDH" ]
+                                 [ mk_old "__SCNOUT"; mk_old "__SCNACC" ] ] ) ]) ),
+            [ Ast.Return_exp
+                ( Ast.Value_of
+                    (Ast.No_dir, Ast.No_red, Ast.Val (Ast.Value_name [ "__SCNOUT" ])),
+                  Ast.No_mask ) ] )
+      in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__SCNA" ] ], Ast.Exp [ arr ]);
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNLO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNHI" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
+             Ast.Exp
+               [ Ast.If
+                   ( [ Ast.Cond
+                         ( Ast.Exp [ Ast.Greater (lo_ref, hi_ref) ],
+                           Ast.Exp [ empty_branch ] ) ],
+                     Ast.Else (Ast.Exp [ scan_body ]) ) ] )))
+  | Take_exp (arr, n) ->
+      (* APL n↑A semantics:
+           n > 0  → first n elems, right-pad with 0 when n > size(A)
+           n < 0  → last |n| elems, left-pad with 0 when |n| > size(A)
+           n = 0  → empty (forall 1..0 → 0 iters)
+         Result is always 1-indexed with |n| elements. *)
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let a_ref   = Ast.Val (Ast.Value_name [ "__TKA" ]) in
+      let lo_ref  = Ast.Val (Ast.Value_name [ "__TKLO" ]) in
+      let hi_ref  = Ast.Val (Ast.Value_name [ "__TKHI" ]) in
+      let n_ref   = Ast.Val (Ast.Value_name [ "__TKN" ]) in
+      let absn_ref = Ast.Val (Ast.Value_name [ "__TKABSN" ]) in
+      let i_ref   = Ast.Val (Ast.Value_name [ "__TKI" ]) in
+      let zero    = Ast.Constant (Ast.Int 0) in
+      let one     = Ast.Constant (Ast.Int 1) in
+      (* Positive take: for i in 1..n returns array of
+           if lo + i - 1 <= hi then A[lo + i - 1] else 0 *)
+      let pos_body =
+        Ast.For_all
+          ( Ast.In_exp (Ast.Value_name [ "__TKI" ], Ast.Exp [ one; n_ref ]),
+            Ast.Decldef_part [],
+            [ Ast.Return_exp
+                ( Ast.Array_of
+                    (Ast.If
+                       ( [ Ast.Cond
+                             ( Ast.Exp
+                                 [ Ast.Lesser_equal
+                                     ( Ast.Add (lo_ref, Ast.Subtract (i_ref, one)),
+                                       hi_ref ) ],
+                               Ast.Exp
+                                 [ Ast.Array_ref
+                                     ( a_ref,
+                                       Ast.Exp
+                                         [ Ast.Add
+                                             ( lo_ref,
+                                               Ast.Subtract (i_ref, one) ) ] ) ] ) ],
+                         Ast.Else (Ast.Exp [ zero ]) )),
+                  Ast.No_mask ) ] )
+      in
+      (* Negative take: for i in 1..abs(n) returns array of
+           let src = hi - abs(n) + i in
+           if src >= lo then A[src] else 0 *)
+      let neg_body =
+        Ast.For_all
+          ( Ast.In_exp (Ast.Value_name [ "__TKI" ], Ast.Exp [ one; absn_ref ]),
+            Ast.Decldef_part [],
+            [ Ast.Return_exp
+                ( Ast.Array_of
+                    (Ast.Let
+                       ( Ast.Decldef_part
+                           [ Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKSRC" ] ],
+                                 Ast.Exp
+                                   [ Ast.Add
+                                       ( Ast.Subtract (hi_ref, absn_ref),
+                                         i_ref ) ] ) ],
+                         Ast.Exp
+                           [ Ast.If
+                               ( [ Ast.Cond
+                                     ( Ast.Exp
+                                         [ Ast.Greater_equal
+                                             ( Ast.Val (Ast.Value_name [ "__TKSRC" ]),
+                                               lo_ref ) ],
+                                       Ast.Exp
+                                         [ Ast.Array_ref
+                                             ( a_ref,
+                                               Ast.Exp
+                                                 [ Ast.Val
+                                                     (Ast.Value_name [ "__TKSRC" ])
+                                                 ] ) ] ) ],
+                                 Ast.Else (Ast.Exp [ zero ]) ) ] )),
+                  Ast.No_mask ) ] )
+      in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TKA" ] ], Ast.Exp [ arr ]);
+                 Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TKN" ] ], Ast.Exp [ n ]);
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKLO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKHI" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKABSN" ] ],
+                     Ast.Exp
+                       [ Ast.If
+                           ( [ Ast.Cond
+                                 ( Ast.Exp [ Ast.Greater_equal (n_ref, zero) ],
+                                   Ast.Exp [ n_ref ] ) ],
+                             Ast.Else (Ast.Exp [ Ast.Negate n_ref ]) ) ] ) ],
+             Ast.Exp
+               [ Ast.If
+                   ( [ Ast.Cond
+                         ( Ast.Exp [ Ast.Greater_equal (n_ref, zero) ],
+                           Ast.Exp [ pos_body ] ) ],
+                     Ast.Else (Ast.Exp [ neg_body ]) ) ] ))
+  | Drop_exp (arr, n) ->
+      (* for __DRI in liml(A)+n .. limh(A) returns array of A[__DRI] *)
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let a_ref  = Ast.Val (Ast.Value_name [ "__DRA" ]) in
+      let lo_ref = Ast.Val (Ast.Value_name [ "__DRLO" ]) in
+      let hi_ref = Ast.Val (Ast.Value_name [ "__DRHI" ]) in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__DRA" ] ], Ast.Exp [ arr ]);
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__DRLO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__DRHI" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
+             Ast.Exp
+               [ Ast.For_all
+                   ( Ast.In_exp
+                       ( Ast.Value_name [ "__DRI" ],
+                         Ast.Exp [ Ast.Add (lo_ref, n); hi_ref ] ),
+                     Ast.Decldef_part [],
+                     [ Ast.Return_exp
+                         ( Ast.Array_of
+                             (Ast.Array_ref
+                                ( a_ref,
+                                  Ast.Exp [ Ast.Val (Ast.Value_name [ "__DRI" ]) ] )),
+                           Ast.No_mask ) ] ) ] ))
+  | Reverse_exp arr ->
+      (* DV_REVERSE(arr) — reversed view via stride negation, no new array *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_REVERSE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Concat_exp (a, b) ->
+      (* for __CCI in 1..(size(A)+size(B)) returns
+           array of if __CCI <= size(A) then A[alo+__CCI-1] else B[blo+(__CCI-size(A))-1] *)
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let ca_ref  = Ast.Val (Ast.Value_name [ "__CCA" ]) in
+      let cb_ref  = Ast.Val (Ast.Value_name [ "__CCB" ]) in
+      let alo_ref = Ast.Val (Ast.Value_name [ "__CCALO" ]) in
+      let blo_ref = Ast.Val (Ast.Value_name [ "__CCBLO" ]) in
+      let an_ref  = Ast.Val (Ast.Value_name [ "__CCAN" ]) in
+      let i_ref   = Ast.Val (Ast.Value_name [ "__CCI" ]) in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__CCA" ] ], Ast.Exp [ a ]);
+                 Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__CCB" ] ], Ast.Exp [ b ]);
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCALO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ ca_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCBLO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ cb_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCAN" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ ca_ref ] ] ) ],
+             Ast.Exp
+               [ Ast.For_all
+                   ( Ast.In_exp
+                       ( Ast.Value_name [ "__CCI" ],
+                         Ast.Exp
+                           [ Ast.Constant (Ast.Int 1);
+                             Ast.Add (an_ref, mk_inv [ "ARRAY_SIZE" ] [ cb_ref ]) ] ),
+                     Ast.Decldef_part [],
+                     [ Ast.Return_exp
+                         ( Ast.Array_of
+                             (Ast.If
+                                ( [ Ast.Cond
+                                      ( Ast.Exp
+                                          [ Ast.Lesser_equal (i_ref, an_ref) ],
+                                        Ast.Exp
+                                          [ Ast.Array_ref
+                                              ( ca_ref,
+                                                Ast.Exp
+                                                  [ Ast.Subtract
+                                                      ( Ast.Add (alo_ref, i_ref),
+                                                        Ast.Constant (Ast.Int 1) ) ] ) ] ) ],
+                                  Ast.Else
+                                    (Ast.Exp
+                                       [ Ast.Array_ref
+                                           ( cb_ref,
+                                             Ast.Exp
+                                               [ Ast.Subtract
+                                                   ( Ast.Add
+                                                       ( blo_ref,
+                                                         Ast.Subtract (i_ref, an_ref) ),
+                                                     Ast.Constant (Ast.Int 1) ) ] ) ]) )),
+                           Ast.No_mask ) ] ) ] ))
+  | Tile_exp (arr, n) ->
+      (* for __TLI in 1..size(A)*n returns array of A[lo + MOD(__TLI-1, size(A))] *)
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
+      let a_ref  = Ast.Val (Ast.Value_name [ "__TLA" ]) in
+      let lo_ref = Ast.Val (Ast.Value_name [ "__TLLO" ]) in
+      let sz_ref = Ast.Val (Ast.Value_name [ "__TLSZ" ]) in
+      let i_ref  = Ast.Val (Ast.Value_name [ "__TLI" ]) in
+      do_simple_exp in_gr
+        (Ast.Let
+           ( Ast.Decldef_part
+               [ Ast.Decldef
+                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TLA" ] ], Ast.Exp [ arr ]);
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TLLO" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TLSZ" ] ],
+                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ a_ref ] ] ) ],
+             Ast.Exp
+               [ Ast.For_all
+                   ( Ast.In_exp
+                       ( Ast.Value_name [ "__TLI" ],
+                         Ast.Exp
+                           [ Ast.Constant (Ast.Int 1);
+                             Ast.Multiply (sz_ref, n) ] ),
+                     Ast.Decldef_part [],
+                     [ Ast.Return_exp
+                         ( Ast.Array_of
+                             (Ast.Array_ref
+                                ( a_ref,
+                                  Ast.Exp
+                                    [ Ast.Add
+                                        ( lo_ref,
+                                          mk_inv [ "MOD" ]
+                                            [ Ast.Subtract
+                                                (i_ref, Ast.Constant (Ast.Int 1));
+                                              sz_ref ] ) ] )),
+                           Ast.No_mask ) ] ) ] ))
+  (* ------------------------------------------------------------------ *)
+  (* Opaque IF1 nodes for ops that have no clean pure-Sisal equivalent  *)
+  (* ------------------------------------------------------------------ *)
+  | Rotate_exp (arr, n) ->
+      (* DV_ROTATE(arr, n) — circular shift view, no new array *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (nn, np, nt), in_gr = do_simple_exp in_gr n in
+      let nn, np, nt = If1.find_incoming_regular_node (nn, np, nt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_ROTATE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge nn np rn 1 nt in_gr in
+      ((rn, rp, at), in_gr)
+  | Compress_exp (mask, arr) ->
+      (* DV_COMPRESS(mask, arr) — filtered copy; output is always Array_dv
+         since result size is only known at runtime (count of true mask bits). *)
+      let (mn, mp, mt), in_gr = do_simple_exp in_gr mask in
+      let mn, mp, mt = If1.find_incoming_regular_node (mn, mp, mt) in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let elem_ty = array_elem_ty at in_gr in
+      let (dv_ty, _, _), in_gr =
+        If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty) in_gr
+      in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_COMPRESS, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge mn mp rn 0 mt in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      ((rn, rp, dv_ty), in_gr)
+  | Outerproduct_exp (f_exp, a, b) ->
+      (* DV_OUTERPRODUCT(f_ref, A, B) — rank-2 result; output type approximated as A's type *)
+      let (fn_, fp, ft), in_gr = do_simple_exp in_gr f_exp in
+      let fn_, fp, ft = If1.find_incoming_regular_node (fn_, fp, ft) in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_OUTERPRODUCT, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge fn_ fp rn 0 ft in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      let in_gr = If1.add_edge bn bp rn 2 bt in_gr in
+      ((rn, rp, at), in_gr)
+  | Grade_up_exp arr ->
+      (* DV_GRADE_UP(arr) — ascending sort indices; output array[int] *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_GRADE_UP, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let out_ty, in_gr =
+        let (id, _, _), g =
+          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+        in
+        (id, g)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Grade_down_exp arr ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_GRADE_DOWN, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let out_ty, in_gr =
+        let (id, _, _), g =
+          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+        in
+        (id, g)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Sort_exp arr ->
+      (* DV_SORT(arr) — sorted copy, same type *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_SORT, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Broadcast_exp (scalar, arr) ->
+      (* BROADCAST_SCALAR(scalar, arr) — replicate scalar to shape of arr *)
+      let (sn, sp, st), in_gr = do_simple_exp in_gr scalar in
+      let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.BROADCAST_SCALAR, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge sn sp rn 0 st in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Argmax_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.ARGMAX_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.INTEGRAL)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Argmin_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.ARGMIN_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.INTEGRAL)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Nonzero_exp a ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.NONZERO_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let out_ty, in_gr =
+        let (id, _, _), g =
+          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+        in
+        (id, g)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Where_exp (cond, a, b) ->
+      let (cn, cp, ct), in_gr = do_simple_exp in_gr cond in
+      let cn, cp, ct = If1.find_incoming_regular_node (cn, cp, ct) in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.WHERE_NODE, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge cn cp rn 0 ct in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      let in_gr = If1.add_edge bn bp rn 2 bt in_gr in
+      ((rn, rp, at), in_gr)
+  | Reduce_axis (op, a, k) ->
+      (* REDUCE_AXIS(op_lit, arr, axis) — reduce along one axis *)
+      let op_str =
+        match op with
+        | Ast.Sum -> "sum" | Ast.Product -> "product"
+        | Ast.Least -> "least" | Ast.Greatest -> "greatest"
+        | _ -> "noop"
+      in
+      let (ln, lp, _), in_gr =
+        If1.add_node_2 (`Literal (If1.CHARACTER, op_str, Array.make 1 "")) in_gr
+      in
+      let lt = If1.lookup_tyid If1.CHARACTER in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+      let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.REDUCE_AXIS, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge ln lp rn 0 lt in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      let in_gr = If1.add_edge kn kp rn 2 kt in_gr in
+      ((rn, rp, at), in_gr)
+  | Mean_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.MEAN_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Variance_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             (If1.VARIANCE_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Stddev_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             (If1.STDDEV_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Any_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.ANY_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.BOOLEAN)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | All_exp (a, axis_opt) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let n_ports = if axis_opt = None then 1 else 2 in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.ALL_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr, out_ty =
+        match axis_opt with
+        | None -> (in_gr, If1.lookup_tyid If1.BOOLEAN)
+        | Some k ->
+            let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            (If1.add_edge kn kp rn 1 kt in_gr, at)
+      in
+      ((rn, rp, out_ty), in_gr)
+  | Norm_exp (a, p) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (pn, pp, pt), in_gr = do_simple_exp in_gr p in
+      let pn, pp, pt = If1.find_incoming_regular_node (pn, pp, pt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.NORM_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge pn pp rn 1 pt in_gr in
+      ((rn, rp, If1.lookup_tyid If1.REAL), in_gr)
+  | Cumsum_exp a ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.CUMSUM_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Cumprod_exp a ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.CUMPROD_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Squeeze_exp a ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.SQUEEZE_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Expand_exp (a, k) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+      let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.EXPAND_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge kn kp rn 1 kt in_gr in
+      ((rn, rp, at), in_gr)
+  | Ravel_exp a ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.RAVEL_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, at), in_gr)
+  | Stencil_exp (f_exp, a, dims) ->
+      (* STENCIL_NODE(f_ref, arr, d0, d1, ..) — sliding-window map *)
+      let rank = List.length dims in
+      let (fn_, fp, ft), in_gr = do_simple_exp in_gr f_exp in
+      let fn_, fp, ft = If1.find_incoming_regular_node (fn_, fp, ft) in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let dim_triples, in_gr =
+        List.fold_left
+          (fun (acc, g) d ->
+            let (dn, dp, dt), g = do_simple_exp g d in
+            let dn, dp, dt = If1.find_incoming_regular_node (dn, dp, dt) g in
+            (acc @ [ (dn, dp, dt) ], g))
+          ([], in_gr) dims
+      in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             ( If1.STENCIL_NODE,
+               Array.make (2 + rank) "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
+          in_gr
+      in
+      let in_gr = If1.add_edge fn_ fp rn 0 ft in_gr in
+      let in_gr = If1.add_edge an ap rn 1 at in_gr in
+      let in_gr =
+        List.fold_left
+          (fun g (i, (dn, dp, dt)) -> If1.add_edge dn dp rn (i + 2) dt g)
+          in_gr
+          (List.mapi (fun i x -> (i, x)) dim_triples)
+      in
+      ((rn, rp, at), in_gr)
+  | Pad_exp (a, lo, hi, fill_opt) ->
+      (* PAD_NODE(arr, lo, hi [, fill]) *)
+      let n_ports = if fill_opt = None then 3 else 4 in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (ln, lp, lt), in_gr = do_simple_exp in_gr lo in
+      let ln, lp, lt = If1.find_incoming_regular_node (ln, lp, lt) in_gr in
+      let (hn, hp, ht), in_gr = do_simple_exp in_gr hi in
+      let hn, hp, ht = If1.find_incoming_regular_node (hn, hp, ht) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.PAD_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge ln lp rn 1 lt in_gr in
+      let in_gr = If1.add_edge hn hp rn 2 ht in_gr in
+      let in_gr =
+        match fill_opt with
+        | None -> in_gr
+        | Some fill ->
+            let (fn_, fp, ft), in_gr = do_simple_exp in_gr fill in
+            let fn_, fp, ft = If1.find_incoming_regular_node (fn_, fp, ft) in_gr in
+            If1.add_edge fn_ fp rn 3 ft in_gr
+      in
+      ((rn, rp, at), in_gr)
+  | Innerproduct_exp (a, b) ->
+      (* INNERPRODUCT_NODE(A, B): dot product for rank-1, matmul for rank-2 *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+      let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             (If1.INNERPRODUCT_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
+      let elem_ty =
+        match If1.lookup_type_opt at in_gr with
+        | Some (If1.Array_dv et) -> et
+        | Some (If1.Array_ty et) -> et
+        | _ -> If1.lookup_tyid If1.REAL
+      in
+      ((rn, rp, elem_ty), in_gr)
   | Tuple e ->
       (* #(expr) - tuple expression: lower the inner exp and mark the
          resulting MULTIARITY (if any) as a TUPLE_VAL so downstream code
@@ -4509,7 +6123,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               let what_ty, out_gr =
                 assert (tt <> 0);
                 let (id_x, _, _), out_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_dv (tt, 1)) out_gr
+                  If1.add_type_to_typemap_dedup (If1.Array_dv tt) out_gr
                 in
                 (id_x, out_gr)
               in

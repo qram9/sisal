@@ -3,11 +3,12 @@ define transpose
 
 type OneD = array[ double_real ];
 type TwoD = array[ OneD ];
+type TwoDV = array_dv[ double_real ];
 
 % Transpose A, an n by m matrix.
 % DV variant: returns array[..] of signals monolithic pre-allocated output
 %
-function transpose(n, m: integer; A: TwoD  returns TwoD)
+function transpose(n, m: integer; A: TwoD  returns TwoDV)
 
   for i in 1, m cross j in 1, n
   returns array[..] of A[j, i]

@@ -1,0 +1,37 @@
+% apl_structural.sis — TAKE, DROP, ROTATE, REVERSE, RAVEL (FLATTEN_DV),
+%                       CONCAT (CATENATE_OP), COMPRESS
+
+define apl_structural,
+  t_take, t_drop, t_take_lower,
+  t_rotate,
+  t_reverse, t_reverse_lower,
+  t_ravel, t_flatten_dv,
+  t_concat, t_catenate,
+  t_compress
+
+type ai = array[integer]
+type ar = array[real]
+type ab = array[boolean]
+
+% TAKE / DROP
+function t_take       (a : ai; n : integer returns ai) TAKE(a, n)        end function
+function t_drop       (a : ai; n : integer returns ai) DROP(a, n)        end function
+function t_take_lower (a : ai; n : integer returns ai) take(a, n)        end function
+
+% ROTATE(arr, k) — circular shift by k positions
+function t_rotate (a : ai; k : integer returns ai) ROTATE(a, k) end function
+
+% REVERSE
+function t_reverse       (a : ai returns ai) REVERSE(a) end function
+function t_reverse_lower (a : ai returns ai) reverse(a) end function
+
+% RAVEL / FLATTEN_DV — flatten to 1-D
+function t_ravel       (a : ar returns ar) RAVEL(a)       end function
+function t_flatten_dv  (a : ar returns ar) FLATTEN_DV(a)  end function  % alias
+
+% CONCAT / CATENATE_OP — concatenate two arrays
+function t_concat    (a, b : ai returns ai) CONCAT(a, b)        end function
+function t_catenate  (a, b : ai returns ai) CATENATE_OP(a, b)   end function  % alias
+
+% COMPRESS(mask, arr) — select elements where mask is true; result is array_dv
+function t_compress (mask : ab; a : ai returns array_dv[integer]) COMPRESS(mask, a) end function

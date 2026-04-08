@@ -1,0 +1,98 @@
+% apl_case.sis — verify APL op names are case-insensitive.
+% Each op is called in both upper and lower case.
+
+define apl_case,
+  % reductions
+  sum_upper, sum_lower,
+  product_upper, product_lower,
+  least_upper, least_lower,
+  greatest_upper, greatest_lower,
+  % map variants
+  map_upper, map_lower, each_lower, apply_lower,
+  % folds
+  foldl_upper, foldl_lower,
+  foldr_upper,
+  scan_upper, scan_lower,
+  % structural
+  take_upper, take_lower,
+  drop_upper, drop_lower,
+  rotate_upper, rotate_lower,
+  reverse_upper, reverse_lower,
+  compress_upper, compress_lower,
+  % sort / grade
+  sort_upper, sort_lower,
+  grade_up_upper, grade_up_lower,
+  grade_down_upper, grade_down_lower,
+  argmax_upper, argmax_lower,
+  argmin_upper, argmin_lower,
+  % stats
+  mean_upper, mean_lower,
+  any_upper, any_lower,
+  all_upper, all_lower,
+  cumsum_upper, cumsum_lower
+
+type ai = array[integer]
+type ar = array[real]
+type ab = array[boolean]
+
+function neg_i (x : integer returns integer) 0 - x end function
+function add_i (a, b : integer returns integer) a + b end function
+
+% ---- reductions ----
+function sum_upper     (a : ai returns integer) SUM(a)     end function
+function sum_lower     (a : ai returns integer) sum(a)     end function
+function product_upper (a : ai returns integer) PRODUCT(a) end function
+function product_lower (a : ai returns integer) product(a) end function
+function least_upper   (a : ai returns integer) LEAST(a)   end function
+function least_lower   (a : ai returns integer) least(a)   end function
+function greatest_upper(a : ai returns integer) GREATEST(a) end function
+function greatest_lower(a : ai returns integer) greatest(a) end function
+
+% ---- map ----
+function map_upper   (a : ai returns ai) MAP(neg_i, a)   end function
+function map_lower   (a : ai returns ai) map(neg_i, a)   end function
+function each_lower  (a : ai returns ai) each(neg_i, a)  end function
+function apply_lower (a : ai returns ai) apply(neg_i, a) end function
+
+% ---- fold ----
+function foldl_upper (a : ai; z : integer returns integer) FOLDL(add_i, z, a) end function
+function foldl_lower (a : ai; z : integer returns integer) foldl(add_i, z, a) end function
+function foldr_upper (a : ai; z : integer returns integer) FOLDR(add_i, z, a) end function
+
+% ---- scan ----
+function scan_upper (a : ai returns ai) SCAN(add_i, a) end function
+function scan_lower (a : ai returns ai) scan(add_i, a) end function
+
+% ---- structural ----
+function take_upper    (a : ai; n : integer returns ai) TAKE(a, n) end function
+function take_lower    (a : ai; n : integer returns ai) take(a, n) end function
+function drop_upper    (a : ai; n : integer returns ai) DROP(a, n) end function
+function drop_lower    (a : ai; n : integer returns ai) drop(a, n) end function
+function rotate_upper  (a : ai; k : integer returns ai) ROTATE(a, k) end function
+function rotate_lower  (a : ai; k : integer returns ai) rotate(a, k) end function
+function reverse_upper (a : ai returns ai) REVERSE(a) end function
+function reverse_lower (a : ai returns ai) reverse(a) end function
+function compress_upper(mask : ab; a : ai returns array_dv[integer]) COMPRESS(mask, a) end function
+function compress_lower(mask : ab; a : ai returns array_dv[integer]) compress(mask, a) end function
+
+% ---- sort / grade ----
+function sort_upper      (a : ai returns ai) SORT(a)       end function
+function sort_lower      (a : ai returns ai) sort(a)       end function
+function grade_up_upper  (a : ai returns ai) GRADE_UP(a)   end function
+function grade_up_lower  (a : ai returns ai) grade_up(a)   end function
+function grade_down_upper(a : ai returns ai) GRADE_DOWN(a) end function
+function grade_down_lower(a : ai returns ai) grade_down(a) end function
+function argmax_upper    (a : ai returns integer) ARGMAX(a) end function
+function argmax_lower    (a : ai returns integer) argmax(a) end function
+function argmin_upper    (a : ai returns integer) ARGMIN(a) end function
+function argmin_lower    (a : ai returns integer) argmin(a) end function
+
+% ---- stats ----
+function mean_upper  (a : ar returns real)    MEAN(a)  end function
+function mean_lower  (a : ar returns real)    mean(a)  end function
+function any_upper   (a : ab returns boolean) ANY(a)   end function
+function any_lower   (a : ab returns boolean) any(a)   end function
+function all_upper   (a : ab returns boolean) ALL(a)   end function
+function all_lower   (a : ab returns boolean) all(a)   end function
+function cumsum_upper(a : ai returns ai) CUMSUM(a)     end function
+function cumsum_lower(a : ai returns ai) cumsum(a)     end function

@@ -54,6 +54,7 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token<float> HALF
 %token ANDKW
 %token ARRAY
+%token ARRAY_DV
 %token AT
 %token BOOLEAN
 %token<string> CHAR
@@ -101,7 +102,6 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token RECORD
 %token REPEAT
 %token REPLACE
-%token RESHAPE
 %token RETURNS
 %token RIGHT
 %token STREAM
@@ -279,10 +279,20 @@ def_func_name_list:
       { Define (List.rev $2) }
   ;
 function_name_list :
-    function_name_list COMMA plain_name
-      { (Function_name [$3]) :: $1 }
-| plain_name
-    { [Function_name [$1]] }
+    function_name_list COMMA define_name
+      { ($3) :: $1 }
+| define_name
+    { [$1] }
+  ;
+(* define_name: names in a "define A, B, C" list.  APL bulk-op names are now
+   NAMEs (not keywords) so plain_name handles them.  Only genuine keyword
+   tokens that still need explicit alternatives are listed here. *)
+define_name :
+    plain_name { Function_name [$1] }
+  | SUM       { Function_name ["SUM"] }
+  | PRODUCT   { Function_name ["PRODUCT"] }
+  | LEAST     { Function_name ["LEAST"] }
+  | GREATEST  { Function_name ["GREATEST"] }
   ;
 
   function_def_list: function_def
@@ -960,6 +970,8 @@ declids_spec_list_ :
 compound_type_spec :
   ARRAY LBRACK type_spec RBRACK
     { Sisal_array $3 }
+| ARRAY_DV LBRACK type_spec RBRACK
+    { Sisal_dv $3 }
 |   STREAM LBRACK type_spec RBRACK
   { Sisal_stream $3 }
 |   RECORD LBRACK tag_spec_list RBRACK
@@ -1098,18 +1110,13 @@ invocation :
     { Invocation ($1,Arg Empty)  }
 |   function_name LPAREN expression RPAREN
   { Invocation ($1,Arg $3) }
-| NAME LPAREN dotdot_list RPAREN
-  { Dv_create ($3) }
-| RESHAPE LPAREN simple_expression COMMA reshape_dims RPAREN
-  { Reshape ($3, $5) }
 ;
 
-reshape_dims:
-  simple_expression                         { [$1] }
-| reshape_dims COMMA simple_expression      { $1 @ [$3] }
-;
 function_name : NAME
     { Function_name [$1]  }
+  (* These tokens are NOT in keyword_table — they come through as NAME.
+     The NAME case above handles them.  The alternatives below are kept for
+     the tokens that ARE still keywords (SUM etc. in reduction_op). *)
   | ABS   { Function_name ["ABS"]   }
   | FLOOR { Function_name ["FLOOR"] }
   | TRUNC { Function_name ["TRUNC"] }
@@ -1117,6 +1124,12 @@ function_name : NAME
   | MOD   { Function_name ["MOD"]   }
   | MAX   { Function_name ["MAX"]   }
   | MIN   { Function_name ["MIN"]   }
+  (* SUM/PRODUCT/LEAST/GREATEST: still keywords (appear in reduction_op).
+     Also routed through Invocation → dispatched in do_simple_exp_impl. *)
+  | SUM     { Function_name ["SUM"]     }
+  | PRODUCT { Function_name ["PRODUCT"] }
+  | LEAST   { Function_name ["LEAST"]   }
+  | GREATEST{ Function_name ["GREATEST"]}
 ;
 field : field_name
     { [$1] }
