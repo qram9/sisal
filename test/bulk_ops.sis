@@ -1,0 +1,178 @@
+% bulk_ops.sis — parse-level tests for bulk array operations
+% (APL-style reductions, maps, folds, sorts, linear-algebra ops, etc.)
+% All functions are parse-only stubs; the bodies just invoke the new
+% primitives so the parser / AST builder get exercised.
+
+define bulk_ops,
+  neg_i,
+  % element-wise arithmetic on arrays
+  t_arr_add, t_arr_sub, t_arr_mul,
+  t_arr_neg,
+  % element-wise comparisons (return array[boolean])
+  t_arr_eq, t_arr_lt,
+  % mixed scalar-array (broadcast scalar)
+  t_arr_add_scalar, t_arr_mul_scalar,
+  % reductions — whole-array
+  t_sum, t_product, t_least, t_greatest,
+  % reductions — range
+  t_sum_range, t_product_range, t_least_range, t_greatest_range,
+  % reductions — axis
+  t_sum_axis, t_product_axis, t_least_axis, t_greatest_axis,
+  % map / fold / scan
+  t_map, t_foldl, t_foldr, t_scan,
+  % permute / take / drop / rotate / reverse / ravel
+  t_permute, t_take, t_drop, t_rotate, t_reverse, t_ravel,
+  % compress / sort / grade
+  t_compress, t_sort, t_grade_up, t_grade_down,
+  % outer product / inner product
+  t_outerproduct, t_innerproduct,
+  % statistical
+  t_argmax, t_argmax_axis, t_argmin, t_argmin_axis,
+  t_mean, t_mean_axis, t_variance, t_variance_axis,
+  t_stddev, t_stddev_axis,
+  t_any, t_any_axis, t_all, t_all_axis,
+  t_norm,
+  % non-zero / conditional select
+  t_nonzero, t_where,
+  % cumulative
+  t_cumsum, t_cumprod,
+  % shape-changing
+  t_concat, t_tile, t_squeeze, t_expand,
+  % aliases
+  t_each, t_apply, t_argsort, t_flatten_dv,
+  % pad / stencil
+  t_pad, t_pad_fill, t_stencil
+
+type ai  = array[integer]
+type ar  = array[real]
+type ab  = array[boolean]
+
+% ---- helpers ---------------------------------------------------------------
+function add_i (a, b : integer returns integer) a + b end function
+function mul_i (a, b : integer returns integer) a * b end function
+function neg_i (a   : integer returns integer)  0 - a end function  % unary for MAP/EACH
+
+% ---- element-wise arithmetic on arrays ------------------------------------
+function t_arr_add (a, b : ai returns ai)    a + b        end function
+function t_arr_sub (a, b : ai returns ai)    a - b        end function
+function t_arr_mul (a, b : ai returns ai)    a * b        end function
+function t_arr_neg (a    : ai returns ai)    -a           end function
+
+% ---- element-wise comparisons → array[boolean] ----------------------------
+type ab2 = array[boolean]
+function t_arr_eq  (a, b : ai returns ab2)   a = b        end function
+function t_arr_lt  (a, b : ai returns ab2)   a < b        end function
+
+% ---- mixed scalar-array (scalar broadcasts) --------------------------------
+function t_arr_add_scalar (a : ai; n : integer returns ai)  a + n  end function
+function t_arr_mul_scalar (a : ai; n : integer returns ai)  a * n  end function
+
+% ---- reductions — whole array ----------------------------------------------
+function t_sum       (a : ai returns integer) SUM(a)      end function
+function t_product   (a : ai returns integer) PRODUCT(a)  end function
+function t_least     (a : ai returns integer) LEAST(a)    end function
+function t_greatest  (a : ai returns integer) GREATEST(a) end function
+
+% ---- reductions — explicit range -------------------------------------------
+function t_sum_range      (a : ai; lo, hi : integer returns integer)
+  SUM(a, lo, hi)
+end function
+function t_product_range  (a : ai; lo, hi : integer returns integer)
+  PRODUCT(a, lo, hi)
+end function
+function t_least_range    (a : ai; lo, hi : integer returns integer)
+  LEAST(a, lo, hi)
+end function
+function t_greatest_range (a : ai; lo, hi : integer returns integer)
+  GREATEST(a, lo, hi)
+end function
+
+% ---- reductions — axis -----------------------------------------------------
+function t_sum_axis      (a : ar; k : integer returns ar) SUM(a, k)      end function
+function t_product_axis  (a : ar; k : integer returns ar) PRODUCT(a, k)  end function
+function t_least_axis    (a : ar; k : integer returns ar) LEAST(a, k)    end function
+function t_greatest_axis (a : ar; k : integer returns ar) GREATEST(a, k) end function
+
+% ---- map / fold / scan -----------------------------------------------------
+function t_map   (a : ai returns ai)         MAP(neg_i, a)                end function
+function t_foldl (a : ai; z : integer returns integer) FOLDL(add_i, z, a) end function
+function t_foldr (a : ai; z : integer returns integer) FOLDR(add_i, z, a) end function
+function t_scan  (a : ai returns ai)         SCAN(add_i, a)               end function
+
+% aliases: EACH and APPLY lex to MAP
+function t_each  (a : ai returns ai) EACH(neg_i, a)  end function
+function t_apply (a : ai returns ai) APPLY(neg_i, a) end function
+
+% ---- permute / take / drop / rotate / reverse / ravel ----------------------
+function t_permute (a : ar returns ar)           PERMUTE(a, 1, 0)     end function
+function t_take    (a : ai; n : integer returns ai)  TAKE(a, n)       end function
+function t_drop    (a : ai; n : integer returns ai)  DROP(a, n)       end function
+function t_rotate  (a : ai; k : integer returns ai)  ROTATE(a, k)     end function
+function t_reverse (a : ai returns ai)           REVERSE(a)           end function
+function t_ravel   (a : ar returns ar)           RAVEL(a)             end function
+
+% alias: FLATTEN_DV lexes to RAVEL
+function t_flatten_dv (a : ar returns ar) FLATTEN_DV(a) end function
+
+% ---- compress / sort / grade -----------------------------------------------
+function t_compress  (mask : ab; a : ai returns array_dv[integer])  COMPRESS(mask, a)  end function
+function t_sort      (a : ai returns ai)              SORT(a)            end function
+function t_grade_up  (a : ai returns ai)              GRADE_UP(a)        end function
+function t_grade_down(a : ai returns ai)              GRADE_DOWN(a)      end function
+
+% alias: ARGSORT lexes to GRADE_UP
+function t_argsort (a : ai returns ai) ARGSORT(a) end function
+
+% ---- outer product / inner product -----------------------------------------
+function t_outerproduct (a, b : ai returns ai)
+  OUTERPRODUCT(add_i, a, b)
+end function
+function t_innerproduct (a, b : ar returns real)
+  INNERPRODUCT(a, b)
+end function
+
+% ---- argmax / argmin -------------------------------------------------------
+function t_argmax      (a : ai returns integer) ARGMAX(a)          end function
+function t_argmax_axis (a : ar; k : integer returns ar) ARGMAX(a, k) end function
+function t_argmin      (a : ai returns integer) ARGMIN(a)          end function
+function t_argmin_axis (a : ar; k : integer returns ar) ARGMIN(a, k) end function
+
+% ---- statistical ------------------------------------------------------------
+function t_mean         (a : ar returns real)           MEAN(a)            end function
+function t_mean_axis    (a : ar; k : integer returns ar) MEAN(a, k)        end function
+function t_variance     (a : ar returns real)           VARIANCE(a)        end function
+function t_variance_axis(a : ar; k : integer returns ar) VARIANCE(a, k)    end function
+function t_stddev       (a : ar returns real)           STDDEV(a)          end function
+function t_stddev_axis  (a : ar; k : integer returns ar) STDDEV(a, k)      end function
+
+function t_any      (a : ab returns boolean)            ANY(a)             end function
+function t_any_axis (a : ab; k : integer returns ab)    ANY(a, k)          end function
+function t_all      (a : ab returns boolean)            ALL(a)             end function
+function t_all_axis (a : ab; k : integer returns ab)    ALL(a, k)          end function
+
+function t_norm (a : ar; p : integer returns real)      NORM(a, p)         end function
+
+% ---- nonzero / where -------------------------------------------------------
+function t_nonzero (a : ai returns ai)                NONZERO(a)           end function
+function t_where   (cond : ab; x, y : ar returns ar)  WHERE(cond, x, y)   end function
+
+% ---- cumulative ------------------------------------------------------------
+function t_cumsum  (a : ai returns ai) CUMSUM(a)  end function
+function t_cumprod (a : ai returns ai) CUMPROD(a) end function
+
+% ---- shape-changing --------------------------------------------------------
+function t_concat  (a, b : ai returns ai)          CONCAT(a, b)        end function
+function t_tile    (a : ai; n : integer returns ai) TILE(a, n)          end function
+function t_squeeze (a : ar returns ar)             SQUEEZE(a)           end function
+function t_expand  (a : ar; k : integer returns ar) EXPAND(a, k)        end function
+
+% ---- pad / stencil ---------------------------------------------------------
+function t_pad (a : ai; lo, hi : integer returns ai)
+  PAD(a, lo, hi)
+end function
+function t_pad_fill (a : ai; lo, hi, fill : integer returns ai)
+  PAD(a, lo, hi, fill)
+end function
+function t_stencil (f : integer; a : ai returns ai)
+  STENCIL(f, a, 3)
+end function

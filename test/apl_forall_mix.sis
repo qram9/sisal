@@ -1,0 +1,113 @@
+% apl_forall_mix.sis — mixing APL bulk ops with forall loops
+
+define apl_forall_mix,
+  % APL op applied to forall result
+  map_after_forall,
+  sum_of_forall,
+  % forall over APL op result
+  forall_over_map,
+  forall_over_scan,
+  forall_over_sort,
+  % APL op inside forall body
+  apl_in_body,
+  nested_forall_sum,
+  % boolean mask from forall → COMPRESS
+  compress_with_mask,
+  % FOLDL result as loop bound
+  loop_bound_from_fold,
+  % chained APL ops
+  chain_sort_reverse_scan_sum,
+  % inline function expressions in MAP / FOLDL / SCAN
+  map_with_inline_fn,
+  foldl_with_inline_fn,
+  scan_with_inline_fn
+
+type ai = array[integer]
+type ar = array[real]
+type ab = array[boolean]
+
+function add_i (a, b : integer returns integer) a + b end function
+function double_i (x : integer returns integer) x + x end function
+
+% 1. MAP applied to forall result
+function map_after_forall (a : ai returns ai)
+  let r := for x in a returns array of x + 1 end for
+  in MAP(double_i, r)
+  end let
+end function
+
+% 2. SUM applied directly to a forall expression
+function sum_of_forall (a : ai returns integer)
+  SUM(for x in a returns array of x * x end for)
+end function
+
+% 3. forall over MAP result
+function forall_over_map (a : ai returns ai)
+  let mapped := MAP(double_i, a)
+  in for x in mapped returns array of x + 1 end for
+  end let
+end function
+
+% 4. forall over SCAN result
+function forall_over_scan (a : ai returns integer)
+  for x in SCAN(add_i, a)
+    returns value of sum x
+  end for
+end function
+
+% 5. forall over SORT result with at-index
+function forall_over_sort (a : ai returns integer)
+  for x in SORT(a) at i
+    returns value of sum x * i
+  end for
+end function
+
+% 6. APL op called inside forall body (with outer array captured)
+function apl_in_body (rows : ai; a : ai returns integer)
+  for x in rows
+    s := x + SUM(a)
+  returns value of sum s
+  end for
+end function
+
+% 7. Nested forall where each body calls SUM on a sub-array
+type aai = array[array[integer]]
+function nested_forall_sum (mat : aai returns ai)
+  for row in mat
+    returns array of SUM(row)
+  end for
+end function
+
+% 8. COMPRESS with boolean mask produced by forall
+function compress_with_mask (a : ai returns array_dv[integer])
+  let mask := for x in a returns array of x > 0 end for
+  in COMPRESS(mask, a)
+  end let
+end function
+
+% 9. FOLDL result used as forall range bound
+function loop_bound_from_fold (a : ai returns integer)
+  let total := FOLDL(add_i, 0, a)
+  in for i in 1, total returns value of sum i end for
+  end let
+end function
+
+% 10. Chained APL ops: SORT → REVERSE → SCAN → SUM
+function chain_sort_reverse_scan_sum (a : ai returns integer)
+  SUM(SCAN(add_i, REVERSE(SORT(a))))
+end function
+
+% 11. MAP with an inline function expression
+function map_with_inline_fn (a : ai returns ai)
+  MAP(function(x : integer returns integer) x * x end function, a)
+end function
+
+% 12. FOLDL with an inline function expression
+function foldl_with_inline_fn (a : ai returns integer)
+  FOLDL(function(acc, x : integer returns integer) acc + x end function, 0, a)
+end function
+
+% 13. SCAN with an inline function expression
+function scan_with_inline_fn (a : ai returns ai)
+  SCAN(function(acc, x : integer returns integer) acc + x end function, a)
+end function

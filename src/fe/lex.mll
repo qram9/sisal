@@ -28,7 +28,7 @@ let keyword_table =
   List.fold_left
     (fun last (k,v) -> (KeywordTable.add k v last))
     KeywordTable.empty
-    [ ("AND", ANDKW); ("ARRAY",ARRAY); ("AS", AS); ("AT",AT);
+    [ ("AND", ANDKW); ("ARRAY_DV",ARRAY_DV); ("ARRAY",ARRAY); ("AS", AS); ("AT",AT);
       ("BOOLEAN",BOOLEAN); ("CATENATE",CATENATE); ("CHAR",CHARACTER);
       ("CHARACTER",CHARACTER); ("LONG", LONG_TY); ("ULONG", ULONG_TY);
       ("CROSS",CROSS); ("DEFINE",DEFINE); ("DOT", DOT);
@@ -46,7 +46,7 @@ let keyword_table =
       ("TAG",TAG); ("THEN",THEN); ("TREE",TREE);
       ("TRUE",TRUE); ("TUPLE",TUPLE); ("TYPE",TYPE); ("UNION",UNION);
       ("UNLESS",UNLESS); ("UNTIL",UNTIL); ("USING", USING);
-      ("VALUE",VALUE); ("WHILE",WHILE); ("WHEN",WHEN); ("RESHAPE",RESHAPE);
+      ("VALUE",VALUE); ("WHILE",WHILE); ("WHEN",WHEN);
       ("FLOAT2", FLOAT2_TY); ("FLOAT3", FLOAT3_TY); ("FLOAT4", FLOAT4_TY); 
       ("CHAR2", CHAR2_TY);   ("CHAR3", CHAR3_TY);   ("CHAR4", CHAR4_TY);  
       ("HALF2", HALF2_TY);   ("HALF4", HALF4_TY);   ("HALF8", HALF8_TY);  
@@ -57,6 +57,11 @@ let keyword_table =
       ("ULONG16", ULONG16_TY); ]
 
 let predef_fn_table =
+  (* These are predefined functions / APL bulk operations.  They are NOT in
+     keyword_table so they tokenise as NAME (case-insensitive via
+     String.uppercase_ascii in the identifier rule).  This lets them be used
+     as user-defined identifiers in old Sisal programs while still being
+     dispatchable by name in do_simple_exp_impl. *)
   List.fold_left
     (fun last (k,v) -> (KeywordTable.add k v last))
     KeywordTable.empty
@@ -70,7 +75,15 @@ let predef_fn_table =
       ("STREAM_APPEND",STREAM_APPEND); ("STREAM_EMPTY",STREAM_EMPTY);
       ("STREAM_FIRST",STREAM_FIRST); ("STREAM_PREFIXSIZE",STREAM_PREFIXSIZE);
       ("STREAM_REST",STREAM_REST); ("STREAM_SIZE",STREAM_SIZE);
-      ("TRUNC",TRUNC); ]
+      ("TRUNC",TRUNC);
+      (* APL bulk ops are NOT in keyword_table — they arrive as NAME tokens
+         (case-insensitive via String.uppercase_ascii) and are dispatched in
+         do_simple_exp_impl by string match.  Names: MAP/EACH/APPLY, FOLDL,
+         FOLDR, SCAN, TAKE, DROP, ROTATE, REVERSE, COMPRESS, OUTERPRODUCT,
+         SORT, GRADE_UP/ARGSORT, GRADE_DOWN, ARGMAX, ARGMIN, NONZERO, WHERE,
+         MEAN, VARIANCE, STDDEV, ANY, ALL, NORM, CUMSUM, CUMPROD, CONCAT/
+         CATENATE_OP, TILE, SQUEEZE, EXPAND, RAVEL/FLATTEN_DV, STENCIL, PAD,
+         INNERPRODUCT, RESHAPE, PERMUTE. *) ]
 }
 
 let digit = ['0'-'9']

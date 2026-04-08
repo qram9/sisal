@@ -1,0 +1,33 @@
+% dv_compress_test.sis — DV_COMPRESS produces array_dv from a boolean mask.
+%
+% COMPRESS(mask, arr) selects elements of arr where mask is true.
+% The result size is only known at runtime, so the output is array_dv[T].
+
+define dv_compress_test,
+  compress_monolithic,
+  compress_dv_input,
+  compress_chain
+
+type ai  = array[integer]
+type ab  = array[boolean]
+type adv = array_dv[integer]
+
+% COMPRESS on a plain monolithic array → array_dv[integer]
+function compress_monolithic (mask : ab; a : ai returns adv)
+  COMPRESS(mask, a)
+end function
+
+% COMPRESS on an array_dv input (produced by a dv forall) → array_dv[integer]
+function compress_dv_input (n : integer returns adv)
+  let
+    vals := for i in 1, n returns array [..] of i       end for;
+    mask := for i in 1, n returns array [..] of (MOD(i, 2) = 0) end for;
+  in
+    COMPRESS(mask, vals)
+  end let
+end function
+
+% COMPRESS then array_size (size of filtered result)
+function compress_chain (mask : ab; a : ai returns integer)
+  array_size(COMPRESS(mask, a))
+end function
