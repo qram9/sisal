@@ -20,8 +20,8 @@ end function
 % COMPRESS on an array_dv input (produced by a dv forall) → array_dv[integer]
 function compress_dv_input (n : integer returns adv)
   let
-    vals := for i in 1, n returns array [..] of i       end for;
-    mask := for i in 1, n returns array [..] of (MOD(i, 2) = 0) end for;
+    vals := for i in 1, n returns array_dv of i       end for;
+    mask := for i in 1, n returns array_dv of (MOD(i, 2) = 0) end for;
   in
     COMPRESS(mask, vals)
   end let

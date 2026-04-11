@@ -1,6 +1,6 @@
 % Hydro Fragment
 % Parallel Algorithm
-% DV variant: returns array[..] of signals monolithic pre-allocated output
+% DV variant: returns array_dv of signals monolithic pre-allocated output
 Define  Main
 
 %type double = double_real;
@@ -10,6 +10,6 @@ type OneDV  = array_dv[double];
 function Main( n:integer; Q,R,T:double; Y,Z:OneD returns OneDV )
    for K in Y
        X := K+K
-   returns array[..] of X
+   returns array_dv of X
    end for
 end function

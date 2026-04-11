@@ -28,7 +28,7 @@ let keyword_table =
   List.fold_left
     (fun last (k,v) -> (KeywordTable.add k v last))
     KeywordTable.empty
-    [ ("AND", ANDKW); ("ARRAY_DV",ARRAY_DV); ("ARRAY",ARRAY); ("AS", AS); ("AT",AT);
+    [ ("AND", ANDKW); ("ARRAY_DV",ARRAY_DV); ("array_dv",ARRAY_DV); ("ARRAY",ARRAY); ("AS", AS); ("AT",AT);
       ("BOOLEAN",BOOLEAN); ("CATENATE",CATENATE); ("CHAR",CHARACTER);
       ("CHARACTER",CHARACTER); ("LONG", LONG_TY); ("ULONG", ULONG_TY);
       ("CROSS",CROSS); ("DEFINE",DEFINE); ("DOT", DOT);

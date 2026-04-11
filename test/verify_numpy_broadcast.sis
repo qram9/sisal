@@ -1,0 +1,24 @@
+define main
+
+type OneD = array_dv[double_real];
+type TwoD = array_dv[double_real];
+
+% 1. Test trailing-axis alignment: [2, 3] + [3] -> [2, 3]
+function test_trailing(A: TwoD; B: OneD returns TwoD)
+  A + B
+end function
+
+% 2. Test unit-dimension expansion: [10, 1] + [1, 5] -> [10, 5]
+function test_unit_expansion(A: TwoD; B: TwoD returns TwoD)
+  A + B
+end function
+
+% 3. Test scalar broadcasting: scalar + [3, 3] -> [3, 3]
+function test_scalar_broadcast(S: double_real; M: TwoD returns TwoD)
+  S + M
+end function
+
+% 4. Test multi-op lifting
+function test_multi_op(A, B: TwoD returns TwoD)
+  (A + B) * 2.0 - A
+end function

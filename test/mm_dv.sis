@@ -1,6 +1,6 @@
 define main
 % Matrix multiplication - DV variant
-% returns array[..] of signals monolithic pre-allocated output
+% returns array_dv of signals monolithic pre-allocated output
 
 type realmatrix = array[array[real]] ;
 
@@ -17,7 +17,7 @@ let
     rmb := rma ;
     rmc :=
     for i in 1, rowsize cross j in 1, rowsize
-    returns array[..] of innerproduct_(rowsize, rma, rmb, i, j)
+    returns array_dv of innerproduct_(rowsize, rma, rmb, i, j)
     end for
 in
     rmc[1, 1]

@@ -1,0 +1,33 @@
+% apl_stats.sis — MEAN, VARIANCE, STDDEV, ANY, ALL, NORM, CUMSUM, CUMPROD
+
+define apl_stats,
+  t_mean, t_mean_lower,
+  t_variance, t_stddev,
+  t_any, t_all,
+  t_any_lower, t_all_lower,
+  t_norm,
+  t_cumsum, t_cumprod, t_cumsum_lower
+
+type ar = array[real]
+type ab = array[boolean]
+type ai = array[integer]
+
+% MEAN / VARIANCE / STDDEV — whole-array
+function t_mean     (a : ar returns real) MEAN(a)     end function
+function t_mean_lower (a : ar returns real) mean(a)   end function  % lowercase
+function t_variance (a : ar returns real) VARIANCE(a) end function
+function t_stddev   (a : ar returns real) STDDEV(a)   end function
+
+% ANY / ALL — boolean reductions
+function t_any       (a : ab returns boolean) ANY(a) end function
+function t_all       (a : ab returns boolean) ALL(a) end function
+function t_any_lower (a : ab returns boolean) any(a) end function  % lowercase
+function t_all_lower (a : ab returns boolean) all(a) end function
+
+% NORM(arr, p) — p-norm
+function t_norm (a : ar; p : integer returns real) NORM(a, p) end function
+
+% CUMSUM / CUMPROD — prefix sum / product
+function t_cumsum       (a : ai returns ai) CUMSUM(a)  end function
+function t_cumprod      (a : ai returns ai) CUMPROD(a) end function
+function t_cumsum_lower (a : ai returns ai) cumsum(a)  end function  % lowercase

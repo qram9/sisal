@@ -1,0 +1,12 @@
+define main
+
+type OneD = array_dv[double_real];
+type TwoD = array_dv[double_real];
+
+% NumPy Broadcasting Test: [2, 3] + [3]
+% A matrix A[2, 3] and a vector B[3].
+% In NumPy, this works (trailing axis matches).
+% In APL (current implementation), this should be a RANK_MISMATCH.
+function main(A: TwoD; B: OneD returns TwoD)
+  A + B
+end function

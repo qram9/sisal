@@ -1,0 +1,31 @@
+% apl_map.sis — MAP, FOLDL, FOLDR, SCAN and their aliases (EACH, APPLY)
+
+define apl_map,
+  double_it, add_int,
+  t_map, t_each, t_apply,
+  t_foldl, t_foldr, t_scan,
+  t_map_lower, t_foldl_lower, t_scan_lower
+
+type ai = array[integer]
+
+function double_it (x : integer returns integer) x + x     end function
+function add_int   (a, b : integer returns integer) a + b  end function
+
+% MAP(f, arr) — apply f element-wise
+function t_map   (a : ai returns ai) MAP(double_it, a)   end function
+function t_each  (a : ai returns ai) EACH(double_it, a)  end function   % alias
+function t_apply (a : ai returns ai) APPLY(double_it, a) end function   % alias
+
+% lowercase also accepted (case-insensitive)
+function t_map_lower (a : ai returns ai) map(double_it, a) end function
+
+% FOLDL(f, init, arr) — left fold
+function t_foldl (a : ai; z : integer returns integer) FOLDL(add_int, z, a) end function
+function t_foldl_lower (a : ai; z : integer returns integer) foldl(add_int, z, a) end function
+
+% FOLDR(f, init, arr) — right fold
+function t_foldr (a : ai; z : integer returns integer) FOLDR(add_int, z, a) end function
+
+% SCAN(f, arr) — prefix scan
+function t_scan       (a : ai returns ai) SCAN(add_int, a) end function
+function t_scan_lower (a : ai returns ai) scan(add_int, a) end function

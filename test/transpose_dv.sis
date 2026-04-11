@@ -6,12 +6,12 @@ type TwoD = array[ OneD ];
 type TwoDV = array_dv[ double_real ];
 
 % Transpose A, an n by m matrix.
-% DV variant: returns array[..] of signals monolithic pre-allocated output
+% DV variant: returns array_dv of signals monolithic pre-allocated output
 %
 function transpose(n, m: integer; A: TwoD  returns TwoDV)
 
   for i in 1, m cross j in 1, n
-  returns array[..] of A[j, i]
+  returns array_dv of A[j, i]
   end for
 
 end function % Transpose

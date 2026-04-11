@@ -1,0 +1,19 @@
+define main
+
+type OneD = array_dv[double_real];
+type TwoD = array_dv[double_real];
+
+% Test 1: Vector-Matrix Broadcasting [3] + [2, 3] -> [2, 3]
+function broadcast_vec_mat(V: OneD; M: TwoD returns TwoD)
+  V + M
+end function
+
+% Test 2: Matrix-Matrix Unit Broadcasting [10, 1] + [1, 5] -> [10, 5]
+function broadcast_unit(A, B: TwoD returns TwoD)
+  A + B
+end function
+
+% Test 3: Scalar-Matrix Broadcasting [1] + [3, 3] -> [3, 3]
+function broadcast_scalar(S: double_real; M: TwoD returns TwoD)
+  S + M
+end function

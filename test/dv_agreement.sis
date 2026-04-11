@@ -1,0 +1,11 @@
+define main
+
+type OneD = array_dv[integer];
+
+% Test APL-style Leading Axis Agreement in forall loops.
+% Multiple Array_dv generators trigger DV_CONFORM checks.
+function main(A, B: OneD returns OneD)
+  for i in A dot j in B
+  returns array_dv of i + j
+  end for
+end function
