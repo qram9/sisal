@@ -14,7 +14,7 @@ function test_3d(n, m, k : integer returns double_real)
 let
   flat :=
     for i in 1, n * m * k
-    returns array[..] of double_real(i)
+    returns array_dv of double_real(i)
     end for;
   vol      := reshape(flat, n, m, k);
   row_sum  :=

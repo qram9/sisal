@@ -1,0 +1,9 @@
+define main
+
+type OneD = array_dv[integer];
+
+function main(n, m: integer returns OneD)
+  for i in 1, n cross j in 1, m
+  returns array_dv of i * j
+  end for
+end function

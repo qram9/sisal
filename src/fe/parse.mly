@@ -260,9 +260,13 @@ top_fragment_list:
   | frag = top_fragment { [frag] }
   | rest = top_fragment_list frag = top_fragment { frag :: rest }
 
+top_fragment_list_opt:
+  | /* empty */ { [] }
+  | top_fragment_list { $1 }
+
 /* 6. The New Unified Entry Point */
 compilation_unit:
-  | frags = top_fragment_list EOF 
+  | frags = top_fragment_list_opt EOF 
     { 
       Compilation_unit (List.rev frags) 
     }
@@ -729,15 +733,10 @@ function_nest:
     { Value_of (No_dir,No_red,$3) }
 |   ARRAY OF simple_expression
     { Array_of $3 }
-|   ARRAY LBRACK dotdot_list RBRACK OF simple_expression
-    { Dv_array_of ($3, $6) }
+|   ARRAY_DV OF simple_expression
+    { Dv_array_of (1, $3) }
 |   STREAM OF simple_expression
     { Stream_of $3 }
-  ;
-
-  dotdot_list:
-    DOTDOT                          { 1 }
-  | dotdot_list COMMA DOTDOT        { $1 + 1 }
   ;
 
   direction:

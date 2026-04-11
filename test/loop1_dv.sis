@@ -1,6 +1,6 @@
 % Hydro Fragment
 % Parallel Algorithm
-% DV variant: returns array[..] of signals monolithic pre-allocated output
+% DV variant: returns array_dv of signals monolithic pre-allocated output
 
 Define  Main
 
@@ -11,7 +11,7 @@ type OneDV  = array_dv[double];
 function Loop1( n:integer; Q,R,T:double; Y,Z:OneD returns OneDV )
    for K in 1,n
        X := Q + (Y[K] * (R * Z[K+10] + T * Z[K+11]))
-   returns array[..] of X
+   returns array_dv of X
    end for
 end function
 

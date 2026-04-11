@@ -1,0 +1,44 @@
+% apl_shape.sis — TILE, SQUEEZE, EXPAND, PAD, STENCIL,
+%                  OUTERPRODUCT, PERMUTE, RESHAPE
+
+define apl_shape,
+  t_tile, t_tile_lower,
+  t_squeeze, t_expand,
+  t_pad_nofill, t_pad_nofill2, t_pad_fill,
+  t_outerproduct,
+  t_permute
+
+type ai = array[integer]
+type ar = array[real]
+
+function add_int (a, b : integer returns integer) a + b end function
+
+% TILE(arr, n) — repeat array n times
+function t_tile       (a : ai; n : integer returns ai) TILE(a, n) end function
+function t_tile_lower (a : ai; n : integer returns ai) tile(a, n) end function
+
+% SQUEEZE — remove length-1 dimensions
+function t_squeeze (a : ar returns ar) SQUEEZE(a) end function
+
+% EXPAND(arr, k) — insert a length-1 dimension at axis k
+function t_expand (a : ar; k : integer returns ar) EXPAND(a, k) end function
+
+% PAD — extend array with fill (0 if omitted)
+function t_pad_nofill  (a : ai; lo, hi : integer returns ai)
+  PAD(a, lo, hi)
+end function
+function t_pad_nofill2 (a : ai; lo, hi : integer returns ai)
+  pad(a, lo, hi)           % lowercase ok
+end function
+function t_pad_fill   (a : ai; lo, hi, fill : integer returns ai)
+  PAD(a, lo, hi, fill)
+end function
+
+% OUTERPRODUCT(f, a, b) — outer product with combining function
+function t_outerproduct (a, b : ai returns ai)
+  OUTERPRODUCT(add_int, a, b)
+end function
+
+% PERMUTE(arr, d0, d1, ...) — reorder axes
+function t_permute (a : ar returns ar) PERMUTE(a, 1, 0) end function
+

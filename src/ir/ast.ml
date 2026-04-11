@@ -98,6 +98,10 @@ and simple_exp =
   (* Statistical reductions — optional axis as 2nd positional arg *)
   | Reduce_axis of reduction_op * simple_exp * simple_exp  (* SUM/PRODUCT/LEAST/GREATEST(A,k) *)
   | Mean_exp of simple_exp * simple_exp option
+  | Dv_offset_at of simple_exp * simple_exp * simple_exp (* array, index, common_shape *)
+  | Dv_load_linear of simple_exp * simple_exp           (* array, offset *)
+  | Dv_num_rank of simple_exp
+  | Dv_dimension of simple_exp * simple_exp
   | Variance_exp of simple_exp * simple_exp option
   | Stddev_exp of simple_exp * simple_exp option
   | Any_exp of simple_exp * simple_exp option         (* ANY(A) or ANY(A,axis) *)
@@ -841,9 +845,8 @@ and str_return_exp = function
       if k.[0] <> '\n' && k.[0] <> ' ' then " " ^ k else k
   | Array_of e ->
       single_space_cate "ARRAY OF" (str_simple_exp ~preceed_space:1 e)
-  | Dv_array_of (rank, e) ->
-      let dots = String.concat ", " (List.init rank (fun _ -> "..")) in
-      single_space_cate ("ARRAY[" ^ dots ^ "] OF") (str_simple_exp ~preceed_space:1 e)
+  | Dv_array_of (_rank, e) ->
+      single_space_cate "ARRAY_DV OF" (str_simple_exp ~preceed_space:1 e)
   | Stream_of e -> single_space_cate "STREAM OF" (str_simple_exp e)
 
 and str_masking_clause = function
@@ -1272,6 +1275,12 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       " " ^ str_reduction op ^ "(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
   | Mean_exp (a, None) -> " MEAN(" ^ str_simple_exp a ^ ")"
   | Mean_exp (a, Some k) -> " MEAN(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
+  | Dv_offset_at (a, i, s) ->
+      " DV_OFFSET_AT(" ^ str_simple_exp a ^ ", " ^ str_simple_exp i ^ ", " ^ str_simple_exp s ^ ")"
+  | Dv_load_linear (a, o) ->
+      " DV_LOAD_LINEAR(" ^ str_simple_exp a ^ ", " ^ str_simple_exp o ^ ")"
+  | Dv_num_rank a -> " DV_NUM_RANK(" ^ str_simple_exp a ^ ")"
+  | Dv_dimension (a, k) -> " DV_DIMENSION(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
   | Variance_exp (a, None) -> " VARIANCE(" ^ str_simple_exp a ^ ")"
   | Variance_exp (a, Some k) -> " VARIANCE(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
   | Stddev_exp (a, None) -> " STDDEV(" ^ str_simple_exp a ^ ")"

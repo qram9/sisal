@@ -149,6 +149,7 @@ type node_sym =
   | DV_ELEMENT
   | DV_REPLACE
   | DV_GATHER
+  | DV_SCATTER
   | DV_RESHAPE
   | DV_SLICE       (* DV_SLICE(A, starts[], sizes[]) → zero-copy view *)
   | DV_PERMUTE     (* DV_PERMUTE(A, dims[]) → reorder strides, zero-copy *)
@@ -188,6 +189,12 @@ type node_sym =
   | INNERPRODUCT_NODE (* INNERPRODUCT(A,B): dot if rank-1, matmul if rank-2, feeds AMX *)
   | GET_DOPE_VEC     (* GET_DOPE_VEC(A) → port 0: dope as array[{lo,stride,size}], port 1: A unchanged *)
   | SHAPE_CHECK      (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
+  | DV_CONFORM       (* DV_CONFORM(A,B) → port 0: common iteration shape, port 1: error flag (bool) *)
+  | DV_NUM_RANK      (* DV_NUM_RANK(A) → integer rank *)
+  | DV_DIMENSION     (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
+  | DV_OFFSET_AT     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
+  | DV_LOAD_LINEAR   (* DV_LOAD_LINEAR(A, offset) → element value *)
+  | DV_RESHAPE_BY_SHAPE (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
 
 type comment = C of string | CDollar of string
 
@@ -623,6 +630,17 @@ and get_graph_from_label ii ingr =
   with _ -> failwith "get_graph_from_label"
 
 and has_node i ingr = NM.mem i (get_node_map ingr)
+
+and get_node_rank i ingr =
+  let rec find_rank = function
+    | Ar r :: _ -> r
+    | _ :: tl -> find_rank tl
+    | [] -> 1
+  in
+  match get_node i ingr with
+  | Simple (_, _, _, _, p) -> find_rank p
+  | Compound (_, _, _, p, _, _) -> find_rank p
+  | _ -> 1
 
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
@@ -1743,6 +1761,26 @@ and set_node_srcline node_id line col in_gr =
             Simple (lab, sym, pin, pout, SrcLine (line, col) :: prag)
         | Compound (lab, sym, ty, prag, subgr, assoc) ->
             Compound (lab, sym, ty, SrcLine (line, col) :: prag, subgr, assoc)
+        | Literal _ | Boundary _ | Unknown_node -> nd
+      in
+      { in_gr with nmap = NM.add node_id nd' nm }
+
+and add_name_pragma node_id name in_gr =
+  let nm = in_gr.nmap in
+  match NM.find_opt node_id nm with
+  | None -> in_gr
+  | Some nd ->
+      let has_name p =
+        List.exists (function Name _ -> true | _ -> false) p
+      in
+      let nd' =
+        match nd with
+        | Simple (lab, sym, pin, pout, prag) ->
+            if has_name prag then nd
+            else Simple (lab, sym, pin, pout, Name name :: prag)
+        | Compound (lab, sym, ty, prag, subgr, assoc) ->
+            if has_name prag then nd
+            else Compound (lab, sym, ty, Name name :: prag, subgr, assoc)
         | Literal _ | Boundary _ | Unknown_node -> nd
       in
       { in_gr with nmap = NM.add node_id nd' nm }
@@ -3430,6 +3468,7 @@ and node_sym_to_num = function
   | DV_ELEMENT -> 79
   | DV_REPLACE -> 80
   | DV_GATHER -> 81
+  | DV_SCATTER -> 125
   | DV_RESHAPE -> 82
   | DV_SLICE -> 83
   | DV_PERMUTE -> 84
@@ -3469,6 +3508,12 @@ and node_sym_to_num = function
   | INNERPRODUCT_NODE -> 118
   | GET_DOPE_VEC -> 119
   | SHAPE_CHECK  -> 120
+  | DV_CONFORM   -> 121
+  | DV_NUM_RANK  -> 122
+  | DV_DIMENSION -> 123
+  | DV_OFFSET_AT -> 124
+  | DV_LOAD_LINEAR -> 125
+  | DV_RESHAPE_BY_SHAPE -> 126
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3553,6 +3598,7 @@ and string_of_node_sym = function
   | DV_ELEMENT -> "DV_ELEMENT"
   | DV_REPLACE -> "DV_REPLACE"
   | DV_GATHER -> "DV_GATHER"
+  | DV_SCATTER -> "DV_SCATTER"
   | DV_RESHAPE -> "DV_RESHAPE"
   | DV_SLICE -> "DV_SLICE"
   | DV_PERMUTE -> "DV_PERMUTE"
@@ -3592,8 +3638,14 @@ and string_of_node_sym = function
   | INNERPRODUCT_NODE -> "INNERPRODUCT"
   | GET_DOPE_VEC -> "GET_DOPE_VEC"
   | SHAPE_CHECK  -> "SHAPE_CHECK"
+  | DV_CONFORM   -> "DV_CONFORM"
+  | DV_NUM_RANK  -> "DV_NUM_RANK"
+  | DV_DIMENSION   -> "DV_DIMENSION"
+  | DV_OFFSET_AT   -> "DV_OFFSET_AT"
+  | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
+  | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
 
-and string_of_pragmas p =
+  and string_of_pragmas p =
   List.fold_right
     (fun p q ->
       let l =
@@ -4652,38 +4704,67 @@ module If1_View = struct
         if l = "" then q else cate_nicer l q " ,")
       p ""
 
+  let string_of_pragmas_no_name p =
+    List.fold_right
+      (fun pr q ->
+        let l =
+          match pr with
+          | Ast_type _ -> ""
+          | Name _ -> ""
+          | Bounds (i, j) -> sprintf "Bounds(%d,%d)" i j
+          | SrcLine (i, j) -> sprintf "SrcLine(%d,%d)" i j
+          | OpNum i -> "OpNum " ^ string_of_int i
+          | Ar i -> "Ar " ^ string_of_int i
+          | Of i -> "Of " ^ string_of_int i
+          | Lazy -> "Lazy"
+          | Ref -> "Ref"
+          | Pointer -> "Pointer"
+          | Contiguous -> "Contiguous"
+          | No_pragma -> ""
+        in
+        if l = "" then q else cate_nicer l q " ,")
+      p ""
+
+  (* Helper to extract Name pragma specifically *)
+  let extract_name pragmas =
+    List.fold_left (fun acc p -> match p with Name s -> s | _ -> acc) "" pragmas
+
   let rec render_node_to_json node =
     match node with
     | Simple (id, sym, pin, pout, prag) ->
         let label =
           sprintf "%s [%s]" (string_of_node_sym sym)
-            (string_of_pragmas_no_ast prag)
+            (string_of_pragmas_no_name prag)
         in
+        let name = extract_name prag in
         sprintf
-          "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"ports\": { \
-           \"in\": %s, \"out\": %s } }"
-          id (esc label)
+          "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"value\": %s, \
+           \"ports\": { \"in\": %s, \"out\": %s } }"
+          id (esc label) (esc name)
           (esc (string_of_ports pin))
           (esc (string_of_ports pout))
     | Compound (id, sym, ty, prag, sub_gr, _) ->
         let label =
           sprintf "%s [%s]" (string_of_node_sym sym)
-            (string_of_pragmas_no_ast prag)
+            (string_of_pragmas_no_name prag)
         in
         let ast = extract_ast prag in
+        let name = extract_name prag in
         sprintf
-          "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \
+          "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \"value\": %s, \
            \"inner_type\": %d, \"subgraph\": %s }"
-          id (esc label) ty
+          id (esc label) (esc name) ty
           (render_graph_to_json ~ast sub_gr)
     | Literal (id, _, value, _) ->
-        sprintf "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s }" id
-          (esc value)
+        sprintf
+          "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \"Literal\" }"
+          id (esc value)
     | Boundary (_, _, _, prag) ->
         let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
-        sprintf "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s }"
+        sprintf
+          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \"\" }"
           (esc label)
-    | _ -> "{ \"type\": \"Unknown\" }"
+    | _ -> "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \"Unknown\" }"
 
   and render_graph_to_json ?(ast = "") in_gr =
     let nodes =
@@ -4914,47 +4995,39 @@ module If1_View = struct
 
     fprintf oc "%s"
       "\n\
-      \      function generateMermaidCode(graph) {\n\
-      \        let lines = [\"---\\nconfig:\\nlayout: tidy-tree\\n---\\ngraph \
-       TD\"];\n\
-      \        \n\
-      \        // 1. Virtualize the Boundary Nodes\n\
-      \        lines.push('  N0_IN{{\"Boundary IN (Node 0)\"}}');\n\
-      \        lines.push('  N0_OUT{{\"Boundary OUT (Node 0)\"}}');\n\
-      \        \n\
-      \        // 2. High-Contrast Light Styles (VS Code Palette)\n\
-      \        // Light Green (#b5cea8) for Entry, Light Red (#ce9178) for Exit\n\
-      \        lines.push('  style N0_IN \
-       fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8');\n\
-      \        lines.push('  style N0_OUT \
-       fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178');\n\
-      \        graph.nodes.forEach(n => {\n\
-      \        if (n.id === 0) return;\n\
-      \        // Strip characters that break Mermaid's shape detection\n\
-      \        const label = (n.label || n.type).replace(/[\\[\\]\"{}()]/g, \
-       \"\");\n\
-      \        // Standard square brackets are usually more\n\
-      \        // space-tolerant, but let's keep them tight too\n\
-      \        lines.push(`  N${n.id}((\"${n.id}: ${label}\"))`);\n\
-      \        });\n\
-      \        \n\
-      \        // Wiring up the High-Contrast Edges\n\
+      \      function generateMermaidCode(rootGraph) {\n\
+      \        let lines = [\"---\\nconfig:\\nlayout: tidy-tree\\n---\\ngraph TD\"];\n\
       \        let edgeCount = 0;\n\
-      \        (graph.data_edges || []).forEach(e => {\n\
-      \        const m = \
-       e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)\\s*(.*)/);\n\
-      \        if (m) {\n\
-      \        const s = m[1] === \"0\" ? \"N0_IN\" : \"N\" + m[1];\n\
-      \        const d = m[3] === \"0\" ? \"N0_OUT\" : \"N\" + m[3];\n\
-      \        lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\\n${m[5]}\" --> ${d}`);\n\
-      \        \n\
-      \        // Neon Glow for the edges\n\
-      \        lines.push(`  linkStyle ${edgeCount} \
-       stroke:#4ec9b0,stroke-width:2px`);\n\
-      \        edgeCount++;\n\
+      \        function traverse(graph, prefix) {\n\
+      \          (graph.nodes || []).forEach(n => {\n\
+      \            const uid = prefix + n.id;\n\
+      \            if (n.id === 0) {\n\
+      \              lines.push(`  N${uid}_IN{{\"${prefix}Boundary IN\"}}`);\n\
+      \              lines.push(`  N${uid}_OUT{{\"${prefix}Boundary OUT\"}}`);\n\
+      \              lines.push(`  style N${uid}_IN fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8`);\n\
+      \              lines.push(`  style N${uid}_OUT fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178`);\n\
+      \            } else {\n\
+      \              let labelPart = (n.label || \"\").trim();\n\
+      \              if (labelPart === \"\" || labelPart === \"[]\") labelPart = n.type;\n\
+      \              let text = labelPart.replace(/[\\[\\]\"{}]/g, \"\");\n\
+      \              if (n.value && n.value !== n.label && n.value !== labelPart) {\n\
+      \                text += \" (\" + n.value.replace(/[\\[\\]\"{}]/g, \"\") + \")\";\n\
+      \              }\n\
+      \              lines.push(`  N${uid}((\"${n.id}: ${text}\"))`);\n\
+      \              if (n.subgraph) traverse(n.subgraph, uid + \"_\");\n\
+      \            }\n\
+      \          });\n\
+      \          (graph.data_edges || []).forEach(e => {\n\
+      \            const m = e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)\\s*(.*)/);\n\
+      \            if (m) {\n\
+      \              const s = m[1] === \"0\" ? `N${prefix}0_IN` : `N${prefix}${m[1]}`;\n\
+      \              const d = m[3] === \"0\" ? `N${prefix}0_OUT` : `N${prefix}${m[3]}`;\n\
+      \              lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\\n${m[5]}\" --> ${d}`);\n\
+      \              lines.push(`  linkStyle ${edgeCount++} stroke:#4ec9b0,stroke-width:2px`);\n\
+      \            }\n\
+      \          });\n\
       \        }\n\
-      \        });\n\
-      \        \n\
+      \        traverse(rootGraph, \"\");\n\
       \        return lines.join(\"\\n\");\n\
       \      }";
 
@@ -4973,16 +5046,23 @@ module If1_View = struct
       \        \n\
       \        graph.nodes.forEach(n => {\n\
       \          const d = document.createElement('div');\n\
+      \          let labelPart = (n.label || \"\").trim();\n\
+      \          if (labelPart === \"\" || labelPart === \"[]\") {\n\
+      \            labelPart = n.type;\n\
+      \          }\n\
+      \          let nodeText = `Node ${n.id}: ${labelPart}`;\n\
+      \          if (n.value && n.value !== n.label && n.value !== labelPart) {\n\
+      \            nodeText += ` (${n.value})`;\n\
+      \          }\n\
       \          if (n.subgraph) {\n\
-      \            d.innerHTML = `<b>Node ${n.id}: ${n.label}</b>`;\n\
+      \            d.innerHTML = `<b>${nodeText}</b>`;\n\
       \            buildTree(d, n.subgraph, false);\n\
       \          } else {\n\
-      \            d.className = 'node-item'; \n\
-      \            d.textContent = `Node ${n.id}: ${n.label ? n.label + ' ' : \
-       ''}[${n.type}: ${n.value}]`;\n\
+      \            d.className = 'node-item';\n\
+      \            d.textContent = nodeText;\n\
       \          }\n\
       \          box.appendChild(d);\n\
-      \        });\n\n\
+      \        });\n\
       \        // Data Edges with DAG Button\n\
       \        const de = document.createElement('details'); de.open = true;\n\
       \        const deSum = document.createElement('summary');\n\

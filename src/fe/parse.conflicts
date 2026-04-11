@@ -1,0 +1,1214 @@
+
+** Conflict (shift/reduce) in state 662.
+** Tokens involved: FUNCTION FORWARD
+** The following explanations concentrate on token FUNCTION.
+** This state is reached from main after reading:
+
+function_def_list
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+(?)
+
+** In state 662, looking ahead at FUNCTION, shifting is permitted
+** because of the following sub-derivation:
+
+top_fragment 
+function_def_list 
+function_def_list function_def 
+                  function_nest 
+                  . FUNCTION function_header expression END_FUNCTION 
+
+** In state 662, looking ahead at FUNCTION, reducing production
+** top_fragment -> function_def_list
+** is permitted because of the following sub-derivation:
+
+top_fragment_list top_fragment // lookahead token appears because top_fragment can begin with FUNCTION
+top_fragment // lookahead token is inherited
+function_def_list . 
+
+** Conflict (shift/reduce) in state 659.
+** Token involved: GLOBAL
+** This state is reached from main after reading:
+
+global_header_list
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+(?)
+
+** In state 659, looking ahead at GLOBAL, shifting is permitted
+** because of the following sub-derivation:
+
+top_fragment 
+global_header_list 
+global_header_list . GLOBAL function_header 
+
+** In state 659, looking ahead at GLOBAL, reducing production
+** top_fragment -> global_header_list
+** is permitted because of the following sub-derivation:
+
+top_fragment_list top_fragment // lookahead token appears because top_fragment can begin with GLOBAL
+top_fragment // lookahead token is inherited
+global_header_list . 
+
+** Conflict (shift/reduce) in state 654.
+** Token involved: SEMICOLON
+** This state is reached from main after reading:
+
+type_def_part
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+(?)
+
+** In state 654, looking ahead at SEMICOLON, reducing production
+** top_fragment -> type_def_part
+** is permitted because of the following sub-derivation:
+
+top_fragment_list top_fragment // lookahead token appears because top_fragment can begin with SEMICOLON
+top_fragment // lookahead token is inherited
+type_def_part . 
+
+** In state 654, looking ahead at SEMICOLON, shifting is permitted
+** because of the following sub-derivation:
+
+top_fragment 
+type_def_part 
+type_def_part . SEMICOLON type_def 
+
+** Conflict (shift/reduce) in state 579.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header PLUS simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 579, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+PLUS simple_expression 
+     primary_part2 
+     record_generator 
+     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 579, looking ahead at REPLACE, reducing production
+** simple_expression -> PLUS simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+PLUS simple_expression . 
+
+** Conflict (shift/reduce) in state 578.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header NOT simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 578, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+NOT simple_expression 
+    primary_part2 
+    record_generator 
+    simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 578, looking ahead at REPLACE, reducing production
+** simple_expression -> NOT simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+NOT simple_expression . 
+
+** Conflict (shift/reduce) in state 577.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header MINUS simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 577, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+MINUS simple_expression 
+      primary_part2 
+      record_generator 
+      simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 577, looking ahead at REPLACE, reducing production
+** simple_expression -> MINUS simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+MINUS simple_expression . 
+
+** Conflict (shift/reduce) in state 573.
+** Token involved: END_LET
+** This state is reached from main after reading:
+
+FUNCTION function_header LET decldef_part IN LET decldef_part IN expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         let_in_exp 
+                         (?)
+
+** In state 573, looking ahead at END_LET, shifting is permitted
+** because of the following sub-derivation:
+
+LET decldef_part IN expression opt_end_let 
+                    exp_list 
+                    simple_expression 
+                    primary_part2 
+                    let_in_exp 
+                    LET decldef_part IN expression opt_end_let 
+                                                   . END_LET 
+
+** In state 573, looking ahead at END_LET, reducing production
+** opt_end_let ->
+** is permitted because of the following sub-derivation:
+
+LET decldef_part IN expression opt_end_let // lookahead token appears because opt_end_let can begin with END_LET
+                    exp_list // lookahead token is inherited
+                    simple_expression // lookahead token is inherited
+                    primary_part2 // lookahead token is inherited
+                    let_in_exp // lookahead token is inherited
+                    LET decldef_part IN expression opt_end_let // lookahead token is inherited
+                                                   . 
+
+** Conflict (shift/reduce) in state 568.
+** Token involved: END_LET
+** This state is reached from main after reading:
+
+FUNCTION function_header LET decldef_part IN LET REC decldef_part IN expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         let_in_exp 
+                         (?)
+
+** In state 568, looking ahead at END_LET, shifting is permitted
+** because of the following sub-derivation:
+
+LET decldef_part IN expression opt_end_let 
+                    exp_list 
+                    simple_expression 
+                    primary_part2 
+                    let_in_exp 
+                    LET REC decldef_part IN expression opt_end_let 
+                                                       . END_LET 
+
+** In state 568, looking ahead at END_LET, reducing production
+** opt_end_let ->
+** is permitted because of the following sub-derivation:
+
+LET decldef_part IN expression opt_end_let // lookahead token appears because opt_end_let can begin with END_LET
+                    exp_list // lookahead token is inherited
+                    simple_expression // lookahead token is inherited
+                    primary_part2 // lookahead token is inherited
+                    let_in_exp // lookahead token is inherited
+                    LET REC decldef_part IN expression opt_end_let // lookahead token is inherited
+                                                       . 
+
+** Conflict (shift/reduce) in state 460.
+** Token involved: SEMICOLON
+** This state is reached from main after reading:
+
+FUNCTION function_header FOR INITIAL decldef_list
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         iteration_exp 
+                         (?)
+
+** In state 460, looking ahead at SEMICOLON, reducing production
+** opt_semicolon ->
+** is permitted because of the following sub-derivation:
+
+FOR INITIAL decldef_part SEMICOLON iterator_terminator RETURNS return_exp_list END_FOR // lookahead token appears
+            decldef_list opt_semicolon // lookahead token is inherited
+                         . 
+
+** In state 460, looking ahead at SEMICOLON, shifting is permitted
+** because of the following sub-derivation:
+
+FOR INITIAL decldef_part iterator_terminator RETURNS return_exp_list END_FOR 
+            decldef_list opt_semicolon 
+                         . SEMICOLON 
+
+** Conflict (shift/reduce) in state 444.
+** Token involved: ASSIGN
+** This state is reached from main after reading:
+
+FUNCTION function_header LET declids COLON HASH_LPAREN type_list COMMA RPAREN
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         let_in_exp 
+                         LET decldef_part IN expression opt_end_let 
+                             decldef_list opt_semicolon 
+                             decldef 
+                             (?)
+
+** In state 444, looking ahead at ASSIGN, shifting is permitted
+** because of the following sub-derivation:
+
+declids COLON HASH_LPAREN type_list COMMA RPAREN . ASSIGN expression 
+
+** In state 444, looking ahead at ASSIGN, reducing production
+** type_spec -> HASH_LPAREN type_list COMMA RPAREN
+** is permitted because of the following sub-derivation:
+
+declids_typed ASSIGN expression // lookahead token appears
+declids COLON type_spec // lookahead token is inherited
+              HASH_LPAREN type_list COMMA RPAREN . 
+
+** Conflict (shift/reduce) in state 440.
+** Token involved: ASSIGN
+** This state is reached from main after reading:
+
+FUNCTION function_header LET declids COLON HASH_LPAREN type_list RPAREN
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         let_in_exp 
+                         LET decldef_part IN expression opt_end_let 
+                             decldef_list opt_semicolon 
+                             decldef 
+                             (?)
+
+** In state 440, looking ahead at ASSIGN, shifting is permitted
+** because of the following sub-derivation:
+
+declids COLON HASH_LPAREN type_list RPAREN . ASSIGN expression 
+
+** In state 440, looking ahead at ASSIGN, reducing production
+** type_spec -> HASH_LPAREN type_list RPAREN
+** is permitted because of the following sub-derivation:
+
+declids_typed ASSIGN expression // lookahead token appears
+declids COLON type_spec // lookahead token is inherited
+              HASH_LPAREN type_list RPAREN . 
+
+** Conflict (shift/reduce) in state 381.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression OR simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 381, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression OR simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 381, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression OR simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression OR simple_expression . 
+
+** Conflict (shift/reduce) in state 379.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression AND simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 379, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression AND simple_expression 
+                      primary_part2 
+                      record_generator 
+                      simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 379, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression AND simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression AND simple_expression . 
+
+** Conflict (shift/reduce) in state 377.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression EQ simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 377, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression EQ simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 377, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression EQ simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression EQ simple_expression . 
+
+** Conflict (shift/reduce) in state 375.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression GE simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 375, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression GE simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 375, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression GE simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression GE simple_expression . 
+
+** Conflict (shift/reduce) in state 373.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression GT simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 373, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression GT simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 373, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression GT simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression GT simple_expression . 
+
+** Conflict (shift/reduce) in state 371.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression LE simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 371, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression LE simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 371, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression LE simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression LE simple_expression . 
+
+** Conflict (shift/reduce) in state 369.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression LT simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 369, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression LT simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 369, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression LT simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression LT simple_expression . 
+
+** Conflict (shift/reduce) in state 367.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression MINUS simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 367, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression MINUS simple_expression 
+                        primary_part2 
+                        record_generator 
+                        simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 367, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression MINUS simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression MINUS simple_expression . 
+
+** Conflict (shift/reduce) in state 365.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression NE simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 365, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression NE simple_expression 
+                     primary_part2 
+                     record_generator 
+                     simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 365, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression NE simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression NE simple_expression . 
+
+** Conflict (shift/reduce) in state 363.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression PIPE simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 363, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression PIPE simple_expression 
+                       primary_part2 
+                       record_generator 
+                       simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 363, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression PIPE simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression PIPE simple_expression . 
+
+** Conflict (shift/reduce) in state 361.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression PLUS simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 361, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression PLUS simple_expression 
+                       primary_part2 
+                       record_generator 
+                       simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 361, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression PLUS simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression PLUS simple_expression . 
+
+** Conflict (shift/reduce) in state 338.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression SHL simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 338, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression SHL simple_expression 
+                      primary_part2 
+                      record_generator 
+                      simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 338, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression SHL simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression SHL simple_expression . 
+
+** Conflict (shift/reduce) in state 336.
+** Tokens involved: STAR SHR SHL REPLACE PLUS PIPE OR NE MINUS LT LE GT GE EQ DOTSTOP DIVIDE AND
+** The following explanations concentrate on token STAR.
+** This state is reached from main after reading:
+
+FUNCTION function_header LET decldef_part IN exp_list COMMA simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 336, looking ahead at STAR, reducing production
+** exp_list -> exp_list COMMA simple_expression
+** is permitted because of the following sub-derivation:
+
+simple_expression STAR simple_expression // lookahead token appears
+primary_part2 // lookahead token is inherited
+let_in_exp // lookahead token is inherited
+LET decldef_part IN expression opt_end_let // lookahead token is inherited because opt_end_let can vanish
+                    exp_list // lookahead token is inherited
+                    exp_list COMMA simple_expression . 
+
+** In state 336, looking ahead at STAR, shifting is permitted
+** because of the following sub-derivation:
+
+primary_part2 
+let_in_exp 
+LET decldef_part IN expression opt_end_let 
+                    exp_list 
+                    exp_list COMMA simple_expression 
+                                   simple_expression . STAR simple_expression 
+
+** Conflict (shift/reduce) in state 334.
+** Token involved: COMMA
+** This state is reached from main after reading:
+
+FUNCTION function_header LET decldef_part IN exp_list
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         (?)
+
+** In state 334, looking ahead at COMMA, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression 
+primary_part2 
+let_in_exp 
+LET decldef_part IN expression opt_end_let 
+                    exp_list 
+                    exp_list . COMMA simple_expression 
+
+** In state 334, looking ahead at COMMA, reducing production
+** expression -> exp_list
+** is permitted because of the following sub-derivation:
+
+exp_list COMMA simple_expression // lookahead token appears
+simple_expression // lookahead token is inherited
+primary_part2 // lookahead token is inherited
+let_in_exp // lookahead token is inherited
+LET decldef_part IN expression opt_end_let // lookahead token is inherited because opt_end_let can vanish
+                    exp_list . 
+
+** Conflict (shift/reduce) in state 311.
+** Token involved: DOTSTOP
+** This state is reached from main after reading:
+
+FUNCTION function_header record_ref
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         primary_part2 
+                         record_ref LBRACK expression RBRACK 
+                         (?)
+
+** In state 311, looking ahead at DOTSTOP, reducing production
+** primary_part2 -> record_ref
+** is permitted because of the following sub-derivation:
+
+simple_expression DOTSTOP field_name // lookahead token appears
+primary_part2 // lookahead token is inherited
+record_ref . 
+
+** In state 311, looking ahead at DOTSTOP, shifting is permitted
+** because of the following sub-derivation:
+
+record_ref . DOTSTOP field_name 
+
+** Conflict (shift/reduce) in state 310.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression DIVIDE simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 310, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression DIVIDE simple_expression 
+                         primary_part2 
+                         record_generator 
+                         simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 310, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression DIVIDE simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression DIVIDE simple_expression . 
+
+** Conflict (shift/reduce) in state 306.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression SHR simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 306, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression SHR simple_expression 
+                      primary_part2 
+                      record_generator 
+                      simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 306, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression SHR simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression SHR simple_expression . 
+
+** Conflict (shift/reduce) in state 293.
+** Token involved: REPLACE
+** This state is reached from main after reading:
+
+FUNCTION function_header simple_expression STAR simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 293, looking ahead at REPLACE, shifting is permitted
+** because of the following sub-derivation:
+
+simple_expression STAR simple_expression 
+                       primary_part2 
+                       record_generator 
+                       simple_expression . REPLACE LBRACK field_list opt_semicolon RBRACK 
+
+** In state 293, looking ahead at REPLACE, reducing production
+** simple_expression -> simple_expression STAR simple_expression
+** is permitted because of the following sub-derivation:
+
+primary_part2 
+record_generator 
+simple_expression REPLACE LBRACK field_list opt_semicolon RBRACK // lookahead token appears
+simple_expression STAR simple_expression . 
+
+** Conflict (shift/reduce) in state 291.
+** Tokens involved: STAR SHR SHL REPLACE PLUS PIPE OR NE MINUS LT LE GT GE EQ DOTSTOP DIVIDE AND
+** The following explanations concentrate on token STAR.
+** This state is reached from main after reading:
+
+FUNCTION function_header LET decldef_part IN simple_expression
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+FUNCTION function_header expression END_FUNCTION 
+                         exp_list 
+                         simple_expression 
+                         (?)
+
+** In state 291, looking ahead at STAR, reducing production
+** exp_list -> simple_expression
+** is permitted because of the following sub-derivation:
+
+simple_expression STAR simple_expression // lookahead token appears
+primary_part2 // lookahead token is inherited
+let_in_exp // lookahead token is inherited
+LET decldef_part IN expression opt_end_let // lookahead token is inherited because opt_end_let can vanish
+                    exp_list // lookahead token is inherited
+                    simple_expression . 
+
+** In state 291, looking ahead at STAR, shifting is permitted
+** because of the following sub-derivation:
+
+primary_part2 
+let_in_exp 
+LET decldef_part IN expression opt_end_let 
+                    exp_list 
+                    simple_expression 
+                    simple_expression . STAR simple_expression 
+
+** Conflict (shift/reduce) in state 149.
+** Token involved: SEMICOLON
+** This state is reached from main after reading:
+
+TYPE type_name EQ type_spec
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+type_def_part 
+(?)
+
+** In state 149, looking ahead at SEMICOLON, reducing production
+** opt_semicolon ->
+** is permitted because of the following sub-derivation:
+
+type_def_part SEMICOLON type_def // lookahead token appears
+type_def // lookahead token is inherited
+TYPE type_name EQ type_spec opt_semicolon // lookahead token is inherited
+                            . 
+
+** In state 149, looking ahead at SEMICOLON, shifting is permitted
+** because of the following sub-derivation:
+
+type_def 
+TYPE type_name EQ type_spec opt_semicolon 
+                            . SEMICOLON 
+
+** Conflict (shift/reduce) in state 49.
+** Token involved: LPAREN
+** This state is reached from main after reading:
+
+FUNCTION function_header TYPE type_name EQ TUPLE
+
+** The derivations that appear below have the following common factor:
+** (The question mark symbol (?) represents the spot where the derivations begin to differ.)
+
+main 
+compilation_unit 
+top_fragment_list EOF 
+top_fragment 
+function_def_list 
+function_def 
+function_nest 
+(?)
+
+** In state 49, looking ahead at LPAREN, reducing production
+** plain_name -> TUPLE
+** is permitted because of the following sub-derivation:
+
+FUNCTION function_header type_def_part opt_semicolon expression END_FUNCTION // lookahead token appears because opt_semicolon can vanish and expression can begin with LPAREN
+                         type_def // lookahead token is inherited
+                         TYPE type_name EQ type_spec opt_semicolon // lookahead token is inherited because opt_semicolon can vanish
+                                           type_name // lookahead token is inherited
+                                           plain_name // lookahead token is inherited
+                                           TUPLE . 
+
+** In state 49, looking ahead at LPAREN, shifting is permitted
+** because of the following sub-derivation:
+
+FUNCTION function_header type_def_part opt_semicolon function_def_list expression END_FUNCTION 
+                         type_def 
+                         TYPE type_name EQ type_spec opt_semicolon 
+                                           TUPLE . LPAREN type_list RPAREN 

@@ -1,0 +1,9 @@
+define main
+
+type OneD = array_dv[double_real];
+
+% Test lifted arithmetic on Array_dv.
+% Should produce Array_dv results and include conformity checks.
+function main(A, B: OneD returns OneD)
+  A * B + A
+end function

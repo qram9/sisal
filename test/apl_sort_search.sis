@@ -1,0 +1,38 @@
+% apl_sort_search.sis — SORT, GRADE_UP (ARGSORT), GRADE_DOWN,
+%                        ARGMAX, ARGMIN, NONZERO, WHERE
+
+define apl_sort_search,
+  t_sort, t_sort_lower,
+  t_grade_up, t_argsort, t_grade_down,
+  t_argmax, t_argmax_lower,
+  t_argmin,
+  t_nonzero,
+  t_where
+
+type ai = array[integer]
+type ar = array[real]
+type ab = array[boolean]
+
+% SORT — ascending sort, returns sorted array
+function t_sort       (a : ai returns ai) SORT(a) end function
+function t_sort_lower (a : ai returns ai) sort(a) end function
+
+% GRADE_UP / ARGSORT — indices that would sort ascending
+function t_grade_up (a : ai returns ai) GRADE_UP(a)  end function
+function t_argsort  (a : ai returns ai) ARGSORT(a)   end function   % alias
+
+% GRADE_DOWN — indices that would sort descending
+function t_grade_down (a : ai returns ai) GRADE_DOWN(a) end function
+
+% ARGMAX — index of maximum value
+function t_argmax       (a : ai returns integer) ARGMAX(a) end function
+function t_argmax_lower (a : ai returns integer) argmax(a) end function
+
+% ARGMIN — index of minimum value
+function t_argmin (a : ai returns integer) ARGMIN(a) end function
+
+% NONZERO — indices of nonzero elements
+function t_nonzero (a : ai returns ai) NONZERO(a) end function
+
+% WHERE(cond, x, y) — element-wise select: cond ? x : y
+function t_where (cond : ab; x, y : ar returns ar) WHERE(cond, x, y) end function

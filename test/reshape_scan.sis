@@ -13,13 +13,13 @@ function test(rows, cols : integer returns double_real)
 let
   flat :=
     for i in 1, rows * cols
-    returns array[..] of double_real(i * (i + 1)) / 2.0
+    returns array_dv of double_real(i * (i + 1)) / 2.0
     end for;
   mat    := reshape(flat, rows, cols);
   sz     := if rows < cols then rows else cols end if;
   diag   :=
     for d in 1, sz
-    returns array[..] of mat[d, d]
+    returns array_dv of mat[d, d]
     end for;
   back1d := reshape(diag, sz)
 in

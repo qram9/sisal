@@ -6,7 +6,7 @@ type TwoD = array[OneD];
 type TwoDV = array_dv[double_real];
 
 % Multiple A[1..x, 1..y] and B[1..y, 1..z].
-% DV variant: returns array[..] of signals monolithic pre-allocated output
+% DV variant: returns array_dv of signals monolithic pre-allocated output
 %
 function multiply(x,y,z: integer; A, B: TwoD returns TwoDV)
 
@@ -14,7 +14,7 @@ function multiply(x,y,z: integer; A, B: TwoD returns TwoDV)
     Cij := for k in 1, y
            returns value of sum A[i, k] * B[k, j]
            end for
-  returns array[..] of Cij
+  returns array_dv of Cij
   end for
 
 end function % multiply

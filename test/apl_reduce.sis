@@ -1,0 +1,42 @@
+% apl_reduce.sis — APL-style whole-array reductions: SUM, PRODUCT, LEAST, GREATEST
+
+define apl_reduce,
+  sum_int, sum_real,
+  product_int, product_real,
+  least_int, least_real,
+  greatest_int, greatest_real,
+  sum_range, product_range, least_range, greatest_range,
+  sum_lower, product_lower, least_lower, greatest_lower
+
+type ai = array[integer]
+type ar = array[real]
+
+% ---- whole-array reductions --------------------------------------------------
+function sum_int     (a : ai returns integer) SUM(a)      end function
+function sum_real    (a : ar returns real)    sum(a)      end function   % lowercase ok
+function product_int (a : ai returns integer) PRODUCT(a)  end function
+function product_real(a : ar returns real)    product(a)  end function
+function least_int   (a : ai returns integer) LEAST(a)    end function
+function least_real  (a : ar returns real)    least(a)    end function
+function greatest_int(a : ai returns integer) GREATEST(a) end function
+function greatest_real(a : ar returns real)   greatest(a) end function
+
+% ---- range reductions: SUM(a, lo, hi) ----------------------------------------
+function sum_range     (a : ai; lo, hi : integer returns integer) SUM(a, lo, hi)     end function
+function product_range (a : ai; lo, hi : integer returns integer) PRODUCT(a, lo, hi) end function
+function least_range   (a : ai; lo, hi : integer returns integer) LEAST(a, lo, hi)   end function
+function greatest_range(a : ai; lo, hi : integer returns integer) GREATEST(a, lo, hi) end function
+
+% ---- 'returns value of' works inside for loops --------------------------------
+function sum_lower     (a : ai returns integer)
+  for x in a returns value of sum x end for
+end function
+function product_lower (a : ai returns integer)
+  for x in a returns value of product x end for
+end function
+function least_lower   (a : ai returns integer)
+  for x in a returns value of least x end for
+end function
+function greatest_lower(a : ai returns integer)
+  for x in a returns value of greatest x end for
+end function

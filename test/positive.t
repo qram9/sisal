@@ -5,6 +5,7 @@ Basic compilation tests - all should succeed with no output.
   $ sisal hello.sis
   $ sisal sieve.sis
   $ sisal queens.sis
+  $ sisal empty.sis
 
 Array of function types:
   $ sisal funcarray.sis
@@ -39,6 +40,7 @@ APL bulk operations - reductions (SUM/PRODUCT/LEAST/GREATEST, range, for-loop):
 
 APL bulk operations - MAP/FOLDL/FOLDR/SCAN and aliases (EACH, APPLY):
   $ sisal apl_map.sis
+  $ sisal bulk_ops.sis
 
 APL bulk operations - structural (TAKE/DROP/ROTATE/REVERSE/RAVEL/CONCAT/COMPRESS):
   $ sisal apl_structural.sis
@@ -74,7 +76,7 @@ Records and unions:
   $ sisal record.sis
   $ sisal union.sis
 
-DV array variants - array[..] OF with correct array_dv return types:
+DV array variants - array_dv OF with correct array_dv return types:
   $ sisal loop1_dv.sis
   $ sisal tst_loop1_dv.sis
 
@@ -134,9 +136,15 @@ For-loop variants:
   $ sisal tst_loopX2.sis
   $ sisal tst_loop_conv.sis
 
+Dope-vector array agreement and arithmetic (Error Monad):
+  $ sisal dv_agreement.sis
+  $ sisal dv_lifted_arith.sis
+
 Matrix / linear algebra:
   $ sisal matmult.sis
+  $ sisal matmult_dv.sis
   $ sisal mm.sis
+  $ sisal mm_dv.sis
   $ sisal mmult2.sis
   $ sisal mat.sis
   $ sisal mat_construct.sis
@@ -152,7 +160,12 @@ Matrix / linear algebra:
   $ sisal vec_ip.sis
   $ sisal vectest.sis
   $ sisal transpose.sis
+  $ sisal transpose_dv.sis
   $ sisal reshape_1d_2d_1d.sis
+  $ sisal reshape_3d.sis
+  $ sisal reshape_matmul.sis
+  $ sisal reshape_scan.sis
+  $ sisal reshape_transpose.sis
 
 Records and unions (extended):
   $ sisal record1.sis

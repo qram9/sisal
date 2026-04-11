@@ -837,44 +837,15 @@ and do_field_def in_gr = function
       do_simple_exp in_gr ex
 
 and do_in_exp ?(curr_level = 1) in_gr = function
-  (* Inexp
-      1: Each expression in here must be of Arity two.
-         The first and the second are the lower and upper bounds
-         respectively, inclusive for the Index. For each number
-         within these bounds, the index is defined to be that
-         number, the definitions that depend on that
-         index are made, and all the return expressions
-         that depend on that index are evaluated. Each
-         value in the range expression must be of type integer.
-      2: Each expression in here must be of Arity one
-         and of array type. In this case the shape of the array
-         defines the range of execution of the for expression.
-         If the array has one dimension, that dimension defines
-         the range of execution. The body of the for executed once
-         for each element of the array and during execution the
-         identifier "value-name" is bound to the corresponding
-         array element. If the array given is multi-dimensional and
-         there is no "at" expression, the default range of
-         the for expression is over the outermost dimension
-         (that dimension that varies most slowly in a
-         create-by-elements operation) of the array, since it
-         must be defined as an array of arrays.
-         Test#1: a range expression.
-         Test#2: an array without "at". *)
   | Ast.In_exp (vn, e) ->
-      let (aa, bb, cc), in_gr =
+      let ((aa, bb, cc), in_gr), dv_infos =
         match e with
         | Ast.Exp ei -> (
             match ei with
             | [ hd; tl ] ->
-                (* Add each element in the exp to
-                a range generator graph.\n*)
-                bin_exp hd tl in_gr If1.RANGEGEN
+                (bin_exp hd tl in_gr If1.RANGEGEN, [])
             | [ hd ] ->
                 let (e, pi, t1), in_gr = do_simple_exp in_gr hd in
-                let (scatter, _, _), in_gr =
-                  get_simple_unary 2 in_gr If1.ASCATTER
-                in
                 let t1 =
                   match If1.get_node e in_gr with
                   | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
@@ -882,29 +853,31 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                       t1
                   | _ -> t1
                 in
-                let outer_ty_num, inner_ty_num =
+                let outer_ty_num, inner_ty_num, is_dv =
                   let rec walk_ty curr_ty curr_l =
                     let lookup_array_ty curr_ty in_gr =
                       match If1.lookup_ty curr_ty in_gr with
-                      | If1.Array_ty ij -> (curr_ty, ij)
-                      | If1.Array_dv ij -> (curr_ty, ij)
-                      | If1.Stream ij -> (curr_ty, ij)
+                      | If1.Array_ty ij -> (curr_ty, ij, false)
+                      | If1.Array_dv ij -> (curr_ty, ij, true)
+                      | If1.Stream ij -> (curr_ty, ij, false)
                       | _ ->
                           raise
                             (If1.Sem_error
                                ("Array type expected"
-                              ^ " when constructing If1.ASCATTER"
+                              ^ " when constructing scatter node "
                               ^ string_of_int curr_ty))
                     in
                     if curr_l = curr_level then lookup_array_ty curr_ty in_gr
                     else
-                      let _, inner_ty_num = lookup_array_ty curr_ty in_gr in
+                      let _, inner_ty_num, _ = lookup_array_ty curr_ty in_gr in
                       walk_ty inner_ty_num (curr_l + 1)
                   in
                   walk_ty t1 1
                 in
+                let op = if is_dv then If1.DV_SCATTER else If1.ASCATTER in
+                let (scatter, _, _), in_gr = get_simple_unary 2 in_gr op in
                 let in_gr = If1.add_edge e pi scatter 0 outer_ty_num in_gr in
-                ((scatter, 0, inner_ty_num), in_gr)
+                (((scatter, 0, inner_ty_num), in_gr), [ (is_dv, (e, pi, t1)) ])
             | _ ->
                 raise
                   (If1.Sem_error
@@ -944,18 +917,9 @@ and do_in_exp ?(curr_level = 1) in_gr = function
           [ (aa, bb, cc) ]
           in_gr
       in
-      ((aa, bb, cc), in_gr)
+      (((aa, bb, cc), in_gr), dv_infos)
   | Ast.At_exp (ie, vns) ->
-      (* The optional at clause is present in an in-exp.
-        The value names following "at" denote index values of type
-        integer corresponding to the current element value's
-        position in the array. It is an error if the
-        number of value names in the index list is greater than the
-        number of dimensions of the array expression.
-        The range of the for expression is the cross product
-        over the number of ranges specified by the number of
-        names in the index list. *)
-      let (aa, bb, cc), in_gr = do_in_exp ~curr_level in_gr ie in
+      let (((aa, bb, cc), in_gr), dv_infos) = do_in_exp ~curr_level in_gr ie in
       let in_gr =
         let cs, ps = in_gr.If1.symtab in
         match vns with
@@ -981,11 +945,11 @@ and do_in_exp ?(curr_level = 1) in_gr = function
           [ (aa, bb + 1, If1.lookup_tyid If1.LONG) ]
           in_gr
       in
-      ((aa, bb, cc), in_gr)
+      (((aa, bb, cc), in_gr), dv_infos)
   | Ast.Dot (ie1, ie2) ->
-      let _, in_gr = do_in_exp in_gr ie1 in
-      let (x, y, z), in_gr = do_in_exp in_gr ie2 in
-      ((x, y, z), in_gr)
+      let (((_, _, _), in_gr), dv_infos1) = do_in_exp in_gr ie1 in
+      let (((x, y, z), in_gr), dv_infos2) = do_in_exp in_gr ie2 in
+      (((x, y, z), in_gr), dv_infos1 @ dv_infos2)
   | Ast.Cross (_, _) -> raise (If1.Sem_error "Need to be in a forall context")
 
 and get_lower_lim = function
@@ -1157,11 +1121,11 @@ and do_for_all inexp bodyexp retexp in_gr =
   let build_gen_graph curr_lev in_gr gen_exp =
     to_if1_msg 3 "For_all: lowering GENERATOR (level %d)" curr_lev;
     let gen_gr = get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr in
-    let xyz, gen_gr = do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
+    let (xyz, gen_gr), dv_info = do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
     let gen_gr =
       { gen_gr with If1.typemap = If1.get_merged_typeblob_gr in_gr gen_gr }
     in
-    (xyz, gen_gr)
+    (xyz, gen_gr, dv_info)
   in
 
   let rec build_forloop inexp bodyexp retexp in_gr =
@@ -1169,7 +1133,7 @@ and do_for_all inexp bodyexp retexp in_gr =
     | [] -> raise (If1.Sem_error "Internal Compiler Error")
     | (curr_lev, gen_exp_inner) :: [] ->
         (* In_Gr Must Be Based On An Outer Gen_Gr. *)
-        let _, gen_gr = build_gen_graph curr_lev in_gr gen_exp_inner in
+        let _, gen_gr, dv_infos = build_gen_graph curr_lev in_gr gen_exp_inner in
 
         (* Put The Decldefs (Loop Code) In The Body. *)
         to_if1_msg 3 "For_all: lowering BODY";
@@ -1217,15 +1181,17 @@ and do_for_all inexp bodyexp retexp in_gr =
           return_action_list,
           mask_ty_list,
           forall_gr,
-          [ gn; bx; rn ] )
+          [ gn; bx; rn ],
+          dv_infos )
     | (curr_lev, gen_exp) :: gen_exp_tl ->
         let ( (inner_gen_n, inner_gen_p, inner_gen_ty),
               inner_ret,
               mask_ty_list,
               forall_gr,
-              inner_ids ) =
+              inner_ids,
+              inner_dv_infos ) =
           (* Create A Generator For Outer Loop. *)
-          let (_, _, _), gen_gr = build_gen_graph curr_lev in_gr gen_exp in
+          let (_, _, _), gen_gr, dv_infos = build_gen_graph curr_lev in_gr gen_exp in
 
           (* Add outer loop generator to a new forall_gr. *)
           let (gn, _, _), forall_gr =
@@ -1237,12 +1203,20 @@ and do_for_all inexp bodyexp retexp in_gr =
               forall_gr
           in
 
-          let _, inner_ret, mask_ty_list, body_nest_gr, inner_ids =
+          let _, inner_ret, mask_ty_list, body_nest_gr, inner_ids, inner_dv_infos =
             (* As The Body Would Need Outer And Inner Generators,
               Send Gen_Gr To The Recursive Call To Obtain
               The Inner Loop, Which Is Body_Nest_Gr. *)
             build_forloop gen_exp_tl bodyexp retexp
               (get_ports_unified (If1.get_a_new_graph gen_gr) gen_gr gen_gr)
+          in
+
+          let forall_gr =
+            {
+              forall_gr with
+              If1.typemap =
+                If1.merge_typeblobs forall_gr.If1.typemap body_nest_gr.If1.typemap;
+            }
           in
 
           (* Add Returns Graph To Forall_Gr. *)
@@ -1290,19 +1264,45 @@ and do_for_all inexp bodyexp retexp in_gr =
             return_action_list,
             mask_ty_list,
             forall_gr,
-            [ gn; fx; rn ] )
+            [ gn; fx; rn ],
+            dv_infos @ inner_dv_infos )
         in
         ( (inner_gen_n, inner_gen_p, inner_gen_ty),
           inner_ret,
           mask_ty_list,
           forall_gr,
-          inner_ids )
+          inner_ids,
+          inner_dv_infos )
   in
 
   let acrossl = get_cross_exp_lis inexp [] in
-  let _, return_action_list, _, forall_gr, subgr_ids =
+  let _, return_action_list, _, forall_gr, subgr_ids, dv_infos =
     build_forloop acrossl bodyexp retexp in_gr
   in
+
+  (* APL Error Monad: Check for Array_dv compatibility *)
+  let dv_sources =
+    List.filter_map (fun (is_dv, src) -> if is_dv then Some src else None) dv_infos
+  in
+  let res_ty =
+    match return_action_list with
+    | (_, rt, _) :: _ -> rt
+    | _ -> 0
+  in
+  let in_gr =
+    match dv_sources with
+    | [] | [ _ ] -> in_gr
+    | first :: rest ->
+        List.fold_left
+          (fun acc_gr next ->
+            let (_, (err_n, err_p, err_t), acc_gr) =
+              emit_dv_conform_check first next acc_gr
+            in
+            add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t)
+              "ERROR" acc_gr)
+          in_gr rest
+  in
+
   let forall_gr = get_ports_unified forall_gr forall_gr forall_gr in
   let (fx, _, _), in_gr =
     If1.add_node_2
@@ -1562,6 +1562,7 @@ and do_decldef in_gr delc =
                 pop_or_push_to_exp_stack expl rhs_exps in_gr
               in
               let in_gr = check_decl_type atyp expty in_gr in
+              let in_gr = If1.add_name_pragma expnum current_name in_gr in
               let localsyms, globsyms = in_gr.If1.symtab in
               ( expl,
                 rhs_exps,
@@ -1707,6 +1708,7 @@ and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
             (* if atyp is set, it needs to be the same as the lowered
              * expression's type *)
             let in_gr = check_decl_type atyp expty in_gr in
+            let in_gr = If1.add_name_pragma expnum current_name in_gr in
             let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add current_name
@@ -2371,77 +2373,192 @@ and maybe_coerce src sp src_ty tgt_ty in_gr =
     | _ -> ((src, sp, src_ty), in_gr)
 
 and bin_exp a b in_gr node_tag =
-  let get_simple_bin in_gr node_tag =
-    let in_port_2 =
-      let in_array = Array.make 2 "" in
-      in_array
-    in
-    let out_port_1 =
-      let out_array = Array.make 1 "" in
-      out_array
-    in
-    If1.add_node_2
-      (`Simple (node_tag, in_port_2, out_port_1, [ If1.No_pragma ]))
-      in_gr
+  let (nod1, por1, ty1), in_gr = do_simple_exp in_gr a in
+  let (nod2, por2, ty2), in_gr = do_simple_exp in_gr b in
+  let (c1, pi1, qq1) =
+    match If1.NM.find_opt nod1 in_gr.If1.nmap with
+    | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
+        first_incoming_triple_to_multiarity nod1 in_gr
+    | _ -> (nod1, por1, ty1)
   in
-  let base_case_bin a b node_tag in_gr =
-    let (c, pi1, qq1), i_gr = do_simple_exp in_gr a in
-    let (d, pi2, qq2), i_gr = do_simple_exp i_gr b in
-    let (z, _, _), out_gr = get_simple_bin i_gr node_tag in
-    let c, pi1, qq1 =
-      match If1.get_node c i_gr with
-      | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-          first_incoming_triple_to_multiarity c i_gr
-      | _ -> (c, pi1, qq1)
+  let (c2, pi2, qq2) =
+    match If1.NM.find_opt nod2 in_gr.If1.nmap with
+    | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
+        first_incoming_triple_to_multiarity nod2 in_gr
+    | _ -> (nod2, por2, ty2)
+  in
+  let a_is_dv = is_dv_array_ty qq1 in_gr in
+  let b_is_dv = is_dv_array_ty qq2 in_gr in
+  let a_is_arr = is_array_ty qq1 in_gr in
+  let b_is_arr = is_array_ty qq2 in_gr in
+
+  let is_liftable_dv =
+    match node_tag with
+    | If1.ADD | If1.SUBTRACT | If1.TIMES | If1.FDIVIDE | If1.IDIVIDE
+    | If1.EQUAL | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL | If1.GREATER | If1.GREATER_EQUAL
+    | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR -> true
+    | _ -> false
+  in
+  let is_liftable_arr =
+    match node_tag with
+    | If1.ADD | If1.SUBTRACT | If1.TIMES | If1.FDIVIDE | If1.IDIVIDE
+    | If1.EQUAL | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL | If1.GREATER | If1.GREATER_EQUAL
+    | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR -> true
+    | _ -> false
+  in
+
+  if is_liftable_dv && (a_is_dv || b_is_dv) then
+    (* 1. Universal 1D lifting for Array_dv (APL/NumPy style) *)
+    let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+    let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+    let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+    let ae =
+      if a_is_arr then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]) else a_ref
     in
-    let d, pi2, qq2 =
-      match If1.get_node d i_gr with
-      | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-          first_incoming_triple_to_multiarity d i_gr
-      | _ -> (d, pi2, qq2)
+    let be =
+      if b_is_arr then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ]) else b_ref
     in
-    (* Determine common type, widening if needed *)
-    let (c, pi1, qq1), (d, pi2, qq2), common_ty, out_gr =
-      if qq1 = qq2 then ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
-      else
-        match (numeric_rank qq1 out_gr, numeric_rank qq2 out_gr) with
-        | Some r1, Some r2 ->
-            if r1 < r2 then
-              let (c, pi1, qq1), out_gr =
-                insert_typecast c pi1 qq1 qq2 out_gr
-              in
-              ((c, pi1, qq1), (d, pi2, qq2), qq2, out_gr)
-            else if r2 < r1 then
-              let (d, pi2, qq2), out_gr =
-                insert_typecast d pi2 qq2 qq1 out_gr
-              in
-              ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
-            else ((c, pi1, qq1), (d, pi2, qq2), qq1, out_gr)
-        | _ ->
-            raise
-              (If1.Sem_error
-                 (let _ =
-                    let kkk =
-                      If1.cate_list
-                        [
-                          Ast.str_simple_exp ~offset:2 a;
-                          " of type:" ^ string_of_int qq1 ^ " maps to "
-                          ^ If1.p_f_t in_gr qq1;
-                          Ast.str_simple_exp ~offset:2 b;
-                          " of type:" ^ string_of_int qq2 ^ " maps to "
-                          ^ If1.p_f_t in_gr qq2;
-                        ]
-                        "\n"
-                    in
-                    print_endline kkk
+    let body_elem =
+      match node_tag with
+      | If1.ADD -> Ast.Add (ae, be)
+      | If1.SUBTRACT -> Ast.Subtract (ae, be)
+      | If1.TIMES -> Ast.Multiply (ae, be)
+      | If1.FDIVIDE | If1.IDIVIDE -> Ast.Divide (ae, be)
+      | If1.EQUAL -> Ast.Equal (ae, be)
+      | If1.NOT_EQUAL -> Ast.Not_equal (ae, be)
+      | If1.LESSER -> Ast.Lesser (ae, be)
+      | If1.LESSER_EQUAL -> Ast.Lesser_equal (ae, be)
+      | If1.GREATER -> Ast.Greater (ae, be)
+      | If1.GREATER_EQUAL -> Ast.Greater_equal (ae, be)
+      | If1.AND -> Ast.And (ae, be)
+      | If1.OR -> Ast.Or (ae, be)
+      | If1.SHL -> Ast.Shl (ae, be)
+      | If1.SHR | If1.ASHR -> Ast.Shr (ae, be)
+      | _ -> failwith "Unreachable"
+    in
+    lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
+  else if is_liftable_arr && (a_is_arr || b_is_arr) then
+    (* 2. Standard Sisal element-wise lifting for Array_ty *)
+    let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+    let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+    let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+    let ae = if a_is_arr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
+    let be = if b_is_arr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
+    let body_elem =
+      match node_tag with
+      | If1.ADD -> Ast.Add (ae, be)
+      | If1.SUBTRACT -> Ast.Subtract (ae, be)
+      | If1.TIMES -> Ast.Multiply (ae, be)
+      | If1.FDIVIDE | If1.IDIVIDE -> Ast.Divide (ae, be)
+      | If1.EQUAL -> Ast.Equal (ae, be)
+      | If1.NOT_EQUAL -> Ast.Not_equal (ae, be)
+      | If1.LESSER -> Ast.Lesser (ae, be)
+      | If1.LESSER_EQUAL -> Ast.Lesser_equal (ae, be)
+      | If1.GREATER -> Ast.Greater (ae, be)
+      | If1.GREATER_EQUAL -> Ast.Greater_equal (ae, be)
+      | If1.AND -> Ast.And (ae, be)
+      | If1.OR -> Ast.Or (ae, be)
+      | If1.SHL -> Ast.Shl (ae, be)
+      | If1.SHR | If1.ASHR -> Ast.Shr (ae, be)
+      | _ -> failwith "Unreachable"
+    in
+    lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
+  else
+    (* 3. Non-array case: Matmul/Matvec or Scalar *)
+    let a_ty = match If1.lookup_ty_safe qq1 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
+    let b_ty = match If1.lookup_ty_safe qq2 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
+    match
+      ( node_tag,
+        If1.is_mat_type a_ty,
+        If1.is_vector_type a_ty,
+        If1.is_mat_type b_ty,
+        If1.is_vector_type b_ty )
+    with
+    | If1.TIMES, true, _, true, _ ->
+        (* mat * mat -> MATMUL, result is same mat type *)
+        let (mn, mp, _), in_gr =
+          If1.add_node_2 (`Simple (If1.MATMUL, [| ""; "" |], [| "" |], [])) in_gr
+        in
+        let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
+        let in_gr = If1.add_edge c2 pi2 mn 1 qq2 in_gr in
+        ((mn, mp, qq1), in_gr)
+    | If1.TIMES, true, _, false, true ->
+        (* mat * vec -> MATVECMUL, result is the vec type *)
+        let (mn, mp, _), in_gr =
+          If1.add_node_2 (`Simple (If1.MATVECMUL, [| ""; "" |], [| "" |], []))
+            in_gr
+        in
+        let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
+        let in_gr = If1.add_edge c2 pi2 mn 1 qq2 in_gr in
+        ((mn, mp, qq2), in_gr)
+    | If1.TIMES, false, true, true, _ ->
+        (* vec * mat -> VECMATMUL, result is the vec type *)
+        let (mn, mp, _), in_gr =
+          If1.add_node_2 (`Simple (If1.VECMATMUL, [| ""; "" |], [| "" |], []))
+            in_gr
+        in
+        let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
+        let in_gr = If1.add_edge c2 pi2 mn 1 qq2 in_gr in
+        ((mn, mp, qq1), in_gr)
+    | _ ->
+        (* Scalar logic (widening) *)
+        let (c, pi1, qq1), (d, pi2, qq2), common_ty, in_gr =
+          if qq1 = qq2 then ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
+          else
+            match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
+            | Some r1, Some r2 ->
+                if r1 < r2 then
+                  let (c, pi1, qq1), in_gr =
+                    insert_typecast c1 pi1 qq1 qq2 in_gr
                   in
-                  "ERROR: Bad type in binary exp---"))
-    in
-    let out_gr = If1.add_edge c pi1 z 0 common_ty out_gr in
-    let out_gr = If1.add_edge d pi2 z 1 common_ty out_gr in
-    ((z, 0, common_ty), out_gr)
-  in
-  base_case_bin a b node_tag in_gr
+                  ((c, pi1, qq1), (c2, pi2, qq2), qq2, in_gr)
+                else if r2 < r1 then
+                  let (d, pi2, qq2), in_gr =
+                    insert_typecast c2 pi2 qq2 qq1 in_gr
+                  in
+                  ((c1, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+                else ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
+            | _ ->
+                raise
+                  (If1.Sem_error
+                     (let _ =
+                        let kkk =
+                          If1.cate_list
+                            [
+                              Ast.str_simple_exp ~offset:2 a;
+                              " of type:" ^ string_of_int qq1 ^ " maps to "
+                              ^ If1.p_f_t in_gr qq1;
+                              Ast.str_simple_exp ~offset:2 b;
+                              " of type:" ^ string_of_int qq2 ^ " maps to "
+                              ^ If1.p_f_t in_gr qq2;
+                            ]
+                            "\n"
+                        in
+                        print_endline kkk
+                      in
+                      "ERROR: Bad type in binary exp---"))
+        in
+        let (z, _, _), in_gr =
+          let in_port_2 = Array.make 2 "" in
+          let out_port_1 = Array.make 1 "" in
+          If1.add_node_2
+            (`Simple (node_tag, in_port_2, out_port_1, [ If1.No_pragma ]))
+            in_gr
+        in
+        let in_gr = If1.add_edge c pi1 z 0 common_ty in_gr in
+        let in_gr = If1.add_edge d pi2 z 1 common_ty in_gr in
+        let res_ty =
+          match node_tag with
+          | If1.EQUAL
+          | If1.NOT_EQUAL
+          | If1.LESSER
+          | If1.LESSER_EQUAL
+          | If1.GREATER
+          | If1.GREATER_EQUAL ->
+              If1.lookup_tyid If1.BOOLEAN
+          | _ -> common_ty
+        in
+        ((z, 0, res_ty), in_gr)
 
 and organize_ret_info return_action_list mask_ty_list =
   let return_action_list, port_remap, cou =
@@ -2595,12 +2712,37 @@ and is_array_ty ty in_gr =
   | Some (If1.Array_ty _) | Some (If1.Array_dv _) -> true
   | _ -> false
 
+and is_dv_array_ty ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Array_dv _) -> true
+  | _ -> false
+
 (* Extract element type id from Array_ty or Array_dv; raises on other types *)
 and array_elem_ty ty in_gr =
   match If1.lookup_ty_safe ty in_gr with
   | Some (If1.Array_ty et) -> et
   | Some (If1.Array_dv et) -> et
   | _ -> failwith "array_elem_ty: not an array type"
+
+(* Rank: scalar=0, vector/array=1, matrix/array[array]=2 *)
+and get_rank ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> 1 + get_rank et in_gr
+  | Some (If1.Basic _ as b) ->
+      if If1.is_mat_type b then 2
+      else if If1.is_vector_type b then 1
+      else 0
+  | _ -> 0
+
+(* get the ultimate scalar type of an array or vector *)
+and get_deep_elem_ty ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> get_deep_elem_ty et in_gr
+  | Some (If1.Basic _ as b) ->
+      if If1.is_mat_type b || If1.is_vector_type b then
+        get_deep_elem_ty (If1.lookup_tyid (If1.get_element_type_code b)) in_gr
+      else ty
+  | _ -> ty
 
 (* Wire a SHAPE_MISMATCH error edge to the boundary using a SHAPE_CHECK node,
    unless both arrays are statically proven to share the same allocation source.
@@ -2640,80 +2782,383 @@ and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
         If1.add_edge ck_n 0 0 next_err_port err_ty_id in_gr
     | _ -> in_gr
 
+and add_error_monad_edge ?(result_ty = 0) (src_n, src_p, src_t) msg in_gr =
+  let (_, _, err_ty_id), in_gr = If1.add_sisal_type in_gr (Ast.Error_ty msg) in
+  let in_gr =
+    if result_ty <> 0 then
+      let (_, _, _), in_gr =
+        If1.add_type_to_typemap_dedup (If1.Typed_error result_ty) in_gr
+      in
+      in_gr
+    else in_gr
+  in
+  match If1.get_node_map in_gr |> If1.NM.find 0 with
+  | If1.Boundary (ins, outs, errs, prags) ->
+      let next_err_port = List.length errs + 1 in
+      let in_gr =
+        {
+          in_gr with
+          nmap =
+            If1.NM.add 0
+              (If1.Boundary (ins, outs, errs @ [ (src_n, err_ty_id) ], prags))
+              in_gr.nmap;
+        }
+      in
+      If1.add_edge src_n src_p 0 next_err_port err_ty_id in_gr
+  | _ -> in_gr
+
+and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
+  (* Inject all sources for AST use in the conform check loop *)
+  let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+  let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+
+  (* Dynamic rank check using DV_NUM_RANK *)
+  let (rn1, rp1, rt1), in_gr =
+    do_simple_exp in_gr (Ast.Dv_num_rank (Ast.Val (Ast.Value_name [ "__LFA" ])))
+  in
+  let (rn2, rp2, rt2), in_gr =
+    do_simple_exp in_gr (Ast.Dv_num_rank (Ast.Val (Ast.Value_name [ "__LFB" ])))
+  in
+
+  let in_gr = inject_sym "__LFR1" (rn1, rp1, rt1) in_gr in
+  let in_gr = inject_sym "__LFR2" (rn2, rp2, rt2) in_gr in
+
+  let val_n name = Ast.Val (Ast.Value_name [ name ]) in
+  let int_c i = Ast.Constant (Ast.Int i) in
+
+  (* Compute max_rank = if r1 > r2 then r1 else r2 *)
+  let max_rank_ast =
+    Ast.If
+      ( [ Ast.Cond (Ast.Exp [ Ast.Greater (val_n "__LFR1", val_n "__LFR2") ],
+                     Ast.Exp [ val_n "__LFR1" ])
+        ],
+        Ast.Else (Ast.Exp [ val_n "__LFR2" ]) )
+  in
+  let (mr_n, mr_p, mr_t), in_gr = do_simple_exp in_gr max_rank_ast in
+  let in_gr = inject_sym "__LFMR" (mr_n, mr_p, mr_t) in_gr in
+
+  (* Common Shape and Compatibility Loop (NumPy style) *)
+  let loop_ast =
+    Ast.For_all
+      ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ int_c 1; val_n "__LFMR" ]),
+        Ast.Decldef_part
+          [ (* Compute relative indices: idx = i - (max_r - rank) *)
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFIDX1" ] ],
+                Ast.Exp
+                  [ Ast.Subtract
+                      ( val_n "__LFI",
+                        Ast.Subtract (val_n "__LFMR", val_n "__LFR1") )
+                  ] );
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFIDX2" ] ],
+                Ast.Exp
+                  [ Ast.Subtract
+                      ( val_n "__LFI",
+                        Ast.Subtract (val_n "__LFMR", val_n "__LFR2") )
+                  ] );
+            (* d1 = if idx1 >= 1 then DV_DIMENSION(__LFA, idx1).size else 1 *)
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFD1" ] ],
+                Ast.Exp
+                  [ Ast.If
+                      ( [ Ast.Cond
+                            ( Ast.Exp
+                                [ Ast.Greater_equal
+                                    (val_n "__LFIDX1", int_c 1)
+                                ],
+                              Ast.Exp
+                                [ Ast.Record_ref
+                                    ( Ast.Dv_dimension
+                                        (val_n "__LFA", val_n "__LFIDX1"),
+                                      Ast.Field_name "size" )
+                                ] )
+                        ],
+                        Ast.Else (Ast.Exp [ int_c 1 ]) )
+                  ] );
+            (* d2 = if idx2 >= 1 then DV_DIMENSION(__LFB, idx2).size else 1 *)
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFD2" ] ],
+                Ast.Exp
+                  [ Ast.If
+                      ( [ Ast.Cond
+                            ( Ast.Exp
+                                [ Ast.Greater_equal
+                                    (val_n "__LFIDX2", int_c 1)
+                                ],
+                              Ast.Exp
+                                [ Ast.Record_ref
+                                    ( Ast.Dv_dimension
+                                        (val_n "__LFB", val_n "__LFIDX2"),
+                                      Ast.Field_name "size" )
+                                ] )
+                        ],
+                        Ast.Else (Ast.Exp [ int_c 1 ]) )
+                  ] );
+            (* compatible = (d1 == d2) || (d1 == 1) || (d2 == 1) *)
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFCOMPAT" ] ],
+                Ast.Exp
+                  [ Ast.Or
+                      ( Ast.Equal (val_n "__LFD1", val_n "__LFD2"),
+                        Ast.Or
+                          ( Ast.Equal (val_n "__LFD1", int_c 1),
+                            Ast.Equal (val_n "__LFD2", int_c 1) ) )
+                  ] );
+            (* res_sz = if d1 > d2 then d1 else d2 *)
+            Ast.Decldef
+              ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFDRES" ] ],
+                Ast.Exp
+                  [ Ast.If
+                      ( [ Ast.Cond
+                            ( Ast.Exp [ Ast.Greater (val_n "__LFD1", val_n "__LFD2") ],
+                              Ast.Exp [ val_n "__LFD1" ] )
+                        ],
+                        Ast.Else (Ast.Exp [ val_n "__LFD2" ]) )
+                  ] )
+          ],
+        [ Ast.Return_exp (Ast.Array_of (val_n "__LFDRES"), Ast.No_mask);
+          Ast.Return_exp
+            ( Ast.Value_of (Ast.No_dir, Ast.Least, val_n "__LFCOMPAT"),
+              Ast.No_mask )
+        ] )
+  in
+
+  let (loop_n, loop_p, loop_t), in_gr = do_simple_exp in_gr loop_ast in
+  
+  (* The loop returns a MULTIARITY node with (shape_array, all_compatible) *)
+  let sh_n, sh_p, sh_t = (loop_n, 0, 0 (* type placeholder *)) in
+  let comp_n, comp_p, comp_t = (loop_n, 1, If1.lookup_tyid If1.BOOLEAN) in
+  
+  (* Determine common shape type (Array[Int]) *)
+  let (sh_ty, _, _), in_gr =
+    If1.add_type_to_typemap_dedup
+      (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
+      in_gr
+  in
+
+  (* Error Flag = NOT(all_compatible) *)
+  let (not_n, not_p, _), in_gr =
+    If1.add_node_2 (`Simple (If1.NOT, [| "" |], [| "" |], [])) in_gr
+  in
+  let in_gr = If1.add_edge comp_n comp_p not_n 0 comp_t in_gr in
+
+  (* Connect to ERROR_NODE to produce a typed error token if broadcasting fails *)
+  let (err_n, _, err_ty_id), in_gr =
+    let node_config =
+      `Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ])
+    in
+    let (node_id, port_id, _), in_gr = If1.add_node_2 node_config in_gr in
+    let in_gr = If1.add_edge not_n not_p node_id 0 comp_t in_gr in
+    ((node_id, port_id, at), in_gr)
+  in
+  ((sh_n, sh_p, sh_ty), (err_n, 0, err_ty_id), in_gr)
+
 (* Build an element-wise forall for a binary op given two already-lowered
    operands.  va_ref / vb_ref are the AST references to use in the body
    (either array-index or scalar depending on operand kind).
    The iterator runs over __VALO..__VAHI (A's bounds when A is an array,
    or B's bounds when only B is an array). *)
 and lift_binop_forall a_result b_result body_elem in_gr =
-  let (an, ap, at) = a_result and (bn, bp, bt) = b_result in
+  let (an, ap, at) =
+    match If1.get_node (let (n, _, _) = a_result in n) in_gr with
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        let (n, _, _) = a_result in first_incoming_triple_to_multiarity n in_gr
+    | _ -> a_result
+  in
+  let (bn, bp, bt) =
+    match If1.get_node (let (n, _, _) = b_result in n) in_gr with
+    | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
+        let (n, _, _) = b_result in first_incoming_triple_to_multiarity n in_gr
+    | _ -> b_result
+  in
   let a_is_arr = is_array_ty at in_gr in
   let b_is_arr = is_array_ty bt in_gr in
-  (* Choose the array that drives the iteration range *)
-  let (rn, rp, rt) = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
-  let mk_inv fn args =
-    Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
-  in
-  (* Inject already-lowered operands under fresh names *)
-  let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
-  let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
-  let in_gr = inject_sym "__LFRANGE" (rn, rp, rt) in_gr in
-  let range_ref = Ast.Val (Ast.Value_name [ "__LFRANGE" ]) in
-  let lo = mk_inv [ "ARRAY_LIML" ] [ range_ref ] in
-  let hi = mk_inv [ "ARRAY_LIMH" ] [ range_ref ] in
-  let forall =
-    Ast.For_all
-      ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
-        Ast.Decldef_part [],
-        [ Ast.Return_exp (Ast.Array_of body_elem, Ast.No_mask) ] )
-  in
-  let result, in_gr = do_simple_exp_impl in_gr forall in
-  (* Shape check (skipped when same source) *)
-  let in_gr =
-    if a_is_arr && b_is_arr then
-      maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr
-    else in_gr
-  in
-  (result, in_gr)
+  let a_is_dv = is_dv_array_ty at in_gr in
+  let b_is_dv = is_dv_array_ty bt in_gr in
+
+  if a_is_dv || b_is_dv then
+    (* 1. NumPy/JAX Universal Broadcasting Logic *)
+    let (sh_res, err_res, in_gr) = emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr in
+    
+    (* 2. Get total elements for 1D loop using Product reduction on sh_res *)
+    let in_gr = inject_sym "__LFSH_INT" sh_res in_gr in
+    let sh_ref_ast = Ast.Val (Ast.Value_name [ "__LFSH_INT" ]) in
+    let ((total_n, total_p, total_t), in_gr) =
+      do_simple_exp in_gr (Ast.Reduce (Ast.Product, sh_ref_ast))
+    in
+
+    (* 3. Use specialized AST nodes for rank-agnostic body *)
+    let a_dv_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+    let b_dv_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+    let sh_ref = Ast.Val (Ast.Value_name [ "__LFSH" ]) in
+    let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+    
+    (* For each operand, if it's an array (DV or standard), use rank-agnostic linear loading.
+       Standard arrays are treated as rank-1 for this purpose. 
+       If it's a scalar, use the value directly. *)
+    let val_a = 
+      if a_is_arr || a_is_dv then
+        let off_a = Ast.Dv_offset_at (a_dv_ref, i_ref, sh_ref) in
+        Ast.Dv_load_linear (a_dv_ref, off_a)
+      else a_dv_ref 
+    in
+    
+    let val_b = 
+      if b_is_arr || b_is_dv then
+        let off_b = Ast.Dv_offset_at (b_dv_ref, i_ref, sh_ref) in
+        Ast.Dv_load_linear (b_dv_ref, off_b)
+      else b_dv_ref 
+    in
+    
+    (* Map the original body binary op to rank-agnostic loads *)
+    let body_rank_agnostic = 
+      match body_elem with
+      | Ast.Add _ -> Ast.Add (val_a, val_b)
+      | Ast.Subtract _ -> Ast.Subtract (val_a, val_b)
+      | Ast.Multiply _ -> Ast.Multiply (val_a, val_b)
+      | Ast.Divide _ -> Ast.Divide (val_a, val_b)
+      | Ast.Equal _ -> Ast.Equal (val_a, val_b)
+      | Ast.Not_equal _ -> Ast.Not_equal (val_a, val_b)
+      | Ast.Lesser _ -> Ast.Lesser (val_a, val_b)
+      | Ast.Lesser_equal _ -> Ast.Lesser_equal (val_a, val_b)
+      | Ast.Greater _ -> Ast.Greater (val_a, val_b)
+      | Ast.Greater_equal _ -> Ast.Greater_equal (val_a, val_b)
+      | Ast.And _ -> Ast.And (val_a, val_b)
+      | Ast.Or _ -> Ast.Or (val_a, val_b)
+      | Ast.Shl _ -> Ast.Shl (val_a, val_b)
+      | Ast.Shr _ -> Ast.Shr (val_a, val_b)
+      | _ -> body_elem (* Fallback *)
+    in
+
+    (* Inject already-lowered operands under fresh names *)
+    let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+    let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+    let in_gr = inject_sym "__LFSH" sh_res in_gr in
+    let in_gr = inject_sym "__LFTOTAL" (total_n, total_p, total_t) in_gr in
+    
+    let total_exp = Ast.Val (Ast.Value_name [ "__LFTOTAL" ]) in
+    let zero_exp = Ast.Constant (Ast.Int 0) in
+    let hi_exp = Ast.Subtract (total_exp, Ast.Constant (Ast.Int 1)) in
+    
+    let forall =
+      Ast.For_all
+        ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ zero_exp; hi_exp ]),
+          Ast.Decldef_part [],
+          [ Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask) ] )
+    in
+    
+    let result, in_gr = do_simple_exp_impl in_gr forall in
+    let (res_n, res_p, res_ty) = result in
+    
+    (* Final step: Reshape the 1D result array into the broadcast common shape.
+       We use the new DV_RESHAPE_BY_SHAPE node which takes (Array, ShapeArray). *)
+    let (final_n, final_p, _), in_gr =
+      If1.add_node_2
+        (`Simple (If1.DV_RESHAPE_BY_SHAPE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+        in_gr
+    in
+    let in_gr = If1.add_edge res_n res_p final_n 0 res_ty in_gr in
+    let (sh_n, sh_p, sh_ty) = sh_res in
+    let in_gr = If1.add_edge sh_n sh_p final_n 1 sh_ty in_gr in
+
+    let result = (final_n, final_p, res_ty) in
+    
+    (* Wire the conformity error via Railway Monad *)
+    let (err_n, err_p, err_t) = err_res in
+    let in_gr = add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t) "ERROR" in_gr in
+    
+    (result, in_gr)
+
+  else
+    (* Standard Sisal nested loop for Array_ty *)
+    let (rn, rp, rt) = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
+    let mk_inv fn args =
+      Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+    in
+    (* Inject already-lowered operands under fresh names *)
+    let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+    let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+    let in_gr = inject_sym "__LFRANGE" (rn, rp, rt) in_gr in
+    let range_ref = Ast.Val (Ast.Value_name [ "__LFRANGE" ]) in
+    let lo = mk_inv [ "ARRAY_LIML" ] [ range_ref ] in
+    let hi = mk_inv [ "ARRAY_LIMH" ] [ range_ref ] in
+    let return_kind = Ast.Array_of body_elem in
+    let forall =
+      Ast.For_all
+        ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
+          Ast.Decldef_part [],
+          [ Ast.Return_exp (return_kind, Ast.No_mask) ] )
+    in
+    let result, in_gr = do_simple_exp_impl in_gr forall in
+    let in_gr =
+      if a_is_arr && b_is_arr then maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr
+      else in_gr
+    in
+    (result, in_gr)
 
 (* Wire an IF1 binary node from two already-lowered values with widening coercion.
    Mirrors the inner logic of bin_exp without re-lowering the AST operands. *)
 and direct_scalar_binop (c, pi1, qq1) (d, pi2, qq2) node_tag in_gr =
-  let c, pi1, qq1 =
+  let (c, pi1, qq1) =
     match If1.get_node c in_gr with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         first_incoming_triple_to_multiarity c in_gr
     | _ -> (c, pi1, qq1)
   in
-  let d, pi2, qq2 =
+  let (d, pi2, qq2) =
     match If1.get_node d in_gr with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         first_incoming_triple_to_multiarity d in_gr
     | _ -> (d, pi2, qq2)
   in
-  let (c, pi1, qq1), (d, pi2, qq2), common_ty, in_gr =
-    if qq1 = qq2 then ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
-    else
-      match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
-      | Some r1, Some r2 ->
-          if r1 < r2 then
-            let (c, pi1, qq1), in_gr = insert_typecast c pi1 qq1 qq2 in_gr in
-            ((c, pi1, qq1), (d, pi2, qq2), qq2, in_gr)
-          else if r2 < r1 then
-            let (d, pi2, qq2), in_gr = insert_typecast d pi2 qq2 qq1 in_gr in
-            ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
-          else ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
-      | _ ->
-          raise (If1.Sem_error "Type mismatch in binary op")
-  in
-  let (z, _, _), in_gr =
-    If1.add_node_2
-      (`Simple (node_tag, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
-      in_gr
-  in
-  let in_gr = If1.add_edge c pi1 z 0 common_ty in_gr in
-  let in_gr = If1.add_edge d pi2 z 1 common_ty in_gr in
-  ((z, 0, common_ty), in_gr)
+  let a_is_dv = is_dv_array_ty qq1 in_gr in
+  let b_is_dv = is_dv_array_ty qq2 in_gr in
+  if a_is_dv || b_is_dv || is_array_ty qq1 in_gr || is_array_ty qq2 in_gr then
+    let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+    let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+    let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
+    let a_is_arr = is_array_ty qq1 in_gr in
+    let b_is_arr = is_array_ty qq2 in_gr in
+    let ae =
+      if a_is_arr then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]) else a_ref
+    in
+    let be =
+      if b_is_arr then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ]) else b_ref
+    in
+    let body_elem =
+      match node_tag with
+      | If1.ADD -> Ast.Add (ae, be)
+      | If1.SUBTRACT -> Ast.Subtract (ae, be)
+      | If1.TIMES -> Ast.Multiply (ae, be)
+      | If1.FDIVIDE | If1.IDIVIDE -> Ast.Divide (ae, be)
+      | _ -> raise (If1.Sem_error "Unsupported lifted binary op")
+    in
+    lift_binop_forall (c, pi1, qq1) (d, pi2, qq2) body_elem in_gr
+  else
+    let (c, pi1, qq1), (d, pi2, qq2), common_ty, in_gr =
+      if qq1 = qq2 then ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+      else
+        match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
+        | Some r1, Some r2 ->
+            if r1 < r2 then
+              let (c, pi1, qq1), in_gr = insert_typecast c pi1 qq1 qq2 in_gr in
+              ((c, pi1, qq1), (d, pi2, qq2), qq2, in_gr)
+            else if r2 < r1 then
+              let (d, pi2, qq2), in_gr = insert_typecast d pi2 qq2 qq1 in_gr in
+              ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+            else ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
+        | _ ->
+            raise (If1.Sem_error "Type mismatch in binary op")
+    in
+    let (z, _, _), in_gr =
+      If1.add_node_2
+        (`Simple (node_tag, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+        in_gr
+    in
+    let in_gr = If1.add_edge c pi1 z 0 common_ty in_gr in
+    let in_gr = If1.add_edge d pi2 z 1 common_ty in_gr in
+    ((z, 0, common_ty), in_gr)
 
 (* Wire an IF1 unary node from an already-lowered value. *)
 and direct_scalar_unop (en, ep, et) node_tag in_gr =
@@ -2765,53 +3210,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
         direct_scalar_unop (en, ep, et) If1.NEGATE in_gr
   | Pipe (a, b) -> bin_exp a b in_gr ACATENATE
   | Divide (left, right) ->
-      let (div_node, div_port, div_ty), in_gr =
-        bin_exp left right in_gr If1.FDIVIDE
+      let (nod1, por1, ty1), in_gr = do_simple_exp in_gr left in
+      let op =
+        if If1.is_real_type (If1.lookup_ty ty1 in_gr) then If1.FDIVIDE
+        else If1.IDIVIDE
       in
-      let opcode =
-        let incoming_type = If1.lookup_ty div_ty in_gr in
-        if If1.is_real_type incoming_type = true then If1.FDIVIDE
-        else if If1.is_integral_type incoming_type = true then If1.IDIVIDE
-        else failwith "Only integral or real valued types can be divided"
-      in
-      let nmap_update =
-        match If1.get_node div_node in_gr with
-        | Simple (lab, _, pin, pout, prag) ->
-            If1.NM.add div_node
-              (If1.Simple (lab, opcode, pin, pout, prag))
-              in_gr.nmap
-        | _ -> failwith "Error looking up divide operation"
-      in
-      let in_gr = { in_gr with nmap = nmap_update } in
-
-      (* 3. Register the "DIV0" Error Type in the Typemap *)
-      let (_, _, err_ty_id), in_gr =
-        If1.add_sisal_type in_gr (Ast.Error_ty "DIV0")
-      in
-
-      (* 4. The Railroad Wiring: Append port to Boundary's 3rd list and wire it *)
-      let in_gr =
-        match If1.get_node_map in_gr |> If1.NM.find 0 with
-        | If1.Boundary (ins, outs, errs, prags) ->
-            let next_err_port = List.length errs + 1 in
-
-            (* Update Boundary with the new error-return slot *)
-            let in_gr =
-              {
-                in_gr with
-                nmap =
-                  If1.NM.add 0
-                    (If1.Boundary
-                       (ins, outs, errs @ [ (div_node, err_ty_id) ], prags))
-                    in_gr.nmap;
-              }
-            in
-
-            (* Wire the Railroad Edge: Src:Port2 -> Boundary:next_err_port *)
-            If1.add_edge div_node 2 0 next_err_port err_ty_id in_gr
-        | _ -> in_gr
-      in
-      ((div_node, div_port, div_ty), in_gr)
+      bin_exp left right in_gr op
   | Lambda (header, e) ->
       (* Build an anonymous subgraph exactly like do_internals/Function_single,
          but with no name.  The caller (decldef machinery) will bind the
@@ -2856,231 +3260,29 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (n, p, ty), in_gr = do_simple_exp in_gr inner_exp in
       let in_gr = If1.set_node_srcline n line col in_gr in
       ((n, p, ty), in_gr)
-  | Multiply (a, b) ->
-      (* Lower both sides first to check their types *)
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      (* Element-wise array multiplication takes priority over mat/vec dispatch *)
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Multiply (ae, be)) in_gr
-      else
-      (* Unwrap MULTIARITY nodes (e.g. for-loop results) to get actual type *)
-      let an, ap, at =
-        match If1.get_node an in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            first_incoming_triple_to_multiarity an in_gr
-        | _ -> (an, ap, at)
-      in
-      let bn, bp, bt =
-        match If1.get_node bn in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            first_incoming_triple_to_multiarity bn in_gr
-        | _ -> (bn, bp, bt)
-      in
-      let a_ty = If1.lookup_ty at in_gr in
-      let b_ty = If1.lookup_ty bt in_gr in
-      (match (If1.is_mat_type a_ty, If1.is_vector_type a_ty,
-              If1.is_mat_type b_ty, If1.is_vector_type b_ty) with
-      | true, _, true, _ ->
-          (* mat * mat → MATMUL, result is same mat type *)
-          let (mn, mp, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.MATMUL, [| ""; "" |], [| "" |], [])) in_gr
-          in
-          let in_gr = If1.add_edge an ap mn 0 at in_gr in
-          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
-          ((mn, mp, at), in_gr)
-      | true, _, false, true ->
-          (* mat * vec → MATVECMUL, result is the vec type *)
-          let (mn, mp, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.MATVECMUL, [| ""; "" |], [| "" |], [])) in_gr
-          in
-          let in_gr = If1.add_edge an ap mn 0 at in_gr in
-          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
-          ((mn, mp, bt), in_gr)
-      | false, true, true, _ ->
-          (* vec * mat → VECMATMUL, result is the vec type *)
-          let (mn, mp, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.VECMATMUL, [| ""; "" |], [| "" |], [])) in_gr
-          in
-          let in_gr = If1.add_edge an ap mn 0 at in_gr in
-          let in_gr = If1.add_edge bn bp mn 1 bt in_gr in
-          ((mn, mp, at), in_gr)
-      | _ ->
-          (* scalar * scalar (or vec * vec element-wise) → TIMES *)
-          let (tn, tp, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.TIMES, [| ""; "" |], [| "" |], [])) in_gr
-          in
-          let common_ty = at in
-          let in_gr = If1.add_edge an ap tn 0 common_ty in_gr in
-          let in_gr = If1.add_edge bn bp tn 1 common_ty in_gr in
-          ((tn, tp, common_ty), in_gr))
-  | Subtract (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Subtract (ae, be)) in_gr
-      else
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.SUBTRACT in_gr
-  | Add (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Add (ae, be)) in_gr
-      else
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.ADD in_gr
-  | Shl (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Shl (ae, be)) in_gr
-      else
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.SHL in_gr
+  | Multiply (a, b) -> bin_exp a b in_gr If1.TIMES
+  | Subtract (a, b) -> bin_exp a b in_gr If1.SUBTRACT
+  | Add (a, b) -> bin_exp a b in_gr If1.ADD
+  | Shl (a, b) -> bin_exp a b in_gr If1.SHL
   | Shr (a, b) ->
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Shr (ae, be)) in_gr
-      else
-        (* OpenGL convention: logical shift for unsigned, arithmetic for signed *)
-        let op = if If1.is_unsigned_type at in_gr then If1.SHR else If1.ASHR in
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) op in_gr
-  | And (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.And (ae, be)) in_gr
-      else
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.AND in_gr
-  | Or (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Or (ae, be)) in_gr
-      else
-        direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.OR in_gr
+      (* OpenGL convention: logical shift for unsigned, arithmetic for signed *)
+      let op = if If1.is_unsigned_type at in_gr then If1.SHR else If1.ASHR in
+      bin_exp a b in_gr op
+  | And (a, b) -> bin_exp a b in_gr If1.AND
+  | Or (a, b) -> bin_exp a b in_gr If1.OR
   | Not e ->
       let (en, ep, et), in_gr = do_simple_exp in_gr e in
       if is_array_ty et in_gr then
         lift_unop_forall (en, ep, et) (fun elem -> Ast.Not elem) in_gr
       else
         direct_scalar_unop (en, ep, et) If1.NOT in_gr
-  | Not_equal (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Not_equal (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.NOT_EQUAL in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
-  | Equal (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Equal (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.EQUAL in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
-  | Lesser_equal (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Lesser_equal (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.LESSER_EQUAL in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
-  | Lesser (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Lesser (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.LESSER in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
-  | Greater_equal (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Greater_equal (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.GREATER_EQUAL in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
-  | Greater (a, b) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      if is_array_ty at in_gr || is_array_ty bt in_gr then
-        let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-        let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-        let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-        let ae = if is_array_ty at in_gr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-        let be = if is_array_ty bt in_gr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-        lift_binop_forall (an, ap, at) (bn, bp, bt) (Ast.Greater (ae, be)) in_gr
-      else
-        let (n, p, _), in_gr = direct_scalar_binop (an, ap, at) (bn, bp, bt) If1.GREATER in_gr in
-        ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
+  | Not_equal (a, b) -> bin_exp a b in_gr If1.NOT_EQUAL
+  | Equal (a, b) -> bin_exp a b in_gr If1.EQUAL
+  | Lesser_equal (a, b) -> bin_exp a b in_gr If1.LESSER_EQUAL
+  | Lesser (a, b) -> bin_exp a b in_gr If1.LESSER
+  | Greater_equal (a, b) -> bin_exp a b in_gr If1.GREATER_EQUAL
+  | Greater (a, b) -> bin_exp a b in_gr If1.GREATER
   | Vec (vect, el) ->
       (* 1. Determine expected width from the AST type *)
       let expected_len = Ast.get_vec_len vect in
@@ -3673,26 +3875,20 @@ and do_simple_exp_impl in_gr in_sim_ex =
             raise (If1.Sem_error "innerproduct() requires exactly two arguments");
           let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
           let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
-          let a_ty = If1.lookup_ty at in_gr in
-          let b_ty = If1.lookup_ty bt in_gr in
+          let r1 = get_rank at in_gr in
+          let r2 = get_rank bt in_gr in
           let opcode, result_ty =
-            match (If1.is_mat_type a_ty, If1.is_vector_type a_ty,
-                   If1.is_mat_type b_ty, If1.is_vector_type b_ty) with
-            | true, _, true, _ -> (If1.MATMUL,    at)
-            | true, _, false, true -> (If1.MATVECMUL, bt)
-            | false, true, true, _ -> (If1.VECMATMUL, at)
-            | false, true, false, true ->
-                let scalar_ty =
-                  If1.find_ty in_gr (If1.get_element_type a_ty)
-                in
-                (If1.DOT, scalar_ty)
+            match (r1, r2) with
+            | 2, 2 -> (If1.MATMUL, at)
+            | 2, 1 -> (If1.MATVECMUL, bt)
+            | 1, 2 -> (If1.VECMATMUL, at)
+            | 1, 1 -> (If1.DOT, get_deep_elem_ty at in_gr)
             | _ ->
-                raise (If1.Sem_error
-                  "innerproduct() requires mat or vec arguments")
+                raise
+                  (If1.Sem_error "innerproduct() requires mat or vec arguments")
           in
           let (rn, rp, _), in_gr =
-            If1.add_node_2
-              (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
+            If1.add_node_2 (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
           in
           let in_gr = If1.add_edge an ap rn 0 at in_gr in
           let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
@@ -3874,44 +4070,42 @@ and do_simple_exp_impl in_gr in_sim_ex =
             ((n1, 0, 0), in_gr))
   | Array_ref (ar_a, ar_b) as aap ->
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
-      let (res_node, res_port, tt), in_gr_res =
-        match ar_b with
-        | Ast.Exp ex_lis ->
-            let add_basic_arr_elem ((aaa, bbb, att), in_gr) arr_indx =
-              let (idxnum, idxport, tt), in_gr = do_simple_exp in_gr arr_indx in
-              let (arrnum, arrport, _), in_gr =
-                If1.add_node_2
-                  (`Simple (If1.AELEMENT, Array.make 2 "", Array.make 1 "", []))
-                  in_gr
-              in
-              let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
-              let in_gr = If1.add_edge aaa bbb arrnum 0 att in_gr in
-              let inner_ty_num, in_gr =
-                match If1.lookup_ty att in_gr with
-                | If1.Array_ty ij -> (ij, in_gr)
-                | If1.Array_dv ij ->
-                    (* Indexing a dv array always yields the element type.
-                       Multi-dimensional indexing goes through DV_ELEMENT. *)
-                    (ij, in_gr)
-                | _ ->
-                    raise
-                      (print_endline
-                         (Ast.str_simple_exp aap ^ " Fails for "
-                        ^ string_of_int att);
-                       If1.If1_View.export_debug_html "compiler_failure.html"
-                         in_gr;
-                       If1.Sem_error
-                         ("Situation:"
-                         ^ If1.string_of_if1_ty (If1.lookup_ty att in_gr)))
-              in
-              ((arrnum, arrport, inner_ty_num), in_gr)
-            in
-            List.fold_left add_basic_arr_elem
-              ((arr_node, arr_port, att), in_gr)
-              ex_lis
-        | _ -> ((arr_node, arr_port, att), in_gr)
-      in
-      ((res_node, res_port, tt), in_gr_res)
+      (match ar_b with
+      | Ast.Exp ex_lis ->
+          let rec lower_indices ((aaa, bbb, cur_att), g) = function
+            | [] -> ((aaa, bbb, cur_att), g)
+            | arr_indx :: rest ->
+                let (idxnum, idxport, it_ty), g = do_simple_exp g arr_indx in
+                let op, next_ty =
+                  match If1.lookup_ty cur_att g with
+                  | If1.Array_ty ij -> (If1.AELEMENT, ij)
+                  | If1.Array_dv ij ->
+                      (* If more indices follow, we are still indexing a DV (getting a slice).
+                         Since Array_dv type is rank-agnostic, we stay with the same type. *)
+                      let next_ty = if rest = [] then ij else cur_att in
+                      (If1.DV_ELEMENT, next_ty)
+                  | _ ->
+                      let msg =
+                        Printf.sprintf "Situation:%s"
+                          (If1.string_of_if1_ty (If1.lookup_ty cur_att g))
+                      in
+                      print_endline
+                        (Ast.str_simple_exp aap ^ " Fails for "
+                       ^ string_of_int cur_att);
+                      If1.If1_View.export_debug_html "compiler_failure.html" g;
+                      raise (If1.Sem_error msg)
+                in
+                let (arrnum, arrport, _), g =
+                  If1.add_node_2
+                    (`Simple (op, Array.make 2 "", Array.make 1 "", []))
+                    g
+                in
+                let g = If1.add_edge aaa bbb arrnum 0 cur_att g in
+                let g = If1.add_edge idxnum idxport arrnum 1 it_ty g in
+                lower_indices ((arrnum, arrport, next_ty), g) rest
+          in
+          lower_indices ((arr_node, arr_port, att), in_gr) ex_lis
+      | _ -> ((arr_node, arr_port, att), in_gr))
   | Let_rec (dp, e) ->
       (* 1. Setup Recursive Scope and Lower Inner Logic *)
       let let_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
@@ -4660,7 +4854,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
          do_simple_exp wrapper) can insert GET_DOPE_VEC automatically. *)
       let ty =
         match ret_actions with
-        | (`Array_of, arr_ty, _) :: _ -> arr_ty
+        | (_, arr_ty, _) :: _ -> arr_ty
         | _ -> 0
       in
       ((fx, fy, ty), in_gr)
@@ -4892,7 +5086,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
       let ty =
         match ret_actions with
-        | (`Array_of, arr_ty, _) :: _ -> arr_ty
+        | (_, arr_ty, _) :: _ -> arr_ty
         | _ -> 0
       in
       ((mul_n, mul_p, ty), in_gr)
@@ -5803,6 +5997,56 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
+  | Dv_offset_at (a, i, s) ->
+      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
+      let ((in_n, in_p, in_t), in_gr) = do_simple_exp in_gr i in
+      let ((sn, sp, st), in_gr) = do_simple_exp in_gr s in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_OFFSET_AT, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge in_n in_p rn 1 in_t in_gr in
+      let in_gr = If1.add_edge sn sp rn 2 st in_gr in
+      ((rn, rp, If1.lookup_tyid If1.INTEGRAL), in_gr)
+  | Dv_load_linear (a, o) ->
+      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
+      let ((on, op, ot), in_gr) = do_simple_exp in_gr o in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_LOAD_LINEAR, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge on op rn 1 ot in_gr in
+      ((rn, rp, array_elem_ty at in_gr), in_gr)
+  | Dv_num_rank a ->
+      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_NUM_RANK, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      ((rn, rp, If1.lookup_tyid If1.INTEGRAL), in_gr)
+  | Dv_dimension (a, k) ->
+      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
+      let ((kn, kp, kt), in_gr) = do_simple_exp in_gr k in
+      let (dope_ty, in_gr) = If1.ensure_dope_vec_type in_gr in
+      (* The record type is the element type of the dope-vector array *)
+      let triplet_ty = match If1.lookup_ty dope_ty in_gr with
+        | If1.Array_ty et -> et
+        | _ -> 0
+      in
+      let (rn, rp, _), in_gr =
+        If1.add_node_2
+          (`Simple (If1.DV_DIMENSION, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap rn 0 at in_gr in
+      let in_gr = If1.add_edge kn kp rn 1 kt in_gr in
+      ((rn, rp, triplet_ty), in_gr)
   | Norm_exp (a, p) ->
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
@@ -6021,11 +6265,16 @@ and do_return_exp in_gr ggg =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
       (`Array_of, (an, ap, at), in_gr)
-  | Ast.Dv_array_of (_rank, e) ->
-      let (an, ap, at), in_gr = do_simple_exp in_gr e in
+  | Ast.Dv_array_of (rank, e) ->
+      let ((an, ap, at), in_gr) = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
-      (`Dv_array_of, (an, ap, at), in_gr)
+      let actual_rank =
+        match If1.lookup_ty at in_gr with
+        | If1.Array_dv _et -> If1.get_node_rank an in_gr + rank
+        | _ -> rank
+      in
+      (`Dv_array_of actual_rank, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
@@ -6109,31 +6358,50 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               create_return_nodes out_gr (in_count + 2) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
-          | `Dv_array_of, tt, aa ->
+          | `Dv_array_of rank, tt, aa ->
               assert (tt <> 0);
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
                      ( If1.DV_GATHER,
-                       Array.make 2 "",
+                       Array.make 3 "",
                        Array.make 1 "",
                        [ If1.No_pragma ] ))
                   out_gr
               in
               let what_ty, out_gr =
                 assert (tt <> 0);
-                let (id_x, _, _), out_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_dv tt) out_gr
-                in
-                (id_x, out_gr)
+                match If1.lookup_ty tt out_gr with
+                | If1.Array_dv _et -> (tt, out_gr)
+                | _ ->
+                    let (id_x, _, _), out_gr =
+                      If1.add_type_to_typemap_dedup (If1.Array_dv tt) out_gr
+                    in
+                    (id_x, out_gr)
               in
               let out_gr =
                 If1.add_edge 0 0 dd 0 5 (*integer type for index*) out_gr
               in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
+              
+              (* Add DV_DIMENSION to get the triplet for the current rank *)
+              let (dim_n, _, _), out_gr =
+                If1.add_node_2
+                  (`Simple (If1.DV_DIMENSION, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+                  out_gr
+              in
+              (* Port 0: Dope Vector, Port 1: Rank Index *)
+              let out_gr = If1.add_edge 0 0 dim_n 0 what_ty out_gr in (* placeholder for DV source *)
+              let (rank_idx_n, _, _), out_gr =
+                If1.add_node_2 (`Literal (If1.INTEGRAL, string_of_int rank, Array.make 1 "")) out_gr
+              in
+              let out_gr = If1.add_edge rank_idx_n 0 dim_n 1 (If1.lookup_tyid If1.INTEGRAL) out_gr in
+              (* Connect triplet to DV_GATHER Port 2 *)
+              let out_gr = If1.add_edge dim_n 0 dd 2 0 (* placeholder for triplet type *) out_gr in
+
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
-              create_return_nodes out_gr (in_count + 2) (out_count + 1)
-                (out_lis @ [ (`Dv_array_of, what_ty, out_count) ])
+              create_return_nodes out_gr (in_count + 3) (out_count + 1)
+                (out_lis @ [ (`Dv_array_of (rank + 1), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               to_if1_msg 4
@@ -6315,7 +6583,7 @@ and do_returns_clause_list ?(clause_idx = 1) in_gr ret_clause_list
         match ret_action with
         | `FinalVal -> "value"
         | `Array_of -> "array_of"
-        | `Dv_array_of -> "dv_array_of"
+        | `Dv_array_of _r -> "dv_array_of"
         | `Stream_of -> "stream_of"
         | `Reduce (dir, name) ->
             let dir_str =
