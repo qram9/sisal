@@ -57,6 +57,10 @@ APL bulk operations - statistics (MEAN/VARIANCE/STDDEV/ANY/ALL/NORM/CUMSUM/CUMPR
 APL bulk operations - shape (TILE/SQUEEZE/EXPAND/PAD/OUTERPRODUCT/PERMUTE):
   $ sisal apl_shape.sis
 
+EINSUM tensor contraction (dot, matmul, matvec, outer, trace, transpose,
+batched matmul, triple contraction, implicit output):
+  $ sisal einsum_test.sis
+
 APL bulk operations - case insensitivity (all ops work in lower and upper case):
   $ sisal apl_case.sis
 
@@ -138,7 +142,6 @@ For-loop variants:
 
 Dope-vector array agreement and arithmetic (Error Monad):
   $ sisal dv_agreement.sis
-  $ sisal dv_lifted_arith.sis
 
 Matrix / linear algebra:
   $ sisal matmult.sis
@@ -362,3 +365,9 @@ Scientific benchmarks:
   $ sisal bad.sis
   $ sisal reset_ast.sis
   $ sisal rest_ast.sis
+  $ sisal cross_dv_demo.sis
+  $ sisal if_one.sis
+  $ sisal if_two.sis
+  $ sisal quadtree.sis
+  $ sisal quadtypes.sis
+  $ sisal complex_types.sis

@@ -1,0 +1,91 @@
+% einsum_test.sis — EINSUM tensor contraction tests
+%
+% Covers:
+%   1. dot product        "i,i->"        rank-1 × rank-1 → scalar
+%   2. matrix multiply    "ij,jk->ik"    rank-2 × rank-2 → rank-2  (pattern-matched)
+%   3. matrix-vector      "ij,j->i"      rank-2 × rank-1 → rank-1  (pattern-matched)
+%   4. vector-matrix      "i,ij->j"      rank-1 × rank-2 → rank-1  (pattern-matched)
+%   5. outer product      "i,j->ij"      rank-1 × rank-1 → rank-2  (general EINSUM)
+%   6. trace              "ii->"         rank-2            → scalar  (general EINSUM)
+%   7. transpose          "ij->ji"       rank-2            → rank-2  (general EINSUM)
+%   8. batched matmul     "bij,bjk->bik" rank-3 × rank-3  → rank-3  (general EINSUM)
+%   9. triple contraction "ijk,ijk->"    rank-3 × rank-3  → scalar  (general EINSUM)
+%  10. implicit output    "ij,jk"        (no "->") → rank-2          (implicit mode)
+%
+% NOTE: array_dv is always rank-1 at the type level — the dope vector carries
+% multi-dimensional shape at runtime.  General EINSUM array results are typed
+% array_dv[elem] regardless of logical rank.
+
+define einsum_test,
+  t_dot,
+  t_matmul, t_matvec, t_vecmat,
+  t_outer,
+  t_trace,
+  t_transpose,
+  t_batch_matmul,
+  t_triple_contract,
+  t_implicit_matmul
+
+type ai  = array[integer]
+type ar  = array[real]
+type ai2 = array[array[integer]]
+type ar2 = array[array[real]]
+type ar3 = array[array[array[real]]]
+
+% ---- 1. Dot product -----------------------------------------------------------
+% EINSUM("i,i->", u, v) — sums element-wise products → scalar integer
+function t_dot (u, v : ai returns integer)
+  EINSUM("i,i->", u, v)
+end function
+
+% ---- 2. Matrix multiply (pattern-matched to MATMUL) --------------------------
+function t_matmul (A, B : ai2 returns ai2)
+  EINSUM("ij,jk->ik", A, B)
+end function
+
+% ---- 3. Matrix-vector multiply (pattern-matched to MATVECMUL) ----------------
+function t_matvec (A : ai2; x : ai returns ai)
+  EINSUM("ij,j->i", A, x)
+end function
+
+% ---- 4. Vector-matrix multiply (pattern-matched to VECMATMUL) ----------------
+function t_vecmat (x : ai; A : ai2 returns ai)
+  EINSUM("i,ij->j", x, A)
+end function
+
+% ---- 5. Outer product (general EINSUM) ----------------------------------------
+% Result[i,j] = u[i] * v[j] — flat array_dv[integer], shape [n_i, n_j]
+function t_outer (u, v : ai returns array_dv[integer])
+  EINSUM("i,j->ij", u, v)
+end function
+
+% ---- 6. Trace (general EINSUM) ------------------------------------------------
+% Sum of diagonal elements of a square integer matrix
+function t_trace (A : ai2 returns integer)
+  EINSUM("ii->", A)
+end function
+
+% ---- 7. Transpose (general EINSUM) --------------------------------------------
+% array_dv[real], shape [n_j, n_i]
+function t_transpose (A : ar2 returns array_dv[real])
+  EINSUM("ij->ji", A)
+end function
+
+% ---- 8. Batched matrix multiply (general EINSUM, rank-3) ---------------------
+% C[b,i,k] = sum_j A[b,i,j] * B[b,j,k]  — flat array_dv[real], shape [b,i,k]
+function t_batch_matmul (A, B : ar3 returns array_dv[real])
+  EINSUM("bij,bjk->bik", A, B)
+end function
+
+% ---- 9. Full triple contraction → scalar (general EINSUM) --------------------
+% result = sum_{i,j,k} A[i,j,k] * B[i,j,k]
+function t_triple_contract (A, B : ar3 returns real)
+  EINSUM("ijk,ijk->", A, B)
+end function
+
+% ---- 10. Implicit output notation (no "->") -----------------------------------
+% "ij,jk" → output labels appearing once = {i,k} → same as "ij,jk->ik"
+% General lowering: flat array_dv[integer], shape [n_i, n_k]
+function t_implicit_matmul (A, B : ai2 returns array_dv[integer])
+  EINSUM("ij,jk", A, B)
+end function

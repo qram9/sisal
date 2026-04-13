@@ -1,0 +1,48 @@
+% complex_types.sis — built-in complex scalar and array types
+%
+% complex_half   = record[re: half;   im: half  ]
+% complex_float  = record[re: real;   im: real  ]
+% complex_double = record[re: double; im: double]
+%
+% Array variants registered automatically:
+%   array_complex_{half,float,double}    — static array[complex_T]
+%   array_dv_complex_{half,float,double} — dope-vector array_dv[complex_T]
+%
+% Builders:
+%   BUILD_COMPLEX_SOA(re_arr, im_arr) → record[re: arr; im: arr]
+%   BUILD_COMPLEX_AOS(re_arr, im_arr) → array_dv[complex_T]
+
+define complex_types,
+  t_make_cfloat,
+  t_re, t_im,
+  t_soa_float,
+  t_aos_float
+
+type vr  = array[real]
+
+% Construct a complex_float record and return it
+function t_make_cfloat (r, i : real returns complex_float)
+  record complex_float [ re: r; im: i ]
+end function
+
+% Extract real part
+function t_re (c : complex_float returns real)
+  c.re
+end function
+
+% Extract imaginary part
+function t_im (c : complex_float returns real)
+  c.im
+end function
+
+% SOA: bundle two real arrays into a struct-of-arrays record
+function t_soa_float (re_arr, im_arr : vr
+                      returns record[re: vr; im: vr])
+  BUILD_COMPLEX_SOA(re_arr, im_arr)
+end function
+
+% AOS: zip two real arrays into array_dv[complex_float]
+function t_aos_float (re_arr, im_arr : vr
+                      returns array_dv[complex_float])
+  BUILD_COMPLEX_AOS(re_arr, im_arr)
+end function

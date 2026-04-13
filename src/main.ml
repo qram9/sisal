@@ -75,6 +75,7 @@ let main () =
   (* Parse flags *)
   let ast_dest  = ref Nothing in
   let if1_dest  = ref Nothing in
+  let c_dest    = ref Nothing in
   let files     = ref [] in
   let usage () =
     print_string
@@ -84,6 +85,8 @@ let main () =
         \  --ast=FILE       Write AST to FILE\n\
         \  --if1            Print IF1 to stdout\n\
         \  --if1=FILE       Write IF1 to FILE\n\
+        \  --c              Print C to stdout\n\
+        \  --c=FILE         Write C to FILE\n\
         \  --debug=N        Set debug verbosity level to N\n\
         \  --help           Show this help and exit\n\n\
         If no FILE is given, reads from stdin.\n\
@@ -101,6 +104,10 @@ let main () =
         if1_dest := Stdout; parse rest
     | a :: rest when String.length a > 6 && String.sub a 0 6 = "--if1=" ->
         if1_dest := File (String.sub a 6 (String.length a - 6)); parse rest
+    | "--c" :: rest ->
+        c_dest := Stdout; parse rest
+    | a :: rest when String.length a > 4 && String.sub a 0 4 = "--c=" ->
+        c_dest := File (String.sub a 4 (String.length a - 4)); parse rest
     | a :: _ when String.length a > 2 && String.sub a 0 2 = "--" ->
         Printf.eprintf "Unknown option: %s\nTry --help for usage.\n" a; exit 1
     | f :: rest ->
@@ -131,11 +138,19 @@ let main () =
         ) !files
     in
     let sisal_ast = Ast.Compilation_unit all_fragments in
-    write_to !ast_dest (Ast.str_compilation_unit sisal_ast ^ "\n");
+    if !ast_dest <> Nothing then
+      write_to !ast_dest (Ast.str_compilation_unit sisal_ast ^ "\n");
     let ou = To_if1_.do_compilation_unit sisal_ast in
-    If1.If1_View.export_debug_html "compiler_dump.html" ou;
-    write_to !if1_dest (If1.string_of_graph_thin ou ^ "\n");
-    If1.write_dot_file ou
+    if !Ir.Debug.level > 0 then begin
+      If1.If1_View.export_debug_html "compiler_dump.html" ou;
+      ignore (If1.write_dot_file ou)
+    end;
+    if !if1_dest <> Nothing then
+      write_to !if1_dest (If1.string_of_graph_thin ou ^ "\n");
+    if !c_dest <> Nothing then begin
+      let c_unit = To_apple.translate ou in
+      write_to !c_dest (Ir.C_ast_print.string_of_unit c_unit ^ "\n")
+    end
   with e ->
     let msg = Printexc.to_string e and stack = Printexc.get_backtrace () in
     Printf.eprintf "there was an error: %s%s\n" msg stack;

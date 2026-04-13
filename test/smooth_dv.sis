@@ -1,0 +1,78 @@
+% SMOOTH — DV / rank-3 variant
+%
+% Rewrite of smooth.sis.
+%   • Grid changes from array[array[array[real]]] to array_dv[real] (rank-3).
+%   • Triple cross-forall (i × j × k) emits array_dv, producing a contiguous
+%     rank-3 array whose elements are indexed as Grid[i,j,k].
+%   • The "for e in S at j,k,l" element-iterator is replaced by explicit
+%     cross-range loops with direct rank-3 indexing — clearer and works
+%     uniformly on array_dv.
+%   • BUG FIX from original: the computed value v is now returned (not e).
+%
+% Smooths a 3-D grid Q using a 3-point weighted stencil in each axis
+% direction, applied successively to S using D as a denominator field.
+
+define main
+
+type Grid = array_dv[real];
+
+function Smooth(n : integer; Q, S, D : Grid returns Grid)
+  let
+    % --- j-direction pass ---
+    S1 := for j in 1, n cross k in 1, n cross l in 1, n
+              e := S[j, k, l];
+              v := if (j = 1 | k = 1 | l = 1 | j = n | k = n | l = n) then
+                       e
+                   else
+                       e + 0.3 * (Q[j+1, k, l] * D[j+1, k, l]
+                               - 2.0 * Q[j,   k, l] * D[j,   k, l]
+                               + Q[j-1, k, l] * D[j-1, k, l]) / D[j, k, l]
+                   end if
+          returns array_dv of v
+          end for;
+
+    % --- k-direction pass ---
+    S2 := for j in 1, n cross k in 1, n cross l in 1, n
+              e := S1[j, k, l];
+              v := if (j = 1 | k = 1 | l = 1 | j = n | k = n | l = n) then
+                       e
+                   else
+                       e + 0.3 * (Q[j, k+1, l] * D[j, k+1, l]
+                               - 2.0 * Q[j, k,   l] * D[j, k,   l]
+                               + Q[j, k-1, l] * D[j, k-1, l]) / D[j, k, l]
+                   end if
+          returns array_dv of v
+          end for;
+
+    % --- l-direction pass ---
+    S3 := for j in 1, n cross k in 1, n cross l in 1, n
+              e := S2[j, k, l];
+              v := if (j = 1 | k = 1 | l = 1 | j = n | k = n | l = n) then
+                       e
+                   else
+                       e + 0.3 * (Q[j, k, l+1] * D[j, k, l+1]
+                               - 2.0 * Q[j, k, l  ] * D[j, k, l  ]
+                               + Q[j, k, l-1] * D[j, k, l-1]) / D[j, k, l]
+                   end if
+          returns array_dv of v
+          end for
+  in
+    S3
+  end let
+end function
+
+function main(n : integer returns Grid)
+  let
+    Q := for i in 1, n cross j in 1, n cross k in 1, n
+         returns array_dv of 1.1234
+         end for;
+    S := for i in 1, n cross j in 1, n cross k in 1, n
+         returns array_dv of 924.143567
+         end for;
+    D := for i in 1, n cross j in 1, n cross k in 1, n
+         returns array_dv of 0.1234
+         end for
+  in
+    Smooth(n, Q, S, D)
+  end let
+end function

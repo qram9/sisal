@@ -1,5 +1,6 @@
 (library
  (name ir)
  (public_name sisal.ir)
+ (modules :standard c_ast c_ast_print)
  (flags (:standard -w -27-50))
-(libraries unix))
+ (libraries unix))

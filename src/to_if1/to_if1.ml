@@ -1286,7 +1286,9 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
   let res_ty =
     match return_action_list with
-    | (_, rt, _) :: _ -> rt
+    | (act, rt, _) :: _ ->
+        to_if1_msg 3 "For_all: res_ty=%d action=%s" rt (match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | _ -> "other");
+        rt
     | _ -> 0
   in
   let in_gr =
@@ -1341,7 +1343,7 @@ and do_for_all inexp bodyexp retexp in_gr =
   in
 
   let in_gr = tie_outer_scope_to_inner forall_gr in_gr fx in
-  ((mul_n, mul_p, mul_t), return_action_list, in_gr)
+  ((mul_n, mul_p, res_ty), return_action_list, in_gr)
 
 and do_decldef_part in_gr = function
   | Ast.Decldef_part f ->
@@ -2438,31 +2440,7 @@ and bin_exp a b in_gr node_tag =
     in
     lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
   else if is_liftable_arr && (a_is_arr || b_is_arr) then
-    (* 2. Standard Sisal element-wise lifting for Array_ty *)
-    let i = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-    let ar = Ast.Val (Ast.Value_name [ "__LFA" ]) in
-    let br = Ast.Val (Ast.Value_name [ "__LFB" ]) in
-    let ae = if a_is_arr then Ast.Array_ref (ar, Ast.Exp [ i ]) else ar in
-    let be = if b_is_arr then Ast.Array_ref (br, Ast.Exp [ i ]) else br in
-    let body_elem =
-      match node_tag with
-      | If1.ADD -> Ast.Add (ae, be)
-      | If1.SUBTRACT -> Ast.Subtract (ae, be)
-      | If1.TIMES -> Ast.Multiply (ae, be)
-      | If1.FDIVIDE | If1.IDIVIDE -> Ast.Divide (ae, be)
-      | If1.EQUAL -> Ast.Equal (ae, be)
-      | If1.NOT_EQUAL -> Ast.Not_equal (ae, be)
-      | If1.LESSER -> Ast.Lesser (ae, be)
-      | If1.LESSER_EQUAL -> Ast.Lesser_equal (ae, be)
-      | If1.GREATER -> Ast.Greater (ae, be)
-      | If1.GREATER_EQUAL -> Ast.Greater_equal (ae, be)
-      | If1.AND -> Ast.And (ae, be)
-      | If1.OR -> Ast.Or (ae, be)
-      | If1.SHL -> Ast.Shl (ae, be)
-      | If1.SHR | If1.ASHR -> Ast.Shr (ae, be)
-      | _ -> failwith "Unreachable"
-    in
-    lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
+    raise (If1.Sem_error "Standard Array_ty does not support lifted binary operations. Use array_dv instead.")
   else
     (* 3. Non-array case: Matmul/Matvec or Scalar *)
     let a_ty = match If1.lookup_ty_safe qq1 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
@@ -3195,6 +3173,28 @@ and lift_unop_forall (en, ep, et) body_fn in_gr =
         [ Ast.Return_exp (Ast.Array_of body, Ast.No_mask) ] )
   in
   do_simple_exp_impl in_gr forall
+
+let is_intrinsic_unary = [ "ABS"; "EXP"; "LOG"; "LOG10"; "SQRT"; "SIN"; "COS"; "TAN"; "ASIN"; "ACOS"; "ATAN"; "SINH"; "COSH"; "TANH"; "FLOOR"; "TRUNC" ]
+
+let intrinsic_to_ast name arg =
+  match name with
+  | "ABS" -> Ast.Invocation (Ast.Function_name ["ABS"], Ast.Arg (Ast.Exp [arg]))
+  | "EXP" -> Ast.Invocation (Ast.Function_name ["ETOTHE"], Ast.Arg (Ast.Exp [arg]))
+  | "LOG" -> Ast.Invocation (Ast.Function_name ["LOG"], Ast.Arg (Ast.Exp [arg]))
+  | "LOG10" -> Ast.Invocation (Ast.Function_name ["LOG10"], Ast.Arg (Ast.Exp [arg]))
+  | "SQRT" -> Ast.Invocation (Ast.Function_name ["SQRT"], Ast.Arg (Ast.Exp [arg]))
+  | "SIN" -> Ast.Invocation (Ast.Function_name ["SIN"], Ast.Arg (Ast.Exp [arg]))
+  | "COS" -> Ast.Invocation (Ast.Function_name ["COS"], Ast.Arg (Ast.Exp [arg]))
+  | "TAN" -> Ast.Invocation (Ast.Function_name ["TAN"], Ast.Arg (Ast.Exp [arg]))
+  | "ASIN" -> Ast.Invocation (Ast.Function_name ["ASIN"], Ast.Arg (Ast.Exp [arg]))
+  | "ACOS" -> Ast.Invocation (Ast.Function_name ["ACOS"], Ast.Arg (Ast.Exp [arg]))
+  | "ATAN" -> Ast.Invocation (Ast.Function_name ["ATAN"], Ast.Arg (Ast.Exp [arg]))
+  | "SINH" -> Ast.Invocation (Ast.Function_name ["SINH"], Ast.Arg (Ast.Exp [arg]))
+  | "COSH" -> Ast.Invocation (Ast.Function_name ["COSH"], Ast.Arg (Ast.Exp [arg]))
+  | "TANH" -> Ast.Invocation (Ast.Function_name ["TANH"], Ast.Arg (Ast.Exp [arg]))
+  | "FLOOR" -> Ast.Invocation (Ast.Function_name ["FLOOR"], Ast.Arg (Ast.Exp [arg]))
+  | "TRUNC" -> Ast.Invocation (Ast.Function_name ["TRUNC"], Ast.Arg (Ast.Exp [arg]))
+  | _ -> failwith ("Not a unary intrinsic: " ^ name)
 
 and do_simple_exp in_gr in_sim_ex =
   do_simple_exp_impl in_gr in_sim_ex
@@ -3985,7 +3985,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
             List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
           in
           let arg_types = List.map (fun (_, _, t) -> t) expl in
-          let cs, ps = in_gr.If1.symtab in
+
+          (* Check for lifted unary intrinsic *)
+          let up_fn = String.uppercase_ascii deref_fn in
+          if List.mem up_fn is_intrinsic_unary && List.length expl = 1 && is_array_ty (List.hd arg_types) in_gr then
+            lift_unop_forall (List.hd expl) (fun elem -> intrinsic_to_ast up_fn elem) in_gr
+          else
+            let cs, ps = in_gr.If1.symtab in
           let deref_fn =
             match String.uppercase_ascii deref_fn with _ -> deref_fn
           in
@@ -6343,6 +6349,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 let (id_x, _, _), out_gr =
                   If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
                 in
+                to_if1_msg 3 "create_return_nodes: Array_of elem_ty=%d -> what_ty=%d" tt id_x;
                 (id_x, out_gr)
               in
               let out_gr =

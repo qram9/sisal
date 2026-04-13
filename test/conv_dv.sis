@@ -1,0 +1,33 @@
+% CONVOLVER — DV variant
+%
+% Rewrite of conv.sis using array_dv[double_real] for I/O.
+% The inner reduction loop (sum) is unchanged; the outer forall now
+% emits into a contiguous dope-vector array instead of a nested one.
+%
+%   Y[i] = SUMMATION(j=1,M) of A[j] * X[i+j-1]   for i = 1..N-M+1
+
+define Main
+
+type OneDV = array_dv[double_real];
+
+function Conv(M : integer; A : OneDV; N : integer; X : OneDV returns OneDV)
+  for I in 1, N-M+1
+    Data := for J in 1, M
+            returns value of sum A[J] * X[I+J-1]
+            end for
+  returns array_dv of Data
+  end for
+end function
+
+function Main(M : integer; Cycles : integer returns OneDV)
+  let
+    A := for I in 1, M
+         returns array_dv of double_real(I)
+         end for;
+    X := for I in 1, M * Cycles
+         returns array_dv of double_real(I)
+         end for
+  in
+    Conv(M, A, M * Cycles, X)
+  end let
+end function
