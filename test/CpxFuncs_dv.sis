@@ -1,0 +1,91 @@
+% COMPLEX ARITHMETIC FUNCTIONS — complex_float variant
+%
+% Rewrite of CpxFuncs.sis replacing the hand-written
+%   Record[Repart, Impart : real]
+% with the built-in complex_float type (fields: .re, .im).
+%
+% All function signatures are preserved; only the type name and field
+% accessors change.
+
+define Cadd, Csub, Cmul, Cdiv, Crmul, Crsub, Crdiv, Conjg, Cneg,
+       Csqrt, Cabs, CabsSqr
+
+% --- Intrinsic functions ---
+global SINR  (num : real returns real)
+global COSR  (num : real returns real)
+global ATANR (num : real returns real)
+global SQRTR (num : real returns real)
+
+% cnum1 + cnum2
+function Cadd(cnum1, cnum2 : complex_float returns complex_float)
+  record complex_float [re : cnum1.re + cnum2.re; im : cnum1.im + cnum2.im]
+end function
+
+% cnum1 - cnum2
+function Csub(cnum1, cnum2 : complex_float returns complex_float)
+  record complex_float [re : cnum1.re - cnum2.re; im : cnum1.im - cnum2.im]
+end function
+
+% cnum1 * cnum2
+function Cmul(cnum1, cnum2 : complex_float returns complex_float)
+  record complex_float [
+    re : cnum1.re * cnum2.re - cnum1.im * cnum2.im;
+    im : cnum1.re * cnum2.im + cnum1.im * cnum2.re]
+end function
+
+% cnum1 / cnum2
+function Cdiv(cnum1, cnum2 : complex_float returns complex_float)
+  let dnom := cnum2.re * cnum2.re + cnum2.im * cnum2.im
+  in
+    record complex_float [
+      re : (cnum1.re * cnum2.re + cnum1.im * cnum2.im) / dnom;
+      im : (cnum1.im * cnum2.re - cnum1.re * cnum2.im) / dnom]
+  end let
+end function
+
+% Real constant * cnum
+function Crmul(cons : real; cnum : complex_float returns complex_float)
+  record complex_float [re : cons * cnum.re; im : cons * cnum.im]
+end function
+
+% cnum - Real constant
+function Crsub(cnum : complex_float; cons : real returns complex_float)
+  record complex_float [re : cnum.re - cons; im : cnum.im]
+end function
+
+% cnum / Real constant
+function Crdiv(cnum : complex_float; cons : real returns complex_float)
+  record complex_float [re : cnum.re / cons; im : cnum.im / cons]
+end function
+
+% Conjugate
+function Conjg(cnum : complex_float returns complex_float)
+  record complex_float [re : cnum.re; im : -cnum.im]
+end function
+
+% Negation
+function Cneg(cnum : complex_float returns complex_float)
+  record complex_float [re : -cnum.re; im : -cnum.im]
+end function
+
+% Complex square root
+function Csqrt(cnum : complex_float returns complex_float)
+  let
+    RR    := cnum.re;
+    II    := cnum.im;
+    mag   := SQRTR(SQRTR(RR * RR + II * II));
+    angle := ATANR(II / RR) / 2.0
+  in
+    record complex_float [re : mag * COSR(angle); im : mag * SINR(angle)]
+  end let
+end function
+
+% |cnum| — magnitude
+function Cabs(cnum : complex_float returns real)
+  SQRTR(cnum.re * cnum.re + cnum.im * cnum.im)
+end function
+
+% |cnum|^2 — magnitude squared
+function CabsSqr(cnum : complex_float returns real)
+  cnum.re * cnum.re + cnum.im * cnum.im
+end function

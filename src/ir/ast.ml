@@ -1164,7 +1164,14 @@ and str_vec_len = function
 and str_mat_len = function Mat2 -> "2" | Mat3 -> "3" | Mat4 -> "4"
 and get_mat_dim = function Mat2 -> 2 | Mat3 -> 3 | Mat4 -> 4
 
-and is_compund = function
+and is_binary = function
+  | Pipe _ | And _ | Divide _ | Multiply _ | Subtract _ | Add _ | Shl _ | Shr _
+  | Or _ | Not_equal _ | Equal _ | Lesser_equal _ | Lesser _ | Greater_equal _
+  | Greater _ ->
+      true
+  | _ -> false
+
+and is_compound = function
   | For_all _ -> true
   | Let _ -> true
   | For_initial _ -> true
@@ -1172,18 +1179,26 @@ and is_compund = function
   | _ -> false
 
 and fst_snd_opnd_exp ?(offset = 0) op a b =
-  let pad_together = if is_compund a then " " ^ op else " " ^ op in
-  let a = str_simple_exp ~offset:(if is_compund a then offset + 2 else 0) a in
+  let pad_together = if is_compound a then " " ^ op else " " ^ op in
+  let a_str =
+    str_simple_exp ~offset:(if is_compound a then offset + 2 else 0) a
+  in
+  let a_str = if is_binary a then "(" ^ String.trim a_str ^ ")" else a_str in
   let snd =
     str_simple_exp
-      ~offset:(if is_compund b then 2 + offset + String.length a else 0)
+      ~offset:(if is_compound b then 2 + offset + String.length a_str else 0)
       b
   in
-  a ^ pad_together ^ (if snd.[0] = ' ' || snd.[0] = '\n' then "" else " ") ^ snd
+  let snd = if is_binary b then "(" ^ String.trim snd ^ ")" else snd in
+  a_str ^ pad_together ^ (if snd.[0] = ' ' || snd.[0] = '\n' then "" else " ") ^ snd
 
 and fst_opnd_exp ?(offset = 0) op a =
-  let pad_m = if is_compund a then op else " " ^ op in
-  pad_m ^ str_simple_exp ~offset:(if is_compund a then offset + 2 else 0) a
+  let pad_m = if is_compound a then op else " " ^ op in
+  let a_str =
+    str_simple_exp ~offset:(if is_compound a then offset + 2 else 0) a
+  in
+  let a_str = if is_binary a then "(" ^ String.trim a_str ^ ")" else a_str in
+  pad_m ^ a_str
 
 and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Constant x -> mypad1 preceed_space (str_constant x)
@@ -1208,7 +1223,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Mat (mat_t, exp) ->
       " MAT" ^ str_mat_len mat_t ^ paren (comma_fold (List.map str_exp exp))
   | Not e -> fst_opnd_exp ~offset "~" e
-  | Negate e -> " -" ^ str_simple_exp ~offset e
+  | Negate e -> fst_opnd_exp ~offset "-" e
   | Pipe (a, b) -> fst_snd_opnd_exp ~offset "||" a b
   | And (a, b) -> fst_snd_opnd_exp ~offset "&" a b
   | Divide (a, b) -> fst_snd_opnd_exp ~offset "/" a b

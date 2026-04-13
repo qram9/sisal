@@ -1,0 +1,51 @@
+% DISCRETE FOURIER TRANSFORM — DV / complex_double variant
+%
+% Rewrite of dft.sis.
+%   • complex_double replaces the hand-written record[R,I : double_real].
+%     Built-in field names: .re (real part), .im (imaginary part).
+%   • OneDV = array_dv[complex_double]: contiguous dope-vector layout.
+%   • Outer for-K loop emits array_dv instead of array.
+%
+% Y[K] = SUM_{J=1}^{N} X[J] * exp(2*Pi*i*(J-1)*(K-1)/N)   for K=1..N
+
+define Main
+
+type OneDV = array_dv[complex_double];
+
+global sin(N : double_real returns double_real)
+global cos(N : double_real returns double_real)
+
+function dft(N : integer; X : OneDV returns OneDV)
+  let
+    Pi    := 3.1415926535897932D0;
+    Theta := (2.0D0 * Pi) / double_real(N)
+  in
+    for K in 1, N
+      Rdata,
+      Idata := for J in 1, N
+                   EArg   := Theta * double_real(J-1) * double_real(K-1);
+                   Er     := cos(EArg);
+                   Ei     := sin(EArg);
+                   Rvalue := (X[J].re * Er) - (X[J].im * Ei);
+                   Ivalue := (X[J].im * Er) + (X[J].re * Ei)
+               returns value of sum Rvalue
+                       value of sum Ivalue
+               end for
+    returns array_dv of record complex_double [re : Rdata; im : Idata]
+    end for
+  end let
+end function
+
+function Main(N : integer returns OneDV)
+  let
+    Pi  := 3.1415926535897932D0;
+    DRN := double_real(N);
+    X   := for J in 1, N
+               Rvalue := sin((DRN * Pi) / 8.0D0);
+               Ivalue := 0.0D0
+           returns array_dv of record complex_double [re : Rvalue; im : Ivalue]
+           end for
+  in
+    dft(N, X)
+  end let
+end function

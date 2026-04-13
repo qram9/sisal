@@ -1,0 +1,15 @@
+Define Main
+
+type RealArray = array_dv[real];
+type DoubleArray = array_dv[double];
+type IntArray = array_dv[integer];
+
+function Main(N : integer returns RealArray, DoubleArray, IntArray)
+  let
+    R := array RealArray [1: 0.0, 0.0, 0.0]; 
+    D := array DoubleArray [1: 0.0, 0.0, 0.0];
+    I := array IntArray [1: 0, 0, 0];
+  in
+    R, D, I
+  end let
+end function

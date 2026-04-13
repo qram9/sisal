@@ -1,0 +1,10 @@
+Define Main_GPU
+
+type RealArray = array_dv[real];
+
+function Main_GPU(N : integer returns RealArray)
+  for i in 1, N
+    X := real(i)
+  returns array_dv of -X
+  end for
+end function

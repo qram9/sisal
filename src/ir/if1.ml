@@ -187,6 +187,7 @@ type node_sym =
   | STENCIL_NODE     (* STENCIL(f, A, d0, d1, ..) → sliding window map *)
   | PAD_NODE         (* PAD(A, lo, hi [, fill]) → padded copy *)
   | INNERPRODUCT_NODE (* INNERPRODUCT(A,B): dot if rank-1, matmul if rank-2, feeds AMX *)
+  | EINSUM_NODE      (* EINSUM("subscript", A, B, ...): general tensor contraction; subscript carried as Subscript pragma *)
   | GET_DOPE_VEC     (* GET_DOPE_VEC(A) → port 0: dope as array[{lo,stride,size}], port 1: A unchanged *)
   | SHAPE_CHECK      (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
   | DV_CONFORM       (* DV_CONFORM(A,B) → port 0: common iteration shape, port 1: error flag (bool) *)
@@ -195,6 +196,9 @@ type node_sym =
   | DV_OFFSET_AT     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
   | DV_LOAD_LINEAR   (* DV_LOAD_LINEAR(A, offset) → element value *)
   | DV_RESHAPE_BY_SHAPE (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
+  | CONV_H           (** Apple Silicon: Horizontal Convolution *)
+  | CONV_V           (** Apple Silicon: Vertical Convolution *)
+  | CONV_2D          (** Apple Silicon: 2D Convolution *)
 
 type comment = C of string | CDollar of string
 
@@ -321,6 +325,7 @@ type pragma =
   | Contiguous
   | No_pragma
   | Ast_type of string
+  | Subscript of string  (* carries einsum index string on EINSUM_NODE *)
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -1165,14 +1170,6 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
             failwith
               ("exception in add_to_boundary_outputs" ^ string_of_int srcn)
       in
-      let annod =
-        match annod with
-        | Simple (lab, n, pin, pont, prag) ->
-            let mylis = Array.to_list pont in
-            let mylis = string_of_int 0 :: mylis in
-            Simple (lab, n, pin, Array.of_list mylis, prag)
-        | _ -> annod
-      in
       let start_port =
         if start_port = 0 then List.length out_port_list else start_port
       in
@@ -1714,10 +1711,12 @@ and add_node nn in_gr =
   match nn with
   | `Simple (n, pin, pout, prag) ->
       let _ =
-        let stack = Printexc.get_callstack 5 in
-        node_trace :=
-          (Printf.sprintf "%d" in_gr.w, Printexc.raw_backtrace_to_string stack)
-          :: !node_trace
+        if !Debug.level > 0 then begin
+          let stack = Printexc.get_callstack 5 in
+          node_trace :=
+            (Printf.sprintf "%d" in_gr.w, Printexc.raw_backtrace_to_string stack)
+            :: !node_trace
+        end
       in
       {
         in_gr with
@@ -2259,36 +2258,43 @@ and add_node_2 nn in_gr =
         } )
 
 and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
+  let nm = get_node_map in_gr in
+  let _ =
+    match NM.find_opt n2 nm with
+    | Some (Simple (_, _, pin, _, _)) ->
+        if p2 >= 0 && p2 < Array.length pin then pin.(p2) <- string_of_int n1
+    | _ -> ()
+  in
+  let _ =
+    match NM.find_opt n1 nm with
+    | Some (Simple (_, _, _, pout, _)) ->
+        if p1 >= 0 && p1 < Array.length pout then
+          pout.(p1) <- cate_nicer pout.(p1) (string_of_int n2) ","
+    | Some (Literal (_, _, _, pout)) ->
+        if p1 >= 0 && p1 < Array.length pout then
+          pout.(p1) <- cate_nicer pout.(p1) (string_of_int n2) ","
+    | _ -> ()
+  in
   let pe = get_edge_set in_gr in
   (* Trace boundary edges (to Node 0) to debug Return Mismatches *)
   let _ =
-    let stack = get_stack_trace 5 in
-    (* Use your new recursive printer for the edge type *)
-    let ty_desc =
-      "(#" ^ string_of_int ed_ty ^ "): "
-      ^ printable_full_type (get_typemap_tm in_gr) ed_ty
-    in
-    if n2 = 0 || n1 = 0 then
-      (*
-      let src_str =
-        if n1 = 0 then Printf.sprintf "Boundary:%d[P:%d]" n1 p1
-        else Printf.sprintf "Node:%d[P:%d]" n1 p1
+    if !Debug.level > 0 then begin
+      let stack = get_stack_trace 5 in
+      let ty_desc =
+        "(#" ^ string_of_int ed_ty ^ "): "
+        ^ printable_full_type (get_typemap_tm in_gr) ed_ty
       in
-      let dest_str =
-        if n1 = 0 then Printf.sprintf "Node:%d[P:%d]" n2 p2
-        else Printf.sprintf "Boundary%d[P:%d]" n2 p2
-      in
-      edge_trace := (src_str, dest_str, ty_desc, stack) :: !edge_trace*)
-      ()
-    else
-      let dest_str = string_of_node n2 in_gr in
-      let src_str = string_of_node n1 in_gr in
-      edge_trace :=
-        ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
-          Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
-          ty_desc,
-          stack )
-        :: !edge_trace
+      if n2 = 0 || n1 = 0 then ()
+      else
+        let dest_str = string_of_node n2 in_gr in
+        let src_str = string_of_node n1 in_gr in
+        edge_trace :=
+          ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
+            Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
+            ty_desc,
+            stack )
+          :: !edge_trace
+    end
   in
   { in_gr with eset = ES.add ((n1, p1), (n2, p2), ed_ty) pe }
 
@@ -2502,23 +2508,22 @@ and inject_vouchers_into_symtab in_gr usings =
   { in_gr with symtab = (updated_globals, locals) }
 
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
-  (*print_endline "Calltrace:";
-    Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);*)
   let _ =
-    let stack = get_stack_trace 5 in
-    (* Use your new recursive printer for the edge type *)
-    let ty_desc =
-      "(#" ^ string_of_int ed_ty ^ "): "
-      ^ printable_full_type (get_typemap_tm in_gr) ed_ty
-    in
-    let dest_str = string_of_node n2 in_gr in
-    let src_str = string_of_node n1 in_gr in
-    edge_trace :=
-      ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
-        Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
-        ty_desc,
-        stack )
-      :: !edge_trace
+    if !Debug.level > 0 then begin
+      let stack = get_stack_trace 5 in
+      let ty_desc =
+        "(#" ^ string_of_int ed_ty ^ "): "
+        ^ printable_full_type (get_typemap_tm in_gr) ed_ty
+      in
+      let dest_str = string_of_node n2 in_gr in
+      let src_str = string_of_node n1 in_gr in
+      edge_trace :=
+        ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
+          Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
+          ty_desc,
+          stack )
+        :: !edge_trace
+    end
   in
   let n1, p1, ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0 then add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr
@@ -2693,9 +2698,11 @@ and merge_typeblobs tyblob1 tyblob2 =
 
 and add_type_to_typemap ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
-  let stack = get_stack_trace 5 in
-  let desc = string_of_if1_ty ood in
-  type_trace := (id, desc, stack) :: !type_trace;
+  if !Debug.level > 0 then begin
+    let stack = get_stack_trace 5 in
+    let desc = string_of_if1_ty ood in
+    type_trace := (id, desc, stack) :: !type_trace
+  end;
   ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
 and add_type_to_typemap_dedup ood in_gr =
@@ -3031,9 +3038,10 @@ and find_ty in_gr aty =
   else lookin_vals
 
 and add_sisal_typename in_gr namen ty_id =
-  let stack = get_stack_trace 5 in
-  let desc = namen in
-  type_trace := (ty_id, desc, stack) :: !type_trace;
+  if !Debug.level > 0 then begin
+    let stack = get_stack_trace 5 in
+    type_trace := (ty_id, namen, stack) :: !type_trace
+  end;
   let id, tm, tmn = get_typemap in_gr in
   (ty_id, { in_gr with typemap = (id, tm, MM.add namen ty_id tmn) })
 
@@ -3506,6 +3514,7 @@ and node_sym_to_num = function
   | STENCIL_NODE -> 116
   | PAD_NODE -> 117
   | INNERPRODUCT_NODE -> 118
+  | EINSUM_NODE -> 127
   | GET_DOPE_VEC -> 119
   | SHAPE_CHECK  -> 120
   | DV_CONFORM   -> 121
@@ -3514,6 +3523,9 @@ and node_sym_to_num = function
   | DV_OFFSET_AT -> 124
   | DV_LOAD_LINEAR -> 125
   | DV_RESHAPE_BY_SHAPE -> 126
+  | CONV_H -> 127
+  | CONV_V -> 128
+  | CONV_2D -> 129
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -3636,6 +3648,7 @@ and string_of_node_sym = function
   | STENCIL_NODE -> "STENCIL"
   | PAD_NODE -> "PAD"
   | INNERPRODUCT_NODE -> "INNERPRODUCT"
+  | EINSUM_NODE -> "EINSUM"
   | GET_DOPE_VEC -> "GET_DOPE_VEC"
   | SHAPE_CHECK  -> "SHAPE_CHECK"
   | DV_CONFORM   -> "DV_CONFORM"
@@ -3644,6 +3657,9 @@ and string_of_node_sym = function
   | DV_OFFSET_AT   -> "DV_OFFSET_AT"
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
+  | CONV_H -> "CONV_H"
+  | CONV_V -> "CONV_V"
+  | CONV_2D -> "CONV_2D"
 
   and string_of_pragmas p =
   List.fold_right
@@ -3664,6 +3680,7 @@ and string_of_node_sym = function
         | Contiguous -> "Contiguous"
         | No_pragma -> ""
         | Ast_type _ -> ""
+        | Subscript s -> "Subscript(" ^ s ^ ")"
       in
       cate_nicer l q " ,")
     p ""
@@ -4700,6 +4717,7 @@ module If1_View = struct
           | Pointer -> "Pointer"
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
+          | Subscript s -> "einsum:" ^ s
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
@@ -4721,6 +4739,7 @@ module If1_View = struct
           | Pointer -> "Pointer"
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
+          | Subscript s -> "einsum:" ^ s
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""

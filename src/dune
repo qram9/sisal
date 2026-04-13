@@ -1,6 +1,6 @@
 (executable
  (name main)
  (public_name sisal)
- (libraries fe ir to_if1 unix)
+ (libraries fe ir to_if1 to_apple unix)
 (modes byte exe))
 
