@@ -200,6 +200,23 @@ Numeric / math:
   $ sisal ranf.sis
   $ sisal ranfsamp.sis
 
+DV variants of scientific benchmarks:
+  $ sisal gaussj_perm_dv.sis
+  $ sisal cfft_dv.sis
+  $ sisal feo_fft_dv.sis
+  $ sisal gaussj_dv.sis
+  $ sisal hilbert_dv.sis
+  $ sisal inverse_dv.sis
+  $ sisal kin16_dv.sis
+  $ sisal LegPoly_dv.sis
+  $ sisal laplace_dv.sis
+  $ sisal lu_npiv_dv.sis
+  $ sisal lu_piv_dv.sis
+  $ sisal newgauss_dv.sis
+  $ sisal newgaussj_dv.sis
+  $ sisal ricard_dv.sis
+  $ sisal sp_dv.sis
+
 Scientific benchmarks:
   $ sisal ada.sis
   $ sisal AngMom.sis

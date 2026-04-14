@@ -1,0 +1,94 @@
+% Laplace relaxation — DV variant (based on laplace.sis)
+%
+% DV changes:
+%   • OneDim = array_dv[double_real]: inner row vectors are DV.
+%   • Grid   = array[OneDim]: outer grid stays a plain array of DV rows.
+%   • singleton(v)  — 1-indexed single-element DV (for right-boundary append).
+%   • singleton0(v) — 0-indexed single-element DV (for left-boundary prepend).
+%   • array_addl(inner, v) → singleton0(v) || inner (building 0-based DV rows).
+%   • array_addh(inner, v) → inner || singleton(v).
+%   • array_setl(Bottom, 0) eliminated: Top/Bottom built 0-based directly.
+%   • array_addh/array_addl on the outer Grid (plain array) are unchanged.
+
+define Main
+
+type OneDim = array_dv[double_real];
+type Grid   = array[OneDim];
+
+
+function singleton( v: double_real returns OneDim )
+  for dummy in 1, 1 returns array_dv of v end for
+end function
+
+function singleton0( v: double_real returns OneDim )
+  for dummy in 0, 0 returns array_dv of v end for
+end function
+
+
+function Phi( A, B: integer returns double_real )
+  let
+    X := double_real(A);
+    Y := double_real(B)
+  in
+    X * Y
+  end let
+end function
+
+
+function BuildGrid( Rows, Columns: integer returns Grid )
+  let
+    % Build top/bottom rows 0-based (avoids array_setl).
+    Top    := for I in 0, Columns+1
+              returns array_dv of Phi(1, I+1)
+              end for;
+
+    Bottom := for I in 0, Columns+1
+              returns array_dv of Phi(Rows+2, I+1)
+              end for;
+
+    Middle := for I in 1, Rows
+                Low  := Phi(I+1, 1);
+                High := Phi(I+1, Columns+2);
+                Row  := for J in 1, Columns returns array_dv of 0.0D0 end for
+              returns array of (singleton0(Low) || Row || singleton(High))
+              end for;
+
+    Temp1  := array_addh(Middle, Bottom)
+  in
+    array_addl(Temp1, Top)
+  end let
+end function
+
+
+function Compute( G: Grid; I, J: integer returns double_real )
+  (G[I,J-1] + G[I,J+1] + G[I+1,J] + G[I-1,J]) / 4.0D0
+end function
+
+
+function DoWork( G: Grid; Rows, Columns: integer returns Grid )
+  let
+    Rlast  := Rows + 1;
+    Clast  := Columns + 1;
+    Middle := for I in 1, Rows
+                Mid := for J in 1, Columns
+                         returns array_dv of Compute(G, I, J)
+                       end for;
+                Row := singleton0(G[I,0]) || Mid || singleton(G[I,Clast])
+              returns array of Row
+              end for
+  in
+    array_addl(array_addh(Middle, G[Rlast]), G[0])
+  end let
+end function
+
+
+function Main( Num: integer; Rows, Columns: integer returns Grid )
+  for initial
+    Count := Num;
+    NewG  := BuildGrid(Rows, Columns)
+  while Count > 0 repeat
+    Count := old Count - 1;
+    NewG  := DoWork(old NewG, Rows, Columns)
+  returns value of NewG
+  end for
+end function

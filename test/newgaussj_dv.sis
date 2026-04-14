@@ -1,0 +1,167 @@
+% Gauss-Jordan elimination linear equation solver — DV variant (based on newgaussj.sis)
+%
+% DV changes:
+%   • OneD = array_dv[real]: all real 1-D vectors are DV.
+%   • TwoD = array[OneD]: matrix is an array of DV rows.
+%   • OneI = array[integer]: integer pivot arrays keep plain array (array_addh unchanged).
+%   • GetPivot: returns array_dv of Big (real); returns array of Idx (integer) unchanged.
+%   • Compute:
+%       inner  for Elem in Tmp2A[Icol] returns array_dv of scalar
+%       inner  for Elem in Tmp1R at L  returns array_dv of scalar
+%       outer  returns array    of NewArow (DV rows, building TwoD) unchanged
+%       outer  returns array_dv of NewBelem (scalars, building OneD)
+%   • GaussJ:  for J in 1,N returns array of 0   (integer Ipiv) unchanged
+%              for Arow in old InvA returns array of ... (building TwoD) unchanged
+
+define find_inverse
+
+type OneI = array[integer];
+type OneD = array_dv[real];
+type TwoD = array[OneD];
+
+
+function Largest( N: integer; A: OneD; Ipiv: OneI returns real, integer )
+  for initial
+    K := 1; Idx := 0; Big := -1.0;
+  while K <= N repeat
+    K        := old K + 1;
+    Big, Idx := if Ipiv[old K] = 0 then
+                  if abs(A[old K]) >= old Big then
+                    abs(A[old K]), old K
+                  else
+                    old Big, old Idx
+                  end if
+                elseif Ipiv[old K] > 1 then
+                  error[real], error[integer]
+                else
+                  old Big, old Idx
+                end if;
+  returns value of Big
+          value of Idx
+  end for
+end function
+
+
+function GetPivot( N: integer; A: TwoD; Ipiv: OneI returns integer, integer )
+  let
+    RBigs,
+    Cidxs := for Row in A at J
+               Big, Idx := if Ipiv[J] ~= 1 then
+                              Largest(N, Row, Ipiv)
+                            else
+                              -1.0, 0
+                            end if
+             returns array_dv of Big
+                     array    of Idx
+             end for;
+
+    CBig  := for Elem in RBigs returns value of greatest Elem end for;
+
+    Irow  := for Elem in RBigs at I
+               Irow := if Elem = CBig then I else 0 end if
+             returns value of greatest Irow
+             end for;
+
+    Icol  := Cidxs[Irow]
+  in
+    Irow, Icol
+  end let
+end function
+
+
+function Compute( N, Irow, Icol: integer; A: TwoD; B: OneD returns TwoD, OneD )
+  let
+    Tmp1A,
+    Tmp1B := if Irow ~= Icol then
+               A[Irow: A[Icol]; Icol: A[Irow]],
+               B[Irow: B[Icol]; Icol: B[Irow]]
+             else
+               A, B
+             end if;
+
+    Pivinv := 1.0 / Tmp1A[Icol, Icol];
+    Tmp2A  := Tmp1A[Icol, Icol: 1.0];
+
+    Tmp1R  := for Elem in Tmp2A[Icol]
+              returns array_dv of Elem * Pivinv
+              end for;
+
+    Tmp3A  := Tmp2A[Icol: Tmp1R];
+    Tmp2B  := Tmp1B[Icol: Tmp1B[Icol] * Pivinv]
+  in
+    for Arow in Tmp3A at LL dot Belem in Tmp2B
+      NewArow, NewBelem :=
+        if LL = Icol then
+          Arow, Belem
+        else
+          let
+            Dum   := Arow[Icol];
+            Tmp1R := Arow[Icol: 0.0]
+          in
+            for Elem in Tmp1R at L
+            returns array_dv of Elem - Tmp3A[Icol, L] * Dum
+            end for,
+            Belem - Tmp2B[Icol] * Dum
+          end let
+        end if
+    returns array    of NewArow
+            array_dv of NewBelem
+    end for
+  end let
+end function
+
+
+function GaussJ( N: integer; A: TwoD; B: OneD returns TwoD, OneD )
+  let
+    NewA, NewB, Indxr, Indxc :=
+      for initial
+        I     := 1;
+        Ipiv  := for J in 1, N returns array of 0 end for;
+        Indxr := array OneI [];
+        Indxc := array OneI [];
+        TmpB  := B;
+        TmpA  := A
+      while I <= N repeat
+        I     := old I + 1;
+        Irow, Icol := GetPivot(N, old TmpA, old Ipiv);
+        Ipiv  := old Ipiv[Icol: old Ipiv[Icol] + 1];
+        Indxr := array_addh(old Indxr, Irow);
+        Indxc := array_addh(old Indxc, Icol);
+        TmpA, TmpB :=
+          if old TmpA[Icol, Icol] = 0.0 then
+            error[TwoD], error[OneD]
+          else
+            Compute(N, Irow, Icol, old TmpA, old TmpB)
+          end if
+      returns value of TmpA
+              value of TmpB
+              value of Indxr
+              value of Indxc
+      end for;
+
+    InvA := for initial
+              L    := N;
+              InvA := NewA
+            while L >= 1 repeat
+              L    := old L - 1;
+              Idxr := Indxr[old L];
+              Idxc := Indxc[old L];
+              InvA := for Arow in old InvA
+                      returns array of Arow[Idxr: Arow[Idxc]; Idxc: Arow[Idxr]]
+                      end for
+            returns value of InvA
+            end for
+  in
+    InvA, NewB
+  end let
+end function
+
+
+function find_inverse( a: TwoD returns TwoD )
+  let
+    b       := array OneD [1: 1.0, 2.0, 3.0, 4.0];
+    inv, b1 := GaussJ(4, a, b)
+  in
+    inv
+  end let
+end function

@@ -1,0 +1,108 @@
+% GAUSS-JORDAN — DV variant (based on gaussj.sis)
+%
+% DV changes:
+%   • OneI = array_dv[integer], OneD = array_dv[double]: all 1-D real and
+%     integer vectors are contiguous DV arrays.
+%   • TwoD = array[OneD]: the matrix is an array of DV rows; row access
+%     A[i] returns a DV row, element access A[i,j] returns a scalar.
+%   • Inner foralls  returns array of scalar  →  returns array_dv of scalar.
+%   • array_fill(1,n,0) → for j in 1,n returns array_dv of 0 end for.
+
+define Main
+
+%type double = double_real;
+type OneI = array_dv[integer];
+type OneD = array_dv[double];
+type TwoD = array[OneD];
+
+
+function idfamax( A: OneD; n: integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i     := old i + 1;
+    max24 := if abs(A[old i]) > abs(A[old max24]) then old i else old max24 end if;
+  returns value of max24
+  end for
+end function
+
+function idfmax( A: OneD; n: integer returns integer )
+  for initial
+    i := 2;
+    max24 := 1;
+  while ( i <= n ) repeat
+    i     := old i + 1;
+    max24 := if A[old i] > A[old max24] then old i else old max24 end if;
+  returns value of max24
+  end for
+end function
+
+
+function GetPivot( n: integer; A: TwoD; PIVR: OneI
+                   returns integer, integer )
+  let
+    cols, maxs :=
+      for i in 1, n
+        col, max := if PIVR[i] = 0 then
+                      let imax := idfamax( A[i], n ) in
+                        imax, abs(A[i, imax])
+                      end let
+                    else
+                      0, -1.0d0
+                    end if
+      returns array_dv of col
+              array_dv of max
+      end for;
+
+    irow := idfmax( maxs, n )
+  in
+    cols[irow], irow
+  end let
+end function
+
+
+function Compute( n, pvtrow: integer; Ain: TwoD; Bin: OneD
+                  returns TwoD, OneD )
+  for i in 1, n
+    pvtele     := Ain[pvtrow, pvtrow];
+    Arow, Bele := if i = pvtrow then
+                    for j in 1, n
+                    returns array_dv of Ain[i, j] / pvtele
+                    end for,
+                    Bin[i] / pvtele
+                  else
+                    let multipler := Ain[i, pvtrow] / pvtele in
+                      for j in 1, n
+                      returns array_dv of Ain[i, j] - multipler * Ain[pvtrow, j]
+                      end for,
+                      Bin[i] - multipler * Bin[pvtrow]
+                    end let
+                  end if
+  returns array of Arow
+          array_dv of Bele
+  end for
+end function
+
+
+function Main( n: integer; Ain: TwoD; Bin: OneD returns OneD )
+  for initial
+    I    := 0;
+    A, B := Ain, Bin;
+    PIVR := for j in 1, n returns array_dv of 0 end for
+  while I < n repeat
+    I := old I + 1;
+    Icol, Irow := GetPivot( n, old A, old PIVR );
+
+    A1, B1 := if Icol ~= Irow then
+                old A[Icol: old A[Irow]; Irow: old A[Icol]],
+                old B[Icol: old B[Irow]; Irow: old B[Icol]]
+              else
+                old A, old B
+              end if;
+
+    PIVR := old PIVR[Icol: 1];
+    A, B := Compute( n, Icol, A1, B1 )
+  returns value of B
+  end for
+end function
