@@ -1,0 +1,186 @@
+% dv_intrinsics.sis — intrinsic operations lifted over array_dv aggregates.
+%
+% Sections:
+%   1. Unary math intrinsics on array_dv[real]  (abs, sqrt, sin, cos, tan,
+%      asin, acos, atan, sinh, cosh, tanh, log, log10, floor, trunc, negate)
+%   2. Unary intrinsics on array_dv[double_real]
+%   3. Element-wise binary ops:  dv op dv  and  scalar op dv  (broadcasting)
+%   4. Comparison broadcasting → array_dv[boolean]
+%   5. Logical ops on array_dv[boolean]
+%   6. Integer shifts on array_dv[integer]
+%   7. APL reductions (SUM, PRODUCT, LEAST, GREATEST) on array_dv
+
+define dv_intrinsics,
+
+  % --- 1. Unary real intrinsics -------------------------------------------------
+  dv_abs_real,
+  dv_negate_real,
+  dv_sqrt_real,
+  dv_sin_real,
+  dv_cos_real,
+  dv_tan_real,
+  dv_asin_real,
+  dv_acos_real,
+  dv_atan_real,
+  dv_sinh_real,
+  dv_cosh_real,
+  dv_tanh_real,
+  dv_log_real,
+  dv_log10_real,
+  dv_floor_real,
+  dv_trunc_real,
+
+  % --- 2. Unary double intrinsics -----------------------------------------------
+  dv_abs_double,
+  dv_sqrt_double,
+  dv_sin_double,
+  dv_cos_double,
+  dv_log_double,
+  dv_floor_double,
+  dv_trunc_double,
+
+  % --- 3. Element-wise binary ops -----------------------------------------------
+  dv_add_dv,
+  dv_sub_dv,
+  dv_mul_dv,
+  dv_div_dv,
+  scalar_add_dv,
+  dv_add_scalar,
+  scalar_mul_dv,
+  dv_mul_scalar,
+  dv_sub_scalar,
+  scalar_sub_dv,
+  scalar_div_dv,
+  dv_div_scalar,
+
+  % --- 4. Comparison broadcasting -----------------------------------------------
+  dv_gt_scalar,
+  dv_lt_scalar,
+  dv_ge_scalar,
+  dv_le_scalar,
+  dv_eq_dv,
+  dv_ne_dv,
+
+  % --- 5. Logical ops -----------------------------------------------------------
+  dv_and_dv,
+  dv_or_dv,
+
+  % --- 6. Integer shifts --------------------------------------------------------
+  dv_shl_scalar,
+  dv_shr_scalar,
+
+  % --- 7. APL reductions --------------------------------------------------------
+  dv_sum_real,
+  dv_product_real,
+  dv_least_real,
+  dv_greatest_real,
+  dv_sum_int,
+  dv_product_int,
+  dv_least_int,
+  dv_greatest_int
+
+type DvR  = array_dv[real];
+type DvD  = array_dv[double_real];
+type DvI  = array_dv[integer];
+type DvB  = array_dv[boolean]
+
+
+% =============================================================================
+% Section 1 — Unary real intrinsics
+% =============================================================================
+
+function dv_abs_real   (v : DvR returns DvR)  abs(v)    end function
+function dv_negate_real(v : DvR returns DvR)  -v        end function
+function dv_sqrt_real  (v : DvR returns DvR)  sqrt(v)   end function
+function dv_sin_real   (v : DvR returns DvR)  sin(v)    end function
+function dv_cos_real   (v : DvR returns DvR)  cos(v)    end function
+function dv_tan_real   (v : DvR returns DvR)  tan(v)    end function
+function dv_asin_real  (v : DvR returns DvR)  asin(v)   end function
+function dv_acos_real  (v : DvR returns DvR)  acos(v)   end function
+function dv_atan_real  (v : DvR returns DvR)  atan(v)   end function
+function dv_sinh_real  (v : DvR returns DvR)  sinh(v)   end function
+function dv_cosh_real  (v : DvR returns DvR)  cosh(v)   end function
+function dv_tanh_real  (v : DvR returns DvR)  tanh(v)   end function
+function dv_log_real   (v : DvR returns DvR)  log(v)    end function
+function dv_log10_real (v : DvR returns DvR)  log10(v)  end function
+
+% floor / trunc : real array -> integer array
+function dv_floor_real (v : DvR returns array_dv[integer])  floor(v)  end function
+function dv_trunc_real (v : DvR returns array_dv[integer])  trunc(v)  end function
+
+
+% =============================================================================
+% Section 2 — Unary double_real intrinsics
+% =============================================================================
+
+function dv_abs_double  (v : DvD returns DvD)              abs(v)   end function
+function dv_sqrt_double (v : DvD returns DvD)              sqrt(v)  end function
+function dv_sin_double  (v : DvD returns DvD)              sin(v)   end function
+function dv_cos_double  (v : DvD returns DvD)              cos(v)   end function
+function dv_log_double  (v : DvD returns DvD)              log(v)   end function
+function dv_floor_double(v : DvD returns array_dv[long])   floor(v) end function
+function dv_trunc_double(v : DvD returns array_dv[long])   trunc(v) end function
+
+
+% =============================================================================
+% Section 3 — Element-wise binary ops
+% =============================================================================
+
+% dv op dv
+function dv_add_dv(a, b : DvR returns DvR)  a + b  end function
+function dv_sub_dv(a, b : DvR returns DvR)  a - b  end function
+function dv_mul_dv(a, b : DvR returns DvR)  a * b  end function
+function dv_div_dv(a, b : DvR returns DvR)  a / b  end function
+
+% scalar op dv  (broadcasting: scalar is broadcast to match dv shape)
+function scalar_add_dv(s : real; v : DvR returns DvR)  s + v  end function
+function dv_add_scalar(v : DvR; s : real returns DvR)  v + s  end function
+function scalar_mul_dv(s : real; v : DvR returns DvR)  s * v  end function
+function dv_mul_scalar(v : DvR; s : real returns DvR)  v * s  end function
+function dv_sub_scalar(v : DvR; s : real returns DvR)  v - s  end function
+function scalar_sub_dv(s : real; v : DvR returns DvR)  s - v  end function
+function scalar_div_dv(s : real; v : DvR returns DvR)  s / v  end function
+function dv_div_scalar(v : DvR; s : real returns DvR)  v / s  end function
+
+
+% =============================================================================
+% Section 4 — Comparison broadcasting → array_dv[boolean]
+% =============================================================================
+
+function dv_gt_scalar(v : DvR; s : real returns DvB)  v > s   end function
+function dv_lt_scalar(v : DvR; s : real returns DvB)  v < s   end function
+function dv_ge_scalar(v : DvR; s : real returns DvB)  v >= s  end function
+function dv_le_scalar(v : DvR; s : real returns DvB)  v <= s  end function
+function dv_eq_dv    (a, b : DvR returns DvB)          a = b   end function
+function dv_ne_dv    (a, b : DvR returns DvB)          a ~= b  end function
+
+
+% =============================================================================
+% Section 5 — Logical ops on array_dv[boolean]
+% =============================================================================
+
+function dv_and_dv(a, b : DvB returns DvB)  a & b  end function
+function dv_or_dv (a, b : DvB returns DvB)  a | b  end function
+
+
+% =============================================================================
+% Section 6 — Integer shifts on array_dv[integer]
+% =============================================================================
+
+function dv_shl_scalar(v : DvI; n : integer returns DvI)  v << n  end function
+function dv_shr_scalar(v : DvI; n : integer returns DvI)  v >> n  end function
+
+
+% =============================================================================
+% Section 7 — APL reductions on array_dv
+% =============================================================================
+
+function dv_sum_real     (v : DvR returns real)    sum(v)      end function
+function dv_product_real (v : DvR returns real)    product(v)  end function
+function dv_least_real   (v : DvR returns real)    least(v)    end function
+function dv_greatest_real(v : DvR returns real)    greatest(v) end function
+
+function dv_sum_int     (v : DvI returns integer)  sum(v)      end function
+function dv_product_int (v : DvI returns integer)  product(v)  end function
+function dv_least_int   (v : DvI returns integer)  least(v)    end function
+function dv_greatest_int(v : DvI returns integer)  greatest(v) end function

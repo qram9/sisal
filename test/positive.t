@@ -200,6 +200,9 @@ Numeric / math:
   $ sisal ranf.sis
   $ sisal ranfsamp.sis
 
+Intrinsics lifted over array_dv (element-wise unary, binary, reductions):
+  $ sisal dv_intrinsics.sis
+
 DV variants of scientific benchmarks:
   $ sisal gaussj_perm_dv.sis
   $ sisal cfft_dv.sis
