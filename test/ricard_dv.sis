@@ -1,0 +1,308 @@
+% RICARD CHROMATOGRAPHY — DV variant (based on ricard.sis)
+%
+% DV changes:
+%   • Oned = array_dv[Double]: all real 1-D vectors are DV.
+%   • Twod = array[Oned]: 2-D arrays are arrays of DV rows.
+%   • singleton(v) helper prepends/appends a single element.
+%   • array_addl(X, v) → singleton(v) || X
+%     array_addh(X, v) → X || singleton(v)
+%   • Inner foralls: returns array of scalar → returns array_dv of scalar.
+%   • Cross-foralls producing Twod: for A cross B returns array of scalar
+%     converted to nested form: for A returns array of (for B returns array_dv of scalar).
+%   • array_fill(a,b,v) → for J in 1,b-a+1 returns array_dv of v end for
+%     combined with singleton prepend where an offset base was required.
+
+define Main
+
+%type Double = double_real;
+
+type Oned = array_dv[Double];
+type Twod = array[Oned];
+type Onei = array[integer];
+type Twoi = array[Onei];
+
+
+function singleton( v: Double returns Oned )
+  for dummy in 1, 1 returns array_dv of v end for
+end function
+
+
+function RUNKUT( COF1,COF2,COF3,COF4,COF5,COF6,RATIO: Double;
+                 LN: Twod; N: integer returns Twod )
+  let
+    r1, r2, r3, r4, r5 :=
+      for J in 2, N
+        CLI      := LN[1, J];
+        CMI      := LN[2, J];
+        CMLI     := LN[3, J];
+        CML2I    := LN[4, J];
+        CML2ISOI := LN[5, J];
+
+        RKK1 := COF1*CMI*CLI + COF2*CMLI;
+        RKL1 := -(RKK1 + COF3*CMLI*CLI + COF4*CML2I);
+        RKP1 := RATIO*(RKK1 + RKK1 + RKL1);
+        RKM1 := COF5*CML2I + COF6*CML2ISOI;
+        RKN1 := -(RKK1 + RKL1 + RKM1);
+
+        U  := CLI  + 0.5D0*RKP1;
+        W  := CML2I + 0.5D0*RKN1;
+        XX := CMLI + 0.5D0*RKL1;
+
+        RKK2 := COF1*(CMI + 0.5D0*RKK1)*U + COF2*XX;
+        RKL2 := -(RKK2 + COF3*XX*U + COF4*W);
+        RKP2 := RATIO*(RKK2 + RKK2 + RKL2);
+        RKM2 := COF5*W + COF6*(CML2ISOI + 0.5D0*RKM1);
+        RKN2 := -(RKK2 + RKL2 + RKM2);
+
+        VV := CLI  + 0.5D0*RKP2;
+        Y  := CMLI + 0.5D0*RKL2;
+        Z  := CML2I + 0.5D0*RKN2;
+
+        RKK3 := COF1*(CMI + 0.5D0*RKK2)*VV + COF2*Y;
+        RKL3 := -(RKK3 + COF3*Y*VV + COF4*Z);
+        RKP3 := RATIO*(RKK3 + RKK3 + RKL3);
+        RKM3 := COF5*Z + COF6*(CML2ISOI + 0.5D0*RKM2);
+        RKN3 := -(RKK3 + RKL3 + RKM3);
+
+        R := CLI  + RKP3;
+        S := CMLI + RKL3;
+        T := CML2I + RKN3;
+
+        RKK4 := COF1*(CMI + RKK3)*R + COF2*S;
+        RKL4 := -(RKK4 + COF3*S*R + COF4*T);
+        RKP4 := RATIO*(RKK4 + RKK4 + RKL4);
+        RKM4 := COF5*T + COF6*(CML2ISOI + RKM3);
+        RKN4 := -(RKK4 + RKL4 + RKM4);
+
+        DELK := (RKK1 + RKK2 + RKK2 + RKK3 + RKK3 + RKK4) / 6.0D0;
+        DELL := (RKL1 + RKL2 + RKL2 + RKL3 + RKL3 + RKL4) / 6.0D0;
+        DELM := (RKM1 + RKM2 + RKM2 + RKM3 + RKM3 + RKM4) / 6.0D0;
+
+        v1 := CLI  + RATIO*(DELK + DELK + DELL);
+        v2 := CMI  + DELK;
+        v3 := CMLI + DELL;
+        v4 := CML2I - (DELK + DELL + DELM);
+        v5 := CML2ISOI + DELM
+      returns array_dv of v1
+              array_dv of v2
+              array_dv of v3
+              array_dv of v4
+              array_dv of v5
+      end for
+  in
+    array [1: r1, r2, r3, r4, r5]
+  end let
+end function
+
+
+function RENUM( NP: integer; LN: Twod; N, I, IELUTE: integer; VSEG: Double;
+                CELUTE: Twod returns Twod, Twod, Double )
+  let
+    K   := I / IELUTE;
+    VOL := double_real(K) * VSEG;
+
+    CELUTE_1 := CELUTE[1, K: LN[1, N];
+                       2, K: LN[2, N];
+                       3, K: LN[3, N];
+                       4, K: LN[4, N];
+                       5, K: LN[5, N]];
+
+    % Shift each row left by one: drop col 2, prepend 0 at col 2.
+    % array_addl(LN_rc, 0.0D0) → singleton(0.0D0) || LN_rc
+    LN_1 := for M in 1, 5
+               LN_rc := for J in 3, N
+                        returns array_dv of LN[M, J-1]
+                        end for
+             returns array of (singleton(0.0D0) || LN_rc)
+             end for
+  in
+    LN_1, CELUTE_1, VOL
+  end let
+end function
+
+
+function OUT( LN: Twod; N: integer; VOL: Double; KELUTE: integer;
+              VSEG, F: Double; CELUTE: Twod
+              returns Double, Oned, Oned, Double, Double,
+                      Double, Double, Double, Double, Double,
+                      integer, Double, Double, Double )
+  let
+    CTL, CTM :=
+      for J in 1, KELUTE
+        CTL := CELUTE[1,J] + CELUTE[3,J] + CELUTE[4,J] +
+               CELUTE[4,J] + CELUTE[5,J] + CELUTE[5,J];
+        CTM := CELUTE[2,J] + CELUTE[3,J] + CELUTE[4,J] + CELUTE[5,J]
+      returns array_dv of CTL
+              array_dv of CTM
+      end for;
+
+    TOTM, TOTML, TOTML2, TOTML2I :=
+      for J in 1, KELUTE
+      returns value of sum CELUTE[2,J]
+              value of sum CELUTE[3,J]
+              value of sum CELUTE[4,J]
+              value of sum CELUTE[5,J]
+      end for;
+
+    TOT   := TOTM + TOTML + TOTML2 + TOTML2I;
+    TOTMA := 1.554870369D-05 * 0.486D0;
+
+    PERML, JSTOR, STOR, PERCENT, HL :=
+      if TOT = 0.0D0 then
+        0.0D0, 0, 0.0D0, 0.0D0, 0.0D0
+      else
+        let
+          PERML := 100.0D0 * (TOTML + TOTML2 + TOTML2I) / TOT;
+
+          STOR, JSTOR :=
+            for initial
+              STOR  := CTL[915];
+              JSTOR := 915;
+              J     := 915;
+            while J <= 1190 repeat
+              J := old J + 1;
+              STOR, JSTOR :=
+                if old STOR < CTL[old J] then old STOR, old JSTOR
+                else CTL[old J], old J
+                end if
+            returns value of STOR
+                    value of JSTOR
+            end for;
+
+          TOT1    := for J in 1, KELUTE  returns value of sum CTL[J] end for;
+          TOT2    := for J in 1, JSTOR   returns value of sum CTL[J] end for;
+          PERCENT := 100.0D0 * TOT2 / TOT1;
+          HL      := -LOG(2.0D0) * double_real(JSTOR) * 0.016D0 /
+                     (F * LOG(PERCENT / 18.02233D0))
+        in
+          PERML, JSTOR, STOR, PERCENT, HL
+        end let
+      end if
+  in
+    VOL, CTM, CTL, TOTM, TOTML, TOTML2, TOTML2I, TOT, PERML, TOTMA, JSTOR,
+    STOR, PERCENT, HL
+  end let
+end function
+
+
+function FILLUP( N: integer; DX: Double; KELUTE: integer; VSEG: Double;
+                 NSEG: integer; GZERO: Oned returns Oned, Twod, Twod, Oned )
+  let
+    % X_c indexed 2..N, prepend 0 for position 1.
+    % array_addl(X_c, 0.0D0) → singleton(0.0D0) || X_c
+    X_c := for J in 2, N returns array_dv of double_real(J-1)*DX end for;
+    X   := singleton(0.0D0) || X_c;
+
+    V := for J in 1, KELUTE returns array_dv of double_real(J)*VSEG end for;
+
+    % Each C row covers positions 1..N: pos 1 = 0 (ghost), 2..NSEG = GZERO, rest = 0.
+    C := for M in 1, 5
+           Cr := singleton(0.0D0) ||
+                 for J in 2,   NSEG returns array_dv of GZERO[M]  end for ||
+                 for J in NSEG+1, N returns array_dv of 0.0D0     end for
+         returns array of Cr
+         end for;
+
+    CELUTE := for I in 1, 5
+              returns array of
+                (for J in 1, KELUTE returns array_dv of 0.0D0 end for)
+              end for
+  in
+    X, C, CELUTE, V
+  end let
+end function
+
+
+function Main( returns Double, Oned, Oned, Double, Double,
+                       Double, Double, Double, Double,
+                       Double, integer, Double, Double, Double )
+  let
+    NV     := 200;
+    N      := 1315;
+    NP     := N - 1;
+    NSEG   := 46;
+    KELUTE := 2000;
+    IELUTE := 20;
+    DX     := 0.02D0;
+
+    XI := array[1: 0.8D0, 0.54D0, 0.54D0, 0.54D0, 0.54D0];
+
+    RATIO := XI[2] / XI[1];
+    DV    := XI[1] * DX / double_real(IELUTE);
+
+    AXDIS_1 := array[1: 2.0D-02, 6.0D-02, 6.0D-02, 6.0D-02, 6.0D-02];
+
+    VEL, LAMBDA :=
+      for M in 1, 5
+        VEL_1  := (1.0D0/XI[M]) - (1.0D0/XI[1]);
+        AXDIS  := AXDIS_1[M] - 0.5D0*VEL_1*DX;
+        VEL    := DV*VEL_1/DX;
+        LAMBDA := DV*AXDIS / exp(DX, 2.0D0)
+      returns array_dv of VEL
+              array_dv of LAMBDA
+      end for;
+
+    VSEG    := XI[1] * DX;
+    F       := 20.6D0 / 3600.0D0;
+    EK0     := 1.1D05;
+    RDML    := 0.5D0;
+    RAML    := 2.0D0*EK0*RDML;
+    EKISOM  := 20.0D0;
+    EKAPP   := 0.5D0*EK0 / (1.0D0 + EKISOM);
+    RDML2   := 1.0D0;
+    RAML2   := EKAPP*RDML2;
+    RRISOM  := 1.0D-03;
+    RFISOM  := EKISOM*RRISOM;
+    COF1    := -RAML  * DV / F;
+    COF2    :=  RDML  * DV / F;
+    COF3    :=  RAML2 * DV / F;
+    COF4    := -RDML2 * DV / F;
+    COF5    :=  RFISOM * DV / F;
+    COF6    := -RRISOM * DV / F;
+
+    GZERO := array[1: 0.4038637706D-05, 0.7454342552D-05, 0.6623185565D-05,
+                      0.0070055980D-05,  0.1401119600D-05];
+
+    VOL, CELUTE, LN :=
+      for initial
+        VOL              := 0.0D0;
+        I                := 1;
+        X, LN, CELUTE, V := FILLUP(N, DX, KELUTE, VSEG, NSEG, GZERO)
+      while I <= NV repeat
+        I := old I + 1;
+
+        LN_1 := for M in 1, 5
+                  LN_rc := for J in 3, NP
+                             V := old LN[M,J] + LAMBDA[M]*(old LN[M,J+1] -
+                                  old LN[M,J] - old LN[M,J] + old LN[M,J-1]) -
+                                  VEL[M]*(old LN[M,J] - old LN[M,J-1])
+                           returns array_dv of V
+                           end for;
+
+                  LN_c2 := old LN[M,2] + LAMBDA[M] *
+                            (old LN[M,3] - old LN[M,2]) - VEL[M]*old LN[M,2];
+                  LN_N  := old LN[M,N] + LAMBDA[M]*(old LN[M,N-1] - old LN[M,N]);
+
+                  % Reconstruct shifted row: [LN_c2] ++ LN_rc ++ [LN_N]
+                  % array_addl(array_addh(LN_rc, LN_N), LN_c2)
+                  %   → singleton(LN_c2) || LN_rc || singleton(LN_N)
+                  LN_r := singleton(LN_c2) || LN_rc || singleton(LN_N)
+                returns array of LN_r
+                end for;
+
+        LN_2 := RUNKUT(COF1, COF2, COF3, COF4, COF5, COF6, RATIO, LN_1, N);
+
+        LN, CELUTE, VOL :=
+          if (old I / IELUTE) * IELUTE = old I then
+            RENUM(NP, LN_2, N, old I, IELUTE, VSEG, old CELUTE)
+          else
+            LN_2, old CELUTE, old VOL
+          end if
+      returns value of VOL
+              value of CELUTE
+              value of LN
+      end for
+  in
+    OUT(LN, N, VOL, KELUTE, VSEG, F, CELUTE)
+  end let
+end function

@@ -1,0 +1,48 @@
+% Gauss-Jordan elimination with no pivoting — DV variant (based on lu.npiv.sis)
+%
+% DV changes:
+%   • OneD = array_dv[double]: real row vectors are DV.
+%   • TwoD = array[OneD]: matrix is an array of DV rows.
+%   • Inner foralls for real scalars: returns array of → returns array_dv of.
+%   • Outer forall building OneD (rB scalars): returns array_dv of.
+
+define Main
+
+%type double = double_real;
+type OneI = array[integer];
+type OneD = array_dv[double];
+type TwoD = array[OneD];
+
+
+function Reduce(pivot: integer; A: TwoD; B: OneD
+                returns TwoD, OneD)
+
+  for row in A at i
+    mult := A[i, pivot] / A[pivot, pivot];
+
+    rrow, rB := if i = pivot then
+                  for x in row returns array_dv of x / A[pivot, pivot] end for,
+                  B[i] / A[pivot, pivot]
+                else
+                  for x in row at j returns array_dv of x - mult * A[pivot, j] end for,
+                  B[i] - mult * B[pivot]
+                end if
+  returns array    of rrow
+          array_dv of rB
+  end for
+
+end function
+
+
+function Main(n: integer; Ain: TwoD; Bin: OneD returns OneD)
+
+  for initial
+    i    := 0;
+    A, B := Ain, Bin;
+  while i < n repeat
+    i    := old i + 1;
+    A, B := Reduce(i, old A, old B);
+  returns value of B
+  end for
+
+end function

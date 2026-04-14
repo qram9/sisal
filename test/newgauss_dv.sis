@@ -1,0 +1,129 @@
+% Gaussian elimination (LU factorisation) — DV variant (based on newgauss.sis)
+%
+% DV changes:
+%   • RealVector = array_dv[real]: all real 1-D vectors are DV.
+%   • RealMatrix = array[RealVector]: matrix is an array of DV rows.
+%   • reduce:
+%       array_setl(for ... returns array of m,    i+1) → for ... returns array_dv of m
+%       array_setl(for ... returns array of NewRow,i+1) → for ... returns array of NewRow
+%       array_setl(inner  returns array of term,  i+1) → returns array_dv of term
+%       (DV foralls indexed i+1..n naturally start at i+1, so setl is a no-op.)
+%   • factor:   returns array of col / row — builds RealMatrix, unchanged.
+%   • solve_down: array[1:v] → singleton(v); arr || array[1:v] → arr || singleton(v).
+%   • solve_up:   array[n:v] → for dummy in n,n returns array_dv of v end for;
+%                 array[i:v] || old x → (for dummy in i,i returns array_dv of v end for) || old x.
+%   • FormA:    cross-forall → nested for (outer array of DV rows).
+%   • AProd:    returns array of row (scalar) → returns array_dv of row.
+%   • FormV:    returns array of element → returns array_dv of element.
+
+define factor, solve_down, solve_up
+
+type RealVector = array_dv[real];
+type RealMatrix = array[RealVector];
+
+
+function singleton( v: real returns RealVector )
+  for dummy in 1, 1 returns array_dv of v end for
+end function
+
+
+function reduce(n, i: integer; b: RealMatrix returns
+                RealVector, RealVector, RealMatrix)
+  let
+    mult := for j in i+1, n
+               m := b[j,i] / b[i,i]
+             returns array_dv of m
+             end for;
+
+    row := b[i];
+
+    NextBlock :=
+      for j in i+1, n
+        NewRow := for k in i+1, n
+                    term := b[j,k] - mult[j] * row[k]
+                  returns array_dv of term
+                  end for
+      returns array of NewRow
+      end for
+  in
+    row, mult, NextBlock
+  end let
+end function
+
+
+function factor(b: RealMatrix; n: integer returns
+                RealMatrix, RealMatrix)
+  for initial
+    row, col, next := reduce(n, 1, b);
+    i := 2
+  repeat
+    row, col, next := reduce(n, old i, old next);
+    i := old i + 1
+  until i > n
+  returns array of col
+          array of row
+  end for
+end function
+
+
+function solve_down(l: RealMatrix; k: RealVector; n: integer returns RealVector)
+  for initial
+    i := 1;
+    y := singleton(k[1])
+  repeat
+    i := old i + 1;
+    y := old y || singleton(k[i] -
+           for j in 1, old i
+             x := l[j,i] * old y[j]
+           returns value of sum x
+           end for)
+  until i = n
+  returns value of y
+  end for
+end function
+
+
+function solve_up(u: RealMatrix; y: RealVector; n: integer returns RealVector)
+  for initial
+    i := n;
+    x := for dummy in n, n returns array_dv of y[n] / u[n,n] end for
+  repeat
+    i := old i - 1;
+    x := (for dummy in i, i
+          returns array_dv of (y[i] -
+            for j in i+1, n
+              xi := u[i,j] * old x[j]
+            returns value of sum xi
+            end for) / u[i,i]
+          end for) || old x
+  until i = 1
+  returns value of x
+  end for
+end function
+
+
+function FormA(n: integer returns RealMatrix)
+  for i in 1, n
+    row := for j in 1, n returns array_dv of exp(real(j), i-1) end for
+  returns array of row
+  end for
+end function
+
+
+function AProd(n: integer; a: RealMatrix; v: RealVector returns RealVector)
+  for j in 1, n
+    row := for k in 1, n
+             DotProd := a[j,k] * v[k]
+           returns value of sum DotProd
+           end for
+  returns array_dv of row
+  end for
+end function
+
+
+function FormV(n, m: integer returns RealVector)
+  for j in 1, n
+    element := if j = m then 1.0 else 0.0 end if
+  returns array_dv of element
+  end for
+end function

@@ -1,0 +1,365 @@
+% FEO FFT — DV variant (based on feo.fft.sis)
+%
+% DV changes:
+%   • OneDim = array_dv[double]: all signal/twiddle vectors are DV.
+%   • TwoDim = array[OneDim]: twiddle table is an array of DV vectors.
+%   • W_n rewritten as a range forall (for m in 0, n/4-2) using direct
+%     cos/sin evaluation, producing 0-based DV arrays without array_setl.
+%   • W drops array_setl calls (0-based DV from W_n needs no adjustment).
+%   • Pack_j, level* inner foralls: returns array of → returns array_dv of.
+%   • levelA_g: array_addh(X, 0.0d0) → X || singleton(0.0d0).
+%   • levelA_i, levelA_B, levelB_i: array_setl(…, 0) dropped; DV || DV
+%     inherits the left operand's liml (0 when generated from 0-based range).
+%   • level_1 n=2 case: array[0:…] constructors replaced by one-line foralls.
+
+define main
+
+% type double = double_real;
+type OneDim = array_dv[double];
+type TwoDim = array[OneDim];
+
+global log10( x: double returns double )
+global cos  ( x: double returns double )
+global sin  ( x: double returns double )
+global atan ( x: double returns double )
+
+
+function singleton( v: double returns OneDim )
+  for dummy in 1, 1 returns array_dv of v end for
+end function
+
+
+function log2( n: integer returns integer )
+  integer( log10(double_real(n)) / log10(2.0d0) )
+end function
+
+
+function cadd( re1, im1, re2, im2: double returns double, double )
+  re1 + re2, im1 + im2
+end function
+
+
+function cmult( re1, im1, re2, im2: double returns double, double )
+  re1 * re2 - im1 * im2, re1 * im2 + im1 * re2
+end function
+
+
+% Generate test signal (0-based DV, length n).
+function data( n: integer returns OneDim, OneDim )
+  for i in 0, n-1
+    tt := 8.0d0 * atan(1.0d0) / double_real(n)
+  returns array_dv of cos(tt * double_real(i))
+          array_dv of 0.0d0
+  end for
+end function
+
+
+% Twiddle factors for FFT level of size n.
+% Produces 0-based DV arrays of length n/4-1.
+% w1[m] = exp(-i*2*pi*(m+1)/n), w2 = w1^2, w3 = w1^3, m in 0..n/4-2.
+function W_n( n: integer
+              returns OneDim, OneDim, OneDim, OneDim, OneDim, OneDim )
+  let
+    pi   := 4.0d0 * atan(1.0d0);
+    step := 2.0d0 * pi / double_real(n)
+  in
+    for m in 0, n/4 - 2
+      angle        := double_real(m + 1) * step;
+      w1re         :=  cos(angle);
+      w1im         := -sin(angle);
+      w2re, w2im   := cmult(w1re, w1im, w1re, w1im);
+      w3re, w3im   := cmult(w1re, w1im, w2re, w2im)
+    returns array_dv of w1re  array_dv of w1im
+            array_dv of w2re  array_dv of w2im
+            array_dv of w3re  array_dv of w3im
+    end for
+  end let
+end function
+
+
+% Build twiddle tables across FFT levels.
+% Result TwoDim rows are 0-based DV (no array_setl needed).
+function W( n: integer
+            returns TwoDim, TwoDim, TwoDim, TwoDim, TwoDim, TwoDim )
+  for initial
+    m                              := if mod(log2(n), 2) = 0 then 4 else 8 end if;
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+  while m < n repeat
+    m                              := old m * 4;
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+  returns array of w1re  array of w1im
+          array of w2re  array of w2im
+          array of w3re  array of w3im
+  end for
+end function
+
+
+function fft_4_2( are, aim, bre, bim, cre, cim, dre, dim: double;
+                  wre1, wim1, wre2, wim2, wre3, wim3    : double
+                  returns double, double, double, double,
+                          double, double, double, double )
+  let
+    wbre, wbim := cmult(wre1, wim1, bre, bim);
+    wcre, wcim := cmult(wre2, wim2, cre, cim);
+    wdre, wdim := cmult(wre3, wim3, dre, dim);
+    a1re, a1im := cadd(are,  aim,   wcre,  wcim);
+    b1re, b1im := cadd(wbre, wbim,  wdre,  wdim);
+    c1re, c1im := cadd(are,  aim,  -wcre, -wcim);
+    d1re, d1im := cadd(wbre, wbim, -wdre, -wdim)
+  in
+    cadd(a1re, a1im,  b1re,  b1im),
+    cadd(a1re, a1im, -b1re, -b1im),
+    cadd(c1re, c1im,  d1im, -d1re),
+    cadd(c1re, c1im, -d1im,  d1re)
+  end let
+end function
+
+
+function Pack_j( cards, p0, p1, p2, p3             : integer;
+                 xre, xim                          : OneDim;
+                 w1re, w1im, w2re, w2im, w3re, w3im: double
+                 returns OneDim, OneDim, OneDim, OneDim,
+                         OneDim, OneDim, OneDim, OneDim )
+  for k in 0, cards/4 - 1
+    are, aim, bre, bim,
+    cre, cim, dre, dim :=
+      fft_4_2(xre[k+p0], xim[k+p0], xre[k+p1], xim[k+p1],
+              xre[k+p2], xim[k+p2], xre[k+p3], xim[k+p3],
+              w1re, w1im, w2re, w2im, w3re, w3im)
+  returns array_dv of are  array_dv of aim
+          array_dv of bre  array_dv of bim
+          array_dv of cre  array_dv of cim
+          array_dv of dre  array_dv of dim
+  end for
+end function
+
+
+function levelA_i( cards, packs                      : integer;
+                   xre, xim                          : OneDim;
+                   w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+                   returns OneDim, OneDim )
+  let
+    Are, Aim, Bre, Bim,
+    Cre, Cim, Dre, Dim :=
+      for j in 0, packs - 1
+        p0 := j * cards;
+        p1 := cards/4 + p0;
+        p2 := cards/4 + p1;
+        p3 := cards/4 + p2;
+        Are, Aim, Bre, Bim,
+        Cre, Cim, Dre, Dim :=
+          Pack_j(cards, p0, p1, p2, p3, xre, xim,
+                 w1re[j], w1im[j], w2re[j], w2im[j], w3re[j], w3im[j])
+      returns value of catenate Are  value of catenate Aim
+              value of catenate Bre  value of catenate Bim
+              value of catenate Cre  value of catenate Cim
+              value of catenate Dre  value of catenate Dim
+      end for
+  in
+    Are || Cre || Bre || Dre,
+    Aim || Cim || Bim || Dim
+  end let
+end function
+
+
+% Transition kernel: zero-pads each chunk by one element.
+% array_addh(X, 0.0d0)  →  X || singleton(0.0d0)
+function levelA_g( cards, packs                      : integer;
+                   xre, xim                          : OneDim;
+                   w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+                   returns OneDim, OneDim )
+  let
+    Are, Aim, Bre, Bim,
+    Cre, Cim, Dre, Dim :=
+      for j in 0, packs - 1
+        p0 := j * cards;
+        p1 := cards/4 + p0;
+        p2 := cards/4 + p1;
+        p3 := cards/4 + p2;
+        Are, Aim, Bre, Bim,
+        Cre, Cim, Dre, Dim :=
+          Pack_j(cards, p0, p1, p2, p3, xre, xim,
+                 w1re[j], w1im[j], w2re[j], w2im[j], w3re[j], w3im[j])
+      returns value of catenate (Are || singleton(0.0d0))
+              value of catenate (Aim || singleton(0.0d0))
+              value of catenate (Bre || singleton(0.0d0))
+              value of catenate (Bim || singleton(0.0d0))
+              value of catenate (Cre || singleton(0.0d0))
+              value of catenate (Cim || singleton(0.0d0))
+              value of catenate (Dre || singleton(0.0d0))
+              value of catenate (Dim || singleton(0.0d0))
+      end for
+  in
+    Are || Cre || Bre || Dre,
+    Aim || Cim || Bim || Dim
+  end let
+end function
+
+
+function levelA_B( cards, packs                      : integer;
+                   xre, xim                          : OneDim;
+                   w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+                   returns OneDim, OneDim )
+  let
+    xre_i, xim_i :=
+      for i in 0, cards/4 - 1
+        Are, Aim, Bre, Bim,
+        Cre, Cim, Dre, Dim :=
+          for j in 0, packs - 1
+            p0 := cards*j + i + j;
+            p1 := p0 + cards/4;
+            p2 := p1 + cards/4;
+            p3 := p2 + cards/4;
+            are, aim, bre, bim,
+            cre, cim, dre, dim :=
+              fft_4_2(xre[p0], xim[p0], xre[p1], xim[p1],
+                      xre[p2], xim[p2], xre[p3], xim[p3],
+                      w1re[j], w1im[j], w2re[j], w2im[j], w3re[j], w3im[j])
+          returns array_dv of are  array_dv of aim
+                  array_dv of bre  array_dv of bim
+                  array_dv of cre  array_dv of cim
+                  array_dv of dre  array_dv of dim
+          end for
+      returns value of catenate (Are || Cre || Bre || Dre)
+              value of catenate (Aim || Cim || Bim || Dim)
+      end for
+  in
+    xre_i, xim_i
+  end let
+end function
+
+
+function levelB_i( n, cards, packs                   : integer;
+                   xre, xim                          : OneDim;
+                   w1re, w1im, w2re, w2im, w3re, w3im: OneDim
+                   returns OneDim, OneDim )
+  let
+    xre_i, xim_i :=
+      for j in 0, packs/4 - 1
+        p0 := j * cards;
+        p1 := n/4 + p0;
+        p2 := n/4 + p1;
+        p3 := n/4 + p2;
+        Are, Aim, Bre, Bim,
+        Cre, Cim, Dre, Dim :=
+          for k in 0, cards - 1
+            are, aim, bre, bim,
+            cre, cim, dre, dim :=
+              fft_4_2(xre[k+p0], xim[k+p0],
+                      xre[k+p1], xim[k+p1],
+                      xre[k+p2], xim[k+p2],
+                      xre[k+p3], xim[k+p3],
+                      w1re[k], w1im[k], w2re[k], w2im[k], w3re[k], w3im[k])
+          returns array_dv of are  array_dv of aim
+                  array_dv of bre  array_dv of bim
+                  array_dv of cre  array_dv of cim
+                  array_dv of dre  array_dv of dim
+          end for
+      returns value of catenate (Are || Cre || Bre || Dre)
+              value of catenate (Aim || Cim || Bim || Dim)
+      end for
+  in
+    xre_i, xim_i
+  end let
+end function
+
+
+function level_1( n: integer; xre, xim: OneDim
+                  returns integer, integer, integer, OneDim, OneDim )
+  if mod(log2(n), 2) = 0 then
+    let
+      Are, Aim, Bre, Bim,
+      Cre, Cim, Dre, Dim :=
+        Pack_j(n, 0, n/4, n/2, 3*n/4, xre, xim,
+               1.d0, 0.d0, 1.d0, 0.d0, 1.d0, 0.d0)
+    in
+      1, n/4, 4,
+      Are || Cre || Bre || Dre,
+      Aim || Cim || Bim || Dim
+    end let
+  else
+    let
+      A1re, A1im, B1re, B1im :=
+        for i in 0, n/2 - 1
+        returns array_dv of xre[i] + xre[i + n/2]
+                array_dv of xim[i] + xim[i + n/2]
+                array_dv of xre[i] - xre[i + n/2]
+                array_dv of xim[i] - xim[i + n/2]
+        end for;
+
+      A2re, A2im, B2re, B2im,
+      C2re, C2im, D2re, D2im :=
+        Pack_j(n/2, 0, n/8, n/4, 3*n/8, A1re, A1im,
+               1.d0, 0.d0, 1.d0, 0.d0, 1.d0, 0.d0);
+
+      E2re, E2im, F2re, F2im,
+      G2re, G2im, H2re, H2im :=
+        Pack_j(n/2, 0, n/8, n/4, 3*n/8, B1re, B1im,
+               7.071067811865475d-01, -7.071067811865475d-01,
+               0.d0, -1.d0,
+               -7.071067811865474d-01, -7.071067811865474d-01)
+    in
+      1, n/8, 8,
+      A2re || E2re || C2re || G2re || B2re || F2re || D2re || H2re,
+      A2im || E2im || C2im || G2im || B2im || F2im || D2im || H2im
+    end let
+  end if
+end function
+
+
+function fft_4( n                                 : integer;
+                xre,  xim                         : OneDim;
+                w1re, w1im, w2re, w2im, w3re, w3im: TwoDim
+                returns OneDim, OneDim )
+  for initial
+    log_n := log2(n);
+    iters := log_n / 2;
+    gap_i := iters / 2;
+    A_B_i := gap_i + 1;
+
+    i, cards, packs, xre_i, xim_i := level_1(n, xre, xim)
+  while i < iters repeat
+    i := old i + 1;
+
+    cards, packs, xre_i, xim_i :=
+      if i < gap_i | iters < 4 then
+        old cards / 4,
+        old packs * 4,
+        levelA_i(old cards, old packs, old xre_i, old xim_i,
+                 w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+      elseif i = gap_i then
+        old cards / 4,
+        old packs * 4,
+        levelA_g(old cards, old packs, old xre_i, old xim_i,
+                 w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+      elseif i = A_B_i then
+        old packs * 4,
+        old cards / 4,
+        levelA_B(old cards, old packs, old xre_i, old xim_i,
+                 w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+      else
+        old cards * 4,
+        old packs / 4,
+        levelB_i(n, old cards, old packs, old xre_i, old xim_i,
+                 w1re[i], w1im[i], w2re[i], w2im[i], w3re[i], w3im[i])
+      end if
+  returns value of xre_i
+          value of xim_i
+  end for
+end function
+
+
+function main( n: integer returns OneDim, OneDim )
+  let
+    xre, xim := data(n)
+  in
+    if n = 2 then
+      for i in 0, 1
+      returns array_dv of (if i = 0 then xre[0] + xre[1] else xre[0] - xre[1] end if)
+              array_dv of (if i = 0 then xim[0] + xim[1] else xim[0] - xim[1] end if)
+      end for
+    else
+      fft_4(n, xre, xim, W(n))
+    end if
+  end let
+end function

@@ -3174,9 +3174,9 @@ and lift_unop_forall (en, ep, et) body_fn in_gr =
   in
   do_simple_exp_impl in_gr forall
 
-let is_intrinsic_unary = [ "ABS"; "EXP"; "LOG"; "LOG10"; "SQRT"; "SIN"; "COS"; "TAN"; "ASIN"; "ACOS"; "ATAN"; "SINH"; "COSH"; "TANH"; "FLOOR"; "TRUNC" ]
+and is_intrinsic_unary = [ "ABS"; "EXP"; "LOG"; "LOG10"; "SQRT"; "SIN"; "COS"; "TAN"; "ASIN"; "ACOS"; "ATAN"; "SINH"; "COSH"; "TANH"; "FLOOR"; "TRUNC" ]
 
-let intrinsic_to_ast name arg =
+and intrinsic_to_ast name arg =
   match name with
   | "ABS" -> Ast.Invocation (Ast.Function_name ["ABS"], Ast.Arg (Ast.Exp [arg]))
   | "EXP" -> Ast.Invocation (Ast.Function_name ["ETOTHE"], Ast.Arg (Ast.Exp [arg]))

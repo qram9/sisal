@@ -1,0 +1,78 @@
+% Gauss-Jordan linear solver (Ax = b) with partial pivoting.
+%
+% TwoD = array_dv[real]: the matrix is a flat rank-2 DV.
+% Rows are not a separate structural layer; all access is A[i,j].
+%
+% Each step:
+%   1. find_pivot: search rows k..N for max |A[i,k]|, return pivot row pi.
+%   2. elim: one cross-forall over i in 1,N cross j in 1,N that simultaneously
+%            swaps rows k and pi, scales the pivot row, and eliminates column k
+%            from every other row.  No physical row is moved; the forall just
+%            reads A[pi,j] for the pivot contribution and A[sri,j] for the
+%            source of each output row, where sri = if i=k then pi
+%                                                   elseif i=pi then k
+%                                                   else i end if.
+%      The same swap+scale+eliminate is applied to B in a plain forall.
+
+define GaussJ_perm
+
+type OneD = array_dv[real];
+type TwoD = array_dv[real];   % flat rank-2 DV, element (i,j) via A[i,j]
+
+
+% Return index pi in k..N with the largest |A[pi,k]|.
+function find_pivot(k, N: integer; A: TwoD returns integer)
+  for initial
+    best_i := k;
+    best_v := abs(A[k, k]);
+    i      := k
+  while i < N repeat
+    i      := old i + 1;
+    v      := abs(A[old i + 1, k]);
+    best_i, best_v :=
+      if v > old best_v then old i + 1, v
+      else old best_i, old best_v
+      end if
+  returns value of best_i
+  end for
+end function
+
+
+% Combined swap(k,pi) + scale + eliminate in one pass over all N×N elements.
+function elim(k, pi, N: integer; A: TwoD; B: OneD returns TwoD, OneD)
+  let
+    pvt := A[pi, k]
+  in
+    for i in 1, N cross j in 1, N
+      % source row for output row i: swap logical positions k and pi
+      sri := if i = k then pi elseif i = pi then k else i end if;
+      fac := A[sri, k]
+    returns array_dv of
+      if i = k then A[pi, j] / pvt
+      else A[sri, j] - (A[pi, j] / pvt) * fac
+      end if
+    end for,
+    for i in 1, N
+      sri := if i = k then pi elseif i = pi then k else i end if;
+      fac := A[sri, k]
+    returns array_dv of
+      if i = k then B[pi] / pvt
+      else B[sri] - (B[pi] / pvt) * fac
+      end if
+    end for
+  end let
+end function
+
+
+function GaussJ_perm(N: integer; A: TwoD; B: OneD returns OneD)
+  for initial
+    k    := 1;
+    CurA := A;
+    CurB := B
+  while k <= N repeat
+    k          := old k + 1;
+    pi         := find_pivot(old k, N, old CurA);
+    CurA, CurB := elim(old k, pi, N, old CurA, old CurB)
+  returns value of CurB
+  end for
+end function

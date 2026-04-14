@@ -1,0 +1,58 @@
+% Sparse matrix-vector multiply — DV variant (based on sp.sis)
+%
+% DV changes:
+%   • OneDim  = array_dv[real]: real 1-D vectors are DV.
+%   • TwoDim  = array[OneDim]: 2-D real arrays are arrays of DV rows.
+%   • OneDimI = array[integer], TwoDimI = array[OneDimI]: integer index
+%     arrays stay as plain arrays (no element-level DV needed).
+%   • spmul: inner forall returns array_dv of scalar.
+
+define main
+
+%type double = double_real;
+type OneDim  = array_dv[real];
+type TwoDim  = array[OneDim];
+type OneDimI = array[integer];
+type TwoDimI = array[OneDimI];
+
+global sqrt(x : double returns double)
+
+
+function r_sqrt(x : real returns real)
+  real( sqrt(double_real(x)) )
+end function
+
+
+function dist(n : integer; x, y : OneDim returns real)
+  r_sqrt(for i in 1, n
+           x_y := (x[i] - y[i]) * (x[i] - y[i])
+         returns value of sum x_y
+         end for)
+end function
+
+
+function spmul(n  : integer; A    : TwoDim;
+               AJ : TwoDimI; x, g : OneDim
+               returns OneDim)
+  for i in 1, n
+    ax := A[1,i] * x[AJ[1,i]] + A[2,i] * x[AJ[2,i]] +
+          A[3,i] * x[AJ[3,i]] + A[4,i] * x[AJ[4,i]]
+  returns array_dv of g[i] + ax
+  end for
+end function
+
+
+function main(n  : integer; A     : TwoDim;
+              AJ : TwoDimI; x0, g : OneDim
+              returns integer)
+  for initial
+    ncount := 0;
+    x      := x0
+  repeat
+    ncount  := old ncount + 1;
+    x       := spmul(n, A, AJ, old x, g);
+    x_error := dist(n, old x, x)
+  until ncount = 10 | x_error < 0.0
+  returns value of ncount
+  end for
+end function
