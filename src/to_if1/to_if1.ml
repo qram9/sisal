@@ -3155,7 +3155,9 @@ and direct_scalar_unop (en, ep, et) node_tag in_gr =
   ((rn, 0, et), in_gr)
 
 (* Build an element-wise forall for a unary op given an already-lowered array.
-   body_fn receives the indexed element (A[i]) and returns the body AST node. *)
+   body_fn receives the indexed element (A[i]) and returns the body AST node.
+   When the input is array_dv, the output forall uses 'returns array_dv of'
+   so the result preserves the array_dv type (1-D; same bounds as input). *)
 and lift_unop_forall (en, ep, et) body_fn in_gr =
   let mk_inv fn args =
     Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
@@ -3166,11 +3168,16 @@ and lift_unop_forall (en, ep, et) body_fn in_gr =
   let lo = mk_inv [ "ARRAY_LIML" ] [ e_ref ] in
   let hi = mk_inv [ "ARRAY_LIMH" ] [ e_ref ] in
   let body = body_fn (Ast.Array_ref (e_ref, Ast.Exp [ i_ref ])) in
+  let return_kind =
+    if is_dv_array_ty et in_gr
+    then Ast.Dv_array_of (1, body)
+    else Ast.Array_of body
+  in
   let forall =
     Ast.For_all
       ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
         Ast.Decldef_part [],
-        [ Ast.Return_exp (Ast.Array_of body, Ast.No_mask) ] )
+        [ Ast.Return_exp (return_kind, Ast.No_mask) ] )
   in
   do_simple_exp_impl in_gr forall
 
