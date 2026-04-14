@@ -203,6 +203,9 @@ Numeric / math:
 Intrinsics lifted over array_dv (element-wise unary, binary, reductions):
   $ sisal dv_intrinsics.sis
 
+Aggregate array_dv operations (basic.sis / sisal_tests_by_section.sis style):
+  $ sisal basic_dv.sis
+
 DV variants of scientific benchmarks:
   $ sisal gaussj_perm_dv.sis
   $ sisal cfft_dv.sis
