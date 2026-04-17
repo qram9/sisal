@@ -1,0 +1,70 @@
+% 8-QUEENS — DV variant
+%
+% Rewrite of 8queens.sis using array_dv.
+%
+% DV changes:
+%   • queen_vec = array_dv[integer]: a pre-allocated N-slot vector of queen
+%     column positions, updated functionally with element replacement.
+%     Using a fixed-size DV lets the parallel row-checking loop operate on
+%     a contiguous integer vector rather than a growing dynamic array.
+%   • The per-column candidate loop generates all 8 row assignments densely,
+%     builds a boolean mask in parallel, then COMPRESS filters to the valid
+%     subset — making the filtering data-parallel instead of conditional.
+%   • The outer collection uses catenate to aggregate solutions from all
+%     valid partial assignments.
+%
+% queen_vec[col] = row of the queen placed in column col (1-based indices).
+% Slots for not-yet-placed columns hold the sentinel value 0.
+
+define Main
+
+type queen_vec   = array_dv[integer];
+type sol_list    = array[queen_vec];
+
+% Return true if placing a queen at (r, c) conflicts with any queen
+% already placed in columns 1 .. c-1.
+function in_check(r, c : integer; queens : queen_vec returns boolean)
+  for col in 1, c-1
+    row_col := queens[col]
+  returns value of sum
+    (r = row_col) |
+    ((row_col + col) = (r + c)) |
+    ((row_col - col) = (r - c))
+  end for
+end function
+
+% Recursively place queens in columns col .. n.
+% queens: partial assignment (cols 1..col-1 filled, rest zero).
+% Returns all complete solutions.
+function Place(n, col : integer; queens : queen_vec returns sol_list)
+  if col > n then
+    array sol_list [1: queens]       % found one complete solution
+  else
+    let
+      % Build all 8 candidate extensions and a validity mask in parallel.
+      all_ext, ok :=
+        for row in 1, n
+        returns array of queens[col : row]
+                array of ~in_check(row, col, queens)
+        end for;
+      valid_ext := COMPRESS(ok, all_ext)
+    in
+      % Recurse into each valid extension and catenate all results.
+      for partial in valid_ext
+        subs := Place(n, col + 1, partial)
+      returns
+        value of catenate subs
+      end for
+    end let
+  end if
+end function
+
+% Main entry point.  Call with level = 8 for the standard problem.
+% The initial queen_vec is all-zeros (no queens placed yet).
+function Main(level : integer returns sol_list)
+  let
+    empty := for j in 1, level returns array_dv of 0 end for
+  in
+    Place(level, 1, empty)
+  end let
+end function

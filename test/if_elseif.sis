@@ -1,0 +1,10 @@
+DEFINE MAIN
+FUNCTION MAIN(I, E, F : INTEGER RETURNS INTEGER)
+  if I < E then
+    I
+  elseif E < F then
+    E
+  else
+    F
+  end if
+END FUNCTION

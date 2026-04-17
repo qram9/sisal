@@ -1,0 +1,101 @@
+% FFT — DV variant (based on badfft.sis / Vivek Sarkar)
+%
+% DV changes:
+%   • type CVec = array_dv[complex]: the signal vector is a contiguous
+%     dope-vector array of complex records instead of a nested array.
+%   • The inner butterfly loop (for x in 0,n-1) now emits array_dv of w,
+%     producing a pre-allocated output buffer in each iteration.
+%   • The test-signal generator and the validation arrays also use array_dv.
+%   • The iterative loop carries z1 : CVec as state; because the initial
+%     value z (input) is also CVec, types are consistent throughout.
+%
+% Input convention: array_liml(z) = 0, array_size(z) is a power of 2.
+
+define main
+
+type complex = record[r, i : real];
+type CVec    = array_dv[complex];
+
+global sqrt(x : real returns real)
+global sin (x : real returns real)
+global cos (x : real returns real)
+
+function addc(a, b : complex returns complex)
+  record complex [r : a.r + b.r; i : a.i + b.i]
+end function
+
+function subc(a, b : complex returns complex)
+  record complex [r : a.r - b.r; i : a.i - b.i]
+end function
+
+function mulc(a, b : complex returns complex)
+  record complex [r : a.r*b.r - a.i*b.i; i : a.i*b.r + a.r*b.i]
+end function
+
+function absc(a : complex returns real)
+  sqrt(a.r*a.r + a.i*a.i)
+end function
+
+% FFT: iterative Cooley-Tukey, no bit-reversal needed.
+% Assumes array_liml(z) = 0 and array_size(z) is a power of 2.
+function fft(z : CVec returns CVec)
+  let
+    pi    := 3.1415926536;
+    n     := array_size(z);
+    m     := n / 2;
+    theta := -pi / real(m)         % = -2*pi/n
+  in
+    for initial
+      l  := 1;
+      z1 := z
+    repeat
+      l  := old l + old l;
+      z1 :=
+        for x in 0, n-1
+          k := (x / old l) * old l;
+          j := k + old l;
+          w :=
+            if mod(x / old l, 2) = 0 then
+              let i := x - k
+              in addc(old z1[i], old z1[i + m])
+              end let
+            else
+              let
+                i      := x - j;
+                expval := record complex [r : cos(real(k)*theta);
+                                          i : sin(real(k)*theta)];
+                zdiff  := subc(old z1[i], old z1[i + m])
+              in
+                mulc(expval, zdiff)
+              end let
+            end if
+        returns array_dv of w
+        end for
+    while l <= m
+    returns value of z1
+    end for
+  end let
+end function
+
+function eqreal(x, y : real returns boolean)
+  abs(x - y) <= 0.0001 * max(abs(x), abs(y))
+end function
+
+% Test main: signal of length 2^m, check FFT peaks.
+function main(m : integer returns boolean)
+  let
+    pi     := 3.1415926536;
+    n      := exp(2, m);
+    % Generate test signal (0-based index)
+    s      := for j in 0, n-1
+               returns array_dv of
+                 record complex [r : sin(real(j)*pi/8.0); i : 0.0]
+               end for;
+    f      := fft(s);
+    pos1   := n / 16;
+    pos2   := n - pos1;
+    absval := real(n) / 2.0
+  in
+    eqreal(absc(f[pos1]), absval) & eqreal(absc(f[pos2]), absval)
+  end let
+end function

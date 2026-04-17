@@ -1093,8 +1093,7 @@ and do_for_all inexp bodyexp retexp in_gr =
     let aar = generator_array_lowlim outer_gen_gr in
     match aar with
     | `ArrLim xy ->
-        let ainx = get_lower_lim gen_exp_outer in
-        let (ai, ay, _), in_gr = do_simple_exp in_gr ainx in
+        let (ai, ay, _), in_gr = do_simple_exp in_gr (Ast.Constant (Ast.Int 1)) in
         let (aa1, _, _), in_gr = unary_internal 1 fx aa tt in_gr If1.ASETL in
         let in_gr =
           If1.add_edge ai ay aa1 1 (If1.lookup_tyid If1.INTEGRAL) in_gr
@@ -1104,7 +1103,7 @@ and do_for_all inexp bodyexp retexp in_gr =
             If1.add_to_boundary_outputs ~start_port:cc aa1 0 tt in_gr
           else If1.add_edge2 aa1 0 mul_n cc tt in_gr
         in
-        (xy, in_gr)
+        (aa1, in_gr)
     | `AScatt xy ->
         let x, xx, xxx = If1.node_incoming_at_port xy 0 outer_gen_gr in
         let (ix, _, _), in_gr = build_alim in_gr in
@@ -2401,24 +2400,17 @@ and bin_exp a b in_gr node_tag =
     | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR -> true
     | _ -> false
   in
-  let is_liftable_arr =
-    match node_tag with
-    | If1.ADD | If1.SUBTRACT | If1.TIMES | If1.FDIVIDE | If1.IDIVIDE
-    | If1.EQUAL | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL | If1.GREATER | If1.GREATER_EQUAL
-    | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR -> true
-    | _ -> false
-  in
 
-  if is_liftable_dv && (a_is_dv || b_is_dv) then
-    (* 1. Universal 1D lifting for Array_dv (APL/NumPy style) *)
+  if is_liftable_dv && (a_is_dv || b_is_dv || a_is_arr || b_is_arr) then
+    (* 1. Universal 1D lifting for Array_dv or standard Array (APL/NumPy style) *)
     let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
     let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
     let ae =
-      if a_is_arr then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]) else a_ref
+      if a_is_arr || a_is_dv then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]) else a_ref
     in
     let be =
-      if b_is_arr then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ]) else b_ref
+      if b_is_arr || b_is_dv then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ]) else b_ref
     in
     let body_elem =
       match node_tag with
@@ -2439,8 +2431,6 @@ and bin_exp a b in_gr node_tag =
       | _ -> failwith "Unreachable"
     in
     lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
-  else if is_liftable_arr && (a_is_arr || b_is_arr) then
-    raise (If1.Sem_error "Standard Array_ty does not support lifted binary operations. Use array_dv instead.")
   else
     (* 3. Non-array case: Matmul/Matvec or Scalar *)
     let a_ty = match If1.lookup_ty_safe qq1 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
@@ -3995,7 +3985,143 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
           (* Check for lifted unary intrinsic *)
           let up_fn = String.uppercase_ascii deref_fn in
-          if List.mem up_fn is_intrinsic_unary && List.length expl = 1 && is_array_ty (List.hd arg_types) in_gr then
+          if up_fn = "BUILD_COMPLEX_SOA" then
+            match expl with
+            | [ (rn, rp, rt); (imn, imp, imt) ] ->
+                let name_re = "__RE_SOA" in
+                let name_im = "__IM_SOA" in
+                let in_gr = inject_sym name_re (rn, rp, rt) in_gr in
+                let in_gr = inject_sym name_im (imn, imp, imt) in_gr in
+                do_simple_exp in_gr 
+                  (Ast.Record_generator_unnamed 
+                     [ Ast.Field_def (Ast.Field_name "RE", Ast.Val (Ast.Value_name [name_re]));
+                       Ast.Field_def (Ast.Field_name "IM", Ast.Val (Ast.Value_name [name_im])) ])
+            | _ -> raise (If1.Sem_error "BUILD_COMPLEX_SOA: expected 2 arguments")
+          else if up_fn = "BUILD_COMPLEX_AOS" then
+            match expl with
+            | [ (rn, rp, rt); (imn, imp, imt) ] ->
+                let name_re = "__RE_AOS" in
+                let name_im = "__IM_AOS" in
+                let in_gr = inject_sym name_re (rn, rp, rt) in_gr in
+                let in_gr = inject_sym name_im (imn, imp, imt) in_gr in
+                let elem_ty = match If1.lookup_ty rt in_gr with If1.Array_ty e | If1.Array_dv e -> e | _ -> rt in
+                let tn, base_ty_id = match If1.lookup_ty elem_ty in_gr with
+                  | Basic DOUBLE -> "COMPLEX_DOUBLE", If1.lookup_tyid If1.DOUBLE
+                  | Basic HALF -> "COMPLEX_HALF", If1.lookup_tyid If1.HALF
+                  | _ -> "COMPLEX_FLOAT", If1.lookup_tyid If1.REAL
+                in
+                do_simple_exp in_gr
+                  (Ast.For_all (
+                     Ast.Dot (Ast.In_exp (Ast.Value_name ["__R"], Ast.Exp [Ast.Val (Ast.Value_name [name_re])]), 
+                              Ast.In_exp (Ast.Value_name ["__I"], Ast.Exp [Ast.Val (Ast.Value_name [name_im])])),
+                     Ast.Decldef_part [],
+                     [ Ast.Return_exp (
+                         Ast.Dv_array_of (1, 
+                           Ast.Record_generator_named (tn, 
+                             [ Ast.Field_def (Ast.Field_name "RE", Ast.Val (Ast.Value_name ["__R"]));
+                               Ast.Field_def (Ast.Field_name "IM", Ast.Val (Ast.Value_name ["__I"])) ]
+                           )
+                         ), Ast.No_mask) ] ))
+            | _ -> raise (If1.Sem_error "BUILD_COMPLEX_AOS: expected 2 arguments")
+          else if up_fn = "EINSUM" then
+            match expl with
+            | lit_arg :: args ->
+                let (lit_n, _, _) = If1.find_incoming_regular_node lit_arg in_gr in
+                let format = match If1.NM.find_opt lit_n in_gr.If1.nmap with
+                  | Some (If1.Literal (_, _, s, _)) -> String.trim (String.map (function '"' -> ' ' | c -> c) s)
+                  | _ -> ""
+                in
+                let arg_triples = List.map (fun x -> If1.find_incoming_regular_node x in_gr) args in
+                let arg_types = List.map (fun (_, _, t) -> t) arg_triples in
+                begin match format with
+                | "ij,jk->ik" when List.length args = 2 ->
+                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    if If1.is_mat_type a_ty && If1.is_mat_type b_ty then
+                      bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
+                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
+                              If1.TIMES
+                    else
+                      (* Standard array matrix multiply *)
+                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in (* assume same as A for now *)
+                      let (rn, rp, _), in_gr = 
+                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      in
+                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      ((rn, rp, res_ty), in_gr)
+                | "ij,j->i" when List.length args = 2 ->
+                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    if If1.is_mat_type a_ty && If1.is_vector_type b_ty then
+                      let ((mn, mp, mt), g) = bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
+                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
+                              If1.TIMES
+                      in
+                      ((mn, mp, List.nth arg_types 1), g)
+                    else
+                      (* Standard array matrix-vector multiply *)
+                      let res_ty, in_gr = (List.nth arg_types 1, in_gr) in (* same as x *)
+                      let (rn, rp, _), in_gr = 
+                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      in
+                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      ((rn, rp, res_ty), in_gr)
+                | "i,ij->j" when List.length args = 2 ->
+                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                      | _ -> If1.Basic If1.INTEGRAL
+                    in
+                    if If1.is_vector_type a_ty && If1.is_mat_type b_ty then
+                      let ((mn, mp, mt), g) = bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
+                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
+                              If1.TIMES
+                      in
+                      ((mn, mp, List.nth arg_types 0), g)
+                    else
+                      (* Standard array vector-matrix multiply *)
+                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in (* same as x *)
+                      let (rn, rp, _), in_gr = 
+                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      in
+                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      ((rn, rp, res_ty), in_gr)
+                | _ ->
+                    let info = Einsum_lower.parse_einsum_subscript format in
+                    let res_ty, in_gr = 
+                      match info.Einsum_lower.output_spec with
+                      | [] -> (If1.lookup_tyid If1.REAL, in_gr)
+                      | _ -> 
+                          let elem_ty = match arg_types with
+                            | t :: _ -> get_deep_elem_ty t in_gr
+                            | _ -> If1.lookup_tyid If1.REAL
+                          in
+                          let (id, _, _), g = If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty) in_gr in
+                          (id, g)
+                    in
+                    let (rn, rp, _), in_gr = 
+                      If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                    in
+                    let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                    ((rn, rp, res_ty), in_gr)
+                end
+            | _ -> raise (If1.Sem_error "EINSUM: expected format string and arguments")
+          else if List.mem up_fn is_intrinsic_unary && List.length expl = 1 && is_array_ty (List.hd arg_types) in_gr then
             lift_unop_forall (List.hd expl) (fun elem -> intrinsic_to_ast up_fn elem) in_gr
           else
             let cs, ps = in_gr.If1.symtab in
@@ -6721,10 +6847,28 @@ and redeem_and_merge_library current_gr voucher_info =
   in
   (remapped_info, merged_gr)
 
+and ensure_complex_types in_gr =
+  let register_one tn base_ty_id in_gr =
+    let tmn = If1.get_typename_map in_gr in
+    if not (If1.MM.mem tn tmn) then
+      let (tid_im, _, _), in_gr = If1.add_type_to_typemap_dedup (If1.Record (base_ty_id, 0, "IM")) in_gr in
+      let (tid_re, _, _), in_gr = If1.add_type_to_typemap_dedup (If1.Record (base_ty_id, tid_im, "RE")) in_gr in
+      let _, in_gr = If1.add_sisal_typename in_gr tn tid_re in
+      let globals, locals = in_gr.If1.symtab in
+      let entry = {If1.val_name=tn; val_ty=tid_re; val_def=0; def_port=0} in
+      { in_gr with If1.symtab = (If1.SM.add tn entry globals, If1.SM.add tn entry locals) }
+    else in_gr
+  in
+  let in_gr = register_one "COMPLEX_HALF" (If1.lookup_tyid If1.HALF) in_gr in
+  let in_gr = register_one "COMPLEX_FLOAT" (If1.lookup_tyid If1.REAL) in_gr in
+  let in_gr = register_one "COMPLEX_DOUBLE" (If1.lookup_tyid If1.DOUBLE) in_gr in
+  in_gr
+
 and do_compilation_unit = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
       let in_gr = If1.get_empty_graph 1 88 in
+      let in_gr = ensure_complex_types in_gr in
       (* PASS 1: Register all types, usings, and global signatures across ALL
          fragments before lowering any function body. This ensures mutual
          references between functions in different fragments are visible. *)
