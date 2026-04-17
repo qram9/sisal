@@ -254,7 +254,7 @@ and lower_node env gr nid node =
               if dn = 0 then FullPortMap.add (gid, cid, dp) (get_expr env_after_sub sub_gid sn sp) m else m
             ) loop_gr.eset env_after_sub.var_map in
           stmts, { env_after_sub with var_map; curr_gr = gid }
-  | Simple (_, sym, _, pout, _) ->
+  | Simple (_, sym, _, pout, pr) ->
       begin match match sym with
         | ADD -> Some C.Add | SUBTRACT -> Some C.Sub | TIMES -> Some C.Mul 
         | FDIVIDE | IDIVIDE -> Some C.Div | EQUAL -> Some C.Eq 

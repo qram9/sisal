@@ -1,0 +1,26 @@
+type dvi = array_dv[integer]
+
+% Given mode and array A:
+%   mode = 0  ->  return A unchanged
+%   mode = 1  ->  return element-wise negation of A
+%   else      ->  return element-wise doubling of A
+
+function pick(mode : integer; A : dvi returns dvi)
+  if mode = 0 then
+    A
+  elseif mode = 1 then
+    let N := array_size(A) in
+    for I in 1, N
+      Val := -A[I]
+    returns array_dv of Val
+    end for
+    end let
+  else
+    let N := array_size(A) in
+    for I in 1, N
+      Val := A[I] * 2
+    returns array_dv of Val
+    end for
+    end let
+  end if
+end function

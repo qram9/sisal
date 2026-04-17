@@ -1,0 +1,8 @@
+DEFINE MAIN
+
+FUNCTION MAIN(A, B : array_dv[REAL] RETURNS array_dv[REAL])
+  for i in 0, array_size(A)-1
+    X := A[i] + B[i];
+  returns array_dv of X
+  end for
+END FUNCTION

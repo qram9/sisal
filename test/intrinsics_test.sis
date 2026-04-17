@@ -2,20 +2,19 @@ define AllIntrinsics
 
 function AllIntrinsics(A, B: array[real]; flag: boolean returns array[real], array[real], array[boolean])
   let
-    N := array_size(A)
+    N := array_size(A);
     
     % 1. Arithmetic & Array Indexing (AELEMENT, ADD, SUB, TIMES, FDIVIDE)
     C := for I in 1, N
            returns array of A[I] * B[I] + (A[I] - B[I]) / 2.0
-         end for
+         end for;
          
     % 2. Comparisons & SELECT (GREATER, SELECT)
     D := for I in 1, N
-           let
-             greater := A[I] > B[I]
-             val := if greater then A[I] else B[I] end if
-           returns array of val
-         end for
+           greater := A[I] > B[I];
+           val := if greater then A[I] else B[I] end if
+         returns array of val
+         end for;
          
     % 3. Equality & Logical OR (EQUAL, OR)
     E := for I in 1, N

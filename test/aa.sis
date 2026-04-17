@@ -1,0 +1,4 @@
+type dvi = array_dv[integer]
+function dvfill  (lo, hi, v : integer returns dvi)
+  for i in lo, hi returns array_dv of v end for
+end function
