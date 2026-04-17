@@ -68,6 +68,9 @@ let type_id_of_if1_ty tm ty =
   | Array_dv _ | Array_ty _ -> 10 
   | _ -> 0
 
+let is_boolean_ty tm ty_id =
+  try match TM.find ty_id tm with Basic BOOLEAN -> true | _ -> false with _ -> false
+
 let rec get_expr ?(depth=0) env gid nid pid =
   if depth > 50 then C.Id "REC_LIMIT" else
   match FullPortMap.find_opt (gid, nid, pid) env.var_map with
@@ -255,11 +258,18 @@ and lower_node env gr nid node =
             ) loop_gr.eset env_after_sub.var_map in
           stmts, { env_after_sub with var_map; curr_gr = gid }
   | Simple (_, sym, _, pout, pr) ->
+      let ty_id = ES.fold (fun ((sn, sp), _, t) acc -> if sn = nid && sp = 0 then Some t else acc) gr.eset None |> Option.value ~default:0 in
+      let is_bool = is_boolean_ty env.tm ty_id in
       begin match match sym with
         | ADD -> Some C.Add | SUBTRACT -> Some C.Sub | TIMES -> Some C.Mul 
         | FDIVIDE | IDIVIDE -> Some C.Div | EQUAL -> Some C.Eq 
         | LESSER -> Some C.Lt | LESSER_EQUAL -> Some C.Le 
-        | GREATER -> Some C.Gt | GREATER_EQUAL -> Some C.Ge | _ -> None
+        | GREATER -> Some C.Gt | GREATER_EQUAL -> Some C.Ge 
+        | AND | BITAND -> Some (if is_bool then C.LogAnd else C.BitAnd)
+        | OR | BITOR -> Some (if is_bool then C.LogOr else C.BitOr)
+        | BITXOR -> Some C.BitXor
+        | SHL -> Some C.Shl | SHR | ASHR -> Some C.Shr
+        | _ -> None
       with
       | Some op ->
           let e1 = get_expr env gid nid 0 in 
@@ -274,7 +284,25 @@ and lower_node env gr nid node =
           let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
           [stmt], { env with var_map }
       | None -> 
-          if sym = TYPECAST then
+          let match_unary_op = match sym with
+            | NEGATE -> Some C.Negate
+            | NOT -> Some (if is_bool then C.LogNot else C.BitNot)
+            | _ -> None
+          in
+          begin match match_unary_op with
+          | Some op ->
+              let e = get_expr env gid nid 0 in
+              let ty = get_port_type env gr nid 0 in
+              let v_name = Printf.sprintf "v_un_g%d_n%d" gid nid in
+              let stmt = C.Decl (ty, v_name, Some (C.UnaryOp (op, e))) in
+              let var_map = Array.fold_left (fun m ps ->
+                  let pid = try int_of_string (String.trim ps) with _ -> 0 in
+                  FullPortMap.add (gid, nid, pid) (C.Id v_name) m
+                ) env.var_map pout in
+              let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
+              [stmt], { env with var_map }
+          | None ->
+              if sym = TYPECAST then
             let e = get_expr env gid nid 0 in
             let ty = get_port_type env gr nid 0 in
             let v_name = Printf.sprintf "v_cast_g%d_n%d" gid nid in
@@ -316,13 +344,55 @@ and lower_node env gr nid node =
               ) env.var_map pout in
             let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
             [stmt], { env with var_map }
+          else if sym = AADDH || sym = AADDL || sym = AREMH || sym = AREML || sym = ACATENATE || sym = ACREATE || sym = AFILL then
+            let arg_count = ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid then max acc (dp + 1) else acc) gr.eset 0 in
+            let args = List.init arg_count (fun i -> get_expr env gid nid i) in
+            let ty = get_port_type env gr nid 0 in
+            let v_name = Printf.sprintf "v_arr_g%d_n%d" gid nid in
+            let call_name = match sym with
+              | AADDH -> "sisal_array_addh" | AADDL -> "sisal_array_addl"
+              | AREMH -> "sisal_array_remh" | AREML -> "sisal_array_reml"
+              | ACATENATE -> "sisal_array_concat" | ACREATE -> "sisal_array_create"
+              | AFILL -> "sisal_array_fill" | _ -> "unknown" in
+            let stmt = C.Decl (ty, v_name, Some (C.Call (call_name, args))) in
+            let var_map = Array.fold_left (fun m ps ->
+                let pid = try int_of_string (String.trim ps) with _ -> 0 in
+                FullPortMap.add (gid, nid, pid) (C.Id v_name) m
+              ) env.var_map pout in
+            let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
+            [stmt], { env with var_map }
+          else if sym = REDUCE || sym = REDUCE_ALL then
+            let arr = get_expr env gid nid 0 in
+            let op_name = List.find_map (function Name s -> Some s | _ -> None) pr |> Option.value ~default:"SUM" in
+            let ty = get_port_type env gr nid 0 in
+            let v_name = Printf.sprintf "v_red_g%d_n%d" gid nid in
+            let call_name = "sisal_array_reduce_" ^ String.lowercase_ascii op_name in
+            let stmt = C.Decl (ty, v_name, Some (C.Call (call_name, [arr]))) in
+            let var_map = Array.fold_left (fun m ps ->
+                let pid = try int_of_string (String.trim ps) with _ -> 0 in
+                FullPortMap.add (gid, nid, pid) (C.Id v_name) m
+              ) env.var_map pout in
+            let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
+            [stmt], { env with var_map }
           else if sym = INVOCATION then
             let func_name = List.find_map (function Name s -> Some s | _ -> None) pr |> Option.value ~default:"unknown" in
             let arg_count = ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid then max acc (dp + 1) else acc) gr.eset 0 in
             let args = List.init arg_count (fun i -> get_expr env gid nid i) in
             let ty = get_port_type env gr nid 0 in
             let v_name = Printf.sprintf "v_call_g%d_n%d" gid nid in
-            let call_name = if env.force_gpu then "sisal_gpu_" ^ func_name else func_name in
+            
+            let up_name = String.uppercase_ascii func_name in
+            let call_name = 
+              match up_name with
+              | "ABS" -> if ty = C.Basic "float" then "fabsf" else if ty = C.Basic "double" then "fabs" else "abs"
+              | "SQRT" -> if ty = C.Basic "float" then "sqrtf" else "sqrt"
+              | "SIN" -> if ty = C.Basic "float" then "sinf" else "sin"
+              | "COS" -> if ty = C.Basic "float" then "cosf" else "cos"
+              | "EXP" | "ETOTHE" -> if ty = C.Basic "float" then "expf" else "exp"
+              | "LOG" -> if ty = C.Basic "float" then "logf" else "log"
+              | "LOG10" -> if ty = C.Basic "float" then "log10f" else "log10"
+              | _ -> if env.force_gpu then "sisal_gpu_" ^ func_name else func_name 
+            in
             let stmt = C.Decl (ty, v_name, Some (C.Call (call_name, args))) in
             let var_map = Array.fold_left (fun m ps ->
                 let pid = try int_of_string (String.trim ps) with _ -> 0 in
@@ -331,6 +401,7 @@ and lower_node env gr nid node =
             let var_map = FullPortMap.add (gid, nid, 0) (C.Id v_name) var_map in
             [stmt], { env with var_map }
           else [], env
+          end
       end
   | Literal (_, code, value, pout) ->
       let v_name = Printf.sprintf "lit_g%d_n%d" gid nid in
