@@ -685,47 +685,27 @@ and create_subgraph_symtab in_gr other_gr =
   let cs = get_local_symtab in_gr in
   let otm = get_typemap in_gr in
   let other_cs, other_ps = get_symtab other_gr in
-  let { nmap = nm; eset = es; symtab = cs, ps; typemap = tm; w = i } =
-    {
-      other_gr with
-      symtab =
-        (let kkk =
-          fun k { val_name = vn_n; val_ty = t1; val_def = _; def_port = _ }
-              (z, cou) ->
-           if SM.mem k other_ps = false then
-             ( SM.add k
-                 { val_name = vn_n; val_ty = t1; val_def = 0; def_port = cou }
-                 z,
-               cou + 1 )
-           else (z, cou)
-         in
-         let other_cs, _ = SM.fold kkk cs (other_cs, SM.cardinal other_cs) in
-         (other_cs, other_ps));
-    }
-  in
-  let port_name_map =
+  let new_cs, other_gr =
     SM.fold
-      (fun k { val_name = _; val_ty = _; val_def = _; def_port = cou } zz ->
-        IntMap.add cou k zz)
-      cs IntMap.empty
+      (fun k entry (acc_cs, acc_gr) ->
+        if SM.mem k other_ps = false then
+          let port, acc_gr =
+            add_to_boundary_inputs ~namen:entry.val_name entry.val_def
+              entry.def_port acc_gr
+          in
+          ( SM.add k { entry with val_def = 0; def_port = port } acc_cs,
+            acc_gr )
+        else (acc_cs, acc_gr))
+      cs (other_cs, other_gr)
   in
-  let rec make_a_small_lis x y alis =
-    if x < y then
-      make_a_small_lis (x + 1) y ((0, x, IntMap.find x port_name_map) :: alis)
-    else alis
-  in
-  let boun_lis = make_a_small_lis 0 (SM.cardinal cs) [] in
-  let in_gr =
-    {
-      nmap = nm;
-      eset = es;
-      symtab = (cs, ps);
-      typemap = merge_typeblobs tm otm;
-      w = i;
-    }
-  in
-  let in_gr = input_from_boundary boun_lis in_gr in
-  in_gr
+  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i } = other_gr in
+  {
+    nmap = nm;
+    eset = es;
+    symtab = (new_cs, other_ps);
+    typemap = merge_typeblobs tm otm;
+    w = i;
+  }
 
 and get_boundary_node in_gr =
   let nm = get_node_map in_gr in
@@ -1206,30 +1186,30 @@ and get_named_input_port_map in_gr =
 and add_to_boundary_inputs ?(namen = "") n p in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
-      let lookin_lis n p =
-        try
-          List.fold_right
-            (fun (x, y, _) res ->
-              if n = x && p = y then raise (Val_is_found x) else res)
-            in_port_list false
-        with Val_is_found _ -> true
+      let rec lookin_lis idx = function
+        | [] -> None
+        | (x, y, _) :: _ when n = x && p = y -> Some idx
+        | _ :: tl -> lookin_lis (idx + 1) tl
       in
-
-      if lookin_lis n p = true then in_gr
-      else
-        let nm = get_node_map in_gr in
-        {
-          in_gr with
-          nmap =
-            NM.add 0
-              (Boundary
-                 ( (n, p, namen) :: in_port_list,
-                   out_port_list,
-                   err_ports,
-                   boundary_p ))
-              nm;
-        }
-  | _ -> in_gr
+      let existing_idx_opt = lookin_lis 0 (List.rev in_port_list) in
+      (match existing_idx_opt with
+      | Some idx -> (idx, in_gr)
+      | None ->
+          let next_port = List.length in_port_list in
+          let nm = get_node_map in_gr in
+          ( next_port,
+            {
+              in_gr with
+              nmap =
+                NM.add 0
+                  (Boundary
+                     ( (n, p, namen) :: in_port_list,
+                       out_port_list,
+                       err_ports,
+                       boundary_p ))
+                  nm;
+            } ))
+  | _ -> (0, in_gr)
 
 and boundary_in_port_count in_gr =
   match get_boundary_node in_gr with
@@ -1334,7 +1314,8 @@ and output_to_boundary_with_none ?(start_port = 0) alis in_gr =
 and input_from_boundary alis in_gr =
   match alis with
   | (srcn, srcp, nam) :: tl ->
-      input_from_boundary tl (add_to_boundary_inputs ~namen:nam srcn srcp in_gr)
+      let _, in_gr = add_to_boundary_inputs ~namen:nam srcn srcp in_gr in
+      input_from_boundary tl in_gr
   | [] -> in_gr
 
 and get_element_type vect =
@@ -1728,13 +1709,33 @@ and add_node nn in_gr =
       let g = { g with typemap = g_tmn } in
       let child_ps = snd (get_symtab g) in
       let par_ps = SM.fold (fun k v z -> SM.add k v z) child_ps par_ps in
-      {
-        in_gr with
-        nmap = NM.add pi (Compound (pi, sy, ty, prag, g, alis)) nm;
-        symtab = (par_cs, par_ps);
-        typemap = g_tmn;
-        w = pi + 1;
-      }
+      let pi = in_gr.w in
+      let in_gr =
+        {
+          in_gr with
+          nmap = NM.add pi (Compound (pi, sy, ty, prag, g, alis)) nm;
+          symtab = (par_cs, par_ps);
+          typemap = g_tmn;
+          w = pi + 1;
+        }
+      in
+      let ipl =
+        match get_boundary_node g with Boundary (l, _, _, _) -> List.rev l | _ -> []
+      in
+      let rec loop idx acc_gr = function
+        | [] -> acc_gr
+        | (sn, sp, name) :: tl ->
+            let ty =
+              if SM.mem name par_cs then (SM.find name par_cs).val_ty
+              else if SM.mem name par_ps then (SM.find name par_ps).val_ty
+              else 0
+            in
+            if ty <> 0 then
+              let acc_gr = add_edge2 sn sp pi idx ty acc_gr in
+              loop (idx + 1) acc_gr tl
+            else loop (idx + 1) acc_gr tl
+      in
+      loop 0 in_gr ipl
   | `Literal (ty_lab, str, pout) ->
       {
         in_gr with
@@ -2528,7 +2529,12 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
   let n1, p1, ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0 then add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr
   else
-    let in_gr = if n1 = 0 then add_to_boundary_inputs 0 p1 in_gr else in_gr in
+    let in_gr =
+      if n1 = 0 then
+        let _, in_gr = add_to_boundary_inputs 0 p1 in_gr in
+        in_gr
+      else in_gr
+    in
     let in_gr = add_edge2 n1 p1 n2 p2 ed_ty in_gr in
     in_gr
 
@@ -4192,7 +4198,10 @@ and get_symbol_id v in_gr =
     (* 2. Check parent scope for automatic boundary import *)
   else if SM.mem v ps then
     let p_entry = SM.find v ps in
-    let next_port = boundary_in_port_count in_gr in
+    (* Physically add the port to the IF1 boundary metadata *)
+    let next_port, in_gr =
+      add_to_boundary_inputs ~namen:v p_entry.val_def p_entry.def_port in_gr
+    in
     (* Define the symbol in current scope as an input from the boundary (Node 0) *)
     let cs =
       SM.add v
@@ -4205,9 +4214,7 @@ and get_symbol_id v in_gr =
         cs
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
-    (* Physically add the port to the IF1 boundary metadata *)
-    ( (0, next_port, p_entry.val_ty),
-      add_to_boundary_inputs ~namen:v 0 next_port in_gr )
+    ((0, next_port, p_entry.val_ty), in_gr)
   else
     raise
       (Sem_error
@@ -4232,25 +4239,29 @@ and get_symbol_id_old v in_gr =
     (* 3. Check parent scope for "OLD v" and import through boundary *)
   else if SM.mem old_name ps then
     let p_entry = SM.find old_name ps in
-    let next_port = boundary_in_port_count in_gr in
+    let next_port, in_gr =
+      add_to_boundary_inputs ~namen:old_name p_entry.val_def p_entry.def_port
+        in_gr
+    in
     let cs =
       SM.add old_name { p_entry with val_def = 0; def_port = next_port } cs
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
-    ( (0, next_port, p_entry.val_ty),
-      add_to_boundary_inputs ~namen:old_name 0 next_port in_gr )
+    ((0, next_port, p_entry.val_ty), in_gr)
     (* 4. Check parent scope for "v" and import as "OLD" through boundary *)
   else if SM.mem v ps then
     let p_entry = SM.find v ps in
-    let next_port = boundary_in_port_count in_gr in
+    let next_port, in_gr =
+      add_to_boundary_inputs ~namen:old_name p_entry.val_def p_entry.def_port
+        in_gr
+    in
     let cs =
       SM.add old_name
         { p_entry with val_name = old_name; val_def = 0; def_port = next_port }
         cs
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
-    ( (0, next_port, p_entry.val_ty),
-      add_to_boundary_inputs ~namen:old_name 0 next_port in_gr )
+    ((0, next_port, p_entry.val_ty), in_gr)
   else
     raise
       (Node_not_found
