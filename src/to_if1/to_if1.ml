@@ -1032,24 +1032,14 @@ and get_ports_unified of_gr basis_gr parent_gr =
                       ps );
                 }
               in
-              If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr
+              let _, f_gr =
+                If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr
+              in
+              f_gr
             else raise (If1.Sem_error ("Cannot find name in outer scope:" ^ xn))
           else f_gr)
         in_port_lis of_gr
   | _ -> of_gr
-
-and tie_outer_scope_to_inner from_gr to_gr to_node =
-  (* Tie outer scope variables to forall boundary
-      input ports. *)
-  let bin = If1.get_boundary_node from_gr in
-  match bin with
-  | If1.Boundary (in_port_lis, _, _, _) ->
-      List.fold_right
-        (fun (_, yp, xn) o_gr ->
-          let (xx, xy, xt), o_gr = If1.get_symbol_id xn o_gr in
-          If1.add_edge xx xy to_node yp xt o_gr)
-        in_port_lis to_gr
-  | _ -> to_gr
 
 and do_for_all inexp bodyexp retexp in_gr =
   (* Use Array input's dimensions to
@@ -1255,8 +1245,7 @@ and do_for_all inexp bodyexp retexp in_gr =
           in
 
           let forall_gr =
-            let forall_gr = get_ports_unified forall_gr body_nest_gr gen_gr in
-            tie_outer_scope_to_inner forall_gr forall_gr fx
+            get_ports_unified forall_gr body_nest_gr gen_gr
           in
 
           ( (fx, fy, fz),
@@ -1341,7 +1330,6 @@ and do_for_all inexp bodyexp retexp in_gr =
       return_action_list (0, [], in_gr)
   in
 
-  let in_gr = tie_outer_scope_to_inner forall_gr in_gr fx in
   ((mul_n, mul_p, res_ty), return_action_list, in_gr)
 
 and do_decldef_part in_gr = function
@@ -1414,7 +1402,7 @@ and do_params_decl po in_gr z =
                 If1.def_port = port;
               }
             in
-            let in_gr = If1.add_to_boundary_inputs ~namen:hdx 0 port in_gr in
+            let _, in_gr = If1.add_to_boundary_inputs ~namen:hdx 0 port in_gr in
             add_all_to_sm (If1.SM.add hdx sm_v umap) tlx (p + 1) (hdx :: q)
               in_gr
         | Decl_func _ :: _ ->
@@ -3224,7 +3212,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       (* Count how many boundary ports are declared parameters.
          Any ports added beyond this count during body lowering are captures. *)
-      let n_params = If1.boundary_in_port_count new_fun_gr in
       let new_fun_gr =
         let (frm, elp, elt), new_fun_gr = do_exp new_fun_gr e in
         point_edges_to_boundary frm elp elt new_fun_gr
@@ -3235,21 +3222,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Compound (new_fun_gr, If1.INTERNAL, 0, [ If1.Name "<lambda>" ], []))
           in_gr
-      in
-      (* Wire captured variables: for each boundary input port added beyond the
-         declared parameters, add an edge from the outer scope's value into the
-         lambda compound node at that port. *)
-      let in_gr =
-        List.fold_left
-          (fun in_gr (_, cap_port, cap_name) ->
-            if cap_port < n_params then in_gr
-            else
-              let (src_n, src_p, src_ty), in_gr =
-                If1.get_symbol_id cap_name in_gr
-              in
-              If1.add_edge src_n src_p lam_node cap_port src_ty in_gr)
-          in_gr
-          (If1.get_named_input_ports new_fun_gr)
       in
       ((lam_node, lam_port, fn_ty), in_gr)
   | Pos ((line, col), inner_exp) ->
@@ -5144,9 +5116,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     If1.add_edge2 fx aa mul_n cc tt iigr ))
                 return_action_list (0, [], in_gr)
             in
-            to_if1_msg 3 "LoopA: tying outer scope to inner, multiarity node=%d"
-              mul_n;
-            let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
             ((mul_n, mul_p, mul_t), return_action_list, in_gr)
         | Termination_iterator (t, ii) ->
             to_if1_msg 3 "LoopB: building INIT decls";
@@ -5219,7 +5188,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
               mul_n;
-            let in_gr = tie_outer_scope_to_inner for_gr in_gr fx in
             ((mul_n, mul_p, mul_t), return_action_list, in_gr)
       in
       let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
@@ -6423,7 +6391,10 @@ and do_return_exp in_gr ggg =
 and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
   let ret_gr =
     try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
-    with _ -> failwith "create subgraph symtab"
+    with e ->
+      Printf.eprintf "create_subgraph_symtab failed: %s\n" (Printexc.to_string e);
+      Printexc.print_backtrace stderr;
+      failwith "create subgraph symtab"
   in
   let ret_gr = get_ports_unified ret_gr in_gr in_gr in
   (* NEED TO ADD STREAM RETURN *)
