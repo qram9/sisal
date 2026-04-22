@@ -151,54 +151,64 @@ type node_sym =
   | DV_GATHER
   | DV_SCATTER
   | DV_RESHAPE
-  | DV_SLICE       (* DV_SLICE(A, starts[], sizes[]) → zero-copy view *)
-  | DV_PERMUTE     (* DV_PERMUTE(A, dims[]) → reorder strides, zero-copy *)
-  | DV_ROTATE      (* DV_ROTATE(A, n) → circular shift *)
-  | DV_COMPRESS    (* DV_COMPRESS(A, mask) → Array_sparse *)
+  | DV_SLICE (* DV_SLICE(A, starts[], sizes[]) → zero-copy view *)
+  | DV_PERMUTE (* DV_PERMUTE(A, dims[]) → reorder strides, zero-copy *)
+  | DV_ROTATE (* DV_ROTATE(A, n) → circular shift *)
+  | DV_COMPRESS (* DV_COMPRESS(A, mask) → Array_sparse *)
   | DV_OUTERPRODUCT (* DV_OUTERPRODUCT(f, A, B) → outer product *)
-  | DV_GRADE_UP    (* DV_GRADE_UP(A) → ascending sort indices, APL ⍋ *)
-  | DV_GRADE_DOWN  (* DV_GRADE_DOWN(A) → descending sort indices, APL ⍒ *)
-  | DV_SORT        (* DV_SORT(A) → sorted copy *)
-  | DV_REVERSE     (* DV_REVERSE(A) → reversed view, APL monadic ⌽, zero-copy via stride *)
-  | REDUCE_ALL     (* REDUCE_ALL(op, A) → scalar, no forall needed *)
-  | MAP_NODE       (* MAP_NODE(f, A) → same-shape array, APL ¨, also EACH/APPLY *)
-  | FOLDL_NODE     (* FOLDL_NODE(f, init, A) → scalar *)
-  | FOLDR_NODE     (* FOLDR_NODE(f, init, A) → scalar *)
-  | SCAN_NODE      (* SCAN_NODE(f, A) → prefix-scan array, same shape *)
-  | BROADCAST_SCALAR (* BROADCAST_SCALAR(s, A) → replicate scalar to shape of A *)
-  | ARGMAX_NODE      (* ARGMAX(A) or ARGMAX(A, axis) → index/indices of maximum *)
-  | ARGMIN_NODE      (* ARGMIN(A) or ARGMIN(A, axis) → index/indices of minimum *)
-  | NONZERO_NODE     (* NONZERO(A) → Array[int] indices where A ≠ 0 *)
-  | WHERE_NODE       (* WHERE(cond, A, B) → element-wise select *)
-  | REDUCE_AXIS      (* SUM/PRODUCT/LEAST/GREATEST(A, axis) → reduced array *)
-  | MEAN_NODE        (* MEAN(A) or MEAN(A, axis) *)
-  | VARIANCE_NODE    (* VARIANCE(A) or VARIANCE(A, axis) *)
-  | STDDEV_NODE      (* STDDEV(A) or STDDEV(A, axis) *)
-  | ANY_NODE         (* ANY(A) or ANY(A, axis) → boolean reduction *)
-  | ALL_NODE         (* ALL(A) or ALL(A, axis) → boolean reduction *)
-  | NORM_NODE        (* NORM(A, p) → p-norm scalar *)
-  | CUMSUM_NODE      (* CUMSUM(A) → prefix sum, same shape *)
-  | CUMPROD_NODE     (* CUMPROD(A) → prefix product, same shape *)
-  | CONCAT_NODE      (* CONCAT(A, B) → concatenate along last axis *)
-  | TILE_NODE        (* TILE(A, n) → repeat A n times *)
-  | SQUEEZE_NODE     (* SQUEEZE(A) → drop all size-1 dimensions *)
-  | EXPAND_NODE      (* EXPAND(A, k) → insert size-1 dimension at axis k *)
-  | RAVEL_NODE       (* RAVEL(A) → rank-1 view, zero-copy if contiguous, APL monadic , *)
-  | STENCIL_NODE     (* STENCIL(f, A, d0, d1, ..) → sliding window map *)
-  | PAD_NODE         (* PAD(A, lo, hi [, fill]) → padded copy *)
-  | INNERPRODUCT_NODE (* INNERPRODUCT(A,B): dot if rank-1, matmul if rank-2, feeds AMX *)
-  | EINSUM_NODE      (* EINSUM("subscript", A, B, ...): general tensor contraction; subscript carried as Subscript pragma *)
-  | GET_DOPE_VEC     (* GET_DOPE_VEC(A) → port 0: dope as array[{lo,stride,size}], port 1: A unchanged *)
-  | SHAPE_CHECK      (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
-  | DV_CONFORM       (* DV_CONFORM(A,B) → port 0: common iteration shape, port 1: error flag (bool) *)
-  | DV_NUM_RANK      (* DV_NUM_RANK(A) → integer rank *)
-  | DV_DIMENSION     (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
-  | DV_OFFSET_AT     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
-  | DV_LOAD_LINEAR   (* DV_LOAD_LINEAR(A, offset) → element value *)
-  | DV_RESHAPE_BY_SHAPE (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
-  | CONV_H           (** Apple Silicon: Horizontal Convolution *)
-  | CONV_V           (** Apple Silicon: Vertical Convolution *)
-  | CONV_2D          (** Apple Silicon: 2D Convolution *)
+  | DV_GRADE_UP (* DV_GRADE_UP(A) → ascending sort indices, APL ⍋ *)
+  | DV_GRADE_DOWN (* DV_GRADE_DOWN(A) → descending sort indices, APL ⍒ *)
+  | DV_SORT (* DV_SORT(A) → sorted copy *)
+  | DV_REVERSE
+    (* DV_REVERSE(A) → reversed view, APL monadic ⌽, zero-copy via stride *)
+  | REDUCE_ALL (* REDUCE_ALL(op, A) → scalar, no forall needed *)
+  | MAP_NODE (* MAP_NODE(f, A) → same-shape array, APL ¨, also EACH/APPLY *)
+  | FOLDL_NODE (* FOLDL_NODE(f, init, A) → scalar *)
+  | FOLDR_NODE (* FOLDR_NODE(f, init, A) → scalar *)
+  | SCAN_NODE (* SCAN_NODE(f, A) → prefix-scan array, same shape *)
+  | BROADCAST_SCALAR
+    (* BROADCAST_SCALAR(s, A) → replicate scalar to shape of A *)
+  | ARGMAX_NODE (* ARGMAX(A) or ARGMAX(A, axis) → index/indices of maximum *)
+  | ARGMIN_NODE (* ARGMIN(A) or ARGMIN(A, axis) → index/indices of minimum *)
+  | NONZERO_NODE (* NONZERO(A) → Array[int] indices where A ≠ 0 *)
+  | WHERE_NODE (* WHERE(cond, A, B) → element-wise select *)
+  | REDUCE_AXIS (* SUM/PRODUCT/LEAST/GREATEST(A, axis) → reduced array *)
+  | MEAN_NODE (* MEAN(A) or MEAN(A, axis) *)
+  | VARIANCE_NODE (* VARIANCE(A) or VARIANCE(A, axis) *)
+  | STDDEV_NODE (* STDDEV(A) or STDDEV(A, axis) *)
+  | ANY_NODE (* ANY(A) or ANY(A, axis) → boolean reduction *)
+  | ALL_NODE (* ALL(A) or ALL(A, axis) → boolean reduction *)
+  | NORM_NODE (* NORM(A, p) → p-norm scalar *)
+  | CUMSUM_NODE (* CUMSUM(A) → prefix sum, same shape *)
+  | CUMPROD_NODE (* CUMPROD(A) → prefix product, same shape *)
+  | CONCAT_NODE (* CONCAT(A, B) → concatenate along last axis *)
+  | TILE_NODE (* TILE(A, n) → repeat A n times *)
+  | SQUEEZE_NODE (* SQUEEZE(A) → drop all size-1 dimensions *)
+  | EXPAND_NODE (* EXPAND(A, k) → insert size-1 dimension at axis k *)
+  | RAVEL_NODE
+    (* RAVEL(A) → rank-1 view, zero-copy if contiguous, APL monadic , *)
+  | STENCIL_NODE (* STENCIL(f, A, d0, d1, ..) → sliding window map *)
+  | PAD_NODE (* PAD(A, lo, hi [, fill]) → padded copy *)
+  | INNERPRODUCT_NODE
+    (* INNERPRODUCT(A,B): dot if rank-1, matmul if rank-2, feeds AMX *)
+  | EINSUM_NODE
+    (* EINSUM("subscript", A, B, ...): general tensor contraction; subscript carried as Subscript pragma *)
+  | GET_DOPE_VEC
+    (* GET_DOPE_VEC(A) → port 0: dope as array[{lo,stride,size}], port 1: A unchanged *)
+  | SHAPE_CHECK
+    (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
+  | DV_CONFORM
+    (* DV_CONFORM(A,B) → port 0: common iteration shape, port 1: error flag (bool) *)
+  | DV_NUM_RANK (* DV_NUM_RANK(A) → integer rank *)
+  | DV_DIMENSION (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
+  | DV_OFFSET_AT
+    (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
+  | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
+  | DV_RESHAPE_BY_SHAPE
+    (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
+  | CONV_H  (** Apple Silicon: Horizontal Convolution *)
+  | CONV_V  (** Apple Silicon: Vertical Convolution *)
+  | CONV_2D  (** Apple Silicon: 2D Convolution *)
 
 type comment = C of string | CDollar of string
 
@@ -295,7 +305,8 @@ type label = int
 
 type if1_ty =
   | Array_ty of label
-  | Array_dv of label  (* elem type id; dope-vector array, rank implicit in the DV at runtime *)
+  | Array_dv of label
+    (* elem type id; dope-vector array, rank implicit in the DV at runtime *)
   | Basic of basic_code
   | Function_ty of label * label * string
   | Multiple of basic_code
@@ -325,7 +336,7 @@ type pragma =
   | Contiguous
   | No_pragma
   | Ast_type of string
-  | Subscript of string  (* carries einsum index string on EINSUM_NODE *)
+  | Subscript of string (* carries einsum index string on EINSUM_NODE *)
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -659,6 +670,17 @@ and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
 and get_node_map in_gr = in_gr.nmap
 and get_edge_set in_gr = in_gr.eset
+
+and get_next_available_in_port nid in_gr =
+  let es = get_edge_set in_gr in
+  let ports =
+    ES.fold
+      (fun (_, (dn, dp), _) acc -> if dn = nid then IntSet.add dp acc else acc)
+      es IntSet.empty
+  in
+  let rec find_free i = if IntSet.mem i ports then find_free (i + 1) else i in
+  find_free 0
+
 and get_node_map_and_edge_set in_gr = (in_gr.nmap, in_gr.eset)
 and get_graph_in_compound_node (_, _, _, _, g, _) = g
 
@@ -693,8 +715,7 @@ and create_subgraph_symtab in_gr other_gr =
             add_to_boundary_inputs ~namen:entry.val_name entry.val_def
               entry.def_port acc_gr
           in
-          ( SM.add k { entry with val_def = 0; def_port = port } acc_cs,
-            acc_gr )
+          (SM.add k { entry with val_def = 0; def_port = port } acc_cs, acc_gr)
         else (acc_cs, acc_gr))
       cs (other_cs, other_gr)
   in
@@ -1185,14 +1206,14 @@ and get_named_input_port_map in_gr =
 
 and add_to_boundary_inputs ?(namen = "") n p in_gr =
   match get_boundary_node in_gr with
-  | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
+  | Boundary (in_port_list, out_port_list, err_ports, boundary_p) -> (
       let rec lookin_lis idx = function
         | [] -> None
         | (x, y, _) :: _ when n = x && p = y -> Some idx
         | _ :: tl -> lookin_lis (idx + 1) tl
       in
       let existing_idx_opt = lookin_lis 0 (List.rev in_port_list) in
-      (match existing_idx_opt with
+      match existing_idx_opt with
       | Some idx -> (idx, in_gr)
       | None ->
           let next_port = List.length in_port_list in
@@ -1720,7 +1741,9 @@ and add_node nn in_gr =
         }
       in
       let ipl =
-        match get_boundary_node g with Boundary (l, _, _, _) -> List.rev l | _ -> []
+        match get_boundary_node g with
+        | Boundary (l, _, _, _) -> List.rev l
+        | _ -> []
       in
       let rec loop idx acc_gr = function
         | [] -> acc_gr
@@ -1770,9 +1793,7 @@ and add_name_pragma node_id name in_gr =
   match NM.find_opt node_id nm with
   | None -> in_gr
   | Some nd ->
-      let has_name p =
-        List.exists (function Name _ -> true | _ -> false) p
-      in
+      let has_name p = List.exists (function Name _ -> true | _ -> false) p in
       let nd' =
         match nd with
         | Simple (lab, sym, pin, pout, prag) ->
@@ -2834,14 +2855,21 @@ and ensure_dope_vec_type in_gr =
 and find_array_data_source (n, p) in_gr =
   (* DV view nodes are zero-copy: the backing store is their port-0 input. *)
   let dv_transparent =
-    [ DV_ROTATE; DV_REVERSE; DV_SLICE; DV_PERMUTE; DV_RESHAPE; DV_COMPRESS;
-      DV_GATHER ]
+    [
+      DV_ROTATE;
+      DV_REVERSE;
+      DV_SLICE;
+      DV_PERMUTE;
+      DV_RESHAPE;
+      DV_COMPRESS;
+      DV_GATHER;
+    ]
   in
   if n = 0 then
     raise
       (Sem_error
-         "find_array_data_source: reached graph boundary — data source \
-          unknown (array is a function parameter or crossed an IF merge)")
+         "find_array_data_source: reached graph boundary — data source unknown \
+          (array is a function parameter or crossed an IF merge)")
   else
     match get_node n in_gr with
     | Simple (_, sym, _, _, _) when List.mem sym dv_transparent ->
@@ -2865,8 +2893,7 @@ and string_of_if1_ty_recursive tm seen ty =
       string_of_if1_ty ty
   | Typed_error l -> "ERROR [" ^ resolve_and_print tm seen l ^ "]"
   | Array_ty l -> "array[" ^ resolve_and_print tm seen l ^ "]"
-  | Array_dv l ->
-      "array_dv[" ^ resolve_and_print tm seen l ^ "]"
+  | Array_dv l -> "array_dv[" ^ resolve_and_print tm seen l ^ "]"
   | Stream l -> "stream[" ^ resolve_and_print tm seen l ^ "]"
   | Tuple_ty (l1, l2) ->
       if l2 = 0 then "(" ^ resolve_and_print tm seen l1 ^ ")"
@@ -2932,8 +2959,7 @@ and structurally_equal in_gr seen t1 t2 =
   (* --- Standard Structural Matching --- *)
   | Basic b1, Basic b2 -> b1 = b2
   | Array_ty l1, Array_ty l2 -> resolve_and_compare in_gr seen l1 l2
-  | Array_dv l1, Array_dv l2 ->
-      resolve_and_compare in_gr seen l1 l2
+  | Array_dv l1, Array_dv l2 -> resolve_and_compare in_gr seen l1 l2
   | Tuple_ty (l1_a, l1_b), Tuple_ty (l2_a, l2_b) ->
       resolve_and_compare in_gr seen l1_a l2_a
       && resolve_and_compare in_gr seen l1_b l2_b
@@ -3067,15 +3093,14 @@ and is_array_type ty_id in_gr =
 
 and is_unsigned_type ty_id in_gr =
   match lookup_type_opt ty_id in_gr with
-  | Some (Basic bc) ->
-      (match bc with
-       | ULONG | UINT | USHORT | UBYTE | UCHAR
-       | ULONG2  | ULONG3  | ULONG4  | ULONG8  | ULONG16
-       | UINT2   | UINT3   | UINT4   | UINT8   | UINT16
-       | USHORT2 | USHORT3 | USHORT4 | USHORT8 | USHORT16
-       | UBYTE2  | UBYTE3  | UBYTE4  | UBYTE8  | UBYTE16
-       | UCHAR2  | UCHAR3  | UCHAR4  | UCHAR8  | UCHAR16 -> true
-       | _ -> false)
+  | Some (Basic bc) -> (
+      match bc with
+      | ULONG | UINT | USHORT | UBYTE | UCHAR | ULONG2 | ULONG3 | ULONG4
+      | ULONG8 | ULONG16 | UINT2 | UINT3 | UINT4 | UINT8 | UINT16 | USHORT2
+      | USHORT3 | USHORT4 | USHORT8 | USHORT16 | UBYTE2 | UBYTE3 | UBYTE4
+      | UBYTE8 | UBYTE16 | UCHAR2 | UCHAR3 | UCHAR4 | UCHAR8 | UCHAR16 ->
+          true
+      | _ -> false)
   | _ -> false
 
 and ast_if1_type aty =
@@ -3522,9 +3547,9 @@ and node_sym_to_num = function
   | INNERPRODUCT_NODE -> 118
   | EINSUM_NODE -> 127
   | GET_DOPE_VEC -> 119
-  | SHAPE_CHECK  -> 120
-  | DV_CONFORM   -> 121
-  | DV_NUM_RANK  -> 122
+  | SHAPE_CHECK -> 120
+  | DV_CONFORM -> 121
+  | DV_NUM_RANK -> 122
   | DV_DIMENSION -> 123
   | DV_OFFSET_AT -> 124
   | DV_LOAD_LINEAR -> 125
@@ -3656,18 +3681,18 @@ and string_of_node_sym = function
   | INNERPRODUCT_NODE -> "INNERPRODUCT"
   | EINSUM_NODE -> "EINSUM"
   | GET_DOPE_VEC -> "GET_DOPE_VEC"
-  | SHAPE_CHECK  -> "SHAPE_CHECK"
-  | DV_CONFORM   -> "DV_CONFORM"
-  | DV_NUM_RANK  -> "DV_NUM_RANK"
-  | DV_DIMENSION   -> "DV_DIMENSION"
-  | DV_OFFSET_AT   -> "DV_OFFSET_AT"
+  | SHAPE_CHECK -> "SHAPE_CHECK"
+  | DV_CONFORM -> "DV_CONFORM"
+  | DV_NUM_RANK -> "DV_NUM_RANK"
+  | DV_DIMENSION -> "DV_DIMENSION"
+  | DV_OFFSET_AT -> "DV_OFFSET_AT"
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
   | CONV_H -> "CONV_H"
   | CONV_V -> "CONV_V"
   | CONV_2D -> "CONV_2D"
 
-  and string_of_pragmas p =
+and string_of_pragmas p =
   List.fold_right
     (fun p q ->
       let l =
@@ -3698,8 +3723,7 @@ and string_of_if1_ty ity =
   match ity with
   | Typed_error a -> "ERROR " ^ quick_lookup_native_type a
   | Array_ty a -> "ARRAY " ^ quick_lookup_native_type a
-  | Array_dv a ->
-      "ARRAY_DV " ^ quick_lookup_native_type a
+  | Array_dv a -> "ARRAY_DV " ^ quick_lookup_native_type a
   | Basic bc -> string_of_if1_basic_ty bc
   | Function_ty (if1l, if2l, fn_name) ->
       "FUNCTION_TYPE " ^ fn_name ^ " (ARGS: " ^ string_of_int if1l
@@ -4219,8 +4243,8 @@ and get_symbol_id v in_gr =
     raise
       (Sem_error
          ("Undefined name '" ^ v
-          ^ "': not in scope. In a 'let' block, names can only reference \
-             bindings defined earlier - forward references are not allowed."))
+        ^ "': not in scope. In a 'let' block, names can only reference \
+           bindings defined earlier - forward references are not allowed."))
 
 and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in
@@ -4757,7 +4781,9 @@ module If1_View = struct
 
   (* Helper to extract Name pragma specifically *)
   let extract_name pragmas =
-    List.fold_left (fun acc p -> match p with Name s -> s | _ -> acc) "" pragmas
+    List.fold_left
+      (fun acc p -> match p with Name s -> s | _ -> acc)
+      "" pragmas
 
   let rec render_node_to_json node =
     match node with
@@ -4787,14 +4813,18 @@ module If1_View = struct
           (render_graph_to_json ~ast sub_gr)
     | Literal (id, _, value, _) ->
         sprintf
-          "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \"Literal\" }"
+          "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \
+           \"Literal\" }"
           id (esc value)
     | Boundary (_, _, _, prag) ->
         let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
         sprintf
-          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \"\" }"
+          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \"\" \
+           }"
           (esc label)
-    | _ -> "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \"Unknown\" }"
+    | _ ->
+        "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \
+         \"Unknown\" }"
 
   and render_graph_to_json ?(ast = "") in_gr =
     let nodes =
@@ -5026,7 +5056,8 @@ module If1_View = struct
     fprintf oc "%s"
       "\n\
       \      function generateMermaidCode(rootGraph) {\n\
-      \        let lines = [\"---\\nconfig:\\nlayout: tidy-tree\\n---\\ngraph TD\"];\n\
+      \        let lines = [\"---\\nconfig:\\nlayout: tidy-tree\\n---\\ngraph \
+       TD\"];\n\
       \        let edgeCount = 0;\n\
       \        function traverse(graph, prefix) {\n\
       \          (graph.nodes || []).forEach(n => {\n\
@@ -5034,26 +5065,36 @@ module If1_View = struct
       \            if (n.id === 0) {\n\
       \              lines.push(`  N${uid}_IN{{\"${prefix}Boundary IN\"}}`);\n\
       \              lines.push(`  N${uid}_OUT{{\"${prefix}Boundary OUT\"}}`);\n\
-      \              lines.push(`  style N${uid}_IN fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8`);\n\
-      \              lines.push(`  style N${uid}_OUT fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178`);\n\
+      \              lines.push(`  style N${uid}_IN \
+       fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8`);\n\
+      \              lines.push(`  style N${uid}_OUT \
+       fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178`);\n\
       \            } else {\n\
       \              let labelPart = (n.label || \"\").trim();\n\
-      \              if (labelPart === \"\" || labelPart === \"[]\") labelPart = n.type;\n\
+      \              if (labelPart === \"\" || labelPart === \"[]\") labelPart \
+       = n.type;\n\
       \              let text = labelPart.replace(/[\\[\\]\"{}]/g, \"\");\n\
-      \              if (n.value && n.value !== n.label && n.value !== labelPart) {\n\
-      \                text += \" (\" + n.value.replace(/[\\[\\]\"{}]/g, \"\") + \")\";\n\
+      \              if (n.value && n.value !== n.label && n.value !== \
+       labelPart) {\n\
+      \                text += \" (\" + n.value.replace(/[\\[\\]\"{}]/g, \"\") \
+       + \")\";\n\
       \              }\n\
       \              lines.push(`  N${uid}((\"${n.id}: ${text}\"))`);\n\
       \              if (n.subgraph) traverse(n.subgraph, uid + \"_\");\n\
       \            }\n\
       \          });\n\
       \          (graph.data_edges || []).forEach(e => {\n\
-      \            const m = e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)\\s*(.*)/);\n\
+      \            const m = \
+       e.match(/(\\d+):(\\d+)\\s*->\\s*(\\d+):(\\d+)\\s*(.*)/);\n\
       \            if (m) {\n\
-      \              const s = m[1] === \"0\" ? `N${prefix}0_IN` : `N${prefix}${m[1]}`;\n\
-      \              const d = m[3] === \"0\" ? `N${prefix}0_OUT` : `N${prefix}${m[3]}`;\n\
-      \              lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\\n${m[5]}\" --> ${d}`);\n\
-      \              lines.push(`  linkStyle ${edgeCount++} stroke:#4ec9b0,stroke-width:2px`);\n\
+      \              const s = m[1] === \"0\" ? `N${prefix}0_IN` : \
+       `N${prefix}${m[1]}`;\n\
+      \              const d = m[3] === \"0\" ? `N${prefix}0_OUT` : \
+       `N${prefix}${m[3]}`;\n\
+      \              lines.push(`  ${s} -- \"p${m[2]}→p${m[4]}\\n${m[5]}\" --> \
+       ${d}`);\n\
+      \              lines.push(`  linkStyle ${edgeCount++} \
+       stroke:#4ec9b0,stroke-width:2px`);\n\
       \            }\n\
       \          });\n\
       \        }\n\

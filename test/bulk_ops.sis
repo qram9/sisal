@@ -43,9 +43,9 @@ define bulk_ops,
   % pad / stencil
   t_pad, t_pad_fill, t_stencil
 
-type ai  = array[integer]
-type ar  = array[real]
-type ab  = array[boolean]
+type ai  = array_dv[integer]
+type ar  = array_dv[real]
+type ab  = array_dv[boolean]
 
 % ---- helpers ---------------------------------------------------------------
 function add_i (a, b : integer returns integer) a + b end function
@@ -58,10 +58,9 @@ function t_arr_sub (a, b : ai returns ai)    a - b        end function
 function t_arr_mul (a, b : ai returns ai)    a * b        end function
 function t_arr_neg (a    : ai returns ai)    -a           end function
 
-% ---- element-wise comparisons → array[boolean] ----------------------------
-type ab2 = array[boolean]
-function t_arr_eq  (a, b : ai returns ab2)   a = b        end function
-function t_arr_lt  (a, b : ai returns ab2)   a < b        end function
+% ---- element-wise comparisons → array_dv[boolean] -------------------------
+function t_arr_eq  (a, b : ai returns ab)   a = b        end function
+function t_arr_lt  (a, b : ai returns ab)   a < b        end function
 
 % ---- mixed scalar-array (scalar broadcasts) --------------------------------
 function t_arr_add_scalar (a : ai; n : integer returns ai)  a + n  end function
