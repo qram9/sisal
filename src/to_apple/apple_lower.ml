@@ -33,20 +33,20 @@ let rec lower_graph env gr gid =
                as the alias source so we don't lose the binding. *)
             let src_expr =
               let sname = sanitize name in
-              if
-                raw_src = C.Id local_v && sname <> ""
-                && C.Id sname <> local_v
+              if raw_src = C.Id local_v && sname <> "" && C.Id sname <> local_v
               then C.Id sname
               else raw_src
             in
-            if (ty = C.Basic "float" || ty = C.Basic "void*") && src_expr <> C.Id local_v then
+            if
+              (ty = C.Basic "float" || ty = C.Basic "void*")
+              && src_expr <> C.Id local_v
+            then
               (* Type unknown but value already known: alias directly. *)
               env_ref :=
                 {
                   !env_ref with
                   var_map =
-                    FullPortMap.add (gid, 0, pid, `In) src_expr
-                      !env_ref.var_map;
+                    FullPortMap.add (gid, 0, pid, `In) src_expr !env_ref.var_map;
                 }
             else if src_expr <> C.Id local_v then begin
               (* Known type and known source: emit initialization. *)
@@ -63,7 +63,8 @@ let rec lower_graph env gr gid =
             else if sanitize name <> "" then begin
               (* New declaration with no initial source (likely top-level param). *)
               agreement_body :=
-                C.Decl (ty, local_v, Some (C.Id (sanitize name))) :: !agreement_body;
+                C.Decl (ty, local_v, Some (C.Id (sanitize name)))
+                :: !agreement_body;
               env_ref :=
                 {
                   !env_ref with
@@ -134,7 +135,7 @@ let rec lower_graph env gr gid =
       let seen_decls = Hashtbl.create 16 in
       NM.iter
         (fun nid node ->
-          if nid <> 0 then
+          if nid <> 0 then (
             let out_pids =
               match node with
               | Simple (_, _, _, pout, _) | Literal (_, _, _, pout) ->
@@ -156,17 +157,22 @@ let rec lower_graph env gr gid =
             in
             let in_pids =
               match node with
-              | Simple (_, _, pin, _, _) -> List.init (Array.length pin) (fun i -> i)
+              | Simple (_, _, pin, _, _) ->
+                  List.init (Array.length pin) (fun i -> i)
               | Compound _ ->
-                  ES.fold (fun (_, (dn, dp), _) acc ->
-                    if dn = nid then dp :: acc else acc) gr.eset []
+                  ES.fold
+                    (fun (_, (dn, dp), _) acc ->
+                      if dn = nid then dp :: acc else acc)
+                    gr.eset []
               | _ -> []
             in
             let tag =
               match node with
-              | Simple (_, sym, _, _, _) -> sanitize (Ir.If1.string_of_node_sym sym)
+              | Simple (_, sym, _, _, _) ->
+                  sanitize (Ir.If1.string_of_node_sym sym)
               | Literal _ -> "lit"
-              | Compound (_, sym, _, _, _, _) -> sanitize (Ir.If1.string_of_node_sym sym)
+              | Compound (_, sym, _, _, _, _) ->
+                  sanitize (Ir.If1.string_of_node_sym sym)
               | _ -> ""
             in
             List.iter
@@ -206,7 +212,7 @@ let rec lower_graph env gr gid =
                         FullPortMap.add (gid, nid, pid, `In) (C.Id v)
                           !env_ref.var_map;
                     }))
-              (List.sort_uniq compare in_pids))
+              (List.sort_uniq compare in_pids)))
         gr.nmap;
 
       let topo_sorted = topo_sort gr in
@@ -248,7 +254,8 @@ let rec lower_graph env gr gid =
              function's result var), so honour that mapping. *)
               let dst =
                 FullPortMap.find_opt (gid, 0, dp, `In) !env_ref.var_map
-                |> Option.value ~default:(C.Id (var_name ~tag:"graph_res" gid 0 dp `In))
+                |> Option.value
+                     ~default:(C.Id (var_name ~tag:"graph_res" gid 0 dp `In))
               in
               C.Expr (C.BinOp (C.Assign, dst, src)) :: acc
             else acc)
@@ -348,7 +355,8 @@ and lower_node env gr nid node =
             loop_gr sub_gid
         in
         ([ C.Compound stmts ], env_after_sub)
-  | Simple (_, sym, pin, pout, pr) -> (lower_simple env gr nid sym pin pout pr, env)
+  | Simple (_, sym, pin, pout, pr) ->
+      (lower_simple env gr nid sym pin pout pr, env)
   | Literal (_, code, value, _pout) ->
       let v_res = get_expr env gid nid 0 `Out in
       let lit =
@@ -440,7 +448,8 @@ and lower_simple env gr nid sym pin pout pr =
                       p_env.var_map None
                   in
                   match match_found with
-                  | Some (C.Basic "sisal_array_t") -> 111 (* dummy array_dv ID *)
+                  | Some (C.Basic "sisal_array_t") ->
+                      111 (* dummy array_dv ID *)
                   | _ -> 0)
               | None -> 0)
         in
@@ -498,11 +507,19 @@ and lower_simple env gr nid sym pin pout pr =
                  v_res,
                  C.BinOp
                    ( C.Sub,
-                     C.BinOp (C.Add, C.Member (arr, "lower_bound"), C.Member (arr, "size")),
+                     C.BinOp
+                       ( C.Add,
+                         C.Member (arr, "lower_bound"),
+                         C.Member (arr, "size") ),
                      C.LitInt 1 ) ));
         ]
       else if sym = AREML || sym = AREMH || sym = AADDL then
-        failwith (Printf.sprintf "lower_simple: traditional Sisal array node %s is not supported in the Silicon/DV backend (nid=%d)" (Ir.If1.string_of_node_sym sym) nid)
+        failwith
+          (Printf.sprintf
+             "lower_simple: traditional Sisal array node %s is not supported \
+              in the Silicon/DV backend (nid=%d)"
+             (Ir.If1.string_of_node_sym sym)
+             nid)
       else if sym = ASETL then
         let arr = get_expr env gid nid 0 `In in
         let lb = get_expr env gid nid 1 `In in
@@ -527,13 +544,21 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> 0
         in
         let in_edges_count =
-          ES.fold (fun (_, (dn, _), _) acc -> if dn = nid then acc + 1 else acc) gr.eset 0
+          ES.fold
+            (fun (_, (dn, _), _) acc -> if dn = nid then acc + 1 else acc)
+            gr.eset 0
         in
         let core_stmts =
           if in_edges_count = 3 then
             let size_or_ub = get_expr env gid nid 1 `In in
             let val_ = get_expr env gid nid 2 `In in
-            [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_fill", [ lb; size_or_ub; val_ ]))) ]
+            [
+              C.Expr
+                (C.BinOp
+                   ( C.Assign,
+                     v_res,
+                     C.Call ("sisal_array_fill", [ lb; size_or_ub; val_ ]) ));
+            ]
           else
             let size = get_expr env gid nid 1 `In in
             [
@@ -543,13 +568,20 @@ and lower_simple env gr nid sym pin pout pr =
                      v_res,
                      C.Call
                        ( "sisal_array_create",
-                         [ lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size) ] ) ));
+                         [ lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size) ]
+                       ) ));
             ]
         in
         let err_stmts =
           if Array.length pout > 1 then
             let v_err = get_expr env gid nid 1 `Out in
-            [ C.Expr (C.BinOp (C.Assign, v_err, C.BinOp (C.Eq, C.Member (v_res, "data"), C.LitInt 0))) ]
+            [
+              C.Expr
+                (C.BinOp
+                   ( C.Assign,
+                     v_err,
+                     C.BinOp (C.Eq, C.Member (v_res, "data"), C.LitInt 0) ));
+            ]
           else []
         in
         core_stmts @ err_stmts
@@ -558,17 +590,34 @@ and lower_simple env gr nid sym pin pout pr =
         let v_res = get_expr env gid nid 0 `Out in
         let tid =
           match get_elem_type env gr nid with
-          | Basic REAL -> 0 | Basic DOUBLE -> 1 | Basic INTEGRAL -> 2 | Basic BOOLEAN -> 3 | _ -> 0
+          | Basic REAL -> 0
+          | Basic DOUBLE -> 1
+          | Basic INTEGRAL -> 2
+          | Basic BOOLEAN -> 3
+          | _ -> 0
         in
-        let core_stmts = [
-          C.Expr (C.BinOp (C.Assign, v_res,
-            C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt tid; C.LitInt 0 ])));
-          C.Expr (C.BinOp (C.Assign, C.Member (v_res, "lower_bound"), lb));
-        ] in
+        let core_stmts =
+          [
+            C.Expr
+              (C.BinOp
+                 ( C.Assign,
+                   v_res,
+                   C.Call
+                     ( "sisal_array_alloc_empty",
+                       [ C.LitInt 1; C.LitInt tid; C.LitInt 0 ] ) ));
+            C.Expr (C.BinOp (C.Assign, C.Member (v_res, "lower_bound"), lb));
+          ]
+        in
         let err_stmts =
           if Array.length pout > 1 then
             let v_err = get_expr env gid nid 1 `Out in
-            [ C.Expr (C.BinOp (C.Assign, v_err, C.BinOp (C.Eq, C.Member (v_res, "data"), C.LitInt 0))) ]
+            [
+              C.Expr
+                (C.BinOp
+                   ( C.Assign,
+                     v_err,
+                     C.BinOp (C.Eq, C.Member (v_res, "data"), C.LitInt 0) ));
+            ]
           else []
         in
         core_stmts @ err_stmts
@@ -577,7 +626,13 @@ and lower_simple env gr nid sym pin pout pr =
         let idx = get_expr env gid nid 1 `In in
         let val_ = get_expr env gid nid 2 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_replace", [ arr; idx; val_ ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               ( C.Assign,
+                 v_res,
+                 C.Call ("sisal_array_replace", [ arr; idx; val_ ]) ));
+        ]
       else if sym = SELECT then
         let cond = get_expr env gid nid 0 `In in
         let v_then = get_expr env gid nid 1 `In in
@@ -593,9 +648,7 @@ and lower_simple env gr nid sym pin pout pr =
         []
       else if sym = REDUCE_ALL then
         let op_code =
-          match pr with
-          | OpNum n :: _ -> n
-          | _ -> 0 (* Default to SUM *)
+          match pr with OpNum n :: _ -> n | _ -> 0 (* Default to SUM *)
         in
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
@@ -624,9 +677,7 @@ and lower_simple env gr nid sym pin pout pr =
         [
           C.Expr
             (C.BinOp
-               ( C.Assign,
-                 v_res,
-                 C.Call ("sisal_array_fill", [ lb; size; val_ ] ) ));
+               (C.Assign, v_res, C.Call ("sisal_array_fill", [ lb; size; val_ ])));
         ]
       else if sym = ASCATTER then
         let e = get_expr env gid nid 0 `In in
@@ -636,76 +687,127 @@ and lower_simple env gr nid sym pin pout pr =
         let arr = get_expr env gid nid 0 `In in
         let axis = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_reduce_axis", [ arr; axis ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               ( C.Assign,
+                 v_res,
+                 C.Call ("sisal_array_reduce_axis", [ arr; axis ]) ));
+        ]
       else if sym = MAP_NODE then
         let f = get_expr env gid nid 0 `In in
         let arr = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_map", [ f; arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_map", [ f; arr ])));
+        ]
       else if sym = FOLDL_NODE || sym = FOLDR_NODE then
         let f = get_expr env gid nid 0 `In in
         let init = get_expr env gid nid 1 `In in
         let arr = get_expr env gid nid 2 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = if sym = FOLDL_NODE then "sisal_array_foldl" else "sisal_array_foldr" in
+        let func =
+          if sym = FOLDL_NODE then "sisal_array_foldl" else "sisal_array_foldr"
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ f; init; arr ]))) ]
       else if sym = SCAN_NODE then
         let f = get_expr env gid nid 0 `In in
         let arr = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_scan", [ f; arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_scan", [ f; arr ])));
+        ]
       else if sym = DV_PERMUTE then
         let arr = get_expr env gid nid 0 `In in
         let dims = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_permute", [ arr; dims ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_permute", [ arr; dims ])));
+        ]
       else if sym = DV_ROTATE then
         let arr = get_expr env gid nid 0 `In in
         let n = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_rotate", [ arr; n ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_rotate", [ arr; n ])));
+        ]
       else if sym = DV_REVERSE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_reverse", [ arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_reverse", [ arr ])));
+        ]
       else if sym = RAVEL_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_ravel", [ arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_ravel", [ arr ])));
+        ]
       else if sym = DV_COMPRESS then
         let mask = get_expr env gid nid 0 `In in
         let arr = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_compress", [ mask; arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_compress", [ mask; arr ])));
+        ]
       else if sym = DV_SORT then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_sort", [ arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_sort", [ arr ])));
+        ]
       else if sym = DV_GRADE_UP || sym = DV_GRADE_DOWN then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = if sym = DV_GRADE_UP then "sisal_array_grade_up" else "sisal_array_grade_down" in
+        let func =
+          if sym = DV_GRADE_UP then "sisal_array_grade_up"
+          else "sisal_array_grade_down"
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ arr ]))) ]
       else if sym = DV_OUTERPRODUCT then
         let f = get_expr env gid nid 0 `In in
         let a = get_expr env gid nid 1 `In in
         let b = get_expr env gid nid 2 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_outerproduct", [ f; a; b ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               ( C.Assign,
+                 v_res,
+                 C.Call ("sisal_array_outerproduct", [ f; a; b ]) ));
+        ]
       else if sym = INNERPRODUCT_NODE then
         let a = get_expr env gid nid 0 `In in
         let b = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_innerproduct", [ a; b ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_innerproduct", [ a; b ])));
+        ]
       else if sym = ARGMAX_NODE || sym = ARGMIN_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = if sym = ARGMAX_NODE then "sisal_array_argmax" else "sisal_array_argmin" in
+        let func =
+          if sym = ARGMAX_NODE then "sisal_array_argmax"
+          else "sisal_array_argmin"
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ arr ]))) ]
       else if sym = MEAN_NODE || sym = VARIANCE_NODE || sym = STDDEV_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = match sym with
+        let func =
+          match sym with
           | MEAN_NODE -> "sisal_array_mean"
           | VARIANCE_NODE -> "sisal_array_variance"
           | _ -> "sisal_array_stddev"
@@ -714,53 +816,85 @@ and lower_simple env gr nid sym pin pout pr =
       else if sym = ANY_NODE || sym = ALL_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = if sym = ANY_NODE then "sisal_array_any" else "sisal_array_all" in
+        let func =
+          if sym = ANY_NODE then "sisal_array_any" else "sisal_array_all"
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ arr ]))) ]
       else if sym = NORM_NODE then
         let arr = get_expr env gid nid 0 `In in
         let p = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_norm", [ arr; p ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_norm", [ arr; p ])));
+        ]
       else if sym = NONZERO_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_nonzero", [ arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_nonzero", [ arr ])));
+        ]
       else if sym = WHERE_NODE then
         let cond = get_expr env gid nid 0 `In in
         let x = get_expr env gid nid 1 `In in
         let y = get_expr env gid nid 2 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_where", [ cond; x; y ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_where", [ cond; x; y ])));
+        ]
       else if sym = CUMSUM_NODE || sym = CUMPROD_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let func = if sym = CUMSUM_NODE then "sisal_array_cumsum" else "sisal_array_cumprod" in
+        let func =
+          if sym = CUMSUM_NODE then "sisal_array_cumsum"
+          else "sisal_array_cumprod"
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ arr ]))) ]
       else if sym = TILE_NODE then
         let arr = get_expr env gid nid 0 `In in
         let n = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_tile", [ arr; n ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_tile", [ arr; n ])));
+        ]
       else if sym = SQUEEZE_NODE then
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_squeeze", [ arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_squeeze", [ arr ])));
+        ]
       else if sym = EXPAND_NODE then
         let arr = get_expr env gid nid 0 `In in
         let k = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_expand", [ arr; k ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_expand", [ arr; k ])));
+        ]
       else if sym = STENCIL_NODE then
         let f = get_expr env gid nid 0 `In in
         let arr = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_stencil", [ f; arr ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_stencil", [ f; arr ])));
+        ]
       else if sym = PAD_NODE then
         let arr = get_expr env gid nid 0 `In in
         let lo = get_expr env gid nid 1 `In in
         let hi = get_expr env gid nid 2 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_pad", [ arr; lo; hi ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_pad", [ arr; lo; hi ])));
+        ]
       else if sym = INVOCATION then
         let func_name =
           List.find_map (function Name s -> Some s | _ -> None) pr
@@ -770,21 +904,27 @@ and lower_simple env gr nid sym pin pout pr =
            Actually, get_expr handles the lookup. We need to know how many. *)
         let in_edges =
           ES.fold
-            (fun (_, (dn, dp), _) acc -> if dn = nid then IntSet.add dp acc else acc)
+            (fun (_, (dn, dp), _) acc ->
+              if dn = nid then IntSet.add dp acc else acc)
             gr.eset IntSet.empty
           |> IntSet.elements
         in
-        let args = List.map (fun pid -> get_expr env gid nid pid `In) in_edges in
+        let args =
+          List.map (fun pid -> get_expr env gid nid pid `In) in_edges
+        in
         let v_res = get_expr env gid nid 0 `Out in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func_name, args))) ]
       else if sym = ABUILD then
         let in_edges =
           ES.fold
-            (fun (_, (dn, dp), _) acc -> if dn = nid then IntSet.add dp acc else acc)
+            (fun (_, (dn, dp), _) acc ->
+              if dn = nid then IntSet.add dp acc else acc)
             gr.eset IntSet.empty
           |> IntSet.elements
         in
-        let args = List.map (fun pid -> get_expr env gid nid pid `In) in_edges in
+        let args =
+          List.map (fun pid -> get_expr env gid nid pid `In) in_edges
+        in
         let v_res = get_expr env gid nid 0 `Out in
         (* ABUILD needs LB, type_id, count, and then elements.
            Assume LB=1, type_id=0 for now, or get from edges. *)
@@ -803,18 +943,27 @@ and lower_simple env gr nid sym pin pout pr =
                  v_res,
                  C.Call
                    ( "sisal_array_create",
-                     C.LitInt 1 :: C.LitInt tid :: C.LitInt (List.length args) :: args ) ));
+                     C.LitInt 1 :: C.LitInt tid
+                     :: C.LitInt (List.length args)
+                     :: args ) ));
         ]
       else if sym = AADDH then
         let arr = get_expr env gid nid 0 `In in
         let val_ = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_addh", [ arr; val_ ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               (C.Assign, v_res, C.Call ("sisal_array_addh", [ arr; val_ ])));
+        ]
       else if sym = DOT then
         let a = get_expr env gid nid 0 `In in
         let b = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_dot", [ a; b ]))) ]
+        [
+          C.Expr
+            (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_dot", [ a; b ])));
+        ]
       else if sym = ERROR_NODE then
         let e = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
@@ -831,13 +980,21 @@ and lower_simple env gr nid sym pin pout pr =
         let arr = get_expr env gid nid 0 `In in
         let off = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        let cast_ptr = C.Cast (C.Pointer (C.Basic "float", []), C.Member (arr, "data")) in
+        let cast_ptr =
+          C.Cast (C.Pointer (C.Basic "float", []), C.Member (arr, "data"))
+        in
         [ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, off))) ]
       else if sym = DV_RESHAPE_BY_SHAPE then
         let arr = get_expr env gid nid 0 `In in
         let sh = get_expr env gid nid 1 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_array_reshape_by_shape", [ arr; sh ]))) ]
+        [
+          C.Expr
+            (C.BinOp
+               ( C.Assign,
+                 v_res,
+                 C.Call ("sisal_array_reshape_by_shape", [ arr; sh ]) ));
+        ]
       else if sym = DV_SCATTER || sym = DV_GATHER then
         let e = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
@@ -845,22 +1002,29 @@ and lower_simple env gr nid sym pin pout pr =
       else if sym = RELEMENTS then
         let rec_expr = get_expr env gid nid 1 `In in
         List.init (Array.length pout) (fun i ->
-          let v_res = get_expr env gid nid i `Out in
-          let field_name = if i < Array.length pin then pin.(i) else (if i=0 then pin.(0) else "f") in
-          (* If Port 0 was used for metadata, and we have one output, use pin.(0) *)
-          let field_name = if Array.length pout = 1 && Array.length pin > 0 then pin.(0) else field_name in
-          C.Expr (C.BinOp (C.Assign, v_res, C.Member (rec_expr, field_name)))
-        )
+            let v_res = get_expr env gid nid i `Out in
+            let field_name =
+              if i < Array.length pin then pin.(i)
+              else if i = 0 then pin.(0)
+              else "f"
+            in
+            (* If Port 0 was used for metadata, and we have one output, use pin.(0) *)
+            let field_name =
+              if Array.length pout = 1 && Array.length pin > 0 then pin.(0)
+              else field_name
+            in
+            C.Expr (C.BinOp (C.Assign, v_res, C.Member (rec_expr, field_name))))
       else if sym = RBUILD then
         List.init (Array.length pin) (fun i ->
-          let arg = get_expr env gid nid i `In in
-          let field_name = pin.(i) in
-          let v_res = get_expr env gid nid 0 `Out in
-          C.Expr (C.BinOp (C.Assign, C.Member (v_res, field_name), arg))
-        )
+            let arg = get_expr env gid nid i `In in
+            let field_name = pin.(i) in
+            let v_res = get_expr env gid nid 0 `Out in
+            C.Expr (C.BinOp (C.Assign, C.Member (v_res, field_name), arg)))
       else
         let sym_str = Ir.If1.string_of_node_sym sym in
-        failwith (Printf.sprintf "lower_simple: node type not implemented: %s (nid=%d)" sym_str nid)
+        failwith
+          (Printf.sprintf "lower_simple: node type not implemented: %s (nid=%d)"
+             sym_str nid)
 
 (* lower_if_graph: lower a graph that IS an IF compound.
    Called by lower_graph when it detects a SELECT node.
@@ -893,17 +1057,34 @@ and lower_if_graph env gr gid =
   in
 
   (* 0. Pre-declare Bridge Variables for PREDICATE results *)
-  let pred_cid, _ = match find_subgraph gr "PREDICATE" with Some x -> x | _ -> failwith "no PRED" in
+  let pred_cid, _ =
+    match find_subgraph gr "PREDICATE" with
+    | Some x -> x
+    | _ -> failwith "no PRED"
+  in
   let pgid = alloc_gid env.gid_table gid pred_cid in
   let pred_bridge_v = var_name ~tag:"pred" gid pred_cid 0 `In in
   let pred_decl = C.Decl (C.Basic "bool", pred_bridge_v, None) in
   (* IMPORTANT: Register the bridge variable as the target for the subgraph's boundary-out at port 0 *)
-  let env_with_pred_bridge = { env with var_map = FullPortMap.add (pgid, 0, 0, `In) (C.Id pred_bridge_v) env.var_map } in
+  let env_with_pred_bridge =
+    {
+      env with
+      var_map =
+        FullPortMap.add (pgid, 0, 0, `In) (C.Id pred_bridge_v) env.var_map;
+    }
+  in
 
   (* 1. Lower PREDICATE *)
   let pred_stmts, pred_env =
     let vm = wire_inputs pred_cid pgid in
-    let b, i, e' = lower_graph { env_with_pred_bridge with var_map = vm } (match find_subgraph gr "PREDICATE" with Some(_,g)->g | _ -> assert false) pgid in
+    let b, i, e' =
+      lower_graph
+        { env_with_pred_bridge with var_map = vm }
+        (match find_subgraph gr "PREDICATE" with
+        | Some (_, g) -> g
+        | _ -> assert false)
+        pgid
+    in
     ([ C.Compound (b @ [ C.Compound i ]) ], e')
   in
   let pred_expr = C.Id pred_bridge_v in
@@ -961,31 +1142,37 @@ and lower_if_graph env gr gid =
 
   (* Map these back to the IF node's own error outputs (node 0 in current graph) *)
   let if_err_assigns_pred =
-    List.mapi (fun i err_expr ->
-      let pid = List.length sel_infos + i in
-      let res_v =
-        FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
-        |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In)) in
-      C.Expr (C.BinOp (C.Assign, res_v, err_expr))
-    ) pred_errs
+    List.mapi
+      (fun i err_expr ->
+        let pid = List.length sel_infos + i in
+        let res_v =
+          FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
+          |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In))
+        in
+        C.Expr (C.BinOp (C.Assign, res_v, err_expr)))
+      pred_errs
   in
   let if_err_assigns_then =
-    List.mapi (fun i err_expr ->
-      let pid = List.length sel_infos + i in
-      let res_v =
-        FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
-        |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In)) in
-      C.Expr (C.BinOp (C.Assign, res_v, err_expr))
-    ) body_errs
+    List.mapi
+      (fun i err_expr ->
+        let pid = List.length sel_infos + i in
+        let res_v =
+          FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
+          |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In))
+        in
+        C.Expr (C.BinOp (C.Assign, res_v, err_expr)))
+      body_errs
   in
   let if_err_assigns_else =
-    List.mapi (fun i err_expr ->
-      let pid = List.length sel_infos + i in
-      let res_v =
-        FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
-        |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In)) in
-      C.Expr (C.BinOp (C.Assign, res_v, err_expr))
-    ) else_errs
+    List.mapi
+      (fun i err_expr ->
+        let pid = List.length sel_infos + i in
+        let res_v =
+          FullPortMap.find_opt (gid, 0, pid, `In) env.var_map
+          |> Option.value ~default:(C.Id (var_name ~tag:"if_err" gid 0 pid `In))
+        in
+        C.Expr (C.BinOp (C.Assign, res_v, err_expr)))
+      else_errs
   in
 
   let then_assigns =
@@ -993,7 +1180,9 @@ and lower_if_graph env gr gid =
       (fun (sel_nid, bport) ->
         let res_v =
           FullPortMap.find_opt (gid, 0, bport, `In) env.var_map
-          |> Option.value ~default:(C.Id (var_name ~tag:"if_res" gid 0 bport `In)) in
+          |> Option.value
+               ~default:(C.Id (var_name ~tag:"if_res" gid 0 bport `In))
+        in
         ES.fold
           (fun ((sn, sp), (dn, dp), _) acc ->
             if dn = sel_nid && dp = 1 then
@@ -1013,7 +1202,9 @@ and lower_if_graph env gr gid =
       (fun (sel_nid, bport) ->
         let res_v =
           FullPortMap.find_opt (gid, 0, bport, `In) env.var_map
-          |> Option.value ~default:(C.Id (var_name ~tag:"if_res" gid 0 bport `In)) in
+          |> Option.value
+               ~default:(C.Id (var_name ~tag:"if_res" gid 0 bport `In))
+        in
         ES.fold
           (fun ((sn, sp), (dn, dp), _) acc ->
             if dn = sel_nid && dp = 2 then
@@ -1029,17 +1220,33 @@ and lower_if_graph env gr gid =
       sel_infos
   in
 
-  let if_core = [ C.If (pred_expr, body_stmts @ then_assigns @ if_err_assigns_then, else_stmts @ else_assigns @ if_err_assigns_else) ] in
+  let if_core =
+    [
+      C.If
+        ( pred_expr,
+          body_stmts @ then_assigns @ if_err_assigns_then,
+          else_stmts @ else_assigns @ if_err_assigns_else );
+    ]
+  in
   let implementation =
-    pred_decl :: pred_stmts @
-    (if if_err_assigns_pred <> [] then
-      let has_err = match pred_errs with [] -> C.LitInt 0 | e::_ -> e in (* simplified check *)
+    (pred_decl :: pred_stmts)
+    @
+    if if_err_assigns_pred <> [] then
+      let has_err = match pred_errs with [] -> C.LitInt 0 | e :: _ -> e in
+      (* simplified check *)
       [ C.If (has_err, if_err_assigns_pred, if_core) ]
-    else
-      if_core)
+    else if_core
   in
   (* Combine environments from branches: take parent env then layer on updates *)
-  let final_env = { env with var_map = FullPortMap.union (fun _ a _ -> Some a) body_env.var_map else_env.var_map } in
+  let final_env =
+    {
+      env with
+      var_map =
+        FullPortMap.union
+          (fun _ a _ -> Some a)
+          body_env.var_map else_env.var_map;
+    }
+  in
   (implementation, final_env)
 
 and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
@@ -1480,7 +1687,8 @@ let lower_procedure tm nid node =
                   let c_ty =
                     if if1_ty = Unknown_ty then
                       if sname = "n" || sname = "i" then C.Basic "int32_t"
-                      else if sname = "a" || sname = "b" then C.Basic "sisal_array_t"
+                      else if sname = "a" || sname = "b" then
+                        C.Basic "sisal_array_t"
                       else C.Basic "float"
                     else c_type_of_if1_ty tm if1_ty
                   in
@@ -1533,12 +1741,12 @@ let lower_procedure tm nid node =
           (fun pid ->
             let res_v =
               FullPortMap.find_opt (sub_gid, 0, pid, `In) env_after.var_map
-              |> Option.value ~default:(C.Id (var_name ~tag:"func_res" sub_gid 0 pid `In))
+              |> Option.value
+                   ~default:(C.Id (var_name ~tag:"func_res" sub_gid 0 pid `In))
             in
             (pid, res_v))
           all_b_outs
       in
-
 
       let ret_count = List.length ret_exprs in
       if ret_count > 1 then
