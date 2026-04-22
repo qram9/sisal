@@ -1,15 +1,17 @@
 open Ir.If1
 module C = Ir.C_ast
 
-type direction = [`In | `Out]
+type direction = [ `In | `Out ]
 
-module FullPortMap = Map.Make(struct
+module FullPortMap = Map.Make (struct
   type t = int * int * int * direction (* gid, node_id, port_id, direction *)
+
   let compare = compare
 end)
 
-module PortSet = Set.Make(struct
+module PortSet = Set.Make (struct
   type t = int * int * int * direction
+
   let compare = compare
 end)
 
@@ -24,8 +26,9 @@ end)
    ordering.  Pragma names are NOT used here: they describe structural
    roles (BODY, GENERATOR, RESULTS …) and are only meaningful inside
    find_subgraph when locating subgraphs within FORALL/IF constructs. *)
-module GidMap = Map.Make(struct
-  type t = int * int   (* parent_gid * compound_nid *)
+module GidMap = Map.Make (struct
+  type t = int * int (* parent_gid * compound_nid *)
+
   let compare = compare
 end)
 
@@ -47,12 +50,13 @@ let build_gid_table (root_gr : graph) : int GidMap.t =
   let counter = ref 1 in
   let map = ref GidMap.empty in
   let rec visit parent_gid gr =
-    List.iter (fun (nid, sub_gr) ->
-      let gid = !counter in
-      incr counter;
-      map := GidMap.add (parent_gid, nid) gid !map;
-      visit gid sub_gr
-    ) (compound_children_sorted gr)
+    List.iter
+      (fun (nid, sub_gr) ->
+        let gid = !counter in
+        incr counter;
+        map := GidMap.add (parent_gid, nid) gid !map;
+        visit gid sub_gr)
+      (compound_children_sorted gr)
   in
   visit 0 root_gr;
   !map
@@ -77,6 +81,7 @@ type env = {
   var_map : C.expr FullPortMap.t;
   preds : (int * int * int * direction) FullPortMap.t;
   curr_gid : int;
+  curr_gr : graph;
   parent_env : env option;
   force_gpu : bool;
   gid_table : int GidMap.t;

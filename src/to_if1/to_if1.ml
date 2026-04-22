@@ -143,6 +143,7 @@ let str_type_trace () =
 
 let dbg_trace : string ref = ref ""
 let current_src_pos : (int * int) ref = ref (0, 0)
+let prefer_dv = ref false
 
 let in_port_1 =
   (* memory allocate arrays *)
@@ -235,20 +236,26 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
             in
             if inc_typ = 0 then
               let (id, _, _), in_gr =
-                If1.add_type_to_typemap_dedup (If1.Array_ty ofty) in_gr
+                If1.add_type_to_typemap_dedup
+                  (if !prefer_dv then If1.Array_dv ofty else If1.Array_ty ofty)
+                  in_gr
               in
               (id, in_gr)
-            else
+            else if
               (* inc_typ is a named type: if it's already an array type
                  (e.g. `ARRAY AR [...]` where AR = ARRAY[INTEGER]), use it
                  directly.  If it's a non-array type (e.g. a function type),
                  treat it as the element type and build array[inc_typ]. *)
-              if If1.is_array_type inc_typ in_gr then (inc_typ, in_gr)
-              else
-                let (id, _, _), in_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_ty inc_typ) in_gr
-                in
-                (id, in_gr)
+              If1.is_array_type inc_typ in_gr
+            then (inc_typ, in_gr)
+            else
+              let (id, _, _), in_gr =
+                If1.add_type_to_typemap_dedup
+                  (if !prefer_dv then If1.Array_dv inc_typ
+                   else If1.Array_ty inc_typ)
+                  in_gr
+              in
+              (id, in_gr)
           in
           ((arrnum, arrport, t1), in_gr))
 
@@ -313,6 +320,67 @@ and get_tys ttts ous =
   | (fn, (_, _, tt)) :: tl -> get_tys tl ((fn, tt) :: ous)
   | [] -> ous
 
+and wire_all_syms_to_compound cn sub_gr outer_gr =
+  let cs, _ps = outer_gr.If1.symtab in
+  let outer_gr_ref = ref outer_gr in
+  let sub_gr_ref = ref sub_gr in
+  If1.SM.iter
+    (fun xn { If1.val_ty = t; val_def = sn; def_port = sp; _ } ->
+      (* Check if there is already an edge from (sn, sp) to (cn, ?) in outer_gr *)
+      let has_edge =
+        If1.ES.exists
+          (fun ((sn_e, sp_e), (dn_e, _), _) ->
+            sn_e = sn && sp_e = sp && dn_e = cn)
+          !outer_gr_ref.If1.eset
+      in
+
+      if not has_edge then begin
+        (* 1. Add edge in outer graph: (sn, sp) -> (cn, next_port) *)
+        let next_port = If1.get_next_available_in_port cn !outer_gr_ref in
+        outer_gr_ref := If1.add_edge sn sp cn next_port t !outer_gr_ref;
+
+        (* 2. Add corresponding boundary input to sub_gr *)
+        let _, updated_sub_gr =
+          If1.add_to_boundary_inputs ~namen:xn 0 next_port !sub_gr_ref
+        in
+        sub_gr_ref := updated_sub_gr;
+
+        to_if1_msg 3
+          "wire_all_syms_to_compound: Wired %s (node %d, port %d) to compound \
+           %d port %d"
+          xn sn sp cn next_port
+      end)
+    cs;
+  (!sub_gr_ref, !outer_gr_ref)
+
+and verify_compound_inputs cn sub_gr outer_gr =
+  let cs, _ps = outer_gr.If1.symtab in
+  If1.SM.iter
+    (fun xn { If1.val_ty = t; val_def = dn_orig; def_port = dp_orig; _ } ->
+      let dn, dp, _ =
+        If1.find_incoming_regular_node (dn_orig, dp_orig, t) outer_gr
+      in
+      (* Check if there is an edge from (dn, dp) to (cn, ?) in outer_gr *)
+      let has_edge =
+        If1.ES.exists
+          (fun ((sn, sp), (dn_edge, _), _) ->
+            sn = dn && sp = dp && dn_edge = cn)
+          outer_gr.If1.eset
+      in
+      if not has_edge then begin
+        (* Value in symtab but not wired to compound node *)
+        to_if1_msg 1
+          "verify_compound_inputs: Value %s (orig %d:%d, resolved %d:%d) in \
+           symtab NOT wired to compound node %d"
+          xn dn_orig dp_orig dn dp cn;
+        failwith
+          (Printf.sprintf
+             "verify_compound_inputs: Variable %s (from node %d:%d) not wired \
+              to compound node %d"
+             xn dn dp cn)
+      end)
+    cs
+
 and union_builder in_gr utags iornone =
   (* If1.Union or If1.Record builder helper function *)
   let union_builder_impl in_gr = function
@@ -354,12 +422,14 @@ and union_builder in_gr utags iornone =
   let in_gr = If1.add_edge edghd edgp bb t1 tty in_gr in
   ((bb, pp, aout), in_gr)
 
+and get_element_type vect = If1.get_element_type vect
+
 and extract_vec_components (vn, vp, vt) dim in_gr =
   (* Extract `dim` scalar components from a vector via SWIZZLE nodes.
      Returns a list of (node, port, type) triples, one per component. *)
   let scalar_ty =
     let row_if1_ty = If1.lookup_ty vt in_gr in
-    If1.find_ty in_gr (If1.get_element_type row_if1_ty)
+    If1.find_ty in_gr (get_element_type row_if1_ty)
   in
   List.fold_right
     (fun idx (acc, g) ->
@@ -425,6 +495,21 @@ and deduplicate_types typemap =
   in
   (final_map, subst_map)
 
+and is_type_compatible t1 t2 in_gr =
+  if t1 = t2 then true
+  else
+    match (If1.lookup_ty_safe t1 in_gr, If1.lookup_ty_safe t2 in_gr) with
+    | Some ty1, Some ty2 ->
+        if ty1 = ty2 then true
+        else
+          (* Allow structural array/dv compatibility *)
+          let r1 = get_rank t1 in_gr in
+          let r2 = get_rank t2 in_gr in
+          let e1 = get_deep_elem_ty t1 in_gr in
+          let e2 = get_deep_elem_ty t2 in_gr in
+          r1 > 0 && r1 = r2 && e1 = e2
+    | _ -> false
+
 and check_rec_ty in_gr tty_lis tm outlis =
   match tty_lis with
   | (hdf, hd) :: tl ->
@@ -433,7 +518,10 @@ and check_rec_ty in_gr tty_lis tm outlis =
           (fun k v z ->
             match z with
             | If1.Emp -> (
-                let bar xx lt = if xx = hdf && lt = hd then If1.Som k else z in
+                let bar xx lt =
+                  if xx = hdf && is_type_compatible lt hd in_gr then If1.Som k
+                  else z
+                in
                 match v with
                 | If1.Record (lt, _, xx) -> bar xx lt
                 | If1.Union (lt, _, xx) -> bar xx lt
@@ -635,7 +723,9 @@ and do_val_internal in_gr v =
        the tuple is used as a multi-value return, or follow a specific port
        when the same tuple is referenced multiple times (destructuring). *)
     | If1.Simple (_, If1.MULTIARITY, _, _, prags)
-      when List.exists (function If1.Name "TUPLE_VAL" -> true | _ -> false) prags ->
+      when List.exists
+             (function If1.Name "TUPLE_VAL" -> true | _ -> false)
+             prags ->
         (nn, np, nty)
     (* Regular MULTIARITY: produced by a multi-return function call or
        other non-tuple multi-value context.  Dereference one level to the
@@ -743,7 +833,9 @@ and add_exp in_gr ex _ ret_lis =
         in
         let nm = in_gr.If1.nmap in
         let is_tuple_val prags =
-          List.exists (function If1.Name "TUPLE_VAL" -> true | _ -> false) prags
+          List.exists
+            (function If1.Name "TUPLE_VAL" -> true | _ -> false)
+            prags
         in
         let expand_all_ports ahd atl oth_lis =
           let incoming = If1.all_edges_ending_at ahd in_gr in
@@ -784,8 +876,7 @@ and add_exp in_gr ex _ ret_lis =
                   when is_tuple_val prags ->
                     (* TUPLE_VAL: use count to decide expand vs specific-port *)
                     let count =
-                      try If1.IntMap.find ahd tuple_counts
-                      with Not_found -> 1
+                      try If1.IntMap.find ahd tuple_counts with Not_found -> 1
                     in
                     if count <= 1 then
                       (* Whole-tuple use: expand all ports *)
@@ -842,8 +933,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
         match e with
         | Ast.Exp ei -> (
             match ei with
-            | [ hd; tl ] ->
-                (bin_exp hd tl in_gr If1.RANGEGEN, [])
+            | [ hd; tl ] -> (bin_exp hd tl in_gr If1.RANGEGEN, [])
             | [ hd ] ->
                 let (e, pi, t1), in_gr = do_simple_exp in_gr hd in
                 let t1 =
@@ -919,7 +1009,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
       in
       (((aa, bb, cc), in_gr), dv_infos)
   | Ast.At_exp (ie, vns) ->
-      let (((aa, bb, cc), in_gr), dv_infos) = do_in_exp ~curr_level in_gr ie in
+      let ((aa, bb, cc), in_gr), dv_infos = do_in_exp ~curr_level in_gr ie in
       let in_gr =
         let cs, ps = in_gr.If1.symtab in
         match vns with
@@ -947,8 +1037,8 @@ and do_in_exp ?(curr_level = 1) in_gr = function
       in
       (((aa, bb, cc), in_gr), dv_infos)
   | Ast.Dot (ie1, ie2) ->
-      let (((_, _, _), in_gr), dv_infos1) = do_in_exp in_gr ie1 in
-      let (((x, y, z), in_gr), dv_infos2) = do_in_exp in_gr ie2 in
+      let ((_, _, _), in_gr), dv_infos1 = do_in_exp in_gr ie1 in
+      let ((x, y, z), in_gr), dv_infos2 = do_in_exp in_gr ie2 in
       (((x, y, z), in_gr), dv_infos1 @ dv_infos2)
   | Ast.Cross (_, _) -> raise (If1.Sem_error "Need to be in a forall context")
 
@@ -1032,9 +1122,7 @@ and get_ports_unified of_gr basis_gr parent_gr =
                       ps );
                 }
               in
-              let _, f_gr =
-                If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr
-              in
+              let _, f_gr = If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr in
               f_gr
             else raise (If1.Sem_error ("Cannot find name in outer scope:" ^ xn))
           else f_gr)
@@ -1083,7 +1171,9 @@ and do_for_all inexp bodyexp retexp in_gr =
     let aar = generator_array_lowlim outer_gen_gr in
     match aar with
     | `ArrLim xy ->
-        let (ai, ay, _), in_gr = do_simple_exp in_gr (Ast.Constant (Ast.Int 1)) in
+        let (ai, ay, _), in_gr =
+          do_simple_exp in_gr (Ast.Constant (Ast.Int 1))
+        in
         let (aa1, _, _), in_gr = unary_internal 1 fx aa tt in_gr If1.ASETL in
         let in_gr =
           If1.add_edge ai ay aa1 1 (If1.lookup_tyid If1.INTEGRAL) in_gr
@@ -1110,7 +1200,9 @@ and do_for_all inexp bodyexp retexp in_gr =
   let build_gen_graph curr_lev in_gr gen_exp =
     to_if1_msg 3 "For_all: lowering GENERATOR (level %d)" curr_lev;
     let gen_gr = get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr in
-    let (xyz, gen_gr), dv_info = do_in_exp ~curr_level:curr_lev gen_gr gen_exp in
+    let (xyz, gen_gr), dv_info =
+      do_in_exp ~curr_level:curr_lev gen_gr gen_exp
+    in
     let gen_gr =
       { gen_gr with If1.typemap = If1.get_merged_typeblob_gr in_gr gen_gr }
     in
@@ -1122,7 +1214,9 @@ and do_for_all inexp bodyexp retexp in_gr =
     | [] -> raise (If1.Sem_error "Internal Compiler Error")
     | (curr_lev, gen_exp_inner) :: [] ->
         (* In_Gr Must Be Based On An Outer Gen_Gr. *)
-        let _, gen_gr, dv_infos = build_gen_graph curr_lev in_gr gen_exp_inner in
+        let _, gen_gr, dv_infos =
+          build_gen_graph curr_lev in_gr gen_exp_inner
+        in
 
         (* Put The Decldefs (Loop Code) In The Body. *)
         to_if1_msg 3 "For_all: lowering BODY";
@@ -1157,12 +1251,18 @@ and do_for_all inexp bodyexp retexp in_gr =
             (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR" ], []))
             forall_gr
         in
+        let gen_gr, forall_gr = wire_all_syms_to_compound gn gen_gr forall_gr in
+        verify_compound_inputs gn gen_gr forall_gr;
 
         let (bx, by, bz), forall_gr =
           If1.add_node_2
             (`Compound (body_gr, If1.INTERNAL, 0, [ If1.Name "BODY" ], []))
             forall_gr
         in
+        let body_gr, forall_gr =
+          wire_all_syms_to_compound bx body_gr forall_gr
+        in
+        verify_compound_inputs bx body_gr forall_gr;
 
         let forall_gr = get_ports_unified forall_gr body_gr gen_gr in
 
@@ -1180,7 +1280,9 @@ and do_for_all inexp bodyexp retexp in_gr =
               inner_ids,
               inner_dv_infos ) =
           (* Create A Generator For Outer Loop. *)
-          let (_, _, _), gen_gr, dv_infos = build_gen_graph curr_lev in_gr gen_exp in
+          let (_, _, _), gen_gr, dv_infos =
+            build_gen_graph curr_lev in_gr gen_exp
+          in
 
           (* Add outer loop generator to a new forall_gr. *)
           let (gn, _, _), forall_gr =
@@ -1191,8 +1293,17 @@ and do_for_all inexp bodyexp retexp in_gr =
               (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR" ], []))
               forall_gr
           in
+          let gen_gr, forall_gr =
+            wire_all_syms_to_compound gn gen_gr forall_gr
+          in
+          verify_compound_inputs gn gen_gr forall_gr;
 
-          let _, inner_ret, mask_ty_list, body_nest_gr, inner_ids, inner_dv_infos =
+          let ( _,
+                inner_ret,
+                mask_ty_list,
+                body_nest_gr,
+                inner_ids,
+                inner_dv_infos ) =
             (* As The Body Would Need Outer And Inner Generators,
               Send Gen_Gr To The Recursive Call To Obtain
               The Inner Loop, Which Is Body_Nest_Gr. *)
@@ -1204,7 +1315,8 @@ and do_for_all inexp bodyexp retexp in_gr =
             {
               forall_gr with
               If1.typemap =
-                If1.merge_typeblobs forall_gr.If1.typemap body_nest_gr.If1.typemap;
+                If1.merge_typeblobs forall_gr.If1.typemap
+                  body_nest_gr.If1.typemap;
             }
           in
 
@@ -1225,6 +1337,10 @@ and do_for_all inexp bodyexp retexp in_gr =
                    inner_ids ))
               forall_gr
           in
+          let body_nest_gr, forall_gr =
+            wire_all_syms_to_compound fx body_nest_gr forall_gr
+          in
+          verify_compound_inputs fx body_nest_gr forall_gr;
 
           let _, _, forall_gr =
             (* Get Generator'S Lower Size Setting
@@ -1244,9 +1360,7 @@ and do_for_all inexp bodyexp retexp in_gr =
               return_action_list (0, [], forall_gr)
           in
 
-          let forall_gr =
-            get_ports_unified forall_gr body_nest_gr gen_gr
-          in
+          let forall_gr = get_ports_unified forall_gr body_nest_gr gen_gr in
 
           ( (fx, fy, fz),
             return_action_list,
@@ -1270,12 +1384,18 @@ and do_for_all inexp bodyexp retexp in_gr =
 
   (* APL Error Monad: Check for Array_dv compatibility *)
   let dv_sources =
-    List.filter_map (fun (is_dv, src) -> if is_dv then Some src else None) dv_infos
+    List.filter_map
+      (fun (is_dv, src) -> if is_dv then Some src else None)
+      dv_infos
   in
   let res_ty =
     match return_action_list with
     | (act, rt, _) :: _ ->
-        to_if1_msg 3 "For_all: res_ty=%d action=%s" rt (match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | _ -> "other");
+        to_if1_msg 3 "For_all: res_ty=%d action=%s" rt
+          (match act with
+          | `Array_of -> "array_of"
+          | `Dv_array_of _ -> "dv_array_of"
+          | _ -> "other");
         rt
     | _ -> 0
   in
@@ -1285,11 +1405,11 @@ and do_for_all inexp bodyexp retexp in_gr =
     | first :: rest ->
         List.fold_left
           (fun acc_gr next ->
-            let (_, (err_n, err_p, err_t), acc_gr) =
+            let _, (err_n, err_p, err_t), acc_gr =
               emit_dv_conform_check first next acc_gr
             in
-            add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t)
-              "ERROR" acc_gr)
+            add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t) "ERROR"
+              acc_gr)
           in_gr rest
   in
 
@@ -1304,6 +1424,8 @@ and do_for_all inexp bodyexp retexp in_gr =
            subgr_ids ))
       in_gr
   in
+  let forall_gr, in_gr = wire_all_syms_to_compound fx forall_gr in_gr in
+  verify_compound_inputs fx forall_gr in_gr;
 
   let (mul_n, mul_p, mul_t), in_gr =
     build_multiarity ~nam:"FOR_ALL" (List.length return_action_list) in_gr
@@ -1484,10 +1606,9 @@ and do_decldef in_gr delc =
           if List.length decl_names = List.length type_list then
             List.fold_left2
               (fun (expl, rhs, igr) dn typ ->
-                bind_exp_to_decl expl rhs [dn] (Some typ) igr)
+                bind_exp_to_decl expl rhs [ dn ] (Some typ) igr)
               (expl, rhs_exps, in_gr) decl_names type_list
-          else
-            bind_exp_to_decl expl rhs_exps decl_names None in_gr
+          else bind_exp_to_decl expl rhs_exps decl_names None in_gr
         in
         do_each_decl decllist_tail rhs_exps expl in_gr
     | [] -> in_gr
@@ -1524,7 +1645,9 @@ and do_decldef in_gr delc =
                      if this name is later returned as a boundary output,
                      point_edges_to_boundary sees the real node — not the MULTIARITY —
                      and does not incorrectly unravel all ports. *)
-                  let actual = If1.find_incoming_regular_node (expnum, ke, va) in_gr in
+                  let actual =
+                    If1.find_incoming_regular_node (expnum, ke, va) in_gr
+                  in
                   actual :: retl)
                 port_type_map expl
           | _ -> (expnum, expport, expty) :: expl
@@ -1584,11 +1707,13 @@ and do_decldef in_gr delc =
               in
               let in_gr_ = check_decl_type atyp expty in_gr_ in
               let in_gr_ = If1.graph_clean_multiarity in_gr_ in
-              let _, in_gr =
+              let (cn, _, _), in_gr =
                 If1.add_node_2
                   (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
                   in_gr
               in
+              let in_gr_, in_gr = wire_all_syms_to_compound cn in_gr_ in_gr in
+              verify_compound_inputs cn in_gr_ in_gr;
               (expl, rhs_exps, in_gr)
         in
         bind_exp_to_decl expl rhs_exps remaining_names atyp in_gr
@@ -1666,7 +1791,8 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
       do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
   | Decl_tuple_no_type decl_names :: decllist_tail ->
       let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
-        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None in_gr
+        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None
+          in_gr
       in
       do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
   | Decl_tuple_with_type (decl_names, type_list) :: decllist_tail ->
@@ -1674,11 +1800,12 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
         if List.length decl_names = List.length type_list then
           List.fold_left2
             (fun (expl, xrev, drev, rhs, igr) dn typ ->
-              do_exp_for_decl expl xrev drev rhs [dn] (Some typ) igr)
+              do_exp_for_decl expl xrev drev rhs [ dn ] (Some typ) igr)
             (expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr)
             decl_names type_list
         else
-          do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None in_gr
+          do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names
+            None in_gr
       in
       do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
   | [] -> (expl_rev, decl_rev, in_gr)
@@ -1734,6 +1861,8 @@ and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
                 (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
                 in_gr
             in
+            let in_gr_, in_gr = wire_all_syms_to_compound expnum in_gr_ in_gr in
+            verify_compound_inputs expnum in_gr_ in_gr;
             let localsyms, globsyms = in_gr.If1.symtab in
             let localsyms =
               If1.SM.add fn
@@ -2253,6 +2382,10 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
           (`Compound (tagcase_gr_i, If1.INTERNAL, 0, prags, []))
           tagcase_g
       in
+      let tagcase_gr_i, tagcase_g =
+        wire_all_syms_to_compound ii tagcase_gr_i tagcase_g
+      in
+      verify_compound_inputs ii tagcase_gr_i tagcase_g;
       let tagcase_g = add_edges_to_boundary tagcase_gr_i tagcase_g ii in
       (* map each tagnum to its subgraph,
         this will become the association list *)
@@ -2364,13 +2497,13 @@ and maybe_coerce src sp src_ty tgt_ty in_gr =
 and bin_exp a b in_gr node_tag =
   let (nod1, por1, ty1), in_gr = do_simple_exp in_gr a in
   let (nod2, por2, ty2), in_gr = do_simple_exp in_gr b in
-  let (c1, pi1, qq1) =
+  let c1, pi1, qq1 =
     match If1.NM.find_opt nod1 in_gr.If1.nmap with
     | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
         first_incoming_triple_to_multiarity nod1 in_gr
     | _ -> (nod1, por1, ty1)
   in
-  let (c2, pi2, qq2) =
+  let c2, pi2, qq2 =
     match If1.NM.find_opt nod2 in_gr.If1.nmap with
     | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
         first_incoming_triple_to_multiarity nod2 in_gr
@@ -2383,9 +2516,10 @@ and bin_exp a b in_gr node_tag =
 
   let is_liftable_dv =
     match node_tag with
-    | If1.ADD | If1.SUBTRACT | If1.TIMES | If1.FDIVIDE | If1.IDIVIDE
-    | If1.EQUAL | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL | If1.GREATER | If1.GREATER_EQUAL
-    | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR -> true
+    | If1.ADD | If1.SUBTRACT | If1.TIMES | If1.FDIVIDE | If1.IDIVIDE | If1.EQUAL
+    | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL | If1.GREATER
+    | If1.GREATER_EQUAL | If1.AND | If1.OR | If1.SHL | If1.SHR | If1.ASHR ->
+        true
     | _ -> false
   in
 
@@ -2395,10 +2529,12 @@ and bin_exp a b in_gr node_tag =
     let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
     let ae =
-      if a_is_arr || a_is_dv then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]) else a_ref
+      if a_is_arr || a_is_dv then Ast.Array_ref (a_ref, Ast.Exp [ i_ref ])
+      else a_ref
     in
     let be =
-      if b_is_arr || b_is_dv then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ]) else b_ref
+      if b_is_arr || b_is_dv then Ast.Array_ref (b_ref, Ast.Exp [ i_ref ])
+      else b_ref
     in
     let body_elem =
       match node_tag with
@@ -2421,8 +2557,16 @@ and bin_exp a b in_gr node_tag =
     lift_binop_forall (c1, pi1, qq1) (c2, pi2, qq2) body_elem in_gr
   else
     (* 3. Non-array case: Matmul/Matvec or Scalar *)
-    let a_ty = match If1.lookup_ty_safe qq1 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
-    let b_ty = match If1.lookup_ty_safe qq2 in_gr with Some t -> t | None -> If1.Basic If1.INTEGRAL in
+    let a_ty =
+      match If1.lookup_ty_safe qq1 in_gr with
+      | Some t -> t
+      | None -> If1.Basic If1.INTEGRAL
+    in
+    let b_ty =
+      match If1.lookup_ty_safe qq2 in_gr with
+      | Some t -> t
+      | None -> If1.Basic If1.INTEGRAL
+    in
     match
       ( node_tag,
         If1.is_mat_type a_ty,
@@ -2433,7 +2577,9 @@ and bin_exp a b in_gr node_tag =
     | If1.TIMES, true, _, true, _ ->
         (* mat * mat -> MATMUL, result is same mat type *)
         let (mn, mp, _), in_gr =
-          If1.add_node_2 (`Simple (If1.MATMUL, [| ""; "" |], [| "" |], [])) in_gr
+          If1.add_node_2
+            (`Simple (If1.MATMUL, [| ""; "" |], [| "" |], []))
+            in_gr
         in
         let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
         let in_gr = If1.add_edge c2 pi2 mn 1 qq2 in_gr in
@@ -2441,7 +2587,8 @@ and bin_exp a b in_gr node_tag =
     | If1.TIMES, true, _, false, true ->
         (* mat * vec -> MATVECMUL, result is the vec type *)
         let (mn, mp, _), in_gr =
-          If1.add_node_2 (`Simple (If1.MATVECMUL, [| ""; "" |], [| "" |], []))
+          If1.add_node_2
+            (`Simple (If1.MATVECMUL, [| ""; "" |], [| "" |], []))
             in_gr
         in
         let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
@@ -2450,7 +2597,8 @@ and bin_exp a b in_gr node_tag =
     | If1.TIMES, false, true, true, _ ->
         (* vec * mat -> VECMATMUL, result is the vec type *)
         let (mn, mp, _), in_gr =
-          If1.add_node_2 (`Simple (If1.VECMATMUL, [| ""; "" |], [| "" |], []))
+          If1.add_node_2
+            (`Simple (If1.VECMATMUL, [| ""; "" |], [| "" |], []))
             in_gr
         in
         let in_gr = If1.add_edge c1 pi1 mn 0 qq1 in_gr in
@@ -2505,12 +2653,8 @@ and bin_exp a b in_gr node_tag =
         let in_gr = If1.add_edge d pi2 z 1 common_ty in_gr in
         let res_ty =
           match node_tag with
-          | If1.EQUAL
-          | If1.NOT_EQUAL
-          | If1.LESSER
-          | If1.LESSER_EQUAL
-          | If1.GREATER
-          | If1.GREATER_EQUAL ->
+          | If1.EQUAL | If1.NOT_EQUAL | If1.LESSER | If1.LESSER_EQUAL
+          | If1.GREATER | If1.GREATER_EQUAL ->
               If1.lookup_tyid If1.BOOLEAN
           | _ -> common_ty
         in
@@ -2622,7 +2766,8 @@ and emit_get_dope_vec (an, ap, arr_ty) in_gr =
   in
   let in_gr = If1.add_edge an ap gn 0 arr_ty in_gr in
   let dope_result = (gn, 0, dope_ty) in
-  let arr_result  = (gn, 1, arr_ty) in   (* port 1 is the array passthrough *)
+  let arr_result = (gn, 1, arr_ty) in
+  (* port 1 is the array passthrough *)
   (dope_result, arr_result, in_gr)
 
 (* Post-processor: if the result of a simple-exp is an array, attach
@@ -2657,8 +2802,7 @@ and maybe_add_dope (n, p, ty) in_gr =
 and inject_sym name (n, p, ty) in_gr =
   let globals, locals = in_gr.If1.symtab in
   let entry =
-    { If1.val_name = name; If1.val_ty = ty;
-      If1.val_def = n;     If1.def_port = p }
+    { If1.val_name = name; If1.val_ty = ty; If1.val_def = n; If1.def_port = p }
   in
   { in_gr with If1.symtab = (If1.SM.add name entry globals, locals) }
 
@@ -2666,11 +2810,13 @@ and inject_sym name (n, p, ty) in_gr =
 and is_array_ty ty in_gr =
   match If1.lookup_ty_safe ty in_gr with
   | Some (If1.Array_ty _) | Some (If1.Array_dv _) -> true
+  | Some (If1.If1Type_name t) -> is_array_ty t in_gr
   | _ -> false
 
 and is_dv_array_ty ty in_gr =
   match If1.lookup_ty_safe ty in_gr with
   | Some (If1.Array_dv _) -> true
+  | Some (If1.If1Type_name t) -> is_dv_array_ty t in_gr
   | _ -> false
 
 (* Extract element type id from Array_ty or Array_dv; raises on other types *)
@@ -2685,9 +2831,7 @@ and get_rank ty in_gr =
   match If1.lookup_ty_safe ty in_gr with
   | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> 1 + get_rank et in_gr
   | Some (If1.Basic _ as b) ->
-      if If1.is_mat_type b then 2
-      else if If1.is_vector_type b then 1
-      else 0
+      if If1.is_mat_type b then 2 else if If1.is_vector_type b then 1 else 0
   | _ -> 0
 
 (* get the ultimate scalar type of an array or vector *)
@@ -2717,7 +2861,8 @@ and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
   else
     let (ck_n, _, _), in_gr =
       If1.add_node_2
-        (`Simple (If1.SHAPE_CHECK, Array.make 2 "", Array.make 0 "", [ If1.No_pragma ]))
+        (`Simple
+           (If1.SHAPE_CHECK, Array.make 2 "", Array.make 0 "", [ If1.No_pragma ]))
         in_gr
     in
     let in_gr = If1.add_edge an ap ck_n 0 at in_gr in
@@ -2729,11 +2874,13 @@ and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
     | If1.Boundary (ins, outs, errs, prags) ->
         let next_err_port = List.length errs + 1 in
         let in_gr =
-          { in_gr with
+          {
+            in_gr with
             nmap =
               If1.NM.add 0
                 (If1.Boundary (ins, outs, errs @ [ (ck_n, err_ty_id) ], prags))
-                in_gr.nmap }
+                in_gr.nmap;
+          }
         in
         If1.add_edge ck_n 0 0 next_err_port err_ty_id in_gr
     | _ -> in_gr
@@ -2785,8 +2932,10 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
   (* Compute max_rank = if r1 > r2 then r1 else r2 *)
   let max_rank_ast =
     Ast.If
-      ( [ Ast.Cond (Ast.Exp [ Ast.Greater (val_n "__LFR1", val_n "__LFR2") ],
-                     Ast.Exp [ val_n "__LFR1" ])
+      ( [
+          Ast.Cond
+            ( Ast.Exp [ Ast.Greater (val_n "__LFR1", val_n "__LFR2") ],
+              Ast.Exp [ val_n "__LFR1" ] );
         ],
         Ast.Else (Ast.Exp [ val_n "__LFR2" ]) )
   in
@@ -2796,100 +2945,119 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
   (* Common Shape and Compatibility Loop (NumPy style) *)
   let loop_ast =
     Ast.For_all
-      ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ int_c 1; val_n "__LFMR" ]),
+      ( Ast.In_exp
+          (Ast.Value_name [ "__LFI" ], Ast.Exp [ int_c 1; val_n "__LFMR" ]),
         Ast.Decldef_part
-          [ (* Compute relative indices: idx = i - (max_r - rank) *)
+          [
+            (* Compute relative indices: idx = i - (max_r - rank) *)
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFIDX1" ] ],
                 Ast.Exp
-                  [ Ast.Subtract
+                  [
+                    Ast.Subtract
                       ( val_n "__LFI",
-                        Ast.Subtract (val_n "__LFMR", val_n "__LFR1") )
+                        Ast.Subtract (val_n "__LFMR", val_n "__LFR1") );
                   ] );
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFIDX2" ] ],
                 Ast.Exp
-                  [ Ast.Subtract
+                  [
+                    Ast.Subtract
                       ( val_n "__LFI",
-                        Ast.Subtract (val_n "__LFMR", val_n "__LFR2") )
+                        Ast.Subtract (val_n "__LFMR", val_n "__LFR2") );
                   ] );
             (* d1 = if idx1 >= 1 then DV_DIMENSION(__LFA, idx1).size else 1 *)
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFD1" ] ],
                 Ast.Exp
-                  [ Ast.If
-                      ( [ Ast.Cond
+                  [
+                    Ast.If
+                      ( [
+                          Ast.Cond
                             ( Ast.Exp
-                                [ Ast.Greater_equal
-                                    (val_n "__LFIDX1", int_c 1)
+                                [
+                                  Ast.Greater_equal (val_n "__LFIDX1", int_c 1);
                                 ],
                               Ast.Exp
-                                [ Ast.Record_ref
+                                [
+                                  Ast.Record_ref
                                     ( Ast.Dv_dimension
                                         (val_n "__LFA", val_n "__LFIDX1"),
-                                      Ast.Field_name "size" )
-                                ] )
+                                      Ast.Field_name "size" );
+                                ] );
                         ],
-                        Ast.Else (Ast.Exp [ int_c 1 ]) )
+                        Ast.Else (Ast.Exp [ int_c 1 ]) );
                   ] );
             (* d2 = if idx2 >= 1 then DV_DIMENSION(__LFB, idx2).size else 1 *)
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFD2" ] ],
                 Ast.Exp
-                  [ Ast.If
-                      ( [ Ast.Cond
+                  [
+                    Ast.If
+                      ( [
+                          Ast.Cond
                             ( Ast.Exp
-                                [ Ast.Greater_equal
-                                    (val_n "__LFIDX2", int_c 1)
+                                [
+                                  Ast.Greater_equal (val_n "__LFIDX2", int_c 1);
                                 ],
                               Ast.Exp
-                                [ Ast.Record_ref
+                                [
+                                  Ast.Record_ref
                                     ( Ast.Dv_dimension
                                         (val_n "__LFB", val_n "__LFIDX2"),
-                                      Ast.Field_name "size" )
-                                ] )
+                                      Ast.Field_name "size" );
+                                ] );
                         ],
-                        Ast.Else (Ast.Exp [ int_c 1 ]) )
+                        Ast.Else (Ast.Exp [ int_c 1 ]) );
                   ] );
             (* compatible = (d1 == d2) || (d1 == 1) || (d2 == 1) *)
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFCOMPAT" ] ],
                 Ast.Exp
-                  [ Ast.Or
+                  [
+                    Ast.Or
                       ( Ast.Equal (val_n "__LFD1", val_n "__LFD2"),
                         Ast.Or
                           ( Ast.Equal (val_n "__LFD1", int_c 1),
-                            Ast.Equal (val_n "__LFD2", int_c 1) ) )
+                            Ast.Equal (val_n "__LFD2", int_c 1) ) );
                   ] );
             (* res_sz = if d1 > d2 then d1 else d2 *)
             Ast.Decldef
               ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFDRES" ] ],
                 Ast.Exp
-                  [ Ast.If
-                      ( [ Ast.Cond
-                            ( Ast.Exp [ Ast.Greater (val_n "__LFD1", val_n "__LFD2") ],
-                              Ast.Exp [ val_n "__LFD1" ] )
+                  [
+                    Ast.If
+                      ( [
+                          Ast.Cond
+                            ( Ast.Exp
+                                [ Ast.Greater (val_n "__LFD1", val_n "__LFD2") ],
+                              Ast.Exp [ val_n "__LFD1" ] );
                         ],
-                        Ast.Else (Ast.Exp [ val_n "__LFD2" ]) )
-                  ] )
+                        Ast.Else (Ast.Exp [ val_n "__LFD2" ]) );
+                  ] );
           ],
-        [ Ast.Return_exp (Ast.Array_of (val_n "__LFDRES"), Ast.No_mask);
+        [
+          Ast.Return_exp
+            ( (if !prefer_dv then Ast.Dv_array_of (1, val_n "__LFDRES")
+               else Ast.Array_of (val_n "__LFDRES")),
+              Ast.No_mask );
           Ast.Return_exp
             ( Ast.Value_of (Ast.No_dir, Ast.Least, val_n "__LFCOMPAT"),
-              Ast.No_mask )
+              Ast.No_mask );
         ] )
   in
 
   let (loop_n, loop_p, loop_t), in_gr = do_simple_exp in_gr loop_ast in
-  
+
   (* The loop returns a MULTIARITY node with (shape_array, all_compatible) *)
   let sh_n, sh_p, sh_t = (loop_n, 0, 0 (* type placeholder *)) in
   let comp_n, comp_p, comp_t = (loop_n, 1, If1.lookup_tyid If1.BOOLEAN) in
-  
-  (* Determine common shape type (Array[Int]) *)
+
+  (* Determine common shape type (Array_dv[Int] or Array[Int]) *)
   let (sh_ty, _, _), in_gr =
     If1.add_type_to_typemap_dedup
-      (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
+      (if !prefer_dv then If1.Array_dv (If1.lookup_tyid If1.INTEGRAL)
+       else If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
       in_gr
   in
 
@@ -2916,16 +3084,28 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
    The iterator runs over __VALO..__VAHI (A's bounds when A is an array,
    or B's bounds when only B is an array). *)
 and lift_binop_forall a_result b_result body_elem in_gr =
-  let (an, ap, at) =
-    match If1.get_node (let (n, _, _) = a_result in n) in_gr with
+  let an, ap, at =
+    match
+      If1.get_node
+        (let n, _, _ = a_result in
+         n)
+        in_gr
+    with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-        let (n, _, _) = a_result in first_incoming_triple_to_multiarity n in_gr
+        let n, _, _ = a_result in
+        first_incoming_triple_to_multiarity n in_gr
     | _ -> a_result
   in
-  let (bn, bp, bt) =
-    match If1.get_node (let (n, _, _) = b_result in n) in_gr with
+  let bn, bp, bt =
+    match
+      If1.get_node
+        (let n, _, _ = b_result in
+         n)
+        in_gr
+    with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-        let (n, _, _) = b_result in first_incoming_triple_to_multiarity n in_gr
+        let n, _, _ = b_result in
+        first_incoming_triple_to_multiarity n in_gr
     | _ -> b_result
   in
   let a_is_arr = is_array_ty at in_gr in
@@ -2935,12 +3115,14 @@ and lift_binop_forall a_result b_result body_elem in_gr =
 
   if a_is_dv || b_is_dv then
     (* 1. NumPy/JAX Universal Broadcasting Logic *)
-    let (sh_res, err_res, in_gr) = emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr in
-    
+    let sh_res, err_res, in_gr =
+      emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr
+    in
+
     (* 2. Get total elements for 1D loop using Product reduction on sh_res *)
     let in_gr = inject_sym "__LFSH_INT" sh_res in_gr in
     let sh_ref_ast = Ast.Val (Ast.Value_name [ "__LFSH_INT" ]) in
-    let ((total_n, total_p, total_t), in_gr) =
+    let (total_n, total_p, total_t), in_gr =
       do_simple_exp in_gr (Ast.Reduce (Ast.Product, sh_ref_ast))
     in
 
@@ -2949,26 +3131,26 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let b_dv_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let sh_ref = Ast.Val (Ast.Value_name [ "__LFSH" ]) in
     let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
-    
+
     (* For each operand, if it's an array (DV or standard), use rank-agnostic linear loading.
        Standard arrays are treated as rank-1 for this purpose. 
        If it's a scalar, use the value directly. *)
-    let val_a = 
+    let val_a =
       if a_is_arr || a_is_dv then
         let off_a = Ast.Dv_offset_at (a_dv_ref, i_ref, sh_ref) in
         Ast.Dv_load_linear (a_dv_ref, off_a)
-      else a_dv_ref 
+      else a_dv_ref
     in
-    
-    let val_b = 
+
+    let val_b =
       if b_is_arr || b_is_dv then
         let off_b = Ast.Dv_offset_at (b_dv_ref, i_ref, sh_ref) in
         Ast.Dv_load_linear (b_dv_ref, off_b)
-      else b_dv_ref 
+      else b_dv_ref
     in
-    
+
     (* Map the original body binary op to rank-agnostic loads *)
-    let body_rank_agnostic = 
+    let body_rank_agnostic =
       match body_elem with
       | Ast.Add _ -> Ast.Add (val_a, val_b)
       | Ast.Subtract _ -> Ast.Subtract (val_a, val_b)
@@ -2992,43 +3174,50 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
     let in_gr = inject_sym "__LFSH" sh_res in_gr in
     let in_gr = inject_sym "__LFTOTAL" (total_n, total_p, total_t) in_gr in
-    
+
     let total_exp = Ast.Val (Ast.Value_name [ "__LFTOTAL" ]) in
     let zero_exp = Ast.Constant (Ast.Int 0) in
     let hi_exp = Ast.Subtract (total_exp, Ast.Constant (Ast.Int 1)) in
-    
+
     let forall =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ zero_exp; hi_exp ]),
           Ast.Decldef_part [],
-          [ Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask) ] )
+          [
+            Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask);
+          ] )
     in
-    
+
     let result, in_gr = do_simple_exp_impl in_gr forall in
-    let (res_n, res_p, res_ty) = result in
-    
+    let res_n, res_p, res_ty = result in
+
     (* Final step: Reshape the 1D result array into the broadcast common shape.
        We use the new DV_RESHAPE_BY_SHAPE node which takes (Array, ShapeArray). *)
     let (final_n, final_p, _), in_gr =
       If1.add_node_2
-        (`Simple (If1.DV_RESHAPE_BY_SHAPE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+        (`Simple
+           ( If1.DV_RESHAPE_BY_SHAPE,
+             Array.make 2 "",
+             Array.make 1 "",
+             [ If1.No_pragma ] ))
         in_gr
     in
     let in_gr = If1.add_edge res_n res_p final_n 0 res_ty in_gr in
-    let (sh_n, sh_p, sh_ty) = sh_res in
+    let sh_n, sh_p, sh_ty = sh_res in
     let in_gr = If1.add_edge sh_n sh_p final_n 1 sh_ty in_gr in
 
     let result = (final_n, final_p, res_ty) in
-    
-    (* Wire the conformity error via Railway Monad *)
-    let (err_n, err_p, err_t) = err_res in
-    let in_gr = add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t) "ERROR" in_gr in
-    
-    (result, in_gr)
 
+    (* Wire the conformity error via Railway Monad *)
+    let err_n, err_p, err_t = err_res in
+    let in_gr =
+      add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t) "ERROR" in_gr
+    in
+
+    (result, in_gr)
   else
     (* Standard Sisal nested loop for Array_ty *)
-    let (rn, rp, rt) = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
+    let rn, rp, rt = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
     let mk_inv fn args =
       Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
     in
@@ -3048,7 +3237,8 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     in
     let result, in_gr = do_simple_exp_impl in_gr forall in
     let in_gr =
-      if a_is_arr && b_is_arr then maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr
+      if a_is_arr && b_is_arr then
+        maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr
       else in_gr
     in
     (result, in_gr)
@@ -3056,13 +3246,13 @@ and lift_binop_forall a_result b_result body_elem in_gr =
 (* Wire an IF1 binary node from two already-lowered values with widening coercion.
    Mirrors the inner logic of bin_exp without re-lowering the AST operands. *)
 and direct_scalar_binop (c, pi1, qq1) (d, pi2, qq2) node_tag in_gr =
-  let (c, pi1, qq1) =
+  let c, pi1, qq1 =
     match If1.get_node c in_gr with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         first_incoming_triple_to_multiarity c in_gr
     | _ -> (c, pi1, qq1)
   in
-  let (d, pi2, qq2) =
+  let d, pi2, qq2 =
     match If1.get_node d in_gr with
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         first_incoming_triple_to_multiarity d in_gr
@@ -3104,8 +3294,7 @@ and direct_scalar_binop (c, pi1, qq1) (d, pi2, qq2) node_tag in_gr =
               let (d, pi2, qq2), in_gr = insert_typecast d pi2 qq2 qq1 in_gr in
               ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
             else ((c, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
-        | _ ->
-            raise (If1.Sem_error "Type mismatch in binary op")
+        | _ -> raise (If1.Sem_error "Type mismatch in binary op")
     in
     let (z, _, _), in_gr =
       If1.add_node_2
@@ -3147,8 +3336,7 @@ and lift_unop_forall (en, ep, et) body_fn in_gr =
   let hi = mk_inv [ "ARRAY_LIMH" ] [ e_ref ] in
   let body = body_fn (Ast.Array_ref (e_ref, Ast.Exp [ i_ref ])) in
   let return_kind =
-    if is_dv_array_ty et in_gr
-    then Ast.Dv_array_of (1, body)
+    if is_dv_array_ty et in_gr then Ast.Dv_array_of (1, body)
     else Ast.Array_of body
   in
   let forall =
@@ -3159,30 +3347,63 @@ and lift_unop_forall (en, ep, et) body_fn in_gr =
   in
   do_simple_exp_impl in_gr forall
 
-and is_intrinsic_unary = [ "ABS"; "EXP"; "LOG"; "LOG10"; "SQRT"; "SIN"; "COS"; "TAN"; "ASIN"; "ACOS"; "ATAN"; "SINH"; "COSH"; "TANH"; "FLOOR"; "TRUNC" ]
+and is_intrinsic_unary =
+  [
+    "ABS";
+    "EXP";
+    "LOG";
+    "LOG10";
+    "SQRT";
+    "SIN";
+    "COS";
+    "TAN";
+    "ASIN";
+    "ACOS";
+    "ATAN";
+    "SINH";
+    "COSH";
+    "TANH";
+    "FLOOR";
+    "TRUNC";
+  ]
 
 and intrinsic_to_ast name arg =
   match name with
-  | "ABS" -> Ast.Invocation (Ast.Function_name ["ABS"], Ast.Arg (Ast.Exp [arg]))
-  | "EXP" -> Ast.Invocation (Ast.Function_name ["ETOTHE"], Ast.Arg (Ast.Exp [arg]))
-  | "LOG" -> Ast.Invocation (Ast.Function_name ["LOG"], Ast.Arg (Ast.Exp [arg]))
-  | "LOG10" -> Ast.Invocation (Ast.Function_name ["LOG10"], Ast.Arg (Ast.Exp [arg]))
-  | "SQRT" -> Ast.Invocation (Ast.Function_name ["SQRT"], Ast.Arg (Ast.Exp [arg]))
-  | "SIN" -> Ast.Invocation (Ast.Function_name ["SIN"], Ast.Arg (Ast.Exp [arg]))
-  | "COS" -> Ast.Invocation (Ast.Function_name ["COS"], Ast.Arg (Ast.Exp [arg]))
-  | "TAN" -> Ast.Invocation (Ast.Function_name ["TAN"], Ast.Arg (Ast.Exp [arg]))
-  | "ASIN" -> Ast.Invocation (Ast.Function_name ["ASIN"], Ast.Arg (Ast.Exp [arg]))
-  | "ACOS" -> Ast.Invocation (Ast.Function_name ["ACOS"], Ast.Arg (Ast.Exp [arg]))
-  | "ATAN" -> Ast.Invocation (Ast.Function_name ["ATAN"], Ast.Arg (Ast.Exp [arg]))
-  | "SINH" -> Ast.Invocation (Ast.Function_name ["SINH"], Ast.Arg (Ast.Exp [arg]))
-  | "COSH" -> Ast.Invocation (Ast.Function_name ["COSH"], Ast.Arg (Ast.Exp [arg]))
-  | "TANH" -> Ast.Invocation (Ast.Function_name ["TANH"], Ast.Arg (Ast.Exp [arg]))
-  | "FLOOR" -> Ast.Invocation (Ast.Function_name ["FLOOR"], Ast.Arg (Ast.Exp [arg]))
-  | "TRUNC" -> Ast.Invocation (Ast.Function_name ["TRUNC"], Ast.Arg (Ast.Exp [arg]))
+  | "ABS" ->
+      Ast.Invocation (Ast.Function_name [ "ABS" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "EXP" ->
+      Ast.Invocation (Ast.Function_name [ "ETOTHE" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "LOG" ->
+      Ast.Invocation (Ast.Function_name [ "LOG" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "LOG10" ->
+      Ast.Invocation (Ast.Function_name [ "LOG10" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "SQRT" ->
+      Ast.Invocation (Ast.Function_name [ "SQRT" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "SIN" ->
+      Ast.Invocation (Ast.Function_name [ "SIN" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "COS" ->
+      Ast.Invocation (Ast.Function_name [ "COS" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "TAN" ->
+      Ast.Invocation (Ast.Function_name [ "TAN" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "ASIN" ->
+      Ast.Invocation (Ast.Function_name [ "ASIN" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "ACOS" ->
+      Ast.Invocation (Ast.Function_name [ "ACOS" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "ATAN" ->
+      Ast.Invocation (Ast.Function_name [ "ATAN" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "SINH" ->
+      Ast.Invocation (Ast.Function_name [ "SINH" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "COSH" ->
+      Ast.Invocation (Ast.Function_name [ "COSH" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "TANH" ->
+      Ast.Invocation (Ast.Function_name [ "TANH" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "FLOOR" ->
+      Ast.Invocation (Ast.Function_name [ "FLOOR" ], Ast.Arg (Ast.Exp [ arg ]))
+  | "TRUNC" ->
+      Ast.Invocation (Ast.Function_name [ "TRUNC" ], Ast.Arg (Ast.Exp [ arg ]))
   | _ -> failwith ("Not a unary intrinsic: " ^ name)
 
-and do_simple_exp in_gr in_sim_ex =
-  do_simple_exp_impl in_gr in_sim_ex
+and do_simple_exp in_gr in_sim_ex = do_simple_exp_impl in_gr in_sim_ex
 
 and do_simple_exp_impl in_gr in_sim_ex =
   match in_sim_ex with
@@ -3191,8 +3412,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (en, ep, et), in_gr = do_simple_exp in_gr e in
       if is_array_ty et in_gr then
         lift_unop_forall (en, ep, et) (fun elem -> Ast.Negate elem) in_gr
-      else
-        direct_scalar_unop (en, ep, et) If1.NEGATE in_gr
+      else direct_scalar_unop (en, ep, et) If1.NEGATE in_gr
   | Pipe (a, b) -> bin_exp a b in_gr ACATENATE
   | Divide (left, right) ->
       let (nod1, por1, ty1), in_gr = do_simple_exp in_gr left in
@@ -3223,6 +3443,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Compound (new_fun_gr, If1.INTERNAL, 0, [ If1.Name "<lambda>" ], []))
           in_gr
       in
+      let new_fun_gr, in_gr =
+        wire_all_syms_to_compound lam_node new_fun_gr in_gr
+      in
+      verify_compound_inputs lam_node new_fun_gr in_gr;
       ((lam_node, lam_port, fn_ty), in_gr)
   | Pos ((line, col), inner_exp) ->
       current_src_pos := (line, col);
@@ -3244,8 +3468,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (en, ep, et), in_gr = do_simple_exp in_gr e in
       if is_array_ty et in_gr then
         lift_unop_forall (en, ep, et) (fun elem -> Ast.Not elem) in_gr
-      else
-        direct_scalar_unop (en, ep, et) If1.NOT in_gr
+      else direct_scalar_unop (en, ep, et) If1.NOT in_gr
   | Not_equal (a, b) -> bin_exp a b in_gr If1.NOT_EQUAL
   | Equal (a, b) -> bin_exp a b in_gr If1.EQUAL
   | Lesser_equal (a, b) -> bin_exp a b in_gr If1.LESSER_EQUAL
@@ -3306,7 +3529,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       if actual_len <> 1 && actual_len <> dim && actual_len <> expected_len then
         raise
           (If1.Sem_error
-             (Printf.sprintf "Type Error: %s expects 1, %d (rows), or %d args, got %d"
+             (Printf.sprintf
+                "Type Error: %s expects 1, %d (rows), or %d args, got %d"
                 (Ast.str_mat_type mat_t) dim expected_len actual_len));
 
       (* 3. Lower all argument expressions *)
@@ -3361,223 +3585,252 @@ and do_simple_exp_impl in_gr in_sim_ex =
          so the grammar routes SUM(arr) through Invocation rather than as
          explicit grammar rules (which caused shift/reduce conflicts).
          We dispatch to the Reduce / Reduce_range AST nodes here. *)
-      | ("SUM" | "PRODUCT" | "LEAST" | "GREATEST") as red_fn ->
-          let red_op = match red_fn with
-            | "SUM" -> Ast.Sum | "PRODUCT" -> Ast.Product
-            | "LEAST" -> Ast.Least | _ -> Ast.Greatest
+      | ("SUM" | "PRODUCT" | "LEAST" | "GREATEST") as red_fn -> (
+          let red_op =
+            match red_fn with
+            | "SUM" -> Ast.Sum
+            | "PRODUCT" -> Ast.Product
+            | "LEAST" -> Ast.Least
+            | _ -> Ast.Greatest
           in
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Reduce (red_op, arr))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Reduce_axis (red_op, arr, axis))
-          | Ast.Arg (Ast.Exp [arr; lo; hi]) ->
+          | Ast.Arg (Ast.Exp [ arr; lo; hi ]) ->
               do_simple_exp in_gr (Ast.Reduce_range (red_op, arr, lo, hi))
           | _ ->
-              raise (If1.Sem_error
-                (red_fn ^ ": expected SUM(arr), SUM(arr,axis), or SUM(arr,lo,hi)")))
+              raise
+                (If1.Sem_error
+                   (red_fn
+                  ^ ": expected SUM(arr), SUM(arr,axis), or SUM(arr,lo,hi)")))
       (* ROTATE(arr, k) — APL circular shift.  The grammar routes ROTATE through
          function_name to avoid a shift/reduce conflict with user-defined 1-arg
          calls (e.g. Rotate(A) in para.sis).  If ROTATE IS in the symtab, the
          | _ path below handles it as a regular call.  Here we only intercept the
          2-arg APL form when ROTATE is not user-defined. *)
       | "ROTATE"
-          when (let cs, ps = in_gr.If1.symtab in
-                not (If1.SM.mem "ROTATE" cs || If1.SM.mem "ROTATE" ps))
-            && (match arg with Ast.Arg (Ast.Exp [_; _]) -> true | _ -> false)
+        when (let cs, ps = in_gr.If1.symtab in
+              not (If1.SM.mem "ROTATE" cs || If1.SM.mem "ROTATE" ps))
+             && match arg with Ast.Arg (Ast.Exp [ _; _ ]) -> true | _ -> false
         ->
-          let (arr, k) = match arg with
-            | Ast.Arg (Ast.Exp [a; k]) -> (a, k)
+          let arr, k =
+            match arg with
+            | Ast.Arg (Ast.Exp [ a; k ]) -> (a, k)
             | _ -> assert false
           in
           do_simple_exp in_gr (Ast.Rotate_exp (arr, k))
       (* APL bulk operations — all arrive as NAME tokens (case-insensitive).
          Each case dispatches to the corresponding AST node handler. *)
-      | ("MAP" | "EACH" | "APPLY") ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [f; arr]) ->
+      | "MAP" | "EACH" | "APPLY" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ f; arr ]) ->
               do_simple_exp in_gr (Ast.Each_exp (f, arr))
           | _ -> raise (If1.Sem_error "MAP: expected MAP(f, arr)"))
-      | "FOLDL" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [f; init; arr]) ->
+      | "FOLDL" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ f; init; arr ]) ->
               do_simple_exp in_gr (Ast.Foldl_exp (f, init, arr))
           | _ -> raise (If1.Sem_error "FOLDL: expected FOLDL(f, init, arr)"))
-      | "FOLDR" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [f; init; arr]) ->
+      | "FOLDR" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ f; init; arr ]) ->
               do_simple_exp in_gr (Ast.Foldr_exp (f, init, arr))
           | _ -> raise (If1.Sem_error "FOLDR: expected FOLDR(f, init, arr)"))
-      | "SCAN" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [f; arr]) ->
+      | "SCAN" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ f; arr ]) ->
               do_simple_exp in_gr (Ast.Scan_exp (f, arr))
           | _ -> raise (If1.Sem_error "SCAN: expected SCAN(f, arr)"))
-      | "TAKE" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; n]) ->
+      | "TAKE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; n ]) ->
               do_simple_exp in_gr (Ast.Take_exp (arr, n))
           | _ -> raise (If1.Sem_error "TAKE: expected TAKE(arr, n)"))
-      | "DROP" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; n]) ->
+      | "DROP" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; n ]) ->
               do_simple_exp in_gr (Ast.Drop_exp (arr, n))
           | _ -> raise (If1.Sem_error "DROP: expected DROP(arr, n)"))
-      | "COMPRESS" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [mask; arr]) ->
+      | "COMPRESS" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ mask; arr ]) ->
               do_simple_exp in_gr (Ast.Compress_exp (mask, arr))
           | _ -> raise (If1.Sem_error "COMPRESS: expected COMPRESS(mask, arr)"))
       | "REVERSE"
-          when (let cs, ps = in_gr.If1.symtab in
-                not (If1.SM.mem "REVERSE" cs || If1.SM.mem "REVERSE" ps)) ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+        when let cs, ps = in_gr.If1.symtab in
+             not (If1.SM.mem "REVERSE" cs || If1.SM.mem "REVERSE" ps) -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Reverse_exp arr)
           | _ -> raise (If1.Sem_error "REVERSE: expected REVERSE(arr)"))
       | "SORT"
-          when (let cs, ps = in_gr.If1.symtab in
-                not (If1.SM.mem "SORT" cs || If1.SM.mem "SORT" ps)) ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
-              do_simple_exp in_gr (Ast.Sort_exp arr)
+        when let cs, ps = in_gr.If1.symtab in
+             not (If1.SM.mem "SORT" cs || If1.SM.mem "SORT" ps) -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) -> do_simple_exp in_gr (Ast.Sort_exp arr)
           | _ -> raise (If1.Sem_error "SORT: expected SORT(arr)"))
-      | "OUTERPRODUCT" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [f; a; b]) ->
+      | "OUTERPRODUCT" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ f; a; b ]) ->
               do_simple_exp in_gr (Ast.Outerproduct_exp (f, a, b))
-          | _ -> raise (If1.Sem_error "OUTERPRODUCT: expected OUTERPRODUCT(f, a, b)"))
-      | ("GRADE_UP" | "ARGSORT") ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error "OUTERPRODUCT: expected OUTERPRODUCT(f, a, b)"))
+      | "GRADE_UP" | "ARGSORT" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Grade_up_exp arr)
           | _ -> raise (If1.Sem_error "GRADE_UP: expected GRADE_UP(arr)"))
-      | "GRADE_DOWN" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "GRADE_DOWN" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Grade_down_exp arr)
           | _ -> raise (If1.Sem_error "GRADE_DOWN: expected GRADE_DOWN(arr)"))
-      | "ARGMAX" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "ARGMAX" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Argmax_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Argmax_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "ARGMAX: expected ARGMAX(arr) or ARGMAX(arr, axis)"))
-      | "ARGMIN" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error
+                   "ARGMAX: expected ARGMAX(arr) or ARGMAX(arr, axis)"))
+      | "ARGMIN" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Argmin_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Argmin_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "ARGMIN: expected ARGMIN(arr) or ARGMIN(arr, axis)"))
-      | "NONZERO" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error
+                   "ARGMIN: expected ARGMIN(arr) or ARGMIN(arr, axis)"))
+      | "NONZERO" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Nonzero_exp arr)
           | _ -> raise (If1.Sem_error "NONZERO: expected NONZERO(arr)"))
-      | "WHERE" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [cond; a; b]) ->
+      | "WHERE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ cond; a; b ]) ->
               do_simple_exp in_gr (Ast.Where_exp (cond, a, b))
           | _ -> raise (If1.Sem_error "WHERE: expected WHERE(cond, a, b)"))
-      | "MEAN" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "MEAN" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Mean_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Mean_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "MEAN: expected MEAN(arr) or MEAN(arr, axis)"))
-      | "VARIANCE" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error "MEAN: expected MEAN(arr) or MEAN(arr, axis)"))
+      | "VARIANCE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Variance_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Variance_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "VARIANCE: expected VARIANCE(arr) or VARIANCE(arr, axis)"))
-      | "STDDEV" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error
+                   "VARIANCE: expected VARIANCE(arr) or VARIANCE(arr, axis)"))
+      | "STDDEV" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Stddev_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Stddev_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "STDDEV: expected STDDEV(arr) or STDDEV(arr, axis)"))
-      | "ANY" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise
+                (If1.Sem_error
+                   "STDDEV: expected STDDEV(arr) or STDDEV(arr, axis)"))
+      | "ANY" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Any_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.Any_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "ANY: expected ANY(arr) or ANY(arr, axis)"))
-      | "ALL" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+          | _ ->
+              raise (If1.Sem_error "ANY: expected ANY(arr) or ANY(arr, axis)"))
+      | "ALL" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.All_exp (arr, None))
-          | Ast.Arg (Ast.Exp [arr; axis]) ->
+          | Ast.Arg (Ast.Exp [ arr; axis ]) ->
               do_simple_exp in_gr (Ast.All_exp (arr, Some axis))
-          | _ -> raise (If1.Sem_error "ALL: expected ALL(arr) or ALL(arr, axis)"))
-      | "NORM" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; p]) ->
+          | _ ->
+              raise (If1.Sem_error "ALL: expected ALL(arr) or ALL(arr, axis)"))
+      | "NORM" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; p ]) ->
               do_simple_exp in_gr (Ast.Norm_exp (arr, p))
           | _ -> raise (If1.Sem_error "NORM: expected NORM(arr, p)"))
-      | "CUMSUM" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "CUMSUM" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Cumsum_exp arr)
           | _ -> raise (If1.Sem_error "CUMSUM: expected CUMSUM(arr)"))
-      | "CUMPROD" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "CUMPROD" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Cumprod_exp arr)
           | _ -> raise (If1.Sem_error "CUMPROD: expected CUMPROD(arr)"))
-      | ("CONCAT" | "CATENATE_OP") ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [a; b]) ->
+      | "CONCAT" | "CATENATE_OP" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ a; b ]) ->
               do_simple_exp in_gr (Ast.Concat_exp (a, b))
           | _ -> raise (If1.Sem_error "CONCAT: expected CONCAT(a, b)"))
-      | "TILE" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; n]) ->
+      | "TILE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; n ]) ->
               do_simple_exp in_gr (Ast.Tile_exp (arr, n))
           | _ -> raise (If1.Sem_error "TILE: expected TILE(arr, n)"))
-      | "SQUEEZE" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
+      | "SQUEEZE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Squeeze_exp arr)
           | _ -> raise (If1.Sem_error "SQUEEZE: expected SQUEEZE(arr)"))
-      | "EXPAND" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; k]) ->
+      | "EXPAND" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; k ]) ->
               do_simple_exp in_gr (Ast.Expand_exp (arr, k))
           | _ -> raise (If1.Sem_error "EXPAND: expected EXPAND(arr, k)"))
-      | ("RAVEL" | "FLATTEN_DV") ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr]) ->
-              do_simple_exp in_gr (Ast.Ravel_exp arr)
+      | "RAVEL" | "FLATTEN_DV" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr ]) -> do_simple_exp in_gr (Ast.Ravel_exp arr)
           | _ -> raise (If1.Sem_error "RAVEL: expected RAVEL(arr)"))
-      | "STENCIL" ->
-          (match arg with
+      | "STENCIL" -> (
+          match arg with
           | Ast.Arg (Ast.Exp (f :: arr :: dims)) ->
               do_simple_exp in_gr (Ast.Stencil_exp (f, arr, dims))
-          | _ -> raise (If1.Sem_error "STENCIL: expected STENCIL(f, arr, d1, ...)"))
-      | "PAD" ->
-          (match arg with
-          | Ast.Arg (Ast.Exp [arr; lo; hi]) ->
+          | _ ->
+              raise (If1.Sem_error "STENCIL: expected STENCIL(f, arr, d1, ...)")
+          )
+      | "PAD" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; lo; hi ]) ->
               do_simple_exp in_gr (Ast.Pad_exp (arr, lo, hi, None))
-          | Ast.Arg (Ast.Exp [arr; lo; hi; fill]) ->
+          | Ast.Arg (Ast.Exp [ arr; lo; hi; fill ]) ->
               do_simple_exp in_gr (Ast.Pad_exp (arr, lo, hi, Some fill))
-          | _ -> raise (If1.Sem_error "PAD: expected PAD(arr, lo, hi) or PAD(arr, lo, hi, fill)"))
-      | "RESHAPE" ->
-          (match arg with
+          | _ ->
+              raise
+                (If1.Sem_error
+                   "PAD: expected PAD(arr, lo, hi) or PAD(arr, lo, hi, fill)"))
+      | "RESHAPE" -> (
+          match arg with
           | Ast.Arg (Ast.Exp (arr :: dims)) ->
               do_simple_exp in_gr (Ast.Reshape (arr, dims))
-          | _ -> raise (If1.Sem_error "RESHAPE: expected RESHAPE(arr, d1, ...)"))
-      | "PERMUTE" ->
-          (match arg with
+          | _ -> raise (If1.Sem_error "RESHAPE: expected RESHAPE(arr, d1, ...)")
+          )
+      | "PERMUTE" -> (
+          match arg with
           | Ast.Arg (Ast.Exp (arr :: dims)) ->
               do_simple_exp in_gr (Ast.Permute (arr, dims))
-          | _ -> raise (If1.Sem_error "PERMUTE: expected PERMUTE(arr, d1, ...)"))
+          | _ -> raise (If1.Sem_error "PERMUTE: expected PERMUTE(arr, d1, ...)")
+          )
       (*TODO: More libs *)
       | "ACREATE"
         when let cs, ps = in_gr.If1.symtab in
@@ -3777,11 +4030,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
+          let opcode = if !prefer_dv then If1.DV_CREATE else If1.AFILL in
           let in_ports = Array.make 3 "" in
           let out_ports = Array.make 1 "" in
 
           let (n, _, _), in_gr =
-            If1.add_node_2 (`Simple (If1.AFILL, in_ports, out_ports, [])) in_gr
+            If1.add_node_2 (`Simple (opcode, in_ports, out_ports, [])) in_gr
           in
 
           let final_ty, in_gr =
@@ -3800,7 +4054,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
 
                 let (arr_ty_id, _, _), in_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_ty array_element_ty)
+                  If1.add_type_to_typemap_dedup
+                    (if !prefer_dv then If1.Array_dv array_element_ty
+                     else If1.Array_ty array_element_ty)
                     in_gr
                 in
                 (arr_ty_id, in_gr)
@@ -3841,7 +4097,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
             | _ -> raise (If1.Sem_error "innerproduct() requires two arguments")
           in
           if List.length args <> 2 then
-            raise (If1.Sem_error "innerproduct() requires exactly two arguments");
+            raise
+              (If1.Sem_error "innerproduct() requires exactly two arguments");
           let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
           let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
           let r1 = get_rank at in_gr in
@@ -3964,11 +4221,18 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let name_im = "__IM_SOA" in
                 let in_gr = inject_sym name_re (rn, rp, rt) in_gr in
                 let in_gr = inject_sym name_im (imn, imp, imt) in_gr in
-                do_simple_exp in_gr 
-                  (Ast.Record_generator_unnamed 
-                     [ Ast.Field_def (Ast.Field_name "RE", Ast.Val (Ast.Value_name [name_re]));
-                       Ast.Field_def (Ast.Field_name "IM", Ast.Val (Ast.Value_name [name_im])) ])
-            | _ -> raise (If1.Sem_error "BUILD_COMPLEX_SOA: expected 2 arguments")
+                do_simple_exp in_gr
+                  (Ast.Record_generator_unnamed
+                     [
+                       Ast.Field_def
+                         ( Ast.Field_name "RE",
+                           Ast.Val (Ast.Value_name [ name_re ]) );
+                       Ast.Field_def
+                         ( Ast.Field_name "IM",
+                           Ast.Val (Ast.Value_name [ name_im ]) );
+                     ])
+            | _ ->
+                raise (If1.Sem_error "BUILD_COMPLEX_SOA: expected 2 arguments")
           else if up_fn = "BUILD_COMPLEX_AOS" then
             match expl with
             | [ (rn, rp, rt); (imn, imp, imt) ] ->
@@ -3976,212 +4240,317 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let name_im = "__IM_AOS" in
                 let in_gr = inject_sym name_re (rn, rp, rt) in_gr in
                 let in_gr = inject_sym name_im (imn, imp, imt) in_gr in
-                let elem_ty = match If1.lookup_ty rt in_gr with If1.Array_ty e | If1.Array_dv e -> e | _ -> rt in
-                let tn, base_ty_id = match If1.lookup_ty elem_ty in_gr with
-                  | Basic DOUBLE -> "COMPLEX_DOUBLE", If1.lookup_tyid If1.DOUBLE
-                  | Basic HALF -> "COMPLEX_HALF", If1.lookup_tyid If1.HALF
-                  | _ -> "COMPLEX_FLOAT", If1.lookup_tyid If1.REAL
+                let elem_ty =
+                  match If1.lookup_ty rt in_gr with
+                  | If1.Array_ty e | If1.Array_dv e -> e
+                  | _ -> rt
+                in
+                let tn, base_ty_id =
+                  match If1.lookup_ty elem_ty in_gr with
+                  | Basic DOUBLE ->
+                      ("COMPLEX_DOUBLE", If1.lookup_tyid If1.DOUBLE)
+                  | Basic HALF -> ("COMPLEX_HALF", If1.lookup_tyid If1.HALF)
+                  | _ -> ("COMPLEX_FLOAT", If1.lookup_tyid If1.REAL)
                 in
                 do_simple_exp in_gr
-                  (Ast.For_all (
-                     Ast.Dot (Ast.In_exp (Ast.Value_name ["__R"], Ast.Exp [Ast.Val (Ast.Value_name [name_re])]), 
-                              Ast.In_exp (Ast.Value_name ["__I"], Ast.Exp [Ast.Val (Ast.Value_name [name_im])])),
-                     Ast.Decldef_part [],
-                     [ Ast.Return_exp (
-                         Ast.Dv_array_of (1, 
-                           Ast.Record_generator_named (tn, 
-                             [ Ast.Field_def (Ast.Field_name "RE", Ast.Val (Ast.Value_name ["__R"]));
-                               Ast.Field_def (Ast.Field_name "IM", Ast.Val (Ast.Value_name ["__I"])) ]
-                           )
-                         ), Ast.No_mask) ] ))
-            | _ -> raise (If1.Sem_error "BUILD_COMPLEX_AOS: expected 2 arguments")
+                  (Ast.For_all
+                     ( Ast.Dot
+                         ( Ast.In_exp
+                             ( Ast.Value_name [ "__R" ],
+                               Ast.Exp [ Ast.Val (Ast.Value_name [ name_re ]) ]
+                             ),
+                           Ast.In_exp
+                             ( Ast.Value_name [ "__I" ],
+                               Ast.Exp [ Ast.Val (Ast.Value_name [ name_im ]) ]
+                             ) ),
+                       Ast.Decldef_part [],
+                       [
+                         Ast.Return_exp
+                           ( Ast.Dv_array_of
+                               ( 1,
+                                 Ast.Record_generator_named
+                                   ( tn,
+                                     [
+                                       Ast.Field_def
+                                         ( Ast.Field_name "RE",
+                                           Ast.Val (Ast.Value_name [ "__R" ]) );
+                                       Ast.Field_def
+                                         ( Ast.Field_name "IM",
+                                           Ast.Val (Ast.Value_name [ "__I" ]) );
+                                     ] ) ),
+                             Ast.No_mask );
+                       ] ))
+            | _ ->
+                raise (If1.Sem_error "BUILD_COMPLEX_AOS: expected 2 arguments")
           else if up_fn = "EINSUM" then
             match expl with
             | lit_arg :: args ->
-                let (lit_n, _, _) = If1.find_incoming_regular_node lit_arg in_gr in
-                let format = match If1.NM.find_opt lit_n in_gr.If1.nmap with
-                  | Some (If1.Literal (_, _, s, _)) -> String.trim (String.map (function '"' -> ' ' | c -> c) s)
+                let lit_n, _, _ =
+                  If1.find_incoming_regular_node lit_arg in_gr
+                in
+                let format =
+                  match If1.NM.find_opt lit_n in_gr.If1.nmap with
+                  | Some (If1.Literal (_, _, s, _)) ->
+                      String.trim
+                        (String.map (function '"' -> ' ' | c -> c) s)
                   | _ -> ""
                 in
-                let arg_triples = List.map (fun x -> If1.find_incoming_regular_node x in_gr) args in
+                let arg_triples =
+                  List.map
+                    (fun x -> If1.find_incoming_regular_node x in_gr)
+                    args
+                in
                 let arg_types = List.map (fun (_, _, t) -> t) arg_triples in
                 begin match format with
                 | "ij,jk->ik" when List.length args = 2 ->
-                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let a_ty =
+                      match If1.lookup_ty (List.nth arg_types 0) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
-                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let b_ty =
+                      match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
                     if If1.is_mat_type a_ty && If1.is_mat_type b_ty then
-                      bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
-                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
-                              If1.TIMES
+                      bin_exp (Ast.Val (Ast.Value_name [ "__E1" ]))
+                        (Ast.Val (Ast.Value_name [ "__E2" ]))
+                        (inject_sym "__E2" (List.nth arg_triples 1)
+                           (inject_sym "__E1" (List.nth arg_triples 0) in_gr))
+                        If1.TIMES
                     else
                       (* Standard array matrix multiply *)
-                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in (* assume same as A for now *)
-                      let (rn, rp, _), in_gr = 
-                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in
+                      (* assume same as A for now *)
+                      let (rn, rp, _), in_gr =
+                        If1.add_node_2
+                          (`Simple
+                             ( If1.EINSUM_NODE,
+                               Array.make (List.length args) "",
+                               [| "" |],
+                               [ If1.Subscript format ] ))
+                          in_gr
                       in
-                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      let in_gr =
+                        List.fold_left2
+                          (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g)
+                          in_gr arg_triples
+                          (List.init (List.length args) (fun i -> i))
+                      in
                       ((rn, rp, res_ty), in_gr)
                 | "ij,j->i" when List.length args = 2 ->
-                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let a_ty =
+                      match If1.lookup_ty (List.nth arg_types 0) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
-                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let b_ty =
+                      match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
                     if If1.is_mat_type a_ty && If1.is_vector_type b_ty then
-                      let ((mn, mp, mt), g) = bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
-                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
-                              If1.TIMES
+                      let (mn, mp, mt), g =
+                        bin_exp (Ast.Val (Ast.Value_name [ "__E1" ]))
+                          (Ast.Val (Ast.Value_name [ "__E2" ]))
+                          (inject_sym "__E2" (List.nth arg_triples 1)
+                             (inject_sym "__E1" (List.nth arg_triples 0) in_gr))
+                          If1.TIMES
                       in
                       ((mn, mp, List.nth arg_types 1), g)
                     else
                       (* Standard array matrix-vector multiply *)
-                      let res_ty, in_gr = (List.nth arg_types 1, in_gr) in (* same as x *)
-                      let (rn, rp, _), in_gr = 
-                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      let res_ty, in_gr = (List.nth arg_types 1, in_gr) in
+                      (* same as x *)
+                      let (rn, rp, _), in_gr =
+                        If1.add_node_2
+                          (`Simple
+                             ( If1.EINSUM_NODE,
+                               Array.make (List.length args) "",
+                               [| "" |],
+                               [ If1.Subscript format ] ))
+                          in_gr
                       in
-                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      let in_gr =
+                        List.fold_left2
+                          (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g)
+                          in_gr arg_triples
+                          (List.init (List.length args) (fun i -> i))
+                      in
                       ((rn, rp, res_ty), in_gr)
                 | "i,ij->j" when List.length args = 2 ->
-                    let a_ty = match If1.lookup_ty (List.nth arg_types 0) in_gr with 
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let a_ty =
+                      match If1.lookup_ty (List.nth arg_types 0) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
-                    let b_ty = match If1.lookup_ty (List.nth arg_types 1) in_gr with
-                      | If1.Array_ty _ | If1.Array_dv _ as t -> t
+                    let b_ty =
+                      match If1.lookup_ty (List.nth arg_types 1) in_gr with
+                      | (If1.Array_ty _ | If1.Array_dv _) as t -> t
                       | _ -> If1.Basic If1.INTEGRAL
                     in
                     if If1.is_vector_type a_ty && If1.is_mat_type b_ty then
-                      let ((mn, mp, mt), g) = bin_exp (Ast.Val (Ast.Value_name ["__E1"])) (Ast.Val (Ast.Value_name ["__E2"])) 
-                              (inject_sym "__E2" (List.nth arg_triples 1) (inject_sym "__E1" (List.nth arg_triples 0) in_gr)) 
-                              If1.TIMES
+                      let (mn, mp, mt), g =
+                        bin_exp (Ast.Val (Ast.Value_name [ "__E1" ]))
+                          (Ast.Val (Ast.Value_name [ "__E2" ]))
+                          (inject_sym "__E2" (List.nth arg_triples 1)
+                             (inject_sym "__E1" (List.nth arg_triples 0) in_gr))
+                          If1.TIMES
                       in
                       ((mn, mp, List.nth arg_types 0), g)
                     else
                       (* Standard array vector-matrix multiply *)
-                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in (* same as x *)
-                      let (rn, rp, _), in_gr = 
-                        If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                      let res_ty, in_gr = (List.nth arg_types 0, in_gr) in
+                      (* same as x *)
+                      let (rn, rp, _), in_gr =
+                        If1.add_node_2
+                          (`Simple
+                             ( If1.EINSUM_NODE,
+                               Array.make (List.length args) "",
+                               [| "" |],
+                               [ If1.Subscript format ] ))
+                          in_gr
                       in
-                      let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                      let in_gr =
+                        List.fold_left2
+                          (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g)
+                          in_gr arg_triples
+                          (List.init (List.length args) (fun i -> i))
+                      in
                       ((rn, rp, res_ty), in_gr)
                 | _ ->
                     let info = Einsum_lower.parse_einsum_subscript format in
-                    let res_ty, in_gr = 
+                    let res_ty, in_gr =
                       match info.Einsum_lower.output_spec with
                       | [] -> (If1.lookup_tyid If1.REAL, in_gr)
-                      | _ -> 
-                          let elem_ty = match arg_types with
+                      | _ ->
+                          let elem_ty =
+                            match arg_types with
                             | t :: _ -> get_deep_elem_ty t in_gr
                             | _ -> If1.lookup_tyid If1.REAL
                           in
-                          let (id, _, _), g = If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty) in_gr in
+                          let (id, _, _), g =
+                            If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty)
+                              in_gr
+                          in
                           (id, g)
                     in
-                    let (rn, rp, _), in_gr = 
-                      If1.add_node_2 (`Simple (If1.EINSUM_NODE, Array.make (List.length args) "", [|""|], [If1.Subscript format])) in_gr
+                    let (rn, rp, _), in_gr =
+                      If1.add_node_2
+                        (`Simple
+                           ( If1.EINSUM_NODE,
+                             Array.make (List.length args) "",
+                             [| "" |],
+                             [ If1.Subscript format ] ))
+                        in_gr
                     in
-                    let in_gr = List.fold_left2 (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g) in_gr arg_triples (List.init (List.length args) (fun i -> i)) in
+                    let in_gr =
+                      List.fold_left2
+                        (fun g (an, ap, at) i -> If1.add_edge an ap rn i at g)
+                        in_gr arg_triples
+                        (List.init (List.length args) (fun i -> i))
+                    in
                     ((rn, rp, res_ty), in_gr)
                 end
-            | _ -> raise (If1.Sem_error "EINSUM: expected format string and arguments")
-          else if List.mem up_fn is_intrinsic_unary && List.length expl = 1 && is_array_ty (List.hd arg_types) in_gr then
-            lift_unop_forall (List.hd expl) (fun elem -> intrinsic_to_ast up_fn elem) in_gr
+            | _ ->
+                raise
+                  (If1.Sem_error "EINSUM: expected format string and arguments")
+          else if
+            List.mem up_fn is_intrinsic_unary
+            && List.length expl = 1
+            && is_array_ty (List.hd arg_types) in_gr
+          then
+            lift_unop_forall (List.hd expl)
+              (fun elem -> intrinsic_to_ast up_fn elem)
+              in_gr
           else
             let cs, ps = in_gr.If1.symtab in
-          let deref_fn =
-            match String.uppercase_ascii deref_fn with _ -> deref_fn
-          in
-          let symtab_entry =
-            match If1.SM.find_opt deref_fn cs with
-            | Some id -> id
-            | None -> (
-                match If1.SM.find_opt deref_fn ps with
-                | Some id -> id
-                | None -> (
-                    (* 2. Only mangle if exact name lookup fails *)
-                    let target_prefix =
-                      Printf.sprintf "_S%s__%s__" deref_fn
-                        (String.concat ""
-                           (List.map If1.short_name_for_intrinsic arg_types))
-                    in
-                    (* 3. Optimize prefix lookup *)
-                    match If1.lookup_mangled_name target_prefix with
-                    | Some id -> id
-                    | None -> (
-                        (* 4. Final Fallback: The "Discovery" scan *)
-                        let discovered =
-                          If1.lookup_partial_mangled_name target_prefix
-                        in
-                        match discovered with
-                        | Some (_, id) -> id
-                        | None ->
-                            print_endline ("ARGUMENTS ARE " ^ Ast.str_arg arg);
-                            flush stdout;
-                            raise
-                              (If1.Sem_error
-                                 (If1.If1_View.export_debug_html "CRASHED_.html"
-                                    in_gr;
-                                  "Unknown function: " ^ deref_fn
-                                  ^ " target prefix " ^ target_prefix)))))
-          in
-          let deref_fn = symtab_entry.val_name in
-          let in_port_00 = Array.make (List.length expl) "" in
-          let prags = [ If1.Name deref_fn ] in
-          let (n, _, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
-              in_gr
-          in
-          let tm = If1.get_typemap_tm in_gr in
-          let tml =
-            match If1.TM.find_opt symtab_entry.val_ty tm with
-            | Some x -> (
-                match x with
-                | If1.Function_ty (_, ret_ty, _) ->
-                    let result = If1.fold_ret_ty_lis ret_ty tm in
-                    result
-                | _ ->
-                    failwith
-                      ("Expected function type but found: "
-                     ^ If1.string_of_if1_ty x))
-            | None -> (
-                match If1.lookup_mangled_type symtab_entry.val_ty with
-                | Some (If1.Function_ty (_, ret_ty, _)) ->
-                    let _, intrinsic_types = Lazy.force If1.intrinsic_lib in
-                    If1.fold_ret_ty_lis ret_ty intrinsic_types
-                | _ -> failwith "Function type missing in typemap")
-          in
-          let _, output_triple_list =
-            List.fold_right
-              (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
-              tml
-              (List.length tml - 1, [])
-          in
-          let in_gr = add_edges_in_list expl n 0 in_gr in
-          if List.length output_triple_list = 1 then
-            (List.hd output_triple_list, in_gr)
-          else
-            let (n1, _, _), in_gr =
-              let in_port_01 = Array.make (List.length tml) "" in
-              let out_port_01 = Array.make (List.length tml) "" in
+            let deref_fn =
+              match String.uppercase_ascii deref_fn with _ -> deref_fn
+            in
+            let symtab_entry =
+              match If1.SM.find_opt deref_fn cs with
+              | Some id -> id
+              | None -> (
+                  match If1.SM.find_opt deref_fn ps with
+                  | Some id -> id
+                  | None -> (
+                      (* 2. Only mangle if exact name lookup fails *)
+                      let target_prefix =
+                        Printf.sprintf "_S%s__%s__" deref_fn
+                          (String.concat ""
+                             (List.map If1.short_name_for_intrinsic arg_types))
+                      in
+                      (* 3. Optimize prefix lookup *)
+                      match If1.lookup_mangled_name target_prefix with
+                      | Some id -> id
+                      | None -> (
+                          (* 4. Final Fallback: The "Discovery" scan *)
+                          let discovered =
+                            If1.lookup_partial_mangled_name target_prefix
+                          in
+                          match discovered with
+                          | Some (_, id) -> id
+                          | None ->
+                              print_endline ("ARGUMENTS ARE " ^ Ast.str_arg arg);
+                              flush stdout;
+                              raise
+                                (If1.Sem_error
+                                   (If1.If1_View.export_debug_html
+                                      "CRASHED_.html" in_gr;
+                                    "Unknown function: " ^ deref_fn
+                                    ^ " target prefix " ^ target_prefix)))))
+            in
+            let deref_fn = symtab_entry.val_name in
+            let in_port_00 = Array.make (List.length expl) "" in
+            let prags = [ If1.Name deref_fn ] in
+            let (n, _, _), in_gr =
               If1.add_node_2
-                (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+                (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
                 in_gr
             in
-            let in_gr = add_edges_in_list output_triple_list n1 0 in_gr in
-            ((n1, 0, 0), in_gr))
-  | Array_ref (ar_a, ar_b) as aap ->
+            let tm = If1.get_typemap_tm in_gr in
+            let tml =
+              match If1.TM.find_opt symtab_entry.val_ty tm with
+              | Some x -> (
+                  match x with
+                  | If1.Function_ty (_, ret_ty, _) ->
+                      let result = If1.fold_ret_ty_lis ret_ty tm in
+                      result
+                  | _ ->
+                      failwith
+                        ("Expected function type but found: "
+                       ^ If1.string_of_if1_ty x))
+              | None -> (
+                  match If1.lookup_mangled_type symtab_entry.val_ty with
+                  | Some (If1.Function_ty (_, ret_ty, _)) ->
+                      let _, intrinsic_types = Lazy.force If1.intrinsic_lib in
+                      If1.fold_ret_ty_lis ret_ty intrinsic_types
+                  | _ -> failwith "Function type missing in typemap")
+            in
+            let _, output_triple_list =
+              List.fold_right
+                (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
+                tml
+                (List.length tml - 1, [])
+            in
+            let in_gr = add_edges_in_list expl n 0 in_gr in
+            if List.length output_triple_list = 1 then
+              (List.hd output_triple_list, in_gr)
+            else
+              let (n1, _, _), in_gr =
+                let in_port_01 = Array.make (List.length tml) "" in
+                let out_port_01 = Array.make (List.length tml) "" in
+                If1.add_node_2
+                  (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+                  in_gr
+              in
+              let in_gr = add_edges_in_list output_triple_list n1 0 in_gr in
+              ((n1, 0, 0), in_gr))
+  | Array_ref (ar_a, ar_b) as aap -> (
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
-      (match ar_b with
+      match ar_b with
       | Ast.Exp ex_lis ->
           let rec lower_indices ((aaa, bbb, cur_att), g) = function
             | [] -> ((aaa, bbb, cur_att), g)
@@ -4245,6 +4614,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_REC" ], []))
           in_gr
       in
+      let let_gr, in_gr = wire_all_syms_to_compound aa let_gr in_gr in
+      verify_compound_inputs aa let_gr in_gr;
 
       (* 4. PATH A: Scalarize Data Results *)
       let data_arity = If1.IntMap.cardinal data_ports in
@@ -4321,6 +4692,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                [] ))
           in_gr
       in
+      let let_gr, in_gr = wire_all_syms_to_compound aa let_gr in_gr in
+      verify_compound_inputs aa let_gr in_gr;
+
       (* 4. PATH A: Wire Data to MULTIARITY *)
       let data_arity = If1.IntMap.cardinal data_ports in
       let (multinum, _, _), in_gr =
@@ -4648,6 +5022,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (`Compound (gr_o, If1.INTERNAL, 0, [ If1.Name "OTHERWISE" ], []))
               tagcase_gr_
           in
+          let gr_o, tagcase_gr = wire_all_syms_to_compound aa gr_o tagcase_gr in
+          verify_compound_inputs aa gr_o tagcase_gr;
           (* Build assoc_list: tag_builder would have
            a key-value for the listed variants
            and remaining would be
@@ -4670,6 +5046,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    assoc_lis ))
               in_gr
           in
+          let tagcase_gr, out_gr =
+            wire_all_syms_to_compound fin_node tagcase_gr out_gr
+          in
+          verify_compound_inputs fin_node tagcase_gr out_gr;
 
           to_if1_msg 4 "tagcase: before add_edges_to_boundary fin_node=%d"
             fin_node;
@@ -4763,10 +5143,16 @@ and do_simple_exp_impl in_gr in_sim_ex =
          Returns (compound_n, multiarity_n, updated_outer_gr). *)
       let build_compound_and_ma sub_gr ty_lis pragmas outer_gr =
         let (cn, _, _), outer_gr =
-          If1.add_node_2 (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, [])) outer_gr
+          If1.add_node_2
+            (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, []))
+            outer_gr
         in
+        let sub_gr, outer_gr = wire_all_syms_to_compound cn sub_gr outer_gr in
+        verify_compound_inputs cn sub_gr outer_gr;
         let n = If1.IntMap.cardinal ty_lis in
-        let (ma_n, _, _), outer_gr = build_multiarity n outer_gr ~nam:"BRANCH_MA" in
+        let (ma_n, _, _), outer_gr =
+          build_multiarity n outer_gr ~nam:"BRANCH_MA"
+        in
         let outer_gr, _ =
           If1.IntMap.fold
             (fun _ result_ty (gr, k) ->
@@ -4879,7 +5265,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   let gr = If1.add_edge then_ma k sel_n 1 result_ty gr in
                   let gr = If1.add_edge else_ma k sel_n 2 result_ty gr in
                   (gr, (k + 1, results @ [ (sel_n, result_ty) ])))
-                ty_lis_then (in_gr_if, (0, []))
+                ty_lis_then
+                (in_gr_if, (0, []))
             in
             let _, sel_results = sel_results in
 
@@ -4939,12 +5326,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  [] ))
             in_gr
         in
+        let regar, in_gr = wire_all_syms_to_compound sn regar in_gr in
+        verify_compound_inputs sn regar in_gr;
         (* Always reconstruct MULTIARITY from sn:0..N-1 (even for N=1) so
            callers receive all N values through the standard mechanism. *)
         let n = If1.IntMap.cardinal ty_lis in
-        let (ma_n, _, _), in_gr =
-          build_multiarity n in_gr ~nam:"IF_RESULT"
-        in
+        let (ma_n, _, _), in_gr = build_multiarity n in_gr ~nam:"IF_RESULT" in
         let in_gr, _ =
           If1.IntMap.fold
             (fun _ result_ty (gr, k) ->
@@ -4964,9 +5351,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* Propagate the actual array type so maybe_add_dope (called by the
          do_simple_exp wrapper) can insert GET_DOPE_VEC automatically. *)
       let ty =
-        match ret_actions with
-        | (_, arr_ty, _) :: _ -> arr_ty
-        | _ -> 0
+        match ret_actions with (_, arr_ty, _) :: _ -> arr_ty | _ -> 0
       in
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
@@ -5038,9 +5423,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
           if prag <> "" then If1.Name namen :: [ If1.Ast_type prag ]
           else [ If1.Name namen ]
         in
-        let _, on =
+        let (cn, _, _), on =
           If1.add_node_2 (`Compound (in_gr, If1.INTERNAL, 0, prags, [])) to_gr
         in
+        let in_gr, on = wire_all_syms_to_compound cn in_gr on in
+        verify_compound_inputs cn in_gr on;
         on
       in
 
@@ -5096,6 +5483,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      List.length lis :: lis ))
                 in_gr
             in
+            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
+            verify_compound_inputs fx for_gr in_gr;
             to_if1_msg 3
               "LoopA: outer compound node=%d, building multiarity for %d \
                return(s)"
@@ -5165,6 +5554,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      List.length lis :: lis ))
                 in_gr
             in
+            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
+            verify_compound_inputs fx for_gr in_gr;
 
             to_if1_msg 3
               "LoopB: outer compound node=%d, building multiarity for %d \
@@ -5192,9 +5583,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
       let ty =
-        match ret_actions with
-        | (_, arr_ty, _) :: _ -> arr_ty
-        | _ -> 0
+        match ret_actions with (_, arr_ty, _) :: _ -> arr_ty | _ -> 0
       in
       ((mul_n, mul_p, ty), in_gr)
   | Dv_create _rank ->
@@ -5214,7 +5603,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (fun (acc, g) d ->
             let (dn, dp, dt), g = do_simple_exp g d in
             let dn, dp, dt = If1.find_incoming_regular_node (dn, dp, dt) g in
-            (acc @ [(dn, dp, dt)], g))
+            (acc @ [ (dn, dp, dt) ], g))
           ([], in_gr) dims
       in
       let in_ports = Array.make (1 + rank) "" in
@@ -5237,9 +5626,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
         match If1.lookup_type_opt at in_gr with
         | Some (If1.Array_dv et) -> et
         | Some (If1.Array_ty et) -> et
-        | _ -> at  (* fallback: treat as scalar *)
+        | _ -> at (* fallback: treat as scalar *)
       in
-      let _ = rank in  (* rank is carried by the DV_RESHAPE node's input port count *)
+      let _ = rank in
+      (* rank is carried by the DV_RESHAPE node's input port count *)
       let out_ty_id, in_gr =
         let (id, _, _), g =
           If1.add_type_to_typemap_dedup (If1.Array_dv elem_ty) in_gr
@@ -5251,9 +5641,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (an, ap, at), in_gr = do_simple_exp in_gr arr in
       let rank = List.length dims in
       let dim_triples, in_gr =
-        List.fold_left (fun (acc, g) d ->
-          let (dn, dp, dt), g = do_simple_exp g d in
-          (acc @ [(dn, dp, dt)], g))
+        List.fold_left
+          (fun (acc, g) d ->
+            let (dn, dp, dt), g = do_simple_exp g d in
+            (acc @ [ (dn, dp, dt) ], g))
           ([], in_gr) dims
       in
       let in_ports = Array.make (1 + rank) "" in
@@ -5264,9 +5655,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       let in_gr = If1.add_edge an ap pn 0 at in_gr in
       let in_gr =
-        List.fold_left (fun g (i, (dn, dp, dt)) ->
-          If1.add_edge dn dp pn (i + 1) dt g)
-          in_gr (List.mapi (fun i t -> (i, t)) dim_triples)
+        List.fold_left
+          (fun g (i, (dn, dp, dt)) -> If1.add_edge dn dp pn (i + 1) dt g)
+          in_gr
+          (List.mapi (fun i t -> (i, t)) dim_triples)
       in
       ((pn, pp, at), in_gr)
   (* ------------------------------------------------------------------ *)
@@ -5275,56 +5667,69 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | Reduce (op, arr) ->
       (* for __RX in arr returns <op> of __RX *)
       do_simple_exp in_gr
-        (Ast.For_all (
-           Ast.In_exp (Ast.Value_name [ "__RX" ], Ast.Exp [ arr ]),
-           Ast.Decldef_part [],
-           [ Ast.Return_exp
-               (Ast.Value_of (Ast.No_dir, op, Ast.Val (Ast.Value_name [ "__RX" ])),
-                Ast.No_mask) ]))
+        (Ast.For_all
+           ( Ast.In_exp (Ast.Value_name [ "__RX" ], Ast.Exp [ arr ]),
+             Ast.Decldef_part [],
+             [
+               Ast.Return_exp
+                 ( Ast.Value_of
+                     (Ast.No_dir, op, Ast.Val (Ast.Value_name [ "__RX" ])),
+                   Ast.No_mask );
+             ] ))
   | Reduce_range (op, arr, lo, hi) ->
       (* for __RI in lo..hi returns <op> of arr[__RI] *)
       do_simple_exp in_gr
-        (Ast.For_all (
-           Ast.In_exp (Ast.Value_name [ "__RI" ], Ast.Exp [ lo; hi ]),
-           Ast.Decldef_part [],
-           [ Ast.Return_exp
-               (Ast.Value_of
-                  ( Ast.No_dir,
-                    op,
-                    Ast.Array_ref (arr, Ast.Exp [ Ast.Val (Ast.Value_name [ "__RI" ]) ]) ),
-                Ast.No_mask) ]))
-  | Each_exp (f_exp, arr) ->
+        (Ast.For_all
+           ( Ast.In_exp (Ast.Value_name [ "__RI" ], Ast.Exp [ lo; hi ]),
+             Ast.Decldef_part [],
+             [
+               Ast.Return_exp
+                 ( Ast.Value_of
+                     ( Ast.No_dir,
+                       op,
+                       Ast.Array_ref
+                         (arr, Ast.Exp [ Ast.Val (Ast.Value_name [ "__RI" ]) ])
+                     ),
+                   Ast.No_mask );
+             ] ))
+  | Each_exp (f_exp, arr) -> (
       (* for __EX in arr returns array of f(__EX) *)
-      let rec unwrap_pos = function
-        | Ast.Pos (_, e) -> unwrap_pos e
-        | e -> e
-      in
+      let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
       let fn_parts =
         match unwrap_pos f_exp with
         | Ast.Val (Ast.Value_name parts) -> Some parts
         | _ -> None
       in
-      (match fn_parts with
+      match fn_parts with
       | Some parts ->
           do_simple_exp in_gr
-            (Ast.For_all (
-               Ast.In_exp (Ast.Value_name [ "__EX" ], Ast.Exp [ arr ]),
-               Ast.Decldef_part [],
-               [ Ast.Return_exp
-                   (Ast.Array_of
-                      (Ast.Invocation
-                         ( Ast.Function_name parts,
-                           Ast.Arg (Ast.Exp [ Ast.Val (Ast.Value_name [ "__EX" ]) ]) )),
-                    Ast.No_mask) ]))
+            (Ast.For_all
+               ( Ast.In_exp (Ast.Value_name [ "__EX" ], Ast.Exp [ arr ]),
+                 Ast.Decldef_part [],
+                 [
+                   Ast.Return_exp
+                     ( Ast.Array_of
+                         (Ast.Invocation
+                            ( Ast.Function_name parts,
+                              Ast.Arg
+                                (Ast.Exp [ Ast.Val (Ast.Value_name [ "__EX" ]) ])
+                            )),
+                       Ast.No_mask );
+                 ] ))
       | None ->
           (* Inline function expression: bind to a temp name, then recurse *)
           do_simple_exp in_gr
-            (Ast.Let (
-               Ast.Decldef_part
-                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__MAPF" ] ],
-                                Ast.Exp [ f_exp ]) ],
-               Ast.Exp [ Ast.Each_exp (Ast.Val (Ast.Value_name [ "__MAPF" ]), arr) ])))
-  | Foldl_exp (f_exp, init, arr) ->
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__MAPF" ] ],
+                         Ast.Exp [ f_exp ] );
+                   ],
+                 Ast.Exp
+                   [ Ast.Each_exp (Ast.Val (Ast.Value_name [ "__MAPF" ]), arr) ]
+               )))
+  | Foldl_exp (f_exp, init, arr) -> (
       (* let __FA := arr in
          for initial __FACC := init; __FI := liml(__FA); __FHI := limh(__FA)
          while __FI <= __FHI repeat
@@ -5336,66 +5741,100 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | Ast.Val (Ast.Value_name parts) -> Some parts
         | _ -> None
       in
-      (match fn_parts with
+      match fn_parts with
       | None ->
           do_simple_exp in_gr
-            (Ast.Let (
-               Ast.Decldef_part
-                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
-                                Ast.Exp [ f_exp ]) ],
-               Ast.Exp [ Ast.Foldl_exp (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr) ]))
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
+                         Ast.Exp [ f_exp ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.Foldl_exp
+                       (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr);
+                   ] ))
       | Some fn_parts ->
-      let mk_inv fn args =
-        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
-      in
-      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
-      let a_ref = Ast.Val (Ast.Value_name [ "__FA" ]) in
-      do_simple_exp in_gr
-        (Ast.Let
-           ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__FA" ] ], Ast.Exp [ arr ]) ],
-             Ast.Exp
-               [ Ast.For_initial
-                   ( Ast.Decldef_part
-                       [ Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FACC" ] ],
-                             Ast.Exp [ init ] );
-                         Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FI" ] ],
-                             Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
-                         Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FHI" ] ],
-                             Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
-                     Ast.Termination_iterator
-                       ( Ast.While
-                           (Ast.Exp
-                              [ Ast.Lesser_equal
-                                  ( Ast.Val (Ast.Value_name [ "__FI" ]),
-                                    Ast.Val (Ast.Value_name [ "__FHI" ]) ) ]),
-                         Ast.Repeat
-                           (Ast.Decldef_part
-                              [ Ast.Decldef
-                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FACC" ] ],
-                                    Ast.Exp
-                                      [ mk_inv fn_parts
-                                          [ mk_old "__FACC";
-                                            Ast.Array_ref
-                                              ( a_ref,
-                                                Ast.Exp [ mk_old "__FI" ] ) ] ] );
-                                Ast.Decldef
-                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FI" ] ],
-                                    Ast.Exp
-                                      [ Ast.Add
-                                          ( mk_old "__FI",
-                                            Ast.Constant (Ast.Int 1) ) ] ) ]) ),
-                     [ Ast.Return_exp
-                         ( Ast.Value_of
-                             ( Ast.No_dir,
-                               Ast.No_red,
-                               Ast.Val (Ast.Value_name [ "__FACC" ]) ),
-                           Ast.No_mask ) ] ) ] )))
-  | Foldr_exp (f_exp, init, arr) ->
+          let mk_inv fn args =
+            Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+          in
+          let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+          let a_ref = Ast.Val (Ast.Value_name [ "__FA" ]) in
+          do_simple_exp in_gr
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__FA" ] ],
+                         Ast.Exp [ arr ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.For_initial
+                       ( Ast.Decldef_part
+                           [
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FACC" ] ],
+                                 Ast.Exp [ init ] );
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FI" ] ],
+                                 Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ]
+                               );
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FHI" ] ],
+                                 Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ]
+                               );
+                           ],
+                         Ast.Termination_iterator
+                           ( Ast.While
+                               (Ast.Exp
+                                  [
+                                    Ast.Lesser_equal
+                                      ( Ast.Val (Ast.Value_name [ "__FI" ]),
+                                        Ast.Val (Ast.Value_name [ "__FHI" ]) );
+                                  ]),
+                             Ast.Repeat
+                               (Ast.Decldef_part
+                                  [
+                                    Ast.Decldef
+                                      ( [
+                                          Ast.Decl_no_type
+                                            [ Ast.Decl_name "__FACC" ];
+                                        ],
+                                        Ast.Exp
+                                          [
+                                            mk_inv fn_parts
+                                              [
+                                                mk_old "__FACC";
+                                                Ast.Array_ref
+                                                  ( a_ref,
+                                                    Ast.Exp [ mk_old "__FI" ] );
+                                              ];
+                                          ] );
+                                    Ast.Decldef
+                                      ( [
+                                          Ast.Decl_no_type
+                                            [ Ast.Decl_name "__FI" ];
+                                        ],
+                                        Ast.Exp
+                                          [
+                                            Ast.Add
+                                              ( mk_old "__FI",
+                                                Ast.Constant (Ast.Int 1) );
+                                          ] );
+                                  ]) ),
+                         [
+                           Ast.Return_exp
+                             ( Ast.Value_of
+                                 ( Ast.No_dir,
+                                   Ast.No_red,
+                                   Ast.Val (Ast.Value_name [ "__FACC" ]) ),
+                               Ast.No_mask );
+                         ] );
+                   ] )))
+  | Foldr_exp (f_exp, init, arr) -> (
       (* Traverse right-to-left: f(A[i], acc) *)
       let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
       let fn_parts =
@@ -5403,66 +5842,101 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | Ast.Val (Ast.Value_name parts) -> Some parts
         | _ -> None
       in
-      (match fn_parts with
+      match fn_parts with
       | None ->
           do_simple_exp in_gr
-            (Ast.Let (
-               Ast.Decldef_part
-                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
-                                Ast.Exp [ f_exp ]) ],
-               Ast.Exp [ Ast.Foldr_exp (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr) ]))
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__FLDF" ] ],
+                         Ast.Exp [ f_exp ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.Foldr_exp
+                       (Ast.Val (Ast.Value_name [ "__FLDF" ]), init, arr);
+                   ] ))
       | Some fn_parts ->
-      let mk_inv fn args =
-        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
-      in
-      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
-      let a_ref = Ast.Val (Ast.Value_name [ "__FRA" ]) in
-      do_simple_exp in_gr
-        (Ast.Let
-           ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__FRA" ] ], Ast.Exp [ arr ]) ],
-             Ast.Exp
-               [ Ast.For_initial
-                   ( Ast.Decldef_part
-                       [ Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRACC" ] ],
-                             Ast.Exp [ init ] );
-                         Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRI" ] ],
-                             Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] );
-                         Ast.Decldef
-                           ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRLO" ] ],
-                             Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] ) ],
-                     Ast.Termination_iterator
-                       ( Ast.While
-                           (Ast.Exp
-                              [ Ast.Greater_equal
-                                  ( Ast.Val (Ast.Value_name [ "__FRI" ]),
-                                    Ast.Val (Ast.Value_name [ "__FRLO" ]) ) ]),
-                         Ast.Repeat
-                           (Ast.Decldef_part
-                              [ Ast.Decldef
-                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRACC" ] ],
-                                    Ast.Exp
-                                      [ mk_inv fn_parts
-                                          [ Ast.Array_ref
-                                              ( a_ref,
-                                                Ast.Exp [ mk_old "__FRI" ] );
-                                            mk_old "__FRACC" ] ] );
-                                Ast.Decldef
-                                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRI" ] ],
-                                    Ast.Exp
-                                      [ Ast.Subtract
-                                          ( mk_old "__FRI",
-                                            Ast.Constant (Ast.Int 1) ) ] ) ]) ),
-                     [ Ast.Return_exp
-                         ( Ast.Value_of
-                             ( Ast.No_dir,
-                               Ast.No_red,
-                               Ast.Val (Ast.Value_name [ "__FRACC" ]) ),
-                           Ast.No_mask ) ] ) ] )))
-  | Scan_exp (f_exp, arr) ->
+          let mk_inv fn args =
+            Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+          in
+          let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+          let a_ref = Ast.Val (Ast.Value_name [ "__FRA" ]) in
+          do_simple_exp in_gr
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRA" ] ],
+                         Ast.Exp [ arr ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.For_initial
+                       ( Ast.Decldef_part
+                           [
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRACC" ] ],
+                                 Ast.Exp [ init ] );
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRI" ] ],
+                                 Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ]
+                               );
+                             Ast.Decldef
+                               ( [ Ast.Decl_no_type [ Ast.Decl_name "__FRLO" ] ],
+                                 Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ]
+                               );
+                           ],
+                         Ast.Termination_iterator
+                           ( Ast.While
+                               (Ast.Exp
+                                  [
+                                    Ast.Greater_equal
+                                      ( Ast.Val (Ast.Value_name [ "__FRI" ]),
+                                        Ast.Val (Ast.Value_name [ "__FRLO" ]) );
+                                  ]),
+                             Ast.Repeat
+                               (Ast.Decldef_part
+                                  [
+                                    Ast.Decldef
+                                      ( [
+                                          Ast.Decl_no_type
+                                            [ Ast.Decl_name "__FRACC" ];
+                                        ],
+                                        Ast.Exp
+                                          [
+                                            mk_inv fn_parts
+                                              [
+                                                Ast.Array_ref
+                                                  ( a_ref,
+                                                    Ast.Exp [ mk_old "__FRI" ]
+                                                  );
+                                                mk_old "__FRACC";
+                                              ];
+                                          ] );
+                                    Ast.Decldef
+                                      ( [
+                                          Ast.Decl_no_type
+                                            [ Ast.Decl_name "__FRI" ];
+                                        ],
+                                        Ast.Exp
+                                          [
+                                            Ast.Subtract
+                                              ( mk_old "__FRI",
+                                                Ast.Constant (Ast.Int 1) );
+                                          ] );
+                                  ]) ),
+                         [
+                           Ast.Return_exp
+                             ( Ast.Value_of
+                                 ( Ast.No_dir,
+                                   Ast.No_red,
+                                   Ast.Val (Ast.Value_name [ "__FRACC" ]) ),
+                               Ast.No_mask );
+                         ] );
+                   ] )))
+  | Scan_exp (f_exp, arr) -> (
       (* APL f\A — inclusive prefix scan.
          Empty input → empty output (APL rule).
          Non-empty: out[lo] = A[lo]; out[lo+k] = f(out[lo+k-1], A[lo+k]). *)
@@ -5472,91 +5946,133 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | Ast.Val (Ast.Value_name parts) -> Some parts
         | _ -> None
       in
-      (match fn_parts with
+      match fn_parts with
       | None ->
           do_simple_exp in_gr
-            (Ast.Let (
-               Ast.Decldef_part
-                 [ Ast.Decldef ([ Ast.Decl_no_type [ Ast.Decl_name "__SCNF" ] ],
-                                Ast.Exp [ f_exp ]) ],
-               Ast.Exp [ Ast.Scan_exp (Ast.Val (Ast.Value_name [ "__SCNF" ]), arr) ]))
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNF" ] ],
+                         Ast.Exp [ f_exp ] );
+                   ],
+                 Ast.Exp
+                   [ Ast.Scan_exp (Ast.Val (Ast.Value_name [ "__SCNF" ]), arr) ]
+               ))
       | Some fn_parts ->
-      let mk_inv fn args =
-        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
-      in
-      let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
-      let a_ref  = Ast.Val (Ast.Value_name [ "__SCNA" ]) in
-      let lo_ref = Ast.Val (Ast.Value_name [ "__SCNLO" ]) in
-      let hi_ref = Ast.Val (Ast.Value_name [ "__SCNHI" ]) in
-      (* Empty-array case: forall over lo..hi with lo>hi → zero iterations → empty array *)
-      let empty_branch =
-        Ast.For_all
-          ( Ast.In_exp (Ast.Value_name [ "__SCNI" ], Ast.Exp [ lo_ref; hi_ref ]),
-            Ast.Decldef_part [],
-            [ Ast.Return_exp
-                (Ast.Array_of (Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ])),
-                 Ast.No_mask) ] )
-      in
-      let scan_body =
-        Ast.For_initial
-          ( Ast.Decldef_part
-              [ Ast.Decldef
-                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
-                    Ast.Exp [ Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]) ] );
-                Ast.Decldef
-                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
-                    Ast.Exp [ Ast.Add (lo_ref, Ast.Constant (Ast.Int 1)) ] );
-                Ast.Decldef
-                  ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
-                    Ast.Exp
-                      [ Ast.Array_generator_unnamed
-                          (Ast.SExpr_pair
-                             ( Ast.Exp [ lo_ref ],
-                               Ast.Exp [ Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]) ] )) ] ) ],
-            Ast.Termination_iterator
-              ( Ast.While
-                  (Ast.Exp
-                     [ Ast.Lesser_equal
-                         ( Ast.Val (Ast.Value_name [ "__SCNI" ]),
-                           Ast.Val (Ast.Value_name [ "__SCNHI" ]) ) ]),
-                Ast.Repeat
-                  (Ast.Decldef_part
-                     [ Ast.Decldef
-                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
-                           Ast.Exp
-                             [ mk_inv fn_parts
-                                 [ mk_old "__SCNACC";
-                                   Ast.Array_ref (a_ref, Ast.Exp [ mk_old "__SCNI" ]) ] ] );
-                       Ast.Decldef
-                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
-                           Ast.Exp [ Ast.Add (mk_old "__SCNI", Ast.Constant (Ast.Int 1)) ] );
-                       Ast.Decldef
-                         ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
-                           Ast.Exp
-                             [ mk_inv [ "ARRAY_ADDH" ]
-                                 [ mk_old "__SCNOUT"; mk_old "__SCNACC" ] ] ) ]) ),
-            [ Ast.Return_exp
-                ( Ast.Value_of
-                    (Ast.No_dir, Ast.No_red, Ast.Val (Ast.Value_name [ "__SCNOUT" ])),
-                  Ast.No_mask ) ] )
-      in
-      do_simple_exp in_gr
-        (Ast.Let
-           ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__SCNA" ] ], Ast.Exp [ arr ]);
-                 Ast.Decldef
-                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNLO" ] ],
-                     Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
-                 Ast.Decldef
-                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNHI" ] ],
-                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
-             Ast.Exp
-               [ Ast.If
-                   ( [ Ast.Cond
-                         ( Ast.Exp [ Ast.Greater (lo_ref, hi_ref) ],
-                           Ast.Exp [ empty_branch ] ) ],
-                     Ast.Else (Ast.Exp [ scan_body ]) ) ] )))
+          let mk_inv fn args =
+            Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+          in
+          let mk_old v = Ast.Old (Ast.Value_name [ v ]) in
+          let a_ref = Ast.Val (Ast.Value_name [ "__SCNA" ]) in
+          let lo_ref = Ast.Val (Ast.Value_name [ "__SCNLO" ]) in
+          let hi_ref = Ast.Val (Ast.Value_name [ "__SCNHI" ]) in
+          (* Empty-array case: forall over lo..hi with lo>hi → zero iterations → empty array *)
+          let empty_branch =
+            Ast.For_all
+              ( Ast.In_exp
+                  (Ast.Value_name [ "__SCNI" ], Ast.Exp [ lo_ref; hi_ref ]),
+                Ast.Decldef_part [],
+                [
+                  Ast.Return_exp
+                    ( Ast.Array_of (Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ])),
+                      Ast.No_mask );
+                ] )
+          in
+          let scan_body =
+            Ast.For_initial
+              ( Ast.Decldef_part
+                  [
+                    Ast.Decldef
+                      ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
+                        Ast.Exp [ Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]) ] );
+                    Ast.Decldef
+                      ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
+                        Ast.Exp [ Ast.Add (lo_ref, Ast.Constant (Ast.Int 1)) ]
+                      );
+                    Ast.Decldef
+                      ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
+                        Ast.Exp
+                          [
+                            Ast.Array_generator_unnamed
+                              (Ast.SExpr_pair
+                                 ( Ast.Exp [ lo_ref ],
+                                   Ast.Exp
+                                     [
+                                       Ast.Array_ref (a_ref, Ast.Exp [ lo_ref ]);
+                                     ] ));
+                          ] );
+                  ],
+                Ast.Termination_iterator
+                  ( Ast.While
+                      (Ast.Exp
+                         [
+                           Ast.Lesser_equal
+                             ( Ast.Val (Ast.Value_name [ "__SCNI" ]),
+                               Ast.Val (Ast.Value_name [ "__SCNHI" ]) );
+                         ]),
+                    Ast.Repeat
+                      (Ast.Decldef_part
+                         [
+                           Ast.Decldef
+                             ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNACC" ] ],
+                               Ast.Exp
+                                 [
+                                   mk_inv fn_parts
+                                     [
+                                       mk_old "__SCNACC";
+                                       Ast.Array_ref
+                                         (a_ref, Ast.Exp [ mk_old "__SCNI" ]);
+                                     ];
+                                 ] );
+                           Ast.Decldef
+                             ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNI" ] ],
+                               Ast.Exp
+                                 [
+                                   Ast.Add
+                                     (mk_old "__SCNI", Ast.Constant (Ast.Int 1));
+                                 ] );
+                           Ast.Decldef
+                             ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
+                               Ast.Exp
+                                 [
+                                   mk_inv [ "ARRAY_ADDH" ]
+                                     [ mk_old "__SCNOUT"; mk_old "__SCNACC" ];
+                                 ] );
+                         ]) ),
+                [
+                  Ast.Return_exp
+                    ( Ast.Value_of
+                        ( Ast.No_dir,
+                          Ast.No_red,
+                          Ast.Val (Ast.Value_name [ "__SCNOUT" ]) ),
+                      Ast.No_mask );
+                ] )
+          in
+          do_simple_exp in_gr
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNA" ] ],
+                         Ast.Exp [ arr ] );
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNLO" ] ],
+                         Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNHI" ] ],
+                         Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.If
+                       ( [
+                           Ast.Cond
+                             ( Ast.Exp [ Ast.Greater (lo_ref, hi_ref) ],
+                               Ast.Exp [ empty_branch ] );
+                         ],
+                         Ast.Else (Ast.Exp [ scan_body ]) );
+                   ] )))
   | Take_exp (arr, n) ->
       (* APL n↑A semantics:
            n > 0  → first n elems, right-pad with 0 when n > size(A)
@@ -5566,37 +6082,47 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let mk_inv fn args =
         Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
       in
-      let a_ref   = Ast.Val (Ast.Value_name [ "__TKA" ]) in
-      let lo_ref  = Ast.Val (Ast.Value_name [ "__TKLO" ]) in
-      let hi_ref  = Ast.Val (Ast.Value_name [ "__TKHI" ]) in
-      let n_ref   = Ast.Val (Ast.Value_name [ "__TKN" ]) in
+      let a_ref = Ast.Val (Ast.Value_name [ "__TKA" ]) in
+      let lo_ref = Ast.Val (Ast.Value_name [ "__TKLO" ]) in
+      let hi_ref = Ast.Val (Ast.Value_name [ "__TKHI" ]) in
+      let n_ref = Ast.Val (Ast.Value_name [ "__TKN" ]) in
       let absn_ref = Ast.Val (Ast.Value_name [ "__TKABSN" ]) in
-      let i_ref   = Ast.Val (Ast.Value_name [ "__TKI" ]) in
-      let zero    = Ast.Constant (Ast.Int 0) in
-      let one     = Ast.Constant (Ast.Int 1) in
+      let i_ref = Ast.Val (Ast.Value_name [ "__TKI" ]) in
+      let zero = Ast.Constant (Ast.Int 0) in
+      let one = Ast.Constant (Ast.Int 1) in
       (* Positive take: for i in 1..n returns array of
            if lo + i - 1 <= hi then A[lo + i - 1] else 0 *)
       let pos_body =
         Ast.For_all
           ( Ast.In_exp (Ast.Value_name [ "__TKI" ], Ast.Exp [ one; n_ref ]),
             Ast.Decldef_part [],
-            [ Ast.Return_exp
+            [
+              Ast.Return_exp
                 ( Ast.Array_of
                     (Ast.If
-                       ( [ Ast.Cond
+                       ( [
+                           Ast.Cond
                              ( Ast.Exp
-                                 [ Ast.Lesser_equal
-                                     ( Ast.Add (lo_ref, Ast.Subtract (i_ref, one)),
-                                       hi_ref ) ],
+                                 [
+                                   Ast.Lesser_equal
+                                     ( Ast.Add
+                                         (lo_ref, Ast.Subtract (i_ref, one)),
+                                       hi_ref );
+                                 ],
                                Ast.Exp
-                                 [ Ast.Array_ref
+                                 [
+                                   Ast.Array_ref
                                      ( a_ref,
                                        Ast.Exp
-                                         [ Ast.Add
-                                             ( lo_ref,
-                                               Ast.Subtract (i_ref, one) ) ] ) ] ) ],
+                                         [
+                                           Ast.Add
+                                             (lo_ref, Ast.Subtract (i_ref, one));
+                                         ] );
+                                 ] );
+                         ],
                          Ast.Else (Ast.Exp [ zero ]) )),
-                  Ast.No_mask ) ] )
+                  Ast.No_mask );
+            ] )
       in
       (* Negative take: for i in 1..abs(n) returns array of
            let src = hi - abs(n) + i in
@@ -5605,40 +6131,59 @@ and do_simple_exp_impl in_gr in_sim_ex =
         Ast.For_all
           ( Ast.In_exp (Ast.Value_name [ "__TKI" ], Ast.Exp [ one; absn_ref ]),
             Ast.Decldef_part [],
-            [ Ast.Return_exp
+            [
+              Ast.Return_exp
                 ( Ast.Array_of
                     (Ast.Let
                        ( Ast.Decldef_part
-                           [ Ast.Decldef
+                           [
+                             Ast.Decldef
                                ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKSRC" ] ],
                                  Ast.Exp
-                                   [ Ast.Add
-                                       ( Ast.Subtract (hi_ref, absn_ref),
-                                         i_ref ) ] ) ],
+                                   [
+                                     Ast.Add
+                                       (Ast.Subtract (hi_ref, absn_ref), i_ref);
+                                   ] );
+                           ],
                          Ast.Exp
-                           [ Ast.If
-                               ( [ Ast.Cond
+                           [
+                             Ast.If
+                               ( [
+                                   Ast.Cond
                                      ( Ast.Exp
-                                         [ Ast.Greater_equal
-                                             ( Ast.Val (Ast.Value_name [ "__TKSRC" ]),
-                                               lo_ref ) ],
+                                         [
+                                           Ast.Greater_equal
+                                             ( Ast.Val
+                                                 (Ast.Value_name [ "__TKSRC" ]),
+                                               lo_ref );
+                                         ],
                                        Ast.Exp
-                                         [ Ast.Array_ref
+                                         [
+                                           Ast.Array_ref
                                              ( a_ref,
                                                Ast.Exp
-                                                 [ Ast.Val
-                                                     (Ast.Value_name [ "__TKSRC" ])
-                                                 ] ) ] ) ],
-                                 Ast.Else (Ast.Exp [ zero ]) ) ] )),
-                  Ast.No_mask ) ] )
+                                                 [
+                                                   Ast.Val
+                                                     (Ast.Value_name
+                                                        [ "__TKSRC" ]);
+                                                 ] );
+                                         ] );
+                                 ],
+                                 Ast.Else (Ast.Exp [ zero ]) );
+                           ] )),
+                  Ast.No_mask );
+            ] )
       in
       do_simple_exp in_gr
         (Ast.Let
            ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TKA" ] ], Ast.Exp [ arr ]);
+               [
                  Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TKN" ] ], Ast.Exp [ n ]);
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKA" ] ],
+                     Ast.Exp [ arr ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKN" ] ],
+                     Ast.Exp [ n ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKLO" ] ],
                      Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
@@ -5648,55 +6193,76 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__TKABSN" ] ],
                      Ast.Exp
-                       [ Ast.If
-                           ( [ Ast.Cond
+                       [
+                         Ast.If
+                           ( [
+                               Ast.Cond
                                  ( Ast.Exp [ Ast.Greater_equal (n_ref, zero) ],
-                                   Ast.Exp [ n_ref ] ) ],
-                             Ast.Else (Ast.Exp [ Ast.Negate n_ref ]) ) ] ) ],
+                                   Ast.Exp [ n_ref ] );
+                             ],
+                             Ast.Else (Ast.Exp [ Ast.Negate n_ref ]) );
+                       ] );
+               ],
              Ast.Exp
-               [ Ast.If
-                   ( [ Ast.Cond
+               [
+                 Ast.If
+                   ( [
+                       Ast.Cond
                          ( Ast.Exp [ Ast.Greater_equal (n_ref, zero) ],
-                           Ast.Exp [ pos_body ] ) ],
-                     Ast.Else (Ast.Exp [ neg_body ]) ) ] ))
+                           Ast.Exp [ pos_body ] );
+                     ],
+                     Ast.Else (Ast.Exp [ neg_body ]) );
+               ] ))
   | Drop_exp (arr, n) ->
       (* for __DRI in liml(A)+n .. limh(A) returns array of A[__DRI] *)
       let mk_inv fn args =
         Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
       in
-      let a_ref  = Ast.Val (Ast.Value_name [ "__DRA" ]) in
+      let a_ref = Ast.Val (Ast.Value_name [ "__DRA" ]) in
       let lo_ref = Ast.Val (Ast.Value_name [ "__DRLO" ]) in
       let hi_ref = Ast.Val (Ast.Value_name [ "__DRHI" ]) in
       do_simple_exp in_gr
         (Ast.Let
            ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__DRA" ] ], Ast.Exp [ arr ]);
+               [
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__DRA" ] ],
+                     Ast.Exp [ arr ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__DRLO" ] ],
                      Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__DRHI" ] ],
-                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] ) ],
+                     Ast.Exp [ mk_inv [ "ARRAY_LIMH" ] [ a_ref ] ] );
+               ],
              Ast.Exp
-               [ Ast.For_all
+               [
+                 Ast.For_all
                    ( Ast.In_exp
                        ( Ast.Value_name [ "__DRI" ],
                          Ast.Exp [ Ast.Add (lo_ref, n); hi_ref ] ),
                      Ast.Decldef_part [],
-                     [ Ast.Return_exp
+                     [
+                       Ast.Return_exp
                          ( Ast.Array_of
                              (Ast.Array_ref
                                 ( a_ref,
-                                  Ast.Exp [ Ast.Val (Ast.Value_name [ "__DRI" ]) ] )),
-                           Ast.No_mask ) ] ) ] ))
+                                  Ast.Exp
+                                    [ Ast.Val (Ast.Value_name [ "__DRI" ]) ] )),
+                           Ast.No_mask );
+                     ] );
+               ] ))
   | Reverse_exp arr ->
       (* DV_REVERSE(arr) — reversed view via stride negation, no new array *)
       let (an, ap, at), in_gr = do_simple_exp in_gr arr in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_REVERSE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_REVERSE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -5707,19 +6273,22 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let mk_inv fn args =
         Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
       in
-      let ca_ref  = Ast.Val (Ast.Value_name [ "__CCA" ]) in
-      let cb_ref  = Ast.Val (Ast.Value_name [ "__CCB" ]) in
+      let ca_ref = Ast.Val (Ast.Value_name [ "__CCA" ]) in
+      let cb_ref = Ast.Val (Ast.Value_name [ "__CCB" ]) in
       let alo_ref = Ast.Val (Ast.Value_name [ "__CCALO" ]) in
       let blo_ref = Ast.Val (Ast.Value_name [ "__CCBLO" ]) in
-      let an_ref  = Ast.Val (Ast.Value_name [ "__CCAN" ]) in
-      let i_ref   = Ast.Val (Ast.Value_name [ "__CCI" ]) in
+      let an_ref = Ast.Val (Ast.Value_name [ "__CCAN" ]) in
+      let i_ref = Ast.Val (Ast.Value_name [ "__CCI" ]) in
       do_simple_exp in_gr
         (Ast.Let
            ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__CCA" ] ], Ast.Exp [ a ]);
+               [
                  Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__CCB" ] ], Ast.Exp [ b ]);
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCA" ] ],
+                     Ast.Exp [ a ] );
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCB" ] ],
+                     Ast.Exp [ b ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCALO" ] ],
                      Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ ca_ref ] ] );
@@ -5728,79 +6297,110 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ cb_ref ] ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__CCAN" ] ],
-                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ ca_ref ] ] ) ],
+                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ ca_ref ] ] );
+               ],
              Ast.Exp
-               [ Ast.For_all
+               [
+                 Ast.For_all
                    ( Ast.In_exp
                        ( Ast.Value_name [ "__CCI" ],
                          Ast.Exp
-                           [ Ast.Constant (Ast.Int 1);
-                             Ast.Add (an_ref, mk_inv [ "ARRAY_SIZE" ] [ cb_ref ]) ] ),
+                           [
+                             Ast.Constant (Ast.Int 1);
+                             Ast.Add (an_ref, mk_inv [ "ARRAY_SIZE" ] [ cb_ref ]);
+                           ] ),
                      Ast.Decldef_part [],
-                     [ Ast.Return_exp
+                     [
+                       Ast.Return_exp
                          ( Ast.Array_of
                              (Ast.If
-                                ( [ Ast.Cond
+                                ( [
+                                    Ast.Cond
                                       ( Ast.Exp
                                           [ Ast.Lesser_equal (i_ref, an_ref) ],
                                         Ast.Exp
-                                          [ Ast.Array_ref
+                                          [
+                                            Ast.Array_ref
                                               ( ca_ref,
                                                 Ast.Exp
-                                                  [ Ast.Subtract
+                                                  [
+                                                    Ast.Subtract
                                                       ( Ast.Add (alo_ref, i_ref),
-                                                        Ast.Constant (Ast.Int 1) ) ] ) ] ) ],
+                                                        Ast.Constant (Ast.Int 1)
+                                                      );
+                                                  ] );
+                                          ] );
+                                  ],
                                   Ast.Else
                                     (Ast.Exp
-                                       [ Ast.Array_ref
+                                       [
+                                         Ast.Array_ref
                                            ( cb_ref,
                                              Ast.Exp
-                                               [ Ast.Subtract
+                                               [
+                                                 Ast.Subtract
                                                    ( Ast.Add
                                                        ( blo_ref,
-                                                         Ast.Subtract (i_ref, an_ref) ),
-                                                     Ast.Constant (Ast.Int 1) ) ] ) ]) )),
-                           Ast.No_mask ) ] ) ] ))
+                                                         Ast.Subtract
+                                                           (i_ref, an_ref) ),
+                                                     Ast.Constant (Ast.Int 1) );
+                                               ] );
+                                       ]) )),
+                           Ast.No_mask );
+                     ] );
+               ] ))
   | Tile_exp (arr, n) ->
       (* for __TLI in 1..size(A)*n returns array of A[lo + MOD(__TLI-1, size(A))] *)
       let mk_inv fn args =
         Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
       in
-      let a_ref  = Ast.Val (Ast.Value_name [ "__TLA" ]) in
+      let a_ref = Ast.Val (Ast.Value_name [ "__TLA" ]) in
       let lo_ref = Ast.Val (Ast.Value_name [ "__TLLO" ]) in
       let sz_ref = Ast.Val (Ast.Value_name [ "__TLSZ" ]) in
-      let i_ref  = Ast.Val (Ast.Value_name [ "__TLI" ]) in
+      let i_ref = Ast.Val (Ast.Value_name [ "__TLI" ]) in
       do_simple_exp in_gr
         (Ast.Let
            ( Ast.Decldef_part
-               [ Ast.Decldef
-                   ([ Ast.Decl_no_type [ Ast.Decl_name "__TLA" ] ], Ast.Exp [ arr ]);
+               [
+                 Ast.Decldef
+                   ( [ Ast.Decl_no_type [ Ast.Decl_name "__TLA" ] ],
+                     Ast.Exp [ arr ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__TLLO" ] ],
                      Ast.Exp [ mk_inv [ "ARRAY_LIML" ] [ a_ref ] ] );
                  Ast.Decldef
                    ( [ Ast.Decl_no_type [ Ast.Decl_name "__TLSZ" ] ],
-                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ a_ref ] ] ) ],
+                     Ast.Exp [ mk_inv [ "ARRAY_SIZE" ] [ a_ref ] ] );
+               ],
              Ast.Exp
-               [ Ast.For_all
+               [
+                 Ast.For_all
                    ( Ast.In_exp
                        ( Ast.Value_name [ "__TLI" ],
                          Ast.Exp
-                           [ Ast.Constant (Ast.Int 1);
-                             Ast.Multiply (sz_ref, n) ] ),
+                           [
+                             Ast.Constant (Ast.Int 1); Ast.Multiply (sz_ref, n);
+                           ] ),
                      Ast.Decldef_part [],
-                     [ Ast.Return_exp
+                     [
+                       Ast.Return_exp
                          ( Ast.Array_of
                              (Ast.Array_ref
                                 ( a_ref,
                                   Ast.Exp
-                                    [ Ast.Add
+                                    [
+                                      Ast.Add
                                         ( lo_ref,
                                           mk_inv [ "MOD" ]
-                                            [ Ast.Subtract
+                                            [
+                                              Ast.Subtract
                                                 (i_ref, Ast.Constant (Ast.Int 1));
-                                              sz_ref ] ) ] )),
-                           Ast.No_mask ) ] ) ] ))
+                                              sz_ref;
+                                            ] );
+                                    ] )),
+                           Ast.No_mask );
+                     ] );
+               ] ))
   (* ------------------------------------------------------------------ *)
   (* Opaque IF1 nodes for ops that have no clean pure-Sisal equivalent  *)
   (* ------------------------------------------------------------------ *)
@@ -5812,7 +6412,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let nn, np, nt = If1.find_incoming_regular_node (nn, np, nt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_ROTATE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             (If1.DV_ROTATE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -5831,7 +6432,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_COMPRESS, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_COMPRESS,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge mn mp rn 0 mt in_gr in
@@ -5847,7 +6452,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_OUTERPRODUCT, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_OUTERPRODUCT,
+               Array.make 3 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge fn_ fp rn 0 ft in_gr in
@@ -5860,13 +6469,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_GRADE_UP, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_GRADE_UP,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let out_ty, in_gr =
         let (id, _, _), g =
-          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+          If1.add_type_to_typemap_dedup
+            (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
+            in_gr
         in
         (id, g)
       in
@@ -5876,13 +6491,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_GRADE_DOWN, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_GRADE_DOWN,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let out_ty, in_gr =
         let (id, _, _), g =
-          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+          If1.add_type_to_typemap_dedup
+            (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
+            in_gr
         in
         (id, g)
       in
@@ -5893,7 +6514,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_SORT, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             (If1.DV_SORT, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -5906,7 +6528,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.BROADCAST_SCALAR, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.BROADCAST_SCALAR,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge sn sp rn 0 st in_gr in
@@ -5918,7 +6544,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let n_ports = if axis_opt = None then 1 else 2 in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ARGMAX_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.ARGMAX_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -5927,7 +6557,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.INTEGRAL)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -5937,7 +6569,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let n_ports = if axis_opt = None then 1 else 2 in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ARGMIN_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.ARGMIN_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -5946,7 +6582,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.INTEGRAL)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -5955,13 +6593,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.NONZERO_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.NONZERO_NODE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let out_ty, in_gr =
         let (id, _, _), g =
-          If1.add_type_to_typemap_dedup (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL)) in_gr
+          If1.add_type_to_typemap_dedup
+            (If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
+            in_gr
         in
         (id, g)
       in
@@ -5975,7 +6619,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.WHERE_NODE, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.WHERE_NODE,
+               Array.make 3 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge cn cp rn 0 ct in_gr in
@@ -5986,8 +6634,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* REDUCE_AXIS(op_lit, arr, axis) — reduce along one axis *)
       let op_str =
         match op with
-        | Ast.Sum -> "sum" | Ast.Product -> "product"
-        | Ast.Least -> "least" | Ast.Greatest -> "greatest"
+        | Ast.Sum -> "sum"
+        | Ast.Product -> "product"
+        | Ast.Least -> "least"
+        | Ast.Greatest -> "greatest"
         | _ -> "noop"
       in
       let (ln, lp, _), in_gr =
@@ -6000,7 +6650,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.REDUCE_AXIS, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.REDUCE_AXIS,
+               Array.make 3 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge ln lp rn 0 lt in_gr in
@@ -6013,7 +6667,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let n_ports = if axis_opt = None then 1 else 2 in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.MEAN_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.MEAN_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6022,7 +6680,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.REAL)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -6033,7 +6693,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.VARIANCE_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+             ( If1.VARIANCE_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6042,7 +6705,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.REAL)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -6053,7 +6718,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.STDDEV_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+             ( If1.STDDEV_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6062,7 +6730,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.REAL)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -6072,7 +6742,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let n_ports = if axis_opt = None then 1 else 2 in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ANY_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.ANY_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6081,7 +6755,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.BOOLEAN)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
@@ -6091,7 +6767,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let n_ports = if axis_opt = None then 1 else 2 in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ALL_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.ALL_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6100,17 +6780,23 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> (in_gr, If1.lookup_tyid If1.BOOLEAN)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
-            let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
+            let kn, kp, kt =
+              If1.find_incoming_regular_node (kn, kp, kt) in_gr
+            in
             (If1.add_edge kn kp rn 1 kt in_gr, at)
       in
       ((rn, rp, out_ty), in_gr)
   | Dv_offset_at (a, i, s) ->
-      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
-      let ((in_n, in_p, in_t), in_gr) = do_simple_exp in_gr i in
-      let ((sn, sp, st), in_gr) = do_simple_exp in_gr s in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (in_n, in_p, in_t), in_gr = do_simple_exp in_gr i in
+      let (sn, sp, st), in_gr = do_simple_exp in_gr s in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_OFFSET_AT, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_OFFSET_AT,
+               Array.make 3 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6118,37 +6804,48 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_gr = If1.add_edge sn sp rn 2 st in_gr in
       ((rn, rp, If1.lookup_tyid If1.INTEGRAL), in_gr)
   | Dv_load_linear (a, o) ->
-      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
-      let ((on, op, ot), in_gr) = do_simple_exp in_gr o in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (on, op, ot), in_gr = do_simple_exp in_gr o in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_LOAD_LINEAR, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_LOAD_LINEAR,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let in_gr = If1.add_edge on op rn 1 ot in_gr in
       ((rn, rp, array_elem_ty at in_gr), in_gr)
   | Dv_num_rank a ->
-      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_NUM_RANK, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_NUM_RANK,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       ((rn, rp, If1.lookup_tyid If1.INTEGRAL), in_gr)
   | Dv_dimension (a, k) ->
-      let ((an, ap, at), in_gr) = do_simple_exp in_gr a in
-      let ((kn, kp, kt), in_gr) = do_simple_exp in_gr k in
-      let (dope_ty, in_gr) = If1.ensure_dope_vec_type in_gr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
+      let dope_ty, in_gr = If1.ensure_dope_vec_type in_gr in
       (* The record type is the element type of the dope-vector array *)
-      let triplet_ty = match If1.lookup_ty dope_ty in_gr with
-        | If1.Array_ty et -> et
-        | _ -> 0
+      let triplet_ty =
+        match If1.lookup_ty dope_ty in_gr with If1.Array_ty et -> et | _ -> 0
       in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_DIMENSION, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.DV_DIMENSION,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6161,7 +6858,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let pn, pp, pt = If1.find_incoming_regular_node (pn, pp, pt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.NORM_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             (If1.NORM_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6172,7 +6870,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.CUMSUM_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.CUMSUM_NODE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6182,7 +6884,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.CUMPROD_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.CUMPROD_NODE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6192,7 +6898,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.SQUEEZE_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.SQUEEZE_NODE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6204,7 +6914,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.EXPAND_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.EXPAND_NODE,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6215,7 +6929,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.RAVEL_NODE, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.RAVEL_NODE,
+               Array.make 1 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6264,7 +6982,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let hn, hp, ht = If1.find_incoming_regular_node (hn, hp, ht) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.PAD_NODE, Array.make n_ports "", Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple
+             ( If1.PAD_NODE,
+               Array.make n_ports "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6275,7 +6997,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | None -> in_gr
         | Some fill ->
             let (fn_, fp, ft), in_gr = do_simple_exp in_gr fill in
-            let fn_, fp, ft = If1.find_incoming_regular_node (fn_, fp, ft) in_gr in
+            let fn_, fp, ft =
+              If1.find_incoming_regular_node (fn_, fp, ft) in_gr
+            in
             If1.add_edge fn_ fp rn 3 ft in_gr
       in
       ((rn, rp, at), in_gr)
@@ -6288,7 +7012,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.INNERPRODUCT_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+             ( If1.INNERPRODUCT_NODE,
+               Array.make 2 "",
+               Array.make 1 "",
+               [ If1.No_pragma ] ))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6309,7 +7036,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         match If1.get_node frm in_gr with
         | If1.Simple (lab, If1.MULTIARITY, pin, pout, _) ->
             let node =
-              If1.Simple (lab, If1.MULTIARITY, pin, pout, [ If1.Name "TUPLE_VAL" ])
+              If1.Simple
+                (lab, If1.MULTIARITY, pin, pout, [ If1.Name "TUPLE_VAL" ])
             in
             { in_gr with If1.nmap = If1.NM.add frm node in_gr.If1.nmap }
         | _ -> in_gr
@@ -6373,7 +7101,7 @@ and do_return_exp in_gr ggg =
       assert (at <> 0);
       (`Array_of, (an, ap, at), in_gr)
   | Ast.Dv_array_of (rank, e) ->
-      let ((an, ap, at), in_gr) = do_simple_exp in_gr e in
+      let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
       let actual_rank =
@@ -6392,7 +7120,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
   let ret_gr =
     try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
     with e ->
-      Printf.eprintf "create_subgraph_symtab failed: %s\n" (Printexc.to_string e);
+      Printf.eprintf "create_subgraph_symtab failed: %s\n"
+        (Printexc.to_string e);
       Printexc.print_backtrace stderr;
       failwith "create subgraph symtab"
   in
@@ -6437,36 +7166,55 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
           match hd_a with
           | `Array_of, tt, aa ->
               assert (tt <> 0);
+              let opcode, n_ports =
+                if !prefer_dv then (If1.DV_GATHER, 3) else (If1.AGATHER, 2)
+              in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
-                     ( If1.AGATHER,
-                       Array.make 2 "",
+                     ( opcode,
+                       Array.make n_ports "",
                        Array.make 1 "",
                        [ If1.No_pragma ] ))
                   out_gr
               in
-              (* Create a type for AGATHER HERE AND ADD ITS TYPE TO
+              (* Create a type for GATHER HERE AND ADD ITS TYPE TO
               output return_action_list *)
               let what_ty, out_gr =
                 assert (tt <> 0);
                 let (id_x, _, _), out_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
+                  if !prefer_dv then
+                    If1.add_type_to_typemap_dedup (If1.Array_dv tt) out_gr
+                  else If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
                 in
-                to_if1_msg 3 "create_return_nodes: Array_of elem_ty=%d -> what_ty=%d" tt id_x;
+                to_if1_msg 3
+                  "create_return_nodes: Array_of (prefer_dv=%b) elem_ty=%d -> \
+                   what_ty=%d"
+                  !prefer_dv tt id_x;
                 (id_x, out_gr)
               in
               let out_gr =
                 If1.add_edge 0 0 dd 0 5 (*integer type for indx*) out_gr
               in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
+              let out_gr =
+                if !prefer_dv then
+                  (* DV_GATHER needs rank as port 2 *)
+                  let (rn, _, _), out_gr =
+                    do_simple_exp out_gr (Ast.Constant (Ast.Int 1))
+                  in
+                  If1.add_edge rn 0 dd 2 5 out_gr
+                else out_gr
+              in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               let out_gr =
                 match hd_c with
-                | Some (aty, pnum) -> If1.add_edge 0 pnum dd 2 aty out_gr
+                | Some (aty, pnum) ->
+                    let p = if !prefer_dv then 3 else 2 in
+                    If1.add_edge 0 pnum dd p aty out_gr
                 | None -> out_gr
               in
-              create_return_nodes out_gr (in_count + 2) (out_count + 1)
+              create_return_nodes out_gr (in_count + n_ports) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `Dv_array_of rank, tt, aa ->
@@ -6494,21 +7242,35 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 If1.add_edge 0 0 dd 0 5 (*integer type for index*) out_gr
               in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
-              
+
               (* Add DV_DIMENSION to get the triplet for the current rank *)
               let (dim_n, _, _), out_gr =
                 If1.add_node_2
-                  (`Simple (If1.DV_DIMENSION, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+                  (`Simple
+                     ( If1.DV_DIMENSION,
+                       Array.make 2 "",
+                       Array.make 1 "",
+                       [ If1.No_pragma ] ))
                   out_gr
               in
               (* Port 0: Dope Vector, Port 1: Rank Index *)
-              let out_gr = If1.add_edge 0 0 dim_n 0 what_ty out_gr in (* placeholder for DV source *)
+              let out_gr = If1.add_edge 0 0 dim_n 0 what_ty out_gr in
+              (* placeholder for DV source *)
               let (rank_idx_n, _, _), out_gr =
-                If1.add_node_2 (`Literal (If1.INTEGRAL, string_of_int rank, Array.make 1 "")) out_gr
+                If1.add_node_2
+                  (`Literal (If1.INTEGRAL, string_of_int rank, Array.make 1 ""))
+                  out_gr
               in
-              let out_gr = If1.add_edge rank_idx_n 0 dim_n 1 (If1.lookup_tyid If1.INTEGRAL) out_gr in
+              let out_gr =
+                If1.add_edge rank_idx_n 0 dim_n 1
+                  (If1.lookup_tyid If1.INTEGRAL)
+                  out_gr
+              in
               (* Connect triplet to DV_GATHER Port 2 *)
-              let out_gr = If1.add_edge dim_n 0 dd 2 0 (* placeholder for triplet type *) out_gr in
+              let out_gr =
+                If1.add_edge dim_n 0 dd 2 0
+                  (* placeholder for triplet type *) out_gr
+              in
 
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
@@ -6588,14 +7350,16 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
     create_return_nodes ret_gr 0 0 [] return_action_list mask_ty_list
   in
 
-  let xyz, in_gr =
+  let (cn, _, _), in_gr =
     let pragms =
       if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag ]
       else [ If1.Name "RETURNS" ]
     in
     If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
   in
-  (xyz, in_gr, out_lis)
+  let ret_gr, in_gr = wire_all_syms_to_compound cn ret_gr in_gr in
+  verify_compound_inputs cn ret_gr in_gr;
+  ((cn, 0, 0), in_gr, out_lis)
 
 and get_gen_graph in_gr =
   let xyz = find_in_graph_from_pragma in_gr "GENERATOR" in
@@ -6822,17 +7586,30 @@ and ensure_complex_types in_gr =
   let register_one tn base_ty_id in_gr =
     let tmn = If1.get_typename_map in_gr in
     if not (If1.MM.mem tn tmn) then
-      let (tid_im, _, _), in_gr = If1.add_type_to_typemap_dedup (If1.Record (base_ty_id, 0, "IM")) in_gr in
-      let (tid_re, _, _), in_gr = If1.add_type_to_typemap_dedup (If1.Record (base_ty_id, tid_im, "RE")) in_gr in
+      let (tid_im, _, _), in_gr =
+        If1.add_type_to_typemap_dedup (If1.Record (base_ty_id, 0, "IM")) in_gr
+      in
+      let (tid_re, _, _), in_gr =
+        If1.add_type_to_typemap_dedup
+          (If1.Record (base_ty_id, tid_im, "RE"))
+          in_gr
+      in
       let _, in_gr = If1.add_sisal_typename in_gr tn tid_re in
       let globals, locals = in_gr.If1.symtab in
-      let entry = {If1.val_name=tn; val_ty=tid_re; val_def=0; def_port=0} in
-      { in_gr with If1.symtab = (If1.SM.add tn entry globals, If1.SM.add tn entry locals) }
+      let entry =
+        { If1.val_name = tn; val_ty = tid_re; val_def = 0; def_port = 0 }
+      in
+      {
+        in_gr with
+        If1.symtab = (If1.SM.add tn entry globals, If1.SM.add tn entry locals);
+      }
     else in_gr
   in
   let in_gr = register_one "COMPLEX_HALF" (If1.lookup_tyid If1.HALF) in_gr in
   let in_gr = register_one "COMPLEX_FLOAT" (If1.lookup_tyid If1.REAL) in_gr in
-  let in_gr = register_one "COMPLEX_DOUBLE" (If1.lookup_tyid If1.DOUBLE) in_gr in
+  let in_gr =
+    register_one "COMPLEX_DOUBLE" (If1.lookup_tyid If1.DOUBLE) in_gr
+  in
   in_gr
 
 and do_compilation_unit = function
@@ -6975,7 +7752,13 @@ and verify_function_returns strs fn_ty_id in_gr =
                    | Some _, Some _ -> true
                    | _ -> false
                  in
-                 if not is_numeric_compat then (
+                 (* Allow structural compatibility between Array and Array_dv if they match in rank and deep element type *)
+                 let is_structural_array_compat =
+                   get_rank exp in_gr = get_rank act in_gr
+                   && get_deep_elem_ty exp in_gr = get_deep_elem_ty act in_gr
+                   && get_rank exp in_gr > 0
+                 in
+                 if not (is_numeric_compat || is_structural_array_compat) then (
                    (* Check if the mismatch is due to an unexpected Error Type *)
                    let err_msg =
                      match ty_act with
@@ -7007,8 +7790,8 @@ and verify_function_returns strs fn_ty_id in_gr =
                        idx exp act)));
         idx + 1)
       1 expected_ids actual_ids
-    |> ignore;
-  (*
+    |> ignore
+(*
 if List.length expected_ids <> List.length actual_ids then (
     If1_JSON.export_to_json "compiler_crash.json" in_gr;
     Printf.printf "\n[CRITICAL] Arity mismatch! State saved to compiler_crash.json\n%!";
@@ -7132,6 +7915,8 @@ and do_internals (names, in_gr) f =
                [] ))
           in_gr
       in
+      let new_fun_gr_, in_gr = wire_all_syms_to_compound aa new_fun_gr_ in_gr in
+      verify_compound_inputs aa new_fun_gr_ in_gr;
       let in_gr =
         let localsyms, globsyms = If1.get_symtab in_gr in
         {

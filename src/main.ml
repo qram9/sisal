@@ -23,17 +23,16 @@ let rec parse_loop lexbuf checkpoint =
       let token = Lex.sisal_lex lexbuf in
       let s = lexbuf.lex_start_p and e = lexbuf.lex_curr_p in
       parse_loop lexbuf (I.offer checkpoint (token, s, e))
-  | I.Shifting _ | I.AboutToReduce _ ->
-      parse_loop lexbuf (I.resume checkpoint)
+  | I.Shifting _ | I.AboutToReduce _ -> parse_loop lexbuf (I.resume checkpoint)
   | I.HandlingError env ->
       let state = I.current_state_number env in
       let msg =
-        (try String.trim (Fe.Parse_errors.message state)
-         with Not_found -> "syntax error")
+        try String.trim (Fe.Parse_errors.message state)
+        with Not_found -> "syntax error"
       in
       let pos = lexbuf.lex_start_p in
-      Printf.eprintf "Parse error in %s, line %d, col %d:\n  %s\n"
-        pos.pos_fname pos.pos_lnum
+      Printf.eprintf "Parse error in %s, line %d, col %d:\n  %s\n" pos.pos_fname
+        pos.pos_lnum
         (pos.pos_cnum - pos.pos_bol)
         msg;
       exit 1
@@ -68,50 +67,68 @@ let default_if1_name files =
 let main () =
   let args = Array.to_list Sys.argv |> List.tl in
   (* Strip --debug=N *)
-  let args = List.filter (fun a ->
-    if String.length a > 8 && String.sub a 0 8 = "--debug=" then begin
-      Ir.Debug.level := int_of_string (String.sub a 8 (String.length a - 8)); false
-    end else true) args in
+  let args =
+    List.filter
+      (fun a ->
+        if String.length a > 8 && String.sub a 0 8 = "--debug=" then begin
+          Ir.Debug.level := int_of_string (String.sub a 8 (String.length a - 8));
+          false
+        end
+        else true)
+      args
+  in
   (* Parse flags *)
-  let ast_dest  = ref Nothing in
-  let if1_dest  = ref Nothing in
-  let c_dest    = ref Nothing in
-  let files     = ref [] in
+  let ast_dest = ref Nothing in
+  let if1_dest = ref Nothing in
+  let c_dest = ref Nothing in
+  let files = ref [] in
   let usage () =
     print_string
-      ("Usage: main.exe [OPTIONS] [FILE...]\n\n\
-        Options:\n\
-        \  --ast            Print AST to stdout\n\
-        \  --ast=FILE       Write AST to FILE\n\
-        \  --if1            Print IF1 to stdout\n\
-        \  --if1=FILE       Write IF1 to FILE\n\
-        \  --c              Print C to stdout\n\
-        \  --c=FILE         Write C to FILE\n\
-        \  --debug=N        Set debug verbosity level to N\n\
-        \  --help           Show this help and exit\n\n\
-        If no FILE is given, reads from stdin.\n\
-        If neither --ast nor --if1 is given, IF1 is written to <input>.if1.\n");
+      "Usage: main.exe [OPTIONS] [FILE...]\n\n\
+       Options:\n\
+      \  --ast            Print AST to stdout\n\
+      \  --ast=FILE       Write AST to FILE\n\
+      \  --if1            Print IF1 to stdout\n\
+      \  --if1=FILE       Write IF1 to FILE\n\
+      \  --c              Print C to stdout\n\
+      \  --c=FILE         Write C to FILE\n\
+      \  --dv             Prefer array_dv for forall/lifted ops\n\
+      \  --debug=N        Set debug verbosity level to N\n\
+      \  --help           Show this help and exit\n\n\
+       If no FILE is given, reads from stdin.\n\
+       If neither --ast nor --if1 is given, IF1 is written to <input>.if1.\n";
     exit 0
   in
   let rec parse = function
     | [] -> ()
     | "--help" :: _ -> usage ()
     | "--ast" :: rest ->
-        ast_dest := Stdout; parse rest
+        ast_dest := Stdout;
+        parse rest
     | a :: rest when String.length a > 6 && String.sub a 0 6 = "--ast=" ->
-        ast_dest := File (String.sub a 6 (String.length a - 6)); parse rest
+        ast_dest := File (String.sub a 6 (String.length a - 6));
+        parse rest
     | "--if1" :: rest ->
-        if1_dest := Stdout; parse rest
+        if1_dest := Stdout;
+        parse rest
     | a :: rest when String.length a > 6 && String.sub a 0 6 = "--if1=" ->
-        if1_dest := File (String.sub a 6 (String.length a - 6)); parse rest
+        if1_dest := File (String.sub a 6 (String.length a - 6));
+        parse rest
     | "--c" :: rest ->
-        c_dest := Stdout; parse rest
+        c_dest := Stdout;
+        parse rest
+    | "--dv" :: rest ->
+        To_if1_.prefer_dv := true;
+        parse rest
     | a :: rest when String.length a > 4 && String.sub a 0 4 = "--c=" ->
-        c_dest := File (String.sub a 4 (String.length a - 4)); parse rest
+        c_dest := File (String.sub a 4 (String.length a - 4));
+        parse rest
     | a :: _ when String.length a > 2 && String.sub a 0 2 = "--" ->
-        Printf.eprintf "Unknown option: %s\nTry --help for usage.\n" a; exit 1
+        Printf.eprintf "Unknown option: %s\nTry --help for usage.\n" a;
+        exit 1
     | f :: rest ->
-        files := !files @ [f]; parse rest
+        files := !files @ [ f ];
+        parse rest
   in
   parse args;
   (* Default: write IF1 to file derived from first source *)
@@ -129,13 +146,15 @@ let main () =
         let lb = set_filename "<stdin>" Lex.get_lex_buf in
         last_lexbuf := lb;
         parse_lexbuf lb
-      end else
-        List.concat_map (fun fname ->
-          let lb = Lexing.from_channel (open_in fname) in
-          let lb = set_filename fname lb in
-          last_lexbuf := lb;
-          parse_lexbuf lb
-        ) !files
+      end
+      else
+        List.concat_map
+          (fun fname ->
+            let lb = Lexing.from_channel (open_in fname) in
+            let lb = set_filename fname lb in
+            last_lexbuf := lb;
+            parse_lexbuf lb)
+          !files
     in
     let sisal_ast = Ast.Compilation_unit all_fragments in
     if !ast_dest <> Nothing then
@@ -158,14 +177,12 @@ let main () =
     (match e with
     | Ir.If1.Sem_error _ | Ir.If1.Node_not_found _ ->
         let line, col = !To_if1_.current_src_pos in
-        if line > 0 then
-          Printf.eprintf "  near line %d, col %d\n" line col
+        if line > 0 then Printf.eprintf "  near line %d, col %d\n" line col
         else begin
           let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
           error msg lexbuf
         end
-    | Sys_error msg ->
-        Printf.eprintf "%s\n" msg
+    | Sys_error msg -> Printf.eprintf "%s\n" msg
     | _ ->
         let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
         error msg lexbuf);
