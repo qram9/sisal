@@ -27,10 +27,8 @@ let sanitize name =
 
 let var_name ?(tag = "") g n p dir =
   let d_str = match dir with `In -> "i" | `Out -> "o" in
-  if tag <> "" then
-    Printf.sprintf "v_g%d_%s_n%d_p%d_%s" g tag n p d_str
-  else
-    Printf.sprintf "v_g%d_n%d_p%d_%s" g n p d_str
+  if tag <> "" then Printf.sprintf "v_g%d_%s_n%d_p%d_%s" g tag n p d_str
+  else Printf.sprintf "v_g%d_n%d_p%d_%s" g n p d_str
 
 let get_port_name gr nid pid _dir =
   let cs, _ps = gr.symtab in
@@ -81,7 +79,8 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
           (* If we are looking for a boundary output of some graph G, and it's not in
              our current var_map, it might be in a parent environment if we are nested. *)
           match env.parent_env with
-          | Some p_env when n = 0 && dir = `Out -> get_expr ~visited p_env g n p dir
+          | Some p_env when n = 0 && dir = `Out ->
+              get_expr ~visited p_env g n p dir
           | _ -> (
               (* Heuristic for RANGEGEN index variable: search parents for closest enclosing BODY *)
               let is_rangegen =
@@ -94,7 +93,9 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
                   if e.curr_gid >= 1_000_000 then
                     Some (C.Id (Printf.sprintf "v_idx_g%d" e.curr_gid))
                   else
-                    match e.parent_env with Some pe -> find_idx pe | None -> None
+                    match e.parent_env with
+                    | Some pe -> find_idx pe
+                    | None -> None
                 in
                 match find_idx env with
                 | Some ie -> ie
@@ -138,10 +139,18 @@ let get_port_type env gr nid pid dir =
       match NM.find_opt nid gr.nmap with
       | Some (Boundary (ins, outs, errs, _)) -> (
           if dir = `Out then
-            let matched = List.find_map (fun (tid, p, _) -> if p = pid then Some tid else None) ins in
+            let matched =
+              List.find_map
+                (fun (tid, p, _) -> if p = pid then Some tid else None)
+                ins
+            in
             Option.value matched ~default:0
           else
-            let matched = List.find_map (fun (tid, p) -> if p = pid then Some tid else None) outs in
+            let matched =
+              List.find_map
+                (fun (tid, p) -> if p = pid then Some tid else None)
+                outs
+            in
             match matched with
             | Some t -> t
             | None ->
@@ -181,14 +190,22 @@ let get_port_type env gr nid pid dir =
       with _ -> (
         (* Heuristics for cases with no type ID *)
         match NM.find_opt nid gr.nmap with
-        | Some (Simple (_, (RANGEGEN | ALIML | ALIMH | ASIZE | DV_DIMENSION), _, _, _)) ->
+        | Some
+            (Simple
+               (_, (RANGEGEN | ALIML | ALIMH | ASIZE | DV_DIMENSION), _, _, _))
+          ->
             C.Basic "int32_t"
         | Some (Boundary (ins, _outs, _, _)) ->
             if nid = 0 && dir = `Out then
-              let matched = List.find_opt (fun (_, p, name) ->
-                let sname = String.lowercase_ascii name in
-                p = pid && (sname = "i" || sname = "index")) ins in
-              if Option.is_some matched then C.Basic "int32_t" else C.Basic "float"
+              let matched =
+                List.find_opt
+                  (fun (_, p, name) ->
+                    let sname = String.lowercase_ascii name in
+                    p = pid && (sname = "i" || sname = "index"))
+                  ins
+              in
+              if Option.is_some matched then C.Basic "int32_t"
+              else C.Basic "float"
             else C.Basic "float"
         | _ -> C.Basic "float"))
 
@@ -247,15 +264,16 @@ let find_subgraph gr name =
 
 let get_subgraph_errors env gid cid =
   match NM.find_opt cid env.curr_gr.nmap with
-  | Some (Compound (sub_cid, _, _, _, sub_gr, _)) ->
+  | Some (Compound (sub_cid, _, _, _, sub_gr, _)) -> (
       let sub_gid = alloc_gid env.gid_table gid sub_cid in
-      (match NM.find_opt 0 sub_gr.nmap with
-       | Some (Boundary (_, outs, errs, _)) ->
-           List.mapi (fun i _ ->
-             let pid = List.length outs + i in
-             get_expr env sub_gid 0 pid `Out
-           ) errs
-       | _ -> [])
+      match NM.find_opt 0 sub_gr.nmap with
+      | Some (Boundary (_, outs, errs, _)) ->
+          List.mapi
+            (fun i _ ->
+              let pid = List.length outs + i in
+              get_expr env sub_gid 0 pid `Out)
+            errs
+      | _ -> [])
   | _ -> []
 
 (* Trace one hop backward from every boundary In-port (node 0 In, i.e. the

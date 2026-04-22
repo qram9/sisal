@@ -199,7 +199,7 @@ let rec lower_subgraph env gr gid =
         let v_name = var_name gid 0 pid in
         (* Initial binding: boundary variable gets value from 'outside' *)
         let init =
-          match env.parent_env, env.parent_nid with
+          match (env.parent_env, env.parent_nid) with
           | Some p_env, Some pnid ->
               (* Nested compound: get input from parent node pnid *)
               Some (get_expr p_env p_env.curr_gid pnid pid)
@@ -413,13 +413,17 @@ and lower_node env gr nid node =
   | _ ->
       let sym_str =
         match node with
-        | Simple (_, sym, _, _, _) -> Printf.sprintf "Simple(%s)" (Ir.If1.string_of_node_sym sym)
-        | Compound (_, sym, _, _, _, _) -> Printf.sprintf "Compound(%s)" (Ir.If1.string_of_node_sym sym)
+        | Simple (_, sym, _, _, _) ->
+            Printf.sprintf "Simple(%s)" (Ir.If1.string_of_node_sym sym)
+        | Compound (_, sym, _, _, _, _) ->
+            Printf.sprintf "Compound(%s)" (Ir.If1.string_of_node_sym sym)
         | Literal (_, _, val_str, _) -> Printf.sprintf "Literal(%s)" val_str
         | Boundary _ -> "Boundary"
         | Unknown_node -> "Unknown_node"
       in
-      failwith (Printf.sprintf "lower_node: node type not implemented: %s (nid=%d)" sym_str nid)
+      failwith
+        (Printf.sprintf "lower_node: node type not implemented: %s (nid=%d)"
+           sym_str nid)
 
 let lower_procedure tm nid node =
   match node with
@@ -458,8 +462,7 @@ let lower_procedure tm nid node =
       let ret_exprs =
         ES.fold
           (fun (_, (dn, dp), _) acc ->
-            if dn = 0 then (dp, get_expr env_after sub_gid 0 dp) :: acc
-            else acc)
+            if dn = 0 then (dp, get_expr env_after sub_gid 0 dp) :: acc else acc)
           sub_gr.eset []
         |> List.sort (fun (p1, _) (p2, _) -> compare p1 p2)
       in
