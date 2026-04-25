@@ -107,7 +107,15 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
                     match env.parent_env with
                     | Some p_env -> get_expr ~visited p_env g n p dir
                     | None ->
-                        if n = 0 && dir = `Out then
+                        match NM.find_opt n env.curr_gr.nmap with
+                        | Some (Literal (_, ty, val_str, _)) -> (
+                            match ty with
+                            | CHARACTER -> C.Id val_str
+                            | REAL | DOUBLE -> C.LitFloat (float_of_string val_str)
+                            | _ -> (try C.LitInt (int_of_string val_str) with _ -> C.Id val_str)
+                          )
+                        | _ ->
+                            if n = 0 && dir = `Out then
                           match NM.find_opt 0 env.curr_gr.nmap with
                           | Some (Boundary (ins, _, _, _)) ->
                               let rev_ins = List.rev ins in

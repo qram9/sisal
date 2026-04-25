@@ -101,6 +101,66 @@ inline float sisal_array_reduce_greatest(sisal_array_t A) {
     return res;
 }
 
+inline double sisal_array_reduce_double_sum(sisal_array_t A) {
+    double* a = (double*)A.data;
+    double sum = 0;
+    for(uint64_t i=0; i<A.size; ++i) sum += a[i];
+    return sum;
+}
+
+inline double sisal_array_reduce_double_product(sisal_array_t A) {
+    double* a = (double*)A.data;
+    double prod = 1.0;
+    for(uint64_t i=0; i<A.size; ++i) prod *= a[i];
+    return prod;
+}
+
+inline double sisal_array_reduce_double_least(sisal_array_t A) {
+    double* a = (double*)A.data;
+    if (A.size == 0) return 0;
+    double res = a[0];
+    for(uint64_t i=1; i<A.size; ++i) if (a[i] < res) res = a[i];
+    return res;
+}
+
+inline double sisal_array_reduce_double_greatest(sisal_array_t A) {
+    double* a = (double*)A.data;
+    if (A.size == 0) return 0;
+    double res = a[0];
+    for(uint64_t i=1; i<A.size; ++i) if (a[i] > res) res = a[i];
+    return res;
+}
+
+inline int32_t sisal_array_reduce_int_sum(sisal_array_t A) {
+    int32_t* a = (int32_t*)A.data;
+    int32_t sum = 0;
+    for(uint64_t i=0; i<A.size; ++i) sum += a[i];
+    return sum;
+}
+
+inline int32_t sisal_array_reduce_int_product(sisal_array_t A) {
+    int32_t* a = (int32_t*)A.data;
+    int32_t prod = 1;
+    for(uint64_t i=0; i<A.size; ++i) prod *= a[i];
+    return prod;
+}
+
+inline int32_t sisal_array_reduce_int_least(sisal_array_t A) {
+    int32_t* a = (int32_t*)A.data;
+    if (A.size == 0) return 0;
+    int32_t res = a[0];
+    for(uint64_t i=1; i<A.size; ++i) if (a[i] < res) res = a[i];
+    return res;
+}
+
+inline int32_t sisal_array_reduce_int_greatest(sisal_array_t A) {
+    int32_t* a = (int32_t*)A.data;
+    if (A.size == 0) return 0;
+    int32_t res = a[0];
+    for(uint64_t i=1; i<A.size; ++i) if (a[i] > res) res = a[i];
+    return res;
+}
+
 inline sisal_array_t sisal_array_concat(sisal_array_t A, sisal_array_t B) {
     sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size + B.size);
     res.lower_bound = A.lower_bound;
