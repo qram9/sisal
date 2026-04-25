@@ -33,7 +33,7 @@ let rec lower_graph env gr gid =
                as the alias source so we don't lose the binding. *)
             let src_expr =
               let sname = sanitize name in
-              if raw_src = C.Id local_v && sname <> "" && C.Id sname <> local_v
+              if raw_src = C.Id local_v && sname <> "" && C.Id sname <> C.Id local_v
               then C.Id sname
               else raw_src
             in
@@ -386,6 +386,8 @@ and lower_simple env gr nid sym pin pout pr =
     | GREATER_EQUAL -> Some C.Ge
     | OR -> Some C.LogOr
     | AND -> Some C.LogAnd
+    | SHL -> Some C.Shl
+    | SHR | ASHR -> Some C.Shr
     | _ -> None
   in
   match binop_opt with
@@ -646,21 +648,6 @@ and lower_simple env gr nid sym pin pout pr =
       else if sym = SHAPE_CHECK then
         (* No-op for now, or could call a runtime check *)
         []
-      else if sym = REDUCE_ALL then
-        let op_code =
-          match pr with OpNum n :: _ -> n | _ -> 0 (* Default to SUM *)
-        in
-        let arr = get_expr env gid nid 0 `In in
-        let v_res = get_expr env gid nid 0 `Out in
-        let func =
-          match op_code with
-          | 127 (* SUM *) -> "sisal_array_reduce_sum"
-          | 128 (* PRODUCT *) -> "sisal_array_reduce_product"
-          | 129 (* LEAST *) -> "sisal_array_reduce_least"
-          | 130 (* GREATEST *) -> "sisal_array_reduce_greatest"
-          | _ -> "sisal_array_reduce_sum"
-        in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Call (func, [ arr ]))) ]
       else if sym = CONCAT_NODE || sym = ACATENATE then
         let a = get_expr env gid nid 0 `In in
         let b = get_expr env gid nid 1 `In in
@@ -895,6 +882,33 @@ and lower_simple env gr nid sym pin pout pr =
             (C.BinOp
                (C.Assign, v_res, C.Call ("sisal_array_pad", [ arr; lo; hi ])));
         ]
+      else if sym = REDUCE_ALL then
+        let op_str =
+          match pr with Name s :: _ -> String.lowercase_ascii s | _ -> "sum"
+        in
+        let arg = get_expr env gid nid 0 `In in
+        let v_res = get_expr env gid nid 0 `Out in
+        let ty_id =
+          ES.fold
+            (fun (_, (dn, dp), t) acc ->
+              if dn = nid && dp = 0 && t <> 0 then Some t else acc)
+            gr.eset None
+          |> Option.value ~default:0
+        in
+        let ty = try TM.find ty_id env.tm with _ -> Unknown_ty in
+        let c_ty = c_type_of_if1_ty env.tm ty in
+        let prefix =
+          if c_ty = C.Basic "float" then "sisal_array_reduce_"
+          else if c_ty = C.Basic "double" then "sisal_array_reduce_double_"
+          else "sisal_array_reduce_int_"
+        in
+        let call = C.Call (prefix ^ op_str, [ arg ]) in
+        let final_expr =
+          if prefix = "sisal_array_reduce_int_" then
+            C.Cast (C.Basic "int32_t", call)
+          else call
+        in
+        [ C.Expr (C.BinOp (C.Assign, v_res, final_expr)) ]
       else if sym = INVOCATION then
         let func_name =
           List.find_map (function Name s -> Some s | _ -> None) pr
@@ -969,9 +983,20 @@ and lower_simple env gr nid sym pin pout pr =
         let v_res = get_expr env gid nid 0 `Out in
         [ C.Expr (C.BinOp (C.Assign, v_res, e)) ]
       else if sym = DV_NUM_RANK then
+        let ty_id =
+          ES.fold
+            (fun ((sn, sp), _, t) acc ->
+              if sn = nid && sp = 0 && t <> 0 then Some t else acc)
+            gr.eset None
+          |> Option.value ~default:0
+        in
+        let ty = try TM.find ty_id env.tm with _ -> Unknown_ty in
         let arr = get_expr env gid nid 0 `In in
         let v_res = get_expr env gid nid 0 `Out in
-        [ C.Expr (C.BinOp (C.Assign, v_res, C.Member (arr, "rank"))) ]
+        match ty with
+        | Array_dv _ | Array_ty _ ->
+            [ C.Expr (C.BinOp (C.Assign, v_res, C.Member (arr, "rank"))) ]
+        | _ -> [ C.Expr (C.BinOp (C.Assign, v_res, C.LitInt 0)) ]
       else if sym = DV_OFFSET_AT then
         let v_res = get_expr env gid nid 0 `Out in
         (* Stub: return 0 for now until full multi-dim offset logic is added *)
@@ -1077,7 +1102,7 @@ and lower_if_graph env gr gid =
   (* 1. Lower PREDICATE *)
   let pred_stmts, pred_env =
     let vm = wire_inputs pred_cid pgid in
-    let b, i, e' =
+    let stmts, e' =
       lower_graph
         { env_with_pred_bridge with var_map = vm }
         (match find_subgraph gr "PREDICATE" with
@@ -1085,7 +1110,7 @@ and lower_if_graph env gr gid =
         | _ -> assert false)
         pgid
     in
-    ([ C.Compound (b @ [ C.Compound i ]) ], e')
+    (stmts, e')
   in
   let pred_expr = C.Id pred_bridge_v in
   let env1 = register_child_outputs pred_cid pgid pred_env env in
@@ -1097,8 +1122,8 @@ and lower_if_graph env gr gid =
     | Some (bcid, bgr) ->
         let bgid = alloc_gid env.gid_table gid bcid in
         let vm = wire_inputs bcid bgid in
-        let b, i, e' = lower_graph { env1 with var_map = vm } bgr bgid in
-        ([ C.Compound (b @ [ C.Compound i ]) ], bgid, bcid, e')
+        let stmts, e' = lower_graph { env1 with var_map = vm } bgr bgid in
+        (stmts, bgid, bcid, e')
   in
   let body_env_m =
     ES.fold
@@ -1118,8 +1143,8 @@ and lower_if_graph env gr gid =
     | Some (ecid, egr) ->
         let egid = alloc_gid env.gid_table gid ecid in
         let vm = wire_inputs ecid egid in
-        let b, i, e' = lower_graph { env1 with var_map = vm } egr egid in
-        ([ C.Compound (b @ [ C.Compound i ]) ], egid, ecid, e')
+        let stmts, e' = lower_graph { env1 with var_map = vm } egr egid in
+        (stmts, egid, ecid, e')
   in
   let else_env_m =
     ES.fold
@@ -1268,9 +1293,7 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
       let ret_gid = alloc_gid env.gid_table sub_gid ret_nid in
 
       (* 1. Lower INIT *)
-      let b_init, i_init, e_init = lower_graph env_init init_gr init_gid in
-      let init_stmts = [ C.Compound (b_init @ [ C.Compound i_init ]) ] in
-
+      let init_stmts, e_init = lower_graph env_init init_gr init_gid in
       (* 2. Map INIT outputs to their names from symtab *)
       let init_out_names =
         ES.fold
@@ -1325,18 +1348,16 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
 
       (* 4. Lower TEST - feeds from current state variables *)
       let test_vm = wire_subgraph test_gid test_gr in
-      let b_test, i_test, e_test =
+      let test_stmts, e_test =
         lower_graph { env_init with var_map = test_vm } test_gr test_gid
       in
-      let test_stmts = [ C.Compound (b_test @ [ C.Compound i_test ]) ] in
       let test_expr = get_expr e_test test_gid 0 0 `In in
 
       (* 5. Lower BODY - feeds from current state variables *)
       let body_vm = wire_subgraph body_gid body_gr in
-      let b_body, i_body, e_body =
+      let body_stmts, e_body =
         lower_graph { env_init with var_map = body_vm } body_gr body_gid
       in
-      let body_stmts = [ C.Compound (b_body @ [ C.Compound i_body ]) ] in
 
       (* 6. Update state from BODY outputs by matching names *)
       let body_out_names =
@@ -1393,10 +1414,9 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
 
       (* 7. Lower RETURNS *)
       let ret_vm = wire_subgraph ret_gid ret_gr in
-      let b_ret, i_ret, e_ret =
+      let ret_stmts, e_ret =
         lower_graph { env_init with var_map = ret_vm } ret_gr ret_gid
       in
-      let ret_stmts = [ C.Compound (b_ret @ [ C.Compound i_ret ]) ] in
 
       (* 8. Map final results to compound node outputs *)
       let res_assigns =
@@ -1412,15 +1432,16 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
           outs
       in
 
-      init_stmts @ init_decls
-      @ [
-          C.While
-            ( C.LitInt 1,
-              test_stmts
-              @ [ C.If (C.UnaryOp (C.LogNot, test_expr), [ C.Break ], []) ]
-              @ body_stmts @ !update_stmts );
-        ]
-      @ ret_stmts @ res_assigns
+      ( init_stmts @ init_decls
+        @ [
+            C.While
+              ( C.LitInt 1,
+                test_stmts
+                @ [ C.If (C.UnaryOp (C.LogNot, test_expr), [ C.Break ], []) ]
+                @ body_stmts @ !update_stmts );
+          ]
+        @ ret_stmts @ res_assigns,
+        env )
   | _ ->
       failwith
         "lower_for_initial: missing required subgraphs (INIT, TEST, BODY, \
@@ -1477,12 +1498,11 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
     | Some (gen_nid, gen_gr) ->
         let gen_gid = alloc_gid env.gid_table sub_gid gen_nid in
         let gen_vm = wire_child_by_name gen_gid gen_gr in
-        let b, i, e' =
+        let stmts, e' =
           lower_graph
             { env with var_map = gen_vm; parent_env = Some env }
             gen_gr gen_gid
         in
-        let stmts = [ C.Compound (b @ [ C.Compound i ]) ] in
         (* count: boundary-out of GENERATOR — the port dp where dn=0 in gen_gr *)
         let count_bp =
           ES.fold
@@ -1574,7 +1594,7 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
 
   (* 3. Lower BODY inside dispatch_apply *)
   match find_subgraph loop_gr "BODY" with
-  | None -> gen_stmts @ [ alloc_stmt; lo_bound_stmt ]
+  | None -> (gen_stmts @ [ alloc_stmt; lo_bound_stmt ], env)
   | Some (body_nid, body_gr) ->
       let body_gid = alloc_gid env.gid_table sub_gid body_nid in
       let index_var = Printf.sprintf "v_idx_g%d" body_gid in
@@ -1599,12 +1619,11 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
         | _ -> body_vm
       in
 
-      let b, i, _body_env =
+      let body_stmts, _body_env =
         lower_graph
           { gen_env with var_map = body_vm; parent_env = Some gen_env }
           body_gr body_gid
       in
-      let body_stmts = [ C.Compound (b @ [ C.Compound i ]) ] in
 
       (* Body result = BODY's pre-declared boundary-out variable at port 0 *)
       let body_res = C.Id (var_name ~tag:"body_res" body_gid 0 0 `In) in
@@ -1617,15 +1636,16 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
           (C.BinOp (C.Assign, C.Index (cast_ptr, C.Id index_var), body_res))
       in
 
-      gen_stmts
-      @ [
-          alloc_stmt;
-          lo_bound_stmt;
-          C.GCDApply
-            ( count_expr,
-              "dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)",
-              (index_var, body_stmts @ [ write_stmt ]) );
-        ]
+      ( gen_stmts
+        @ [
+            alloc_stmt;
+            lo_bound_stmt;
+            C.GCDApply
+              ( count_expr,
+                "dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0)",
+                (index_var, body_stmts @ [ write_stmt ]) );
+          ],
+        env )
 
 let lower_procedure tm nid node =
   next_dyn_gid := 1_000_000;
