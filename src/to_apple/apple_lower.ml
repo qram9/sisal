@@ -1,7 +1,81 @@
+(** apple_lower.ml: The "Apple Lowering" pass for Sisal. This module implements
+    the complex logic of translating dataflow IF1 graphs into imperative C-AST
+    nodes, with specific optimizations for Apple Silicon (GCD for parallelism,
+    Accelerate for SIMD, etc.). *)
+
 open Ir.If1
 open Apple_env
 open Apple_helpers
 
+(** [c_name_of_mangled mangled] maps Sisal intrinsic names to their
+    corresponding C library function names (math.h, Accelerate, etc.). *)
+let c_name_of_mangled = function
+  (* ABS *)
+  | "_SABS__F__F" -> Some "fabsf"
+  | "_SABS__D__D" -> Some "fabs"
+  | "_SABS__I__I" -> Some "abs"
+  | "_SABS__L__L" -> Some "labs"
+  (* SQRT / SQRTR *)
+  | "_SSQRT__F__F" -> Some "sqrtf"
+  | "_SSQRT__D__D" -> Some "sqrt"
+  | "_SSQRTR__F__F" -> Some "sqrtf"
+  | "_SSQRTR__D__D" -> Some "sqrt"
+  (* SIN *)
+  | "_SSIN__F__F" -> Some "sinf"
+  | "_SSIN__D__D" -> Some "sin"
+  (* COS *)
+  | "_SCOS__F__F" -> Some "cosf"
+  | "_SCOS__D__D" -> Some "cos"
+  (* TAN *)
+  | "_STAN__F__F" -> Some "tanf"
+  | "_STAN__D__D" -> Some "tan"
+  (* ASIN *)
+  | "_SASIN__F__F" -> Some "asinf"
+  | "_SASIN__D__D" -> Some "asin"
+  (* ACOS *)
+  | "_SACOS__F__F" -> Some "acosf"
+  | "_SACOS__D__D" -> Some "acos"
+  (* ATAN — 1-arg and 2-arg forms *)
+  | "_SATAN__F__F" -> Some "atanf"
+  | "_SATAN__D__D" -> Some "atan"
+  | "_SATAN__FF__F" -> Some "atan2f"
+  | "_SATAN__DD__D" -> Some "atan2"
+  (* SINH / COSH / TANH *)
+  | "_SSINH__F__F" -> Some "sinhf"
+  | "_SSINH__D__D" -> Some "sinh"
+  | "_SCOSH__F__F" -> Some "coshf"
+  | "_SCOSH__D__D" -> Some "cosh"
+  | "_STANH__F__F" -> Some "tanhf"
+  | "_STANH__D__D" -> Some "tanh"
+  (* LOG / LOG10 *)
+  | "_SLOG__F__F" -> Some "logf"
+  | "_SLOG__D__D" -> Some "log"
+  | "_SLOG10__F__F" -> Some "log10f"
+  | "_SLOG10__D__D" -> Some "log10"
+  (* EXP (ETOTHE) *)
+  | "_SETOTHE__F__F" -> Some "expf"
+  | "_SETOTHE__D__D" -> Some "exp"
+  (* FLOOR — returns integer type; cast baked into name *)
+  | "_SFLOOR__F__I" -> Some "(int32_t)floorf"
+  | "_SFLOOR__D__L" -> Some "(int64_t)floor"
+  | "_SFLOOR__H__S" -> Some "(int16_t)floorf"
+  (* TRUNC — same pattern *)
+  | "_STRUNC__F__I" -> Some "(int32_t)truncf"
+  | "_STRUNC__D__L" -> Some "(int64_t)trunc"
+  | "_STRUNC__H__S" -> Some "(int16_t)truncf"
+  (* RADIANS / DEGREES — defined as inline helpers in sisal_runtime.h *)
+  | "_SRADIANS__F__F" -> Some "sisal_radians_f"
+  | "_SRADIANS__D__D" -> Some "sisal_radians_d"
+  | "_SDEGREES__F__F" -> Some "sisal_degrees_f"
+  | "_SDEGREES__D__D" -> Some "sisal_degrees_d"
+  | _ -> None
+
+(** [lower_graph env gr gid] translates an IF1 graph into a list of C
+    statements. It performs several steps: 1. Populates predecessor mappings for
+    dataflow analysis. 2. Maps and initializes boundary inputs (params/incoming
+    edges). 3. Pre-declares boundary output variables. 4. Topologically sorts
+    nodes and lowers each node in order. 5. Propagates results to the boundary
+    outputs. *)
 let rec lower_graph env gr gid =
   let env_ref = ref { env with curr_gid = gid; curr_gr = gr } in
   let agreement_body = ref [] in
@@ -15,67 +89,10 @@ let rec lower_graph env gr gid =
   in
   env_ref := { !env_ref with preds };
 
-  (* 2. Map and alias boundary inputs (node 0 Out ports).
-     Skip entries with empty name — those are function self-reference ports
-     (FUNCTION_TYPE) that have no meaning in C lowering. *)
-  begin match NM.find_opt 0 gr.nmap with
-  | Some (Boundary (ins, _, _, _)) ->
-      List.rev ins
-      |> List.iteri (fun pid (src_n, src_p, name) ->
-          if sanitize name = "" then ()
-          else begin
-            let ty = get_port_type !env_ref gr 0 pid `Out in
-            let local_v = var_name ~tag:"graph_in" gid 0 pid `In in
-            let raw_src = get_expr !env_ref gid 0 pid `Out in
-            (* get_expr never throws; it returns C.Id local_v when no better
-               expression is found.  If the port has a meaningful name (e.g. "A",
-               "MODE") that maps to a C parameter or enclosing variable, use it
-               as the alias source so we don't lose the binding. *)
-            let src_expr =
-              let sname = sanitize name in
-              if raw_src = C.Id local_v && sname <> "" && C.Id sname <> C.Id local_v
-              then C.Id sname
-              else raw_src
-            in
-            if
-              (ty = C.Basic "float" || ty = C.Basic "void*")
-              && src_expr <> C.Id local_v
-            then
-              (* Type unknown but value already known: alias directly. *)
-              env_ref :=
-                {
-                  !env_ref with
-                  var_map =
-                    FullPortMap.add (gid, 0, pid, `In) src_expr !env_ref.var_map;
-                }
-            else if src_expr <> C.Id local_v then begin
-              (* Known type and known source: emit initialization. *)
-              agreement_body :=
-                C.Decl (ty, local_v, Some src_expr) :: !agreement_body;
-              env_ref :=
-                {
-                  !env_ref with
-                  var_map =
-                    FullPortMap.add (gid, 0, pid, `In) (C.Id local_v)
-                      !env_ref.var_map;
-                }
-            end
-            else if sanitize name <> "" then begin
-              (* New declaration with no initial source (likely top-level param). *)
-              agreement_body :=
-                C.Decl (ty, local_v, Some (C.Id (sanitize name)))
-                :: !agreement_body;
-              env_ref :=
-                {
-                  !env_ref with
-                  var_map =
-                    FullPortMap.add (gid, 0, pid, `In) (C.Id local_v)
-                      !env_ref.var_map;
-                }
-            end
-          end)
-  | _ -> ()
-  end;
+  (* Boundary input parameters (node 0 Out ports) are already wired into
+     var_map by lower_procedure (for functions) or by the parent lower_node
+     (for compound subgraphs) using `Out direction.  No step needed here —
+     adding `In aliases would collide with the result-variable slot below. *)
 
   (* Pre-declare boundary outputs (node 0 In ports).
      Use both the outs metadata list and actual incoming edges for robustness. *)
@@ -99,7 +116,7 @@ let rec lower_graph env gr gid =
 
   List.iter
     (fun pid ->
-      let local_res_v = var_name ~tag:"graph_res" gid 0 pid `In in
+      let local_res_v = var_name gid 0 pid `In in
       (* Skip if the caller already pre-wired this boundary-out (e.g. LET output
        redirected to an outer variable so the inner scope writes directly). *)
       if FullPortMap.mem (gid, 0, pid, `In) !env_ref.var_map then ()
@@ -139,7 +156,13 @@ let rec lower_graph env gr gid =
             let out_pids =
               match node with
               | Simple (_, _, _, pout, _) | Literal (_, _, _, pout) ->
-                  List.init (Array.length pout) (fun i -> i)
+                  let from_pout = List.init (Array.length pout) (fun i -> i) in
+                  if from_pout <> [] then from_pout
+                  else
+                    ES.fold
+                      (fun ((sn, sp), _, _) acc ->
+                        if sn = nid then sp :: acc else acc)
+                      gr.eset []
               | Compound (_, _, _, _, sub_gr, _) ->
                   let from_sub =
                     ES.fold
@@ -171,8 +194,14 @@ let rec lower_graph env gr gid =
               | Simple (_, sym, _, _, _) ->
                   sanitize (Ir.If1.string_of_node_sym sym)
               | Literal _ -> "lit"
-              | Compound (_, sym, _, _, _, _) ->
-                  sanitize (Ir.If1.string_of_node_sym sym)
+              | Compound (_, sym, _, pr, _, _) ->
+                  let s = sanitize (Ir.If1.string_of_node_sym sym) in
+                  if s = "" then
+                    List.find_map
+                      (function Name n -> Some (sanitize n) | _ -> None)
+                      pr
+                    |> Option.value ~default:"comp"
+                  else s
               | _ -> ""
             in
             List.iter
@@ -183,6 +212,13 @@ let rec lower_graph env gr gid =
                   let ty =
                     match node with
                     | Simple (_, RANGEGEN, _, _, _) -> C.Basic "int32_t"
+                    | Compound (_, _, _, pr, _, _)
+                      when List.exists
+                             (function Name n -> n = "FORALL" | _ -> false)
+                             pr ->
+                        C.Basic "sisal_array_t"
+                    | Boundary _ when nid = 0 ->
+                        get_port_type !env_ref gr 0 pid `Out
                     | _ -> get_port_type !env_ref gr nid pid `Out
                   in
                   inner_decls := C.Decl (ty, v, None) :: !inner_decls;
@@ -268,6 +304,8 @@ let rec lower_graph env gr gid =
   let final_stmts = List.rev !agreement_body @ res_stmts in
   (final_stmts, final_env)
 
+(** [lower_node env gr nid node] dispatches the lowering of an IF1 node to
+    specialized functions for simple or compound nodes. *)
 and lower_node env gr nid node =
   let gid = env.curr_gid in
   match node with
@@ -278,7 +316,7 @@ and lower_node env gr nid node =
           (fun ((sn, sp), (dn, dp), _) m ->
             if dn = cid then
               let expr = get_expr env gid sn sp `Out in
-              FullPortMap.add (sub_gid, 0, dp, `In) expr m
+              FullPortMap.add (sub_gid, 0, dp, `Out) expr m
             else m)
           gr.eset env.var_map
       in
@@ -314,9 +352,8 @@ and lower_node env gr nid node =
           ES.fold
             (fun ((sn, sp), _, _) vm ->
               if sn = cid then
-                FullPortMap.add (sub_gid, 0, sp, `In)
-                  (C.Id (var_name gid nid sp `Out))
-                  vm
+                let expr = get_expr env gid nid sp `In in
+                FullPortMap.add (sub_gid, 0, sp, `Out) expr vm
               else vm)
             gr.eset var_map_child
         in
@@ -327,24 +364,16 @@ and lower_node env gr nid node =
           if not has_outer_edges then
             match NM.find_opt 0 loop_gr.nmap with
             | Some (Boundary (ins, _, _, _)) ->
+                (* Wire each named boundary input to the variable it names.
+                   Named captures in LET/IF come from GLOBAL-SYM, so the C
+                   identifier is just the sanitized name already in scope. *)
                 List.fold_left
                   (fun vm (_, pid, name) ->
-                    let local_ref = C.Id (var_name gid 0 pid `In) in
-                    let expr = get_expr env gid 0 pid `In in
-                    (* If the parent scope has no port for this pid (e.g. the
-                     enclosing if-branch subgraph has an empty boundary), get_expr
-                     returns a self-reference that is never declared.  Fall back to
-                     the port name as a C identifier: GLOBAL-SYM-captured variables
-                     are always C parameters/aliases already in scope. *)
-                    let expr =
-                      let sname = sanitize name in
-                      if
-                        expr = local_ref && sname <> ""
-                        && C.Id sname <> local_ref
-                      then C.Id sname
-                      else expr
-                    in
-                    FullPortMap.add (sub_gid, 0, pid, `In) expr vm)
+                    let sname = sanitize name in
+                    if sname = "" then vm
+                    else
+                      let expr = C.Id sname in
+                      FullPortMap.add (sub_gid, 0, pid, `Out) expr vm)
                   var_map_child ins
             | _ -> var_map_child
           else var_map_child
@@ -354,7 +383,23 @@ and lower_node env gr nid node =
             { env with var_map = var_map_child; parent_env = Some env }
             loop_gr sub_gid
         in
-        ([ C.Compound stmts ], env_after_sub)
+
+        (* 4. Propagate results from sub-graph boundary back to compound node outputs in parent *)
+        let out_pids =
+          ES.fold
+            (fun ((sn, sp), _, _) acc -> if sn = cid then sp :: acc else acc)
+            gr.eset []
+        in
+        let result_propagation =
+          List.map
+            (fun pid ->
+              let src = get_expr env_after_sub sub_gid 0 pid `In in
+              let dst = get_expr env gid cid pid `Out in
+              C.Expr (C.BinOp (C.Assign, dst, src)))
+            (List.sort_uniq compare out_pids)
+        in
+
+        (stmts @ result_propagation, env_after_sub)
   | Simple (_, sym, pin, pout, pr) ->
       (lower_simple env gr nid sym pin pout pr, env)
   | Literal (_, code, value, _pout) ->
@@ -370,6 +415,8 @@ and lower_node env gr nid node =
       ([ C.Expr (C.BinOp (C.Assign, v_res, lit)) ], env)
   | _ -> ([], env)
 
+(** [lower_simple env gr nid sym pin pout pr] lowers a simple IF1 node (e.g.,
+    math op, array access, select) into C expressions and statements. *)
 and lower_simple env gr nid sym pin pout pr =
   let gid = env.curr_gid in
   let binop_opt =
@@ -911,8 +958,11 @@ and lower_simple env gr nid sym pin pout pr =
         [ C.Expr (C.BinOp (C.Assign, v_res, final_expr)) ]
       else if sym = INVOCATION then
         let func_name =
-          List.find_map (function Name s -> Some s | _ -> None) pr
-          |> Option.value ~default:(Printf.sprintf "func_%d" nid)
+          let raw =
+            List.find_map (function Name s -> Some s | _ -> None) pr
+            |> Option.value ~default:(Printf.sprintf "func_%d" nid)
+          in
+          Option.value (c_name_of_mangled raw) ~default:raw
         in
         (* Count input ports by checking edges or using ports array if available.
            Actually, get_expr handles the lookup. We need to know how many. *)
@@ -1057,15 +1107,15 @@ and lower_simple env gr nid sym pin pout pr =
    (set up by lower_graph steps 2&3 before this call).
    SELECT absorption writes directly to those pre-declared boundary-out vars. *)
 and lower_if_graph env gr gid =
-  let wire_inputs child_cid child_gid =
+  let wire_inputs child_cid child_gid base_vm =
     ES.fold
       (fun ((sn, sp), (dn, dp), _) m ->
         if dn = child_cid then
-          FullPortMap.add (child_gid, 0, dp, `In)
+          FullPortMap.add (child_gid, 0, dp, `Out)
             (get_expr env gid sn sp `Out)
             m
         else m)
-      gr.eset env.var_map
+      gr.eset base_vm
   in
   let register_child_outputs child_cid child_gid child_env base_env =
     ES.fold
@@ -1101,7 +1151,7 @@ and lower_if_graph env gr gid =
 
   (* 1. Lower PREDICATE *)
   let pred_stmts, pred_env =
-    let vm = wire_inputs pred_cid pgid in
+    let vm = wire_inputs pred_cid pgid env_with_pred_bridge.var_map in
     let stmts, e' =
       lower_graph
         { env_with_pred_bridge with var_map = vm }
@@ -1121,7 +1171,7 @@ and lower_if_graph env gr gid =
     | None -> failwith "lower_if_graph: no BODY"
     | Some (bcid, bgr) ->
         let bgid = alloc_gid env.gid_table gid bcid in
-        let vm = wire_inputs bcid bgid in
+        let vm = wire_inputs bcid bgid env1.var_map in
         let stmts, e' = lower_graph { env1 with var_map = vm } bgr bgid in
         (stmts, bgid, bcid, e')
   in
@@ -1142,7 +1192,7 @@ and lower_if_graph env gr gid =
     | None -> failwith "lower_if_graph: no ELSE"
     | Some (ecid, egr) ->
         let egid = alloc_gid env.gid_table gid ecid in
-        let vm = wire_inputs ecid egid in
+        let vm = wire_inputs ecid egid env1.var_map in
         let stmts, e' = lower_graph { env1 with var_map = vm } egr egid in
         (stmts, egid, ecid, e')
   in
@@ -1336,11 +1386,16 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
                   with
                   | Some (_, _, v, _) ->
                       vm :=
-                        FullPortMap.add (child_gid, 0, pid, `In) (C.Id v) !vm
+                        FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) !vm
                   | None -> ()
-                else if pid < List.length state_vars then
-                  let _, _, v, _ = List.nth state_vars pid in
-                  vm := FullPortMap.add (child_gid, 0, pid, `In) (C.Id v) !vm)
+                else
+                  match
+                    List.find_opt (fun (p, _, _, _) -> p = pid) state_vars
+                  with
+                  | Some (_, _, v, _) ->
+                      vm :=
+                        FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) !vm
+                  | None -> ())
               ins;
             !vm
         | _ -> !vm
@@ -1453,12 +1508,16 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
      names against the FORALL boundary.  Then lower GENERATOR and BODY
      explicitly rather than running lower_graph on the whole loop_gr. *)
 
-  (* Build (lowercase_name, expr) association list from FORALL boundary *)
+  (* Build (lowercase_name, expr) association list from FORALL boundary.
+     Port IDs come from list position (List.rev because boundary entries are
+     prepended); values are looked up with `In since lower_node stores them
+     that way when wiring compound inputs. *)
   let forall_named_inputs =
     match NM.find_opt 0 loop_gr.nmap with
     | Some (Boundary (ins, _, _, _)) ->
-        List.filter_map
-          (fun (_ty_id, pid, name) ->
+        List.rev ins
+        |> List.mapi (fun pid (_, _, name) -> (pid, name))
+        |> List.filter_map (fun (pid, name) ->
             let sname = String.lowercase_ascii name in
             if sname = "" then None
             else
@@ -1467,27 +1526,47 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
               with
               | Some expr -> Some (sname, expr)
               | None -> None)
-          ins
     | _ -> []
   in
 
-  (* Wire a child subgraph's boundary inputs by name-matching *)
-  let wire_child_by_name child_gid child_gr =
+  let forall_indexed_inputs =
+    match NM.find_opt 0 loop_gr.nmap with
+    | Some (Boundary (ins, _, _, _)) ->
+        List.rev ins
+        |> List.mapi (fun pid _ ->
+            match
+              FullPortMap.find_opt (sub_gid, 0, pid, `Out) var_map_child
+            with
+            | Some expr -> Some (pid, expr)
+            | None -> None)
+        |> List.filter_map (fun x -> x)
+    | _ -> []
+  in
+
+  (* Wire a child subgraph's boundary outputs (`Out) by name-matching or port ID. *)
+  let wire_child child_gid child_gr =
     match NM.find_opt 0 child_gr.nmap with
     | Some (Boundary (ins, _, _, _)) ->
+        let rev_ins = List.rev ins in
         List.fold_left
-          (fun vm (_ty_id, pid, name) ->
+          (fun (vm, pid) (_, _, name) ->
             let sname = String.lowercase_ascii name in
-            match List.assoc_opt sname forall_named_inputs with
-            | Some expr -> FullPortMap.add (child_gid, 0, pid, `In) expr vm
-            | None -> vm)
-          var_map_child ins
+            let expr_opt =
+              if sname <> "" then List.assoc_opt sname forall_named_inputs
+              else List.assoc_opt pid forall_indexed_inputs
+            in
+            let vm' =
+              match expr_opt with
+              | Some expr -> FullPortMap.add (child_gid, 0, pid, `Out) expr vm
+              | None -> vm
+            in
+            (vm', pid + 1))
+          (var_map_child, 0) rev_ins
+        |> fst
     | _ -> var_map_child
   in
 
-  (* 1. Lower GENERATOR.
-     count = boundary-out variable (pre-declared by lower_graph, in scope after gen_stmts).
-     lo    = FORALL boundary port named "lo" (for "for i in lo, hi" RANGEGEN loops). *)
+  (* 1. Lower GENERATOR. *)
   let gen_stmts, gen_env, count_expr, lo_expr =
     match find_subgraph loop_gr "GENERATOR" with
     | None ->
@@ -1497,7 +1576,7 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
           C.LitInt 0 )
     | Some (gen_nid, gen_gr) ->
         let gen_gid = alloc_gid env.gid_table sub_gid gen_nid in
-        let gen_vm = wire_child_by_name gen_gid gen_gr in
+        let gen_vm = wire_child gen_gid gen_gr in
         let stmts, e' =
           lower_graph
             { env with var_map = gen_vm; parent_env = Some env }
@@ -1509,21 +1588,27 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
             (fun (_, (dn, dp), _) acc -> if dn = 0 then Some dp else acc)
             gen_gr.eset None
         in
-        let count =
-          match count_bp with
-          | Some dp -> C.Id (var_name gen_gid 0 dp `In)
-          | None -> C.Id "0"
-        in
-        (* lo: start of the range.
-           First try a named "lo" port on the FORALL boundary (e.g. "for i in lo, hi").
-           If there is none (e.g. "for i in 1, N"), read RANGEGEN's port-0 input from
-           the lowered generator env — for a Literal source use the value directly so
-           we don't reference a variable that lives only in the inner gen scope. *)
         let has_rangegen =
           NM.exists
             (fun _ n ->
               match n with Simple (_, RANGEGEN, _, _, _) -> true | _ -> false)
             gen_gr.nmap
+        in
+        let count_expr =
+          if has_rangegen then
+            match count_bp with
+            | Some dp -> C.Id (var_name gen_gid 0 dp `In)
+            | None -> C.Id "0"
+          else
+            (* Array-based FORALL: count is size of the first input array *)
+            match NM.find_opt 0 gen_gr.nmap with
+            | Some (Boundary (ins, _, _, _)) ->
+                let first_arr = get_expr e' gen_gid 0 0 `Out in
+                C.Member (first_arr, "size")
+            | _ -> (
+                match count_bp with
+                | Some dp -> C.Id (var_name gen_gid 0 dp `In)
+                | None -> C.Id "0")
         in
         let lo =
           if has_rangegen then
@@ -1556,7 +1641,7 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
                   gen_gr.nmap (C.LitInt 0)
           else C.LitInt 0
         in
-        (stmts, e', count, lo)
+        (stmts, e', count_expr, lo)
   in
 
   (* 2. Allocate result array and set lower_bound *)
@@ -1599,23 +1684,28 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
       let body_gid = alloc_gid env.gid_table sub_gid body_nid in
       let index_var = Printf.sprintf "v_idx_g%d" body_gid in
 
-      (* Wire BODY inputs by name; inject I = lo + (int32_t)idx if body uses I *)
-      let body_vm = wire_child_by_name body_gid body_gr in
+      (* Wire BODY boundary outputs (`Out) by name; inject index for I/__lfi *)
+      let body_vm = wire_child body_gid body_gr in
       let body_vm =
         match NM.find_opt 0 body_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
-            List.fold_left
-              (fun vm (_ty_id, pid, name) ->
-                let sname = String.lowercase_ascii name in
-                if sname = "i" || sname = "index" then
-                  FullPortMap.add (body_gid, 0, pid, `In)
-                    (C.BinOp
-                       ( C.Add,
-                         lo_expr,
-                         C.Cast (C.Basic "int32_t", C.Id index_var) ))
-                    vm
-                else vm)
-              body_vm ins
+            List.rev ins
+            |> List.fold_left
+                 (fun (vm, pid) (_, _, name) ->
+                   let sname = String.lowercase_ascii name in
+                   let vm' =
+                     if sname = "i" || sname = "index" || sname = "__lfi" then
+                       FullPortMap.add (body_gid, 0, pid, `Out)
+                         (C.BinOp
+                            ( C.Add,
+                              lo_expr,
+                              C.Cast (C.Basic "int32_t", C.Id index_var) ))
+                         vm
+                     else vm
+                   in
+                   (vm', pid + 1))
+                 (body_vm, 0)
+            |> fst
         | _ -> body_vm
       in
 
@@ -1626,7 +1716,7 @@ and lower_forall env gr gid nid _cid loop_gr sub_gid var_map_child _pr =
       in
 
       (* Body result = BODY's pre-declared boundary-out variable at port 0 *)
-      let body_res = C.Id (var_name ~tag:"body_res" body_gid 0 0 `In) in
+      let body_res = C.Id (var_name body_gid 0 0 `In) in
 
       let cast_ptr =
         C.Cast (C.Pointer (C.Basic cast_ty, []), C.Member (res_v, "data"))
@@ -1709,7 +1799,7 @@ let lower_procedure tm nid node =
                       if sname = "n" || sname = "i" then C.Basic "int32_t"
                       else if sname = "a" || sname = "b" then
                         C.Basic "sisal_array_t"
-                      else C.Basic "float"
+                      else C.Basic "int32_t"
                     else c_type_of_if1_ty tm if1_ty
                   in
                   Some (c_ty, sname))
@@ -1721,7 +1811,7 @@ let lower_procedure tm nid node =
         | Some (Boundary (ins, _, _, _)) ->
             List.fold_left
               (fun m (_, pid, name) ->
-                FullPortMap.add (sub_gid, 0, pid, `In) (C.Id (sanitize name)) m)
+                FullPortMap.add (sub_gid, 0, pid, `Out) (C.Id (sanitize name)) m)
               FullPortMap.empty ins
         | _ -> FullPortMap.empty
       in
@@ -1768,6 +1858,10 @@ let lower_procedure tm nid node =
           all_b_outs
       in
 
+      let body_stmts_unwrapped =
+        match body_stmts with [ C.Compound stmts ] -> stmts | _ -> body_stmts
+      in
+
       let ret_count = List.length ret_exprs in
       if ret_count > 1 then
         let struct_name = func_name ^ "_results" in
@@ -1790,7 +1884,7 @@ let lower_procedure tm nid node =
             ret_exprs
         in
         let final_body =
-          body_stmts
+          body_stmts_unwrapped
           @ [ C.Decl (C.Basic ("struct " ^ struct_name), res_var, None) ]
           @ assigns
           @ [ C.Return (Some (C.Id res_var)) ]
@@ -1812,7 +1906,7 @@ let lower_procedure tm nid node =
               C.return_ty = ty;
               name = func_name;
               params;
-              body = body_stmts @ [ C.Return (Some e) ];
+              body = body_stmts_unwrapped @ [ C.Return (Some e) ];
               extern_c = true;
             },
             None )
@@ -1822,7 +1916,7 @@ let lower_procedure tm nid node =
               C.return_ty = C.Void;
               name = func_name;
               params;
-              body = body_stmts;
+              body = body_stmts_unwrapped;
               extern_c = true;
             },
             None )

@@ -327,13 +327,15 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
   let wire_fn xn { If1.val_ty = t; val_def = sn; def_port = sp; _ } =
     (* Check if source node exists in outer_gr *)
     if If1.NM.mem sn !outer_gr_ref.If1.nmap then (
-      let is_valid_source = 
+      let is_valid_source =
         match If1.get_node sn !outer_gr_ref with
-        | Simple (_, MULTIARITY, _, _, _) -> 
-            If1.ES.exists (fun (_, (dn, dp), _) -> dn = sn && dp = sp) !outer_gr_ref.If1.eset
+        | Simple (_, MULTIARITY, _, _, _) ->
+            If1.ES.exists
+              (fun (_, (dn, dp), _) -> dn = sn && dp = sp)
+              !outer_gr_ref.If1.eset
         | _ -> true
       in
-      if is_valid_source then (
+      if is_valid_source then
         (* Check if there is already an edge from (sn, sp) to (cn, ?) in outer_gr *)
         let has_edge =
           If1.ES.exists
@@ -354,14 +356,13 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
           sub_gr_ref := updated_sub_gr;
 
           to_if1_msg 3
-            "wire_all_syms_to_compound: Wired %s (node %d, port %d) to compound \
-             %d port %d"
+            "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
+             compound %d port %d"
             xn sn sp cn next_port
-        end
-      )
-    ) else (
-      to_if1_msg 3 "wire_all_syms_to_compound: Skipping %s (node %d not found)" xn sn
-    )
+        end)
+    else
+      to_if1_msg 3 "wire_all_syms_to_compound: Skipping %s (node %d not found)"
+        xn sn
   in
   If1.SM.iter wire_fn cs;
   If1.SM.iter wire_fn ps;
@@ -369,15 +370,18 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
 
 and verify_compound_inputs cn sub_gr outer_gr =
   let cs, ps = outer_gr.If1.symtab in
-  let verify_fn xn { If1.val_ty = t; val_def = dn_orig; def_port = dp_orig; _ } =
+  let verify_fn xn { If1.val_ty = t; val_def = dn_orig; def_port = dp_orig; _ }
+      =
     if If1.NM.mem dn_orig outer_gr.If1.nmap then (
-      let is_valid_source = 
+      let is_valid_source =
         match If1.get_node dn_orig outer_gr with
-        | Simple (_, MULTIARITY, _, _, _) -> 
-            If1.ES.exists (fun (_, (dn, dp), _) -> dn = dn_orig && dp = dp_orig) outer_gr.If1.eset
+        | Simple (_, MULTIARITY, _, _, _) ->
+            If1.ES.exists
+              (fun (_, (dn, dp), _) -> dn = dn_orig && dp = dp_orig)
+              outer_gr.If1.eset
         | _ -> true
       in
-      if is_valid_source then (
+      if is_valid_source then
         let dn, dp, _ =
           If1.find_incoming_regular_node (dn_orig, dp_orig, t) outer_gr
         in
@@ -396,14 +400,13 @@ and verify_compound_inputs cn sub_gr outer_gr =
             xn dn_orig dp_orig dn dp cn;
           failwith
             (Printf.sprintf
-               "verify_compound_inputs: Variable %s (from node %d:%d) not wired \
-                to compound node %d"
+               "verify_compound_inputs: Variable %s (from node %d:%d) not \
+                wired to compound node %d"
                xn dn dp cn)
-        end
-      )
-    ) else (
-      to_if1_msg 3 "verify_compound_inputs: Skipping %s (node %d not found)" xn dn_orig
-    )
+        end)
+    else
+      to_if1_msg 3 "verify_compound_inputs: Skipping %s (node %d not found)" xn
+        dn_orig
   in
   If1.SM.iter verify_fn cs;
   If1.SM.iter verify_fn ps
@@ -1028,9 +1031,7 @@ and do_in_exp ?(curr_level = 1) in_gr = function
                   ps );
             }
       in
-      let in_gr =
-        If1.output_to_boundary [ (aa, bb, cc) ] in_gr
-      in
+      let in_gr = If1.output_to_boundary [ (aa, bb, cc) ] in_gr in
       (((aa, bb, cc), in_gr), dv_infos)
   | Ast.At_exp (ie, vns) ->
       let ((aa, bb, cc), in_gr), dv_infos = do_in_exp ~curr_level in_gr ie in
@@ -1269,7 +1270,7 @@ and do_for_all inexp bodyexp retexp in_gr =
 
         let forall_gr = get_ports_unified forall_gr body_gr gen_gr in
         let forall_gr = If1.inherit_parent_syms gen_gr forall_gr in
-        
+
         (* Add subgraphs to forall_gr FIRST *)
         let (gn, _, _), forall_gr =
           If1.add_node_2
@@ -1302,17 +1303,18 @@ and do_for_all inexp bodyexp retexp in_gr =
         (* Wire Parent Boundary -> Subgraphs for all imported symbols *)
         let forall_gr =
           let _, ps = forall_gr.If1.symtab in
-          If1.SM.fold (fun _ v gr ->
-            let srcn, srcp = (v.If1.val_def, v.If1.def_port) in
-            if srcn = 0 then (
-              (* Wire to BODY *)
-              let next_bx = If1.get_next_available_in_port bx gr in
-              let gr = If1.add_edge 0 srcp bx next_bx v.If1.val_ty gr in
-              (* Wire to RETURNS *)
-              let next_rn = If1.get_next_available_in_port rn gr in
-              If1.add_edge 0 srcp rn next_rn v.If1.val_ty gr
-            ) else gr
-          ) ps forall_gr
+          If1.SM.fold
+            (fun _ v gr ->
+              let srcn, srcp = (v.If1.val_def, v.If1.def_port) in
+              if srcn = 0 then
+                (* Wire to BODY *)
+                let next_bx = If1.get_next_available_in_port bx gr in
+                let gr = If1.add_edge 0 srcp bx next_bx v.If1.val_ty gr in
+                (* Wire to RETURNS *)
+                let next_rn = If1.get_next_available_in_port rn gr in
+                If1.add_edge 0 srcp rn next_rn v.If1.val_ty gr
+              else gr)
+            ps forall_gr
         in
         (* Wire Generator result 1..N (element streams) to Body inputs *)
         let n_streams = If1.boundary_out_port_count gen_gr in
@@ -2476,25 +2478,40 @@ and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
   ((oo, op, ot), outer_gr)
 
 and add_edges_to_boundary a_gr outer_gr to_node =
-  let bound_nodes_a = boundary_node_lookup a_gr in
-  let bound_nodes_a_lis =
-    If1.AStrSet.fold (fun x y -> x :: y) bound_nodes_a []
-  in
-  let sym_ids =
-    List.map
-      (fun x ->
-        let xx, _ = If1.get_symbol_id x a_gr in
-        xx)
-      bound_nodes_a_lis
-  in
-  let gr =
-    List.fold_right
-      (fun (nx, np, nt) y -> 
-        let next_p = If1.get_next_available_in_port to_node y in
-        If1.add_edge nx np to_node next_p nt y)
-      sym_ids outer_gr
-  in
-  gr
+  match If1.get_boundary_node a_gr with
+  | Boundary (in_port_list, _, _, _) ->
+      let ports_in_order = List.rev in_port_list in
+      List.fold_left
+        (fun gr (nx, np, namen) ->
+          let next_p = If1.get_next_available_in_port to_node gr in
+          let () =
+            if !Ir.Debug.level > 2 then
+              Printf.eprintf
+                "DEBUG: add_edges_to_boundary: wiring %s from %d:%d to %d:%d\n"
+                namen nx np to_node next_p
+          in
+          let ty_id =
+            (* Try to look up by name in outer_gr symbol table *)
+            let cs, ps = gr.If1.symtab in
+            match If1.SM.find_opt namen cs with
+            | Some entry -> entry.val_ty
+            | None -> (
+                match If1.SM.find_opt namen ps with
+                | Some entry -> entry.val_ty
+                | None -> (
+                    (* Fallback to edge search if name lookup fails *)
+                    match
+                      If1.ES.choose_opt
+                        (If1.ES.filter
+                           (fun ((sn, sp), _, _) -> sn = nx && sp = np)
+                           gr.eset)
+                    with
+                    | Some (_, _, t) -> t
+                    | None -> 0))
+          in
+          If1.add_edge nx np to_node next_p ty_id gr)
+        outer_gr ports_in_order
+  | _ -> outer_gr
 
 and get_simple_unary nou in_gr node_tag =
   let (z, _, _), in_gr =
@@ -5215,8 +5232,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, []))
             outer_gr
         in
-        let sub_gr, outer_gr = wire_all_syms_to_compound cn sub_gr outer_gr in
-        verify_compound_inputs cn sub_gr outer_gr;
+        let outer_gr = add_edges_to_boundary sub_gr outer_gr cn in
         let n = If1.IntMap.cardinal ty_lis in
         let (ma_n, _, _), outer_gr =
           build_multiarity n outer_gr ~nam:"BRANCH_MA"
@@ -5232,9 +5248,35 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let rec if_builder cl in_gr_if els =
         match cl with
         | Ast.Cond (predicate, body) :: tl ->
+            (* 1. Build predicate first to establish symbol order in boundary *)
+            to_if1_msg 3 "If: lowering PREDICATE: %s" (Ast.str_exp predicate);
+            let pred_out, predicate_gr =
+              do_exp (If1.get_a_new_graph in_gr_if) predicate
+            in
+            let _, predicate_gr =
+              extr_types predicate_gr (pred_out, If1.IntMap.empty)
+            in
+            let pred_s, pred_p, pred_t = pred_out in
+            let predicate_gr =
+              point_edges_to_boundary pred_s pred_p pred_t predicate_gr
+            in
+            let (pn, _, _), in_gr_if =
+              If1.add_node_2
+                (`Compound
+                   ( predicate_gr,
+                     If1.INTERNAL,
+                     0,
+                     [
+                       If1.Name "PREDICATE";
+                       If1.Ast_type (Ast.str_exp predicate);
+                     ],
+                     [] ))
+                in_gr_if
+            in
+            let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
+
+            (* 2. Build else chain *)
             to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
-            (* 1. Build else chain in its own subgraph; unravel to boundary,
-               then reconstruct MULTIARITY in in_gr_if from compound outputs. *)
             let ty_lis_else, else_gr =
               let grr_th = If1.get_a_new_graph in_gr_if in
               if_builder tl grr_th els
@@ -5245,7 +5287,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in_gr_if
             in
 
-            (* 2. Build then body; unravel to boundary, reconstruct MULTIARITY. *)
+            (* 3. Build then body *)
             to_if1_msg 3 "If: lowering BODY: %s" (Ast.str_exp body);
             let in_outs, then_gr = do_exp (If1.get_a_new_graph in_gr_if) body in
             let ty_lis_then, then_gr =
@@ -5392,8 +5434,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  [] ))
             in_gr
         in
-        let regar, in_gr = wire_all_syms_to_compound sn regar in_gr in
-        verify_compound_inputs sn regar in_gr;
+        let in_gr = add_edges_to_boundary regar in_gr sn in
         (* Always reconstruct MULTIARITY from sn:0..N-1 (even for N=1) so
            callers receive all N values through the standard mechanism. *)
         let n = If1.IntMap.cardinal ty_lis in
@@ -7678,8 +7719,9 @@ and ensure_complex_types in_gr =
       let _, in_gr = If1.add_sisal_typename in_gr tn tid_re in
       let globals, locals = in_gr.If1.symtab in
       let entry =
-        { If1.val_name = tn; val_ty = tid_re; val_def = 0; def_port = 0 }
+        { If1.val_name = tn; val_ty = tid_re; val_def = 0; def_port = -1 }
       in
+
       {
         in_gr with
         If1.symtab = (If1.SM.add tn entry globals, If1.SM.add tn entry locals);
