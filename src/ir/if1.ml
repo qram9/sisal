@@ -664,7 +664,7 @@ and get_node i ingr =
     failwith
       ((let stack = Printexc.get_callstack 5 in
         Printexc.raw_backtrace_to_string stack)
-      ^ " ISSUE WITH NODE LOOK UP")
+      ^ " ISSUE WITH NODE LOOK UP: " ^ string_of_int i)
 
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
@@ -1209,12 +1209,34 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) -> (
       let rec lookin_lis idx = function
         | [] -> None
-        | (x, y, _) :: _ when n = x && p = y -> Some idx
+        | (x, y, name) :: _ when n = x && p = y && (name = "" || name = namen)
+          ->
+            Some idx
         | _ :: tl -> lookin_lis (idx + 1) tl
       in
       let existing_idx_opt = lookin_lis 0 (List.rev in_port_list) in
       match existing_idx_opt with
-      | Some idx -> (idx, in_gr)
+      | Some idx ->
+          let updated_in_port_list =
+            if namen <> "" then
+              let rev_lis = List.rev in_port_list in
+              let rec update i = function
+                | (nn, pp, "") :: tl when i = idx -> (nn, pp, namen) :: tl
+                | h :: tl -> h :: update (i + 1) tl
+                | [] -> []
+              in
+              List.rev (update 0 rev_lis)
+            else in_port_list
+          in
+          ( idx,
+            {
+              in_gr with
+              nmap =
+                NM.add 0
+                  (Boundary
+                     (updated_in_port_list, out_port_list, err_ports, boundary_p))
+                  in_gr.nmap;
+            } )
       | None ->
           let next_port = List.length in_port_list in
           let nm = get_node_map in_gr in
@@ -2473,24 +2495,17 @@ and node_incoming_at_port n1 p in_gr =
     try
       let (x, y), (_, _), ty = List.hd edges in
       (x, y, ty)
-    with _ ->
-      write_any_dot_file "ERROR.dot" in_gr;
-      print_string "Error when looking up node incoming to port";
-      print_int p;
-      print_char '\n';
-      print_endline (string_of_graph in_gr);
-      Printexc.print_raw_backtrace stdout (Printexc.get_callstack 20);
-      raise
-        (Sem_error
-           ("Failing with node incoming at port:" ^ string_of_int n1 ^ ","
-          ^ string_of_int p))
+    with _ -> (n1, p, 0)
 
 and find_incoming_regular_node (n1, p1, ed_ty) in_gr =
-  match get_node n1 in_gr with
-  | Simple (_, MULTIARITY, _, _, _) ->
-      let n1, p1, ed_ty = node_incoming_at_port n1 p1 in_gr in
-      find_incoming_regular_node (n1, p1, ed_ty) in_gr
-  | _ -> (n1, p1, ed_ty)
+  if not (NM.mem n1 (get_node_map in_gr) || n1 = 0) then (n1, p1, ed_ty)
+  else
+    match get_node n1 in_gr with
+    | Simple (_, MULTIARITY, _, _, _) ->
+        let n1_new, p1_new, ed_ty_new = node_incoming_at_port n1 p1 in_gr in
+        if n1_new = n1 && p1_new = p1 then (n1, p1, ed_ty)
+        else find_incoming_regular_node (n1_new, p1_new, ed_ty_new) in_gr
+    | _ -> (n1, p1, ed_ty)
 
 and inject_vouchers_into_symtab in_gr usings =
   let globals, locals = in_gr.symtab in
@@ -2530,23 +2545,6 @@ and inject_vouchers_into_symtab in_gr usings =
   { in_gr with symtab = (updated_globals, locals) }
 
 and add_edge n1 p1 n2 p2 ed_ty in_gr =
-  let _ =
-    if !Debug.level > 0 then begin
-      let stack = get_stack_trace 5 in
-      let ty_desc =
-        "(#" ^ string_of_int ed_ty ^ "): "
-        ^ printable_full_type (get_typemap_tm in_gr) ed_ty
-      in
-      let dest_str = string_of_node n2 in_gr in
-      let src_str = string_of_node n1 in_gr in
-      edge_trace :=
-        ( Printf.sprintf "%d[%s]P:%d" n1 src_str p1,
-          Printf.sprintf "%d[%s]P:%d" n2 dest_str p2,
-          ty_desc,
-          stack )
-        :: !edge_trace
-    end
-  in
   let n1, p1, ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0 then add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr
   else
