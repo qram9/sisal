@@ -161,6 +161,17 @@ let rec string_of_stmt indent =
       Printf.sprintf "%s{\n%s\n%s}" pad
         (String.concat "\n" (List.map (string_of_stmt (indent + 1)) stmts))
         pad
+  | Prototype p ->
+      let params_s =
+        p.params
+        |> List.map (fun (ty, name) ->
+            Printf.sprintf "%s %s" (string_of_c_type ty) name)
+        |> String.concat ", "
+      in
+      let prefix = if p.extern_c then "extern \"C\" " else "" in
+      Printf.sprintf "%s%s %s(%s);" prefix
+        (string_of_c_type p.return_ty)
+        p.name params_s
   | Comment s -> Printf.sprintf "%s// %s" pad s
 
 let string_of_procedure p =

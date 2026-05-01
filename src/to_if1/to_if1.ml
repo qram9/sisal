@@ -321,95 +321,87 @@ and get_tys ttts ous =
   | [] -> ous
 
 and wire_all_syms_to_compound cn sub_gr outer_gr =
-  let cs, ps = outer_gr.If1.symtab in
-  let outer_gr_ref = ref outer_gr in
-  let sub_gr_ref = ref sub_gr in
-  let wire_fn xn { If1.val_ty = t; val_def = sn; def_port = sp; _ } =
-    (* Check if source node exists in outer_gr *)
-    if If1.NM.mem sn !outer_gr_ref.If1.nmap then (
-      let is_valid_source =
-        match If1.get_node sn !outer_gr_ref with
-        | Simple (_, MULTIARITY, _, _, _) ->
-            If1.ES.exists
-              (fun (_, (dn, dp), _) -> dn = sn && dp = sp)
-              !outer_gr_ref.If1.eset
-        | _ -> true
-      in
-      if is_valid_source then
-        (* Check if there is already an edge from (sn, sp) to (cn, ?) in outer_gr *)
-        let has_edge =
-          If1.ES.exists
-            (fun ((sn_e, sp_e), (dn_e, _), _) ->
-              sn_e = sn && sp_e = sp && dn_e = cn)
-            !outer_gr_ref.If1.eset
+  (* inputs is (src_n, src_p, namen) list, in reverse order of addition.
+     Reversing it gives the order they were added, which corresponds to local
+     port IDs 0, 1, 2... *)
+  let ordered_inputs = List.rev (If1.get_named_input_ports sub_gr) in
+  let _, outer_gr =
+    List.fold_left
+      (fun (local_pid, outer_gr) (src_n_in_boundary, src_p_in_boundary, xn) ->
+        let (sn, sp, t), outer_gr =
+          try If1.get_symbol_id xn outer_gr
+          with _ -> ((src_n_in_boundary, src_p_in_boundary, 0), outer_gr)
         in
-
-        if not has_edge then begin
-          (* 1. Add edge in outer graph: (sn, sp) -> (cn, next_port) *)
-          let next_port = If1.get_next_available_in_port cn !outer_gr_ref in
-          outer_gr_ref := If1.add_edge sn sp cn next_port t !outer_gr_ref;
-
-          (* 2. Add corresponding boundary input to sub_gr *)
-          let _, updated_sub_gr =
-            If1.add_to_boundary_inputs ~namen:xn 0 next_port !sub_gr_ref
-          in
-          sub_gr_ref := updated_sub_gr;
-
-          to_if1_msg 3
-            "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
-             compound %d port %d"
-            xn sn sp cn next_port
-        end)
-    else
-      to_if1_msg 3 "wire_all_syms_to_compound: Skipping %s (node %d not found)"
-        xn sn
+        let outer_gr =
+          if sn <> 0 || If1.NM.mem 0 outer_gr.If1.nmap then
+            let sn, sp, _ =
+              If1.find_incoming_regular_node (sn, sp, t) outer_gr
+            in
+            if
+              If1.ES.exists
+                (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
+                  sn_e = sn && sp_e = sp && dn_e = cn && dp_e = local_pid)
+                outer_gr.If1.eset
+            then outer_gr
+            else (
+              to_if1_msg 3
+                "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
+                 compound %d port %d"
+                xn sn sp cn local_pid;
+              If1.add_edge sn sp cn local_pid t outer_gr)
+          else outer_gr
+        in
+        (local_pid + 1, outer_gr))
+      (0, outer_gr) ordered_inputs
   in
-  If1.SM.iter wire_fn cs;
-  If1.SM.iter wire_fn ps;
-  (!sub_gr_ref, !outer_gr_ref)
+  (sub_gr, outer_gr)
 
 and verify_compound_inputs cn sub_gr outer_gr =
-  let cs, ps = outer_gr.If1.symtab in
-  let verify_fn xn { If1.val_ty = t; val_def = dn_orig; def_port = dp_orig; _ }
-      =
-    if If1.NM.mem dn_orig outer_gr.If1.nmap then (
-      let is_valid_source =
-        match If1.get_node dn_orig outer_gr with
-        | Simple (_, MULTIARITY, _, _, _) ->
-            If1.ES.exists
-              (fun (_, (dn, dp), _) -> dn = dn_orig && dp = dp_orig)
-              outer_gr.If1.eset
-        | _ -> true
+  let inputs = If1.get_named_input_ports sub_gr in
+  let ordered_inputs = List.rev inputs in
+  List.iteri
+    (fun local_pid (src_n_in_boundary, src_p_in_boundary, xn) ->
+      let cs, ps = outer_gr.If1.symtab in
+      let entry_opt =
+        if If1.SM.mem xn cs then Some (If1.SM.find xn cs)
+        else if If1.SM.mem xn ps then Some (If1.SM.find xn ps)
+        else None
       in
-      if is_valid_source then
-        let dn, dp, _ =
-          If1.find_incoming_regular_node (dn_orig, dp_orig, t) outer_gr
-        in
-        (* Check if there is an edge from (dn, dp) to (cn, ?) in outer_gr *)
-        let has_edge =
-          If1.ES.exists
-            (fun ((sn, sp), (dn_edge, _), _) ->
-              sn = dn && sp = dp && dn_edge = cn)
-            outer_gr.If1.eset
-        in
-        if not has_edge then begin
-          (* Value in symtab but not wired to compound node *)
-          to_if1_msg 1
-            "verify_compound_inputs: Value %s (orig %d:%d, resolved %d:%d) in \
-             symtab NOT wired to compound node %d"
-            xn dn_orig dp_orig dn dp cn;
-          failwith
-            (Printf.sprintf
-               "verify_compound_inputs: Variable %s (from node %d:%d) not \
-                wired to compound node %d"
-               xn dn dp cn)
-        end)
-    else
-      to_if1_msg 3 "verify_compound_inputs: Skipping %s (node %d not found)" xn
-        dn_orig
-  in
-  If1.SM.iter verify_fn cs;
-  If1.SM.iter verify_fn ps
+      match entry_opt with
+      | Some entry ->
+          let dn_orig, dp_orig = (entry.val_def, entry.def_port) in
+          if If1.NM.mem dn_orig outer_gr.If1.nmap then
+            let is_valid_source =
+              match If1.get_node dn_orig outer_gr with
+              | Simple (_, MULTIARITY, _, _, _) ->
+                  If1.ES.exists
+                    (fun (_, (dn_e, dp_e), _) -> dn_e = dn_orig && dp_e = dp_orig)
+                    outer_gr.If1.eset
+              | _ -> true
+            in
+            if is_valid_source then
+              let dn, dp, _ =
+                If1.find_incoming_regular_node (dn_orig, dp_orig, entry.val_ty)
+                  outer_gr
+              in
+              let has_edge =
+                If1.ES.exists
+                  (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
+                    sn_e = dn && sp_e = dp && dn_e = cn && dp_e = local_pid)
+                  outer_gr.If1.eset
+              in
+              if not has_edge then (
+                to_if1_msg 1
+                  "verify_compound_inputs: Value %s (node %d:%d) in sub_gr \
+                   boundary NOT wired to compound node %d port %d"
+                  xn dn dp cn local_pid;
+                failwith
+                  (Printf.sprintf
+                     "verify_compound_inputs: Variable %s (from node %d:%d) \
+                      not wired to compound node %d port %d"
+                     xn dn dp cn local_pid))
+      | None -> ())
+    ordered_inputs
 
 and union_builder in_gr utags iornone =
   (* If1.Union or If1.Record builder helper function *)
@@ -745,24 +737,20 @@ and do_val_internal in_gr v =
     | `Std10 v -> (If1.get_symbol_id v in_gr, v)
     | `OldMob v -> (If1.get_symbol_id_old v in_gr, v)
   in
+  to_if1_msg 3 "do_val_internal: %s -> initial=(%d, %d, %d [%s])"
+    av nn np nty (If1.p_f_t in_gr nty);
   let nn, np, nty =
     match If1.get_node nn in_gr with
-    (* TUPLE_VAL MULTIARITY: created by a #(…) expression and bound as a
-       whole tuple to a variable.  Do NOT dereference — keep the MULTIARITY
-       reference so that fold_away_multiarity_nodes can expand all ports when
-       the tuple is used as a multi-value return, or follow a specific port
-       when the same tuple is referenced multiple times (destructuring). *)
     | If1.Simple (_, If1.MULTIARITY, _, _, prags)
       when List.exists
              (function If1.Name "TUPLE_VAL" -> true | _ -> false)
              prags ->
         (nn, np, nty)
-    (* Regular MULTIARITY: produced by a multi-return function call or
-       other non-tuple multi-value context.  Dereference one level to the
-       actual source at the specific symtab port — original behaviour. *)
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-        let nn, np, nty = If1.node_incoming_at_port nn np in_gr in
-        (nn, np, nty)
+        let nn', np', nty' = If1.node_incoming_at_port nn np in_gr in
+        to_if1_msg 3 "do_val_internal: %s -> MULTIARITY deref %d:%d to (%d, %d, %d [%s])"
+          av nn np nn' np' nty' (If1.p_f_t in_gr nty');
+        (nn', np', nty')
     | _ -> (nn, np, nty)
   in
   ((nn, np, nty), in_gr)
@@ -776,7 +764,8 @@ and do_val in_gr = function
 
 and do_exp in_gr = function
   (* Add an expression using add_exp *)
-  | Ast.Exp e -> add_exp in_gr e 0 []
+  | Ast.Exp e -> 
+    add_exp in_gr e 0 []
   | Empty -> ((0, 0, 0), in_gr)
 
 and extr_types in_gr = function
@@ -820,19 +809,33 @@ and first_incoming_type_to_multiarity e in_gr =
   t1
 
 and first_incoming_triple_to_multiarity e in_gr =
+  let triples = all_incoming_triples_to_multiarity e in_gr in
+  List.hd triples
+
+and all_incoming_triples_to_multiarity e in_gr =
   let pe = in_gr.If1.eset in
   let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
-  let (x, xp), (_, _), aty =
-    assert (List.length (If1.ES.elements edges) <> 0);
-    try List.hd (If1.ES.elements edges)
-    with _ ->
-      raise
-        (Format.printf "Error with incoming triple lookup for graph: %d" e;
-         print_endline (If1.string_of_graph in_gr);
-         Printexc.print_raw_backtrace stdout (Printexc.get_callstack 150);
-         If1.Sem_error "Error looking up first triple in multiarity")
+  let sorted_edges = 
+    List.sort (fun (_, (_, p1), _) (_, (_, p2), _) -> compare p1 p2) (If1.ES.elements edges)
   in
-  (x, xp, aty)
+  List.map (fun ((x, xp), (_, _), aty) -> (x, xp, aty)) sorted_edges
+
+and propagate_error_to_boundary srcn srcp tty in_gr =
+  match If1.get_boundary_node in_gr with
+  | Boundary (ins, outs, errs, prags) ->
+      let next_b_port = List.length errs in
+      let updated_b =
+        If1.Boundary (ins, outs, errs @ [ (srcn, tty) ], prags)
+      in
+      let in_gr =
+        {
+          in_gr with
+          If1.nmap = If1.NM.add 0 updated_b in_gr.If1.nmap;
+        }
+      in
+      (* Physically wire Error Node -> Boundary Error Port *)
+      If1.add_edge2 srcn srcp 0 next_b_port tty in_gr
+  | _ -> in_gr
 
 and add_exp in_gr ex _ ret_lis =
   (* Call do_simple_exp for each in list:ex and
@@ -1263,8 +1266,21 @@ and do_for_all inexp bodyexp retexp in_gr =
         (* Connect Results To Body's If1.Boundary *)
         let body_gr = If1.output_to_boundary_with_none mask_ty_list body_gr in
 
+        let forall_gr =
+          (* Merge body_gr's typemap into forall_gr before building the RETURNS
+             subgraph.  body_gr and the ret_gr created inside add_ret both start
+             from gen_gr's typemap (same counter N), so they independently assign
+             the same IDs to different types.  When body_gr is later inserted into
+             forall_gr the later-inserted subgraph wins, corrupting the types that
+             ret_gr registered.  Inheriting body_gr's assignments first means
+             ret_gr's counter starts past them, so no two sibling subgraphs ever
+             claim the same ID for different structural types. *)
+          let base = If1.get_a_new_graph gen_gr in
+          { base with If1.typemap =
+              If1.merge_typeblobs base.If1.typemap body_gr.If1.typemap }
+        in
         let (rn, _, _), forall_gr, return_action_list =
-          add_ret body_gr return_action_list mask_ty_list
+          add_ret forall_gr return_action_list mask_ty_list
             (String.concat "\n" (List.map Ast.str_return_clause retexp))
         in
 
@@ -1290,6 +1306,18 @@ and do_for_all inexp bodyexp retexp in_gr =
         in
         verify_compound_inputs bx body_gr forall_gr;
 
+        (* RETURNS is already added as rn by add_ret. Wire its inputs. *)
+        let forall_gr =
+          match If1.NM.find_opt rn forall_gr.If1.nmap with
+          | Some (Compound (_, _, _, _, rn_gr, _)) ->
+              let _, forall_gr =
+                wire_all_syms_to_compound rn rn_gr forall_gr
+              in
+              verify_compound_inputs rn rn_gr forall_gr;
+              forall_gr
+          | _ -> forall_gr
+        in
+
         (* Now wire them together within forall_gr *)
         let forall_gr =
           let next_bx = If1.get_next_available_in_port bx forall_gr in
@@ -1298,23 +1326,6 @@ and do_for_all inexp bodyexp retexp in_gr =
         let forall_gr =
           let next_rn = If1.get_next_available_in_port rn forall_gr in
           If1.add_edge gn 0 rn next_rn (If1.lookup_tyid INTEGRAL) forall_gr
-        in
-
-        (* Wire Parent Boundary -> Subgraphs for all imported symbols *)
-        let forall_gr =
-          let _, ps = forall_gr.If1.symtab in
-          If1.SM.fold
-            (fun _ v gr ->
-              let srcn, srcp = (v.If1.val_def, v.If1.def_port) in
-              if srcn = 0 then
-                (* Wire to BODY *)
-                let next_bx = If1.get_next_available_in_port bx gr in
-                let gr = If1.add_edge 0 srcp bx next_bx v.If1.val_ty gr in
-                (* Wire to RETURNS *)
-                let next_rn = If1.get_next_available_in_port rn gr in
-                If1.add_edge 0 srcp rn next_rn v.If1.val_ty gr
-              else gr)
-            ps forall_gr
         in
         (* Wire Generator result 1..N (element streams) to Body inputs *)
         let n_streams = If1.boundary_out_port_count gen_gr in
@@ -1407,18 +1418,18 @@ and do_for_all inexp bodyexp retexp in_gr =
             (* Get Generator'S Lower Size Setting
               And Add To Asetl. After That Abstract This
               And  Call From Outside As Well. *)
-            List.fold_right
-              (fun (wh, tt, aa) (cc, outl, in_gr) ->
+            List.fold_left
+              (fun (cc, outl, in_gr) (wh, tt, aa) ->
                 match wh with
                 | `Array_of ->
                     let ouln, in_gr =
                       add_asetl_for_array_res gen_gr gen_exp in_gr fx aa tt cc 0
                     in
-                    (cc + 1, (wh, tt, ouln, cc) :: outl, in_gr)
+                    (cc + 1, outl @ [ (wh, tt, ouln, cc) ], in_gr)
                 | _ ->
                     let in_gr = If1.add_to_boundary_outputs fx cc tt in_gr in
-                    (cc + 1, (wh, tt, fx, cc) :: outl, in_gr))
-              return_action_list (0, [], forall_gr)
+                    (cc + 1, outl @ [ (wh, tt, fx, cc) ], in_gr))
+              (0, [], forall_gr) return_action_list
           in
 
           let forall_gr = get_ports_unified forall_gr body_nest_gr gen_gr in
@@ -1491,9 +1502,9 @@ and do_for_all inexp bodyexp retexp in_gr =
     build_multiarity ~nam:"FOR_ALL" (List.length return_action_list) in_gr
   in
 
-  let _, _, in_gr =
-    List.fold_right
-      (fun (wh, tt, aa) (cc, outl, iigr) ->
+  let _, outl, in_gr =
+    List.fold_left
+      (fun (cc, outl, iigr) (wh, tt, aa) ->
         match wh with
         | `Array_of ->
             let ouln, iigr =
@@ -1504,15 +1515,15 @@ and do_for_all inexp bodyexp retexp in_gr =
               add_asetl_for_array_res (get_gen_graph forall_gr) gen_exp iigr fx
                 aa tt cc mul_n
             in
-            (cc + 1, (wh, tt, ouln, cc) :: outl, iigr)
+            (cc + 1, outl @ [ (wh, tt, ouln, cc) ], iigr)
         | _ ->
             ( cc + 1,
-              (wh, tt, fx, cc) :: outl,
+              outl @ [ (wh, tt, fx, cc) ],
               If1.add_edge2 fx aa mul_n cc tt iigr ))
-      return_action_list (0, [], in_gr)
+      (0, [], in_gr) return_action_list
   in
 
-  ((mul_n, mul_p, res_ty), return_action_list, in_gr)
+  ((mul_n, mul_p, res_ty), outl, in_gr)
 
 and do_decldef_part in_gr = function
   | Ast.Decldef_part f ->
@@ -2507,9 +2518,25 @@ and add_edges_to_boundary a_gr outer_gr to_node =
                            gr.eset)
                     with
                     | Some (_, _, t) -> t
-                    | None -> 0))
+                    | None ->
+                        (* If still not found, it might be in a parent scope; use placeholder 6 (INTEGRAL)
+                           if we can't determine it, or better, look at common basic types.
+                           The real fix is to ensure types are propagated during do_val import. *)
+                        0))
           in
-          If1.add_edge nx np to_node next_p ty_id gr)
+          (* NEW: Only add the edge if the source node nx exists in gr's node map,
+             OR if nx is Node 0 (boundary of gr).
+             If nx exists in a parent scope but not in gr, we must first import it
+             into gr's boundary. *)
+          let gr =
+            if nx <> 0 && not (If1.NM.mem nx gr.nmap) then
+              (* nx is from an outer scope. Import it into gr's boundary. *)
+              let next_p, gr = If1.add_to_boundary_inputs ~namen nx np gr in
+              If1.add_edge 0 next_p to_node next_p ty_id gr
+            else
+              If1.add_edge nx np to_node next_p ty_id gr
+          in
+          gr)
         outer_gr ports_in_order
   | _ -> outer_gr
 
@@ -2600,7 +2627,6 @@ and bin_exp a b in_gr node_tag =
   in
 
   if is_liftable_dv && (a_is_dv || b_is_dv || a_is_arr || b_is_arr) then
-    (* 1. Universal 1D lifting for Array_dv or standard Array (APL/NumPy style) *)
     let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
     let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
@@ -2912,13 +2938,17 @@ and get_rank ty in_gr =
 
 (* get the ultimate scalar type of an array or vector *)
 and get_deep_elem_ty ty in_gr =
-  match If1.lookup_ty_safe ty in_gr with
-  | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> get_deep_elem_ty et in_gr
-  | Some (If1.Basic _ as b) ->
-      if If1.is_mat_type b || If1.is_vector_type b then
-        get_deep_elem_ty (If1.lookup_tyid (If1.get_element_type_code b)) in_gr
-      else ty
-  | _ -> ty
+  let res =
+    match If1.lookup_ty_safe ty in_gr with
+    | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> get_deep_elem_ty et in_gr
+    | Some (If1.Basic _ as b) ->
+        if If1.is_mat_type b || If1.is_vector_type b then
+          get_deep_elem_ty (If1.lookup_tyid (If1.get_element_type_code b)) in_gr
+        else ty
+    | _ -> ty
+  in
+  to_if1_msg 3 "get_deep_elem_ty in=%d -> out=%d" ty res;
+  res
 
 (* Wire a SHAPE_MISMATCH error edge to the boundary using a SHAPE_CHECK node,
    unless both arrays are statically proven to share the same allocation source.
@@ -3160,6 +3190,31 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
    The iterator runs over __VALO..__VAHI (A's bounds when A is an array,
    or B's bounds when only B is an array). *)
 and lift_binop_forall a_result b_result body_elem in_gr =
+  (* REFACTORING PLAN:
+     Instead of manually injecting symbols and calling do_simple_exp_impl on a 
+     synthetic For_all, we will construct a high-level Ast.Let expression that 
+     wraps the entire lifting logic. This ensures that standard lowering 
+     (do_for_all) handles the capture boundaries correctly.
+
+     The resulting AST will look like:
+     let
+       __LFA := <a_result>;
+       __LFB := <b_result>;
+       __LFSH, __LFERR := conform_check(__LFA, __LFB);
+       __LFTOTAL := product(__LFSH);
+       __LFRES := for i in 0, __LFTOTAL - 1
+                    off_a := dv_offset_at(__LFA, i, __LFSH);
+                    val_a := dv_load_linear(__LFA, off_a);
+                    ... same for B ...
+                    res := val_a <op> val_b;
+                  returns array_dv of res
+                  end for
+     in
+       __LFRES, __LFERR
+     end let
+
+     This transformation ensures that all dependencies are visible to the 
+     standard Sisal lowering passes. *)
   let an, ap, at =
     match
       If1.get_node
@@ -3189,43 +3244,146 @@ and lift_binop_forall a_result b_result body_elem in_gr =
   let a_is_dv = is_dv_array_ty at in_gr in
   let b_is_dv = is_dv_array_ty bt in_gr in
 
-  if a_is_dv || b_is_dv then
-    (* 1. NumPy/JAX Universal Broadcasting Logic *)
+  let a_is_seq = a_is_arr || a_is_dv in
+  let b_is_seq = b_is_arr || b_is_dv in
+
+  if (a_is_dv || b_is_dv) && a_is_seq && not b_is_seq then
+    (* ── DV-array  op  scalar ──────────────────────────────────────────────
+       Strategy: construct
+           for __LFI in ARRAY_LIML(__LFA), ARRAY_LIMH(__LFA)
+             returns array_dv of body_elem        (body_elem already has Array_ref)
+           end for
+       body_elem was built by bin_exp with Array_ref(__LFA,[__LFI]) for the
+       array side and a plain __LFB reference for the scalar, so it drops
+       straight into the forall body without any modifications.
+
+       This mirrors lift_unop_forall: both go through do_simple_exp_impl →
+       do_for_all which handles capture-boundary wiring correctly.  No
+       conform_check is needed because a scalar broadcasts to any shape. *)
+    let mk_inv fn args =
+      Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+    in
+    let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+    let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+    (* Remove any other symbols aliasing (an,ap) or (bn,bp) from the current
+       scope so that wire_all_syms_to_compound processes __LFA and __LFB first
+       (alphabetically they sort after plain variable names like N, V), avoiding
+       port-ordering mismatches between the FORALL boundary and outer edges. *)
+    let cs_save, ps_save = in_gr.If1.symtab in
+    let cs_restricted =
+      If1.SM.filter
+        (fun k entry ->
+          let aliases_a =
+            k <> "__LFA"
+            && entry.If1.val_def = an
+            && entry.If1.def_port = ap
+          in
+          let aliases_b =
+            k <> "__LFB"
+            && entry.If1.val_def = bn
+            && entry.If1.def_port = bp
+          in
+          (not aliases_a) && (not aliases_b))
+        cs_save
+    in
+    let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
+    let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
+    let lo = mk_inv [ "ARRAY_LIML" ] [ a_ref ] in
+    let hi = mk_inv [ "ARRAY_LIMH" ] [ a_ref ] in
+    let forall =
+      Ast.For_all
+        ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
+          Ast.Decldef_part [],
+          [ Ast.Return_exp (Ast.Dv_array_of (1, body_elem), Ast.No_mask) ] )
+    in
+    let triple, in_gr' = do_simple_exp_impl in_gr_restricted forall in
+    (* Restore original symbols (user variable names like V, N) that were
+       temporarily hidden to prevent alphabetical ordering interference. *)
+    let cs', ps' = in_gr'.If1.symtab in
+    let cs_final =
+      If1.SM.fold (fun k v acc -> If1.SM.add k v acc) cs_save cs'
+    in
+    (triple, { in_gr' with If1.symtab = (cs_final, ps') })
+  else if (a_is_dv || b_is_dv) && not a_is_seq && b_is_seq then
+    (* ── scalar  op  DV-array ──────────────────────────────────────────────
+       Mirror of the case above but using B's element range. *)
+    let mk_inv fn args =
+      Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+    in
+    let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
+    let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
+    let cs_save, ps_save = in_gr.If1.symtab in
+    let cs_restricted =
+      If1.SM.filter
+        (fun k entry ->
+          let aliases_a =
+            k <> "__LFA"
+            && entry.If1.val_def = an
+            && entry.If1.def_port = ap
+          in
+          let aliases_b =
+            k <> "__LFB"
+            && entry.If1.val_def = bn
+            && entry.If1.def_port = bp
+          in
+          (not aliases_a) && (not aliases_b))
+        cs_save
+    in
+    let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
+    let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
+    let lo = mk_inv [ "ARRAY_LIML" ] [ b_ref ] in
+    let hi = mk_inv [ "ARRAY_LIMH" ] [ b_ref ] in
+    let forall =
+      Ast.For_all
+        ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
+          Ast.Decldef_part [],
+          [ Ast.Return_exp (Ast.Dv_array_of (1, body_elem), Ast.No_mask) ] )
+    in
+    let triple, in_gr' = do_simple_exp_impl in_gr_restricted forall in
+    let cs', ps' = in_gr'.If1.symtab in
+    let cs_final =
+      If1.SM.fold (fun k v acc -> If1.SM.add k v acc) cs_save cs'
+    in
+    (triple, { in_gr' with If1.symtab = (cs_final, ps') })
+  else if a_is_dv || b_is_dv then
+    (* ── DV-array  op  DV-array ────────────────────────────────────────────
+       Full NumPy/JAX universal broadcasting via conform_check.
+       TODO: The nested IF compounds inside emit_dv_conform_check reference
+       intermediate nodes from outer scopes via injected symbols.  The C
+       backend (apple_lower.ml) resolves subgraph boundary inputs by looking
+       up the source node in the *current* graph scope; cross-scope node
+       references then fall back to a sanitized-name C.Id which may be
+       undeclared.  This path validates at the IF1 level but C generation
+       is broken for DV+DV until add_edges_to_boundary / lower_node is fixed
+       to follow the parent-scope chain when resolving injected symbols. *)
     let sh_res, err_res, in_gr =
       emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr
     in
 
-    (* 2. Get total elements for 1D loop using Product reduction on sh_res *)
     let in_gr = inject_sym "__LFSH_INT" sh_res in_gr in
     let sh_ref_ast = Ast.Val (Ast.Value_name [ "__LFSH_INT" ]) in
     let (total_n, total_p, total_t), in_gr =
       do_simple_exp in_gr (Ast.Reduce (Ast.Product, sh_ref_ast))
     in
 
-    (* 3. Use specialized AST nodes for rank-agnostic body *)
     let a_dv_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
     let b_dv_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let sh_ref = Ast.Val (Ast.Value_name [ "__LFSH" ]) in
     let i_ref = Ast.Val (Ast.Value_name [ "__LFI" ]) in
 
-    (* For each operand, if it's an array (DV or standard), use rank-agnostic linear loading.
-       Standard arrays are treated as rank-1 for this purpose. 
-       If it's a scalar, use the value directly. *)
     let val_a =
-      if a_is_arr || a_is_dv then
+      if a_is_seq then
         let off_a = Ast.Dv_offset_at (a_dv_ref, i_ref, sh_ref) in
         Ast.Dv_load_linear (a_dv_ref, off_a)
       else a_dv_ref
     in
-
     let val_b =
-      if b_is_arr || b_is_dv then
+      if b_is_seq then
         let off_b = Ast.Dv_offset_at (b_dv_ref, i_ref, sh_ref) in
         Ast.Dv_load_linear (b_dv_ref, off_b)
       else b_dv_ref
     in
 
-    (* Map the original body binary op to rank-agnostic loads *)
     let body_rank_agnostic =
       match body_elem with
       | Ast.Add _ -> Ast.Add (val_a, val_b)
@@ -3242,10 +3400,9 @@ and lift_binop_forall a_result b_result body_elem in_gr =
       | Ast.Or _ -> Ast.Or (val_a, val_b)
       | Ast.Shl _ -> Ast.Shl (val_a, val_b)
       | Ast.Shr _ -> Ast.Shr (val_a, val_b)
-      | _ -> body_elem (* Fallback *)
+      | _ -> body_elem
     in
 
-    (* Inject already-lowered operands under fresh names *)
     let in_gr = inject_sym "__LFA" (an, ap, at) in_gr in
     let in_gr = inject_sym "__LFB" (bn, bp, bt) in_gr in
     let in_gr = inject_sym "__LFSH" sh_res in_gr in
@@ -3255,20 +3412,24 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let zero_exp = Ast.Constant (Ast.Int 0) in
     let hi_exp = Ast.Subtract (total_exp, Ast.Constant (Ast.Int 1)) in
 
-    let forall =
+    let forall_loop =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ zero_exp; hi_exp ]),
           Ast.Decldef_part [],
-          [
-            Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask);
-          ] )
+          [ Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask) ] )
     in
 
-    let result, in_gr = do_simple_exp_impl in_gr forall in
-    let res_n, res_p, res_ty = result in
+    let synthetic_ast =
+      Ast.Let
+        ( Ast.Decldef_part
+            [ Ast.Decldef
+                ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFR1" ] ],
+                  Ast.Exp [ forall_loop ] ) ],
+          Ast.Exp [ Ast.Val (Ast.Value_name [ "__LFR1" ]) ] )
+    in
 
-    (* Final step: Reshape the 1D result array into the broadcast common shape.
-       We use the new DV_RESHAPE_BY_SHAPE node which takes (Array, ShapeArray). *)
+    let (res1_n, res1_p, res1_ty), in_gr = do_simple_exp in_gr synthetic_ast in
+
     let (final_n, final_p, _), in_gr =
       If1.add_node_2
         (`Simple
@@ -3278,19 +3439,15 @@ and lift_binop_forall a_result b_result body_elem in_gr =
              [ If1.No_pragma ] ))
         in_gr
     in
-    let in_gr = If1.add_edge res_n res_p final_n 0 res_ty in_gr in
+    let in_gr = If1.add_edge res1_n res1_p final_n 0 res1_ty in_gr in
     let sh_n, sh_p, sh_ty = sh_res in
     let in_gr = If1.add_edge sh_n sh_p final_n 1 sh_ty in_gr in
 
-    let result = (final_n, final_p, res_ty) in
-
-    (* Wire the conformity error via Railway Monad *)
-    let err_n, err_p, err_t = err_res in
+    let res_triple = (final_n, final_p, res1_ty) in
     let in_gr =
-      add_error_monad_edge ~result_ty:res_ty (err_n, err_p, err_t) "ERROR" in_gr
+      add_error_monad_edge ~result_ty:res1_ty err_res "BROADCAST_ERROR" in_gr
     in
-
-    (result, in_gr)
+    (res_triple, in_gr)
   else
     (* Standard Sisal nested loop for Array_ty *)
     let rn, rp, rt = if a_is_arr then (an, ap, at) else (bn, bp, bt) in
@@ -4794,7 +4951,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (cur_num + 1, If1.add_edge aa port_idx multinum cur_num tid acc_gr))
           data_ports (0, in_gr)
       in
-      ((multinum, 0, 0), in_gr)
+      (* Return the type of the first data port so callers see a real type, not 0.
+         This matters for lifted forall results wrapped in a synthetic Let. *)
+      let result_ty =
+        match If1.IntMap.min_binding_opt data_ports with
+        | Some (_, tid) -> tid
+        | None -> 0
+      in
+      ((multinum, 0, result_ty), in_gr)
   | Old (Ast.Value_name v) ->
       do_val_internal in_gr (`OldMob (String.concat "." v))
   | Val (Ast.Value_name v as m) -> do_val in_gr m
@@ -5251,8 +5415,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* 1. Build predicate first to establish symbol order in boundary *)
             to_if1_msg 3 "If: lowering PREDICATE: %s" (Ast.str_exp predicate);
             let pred_out, predicate_gr =
-              do_exp (If1.get_a_new_graph in_gr_if) predicate
+              let n_g = (If1.get_a_new_graph in_gr_if) in
+              do_exp n_g predicate
             in
+
             let _, predicate_gr =
               extr_types predicate_gr (pred_out, If1.IntMap.empty)
             in
@@ -5278,7 +5444,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* 2. Build else chain *)
             to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
             let ty_lis_else, else_gr =
-              let grr_th = If1.get_a_new_graph in_gr_if in
+              let grr_th = (If1.get_a_new_graph in_gr_if) in
               if_builder tl grr_th els
             in
             let else_cn, else_ma, in_gr_if =
@@ -5299,7 +5465,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             let then_cn, then_ma, in_gr_if =
               build_compound_and_ma then_gr ty_lis_then
-                [ If1.Name "BODY"; If1.Ast_type (Ast.str_exp body) ]
+                [ If1.Name "THEN"; If1.Ast_type (Ast.str_exp body) ]
                 in_gr_if
             in
 
@@ -5351,8 +5517,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      [] ))
                 in_gr_if
             in
-            let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
+            (*
 
+            let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
+*)
             (* 5. Create one SELECT node per output value.
                SELECT_k: input 0 = pred bool, input 1 = then_ma:k, input 2 = else_ma:k.
                then_ma/else_ma are MULTIARITYs whose k-th input comes from the
@@ -5458,7 +5626,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* Propagate the actual array type so maybe_add_dope (called by the
          do_simple_exp wrapper) can insert GET_DOPE_VEC automatically. *)
       let ty =
-        match ret_actions with (_, arr_ty, _) :: _ -> arr_ty | _ -> 0
+        match ret_actions with (_, arr_ty, _, _) :: _ -> arr_ty | _ -> 0
       in
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
@@ -5602,17 +5770,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (List.length return_action_list)
                 in_gr ~nam:"FOR_INITIAL_LOOP_A"
             in
-            let _, _, in_gr =
-              List.fold_right
-                (fun (wh, tt, aa) (cc, outl, iigr) ->
+            let _, outl, in_gr =
+              List.fold_left
+                (fun (cc, outl, iigr) (wh, tt, aa) ->
                   to_if1_msg 4 "LoopA: wiring fx:%d -> mul_n:%d ty=%s" aa cc
                     (If1.p_f_t iigr tt);
                   ( cc + 1,
-                    (wh, tt, fx, cc) :: outl,
+                    outl @ [ (wh, tt, fx, cc) ],
                     If1.add_edge2 fx aa mul_n cc tt iigr ))
-                return_action_list (0, [], in_gr)
+                (0, [], in_gr) return_action_list
             in
-            ((mul_n, mul_p, mul_t), return_action_list, in_gr)
+            ((mul_n, mul_p, mul_t), outl, in_gr)
         | Termination_iterator (t, ii) ->
             to_if1_msg 3 "LoopB: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
@@ -5674,23 +5842,23 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (List.length return_action_list)
                 in_gr ~nam:"FOR_INITIAL_LOOP_B"
             in
-            let _, _, in_gr =
-              List.fold_right
-                (fun (wh, tt, aa) (cc, outl, iigr) ->
+            let _, outl, in_gr =
+              List.fold_left
+                (fun (cc, outl, iigr) (wh, tt, aa) ->
                   to_if1_msg 4 "LoopB: wiring return port %d ty=%s" cc
                     (If1.p_f_t iigr tt);
                   ( cc + 1,
-                    (wh, tt, fx, cc) :: outl,
+                    outl @ [ (wh, tt, fx, cc) ],
                     If1.add_edge2 fx aa mul_n cc tt iigr ))
-                return_action_list (0, [], in_gr)
+                (0, [], in_gr) return_action_list
             in
             to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
               mul_n;
-            ((mul_n, mul_p, mul_t), return_action_list, in_gr)
+            ((mul_n, mul_p, mul_t), outl, in_gr)
       in
       let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
       let ty =
-        match ret_actions with (_, arr_ty, _) :: _ -> arr_ty | _ -> 0
+        match ret_actions with (_, arr_ty, _, _) :: _ -> arr_ty | _ -> 0
       in
       ((mul_n, mul_p, ty), in_gr)
   | Dv_create _rank ->
@@ -7225,6 +7393,8 @@ and do_return_exp in_gr ggg =
   | Ast.Dv_array_of (rank, e) ->
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      to_if1_msg 3 "do_return_exp: Dv_array_of elem source=(%d, %d, %d [%s])"
+        an ap at (If1.p_f_t in_gr at);
       assert (at <> 0);
       let actual_rank =
         match If1.lookup_ty at in_gr with
@@ -7239,6 +7409,11 @@ and do_return_exp in_gr ggg =
       (`Stream_of, (sn, sp, st), in_gr)
 
 and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
+  to_if1_msg 3 "add_return_gr: count=%d" (List.length return_action_list);
+  List.iteri (fun i (act, _, _) ->
+    let act_s = match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | `FinalVal -> "final" | _ -> "other" in
+    to_if1_msg 3 "  action #%d: %s" i act_s
+  ) return_action_list;
   let ret_gr =
     try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
     with e ->
@@ -7247,7 +7422,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
       Printexc.print_backtrace stderr;
       failwith "create subgraph symtab"
   in
-  let ret_gr = get_ports_unified ret_gr in_gr in_gr in
+  let ret_gr = get_ports_unified ret_gr body_gr in_gr in
   (* NEED TO ADD STREAM RETURN *)
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
     let out_port_1 =
@@ -7329,6 +7504,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 else out_gr
               in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
+              let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
+              to_if1_msg 3 "create_return_nodes: Array_of added to boundary port %d ty=%d" out_p what_ty;
               let out_gr =
                 match hd_c with
                 | Some (aty, pnum) ->
@@ -7395,6 +7572,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               in
 
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
+              let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
+              to_if1_msg 3 "create_return_nodes: Dv_array_of added to boundary port %d ty=%d" out_p what_ty;
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
                 (out_lis @ [ (`Dv_array_of (rank + 1), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
@@ -7413,7 +7592,10 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                     out_gr
                 in
                 let out_gr = If1.add_edge 0 aa dd 0 tt out_gr in
-                If1.add_to_boundary_outputs dd ee tt out_gr
+                let out_gr = If1.add_to_boundary_outputs dd ee tt out_gr in
+                let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
+                to_if1_msg 3 "create_return_nodes: FinalVal added to boundary port %d ty=%d" out_p tt;
+                out_gr
               in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
                 (out_lis @ [ (`FinalVal, tt, out_count) ])
@@ -7601,9 +7783,9 @@ and do_returns_clause_list ?(clause_idx = 1) in_gr ret_clause_list
       to_if1_msg 3 "returns clause #%d: action=%s node=%d port=%d ty=%s %s"
         clause_idx action_str node_n node_p (If1.p_f_t in_gr node_t) mask_str;
       do_returns_clause_list ~clause_idx:(clause_idx + 1) in_gr tl
-        ((ret_action, node_n, node_t) :: ret_action_list)
-        ((node_n, node_p, node_t) :: ret_tuple_list)
-        (mask_ty :: mask_ty_list)
+        (ret_action_list @ [ (ret_action, node_n, node_t) ])
+        (ret_tuple_list @ [ (node_n, node_p, node_t) ])
+        (mask_ty_list @ [ mask_ty ])
   | [] -> (in_gr, ret_action_list, ret_tuple_list, mask_ty_list)
 
 and do_defines in_gr = function
@@ -7717,16 +7899,9 @@ and ensure_complex_types in_gr =
           in_gr
       in
       let _, in_gr = If1.add_sisal_typename in_gr tn tid_re in
-      let globals, locals = in_gr.If1.symtab in
-      let entry =
-        { If1.val_name = tn; val_ty = tid_re; val_def = 0; def_port = -1 }
-      in
+      in_gr
+      else in_gr
 
-      {
-        in_gr with
-        If1.symtab = (If1.SM.add tn entry globals, If1.SM.add tn entry locals);
-      }
-    else in_gr
   in
   let in_gr = register_one "COMPLEX_HALF" (If1.lookup_tyid If1.HALF) in_gr in
   let in_gr = register_one "COMPLEX_FLOAT" (If1.lookup_tyid If1.REAL) in_gr in
@@ -7806,6 +7981,8 @@ and verify_function_returns strs fn_ty_id in_gr =
       | Some (Tuple_ty (ty, next)) -> ty :: get_expected_ids next
       | Some _ -> [ tid ] (* Single return value case *)
       | None ->
+          to_if1_msg 1 "verify_returns: Missing type ID %d. Typemap contains: [%s]"
+            tid (String.concat "; " (List.map string_of_int (List.map fst (If1.TM.bindings tm))));
           raise
             (If1.Sem_error
                ("Missing tuple/type definition for ID: " ^ string_of_int tid))
@@ -7905,12 +8082,14 @@ and verify_function_returns strs fn_ty_id in_gr =
                    If1.If1_View.export_debug_html "CRASHED.html" in_gr;
                    raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
            | _ ->
+               let tm_entries = If1.TM.bindings (If1.get_typemap_tm in_gr) in
+               let tm_str = String.concat "; " (List.map (fun (id, ty) -> Printf.sprintf "%d:%s" id (If1.string_of_if1_ty ty)) tm_entries) in
                raise
                  (If1.Sem_error
                     (Printf.sprintf
                        "Return Type Mismatch: return value #%d: type ID %d or \
-                        %d not found in typemap"
-                       idx exp act)));
+                        %d not found in typemap. Typemap contains: [%s]"
+                       idx exp act tm_str)));
         idx + 1)
       1 expected_ids actual_ids
     |> ignore

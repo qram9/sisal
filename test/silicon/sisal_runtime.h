@@ -234,6 +234,13 @@ inline float sisal_array_dot(sisal_array_t A, sisal_array_t B) { return 0.0f; }
 // Runtime math helpers
 inline int32_t _SMOD__II__I(int32_t a, int32_t b) { return a % b; }
 
+// RADIANS / DEGREES helpers (not in C stdlib)
+static const double sisal_pi = 3.14159265358979323846;
+inline float  sisal_radians_f(float  x) { return x * (float)(sisal_pi / 180.0); }
+inline double sisal_radians_d(double x) { return x * (sisal_pi / 180.0); }
+inline float  sisal_degrees_f(float  x) { return x * (float)(180.0 / sisal_pi); }
+inline double sisal_degrees_d(double x) { return x * (180.0 / sisal_pi); }
+
 // Metal Placeholder for M4 Max
 extern "C" inline void sisal_gpu_vector_add(sisal_array_t A, sisal_array_t B, sisal_array_t Out) {
     float* a = (float*)A.data;

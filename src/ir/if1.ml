@@ -732,6 +732,12 @@ and get_boundary_node in_gr =
   let nm = get_node_map in_gr in
   NM.find 0 nm
 
+and get_boundary_outputs in_gr =
+  match get_boundary_node in_gr with Boundary (_, outs, _, _) -> outs | _ -> []
+
+and get_boundary_inputs in_gr =
+  match get_boundary_node in_gr with Boundary (ins, _, _, _) -> ins | _ -> []
+
 and string_of_list_of_list alist_lis out_s =
   match alist_lis with
   | ahd :: atl ->
@@ -2322,7 +2328,7 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let pe = get_edge_set in_gr in
   (* Trace boundary edges (to Node 0) to debug Return Mismatches *)
   let _ =
-    if !Debug.level > 0 then begin
+    if !Debug.level > 5 then begin
       let stack = get_stack_trace 5 in
       let ty_desc =
         "(#" ^ string_of_int ed_ty ^ "): "
@@ -2548,12 +2554,6 @@ and add_edge n1 p1 n2 p2 ed_ty in_gr =
   let n1, p1, ed_ty = find_incoming_regular_node (n1, p1, ed_ty) in_gr in
   if n2 = 0 then add_to_boundary_outputs ~start_port:p2 n1 p1 ed_ty in_gr
   else
-    let in_gr =
-      if n1 = 0 then
-        let _, in_gr = add_to_boundary_inputs 0 p1 in_gr in
-        in_gr
-      else in_gr
-    in
     let in_gr = add_edge2 n1 p1 n2 p2 ed_ty in_gr in
     in_gr
 
@@ -2731,9 +2731,17 @@ and add_type_to_typemap ood in_gr =
   ((id, 0, id), { in_gr with typemap = (id + 1, TM.add id ood tm, tmn) })
 
 and add_type_to_typemap_dedup ood in_gr =
-  match find_ty_safe_opt in_gr ood with
-  | Some existing_id -> ((existing_id, 0, existing_id), in_gr)
-  | None -> add_type_to_typemap ood in_gr
+  let res =
+    match find_ty_safe_opt in_gr ood with
+    | Some existing_id -> ((existing_id, 0, existing_id), in_gr)
+    | None -> add_type_to_typemap ood in_gr
+  in
+  (*let (id, _, _), _ = res in
+  match ood with
+   | Array_dv 6 -> Printf.eprintf "[if1] add_type_to_typemap_dedup: Array_dv(6) -> ID=%d\n" id
+   | Record (6, 0, "size") -> Printf.eprintf "[if1] add_type_to_typemap_dedup: Record(6, 0, 'size') -> ID=%d\n" id
+   | _ -> ();*)
+  res
 
 and change_type_in_typemap idI ood in_gr =
   let id, tm, tmn = get_typemap in_gr in
@@ -3020,7 +3028,11 @@ and lookup_ty_safe ij in_gr =
 and find_ty_safe_opt in_gr aty =
   let _, tm, _ = get_typemap in_gr in
   match
-    TM.to_seq tm |> Seq.find (fun (_, va) -> structurally_equal in_gr [] aty va)
+    TM.to_seq tm |> Seq.find (fun (id, va) -> 
+      let res = structurally_equal in_gr [] aty va in
+      (*if res then Printf.eprintf "[if1] find_ty_safe_opt: MATCH FOUND: %s matches ID=%d: %s\n" 
+        (string_of_if1_ty aty) id (string_of_if1_ty va);*)
+      res)
   with
   | Some (id, _) -> Some id
   | None -> None

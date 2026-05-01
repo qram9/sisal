@@ -5,7 +5,7 @@ SISAL := ../../_build/default/src/main.exe
 CXX   := clang++
 CXXFLAGS := -std=c++17 -O1 -I.
 
-TESTS := if_one if_elseif aa negate_dv pick_dv
+TESTS := if_one if_elseif aa negate_dv pick_dv forall_cpu dv_shl
 
 .PHONY: all clean regen $(TESTS)
 
@@ -24,6 +24,8 @@ regen:
 	$(SISAL) --c ../../test/aa.sis           > aa_gen.cpp
 	$(SISAL) --c ../../test/negate_dv.sis    > negate_dv_gen.cpp
 	$(SISAL) --c ../../test/pick_dv.sis      > pick_dv_gen.cpp
+	$(SISAL) --c ../../forall_cpu.sis        > forall_cpu_gen.cpp
+	$(SISAL) --c ../../test/dv_shl.sis       > dv_shl_gen.cpp
 
 clean:
 	rm -f $(addsuffix _bin, $(TESTS))
