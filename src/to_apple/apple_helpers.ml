@@ -42,14 +42,31 @@ let sanitize name =
         else '_')
       s
   in
-  String.lowercase_ascii s
+  s
 
-(** [var_name ~tag g n p dir] generates a unique C variable name for an IF1
-    port. Format: v_g[gid]_[tag]_n[node_id]_p[port_id]_[i/o] *)
-let var_name ?(tag = "") g n p dir =
+(** [var_name ~tag gr g n p dir] generates a unique C variable name for an IF1
+    port.  Node 0 is always "boundary"; other nodes use their IF1 op name. *)
+let var_name ?(tag = "") gr g n p dir =
   let d_str = match dir with `In -> "i" | `Out -> "o" in
-  if tag <> "" then Printf.sprintf "v_g%d_%s_n%d_p%d_%s" g tag n p d_str
-  else Printf.sprintf "v_g%d_n%d_p%d_%s" g n p d_str
+  let node_part =
+    if n = 0 then "boundary"
+    else
+      let label =
+        match NM.find_opt n gr.nmap with
+        | Some (Simple (_, sym, _, _, _)) ->
+            sanitize (String.lowercase_ascii (string_of_node_sym sym))
+        | Some (Compound (_, _, _, pr, _, _)) ->
+            List.find_map (function Name nm -> Some (sanitize nm) | _ -> None) pr
+            |> Option.value ~default:"comp"
+        | Some (Literal _) -> "lit"
+        | Some (Boundary _) -> "boundary"
+        | _ -> ""
+      in
+      if label = "" then Printf.sprintf "n%d" n
+      else Printf.sprintf "n%d_%s" n label
+  in
+  if tag <> "" then Printf.sprintf "v_g%d_%s_%s_p%d_%s" g tag node_part p d_str
+  else Printf.sprintf "v_g%d_%s_p%d_%s" g node_part p d_str
 
 (** [get_port_name gr nid pid _dir] looks up a port's name in the graph's symbol
     table. *)
@@ -125,7 +142,7 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
     if PortSet.mem (g, n, p, dir) visited then begin
       if !Ir.Debug.level > 2 then
         Printf.eprintf "DEBUG: cycle detected for %d:%d:%d\n" g n p;
-      C.Id (var_name g n p dir)
+      C.Id (var_name env.curr_gr g n p dir)
     end
     else
       let visited = PortSet.add (g, n, p, dir) visited in
@@ -136,12 +153,15 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
               (Ir.C_ast_print.string_of_expr e);
           e
       | None -> (
-          (* If we are looking for a boundary output of some graph G, and it's not in
-             our current var_map, it might be in a parent environment if we are nested.
-             Reset visited when crossing env boundary so the parent can check its own
-             var_map without being short-circuited by the cycle-detection set. *)
+          (* For boundary outputs (n=0, dir=Out): first check if parent's var_map
+             explicitly wires this port (e.g. lower_node input wiring).  Do NOT
+             blindly recurse into parent_env — that would land on the wrong
+             ancestor's boundary ins (e.g. the function graph) instead of the
+             current sub-graph's own GLOBAL-SYM declarations. *)
           match env.parent_env with
-          | Some p_env when n = 0 && dir = `Out ->
+          | Some p_env
+            when n = 0 && dir = `Out
+                 && FullPortMap.mem (g, n, p, dir) p_env.var_map ->
               if !Ir.Debug.level > 2 then
                 Printf.eprintf
                   "DEBUG: recursing to parent for boundary param %d\n" p;
@@ -164,41 +184,50 @@ let rec get_expr ?(visited = PortSet.empty) env g n p dir =
                 in
                 match find_idx env with
                 | Some ie -> ie
-                | None -> C.Id (var_name g n p dir)
+                | None -> C.Id (var_name env.curr_gr g n p dir)
               else
                 match FullPortMap.find_opt (g, n, p, dir) env.preds with
                 | Some (sg, sn, sp, sd) -> get_expr ~visited env sg sn sp sd
                 | None -> (
-                    match env.parent_env with
-                    | Some p_env ->
-                        (* Reset visited when crossing env boundary *)
-                        get_expr ~visited:PortSet.empty p_env g n p dir
+                    (* For boundary outputs, resolve from the current sub-graph's
+                       boundary ins BEFORE trying parent_env. This ensures each
+                       sub-graph uses its own GLOBAL-SYM names, not an ancestor's. *)
+                    let local_boundary_expr =
+                      if n = 0 && dir = `Out then
+                        match NM.find_opt 0 env.curr_gr.nmap with
+                        | Some (Boundary (ins, _, _, _)) -> (
+                            (* ins is stored newest-first (prepended); local port p
+                               is the index in the reversed list. *)
+                            match List.nth_opt (List.rev ins) p with
+                            | Some (_, _, name) ->
+                                let sname = sanitize name in
+                                if sname <> "" then Some (C.Id sname) else None
+                            | None -> None)
+                        | _ -> None
+                      else None
+                    in
+                    match local_boundary_expr with
+                    | Some expr -> expr
                     | None -> (
-                        match NM.find_opt n env.curr_gr.nmap with
-                        | Some (Literal (_, ty, val_str, _)) -> (
-                            match ty with
-                            | CHARACTER -> C.Id val_str
-                            | REAL | DOUBLE ->
-                                C.LitFloat (float_of_string val_str)
-                            | _ -> (
-                                try C.LitInt (int_of_string val_str)
-                                with _ -> C.Id val_str))
-                        | _ ->
-                            if n = 0 && dir = `Out then
-                              match NM.find_opt 0 env.curr_gr.nmap with
-                              | Some (Boundary (ins, _, _, _)) -> (
-                                  match
-                                    List.find_opt
-                                      (fun (_, p_in, _) -> p_in = p)
-                                      ins
-                                  with
-                                  | Some (_, _, name) ->
-                                      let sname = sanitize name in
-                                      if sname <> "" then C.Id sname
-                                      else C.Id (var_name g n p dir)
-                                  | None -> C.Id (var_name g n p dir))
-                              | _ -> C.Id (var_name g n p dir)
-                            else C.Id (var_name g n p dir)))))
+                        match env.parent_env with
+                        | Some p_env when not (n = 0 && dir = `Out) ->
+                            (* Non-boundary: try parent *)
+                            get_expr ~visited:PortSet.empty p_env g n p dir
+                        | Some p_env ->
+                            (* Boundary output with no local name: try parent as
+                               last resort (e.g. outer scope wired it indirectly) *)
+                            get_expr ~visited:PortSet.empty p_env g n p dir
+                        | None -> (
+                            match NM.find_opt n env.curr_gr.nmap with
+                            | Some (Literal (_, ty, val_str, _)) -> (
+                                match ty with
+                                | CHARACTER -> C.Id val_str
+                                | REAL | DOUBLE ->
+                                    C.LitFloat (float_of_string val_str)
+                                | _ -> (
+                                    try C.LitInt (int_of_string val_str)
+                                    with _ -> C.Id val_str))
+                            | _ -> C.Id (var_name env.curr_gr g n p dir))))))
   in
   res
 
@@ -326,7 +355,7 @@ let get_port_type env gr nid pid dir =
               let matched_name =
                 List.find_opt
                   (fun (_, p, name) ->
-                    let sname = String.lowercase_ascii name in
+                    let sname = sanitize name in
                     p = pid
                     && (sname = "i" || sname = "index" || sname = "lo"
                       || sname = "hi" || sname = "count"))
@@ -349,6 +378,20 @@ let get_port_type env gr nid pid dir =
               if is_range_related then C.Basic "int32_t" else C.Basic "float"
             else C.Basic "float"
         | _ -> C.Basic "float"))
+
+let rec get_tuple_types tm tid =
+  try
+    match TM.find tid tm with
+    | Tuple_ty (et, next) -> et :: get_tuple_types tm next
+    | _ -> []
+  with _ -> []
+
+let get_function_param_types tm tid =
+  try
+    match TM.find tid tm with
+    | Function_ty (args_id, _, _) -> get_tuple_types tm args_id
+    | _ -> []
+  with _ -> []
 
 (** [get_elem_type env gr nid] retrieves the element type of an array node. *)
 let get_elem_type env gr nid =

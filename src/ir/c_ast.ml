@@ -80,9 +80,10 @@ type stmt =
       body : stmt list;
     }
   | Compound of stmt list
+  | Prototype of procedure
   | Comment of string
 
-type procedure = {
+and procedure = {
   return_ty : c_type;
   name : string;
   params : (c_type * string) list;
