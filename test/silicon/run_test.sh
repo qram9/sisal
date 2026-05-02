@@ -18,7 +18,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "--- Step 2: Compiling C++ to Silicon Binary ---"
-clang++ -O3 out_gen.cpp test_runner.cpp -I. -framework Accelerate -o silicon_test
+clang++ -O3 out_gen.cpp test_runner.cpp -I. -I../../runtime -framework Accelerate -o silicon_test
 
 if [ $? -ne 0 ]; then
     echo "ERROR: C++ compilation failed."

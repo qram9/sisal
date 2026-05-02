@@ -3,7 +3,7 @@
 
 SISAL := ../../_build/default/src/main.exe
 CXX   := clang++
-CXXFLAGS := -std=c++17 -O1 -I.
+CXXFLAGS := -std=c++17 -O1 -I. -I../../runtime
 
 TESTS := if_one if_elseif aa negate_dv pick_dv forall_cpu dv_shl
 

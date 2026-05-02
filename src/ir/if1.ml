@@ -454,6 +454,7 @@ type graph = {
   symtab : if1_value SM.t * if1_value SM.t;
   typemap : int * if1_ty TM.t * int MM.t;
   w : int;
+  prefer_dv : bool;
 }
 (** The graph datastructure used by If1: This record currently uses Map and
     Sets. I need to understand how this impacts performance to decide if other
@@ -577,7 +578,7 @@ let basic_types =
 let basic_map_tyid inc_map =
   List.fold_left (fun mm (x, y) -> IntMap.add x y mm) inc_map basic_types
 
-let rec get_empty_graph n m =
+let rec get_empty_graph ?(prefer_dv = false) n m =
   (* 1. Initialize the base graph *)
   let nm = NM.add 0 (Boundary ([], [], [], [])) NM.empty in
   let initial_gr =
@@ -587,6 +588,7 @@ let rec get_empty_graph n m =
       symtab = (SM.empty, SM.empty);
       typemap = (m, TM.empty, MM.empty);
       w = n;
+      prefer_dv;
     }
   in
 
@@ -719,13 +721,16 @@ and create_subgraph_symtab in_gr other_gr =
         else (acc_cs, acc_gr))
       cs (other_cs, other_gr)
   in
-  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i } = other_gr in
+  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i; prefer_dv = pdv } =
+    other_gr
+  in
   {
     nmap = nm;
     eset = es;
     symtab = (new_cs, other_ps);
     typemap = merge_typeblobs tm otm;
     w = i;
+    prefer_dv = pdv;
   }
 
 and get_boundary_node in_gr =
@@ -1022,7 +1027,7 @@ and visit_by_height mymap height_list vns height_num =
     vn table must be checked and current lists updated.*)
 and cse_by_part in_gr = in_gr
 (*
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } = in_gr in
   let nm =
     NM.fold
       (fun _ nod last_nm ->
@@ -1041,7 +1046,7 @@ and cse_by_part in_gr = in_gr
       nm nm
   in
   let node_l, nm, _, _, map_pred = initialize_exp_info es nm in
-  let cur_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
+  let cur_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } in
   (*print_endline
     ("PRED_MAP:\n" ^
        (IntMap.fold (
@@ -1161,7 +1166,7 @@ and cse_by_part in_gr = in_gr
         ES.add ((x, xp), (y, yp), y_ty) res)
       es ES.empty
   in
-  let res_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
+  let res_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } in
   let _ = dot_graph res_gr in
   res_gr
   *)
@@ -1169,7 +1174,16 @@ and cse_by_part in_gr = in_gr
 and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
-      let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
+      let {
+        nmap = nm;
+        eset = es;
+        symtab = sm;
+        typemap = tm;
+        w = pi;
+        prefer_dv = pdv;
+      } =
+        in_gr
+      in
       let annod =
         match NM.find_opt srcn nm with
         | Some x -> x
@@ -1194,6 +1208,7 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
           symtab = sm;
           typemap = tm;
           w = pi;
+          prefer_dv = pdv;
         }
   | _ -> in_gr
 
@@ -1668,10 +1683,17 @@ and string_of_pair_int (x, y) =
   "(" ^ string_of_int x ^ "," ^ string_of_int y ^ ")"
 
 and safe_set_arr str po arr =
-  if Array.length arr < po then (
-    arr.(po) <- arr.(po) ^ str;
-    arr)
-  else Array.of_list (Array.to_list arr @ [ str ])
+  if po < Array.length arr then
+    let new_arr = Array.copy arr in
+    new_arr.(po) <- cate_nicer new_arr.(po) str ",";
+    new_arr
+  else
+    (* If we need to expand, we can't just mutate anyway. *)
+    let new_len = max (po + 1) (Array.length arr + 1) in
+    let new_arr = Array.make new_len "" in
+    Array.blit arr 0 new_arr 0 (Array.length arr);
+    new_arr.(po) <- str;
+    new_arr
 
 and set_out_port_str src_nod src_port dest_nn =
   match src_nod with
@@ -1721,20 +1743,23 @@ and set_literal dst_nod dst_port src_node =
       match dst_nod with
       | Literal (_, _, _, _) -> dst_nod
       | Simple (lab, n, pin, pout, prag) ->
-          Simple
-            ( lab,
-              n,
-              (pin.(dst_port) <- "Literal:" ^ str_;
-               pin),
-              pout,
-              prag )
+          let new_pin = Array.copy pin in
+          new_pin.(dst_port) <- "Literal:" ^ str_;
+          Simple (lab, n, new_pin, pout, prag)
       | Compound (_, _, _, _, _, _) -> dst_nod
       | Boundary _ -> dst_nod
       | Unknown_node -> dst_nod)
   | _ -> dst_nod
 
 and add_node nn in_gr =
-  let { nmap = nm; eset = _; symtab = par_cs, par_ps; typemap = tm; w = pi } =
+  let {
+    nmap = nm;
+    eset = _;
+    symtab = par_cs, par_ps;
+    typemap = tm;
+    w = pi;
+    prefer_dv = pdv;
+  } =
     in_gr
   in
 
@@ -2309,22 +2334,33 @@ and add_node_2 nn in_gr =
 
 and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let nm = get_node_map in_gr in
-  let _ =
+  let nm =
     match NM.find_opt n2 nm with
-    | Some (Simple (_, _, pin, _, _)) ->
-        if p2 >= 0 && p2 < Array.length pin then pin.(p2) <- string_of_int n1
-    | _ -> ()
+    | Some (Simple (lab, sym, pin, pout, prag)) ->
+        if p2 >= 0 && p2 < Array.length pin then
+          let new_pin = Array.copy pin in
+          new_pin.(p2) <- string_of_int n1;
+          NM.add n2 (Simple (lab, sym, new_pin, pout, prag)) nm
+        else nm
+    | _ -> nm
   in
-  let _ =
+  let nm =
     match NM.find_opt n1 nm with
-    | Some (Simple (_, _, _, pout, _)) ->
+    | Some (Simple (lab, sym, pin, pout, prag)) ->
         if p1 >= 0 && p1 < Array.length pout then
-          pout.(p1) <- cate_nicer pout.(p1) (string_of_int n2) ","
-    | Some (Literal (_, _, _, pout)) ->
+          let new_pout = Array.copy pout in
+          new_pout.(p1) <- cate_nicer new_pout.(p1) (string_of_int n2) ",";
+          NM.add n1 (Simple (lab, sym, pin, new_pout, prag)) nm
+        else nm
+    | Some (Literal (lab, ty, str, pout)) ->
         if p1 >= 0 && p1 < Array.length pout then
-          pout.(p1) <- cate_nicer pout.(p1) (string_of_int n2) ","
-    | _ -> ()
+          let new_pout = Array.copy pout in
+          new_pout.(p1) <- cate_nicer new_pout.(p1) (string_of_int n2) ",";
+          NM.add n1 (Literal (lab, ty, str, new_pout)) nm
+        else nm
+    | _ -> nm
   in
+  let in_gr = { in_gr with nmap = nm } in
   let pe = get_edge_set in_gr in
   (* Trace boundary edges (to Node 0) to debug Return Mismatches *)
   let _ =
@@ -2473,7 +2509,9 @@ and check_for_multiarity n1 n2 in_gr =
         ("Exception in check_for_multiarity Node not found " ^ string_of_int n1)
 
 and cleanup_multiarity in_gr =
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } =
+    in_gr
+  in
   let new_nm =
     NM.fold
       (fun x y z ->
@@ -2488,7 +2526,14 @@ and cleanup_multiarity in_gr =
     (* CRITICAL FIX: Check both source (x) AND destination (y) *)
     ES.filter (fun ((x, _), (y, _), _) -> NM.mem x new_nm && NM.mem y new_nm) es
   in
-  { nmap = new_nm; eset = new_edges; symtab = sm; typemap = tm; w = pi }
+  {
+    nmap = new_nm;
+    eset = new_edges;
+    symtab = sm;
+    typemap = tm;
+    w = pi;
+    prefer_dv = pdv;
+  }
 
 and add_from_edge ((n1, p1), (n2, p2), ed_ty) in_gr =
   add_edge n1 p1 n2 p2 ed_ty in_gr
@@ -2585,14 +2630,18 @@ and fold_multiarity_edge n1 n2 in_gr =
     redirect_edges n2 (ES.diff ending_at edges)
       (ES.cardinal existing_in_edges_n2)
   in
-  let { nmap = _; eset = _; symtab = _; typemap = _; w = _ } = in_gr in
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
+  let { nmap = _; eset = _; symtab = _; typemap = _; w = _; prefer_dv = _ } =
+    in_gr
+  in
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } =
     ES.fold
       (fun ((x, xp), (y, yp), yt) gr -> add_edge x xp y yp yt gr)
       redir_set in_gr
   in
   let es = ES.diff (ES.diff es ending_at) edges in
-  let in_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
+  let in_gr =
+    { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv }
+  in
   in_gr
 
 and add_each_in_list in_gr ex lasti appl =
@@ -2668,7 +2717,7 @@ and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
 
 and get_types_from_graph g inc_blob =
   let g_ty_idx, g_tm, g_tmn =
-    let { nmap = _; eset = _; symtab = _; typemap = tyblob; w = _ } = g in
+    let { nmap = _; eset = _; symtab = _; typemap = tyblob; w = _; prefer_dv = _ } = g in
     tyblob
   in
   let inc_blob_ty_idx, inc_block_tm, inc_blob_tmn = inc_blob in
@@ -3214,9 +3263,23 @@ and get_typecast_type = function
   | Ulong_prefix -> ULONG
 
 and add_sisal_type
-    { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi } aty =
+    {
+      nmap = nm;
+      eset = pe;
+      symtab = sm;
+      typemap = (id, tm, tmn);
+      w = pi;
+      prefer_dv = pdv;
+    } aty =
   let in_gr =
-    { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
+    {
+      nmap = nm;
+      eset = pe;
+      symtab = sm;
+      typemap = (id, tm, tmn);
+      w = pi;
+      prefer_dv = pdv;
+    }
   in
   match aty with
   | Boolean -> (lookup_tyid_triple BOOLEAN, in_gr)
@@ -3311,7 +3374,14 @@ and add_sisal_type
       | Mat4 -> (lookup_tyid_triple MAT4, in_gr))
   | Compound_type ct ->
       add_compound_type
-        { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
+        {
+          nmap = nm;
+          eset = pe;
+          symtab = sm;
+          typemap = (id, tm, tmn);
+          w = pi;
+          prefer_dv = pdv;
+        }
         ct
   | Ast.Error_ty st -> add_type_to_typemap (ERROR st) in_gr
   | Ast.Type_name ty -> (
@@ -3332,8 +3402,15 @@ and add_local_sym in_gr sym_name (sym_def, def_port, def_ty) =
   in
   { in_gr with symtab = (cs, ps) }
 
-and get_typemap_tm { nmap = _; eset = _; symtab = _; typemap = _, tm, _; w = _ }
-    =
+and get_typemap_tm
+    {
+      nmap = _;
+      eset = _;
+      symtab = _;
+      typemap = (_, tm, _);
+      w = _;
+      prefer_dv = _;
+    } =
   tm
 
 and get_typename_map in_gr =
@@ -3348,7 +3425,7 @@ and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
   let ps = get_parent_symtab in_gr in
   let tmmi = get_typemap in_gr in
-  let out_gr = get_empty_graph 1 88 in
+  let out_gr = get_empty_graph ~prefer_dv:in_gr.prefer_dv 1 88 in
   let tmn1 = get_typemap out_gr in
   let tmn1 = merge_typeblobs tmn1 tmmi in
   { out_gr with symtab = (SM.empty, ps); typemap = tmn1 }
@@ -4023,19 +4100,40 @@ and string_of_if1_value_out tm = function
       else ""
 
 and string_of_symtab_gr in_gr =
-  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
+  let {
+    nmap = _;
+    eset = _;
+    symtab = (ls, _);
+    typemap = (_, tm, _);
+    w = _;
+    prefer_dv = _;
+  } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value tm v :: z) ls []
 
 and string_of_symtab_gr_in in_gr =
-  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
+  let {
+    nmap = _;
+    eset = _;
+    symtab = (ls, _);
+    typemap = (_, tm, _);
+    w = _;
+    prefer_dv = _;
+  } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value_in tm v :: z) ls []
 
 and string_of_symtab_gr_out in_gr =
-  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
+  let {
+    nmap = _;
+    eset = _;
+    symtab = (ls, _);
+    typemap = (_, tm, _);
+    w = _;
+    prefer_dv = _;
+  } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value_out tm v :: z) ls []
@@ -4104,7 +4202,14 @@ and typemap_to_string typemap =
     typemap
 
 and string_of_graph ?(offset = 0) in_gr =
-  let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
+  let {
+    nmap = _;
+    eset = ne;
+    symtab = sm;
+    typemap = (_, tm, tmn);
+    w = tail;
+    prefer_dv = _;
+  } =
     in_gr
   in
   cate_list_pad offset
@@ -4175,8 +4280,15 @@ and symtab_printer fmt (cs, ps, tm) =
   Format.fprintf fmt "----------\n%s\n"
     (cate_list (string_of_symtab (cs, ps) tm) "\n")
 
-and outs_syms { nmap = _; eset = _; symtab = cs, ps; typemap = _, tm, _; w = _ }
-    =
+and outs_syms
+    {
+      nmap = _;
+      eset = _;
+      symtab = (cs, ps);
+      typemap = (_, tm, _);
+      w = _;
+      prefer_dv = _;
+    } =
   symtab_printer Format.std_formatter (cs, ps, tm)
 
 and string_of_triples_list in_gr triplets =
@@ -4302,7 +4414,15 @@ and get_symbol_id_old v in_gr =
          ("Symbol not found in current or parent symtab: " ^ old_name))
 
 and is_outer_var vv = function
-  | { nmap = _; eset = _; symtab = _, ps; typemap = _; w = _ } -> SM.mem vv ps
+  | {
+      nmap = _;
+      eset = _;
+      symtab = (_, ps);
+      typemap = _;
+      w = _;
+      prefer_dv = _;
+    } ->
+      SM.mem vv ps
 
 and dot_of_node_map id mn in_gr =
   NM.fold (fun _ v z -> cate_nicer z (dot_of_node_ty id in_gr v) ";\n") mn ""
@@ -4324,7 +4444,16 @@ and dot_of_edge_set id ne =
   ES.fold (fun x y -> cate_nicer y (dot_of_edge id x) "\n") ne ""
 
 and dot_of_graph id in_gr =
-  let { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = _ } = in_gr in
+  let {
+    nmap = nm;
+    eset = ne;
+    symtab = _;
+    typemap = (_, _, _);
+    w = _;
+    prefer_dv = _;
+  } =
+    in_gr
+  in
   cate_nicer (dot_of_node_map id nm in_gr) (dot_of_edge_set id ne) "\n"
 
 and write_dot_file in_gr =
@@ -4380,6 +4509,7 @@ let intrinsic_lib =
          symtab = (SM.empty, SM.empty);
          typemap = (65536, TM.empty, MM.empty);
          w = 65536;
+         prefer_dv = false;
        }
        (* if node num start becoming this big we got a problem *)
        (* 4. Create the function signature objects *)
@@ -4703,8 +4833,14 @@ let intrinsic_lib =
                local_symtab ))
          (id, ps) lib_registry
      in
-     let { nmap = _; eset = _; symtab = _; typemap = _, final_types, _; w = _ }
-         =
+     let {
+       nmap = _;
+       eset = _;
+       symtab = _;
+       typemap = (_, final_types, _);
+       w = _;
+       prefer_dv = _;
+     } =
        in_gr
      in
      (final_syms, final_types))

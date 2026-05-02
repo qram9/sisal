@@ -82,6 +82,7 @@ let main () =
   let if1_dest = ref Nothing in
   let c_dest = ref Nothing in
   let files = ref [] in
+  let prefer_dv = ref false in
   let usage () =
     print_string
       "Usage: main.exe [OPTIONS] [FILE...]\n\n\
@@ -118,7 +119,7 @@ let main () =
         c_dest := Stdout;
         parse rest
     | "--dv" :: rest ->
-        To_if1_.prefer_dv := true;
+        prefer_dv := true;
         parse rest
     | a :: rest when String.length a > 4 && String.sub a 0 4 = "--c=" ->
         c_dest := File (String.sub a 4 (String.length a - 4));
@@ -159,7 +160,7 @@ let main () =
     let sisal_ast = Ast.Compilation_unit all_fragments in
     if !ast_dest <> Nothing then
       write_to !ast_dest (Ast.str_compilation_unit sisal_ast ^ "\n");
-    let ou = To_if1_.do_compilation_unit sisal_ast in
+    let ou = To_if1_.do_compilation_unit ~prefer_dv:!prefer_dv sisal_ast in
     if !Ir.Debug.level > 0 then begin
       If1.If1_View.export_debug_html "compiler_dump.html" ou;
       ignore (If1.write_dot_file ou)
@@ -175,13 +176,9 @@ let main () =
     Printf.eprintf "there was an error: %s%s\n" msg stack;
     let lexbuf = !last_lexbuf in
     (match e with
-    | Ir.If1.Sem_error _ | Ir.If1.Node_not_found _ ->
-        let line, col = !To_if1_.current_src_pos in
-        if line > 0 then Printf.eprintf "  near line %d, col %d\n" line col
-        else begin
-          let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
-          error msg lexbuf
-        end
+    | Ir.If1.Sem_error msg | Ir.If1.Node_not_found msg ->
+        let msg = msg ^ " near \"" ^ Lexing.lexeme lexbuf ^ "\"" in
+        error msg lexbuf
     | Sys_error msg -> Printf.eprintf "%s\n" msg
     | _ ->
         let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
