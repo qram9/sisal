@@ -141,29 +141,12 @@ let str_type_trace () =
   ) (List.rev !type_trace);
   Buffer.contents buf *)
 
-let dbg_trace : string ref = ref ""
-let current_src_pos : (int * int) ref = ref (0, 0)
-let prefer_dv = ref false
+let in_port_1 = [| "0"; "" |]
+let in_port_2 = [| "0"; "1" |]
+let out_port_1 = [| "1"; "" |]
 
-let in_port_1 =
-  (* memory allocate arrays *)
-  let in_array = Array.make 2 "" in
-  in_array.(0) <- "0";
-  in_array
-
-let in_port_2 =
-  let in_array = Array.make 2 "" in
-  in_array.(0) <- "0";
-  in_array.(1) <- "1";
-  in_array
-
-let out_port_1 =
-  let out_array = Array.make 2 "" in
-  out_array.(0) <- "1";
-  out_array
-
-let in_port_0 = Array.make 0 ""
-let out_port_0 = Array.make 0 ""
+let in_port_0 = [||]
+let out_port_0 = [||]
 
 (* an expression like
    let x = 1 in sisal would
@@ -217,7 +200,7 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
               (`Simple
                  ( If1.ABUILD,
                    Array.make (List.length fe_lis + 1) "",
-                   Array.make 1 "",
+                   [| "" |],
                    [ If1.No_pragma ] ))
               in_gr
           in
@@ -237,7 +220,7 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
             if inc_typ = 0 then
               let (id, _, _), in_gr =
                 If1.add_type_to_typemap_dedup
-                  (if !prefer_dv then If1.Array_dv ofty else If1.Array_ty ofty)
+                  (if in_gr.If1.prefer_dv then If1.Array_dv ofty else If1.Array_ty ofty)
                   in_gr
               in
               (id, in_gr)
@@ -251,7 +234,7 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
             else
               let (id, _, _), in_gr =
                 If1.add_type_to_typemap_dedup
-                  (if !prefer_dv then If1.Array_dv inc_typ
+                  (if in_gr.If1.prefer_dv then If1.Array_dv inc_typ
                    else If1.Array_ty inc_typ)
                   in_gr
               in
@@ -302,7 +285,7 @@ and do_each_exp_in_strm in_gr = function
       let (k, l, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.SAPPEND, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.SAPPEND, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ( (k, l, strm_ty),
@@ -310,7 +293,7 @@ and do_each_exp_in_strm in_gr = function
   | [] ->
       If1.add_node_2
         (`Simple
-           (If1.SBUILD, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+           (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
         in_gr
 
 and get_tys ttts ous =
@@ -438,7 +421,7 @@ and union_builder in_gr utags iornone =
   let ff, (edghd, edgp, tty) = lll in
   let (bb, pp, t1), in_gr =
     If1.add_node_2
-      (`Simple (If1.RBUILD, Array.make 2 ff, Array.make 1 "", [ If1.No_pragma ]))
+      (`Simple (If1.RBUILD, Array.make 2 ff, [| "" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge edghd edgp bb t1 tty in_gr in
@@ -621,7 +604,7 @@ and record_builder in_gr field_defs io_type =
       ( If1.RBUILD,
         Array.make (num_fields + 1) "",
         (* Input ports: fields + optional base *)
-        Array.make 1 "",
+        [| "" |],
         (* Output ports *)
         [ If1.No_pragma ] )
   in
@@ -655,7 +638,7 @@ and do_termination in_gr = function
       let (en, ep, et), in_gr = do_exp in_gr e in
       let (nn, np, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.NOT, Array.make 1 "", Array.make 1 "", []))
+          (`Simple (If1.NOT, [| "" |], [| "" |], []))
           in_gr
       in
       let in_gr = If1.add_edge en ep nn 0 et in_gr in
@@ -665,7 +648,7 @@ and do_constant in_gr xx =
   (* Return an IF1 node for
       constants *)
   let out_port_1 =
-    let out_array = Array.make 1 "" in
+    let out_array = [| "" |] in
     out_array
   in
   match xx with
@@ -700,9 +683,9 @@ and do_constant in_gr xx =
       let node_config =
         `Simple
           ( If1.ERROR_NODE,
-            Array.make 1 "",
+            [| "" |],
             (* Input ports: fields + optional base *)
-            Array.make 1 "",
+            [| "" |],
             (* Output ports *)
             [ If1.No_pragma ] )
       in
@@ -1082,11 +1065,11 @@ and get_lower_lim = function
 and build_alim in_gr =
   (* Helper function to build an ALim node *)
   let in_port_1 =
-    let in_array = Array.make 2 "" in
+    let in_array = [| ""; "" |] in
     in_array
   in
   let out_port_1 =
-    let out_array = Array.make 2 "" in
+    let out_array = [| ""; "" |] in
     out_array
   in
   If1.add_node_2
@@ -2543,7 +2526,7 @@ and add_edges_to_boundary a_gr outer_gr to_node =
 and get_simple_unary nou in_gr node_tag =
   let (z, _, _), in_gr =
     let in_port_1 =
-      let in_array = Array.make 1 "" in
+      let in_array = [| "" |] in
       in_array
     in
     let out_port_1 =
@@ -2570,7 +2553,7 @@ and insert_typecast src sp src_ty tgt_ty in_gr =
   let (cast_n, _, _), in_gr =
     If1.add_node_2
       (`Simple
-         (If1.TYPECAST, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+         (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge src sp cast_n 0 src_ty in_gr in
@@ -2745,8 +2728,8 @@ and bin_exp a b in_gr node_tag =
                       "ERROR: Bad type in binary exp---"))
         in
         let (z, _, _), in_gr =
-          let in_port_2 = Array.make 2 "" in
-          let out_port_1 = Array.make 1 "" in
+          let in_port_2 = [| ""; "" |] in
+          let out_port_1 = [| "" |] in
           If1.add_node_2
             (`Simple (node_tag, in_port_2, out_port_1, [ If1.No_pragma ]))
             in_gr
@@ -2861,7 +2844,7 @@ and emit_get_dope_vec (an, ap, arr_ty) in_gr =
     If1.add_node_2
       (`Simple
          ( If1.GET_DOPE_VEC,
-           Array.make 1 "",
+           [| "" |],
            [| "dope"; "array" |],
            [ If1.No_pragma ] ))
       in_gr
@@ -2968,7 +2951,7 @@ and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
     let (ck_n, _, _), in_gr =
       If1.add_node_2
         (`Simple
-           (If1.SHAPE_CHECK, Array.make 2 "", Array.make 0 "", [ If1.No_pragma ]))
+           (If1.SHAPE_CHECK, [| ""; "" |], [||], [ If1.No_pragma ]))
         in_gr
     in
     let in_gr = If1.add_edge an ap ck_n 0 at in_gr in
@@ -3144,7 +3127,7 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
           ],
         [
           Ast.Return_exp
-            ( (if !prefer_dv then Ast.Dv_array_of (1, val_n "__LFDRES")
+            ( (if in_gr.If1.prefer_dv then Ast.Dv_array_of (1, val_n "__LFDRES")
                else Ast.Array_of (val_n "__LFDRES")),
               Ast.No_mask );
           Ast.Return_exp
@@ -3162,7 +3145,7 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
   (* Determine common shape type (Array_dv[Int] or Array[Int]) *)
   let (sh_ty, _, _), in_gr =
     If1.add_type_to_typemap_dedup
-      (if !prefer_dv then If1.Array_dv (If1.lookup_tyid If1.INTEGRAL)
+      (if in_gr.If1.prefer_dv then If1.Array_dv (If1.lookup_tyid If1.INTEGRAL)
        else If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
       in_gr
   in
@@ -3434,8 +3417,8 @@ and lift_binop_forall a_result b_result body_elem in_gr =
       If1.add_node_2
         (`Simple
            ( If1.DV_RESHAPE_BY_SHAPE,
-             Array.make 2 "",
-             Array.make 1 "",
+             [| ""; "" |],
+             [| "" |],
              [ If1.No_pragma ] ))
         in_gr
     in
@@ -3531,7 +3514,7 @@ and direct_scalar_binop (c, pi1, qq1) (d, pi2, qq2) node_tag in_gr =
     in
     let (z, _, _), in_gr =
       If1.add_node_2
-        (`Simple (node_tag, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+        (`Simple (node_tag, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
         in_gr
     in
     let in_gr = If1.add_edge c pi1 z 0 common_ty in_gr in
@@ -3548,7 +3531,7 @@ and direct_scalar_unop (en, ep, et) node_tag in_gr =
   in
   let (rn, _, _), in_gr =
     If1.add_node_2
-      (`Simple (node_tag, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+      (`Simple (node_tag, [| "" |], [| "" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge en ep rn 0 et in_gr in
@@ -3694,7 +3677,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
       verify_compound_inputs lam_node new_fun_gr in_gr;
       ((lam_node, lam_port, fn_ty), in_gr)
   | Pos ((line, col), inner_exp) ->
-      current_src_pos := (line, col);
       let (n, p, ty), in_gr = do_simple_exp in_gr inner_exp in
       let in_gr = If1.set_node_srcline n line col in_gr in
       ((n, p, ty), in_gr)
@@ -3751,7 +3733,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( opcode,
                Array.make (List.length ports_info) "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -3808,7 +3790,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( opcode,
                Array.make (List.length ports_info) "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -4080,8 +4062,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       | "ACREATE"
         when let cs, ps = in_gr.If1.symtab in
              not (If1.SM.mem "ACREATE" cs || If1.SM.mem "ACREATE" ps) ->
-          let in_port_00 = Array.make 1 "" in
-          let out_port_00 = Array.make 1 "" in
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
           let (n, p, _), in_gr =
             If1.add_node_2
               (`Simple (If1.ACREATE, in_port_00, out_port_00, []))
@@ -4093,8 +4075,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           ((n, p, arr_typ), in_gr)
       | ("ARRAY_ADDH" | "ARRAY_ADDL") as array_addx ->
           let (n, _, _), in_gr =
-            let in_port_00 = Array.make 1 "" in
-            let out_port_00 = Array.make 1 "" in
+            let in_port_00 = [| "" |] in
+            let out_port_00 = [| "" |] in
             If1.add_node_2
               (`Simple
                  ( (match array_addx with
@@ -4123,8 +4105,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           ((n, 0, tt), in_gr)
       | "ARRAY_LIMH" ->
           let (n, _, _), in_gr =
-            let in_port_00 = Array.make 1 "" in
-            let out_port_00 = Array.make 1 "" in
+            let in_port_00 = [| "" |] in
+            let out_port_00 = [| "" |] in
             If1.add_node_2
               (`Simple (If1.ALIMH, in_port_00, out_port_00, []))
               in_gr
@@ -4143,8 +4125,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | "ARRAY_ADJUST" ->
-          let in_port_00 = Array.make 3 "" in
-          let out_port_00 = Array.make 1 "" in
+          let in_port_00 = [| ""; ""; "" |] in
+          let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
               (`Simple (If1.AADJUST, in_port_00, out_port_00, []))
@@ -4164,8 +4146,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, List.hd type_lis), in_gr)
       | "ARRAY_LIML" ->
-          let in_port_00 = Array.make 1 "" in
-          let out_port_00 = Array.make 1 "" in
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
               (`Simple (If1.ALIML, in_port_00, out_port_00, []))
@@ -4191,8 +4173,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  ( (match array_remx with
                    | "ARRAY_REML" -> If1.AREML
                    | _ -> If1.AREMH),
-                   Array.make 1 "",
-                   Array.make 1 "",
+                   [| "" |],
+                   [| "" |],
                    [] ))
               in_gr
           in
@@ -4219,8 +4201,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let expl =
             List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
           in
-          let in_ports = Array.make 2 "" in
-          let out_ports = Array.make 1 "" in
+          let in_ports = [| ""; "" |] in
+          let out_ports = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2 (`Simple (If1.ASETL, in_ports, out_ports, [])) in_gr
           in
@@ -4275,9 +4257,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
-          let opcode = if !prefer_dv then If1.DV_CREATE else If1.AFILL in
-          let in_ports = Array.make 3 "" in
-          let out_ports = Array.make 1 "" in
+          let opcode = if in_gr.If1.prefer_dv then If1.DV_CREATE else If1.AFILL in
+          let in_ports = [| ""; ""; "" |] in
+          let out_ports = [| "" |] in
 
           let (n, _, _), in_gr =
             If1.add_node_2 (`Simple (opcode, in_ports, out_ports, [])) in_gr
@@ -4300,7 +4282,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
                 let (arr_ty_id, _, _), in_gr =
                   If1.add_type_to_typemap_dedup
-                    (if !prefer_dv then If1.Array_dv array_element_ty
+                    (if in_gr.If1.prefer_dv then If1.Array_dv array_element_ty
                      else If1.Array_ty array_element_ty)
                     in_gr
                 in
@@ -4310,8 +4292,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
           ((n, 0, final_ty), in_gr)
       | "ARRAY_SIZE" | "ARRAY_PREFIXSIZE" ->
-          let in_port_00 = Array.make 1 "" in
-          let out_port_00 = Array.make 1 "" in
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
               (`Simple (If1.ASIZE, in_port_00, out_port_00, []))
@@ -4367,7 +4349,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       | "STREAM_EMPTY" ->
           let (n, p, _), in_gr =
             If1.add_node_2
-              (`Simple (If1.STRM_EMPTY, Array.make 1 "", Array.make 1 "", []))
+              (`Simple (If1.STRM_EMPTY, [| "" |], [| "" |], []))
               in_gr
           in
           let in_gr =
@@ -4379,8 +4361,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, p, If1.lookup_tyid If1.BOOLEAN), in_gr)
       | ("STREAM_APPEND" | "STREAM_FIRST" | "STREAM_REST") as strm ->
-          let in_port_00 = Array.make 1 "" in
-          let out_port_00 = Array.make 1 "" in
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
           let node_name =
             match strm with
             | "STREAM_FIRST" -> If1.STRM_FIRST
@@ -4822,7 +4804,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in
                 let (arrnum, arrport, _), g =
                   If1.add_node_2
-                    (`Simple (op, Array.make 2 "", Array.make 1 "", []))
+                    (`Simple (op, [| ""; "" |], [| "" |], []))
                     g
                 in
                 let g = If1.add_edge aaa bbb arrnum 0 cur_att g in
@@ -4967,7 +4949,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | Array_generator_named tn ->
       let (bb, pp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ABUILD, Array.make 1 "", Array.make 1 "", []))
+          (`Simple (If1.ABUILD, [| "" |], [| "" |], []))
           in_gr
       in
       let tt = If1.lookup_by_typename in_gr tn in
@@ -4991,7 +4973,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                       (`Simple
                          ( If1.AREPLACE,
                            Array.make (List.length aexp + 2) "",
-                           Array.make 1 "",
+                           [| "" |],
                            [] ))
                       in_gr
                   in
@@ -5041,7 +5023,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         (* 3. Create the ABUILD Node to hold the mask *)
         let (an, ap, at), in_gr =
           If1.add_node_2
-            (`Simple (If1.ABUILD, Array.make mask_len "", Array.make 1 "", []))
+            (`Simple (If1.ABUILD, Array.make mask_len "", [| "" |], []))
             in_gr
         in
 
@@ -5083,11 +5065,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (If1.p_f_t in_gr tt1);
         let _, tt2 = If1.get_record_field in_gr tt1 fn in
         let (bb, pp, _), in_gr =
-          let in_porst = Array.make 2 "" in
-          in_porst.(0) <- fn;
+          let in_porst = [| fn; "" |] in
           If1.add_node_2
             (`Simple
-               (If1.RELEMENTS, in_porst, Array.make 1 "", [ If1.No_pragma ]))
+               (If1.RELEMENTS, in_porst, [| "" |], [ If1.No_pragma ]))
             in_gr
         in
         ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
@@ -5107,7 +5088,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let (idxnum, idxport, tt), in_gr = do_simple_exp in_gr arr_indx in
           let (arrnum, arrport, _), in_gr =
             If1.add_node_2
-              (`Simple (If1.AELEMENT, Array.make 2 "", Array.make 1 "", []))
+              (`Simple (If1.AELEMENT, [| ""; "" |], [| "" |], []))
               in_gr
           in
           let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
@@ -5135,11 +5116,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
           "Record_array_ref: array type %s, index type %s, elem type %s"
           (If1.p_f_t in_gr tt0) (If1.p_f_t in_gr tt1) (If1.p_f_t in_gr elem_ty);
         let (bb, pp, _), in_gr =
-          let in_porst = Array.make 2 "" in
-          in_porst.(0) <- Ast.str_simple_exp re;
+          let in_porst = [| Ast.str_simple_exp re; "" |] in
           If1.add_node_2
             (`Simple
-               (If1.RELEMENTS, in_porst, Array.make 2 "", [ If1.No_pragma ]))
+               (If1.RELEMENTS, in_porst, [| ""; "" |], [ If1.No_pragma ]))
             in_gr
         in
         ( (bb, pp, elem_ty),
@@ -5152,14 +5132,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
             let rec do_field_chain ((fe, ff, tt), in_gr) = function
               | Ast.Field_name fna :: tll ->
                   let (bb, bp, _), in_gr =
-                    let in_porst = Array.make 3 "" in
-                    in_porst.(1) <- fna;
+                    let in_porst = [| ""; fna; "" |] in
                     let (bb, bp, _), in_gr =
                       If1.add_node_2
                         (`Simple
                            ( If1.RREPLACE,
                              in_porst,
-                             Array.make 1 "",
+                             [| "" |],
                              [ If1.No_pragma ] ))
                         in_gr
                     in
@@ -5190,7 +5169,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (n, p, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.SBUILD, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ((n, p, ty_id), in_gr)
@@ -5357,7 +5336,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (typecast_node, typecast_out_port, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.TYPECAST, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ( (typecast_node, typecast_out_port, typecast_out_type),
@@ -5370,9 +5349,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let node_config =
         `Simple
           ( If1.ERROR_NODE,
-            Array.make 1 "",
+            [| "" |],
             (* Input ports: fields + optional base *)
-            Array.make 1 "",
+            [| "" |],
             (* Output ports *)
             [ If1.No_pragma ] )
       in
@@ -5532,8 +5511,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     If1.add_node_2
                       (`Simple
                          ( If1.SELECT,
-                           Array.make 3 "",
-                           Array.make 1 "",
+                           [| ""; ""; "" |],
+                           [| "" |],
                            [ If1.Name (Printf.sprintf "SELECT_%d" k) ] ))
                       gr
                   in
@@ -5884,7 +5863,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_ports = Array.make (1 + rank) "" in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_RESHAPE, in_ports, Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple (If1.DV_RESHAPE, in_ports, [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       (* Wire source array to port 0 *)
@@ -5925,7 +5904,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_ports = Array.make (1 + rank) "" in
       let (pn, pp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.DV_PERMUTE, in_ports, Array.make 1 "", [ If1.No_pragma ]))
+          (`Simple (If1.DV_PERMUTE, in_ports, [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap pn 0 at in_gr in
@@ -5958,8 +5937,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.REDUCE_ALL,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.Name op_str ] ))
           in_gr
       in
@@ -6550,8 +6529,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_REVERSE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6703,7 +6682,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.DV_ROTATE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.DV_ROTATE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6724,8 +6703,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_COMPRESS,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6744,8 +6723,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_OUTERPRODUCT,
-               Array.make 3 "",
-               Array.make 1 "",
+               [| ""; ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6761,8 +6740,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_GRADE_UP,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6783,8 +6762,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_GRADE_DOWN,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6805,7 +6784,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.DV_SORT, Array.make 1 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.DV_SORT, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -6820,8 +6799,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.BROADCAST_SCALAR,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6837,7 +6816,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.ARGMAX_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6862,7 +6841,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.ARGMIN_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6885,8 +6864,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.NONZERO_NODE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6911,8 +6890,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.WHERE_NODE,
-               Array.make 3 "",
-               Array.make 1 "",
+               [| ""; ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6931,7 +6910,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         | _ -> "noop"
       in
       let (ln, lp, _), in_gr =
-        If1.add_node_2 (`Literal (If1.CHARACTER, op_str, Array.make 1 "")) in_gr
+        If1.add_node_2 (`Literal (If1.CHARACTER, op_str, [| "" |])) in_gr
       in
       let lt = If1.lookup_tyid If1.CHARACTER in
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
@@ -6942,8 +6921,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.REDUCE_AXIS,
-               Array.make 3 "",
-               Array.make 1 "",
+               [| ""; ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6960,7 +6939,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.MEAN_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -6985,7 +6964,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.VARIANCE_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7010,7 +6989,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.STDDEV_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7035,7 +7014,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.ANY_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7060,7 +7039,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.ALL_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7084,8 +7063,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_OFFSET_AT,
-               Array.make 3 "",
-               Array.make 1 "",
+               [| ""; ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7100,8 +7079,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_LOAD_LINEAR,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7114,8 +7093,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_NUM_RANK,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7133,8 +7112,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.DV_DIMENSION,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7149,7 +7128,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             (If1.NORM_NODE, Array.make 2 "", Array.make 1 "", [ If1.No_pragma ]))
+             (If1.NORM_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -7162,8 +7141,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.CUMSUM_NODE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7176,8 +7155,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.CUMPROD_NODE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7190,8 +7169,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.SQUEEZE_NODE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7206,8 +7185,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.EXPAND_NODE,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7221,8 +7200,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.RAVEL_NODE,
-               Array.make 1 "",
-               Array.make 1 "",
+               [| "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7248,7 +7227,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.STENCIL_NODE,
                Array.make (2 + rank) "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7275,7 +7254,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           (`Simple
              ( If1.PAD_NODE,
                Array.make n_ports "",
-               Array.make 1 "",
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7303,8 +7282,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
         If1.add_node_2
           (`Simple
              ( If1.INNERPRODUCT_NODE,
-               Array.make 2 "",
-               Array.make 1 "",
+               [| ""; "" |],
+               [| "" |],
                [ If1.No_pragma ] ))
           in_gr
       in
@@ -7426,7 +7405,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
   (* NEED TO ADD STREAM RETURN *)
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
     let out_port_1 =
-      let out_array = Array.make 1 "" in
+      let out_array = [| "" |] in
       out_array
     in
     let which_ins =
@@ -7438,7 +7417,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
     in
     let (dd, ee, _), in_gr =
       If1.add_node_2
-        (`Simple (which_ins, Array.make 3 "", Array.make 1 "", [ If1.No_pragma ]))
+        (`Simple (which_ins, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
         in_gr
     in
     let (lx, ly, _), in_gr =
@@ -7464,14 +7443,14 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
           | `Array_of, tt, aa ->
               assert (tt <> 0);
               let opcode, n_ports =
-                if !prefer_dv then (If1.DV_GATHER, 3) else (If1.AGATHER, 2)
+                if out_gr.If1.prefer_dv then (If1.DV_GATHER, 3) else (If1.AGATHER, 2)
               in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
                      ( opcode,
                        Array.make n_ports "",
-                       Array.make 1 "",
+                       [| "" |],
                        [ If1.No_pragma ] ))
                   out_gr
               in
@@ -7480,14 +7459,14 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               let what_ty, out_gr =
                 assert (tt <> 0);
                 let (id_x, _, _), out_gr =
-                  if !prefer_dv then
+                  if out_gr.If1.prefer_dv then
                     If1.add_type_to_typemap_dedup (If1.Array_dv tt) out_gr
                   else If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
                 in
                 to_if1_msg 3
                   "create_return_nodes: Array_of (prefer_dv=%b) elem_ty=%d -> \
                    what_ty=%d"
-                  !prefer_dv tt id_x;
+                  out_gr.If1.prefer_dv tt id_x;
                 (id_x, out_gr)
               in
               let out_gr =
@@ -7495,7 +7474,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
               let out_gr =
-                if !prefer_dv then
+                if out_gr.If1.prefer_dv then
                   (* DV_GATHER needs rank as port 2 *)
                   let (rn, _, _), out_gr =
                     do_simple_exp out_gr (Ast.Constant (Ast.Int 1))
@@ -7509,7 +7488,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               let out_gr =
                 match hd_c with
                 | Some (aty, pnum) ->
-                    let p = if !prefer_dv then 3 else 2 in
+                    let p = if out_gr.If1.prefer_dv then 3 else 2 in
                     If1.add_edge 0 pnum dd p aty out_gr
                 | None -> out_gr
               in
@@ -7522,8 +7501,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 If1.add_node_2
                   (`Simple
                      ( If1.DV_GATHER,
-                       Array.make 3 "",
-                       Array.make 1 "",
+                       [| ""; ""; "" |],
+                       [| "" |],
                        [ If1.No_pragma ] ))
                   out_gr
               in
@@ -7547,8 +7526,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 If1.add_node_2
                   (`Simple
                      ( If1.DV_DIMENSION,
-                       Array.make 2 "",
-                       Array.make 1 "",
+                       [| ""; "" |],
+                       [| "" |],
                        [ If1.No_pragma ] ))
                   out_gr
               in
@@ -7557,7 +7536,7 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
               (* placeholder for DV source *)
               let (rank_idx_n, _, _), out_gr =
                 If1.add_node_2
-                  (`Literal (If1.INTEGRAL, string_of_int rank, Array.make 1 ""))
+                  (`Literal (If1.INTEGRAL, string_of_int rank, [| "" |]))
                   out_gr
               in
               let out_gr =
@@ -7586,8 +7565,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                   If1.add_node_2
                     (`Simple
                        ( If1.FINALVALUE,
-                         Array.make 2 "",
-                         Array.make 1 "",
+                         [| ""; "" |],
+                         [| "" |],
                          [ If1.No_pragma ] ))
                     out_gr
                 in
@@ -7628,8 +7607,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                 If1.add_node_2
                   (`Simple
                      ( (If1.STREAM : If1.node_sym),
-                       Array.make 1 "",
-                       Array.make 1 "",
+                       [| "" |],
+                       [| "" |],
                        [ If1.No_pragma ] ))
                   out_gr
               in
@@ -7732,8 +7711,8 @@ and do_returns_clause in_gr ret_clause =
       let msk, in_gr =
         match mask_clause with
         | Ast.Unless unless_exp ->
-            let in_port_00 = Array.make 1 "" in
-            let out_port_00 = Array.make 1 "" in
+            let in_port_00 = [| "" |] in
+            let out_port_00 = [| "" |] in
             let (un, up, uty), in_gr = do_simple_exp in_gr unless_exp in
             let (un_, _, _), in_gr =
               If1.add_node_2
@@ -7852,8 +7831,9 @@ and redeem_and_merge_library current_gr voucher_info =
     If1.symtab = stab;
     If1.typemap = lib_tmap;
     If1.w = _;
+    If1.prefer_dv = _;
   } =
-    do_compilation_unit lib_unit
+    do_compilation_unit ~prefer_dv:current_gr.If1.prefer_dv lib_unit
   in
 
   (* 3. FIND: Locate the specific symbol in the library's finished symtab *)
@@ -7910,10 +7890,10 @@ and ensure_complex_types in_gr =
   in
   in_gr
 
-and do_compilation_unit = function
+and do_compilation_unit ?(prefer_dv = false) = function
   | Ast.Compilation_unit fragments ->
       (* Initialize our empty graph with the standard 7 basic types *)
-      let in_gr = If1.get_empty_graph 1 88 in
+      let in_gr = If1.get_empty_graph ~prefer_dv 1 88 in
       let in_gr = ensure_complex_types in_gr in
       (* PASS 1: Register all types, usings, and global signatures across ALL
          fragments before lowering any function body. This ensures mutual

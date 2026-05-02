@@ -21,6 +21,8 @@ type subscript_info = {
 
 (* --- internal helpers --- *)
 
+module CharMap = Map.Make (Char)
+
 (* Strip "..." and collect remaining letter labels from a spec string. *)
 let parse_label_spec (part : string) : char list =
   let trimmed = String.trim part in
@@ -48,16 +50,17 @@ let parse_einsum_subscript (s : string) : subscript_info =
     | Some s -> parse_label_spec s
     | None ->
         (* Implicit output: labels appearing exactly once, in alphabetical order. *)
-        let tbl = Hashtbl.create 16 in
-        List.iter
-          (fun spec ->
-            List.iter
-              (fun c ->
-                let n = try Hashtbl.find tbl c with Not_found -> 0 in
-                Hashtbl.replace tbl c (n + 1))
-              spec)
-          input_specs;
-        Hashtbl.fold (fun c n acc -> if n = 1 then c :: acc else acc) tbl []
+        let tbl =
+          List.fold_left
+            (fun acc spec ->
+              List.fold_left
+                (fun acc c ->
+                  let n = try CharMap.find c acc with Not_found -> 0 in
+                  CharMap.add c (n + 1) acc)
+                acc spec)
+            CharMap.empty input_specs
+        in
+        CharMap.fold (fun c n acc -> if n = 1 then c :: acc else acc) tbl []
         |> List.sort Char.compare
   in
   { input_specs; output_spec; has_ellipsis }
@@ -66,16 +69,24 @@ let parse_einsum_subscript (s : string) : subscript_info =
     it appears. Returns an association list sorted by label. Result:
     [(label, (operand_index, dim_index_within_operand)); ...] *)
 let index_label_sources (info : subscript_info) : (char * (int * int)) list =
-  let tbl = Hashtbl.create 16 in
-  List.iteri
-    (fun op_idx spec ->
-      List.iteri
-        (fun dim_idx label ->
-          if not (Hashtbl.mem tbl label) then
-            Hashtbl.add tbl label (op_idx, dim_idx))
-        spec)
-    info.input_specs;
-  Hashtbl.fold (fun k v acc -> (k, v) :: acc) tbl []
+  let tbl, _ =
+    List.fold_left
+      (fun (acc, op_idx) spec ->
+        let acc, _ =
+          List.fold_left
+            (fun (acc, dim_idx) label ->
+              let acc =
+                if not (CharMap.mem label acc) then
+                  CharMap.add label (op_idx, dim_idx) acc
+                else acc
+              in
+              (acc, dim_idx + 1))
+            (acc, 0) spec
+        in
+        (acc, op_idx + 1))
+      (CharMap.empty, 0) info.input_specs
+  in
+  CharMap.fold (fun k v acc -> (k, v) :: acc) tbl []
   |> List.sort (fun (a, _) (b, _) -> Char.compare a b)
 
 (** Contracted labels: appear in at least one input but NOT in the output. *)

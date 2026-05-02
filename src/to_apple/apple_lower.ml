@@ -421,7 +421,13 @@ and lower_node env gr nid node =
             (List.sort_uniq compare out_pids)
         in
 
-        (stmts @ result_propagation, env_after_sub)
+        (* Restore curr_gid and curr_gr to the outer scope: env_after_sub has
+           curr_gid = sub_gid (the compound's internal GID) because lower_graph
+           sets curr_gid = gid at entry.  Returning sub_gid to the topo-sorted
+           loop in the parent lower_graph would cause every subsequent sibling
+           node to use the wrong GID for alloc_gid and get_expr lookups. *)
+        ( stmts @ result_propagation,
+          { env_after_sub with curr_gid = gid; curr_gr = gr } )
   | Simple (_, sym, pin, pout, pr) ->
       (lower_simple env gr nid sym pin pout pr, env)
   | Literal (_, code, value, _pout) ->
@@ -1456,31 +1462,27 @@ and lower_for_initial env gr gid nid _cid loop_gr sub_gid var_map_child =
 
       (* Helper: wire a subgraph by matching boundary input names to state variables *)
       let wire_subgraph child_gid child_gr =
-        let vm = ref var_map_child in
         match NM.find_opt 0 child_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
-            List.iter
-              (fun (_ty, pid, name) ->
+            List.fold_left
+              (fun acc_vm (_ty, pid, name) ->
                 let sname = sanitize name in
                 if sname <> "" then
                   match
                     List.find_opt (fun (_, n, _, _) -> n = sname) state_vars
                   with
                   | Some (_, _, v, _) ->
-                      vm :=
-                        FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) !vm
-                  | None -> ()
+                      FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) acc_vm
+                  | None -> acc_vm
                 else
                   match
                     List.find_opt (fun (p, _, _, _) -> p = pid) state_vars
                   with
                   | Some (_, _, v, _) ->
-                      vm :=
-                        FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) !vm
-                  | None -> ())
-              ins;
-            !vm
-        | _ -> !vm
+                      FullPortMap.add (child_gid, 0, pid, `Out) (C.Id v) acc_vm
+                  | None -> acc_vm)
+              var_map_child ins
+        | _ -> var_map_child
       in
 
       (* 4. Lower TEST - feeds from current state variables *)
