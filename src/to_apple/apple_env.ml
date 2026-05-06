@@ -52,36 +52,33 @@ let compound_children_sorted (gr : graph) =
     hierarchy to pre-assign unique GIDs to every subgraph. The root graph is
     assigned GID 0. *)
 let build_gid_table (root_gr : graph) : int GidMap.t =
-  let counter = ref 1 in
-  let map = ref GidMap.empty in
-  let rec visit parent_gid gr =
-    List.iter
-      (fun (nid, sub_gr) ->
-        let gid = !counter in
-        incr counter;
-        map := GidMap.add (parent_gid, nid) gid !map;
-        visit gid sub_gr)
+  let rec visit parent_gid gr (counter, map) =
+    List.fold_left
+      (fun (ctr, m) (nid, sub_gr) ->
+        let gid = ctr in
+        let m' = GidMap.add (parent_gid, nid) gid m in
+        visit gid sub_gr (ctr + 1, m'))
+      (counter, map)
       (compound_children_sorted gr)
   in
-  visit 0 root_gr;
-  !map
-
-(** [next_dyn_gid] is a fallback counter for subgraphs discovered dynamically.
-*)
-let next_dyn_gid = ref 1_000_000
+  snd (visit 0 root_gr (1, GidMap.empty))
 
 (** [alloc_gid tbl parent_gid nid] retrieves the GID for a specific compound
-    node's subgraph from the pre-built table, or generates a dynamic one if
-    missing. *)
+    node's subgraph from the pre-built table, or falls back to a deterministic
+    value derived from the inputs. *)
 let alloc_gid (tbl : int GidMap.t) parent_gid nid =
   match GidMap.find_opt (parent_gid, nid) tbl with
   | Some gid -> gid
-  | None ->
-      let gid = !next_dyn_gid in
-      next_dyn_gid := gid + 1;
-      gid
+  | None -> 1_000_000 + (parent_gid * 1_000) + nid
 
 (* ------------------------------------------------------------------ *)
+
+module PortFanout = Map.Make (struct
+  type t = int * int (* node_id * port_id *)
+  let compare = compare
+end)
+
+module StringSet = Set.Make (String)
 
 type env = {
   tm : if1_ty TM.t;
@@ -92,6 +89,9 @@ type env = {
   parent_env : env option;
   force_gpu : bool;
   gid_table : int GidMap.t;
+  fanout_map : int PortFanout.t;
+  mandatory_ports : PortSet.t;
+  seen_decls : StringSet.t;
 }
 (** [env]: The lowering environment.
     - [tm]: Type map for IF1 types.
