@@ -5375,7 +5375,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, []))
             outer_gr
         in
-        let outer_gr = add_edges_to_boundary sub_gr outer_gr cn in
+        let _, outer_gr = wire_all_syms_to_compound cn sub_gr outer_gr in
         let n = If1.IntMap.cardinal ty_lis in
         let (ma_n, _, _), outer_gr =
           build_multiarity n outer_gr ~nam:"BRANCH_MA"
@@ -5418,7 +5418,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      [] ))
                 in_gr_if
             in
-            let in_gr_if = add_edges_to_boundary predicate_gr in_gr_if pn in
+            let _, in_gr_if = wire_all_syms_to_compound pn predicate_gr in_gr_if in
 
             (* 2. Build else chain *)
             to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
@@ -5581,7 +5581,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  [] ))
             in_gr
         in
-        let in_gr = add_edges_to_boundary regar in_gr sn in
+        let _, in_gr = wire_all_syms_to_compound sn regar in_gr in
         (* Always reconstruct MULTIARITY from sn:0..N-1 (even for N=1) so
            callers receive all N values through the standard mechanism. *)
         let n = If1.IntMap.cardinal ty_lis in
