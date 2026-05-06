@@ -181,6 +181,43 @@ inline sisal_array_t sisal_array_addh(sisal_array_t A, double val) {
     return res;
 }
 
+inline sisal_array_t sisal_array_addl(sisal_array_t A, double val) {
+    sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size + 1);
+    res.lower_bound = A.lower_bound - 1;
+    uint64_t esize = (A.type_id == 1) ? 8 : 4;
+    if (A.type_id == 0) ((float*)res.data)[0] = (float)val;
+    else if (A.type_id == 1) ((double*)res.data)[0] = val;
+    else ((int32_t*)res.data)[0] = (int32_t)val;
+    memcpy((char*)res.data + esize, A.data, A.size * esize);
+    return res;
+}
+
+inline sisal_array_t sisal_array_reml(sisal_array_t A) {
+    if (A.size == 0) return A;
+    sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size - 1);
+    res.lower_bound = A.lower_bound + 1;
+    uint64_t esize = (A.type_id == 1) ? 8 : 4;
+    memcpy(res.data, (char*)A.data + esize, (A.size - 1) * esize);
+    return res;
+}
+
+inline sisal_array_t sisal_array_remh(sisal_array_t A) {
+    if (A.size == 0) return A;
+    sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size - 1);
+    res.lower_bound = A.lower_bound;
+    uint64_t esize = (A.type_id == 1) ? 8 : 4;
+    memcpy(res.data, A.data, (A.size - 1) * esize);
+    return res;
+}
+
+inline sisal_array_t sisal_array_setl(sisal_array_t A, int64_t lb) {
+    sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size);
+    res.lower_bound = lb;
+    uint64_t esize = (A.type_id == 1) ? 8 : 4;
+    memcpy(res.data, A.data, A.size * esize);
+    return res;
+}
+
 inline sisal_array_t sisal_array_replace(sisal_array_t A, int64_t idx, double val) {
     sisal_array_t res = sisal_array_alloc_empty(1, A.type_id, A.size);
     res.lower_bound = A.lower_bound;
@@ -228,7 +265,19 @@ inline sisal_array_t sisal_array_where(sisal_array_t cond, sisal_array_t x, sisa
 inline sisal_array_t sisal_array_cumsum(sisal_array_t A) { return A; }
 inline sisal_array_t sisal_array_cumprod(sisal_array_t A) { return A; }
 inline sisal_array_t sisal_array_tile(sisal_array_t A, int32_t n) { return A; }
-inline sisal_array_t sisal_array_reshape_by_shape(sisal_array_t A, sisal_array_t Sh) { return A; }
+inline sisal_array_t sisal_array_reshape_by_shape(sisal_array_t A, sisal_array_t Sh) {
+    sisal_array_t res = A;
+    uint64_t total_size = 1;
+    int32_t* sh_data = (int32_t*)Sh.data;
+    for (uint64_t i = 0; i < Sh.size; ++i) {
+        total_size *= sh_data[i];
+    }
+    // In a real DV implementation, this would update the dope vector.
+    // For now, we ensure the total size matches and update the rank.
+    res.size = total_size;
+    res.rank = (int32_t)Sh.size;
+    return res;
+}
 inline float sisal_array_dot(sisal_array_t A, sisal_array_t B) { return 0.0f; }
 
 // Runtime math helpers

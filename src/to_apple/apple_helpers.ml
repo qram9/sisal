@@ -19,9 +19,7 @@ let contains_substr s sub =
     in
     check 0
 
-(** [sanitize name] transforms a Sisal identifier into a valid C identifier. It
-    removes "OLD" prefixes, replaces spaces with underscores, and converts to
-    lowercase. *)
+(** [sanitize name] transforms a Sisal identifier into a valid C identifier. *)
 let sanitize name =
   let s =
     if String.starts_with ~prefix:"OLD " name then
@@ -44,41 +42,65 @@ let sanitize name =
   in
   s
 
-(** [var_name ~tag gr g n p dir] generates a unique C variable name for an IF1
-    port.  Node 0 is always "boundary"; other nodes use their IF1 op name. *)
-let var_name ?(tag = "") gr g n p dir =
-  let d_str = match dir with `In -> "i" | `Out -> "o" in
-  let node_part =
-    if n = 0 then "boundary"
-    else
-      let label =
-        match NM.find_opt n gr.nmap with
-        | Some (Simple (_, sym, _, _, _)) ->
-            sanitize (String.lowercase_ascii (string_of_node_sym sym))
-        | Some (Compound (_, _, _, pr, _, _)) ->
-            List.find_map (function Name nm -> Some (sanitize nm) | _ -> None) pr
-            |> Option.value ~default:"comp"
-        | Some (Literal _) -> "lit"
-        | Some (Boundary _) -> "boundary"
-        | _ -> ""
-      in
-      if label = "" then Printf.sprintf "n%d" n
-      else Printf.sprintf "n%d_%s" n label
-  in
-  if tag <> "" then Printf.sprintf "v_g%d_%s_%s_p%d_%s" g tag node_part p d_str
-  else Printf.sprintf "v_g%d_%s_p%d_%s" g node_part p d_str
-
-(** [get_port_name gr nid pid _dir] looks up a port's name in the graph's symbol
-    table. *)
-let get_port_name gr nid pid _dir =
+(** [get_port_name env gr nid pid dir] looks up a port's name in the graph's
+    symbol table or boundary metadata. *)
+let rec get_port_name env gr nid pid dir =
   let cs, _ps = gr.symtab in
-  SM.fold
-    (fun _ v acc ->
-      if acc <> None then acc
-      else if v.val_def = nid && v.def_port = pid then
-        Some (sanitize v.val_name)
-      else acc)
-    cs None
+  let from_cs =
+    SM.fold
+      (fun _ v acc ->
+        if acc <> None then acc
+        else if v.val_def = nid && v.def_port = pid then
+          Some (sanitize v.val_name)
+        else acc)
+      cs None
+  in
+  match from_cs with
+  | Some name -> Some name
+  | None -> (
+      match env.parent_env with
+      | Some p_env when nid = 0 && dir = `Out -> (
+          match NM.find_opt 0 gr.nmap with
+          | Some (Boundary (ins, _, _, _)) -> (
+              let reversed_ins = List.rev ins in
+              match List.nth_opt reversed_ins pid with
+              | Some (sn, sp, _) -> get_port_name p_env p_env.curr_gr sn sp `Out
+              | None -> None)
+          | _ -> None)
+      | _ -> None)
+
+(** [var_name ?tag env gr g n p dir] generates a unique C variable name for an
+    IF1 port. *)
+let var_name ?(tag = "") env gr g n p dir =
+  let base_name =
+    match get_port_name env gr n p dir with
+    | Some name when name <> "" -> sanitize name
+    | _ -> ""
+  in
+  let d_str = match dir with `In -> "i" | `Out -> "o" in
+  if g = 0 && n = 0 && dir = `Out then
+    if base_name <> "" then base_name else Printf.sprintf "param_p%d" p
+  else
+    let computed_tag =
+      if tag <> "" then tag
+      else if n = 0 then "boundary"
+      else
+        let label =
+          match NM.find_opt n gr.nmap with
+          | Some (Simple (_, sym, _, _, _)) ->
+              sanitize (String.lowercase_ascii (string_of_node_sym sym))
+          | Some (Compound (_, sym, _, pr, _, _)) ->
+              List.find_map (function Name nm -> Some (sanitize nm) | _ -> None)
+                pr
+              |> Option.value ~default:"comp"
+          | Some (Literal _) -> "lit"
+          | Some (Boundary _) -> "boundary"
+          | _ -> "node"
+        in
+        label
+    in
+    let prefix = if base_name <> "" then base_name else "v" in
+    Printf.sprintf "%s_g%d_%s_n%d_p%d_%s" prefix g computed_tag n p d_str
 
 (** [c_type_of_if1_basic b] maps a basic IF1 scalar type to a C type string. *)
 let c_type_of_if1_basic = function
@@ -93,8 +115,7 @@ let c_type_of_if1_basic = function
   | UINT -> C.Basic "uint32_t"
   | _ -> C.Basic "float"
 
-(** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type.
-*)
+(** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type. *)
 let c_type_of_if1_ty tm ty =
   match ty with
   | Basic b -> c_type_of_if1_basic b
@@ -116,8 +137,7 @@ let c_type_of_if1_ty tm ty =
   | Union (id, _, _) -> C.Basic ("union union_un_" ^ string_of_int id)
   | _ -> C.Basic "float"
 
-(** [type_id_of_if1_ty _tm ty] returns the runtime type ID for a given IF1 type.
-*)
+(** [type_id_of_if1_ty _tm ty] returns the runtime type ID for a given IF1 type. *)
 let type_id_of_if1_ty _tm ty =
   match ty with
   | Basic REAL -> 0
@@ -127,415 +147,89 @@ let type_id_of_if1_ty _tm ty =
   | Array_dv _ | Array_ty _ -> 10
   | _ -> 0
 
-(** [get_expr env g n p dir] recursively resolves an IF1 port to a C expression.
-    It handles: 1. Direct variable mappings from [env.var_map]. 2. Boundary
-    crossings between parent and child scopes. 3. Literal values. 4. Dataflow
-    predecessors via [env.preds]. 5. Special cases like RANGEGEN index
-    variables. *)
+(** [get_expr env g n p dir] recursively resolves an IF1 port to a C expression. *)
 let rec get_expr ?(visited = PortSet.empty) env g n p dir =
-  let () =
-    if !Ir.Debug.level > 2 then
-      Printf.eprintf "DEBUG: get_expr(gid=%d, node=%d, port=%d, dir=%s)\n" g n p
-        (match dir with `In -> "In" | `Out -> "Out")
-  in
-  let res =
-    if PortSet.mem (g, n, p, dir) visited then begin
-      if !Ir.Debug.level > 2 then
-        Printf.eprintf "DEBUG: cycle detected for %d:%d:%d\n" g n p;
-      C.Id (var_name env.curr_gr g n p dir)
-    end
-    else
-      let visited = PortSet.add (g, n, p, dir) visited in
-      match FullPortMap.find_opt (g, n, p, dir) env.var_map with
-      | Some e ->
-          if !Ir.Debug.level > 2 then
-            Printf.eprintf "DEBUG: found in var_map: %s\n"
-              (Ir.C_ast_print.string_of_expr e);
-          e
-      | None -> (
-          (* For boundary outputs (n=0, dir=Out): first check if parent's var_map
-             explicitly wires this port (e.g. lower_node input wiring).  Do NOT
-             blindly recurse into parent_env — that would land on the wrong
-             ancestor's boundary ins (e.g. the function graph) instead of the
-             current sub-graph's own GLOBAL-SYM declarations. *)
+  if PortSet.mem (g, n, p, dir) visited then
+    C.Id (var_name env env.curr_gr g n p dir)
+  else
+    let visited = PortSet.add (g, n, p, dir) visited in
+    match FullPortMap.find_opt (g, n, p, dir) env.var_map with
+    | Some e -> e
+    | None -> (
+        if g <> env.curr_gid then
           match env.parent_env with
-          | Some p_env
-            when n = 0 && dir = `Out
-                 && FullPortMap.mem (g, n, p, dir) p_env.var_map ->
-              if !Ir.Debug.level > 2 then
-                Printf.eprintf
-                  "DEBUG: recursing to parent for boundary param %d\n" p;
-              get_expr ~visited:PortSet.empty p_env g n p dir
-          | _ -> (
-              (* Heuristic for RANGEGEN index variable: search parents for closest enclosing BODY *)
-              let is_rangegen =
-                match NM.find_opt n env.curr_gr.nmap with
-                | Some (Simple (_, RANGEGEN, _, _, _)) -> true
-                | _ -> false
-              in
-              if is_rangegen && n <> 0 && p = 0 && dir = `Out then
-                let rec find_idx e =
-                  if e.curr_gid >= 1_000_000 then
-                    Some (C.Id (Printf.sprintf "v_idx_g%d" e.curr_gid))
-                  else
-                    match e.parent_env with
-                    | Some pe -> find_idx pe
-                    | None -> None
+          | Some p_env -> get_expr ~visited:PortSet.empty p_env g n p dir
+          | None -> C.Id (var_name env env.curr_gr g n p dir)
+        else
+          match FullPortMap.find_opt (g, n, p, dir) env.preds with
+          | Some (sg, sn, sp, sd) -> get_expr ~visited env sg sn sp sd
+          | None -> (
+              let find_in_parents e sname =
+                let match_found =
+                  FullPortMap.fold
+                    (fun _ expr acc ->
+                      if acc <> None then acc
+                      else
+                        match expr with
+                        | C.Id id when id = sname || String.starts_with ~prefix:(sname ^ "_g") id -> Some expr
+                        | _ -> acc)
+                    e.var_map None
                 in
-                match find_idx env with
-                | Some ie -> ie
-                | None -> C.Id (var_name env.curr_gr g n p dir)
-              else
-                match FullPortMap.find_opt (g, n, p, dir) env.preds with
-                | Some (sg, sn, sp, sd) -> get_expr ~visited env sg sn sp sd
-                | None -> (
-                    (* For boundary outputs, resolve from the current sub-graph's
-                       boundary ins BEFORE trying parent_env. This ensures each
-                       sub-graph uses its own GLOBAL-SYM names, not an ancestor's. *)
-                    let local_boundary_expr =
-                      if n = 0 && dir = `Out then
-                        match NM.find_opt 0 env.curr_gr.nmap with
-                        | Some (Boundary (ins, _, _, _)) -> (
-                            (* ins is stored newest-first (prepended); local port p
-                               is the index in the reversed list. *)
-                            match List.nth_opt (List.rev ins) p with
-                            | Some (_, _, name) ->
-                                let sname = sanitize name in
-                                if sname <> "" then Some (C.Id sname) else None
-                            | None -> None)
-                        | _ -> None
-                      else None
-                    in
-                    match local_boundary_expr with
-                    | Some expr -> expr
-                    | None -> (
-                        match env.parent_env with
-                        | Some p_env when not (n = 0 && dir = `Out) ->
-                            (* Non-boundary: try parent *)
-                            get_expr ~visited:PortSet.empty p_env g n p dir
-                        | Some p_env ->
-                            (* Boundary output with no local name: try parent as
-                               last resort (e.g. outer scope wired it indirectly) *)
-                            get_expr ~visited:PortSet.empty p_env g n p dir
-                        | None -> (
-                            match NM.find_opt n env.curr_gr.nmap with
-                            | Some (Literal (_, ty, val_str, _)) -> (
-                                match ty with
-                                | CHARACTER -> C.Id val_str
-                                | REAL | DOUBLE ->
-                                    C.LitFloat (float_of_string val_str)
-                                | _ -> (
-                                    try C.LitInt (int_of_string val_str)
-                                    with _ -> C.Id val_str))
-                            | _ -> C.Id (var_name env.curr_gr g n p dir))))))
-  in
-  res
+                match match_found with
+                | Some res -> Some res
+                | None -> (match e.parent_env with Some pe -> None | None -> None)
+              in
+              let local_boundary_expr =
+                if g = env.curr_gid && n = 0 && dir = `Out then
+                  let fanout = PortFanout.find_opt (0, p) env.fanout_map |> Option.value ~default:0 in
+                  let is_mandatory = env.curr_gid <> 0 || fanout > 1 || PortSet.mem (0, 0, p, `Out) env.mandatory_ports in
+                  if is_mandatory then Some (C.Id (var_name env env.curr_gr g n p dir))
+                  else match get_port_name env env.curr_gr n p dir with
+                       | Some name when name <> "" -> find_in_parents env (sanitize name)
+                       | _ -> None
+                else None
+              in
+              match local_boundary_expr with
+              | Some expr -> expr
+              | None -> (
+                  match env.parent_env with
+                  | Some p_env -> get_expr ~visited:PortSet.empty p_env g n p dir
+                  | None -> (
+                      match NM.find_opt n env.curr_gr.nmap with
+                      | Some (Literal (_, ty, val_str, _)) -> (
+                          match ty with
+                          | CHARACTER -> let s = if String.length val_str > 0 then String.sub val_str 0 1 else " " in C.LitInt (int_of_char s.[0])
+                          | REAL | DOUBLE -> C.LitFloat (float_of_string val_str)
+                          | _ -> (try C.LitInt (int_of_string val_str) with _ -> C.Id val_str))
+                      | _ -> C.Id (var_name env env.curr_gr g n p dir)))))
 
 (** [get_port_type env gr nid pid dir] infers the C type for a specific IF1
-    port. It searches edge type annotations, boundary metadata, and falls back
-    to heuristics. *)
-let get_port_type env gr nid pid dir =
-  let ty_id =
-    ES.fold
-      (fun ((sn, sp), (dn, dp), t) acc ->
-        let match_src = sn = nid && sp = pid && dir = `Out in
-        let match_dst = dn = nid && dp = pid && dir = `In in
-        if (match_src || match_dst) && t <> 0 then Some t else acc)
-      gr.eset None
-    |> Option.value ~default:0
-  in
+    port. *)
+let rec get_port_type env gr nid pid dir =
+  let sname = match get_port_name env gr nid pid dir with | Some n -> sanitize n | None -> "" in
+  let is_int_name s = s = "i" || s = "index" || s = "lo" || s = "hi" || s = "count" || s = "n" || String.starts_with ~prefix:"__LFIDX" s || String.starts_with ~prefix:"__LFR" s || String.starts_with ~prefix:"__LFD" s || String.starts_with ~prefix:"__LFMR" s || String.starts_with ~prefix:"__LFTOTAL" s in
+  let known_int_node = match NM.find_opt nid gr.nmap with | Some (Simple (_, sym, _, _, _)) -> List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] | _ -> false in
+  if known_int_node then C.Basic "int32_t"
+  else if is_int_name sname then C.Basic "int32_t"
+  else if String.starts_with ~prefix:"__LFA" sname then C.Basic "sisal_array_t"
+  else
+    let ty_id_opt = ES.fold (fun ((sn, sp), (dn, dp), t) acc -> if acc <> None then acc else let match_src = sn = nid && sp = pid && dir = `Out in let match_dst = dn = nid && dp = pid && dir = `In in if (match_src || match_dst) && t <> 0 then Some t else acc) gr.eset None in
+    match ty_id_opt with
+    | Some tid -> (let basic_opt = match tid with | 1 -> Some BOOLEAN | 3 -> Some CHARACTER | 4 -> Some DOUBLE | 6 -> Some INTEGRAL | 8 -> Some REAL | 2 -> Some BYTE | 5 -> Some HALF | 7 -> Some LONG | 9 -> Some SHORT | 10 -> Some UBYTE | 11 -> Some UCHAR | 12 -> Some UINT | 13 -> Some ULONG | 14 -> Some USHORT | _ -> None in match basic_opt with | Some b -> c_type_of_if1_basic b | None -> (try c_type_of_if1_ty env.tm (TM.find tid env.tm) with _ -> C.Basic "float"))
+    | None -> (if nid = 0 && dir = `Out then match env.parent_env with | Some p_env -> (match NM.find_opt 0 gr.nmap with | Some (Boundary (ins, _, _, _)) -> (let reversed_ins = List.rev ins in match List.nth_opt reversed_ins pid with | Some (sn, sp, _) -> get_port_type p_env p_env.curr_gr sn sp `Out | None -> C.Basic "float") | _ -> C.Basic "float") | None -> C.Basic "float"
+               else match NM.find_opt nid gr.nmap with
+               | Some (Simple (_, (DV_LOAD_LINEAR | DV_ELEMENT | AELEMENT), _, _, _)) -> let is_double = match env.parent_env with | Some p_env -> TM.exists (fun _ ty -> match ty with Basic DOUBLE -> true | _ -> false) p_env.tm | None -> false in if is_double then C.Basic "double" else C.Basic "float"
+               | Some (Simple (_, sym, _, _, _)) when List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; DV_SCATTER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE] -> C.Basic "sisal_array_t"
+               | Some (Compound (_, sym, _, pr, _, _)) -> let is_forall = List.exists (function Name n -> n = "FORALL" | _ -> false) pr in if (is_forall || sym = STREAM || sym = MAT) && pid = 0 then C.Basic "sisal_array_t" else if is_forall || sym = STREAM || sym = MAT then C.Basic "int32_t" else C.Basic "float"
+               | _ -> C.Basic "float")
 
-  let ty_id =
-    if ty_id <> 0 then ty_id
-    else
-      match NM.find_opt nid gr.nmap with
-      | Some (Boundary (ins, outs, errs, _)) -> (
-          if dir = `Out then
-            let matched =
-              List.find_map
-                (fun (tid, p, _) -> if p = pid then Some tid else None)
-                ins
-            in
-            Option.value matched ~default:0
-          else
-            let matched =
-              List.find_map
-                (fun (tid, p) -> if p = pid then Some tid else None)
-                outs
-            in
-            match matched with
-            | Some t -> t
-            | None -> (
-                match
-                  List.find_map
-                    (fun (tid, p) -> if p = pid then Some tid else None)
-                    errs
-                with
-                | Some t -> t
-                | None -> 0))
-      | _ -> 0
-  in
-
-  (* Hardcoded basic type IDs from If1.lookup_tyid for robustness against typemap collisions/omissions *)
-  let basic_opt =
-    match ty_id with
-    | 1 -> Some BOOLEAN
-    | 3 -> Some CHARACTER
-    | 4 -> Some DOUBLE
-    | 6 -> Some INTEGRAL
-    | 8 -> Some REAL
-    | 2 -> Some BYTE
-    | 5 -> Some HALF
-    | 7 -> Some LONG
-    | 9 -> Some SHORT
-    | 10 -> Some UBYTE
-    | 11 -> Some UCHAR
-    | 12 -> Some UINT
-    | 13 -> Some ULONG
-    | 14 -> Some USHORT
-    | _ -> None
-  in
-
-  match basic_opt with
-  | Some b -> c_type_of_if1_basic b
-  | None -> (
-      try
-        if ty_id = 0 then raise Not_found;
-        let if1_ty = TM.find ty_id env.tm in
-        c_type_of_if1_ty env.tm if1_ty
-      with _ -> (
-        (* Heuristics for cases with no type ID *)
-        match NM.find_opt nid gr.nmap with
-        | Some (Simple (_, sym, _, _, _))
-          when List.mem sym
-                 [
-                   RANGEGEN;
-                   ALIML;
-                   ALIMH;
-                   ASIZE;
-                   DV_DIMENSION;
-                   DV_NUM_RANK;
-                   DV_OFFSET_AT;
-                 ] ->
-            C.Basic "int32_t"
-        | Some (Simple (_, (DV_LOAD_LINEAR | DV_ELEMENT | AELEMENT), _, _, _))
-          ->
-            C.Basic "float"
-        | Some (Simple (_, sym, _, _, _))
-          when List.mem sym
-                 [
-                   DV_CREATE;
-                   DV_RESHAPE;
-                   DV_SLICE;
-                   DV_PERMUTE;
-                   DV_ROTATE;
-                   DV_COMPRESS;
-                   DV_OUTERPRODUCT;
-                   DV_SORT;
-                   DV_REVERSE;
-                   DV_RESHAPE_BY_SHAPE;
-                   DV_GATHER;
-                   DV_SCATTER;
-                   AGATHER;
-                   ASCATTER;
-                   ABUILD;
-                   AFILL;
-                   ACREATE;
-                 ] ->
-            C.Basic "sisal_array_t"
-        | Some (Compound (_, sym, _, pr, _, _)) ->
-            let is_forall =
-              List.exists (function Name n -> n = "FORALL" | _ -> false) pr
-            in
-            if is_forall || sym = STREAM || sym = MAT then
-              C.Basic "sisal_array_t"
-            else C.Basic "float"
-        | Some (Boundary (ins, _outs, _, _)) ->
-            let is_range_related =
-              let matched_name =
-                List.find_opt
-                  (fun (_, p, name) ->
-                    let sname = sanitize name in
-                    p = pid
-                    && (sname = "i" || sname = "index" || sname = "lo"
-                      || sname = "hi" || sname = "count"))
-                  ins
-              in
-              let has_rangegen =
-                NM.exists
-                  (fun _ n ->
-                    match n with
-                    | Simple (_, RANGEGEN, _, _, _) -> true
-                    | _ -> false)
-                  gr.nmap
-              in
-              Option.is_some matched_name || (has_rangegen && pid = 0)
-            in
-            if nid = 0 && dir = `Out then
-              if is_range_related then C.Basic "int32_t"
-              else C.Basic "sisal_array_t"
-            else if nid = 0 && dir = `In then
-              if is_range_related then C.Basic "int32_t" else C.Basic "float"
-            else C.Basic "float"
-        | _ -> C.Basic "float"))
-
-let rec get_tuple_types tm tid =
-  try
-    match TM.find tid tm with
-    | Tuple_ty (et, next) -> et :: get_tuple_types tm next
-    | _ -> []
-  with _ -> []
-
-let get_function_param_types tm tid =
-  try
-    match TM.find tid tm with
-    | Function_ty (args_id, _, _) -> get_tuple_types tm args_id
-    | _ -> []
-  with _ -> []
-
-(** [get_elem_type env gr nid] retrieves the element type of an array node. *)
-let get_elem_type env gr nid =
-  let ty_id =
-    ES.fold
-      (fun ((sn, sp), _, t) acc ->
-        if sn = nid && sp = 0 && t <> 0 then Some t else acc)
-      gr.eset None
-    |> Option.value ~default:0
-  in
-  try
-    match TM.find ty_id env.tm with
-    | Array_dv et_id | Array_ty et_id -> TM.find et_id env.tm
-    | _ -> Unknown_ty
-  with _ -> Unknown_ty
-
-(** [string_of_pragma p] extracts the string value from a pragma. *)
-let string_of_pragma = function
-  | Name s | Ast_type s | Subscript s -> s
-  | _ -> ""
-
-(** [collect_record_fields tm label] recursively extracts field names and types
-    for a Sisal record structure. *)
-let rec collect_record_fields tm label =
-  match TM.find_opt label tm with
-  | Some (Record (field_ty_id, next_label, name)) ->
-      let s_name = String.trim name in
-      if s_name = "" || s_name = "UNKNOWN" then
-        collect_record_fields tm next_label
-      else
-        let field_ty_val = try TM.find field_ty_id tm with _ -> Unknown_ty in
-        if field_ty_val = Unknown_ty then collect_record_fields tm next_label
-        else
-          let field_ty = c_type_of_if1_ty tm field_ty_val in
-          (sanitize name, field_ty) :: collect_record_fields tm next_label
-  | _ -> []
-
-(** [find_subgraph gr name] locates a named subgraph (e.g., "BODY", "GENERATOR")
-    within a graph based on pragma annotations. *)
-let find_subgraph gr name =
-  let target = String.uppercase_ascii name in
-  let res =
-    NM.choose_opt
-      (NM.filter
-         (fun _ n ->
-           match n with
-           | Compound (_, _, _, pr, _, _) ->
-               List.exists
-                 (function
-                   | Name s | Ast_type s | Subscript s ->
-                       String.uppercase_ascii s = target
-                   | _ -> false)
-                 pr
-           | _ -> false)
-         gr.nmap)
-  in
-  res
-  |> Option.map (fun (id, n) ->
-      match n with Compound (_, _, _, _, g, _) -> (id, g) | _ -> assert false)
-
-(** [get_subgraph_errors env gid cid] returns the error output expressions for a
-    compound node's subgraph. *)
-let get_subgraph_errors env gid cid =
-  match NM.find_opt cid env.curr_gr.nmap with
-  | Some (Compound (sub_cid, _, _, _, sub_gr, _)) -> (
-      let sub_gid = alloc_gid env.gid_table gid sub_cid in
-      match NM.find_opt 0 sub_gr.nmap with
-      | Some (Boundary (_, outs, errs, _)) ->
-          List.mapi
-            (fun i _ ->
-              let pid = List.length outs + i in
-              get_expr env sub_gid 0 pid `Out)
-            errs
-      | _ -> [])
-  | _ -> []
-
-(** [find_boundary_selects gr] identifies SELECT nodes that feed directly into
-    the graph's boundary outputs, acting as phi-node/merge points.
-
-    In an IF subgraph the SELECT nodes are the phi/merge points: each one sits
-    at the boundary, takes (predicate, then-result, else-result) as inputs, and
-    its output is the subgraph result for that port. *)
-let find_boundary_selects gr =
-  ES.fold
-    (fun ((sn, _sp), (dn, dp), _) acc ->
-      if dn = 0 then
-        match NM.find_opt sn gr.nmap with
-        | Some (Simple (_, SELECT, _, _, _)) -> (sn, dp) :: acc
-        | _ -> acc
-      else acc)
-    gr.eset []
-
-(** [topo_sort gr] performs a Kahn-style topological sort of the graph's nodes
-    to ensure that definitions precede uses in the generated C code. *)
-let topo_sort gr =
-  let nodes = NM.bindings gr.nmap |> List.map fst in
-  let num_nodes = List.length nodes in
-  let in_degree = Hashtbl.create num_nodes in
-  let adj_list = Hashtbl.create num_nodes in
-
-  List.iter
-    (fun id ->
-      Hashtbl.add in_degree id 0;
-      Hashtbl.add adj_list id [])
-    nodes;
-
-  (* Construct DAG using the edge-set.
-     If edge starts at 0, it's from the boundary-input node (ignore for in-degree). *)
-  ES.iter
-    (fun ((sn, _), (dn, _), _) ->
-      if sn <> 0 then begin
-        if Hashtbl.mem in_degree dn && Hashtbl.mem adj_list sn then begin
-          let current = Hashtbl.find in_degree dn in
-          Hashtbl.replace in_degree dn (current + 1);
-          let succs = Hashtbl.find adj_list sn in
-          Hashtbl.replace adj_list sn (dn :: succs)
-        end
-      end)
-    gr.eset;
-
-  let worklist = Queue.create () in
-  List.iter
-    (fun id -> if Hashtbl.find in_degree id = 0 then Queue.add id worklist)
-    nodes;
-
-  let rec loop acc =
-    if Queue.is_empty worklist then List.rev acc
-    else
-      let n = Queue.take worklist in
-      let successors = Hashtbl.find adj_list n in
-      List.iter
-        (fun dn ->
-          let d = Hashtbl.find in_degree dn - 1 in
-          Hashtbl.replace in_degree dn d;
-          if d = 0 then Queue.add dn worklist)
-        successors;
-      loop (n :: acc)
-  in
-  let sorted = loop [] in
-  if List.length sorted < num_nodes then begin
-    (* Fallback for malformed graphs (e.g. unexpected cycles) *)
-    let visited = Hashtbl.create num_nodes in
-    List.iter (fun id -> Hashtbl.add visited id true) sorted;
-    let missing = List.filter (fun id -> not (Hashtbl.mem visited id)) nodes in
-    sorted @ missing
-  end
-  else sorted
+let rec get_tuple_types tm tid = try match TM.find tid tm with | Tuple_ty (et, next) -> et :: get_tuple_types tm next | _ -> [] with _ -> []
+let get_function_param_types tm tid = try match TM.find tid tm with | Function_ty (args_id, _, _) -> get_tuple_types tm args_id | _ -> [] with _ -> []
+let get_elem_type env gr nid = let ty_id = ES.fold (fun ((sn, sp), _, t) acc -> if sn = nid && sp = 0 && t <> 0 then Some t else acc) gr.eset None |> Option.value ~default:0 in try match TM.find ty_id env.tm with | Array_dv et_id | Array_ty et_id -> TM.find et_id env.tm | _ -> Unknown_ty with _ -> Unknown_ty
+let string_of_pragma = function | Name s | Ast_type s | Subscript s -> s | _ -> ""
+let rec collect_record_fields tm label = match TM.find_opt label tm with | Some (Record (field_ty_id, next_label, name)) -> let s_name = String.trim name in if s_name = "" || s_name = "UNKNOWN" then collect_record_fields tm next_label else let field_ty_val = try TM.find field_ty_id tm with _ -> Unknown_ty in if field_ty_val = Unknown_ty then collect_record_fields tm next_label else let field_ty = c_type_of_if1_ty tm field_ty_val in (sanitize name, field_ty) :: collect_record_fields tm next_label | _ -> []
+let find_subgraph gr name = let target = String.uppercase_ascii name in let res = NM.choose_opt (NM.filter (fun _ n -> match n with | Compound (_, _, _, pr, _, _) -> List.exists (function | Name s | Ast_type s | Subscript s -> String.uppercase_ascii s = target | _ -> false) pr | _ -> false) gr.nmap) in res |> Option.map (fun (id, n) -> match n with Compound (_, _, _, _, g, _) -> (id, g) | _ -> assert false)
+let get_subgraph_errors env gid cid = match NM.find_opt cid env.curr_gr.nmap with | Some (Compound (sub_cid, _, _, _, sub_gr, _)) -> (let sub_gid = alloc_gid env.gid_table gid sub_cid in match NM.find_opt 0 sub_gr.nmap with | Some (Boundary (_, outs, errs, _)) -> List.mapi (fun i _ -> let pid = List.length outs + i in get_expr env sub_gid 0 pid `Out) errs | _ -> []) | _ -> []
+let find_boundary_selects gr = ES.fold (fun ((sn, _sp), (dn, dp), _) acc -> if dn = 0 then match NM.find_opt sn gr.nmap with | Some (Simple (_, SELECT, _, _, _)) -> (sn, dp) :: acc | _ -> acc else acc) gr.eset []
+let topo_sort gr = let nodes = NM.bindings gr.nmap |> List.map fst in let in_degree = List.fold_left (fun m id -> IntMap.add id 0 m) IntMap.empty nodes in let adj_list = List.fold_left (fun m id -> IntMap.add id [] m) IntMap.empty nodes in let in_degree, adj_list = ES.fold (fun ((sn, _), (dn, _), _) (deg, adj) -> if sn <> 0 && IntMap.mem dn deg && IntMap.mem sn adj then (IntMap.add dn (IntMap.find dn deg + 1) deg, IntMap.add sn (dn :: IntMap.find sn adj) adj) else (deg, adj)) gr.eset (in_degree, adj_list) in let worklist = List.filter (fun id -> IntMap.find id in_degree = 0) nodes in let rec loop worklist acc in_degree = match worklist with | [] -> List.rev acc | n :: rest -> let succs = IntMap.find n adj_list in let new_work, in_degree' = List.fold_left (fun (wl, deg) dn -> let d = IntMap.find dn deg - 1 in let deg' = IntMap.add dn d deg in if d = 0 then (dn :: wl, deg') else (wl, deg')) ([], in_degree) succs in loop (rest @ new_work) (n :: acc) in_degree' in let sorted = loop worklist [] in_degree in let num_nodes = List.length nodes in if List.length sorted < num_nodes then let sorted_set = List.fold_left (fun s id -> IntSet.add id s) IntSet.empty sorted in sorted @ List.filter (fun id -> not (IntSet.mem id sorted_set)) nodes else sorted
+let compute_fanout gr = let counts = ES.fold (fun ((sn, sp), _, _) m -> let count = PortFanout.find_opt (sn, sp) m |> Option.value ~default:0 in PortFanout.add (sn, sp) (count + 1) m) gr.eset PortFanout.empty in let mandatory = ES.fold (fun ((sn, sp), (dn, dp), _) s -> let needs_var = match NM.find_opt dn gr.nmap with | Some (Simple (_, (RELEMENTS | RREPLACE), _, _, _)) -> dp = 1 || dp = 0 | Some (Simple (_, (DV_ELEMENT | AELEMENT | ASIZE | DV_DIMENSION | ALIML | ALIMH | AISEMPTY | DV_LOAD_LINEAR), _, _, _)) -> dp = 0 | Some (Compound _) -> true | _ -> false in if needs_var then PortSet.add (0, sn, sp, `Out) s else s) gr.eset PortSet.empty in (counts, mandatory)

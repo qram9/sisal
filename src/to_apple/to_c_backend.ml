@@ -12,16 +12,14 @@ type env = {
   var_map : C.expr PortMap.t;
   preds : (int * int * int) PortMap.t; (* (gid, dn, dp) -> (sgid, sn, sp) *)
   curr_gid : int;
+  next_gid : int;
   parent_env : env option;
   parent_nid : int option;
 }
 
-let next_gid = ref 0
-
-let gen_gid () =
-  let id = !next_gid in
-  next_gid := id + 1;
-  id
+let gen_gid env =
+  let id = env.next_gid in
+  (id, { env with next_gid = id + 1 })
 
 let sanitize name =
   let s =
@@ -122,58 +120,61 @@ let c_unaop_of_sym = function
   | NOT -> Some C.LogNot
   | _ -> None
 
+module NodeMap = Map.Make (Int)
+
 let topo_sort gr =
   let nodes = NM.bindings gr.nmap |> List.map fst in
   let num_nodes = List.length nodes in
-  let in_degree = Hashtbl.create num_nodes in
-  let adj_list = Hashtbl.create num_nodes in
 
-  List.iter
-    (fun id ->
-      Hashtbl.add in_degree id 0;
-      Hashtbl.add adj_list id [])
-    nodes;
-
-  (* Construct DAG using the edge-set.
-     If edge starts at 0, it's from the boundary-input node (ignore for in-degree). *)
-  ES.iter
-    (fun ((sn, _), (dn, _), _) ->
-      if sn <> 0 then begin
-        if Hashtbl.mem in_degree dn && Hashtbl.mem adj_list sn then begin
-          let current = Hashtbl.find in_degree dn in
-          Hashtbl.replace in_degree dn (current + 1);
-          let succs = Hashtbl.find adj_list sn in
-          Hashtbl.replace adj_list sn (dn :: succs)
-        end
-      end)
-    gr.eset;
-
-  let worklist = Queue.create () in
-  List.iter
-    (fun id -> if Hashtbl.find in_degree id = 0 then Queue.add id worklist)
-    nodes;
-
-  let rec loop acc =
-    if Queue.is_empty worklist then List.rev acc
-    else
-      let n = Queue.take worklist in
-      let successors = Hashtbl.find adj_list n in
-      List.iter
-        (fun dn ->
-          let d = Hashtbl.find in_degree dn - 1 in
-          Hashtbl.replace in_degree dn d;
-          if d = 0 then Queue.add dn worklist)
-        successors;
-      loop (n :: acc)
+  (* Initial in-degrees and adjacency list *)
+  let in_degree =
+    List.fold_left (fun m id -> NodeMap.add id 0 m) NodeMap.empty nodes
   in
-  let sorted = loop [] in
-  if List.length sorted < num_nodes then begin
-    (* Fallback for malformed graphs (e.g. unexpected cycles) *)
-    let visited = Hashtbl.create num_nodes in
-    List.iter (fun id -> Hashtbl.add visited id true) sorted;
-    let missing = List.filter (fun id -> not (Hashtbl.mem visited id)) nodes in
+  let adj_list =
+    List.fold_left (fun m id -> NodeMap.add id [] m) NodeMap.empty nodes
+  in
+
+  (* Construct DAG using the edge-set *)
+  let in_degree, adj_list =
+    ES.fold
+      (fun ((sn, _), (dn, _), _) (in_deg, adj) ->
+        if sn <> 0 && NodeMap.mem dn in_deg && NodeMap.mem sn adj then
+          let current = NodeMap.find dn in_deg in
+          let in_deg = NodeMap.add dn (current + 1) in_deg in
+          let succs = NodeMap.find sn adj in
+          let adj = NodeMap.add sn (dn :: succs) adj in
+          (in_deg, adj)
+        else (in_deg, adj))
+      gr.eset (in_degree, adj_list)
+  in
+
+  let worklist =
+    List.filter (fun id -> NodeMap.find id in_degree = 0) nodes
+  in
+
+  let rec loop acc worklist in_deg =
+    match worklist with
+    | [] -> List.rev acc
+    | n :: rest ->
+        let successors = NodeMap.find n adj_list in
+        let in_deg, new_work =
+          List.fold_left
+            (fun (idg, nw) dn ->
+              let d = NodeMap.find dn idg - 1 in
+              let idg = NodeMap.add dn d idg in
+              if d = 0 then (idg, dn :: nw) else (idg, nw))
+            (in_deg, rest) successors
+        in
+        loop (n :: acc) new_work in_deg
+  in
+  let sorted = loop [] worklist in_degree in
+  if List.length sorted < num_nodes then
+    (* Fallback for malformed graphs *)
+    let visited =
+      List.fold_left (fun m id -> NodeMap.add id true m) NodeMap.empty sorted
+    in
+    let missing = List.filter (fun id -> not (NodeMap.mem id visited)) nodes in
     sorted @ missing
-  end
   else sorted
 
 let rec lower_subgraph env gr gid =
@@ -185,12 +186,12 @@ let rec lower_subgraph env gr gid =
     match boundary with Boundary (i, o, _, _) -> (i, o) | _ -> ([], [])
   in
 
-  let env_ref = ref { env with curr_gid = gid } in
+  let env = { env with curr_gid = gid } in
 
   (* 1. Boundary Input Declarations and Bindings (Outer Block) *)
-  let b_in_decls =
-    List.map
-      (fun (ty_id, pid, name) ->
+  let b_in_decls, env =
+    List.fold_left
+      (fun (decls, env) (ty_id, pid, name) ->
         let s_name = sanitize name in
         let ty =
           try TM.find ty_id env.tm |> c_type_of_if1_ty env.tm
@@ -207,81 +208,87 @@ let rec lower_subgraph env gr gid =
               (* Top level or procedure: use sanitized name *)
               Some (C.Id s_name)
         in
-        env_ref :=
+        let env =
           {
-            !env_ref with
-            var_map = PortMap.add (gid, 0, pid) (C.Id v_name) !env_ref.var_map;
-          };
-        C.Decl (ty, v_name, init))
-      b_ins
+            env with
+            var_map = PortMap.add (gid, 0, pid) (C.Id v_name) env.var_map;
+          }
+        in
+        (C.Decl (ty, v_name, init) :: decls, env))
+      ([], env) b_ins
   in
+  let b_in_decls = List.rev b_in_decls in
 
   (* 2. Boundary Output Declarations (Outer Block) *)
-  let b_out_decls =
-    List.map
-      (fun (ty_id, pid) ->
+  let b_out_decls, env =
+    List.fold_left
+      (fun (decls, env) (ty_id, pid) ->
         let ty =
           try TM.find ty_id env.tm |> c_type_of_if1_ty env.tm
           with _ -> C.Basic "void*"
         in
         let v_name = var_name gid 0 pid in
-        env_ref :=
+        let env =
           {
-            !env_ref with
-            var_map = PortMap.add (gid, 0, pid) (C.Id v_name) !env_ref.var_map;
-          };
-        C.Decl (ty, v_name, None))
-      b_outs
+            env with
+            var_map = PortMap.add (gid, 0, pid) (C.Id v_name) env.var_map;
+          }
+        in
+        (C.Decl (ty, v_name, None) :: decls, env))
+      ([], env) b_outs
   in
+  let b_out_decls = List.rev b_out_decls in
 
   (* 3. Inner Block: Local Node Declarations *)
-  let inner_decls = ref [] in
-  NM.iter
-    (fun nid node ->
-      if nid <> 0 then
-        let pids =
-          match node with
-          | Simple (_, _, _, pout, _) | Literal (_, _, _, pout) ->
-              List.init (Array.length pout) (fun i -> i)
-          | Compound (_, _, _, _, sub_gr, _) ->
-              (* Compound outputs are linked to its boundary node's inputs *)
-              ES.fold
-                (fun (_, (dn, dp), _) acc -> if dn = 0 then dp :: acc else acc)
-                sub_gr.eset []
-          | _ -> [ 0 ]
-        in
-        List.iter
-          (fun pid ->
-            let v = var_name gid nid pid in
-            let ty = get_port_type !env_ref gr nid pid `Out in
-            inner_decls := C.Decl (ty, v, None) :: !inner_decls;
-            env_ref :=
-              {
-                !env_ref with
-                var_map = PortMap.add (gid, nid, pid) (C.Id v) !env_ref.var_map;
-              })
-          pids)
-    gr.nmap;
+  let inner_decls, env =
+    NM.fold
+      (fun nid node (decls, env) ->
+        if nid <> 0 then
+          let pids =
+            match node with
+            | Simple (_, _, _, pout, _) | Literal (_, _, _, pout) ->
+                List.init (Array.length pout) (fun i -> i)
+            | Compound (_, _, _, _, sub_gr, _) ->
+                (* Compound outputs are linked to its boundary node's inputs *)
+                ES.fold
+                  (fun (_, (dn, dp), _) acc -> if dn = 0 then dp :: acc else acc)
+                  sub_gr.eset []
+            | _ -> [ 0 ]
+          in
+          List.fold_left
+            (fun (ds, e) pid ->
+              let v = var_name gid nid pid in
+              let ty = get_port_type e gr nid pid `Out in
+              let e =
+                { e with var_map = PortMap.add (gid, nid, pid) (C.Id v) e.var_map }
+              in
+              (C.Decl (ty, v, None) :: ds, e))
+            (decls, env) pids
+        else (decls, env))
+      gr.nmap ([], env)
+  in
 
   (* 4. Computation Code *)
   let preds =
     ES.fold
       (fun ((sn, sp), (dn, dp), _) m ->
         PortMap.add (gid, dn, dp) (gid, sn, sp) m)
-      gr.eset !env_ref.preds
+      gr.eset env.preds
   in
-  env_ref := { !env_ref with preds };
+  let env = { env with preds } in
 
   let sorted_nids = topo_sort gr in
-  let computation_stmts =
+  let computation_stmts, env =
     List.fold_left
-      (fun acc nid ->
-        if nid = 0 then acc
+      (fun (stmts, env) nid ->
+        if nid = 0 then (stmts, env)
         else
           match NM.find_opt nid gr.nmap with
-          | Some node -> acc @ fst (lower_node !env_ref gr nid node)
-          | None -> acc)
-      [] sorted_nids
+          | Some node ->
+              let s, env = lower_node env gr nid node in
+              (stmts @ s, env)
+          | None -> (stmts, env))
+      ([], env) sorted_nids
   in
 
   (* 5. Propagation to Boundary Outputs (Inner Block) *)
@@ -289,17 +296,17 @@ let rec lower_subgraph env gr gid =
     ES.fold
       (fun ((sn, sp), (dn, dp), _) acc ->
         if dn = 0 then
-          let src = get_expr !env_ref gid sn sp in
-          let dst = get_expr !env_ref gid 0 dp in
+          let src = get_expr env gid sn sp in
+          let dst = get_expr env gid 0 dp in
           C.Expr (C.BinOp (C.Assign, dst, src)) :: acc
         else acc)
       gr.eset []
   in
 
   let inner_block =
-    C.Compound (List.rev !inner_decls @ computation_stmts @ propagation)
+    C.Compound (List.rev inner_decls @ computation_stmts @ propagation)
   in
-  (C.Compound (b_in_decls @ b_out_decls @ [ inner_block ]), !env_ref)
+  (C.Compound (b_in_decls @ b_out_decls @ [ inner_block ]), env)
 
 and lower_node env gr nid node =
   let gid = env.curr_gid in
@@ -392,7 +399,7 @@ and lower_node env gr nid node =
       ([ C.Expr (C.BinOp (C.Assign, v_res, lit)) ], env)
   | Compound (_, INTERNAL, _, pr, sub_gr, _) ->
       (* For INTERNAL compound nodes (like procedures or named subgraphs), we lower the subgraph *)
-      let sub_gid = gen_gid () in
+      let sub_gid, env = gen_gid env in
       let sub_block, env_after =
         lower_subgraph
           { env with parent_env = Some env; parent_nid = Some nid }
@@ -425,38 +432,25 @@ and lower_node env gr nid node =
         (Printf.sprintf "lower_node: node type not implemented: %s (nid=%d)"
            sym_str nid)
 
-let lower_procedure tm nid node =
+let lower_procedure tm nid node next_gid =
   match node with
   | Compound (_, INTERNAL, _, pr, sub_gr, _) ->
       let func_name =
         List.find_map (function Name s -> Some s | _ -> None) pr
         |> Option.value ~default:(Printf.sprintf "func_%d" nid)
       in
-      let sub_gid = gen_gid () in
-      let params =
-        match NM.find_opt 0 sub_gr.nmap with
-        | Some (Boundary (ins, _, _, _)) ->
-            List.map
-              (fun (ty_id, pid, name) ->
-                let ty =
-                  try TM.find ty_id tm |> c_type_of_if1_ty tm
-                  with _ -> C.Basic "void*"
-                in
-                (ty, sanitize name))
-              ins
-        | _ -> []
-      in
-
       let env =
         {
           tm;
           var_map = PortMap.empty;
           preds = PortMap.empty;
-          curr_gid = sub_gid;
+          curr_gid = 0;
+          next_gid;
           parent_env = None;
           parent_nid = None;
         }
       in
+      let sub_gid, env = gen_gid env in
       let body_stmt, env_after = lower_subgraph env sub_gr sub_gid in
 
       let ret_exprs =
@@ -485,24 +479,38 @@ let lower_procedure tm nid node =
         try TM.find ret_ty_id tm |> c_type_of_if1_ty tm with _ -> C.Void
       in
 
-      Some
+      let proc =
         {
           C.return_ty = ret_ty;
           name = func_name;
-          params;
+          params =
+            (match NM.find_opt 0 sub_gr.nmap with
+            | Some (Boundary (ins, _, _, _)) ->
+                List.map
+                  (fun (ty_id, _pid, name) ->
+                    let ty =
+                      try TM.find ty_id tm |> c_type_of_if1_ty tm
+                      with _ -> C.Basic "void*"
+                    in
+                    (ty, sanitize name))
+                  ins
+            | _ -> []);
           body;
           extern_c = true;
         }
-  | _ -> None
+      in
+      (Some proc, env_after.next_gid)
+  | _ -> (None, next_gid)
 
 let translate (gr : graph) : C.translation_unit =
   let _, tm, _ = gr.typemap in
-  next_gid := 0;
-  let procedures =
+  let procedures, _ =
     NM.fold
-      (fun id node acc ->
-        match lower_procedure tm id node with Some p -> p :: acc | None -> acc)
-      gr.nmap []
+      (fun id node (procs, ngid) ->
+        match lower_procedure tm id node ngid with
+        | Some p, next_ngid -> (p :: procs, next_ngid)
+        | None, next_ngid -> (procs, next_ngid))
+      gr.nmap ([], 0)
   in
   {
     filename = "out.cpp";

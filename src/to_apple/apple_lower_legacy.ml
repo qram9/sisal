@@ -15,22 +15,20 @@ module PortSet = Set.Make (struct
   let compare = compare
 end)
 
-let next_gr_id = ref 0
-
-let gen_gr_id () =
-  let id = !next_gr_id in
-  next_gr_id := id + 1;
-  id
-
 type env = {
   tm : if1_ty TM.t;
   var_map : C.expr FullPortMap.t;
   preds : (int * int * int * direction) FullPortMap.t;
   curr_gid : int;
+  next_gr_id : int;
   curr_gr : graph;
   parent_env : env option;
   force_gpu : bool;
 }
+
+let gen_gr_id env =
+  let id = env.next_gr_id in
+  (id, { env with next_gr_id = id + 1 })
 
 let contains_substr s sub =
   let len_s = String.length s in
@@ -88,19 +86,16 @@ let type_id_of_if1_ty tm ty =
   | Array_dv _ | Array_ty _ -> 10
   | _ -> 0
 
-let rec get_expr ?(visited = PortSet.empty) env g n p dir =
-  if PortSet.mem (g, n, p, dir) visited then C.Id (var_name g n p dir)
-  else
-    let visited = PortSet.add (g, n, p, dir) visited in
-    match FullPortMap.find_opt (g, n, p, dir) env.var_map with
-    | Some e -> e
-    | None -> (
-        match FullPortMap.find_opt (g, n, p, dir) env.preds with
-        | Some (sg, sn, sp, sd) -> get_expr ~visited env sg sn sp sd
-        | None -> (
-            match env.parent_env with
-            | Some p_env -> get_expr ~visited p_env g n p dir
-            | None -> C.Id (var_name g n p dir)))
+let rec get_expr env g n p dir =
+  match FullPortMap.find_opt (g, n, p, dir) env.var_map with
+  | Some e -> e
+  | None -> (
+      match FullPortMap.find_opt (g, n, p, dir) env.preds with
+      | Some (sg, sn, sp, sd) -> get_expr env sg sn sp sd
+      | None -> (
+          match env.parent_env with
+          | Some p_env -> get_expr p_env g n p dir
+          | None -> C.Id (var_name g n p dir)))
 
 let get_port_type env gr nid pid dir =
   let ty_id =
@@ -189,101 +184,106 @@ let find_subgraph gr name =
   |> Option.map (fun (id, n) ->
       match n with Compound (_, _, _, _, g, _) -> (id, g) | _ -> assert false)
 
+module NodeMap = Map.Make (Int)
+
 let topo_sort gr =
   let nodes = NM.bindings gr.nmap |> List.map fst in
   let num_nodes = List.length nodes in
-  let in_degree = Hashtbl.create num_nodes in
-  let adj_list = Hashtbl.create num_nodes in
 
-  List.iter
-    (fun id ->
-      Hashtbl.add in_degree id 0;
-      Hashtbl.add adj_list id [])
-    nodes;
-
-  (* Construct DAG using the edge-set.
-     If edge starts at 0, it's from the boundary-input node (ignore for in-degree). *)
-  ES.iter
-    (fun ((sn, _), (dn, _), _) ->
-      if sn <> 0 then begin
-        if Hashtbl.mem in_degree dn && Hashtbl.mem adj_list sn then begin
-          let current = Hashtbl.find in_degree dn in
-          Hashtbl.replace in_degree dn (current + 1);
-          let succs = Hashtbl.find adj_list sn in
-          Hashtbl.replace adj_list sn (dn :: succs)
-        end
-      end)
-    gr.eset;
-
-  let worklist = Queue.create () in
-  List.iter
-    (fun id -> if Hashtbl.find in_degree id = 0 then Queue.add id worklist)
-    nodes;
-
-  let rec loop acc =
-    if Queue.is_empty worklist then List.rev acc
-    else
-      let n = Queue.take worklist in
-      let successors = Hashtbl.find adj_list n in
-      List.iter
-        (fun dn ->
-          let d = Hashtbl.find in_degree dn - 1 in
-          Hashtbl.replace in_degree dn d;
-          if d = 0 then Queue.add dn worklist)
-        successors;
-      loop (n :: acc)
+  (* Initial in-degrees and adjacency list *)
+  let in_degree =
+    List.fold_left (fun m id -> NodeMap.add id 0 m) NodeMap.empty nodes
   in
-  let sorted = loop [] in
-  if List.length sorted < num_nodes then begin
-    (* Fallback for malformed graphs (e.g. unexpected cycles) *)
-    let visited = Hashtbl.create num_nodes in
-    List.iter (fun id -> Hashtbl.add visited id true) sorted;
-    let missing = List.filter (fun id -> not (Hashtbl.mem visited id)) nodes in
+  let adj_list =
+    List.fold_left (fun m id -> NodeMap.add id [] m) NodeMap.empty nodes
+  in
+
+  (* Construct DAG using the edge-set *)
+  let in_degree, adj_list =
+    ES.fold
+      (fun ((sn, _), (dn, _), _) (in_deg, adj) ->
+        if sn <> 0 && NodeMap.mem dn in_deg && NodeMap.mem sn adj then
+          let current = NodeMap.find dn in_deg in
+          let in_deg = NodeMap.add dn (current + 1) in_deg in
+          let succs = NodeMap.find sn adj in
+          let adj = NodeMap.add sn (dn :: succs) adj in
+          (in_deg, adj)
+        else (in_deg, adj))
+      gr.eset (in_degree, adj_list)
+  in
+
+  let worklist =
+    List.filter (fun id -> NodeMap.find id in_degree = 0) nodes
+  in
+
+  let rec loop acc worklist in_deg =
+    match worklist with
+    | [] -> List.rev acc
+    | n :: rest ->
+        let successors = NodeMap.find n adj_list in
+        let in_deg, new_work =
+          List.fold_left
+            (fun (idg, nw) dn ->
+              let d = NodeMap.find dn idg - 1 in
+              let idg = NodeMap.add dn d idg in
+              if d = 0 then (idg, dn :: nw) else (idg, nw))
+            (in_deg, rest) successors
+        in
+        loop (n :: acc) new_work in_deg
+  in
+  let sorted = loop [] worklist in_degree in
+  if List.length sorted < num_nodes then
+    (* Fallback for malformed graphs *)
+    let visited =
+      List.fold_left (fun m id -> NodeMap.add id true m) NodeMap.empty sorted
+    in
+    let missing = List.filter (fun id -> not (NodeMap.mem id visited)) nodes in
     sorted @ missing
-  end
   else sorted
 
 let rec lower_graph env gr gid =
-  let env_ref = ref { env with curr_gid = gid; curr_gr = gr } in
-  let agreement_body = ref [] in
+  let env = { env with curr_gid = gid; curr_gr = gr } in
 
   (* 1. Populate Preds from Local Edges *)
   let preds =
     ES.fold
       (fun ((sn, sp), (dn, dp), _) m ->
         FullPortMap.add (gid, dn, dp, `In) (gid, sn, sp, `Out) m)
-      gr.eset !env_ref.preds
+      gr.eset env.preds
   in
-  env_ref := { !env_ref with preds };
+  let env = { env with preds } in
 
   (* 2. Map and Alias Boundary Inputs (Node 0 Out ports) *)
-  begin match NM.find_opt 0 gr.nmap with
-  | Some (Boundary (ins, _, _, _)) ->
-      List.iter
-        (fun (ty_id, pid, name) ->
-          let ty = get_port_type !env_ref gr 0 pid `Out in
-          let local_v = var_name gid 0 pid `Out in
-          let src_expr =
-            try get_expr !env_ref gid 0 pid `Out
-            with _ -> C.Id (sanitize name)
-          in
+  let agreement_body, env =
+    match NM.find_opt 0 gr.nmap with
+    | Some (Boundary (ins, _, _, _)) ->
+        List.fold_left
+          (fun (acc, e) (ty_id, pid, name) ->
+            let ty = get_port_type e gr 0 pid `Out in
+            let local_v = var_name gid 0 pid `Out in
+            let src_expr =
+              try get_expr e gid 0 pid `Out
+              with _ -> C.Id (sanitize name)
+            in
 
-          if src_expr <> C.Id local_v then
-            agreement_body :=
-              C.Decl (ty, local_v, Some src_expr) :: !agreement_body;
-          env_ref :=
-            {
-              !env_ref with
-              var_map =
-                FullPortMap.add (gid, 0, pid, `Out) (C.Id local_v)
-                  !env_ref.var_map;
-            })
-        ins
-  | _ -> ()
-  end;
+            let acc =
+              if src_expr <> C.Id local_v then
+                C.Decl (ty, local_v, Some src_expr) :: acc
+              else acc
+            in
+            let e =
+              {
+                e with
+                var_map =
+                  FullPortMap.add (gid, 0, pid, `Out) (C.Id local_v) e.var_map;
+              }
+            in
+            (acc, e))
+          ([], env) ins
+    | _ -> ([], env)
+  in
 
-  (* Pre-declare Boundary Outputs (Node 0 In ports) 
-     We use both the 'outs' list and actual incoming edges to be robust. *)
+  (* Pre-declare Boundary Outputs (Node 0 In ports) *)
   let b_outs_from_metadata =
     match NM.find_opt 0 gr.nmap with
     | Some (Boundary (_, outs, _, _)) -> List.mapi (fun i _ -> i) outs
@@ -299,102 +299,104 @@ let rec lower_graph env gr gid =
     List.sort_uniq compare (b_outs_from_metadata @ b_outs_from_edges)
   in
 
-  List.iter
-    (fun pid ->
-      let ty = get_port_type !env_ref gr 0 pid `In in
-      let local_res_v = var_name gid 0 pid `In in
-      agreement_body := C.Decl (ty, local_res_v, None) :: !agreement_body;
-      env_ref :=
-        {
-          !env_ref with
-          var_map =
-            FullPortMap.add (gid, 0, pid, `In) (C.Id local_res_v)
-              !env_ref.var_map;
-        })
-    all_b_outs;
+  let agreement_body, env =
+    List.fold_left
+      (fun (acc, e) pid ->
+        let ty = get_port_type e gr 0 pid `In in
+        let local_res_v = var_name gid 0 pid `In in
+        let acc = C.Decl (ty, local_res_v, None) :: acc in
+        let e =
+          {
+            e with
+            var_map =
+              FullPortMap.add (gid, 0, pid, `In) (C.Id local_res_v) e.var_map;
+          }
+        in
+        (acc, e))
+      (agreement_body, env) all_b_outs
+  in
 
   (* 3. COMPUTATION BLOCK *)
-  let computation_body =
-    let inner_decls = ref [] in
-    let seen_decls = Hashtbl.create 16 in
-    NM.iter
-      (fun nid node ->
+  let inner_decls, env =
+    NM.fold
+      (fun nid node (acc, e) ->
         if nid <> 0 then
           let pids =
             match node with
             | Simple (_, _, _, pout, _) | Literal (_, _, _, pout) ->
                 List.init (Array.length pout) (fun i -> i)
             | Compound (_, _, _, _, sub_gr, _) ->
-                (* Find all outputs of the compound node by looking at edges to node 0 in its subgraph *)
                 ES.fold
                   (fun (_, (dn, dp), _) acc ->
                     if dn = 0 then dp :: acc else acc)
                   sub_gr.eset []
             | _ -> [ 0 ]
           in
-          List.iter
-            (fun pid ->
+          List.fold_left
+            (fun (acc_p, e_p) pid ->
               let v = var_name gid nid pid `Out in
-              if not (Hashtbl.mem seen_decls v) then (
-                Hashtbl.add seen_decls v ();
-                let ty = get_port_type !env_ref gr nid pid `Out in
-                inner_decls := C.Decl (ty, v, None) :: !inner_decls;
-                env_ref :=
+              if not (FullPortMap.mem (gid, nid, pid, `Out) e_p.var_map) then
+                let ty = get_port_type e_p gr nid pid `Out in
+                ( C.Decl (ty, v, None) :: acc_p,
                   {
-                    !env_ref with
+                    e_p with
                     var_map =
-                      FullPortMap.add (gid, nid, pid, `Out) (C.Id v)
-                        !env_ref.var_map;
-                  }))
-            (List.sort_uniq compare pids))
-      gr.nmap;
-
-    let topo_sorted = topo_sort gr in
-    let stmts =
-      List.fold_left
-        (fun acc nid ->
-          if nid = 0 then acc
-          else
-            match NM.find_opt nid gr.nmap with
-            | Some node ->
-                let node_preds =
-                  ES.filter (fun (_, (dn, dp), _) -> dn = nid) gr.eset
-                in
-                ES.iter
-                  (fun ((sn, sp), (_, dp), _) ->
-                    let src_expr = get_expr !env_ref gid sn sp `Out in
-                    env_ref :=
-                      {
-                        !env_ref with
-                        var_map =
-                          FullPortMap.add (gid, nid, dp, `In) src_expr
-                            !env_ref.var_map;
-                      })
-                  node_preds;
-                acc @ lower_node !env_ref gr nid node
-            | None -> acc)
-        [] topo_sorted
-    in
-
-    let propagation =
-      ES.fold
-        (fun ((sn, sp), (dn, dp), _) acc ->
-          if dn = 0 then
-            let src = get_expr !env_ref gid sn sp `Out in
-            let dst = C.Id (var_name gid 0 dp `In) in
-            C.Expr (C.BinOp (C.Assign, dst, src)) :: acc
-          else acc)
-        gr.eset []
-    in
-    List.rev !inner_decls @ stmts @ propagation
+                      FullPortMap.add (gid, nid, pid, `Out) (C.Id v) e_p.var_map;
+                  } )
+              else (acc_p, e_p))
+            (acc, e)
+            (List.sort_uniq compare pids)
+        else (acc, e))
+      gr.nmap ([], env)
   in
-  (List.rev !agreement_body @ [ C.Compound computation_body ], !env_ref)
+
+  let topo_sorted = topo_sort gr in
+  let stmts, env =
+    List.fold_left
+      (fun (acc_stmts, e) nid ->
+        if nid = 0 then (acc_stmts, e)
+        else
+          match NM.find_opt nid gr.nmap with
+          | Some node ->
+              let node_preds =
+                ES.filter (fun (_, (dn, dp), _) -> dn = nid) gr.eset
+              in
+              let e =
+                ES.fold
+                  (fun ((sn, sp), (_, dp), _) curr_e ->
+                    let src_expr = get_expr curr_e gid sn sp `Out in
+                    {
+                      curr_e with
+                      var_map =
+                        FullPortMap.add (gid, nid, dp, `In) src_expr
+                          curr_e.var_map;
+                    })
+                  node_preds e
+              in
+              let s, next_e = lower_node e gr nid node in
+              (acc_stmts @ s, next_e)
+          | None -> (acc_stmts, e))
+      ([], env) topo_sorted
+  in
+
+  let propagation =
+    ES.fold
+      (fun ((sn, sp), (dn, dp), _) acc ->
+        if dn = 0 then
+          let src = get_expr env gid sn sp `Out in
+          let dst = C.Id (var_name gid 0 dp `In) in
+          C.Expr (C.BinOp (C.Assign, dst, src)) :: acc
+        else acc)
+      gr.eset []
+  in
+  let computation_body = List.rev inner_decls @ stmts @ propagation in
+  (List.rev agreement_body @ [ C.Compound computation_body ], env)
 
 and lower_node env gr nid node =
   let gid = env.curr_gid in
   match node with
   | Compound (cid, sy, ty, pr, loop_gr, assoc) ->
-      let sub_gid = gen_gr_id () in
+      let sub_gid, env = gen_gr_id env in
       let var_map_child =
         ES.fold
           (fun ((sn, sp), (dn, dp), _) m ->
@@ -470,41 +472,40 @@ and lower_node env gr nid node =
         let tid = type_id_of_if1_ty env.tm elem_ty in
         match body_info with
         | Some (body_id, body_gr) ->
-            let body_gid = gen_gr_id () in
-            let var_map_body = ref env_after_loop_header.var_map in
-
+            let body_gid, env_after_loop_bound = gen_gr_id env_after_loop_header in
+            
             (* Correct capture: Map node 0 Out ports of body to sources in loop_gr *)
-            ES.iter
-              (fun ((sn, sp), (dn, dp), _) ->
-                if dn = body_id then
-                  let expr =
-                    get_expr env_after_loop_header sub_gid sn sp `Out
-                  in
-                  var_map_body :=
-                    FullPortMap.add (body_gid, 0, dp, `Out) expr !var_map_body)
-              loop_gr.eset;
+            let var_map_body = 
+              ES.fold
+                (fun ((sn, sp), (dn, dp), _) m ->
+                  if dn = body_id then
+                    let expr = get_expr env_after_loop_bound sub_gid sn sp `Out in
+                    FullPortMap.add (body_gid, 0, dp, `Out) expr m
+                  else m)
+                loop_gr.eset env_after_loop_bound.var_map
+            in
 
             let index_var = Printf.sprintf "v_idx_g%d" body_gid in
             (* Map index variable to correct port if it's an index port *)
-            begin match NM.find_opt 0 body_gr.nmap with
-            | Some (Boundary (body_ins, _, _, _)) ->
-                List.iter
-                  (fun (_, pid, name) ->
-                    let sn = sanitize name in
-                    if sn = "i" || sn = "idx" || sn = "v_idx" then
-                      var_map_body :=
-                        FullPortMap.add (body_gid, 0, pid, `Out)
-                          (C.Id index_var) !var_map_body)
-                  body_ins
-            | _ -> ()
-            end;
+            let var_map_body =
+              match NM.find_opt 0 body_gr.nmap with
+              | Some (Boundary (body_ins, _, _, _)) ->
+                  List.fold_left
+                    (fun m (_, pid, name) ->
+                      let sn = sanitize name in
+                      if sn = "i" || sn = "idx" || sn = "v_idx" then
+                        FullPortMap.add (body_gid, 0, pid, `Out) (C.Id index_var) m
+                      else m)
+                    var_map_body body_ins
+              | _ -> var_map_body
+            in
 
             let body_stmts, env_after_body =
               lower_graph
                 {
-                  env_after_loop_header with
-                  var_map = !var_map_body;
-                  parent_env = Some env_after_loop_header;
+                  env_after_loop_bound with
+                  var_map = var_map_body;
+                  parent_env = Some env_after_loop_bound;
                 }
                 body_gr body_gid
             in
@@ -532,45 +533,47 @@ and lower_node env gr nid node =
               C.Expr
                 (C.BinOp (C.Assign, C.Index (cast_ptr, C.Id index_var), body_res))
             in
-            [
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     res_v,
-                     C.Call
-                       ( "sisal_array_alloc_empty",
-                         [
-                           C.LitInt 1;
-                           C.LitInt tid;
-                           C.Cast (C.Basic "uint64_t", count_v);
-                         ] ) ));
-              C.GCDApply
-                ( count_v,
-                  "dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, \
-                   0)",
-                  (index_var, body_stmts @ [ update_stmt ]) );
-            ]
+            ( [
+                C.Expr
+                  (C.BinOp
+                     ( C.Assign,
+                       res_v,
+                       C.Call
+                         ( "sisal_array_alloc_empty",
+                           [
+                             C.LitInt 1;
+                             C.LitInt tid;
+                             C.Cast (C.Basic "uint64_t", count_v);
+                           ] ) ));
+                C.GCDApply
+                  ( count_v,
+                    "dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, \
+                     0)",
+                    (index_var, body_stmts @ [ update_stmt ]) );
+              ],
+              env_after_body )
         | None ->
-            [
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     res_v,
-                     C.Call
-                       ( "sisal_array_alloc_empty",
-                         [
-                           C.LitInt 1;
-                           C.LitInt tid;
-                           C.Cast (C.Basic "uint64_t", count_v);
-                         ] ) ));
-            ]
+            ( [
+                C.Expr
+                  (C.BinOp
+                     ( C.Assign,
+                       res_v,
+                       C.Call
+                         ( "sisal_array_alloc_empty",
+                           [
+                             C.LitInt 1;
+                             C.LitInt tid;
+                             C.Cast (C.Basic "uint64_t", count_v);
+                           ] ) ));
+              ],
+              env_after_loop_header )
       else
         let sub_stmts, env_after_sub =
           lower_graph
             { env with var_map = var_map_child; parent_env = Some env }
             loop_gr sub_gid
         in
-        [ C.Compound sub_stmts ]
+        ([ C.Compound sub_stmts ], env_after_sub)
   | Simple (_, sym, pin, pout, pr) -> begin
       match
         match sym with
@@ -591,24 +594,25 @@ and lower_node env gr nid node =
           let e1 = get_expr env gid nid 0 `In in
           let e2 = get_expr env gid nid 1 `In in
           let v_res = get_expr env gid nid 0 `Out in
-          [ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (op, e1, e2))) ]
+          ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (op, e1, e2))) ], env)
       | None ->
           if sym = TYPECAST then
             let e = get_expr env gid nid 0 `In in
             let v_res = get_expr env gid nid 0 `Out in
             let ty = get_port_type env gr nid 0 `Out in
-            [ C.Expr (C.BinOp (C.Assign, v_res, C.Cast (ty, e))) ]
+            ([ C.Expr (C.BinOp (C.Assign, v_res, C.Cast (ty, e))) ], env)
           else if sym = RANGEGEN then
             let e1 = get_expr env gid nid 0 `In in
             let e2 = get_expr env gid nid 1 `In in
             let v_res = get_expr env gid nid 0 `Out in
-            [
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     v_res,
-                     C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1) ));
-            ]
+            ( [
+                C.Expr
+                  (C.BinOp
+                     ( C.Assign,
+                       v_res,
+                       C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1) ));
+              ],
+              env )
           else if sym = DV_ELEMENT || sym = AELEMENT then
             let arr = get_expr env env.curr_gid nid 0 `In in
             let idx = get_expr env env.curr_gid nid 1 `In in
@@ -627,17 +631,18 @@ and lower_node env gr nid node =
                 ( C.Basic "size_t",
                   C.BinOp (C.Sub, idx, C.Member (arr, "lower_bound")) )
             in
-            [ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx_cast))) ]
+            ([ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx_cast))) ], env)
           else if sym = ASIZE || sym = DV_DIMENSION then
             let arr = get_expr env gid nid 0 `In in
             let v_res = get_expr env gid nid 0 `Out in
-            [
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     v_res,
-                     C.Cast (C.Basic "int32_t", C.Member (arr, "size")) ));
-            ]
+            ( [
+                C.Expr
+                  (C.BinOp
+                     ( C.Assign,
+                       v_res,
+                       C.Cast (C.Basic "int32_t", C.Member (arr, "size")) ));
+              ],
+              env )
           else if sym = DV_CREATE then
             let lb = get_expr env gid nid 0 `In in
             let size = get_expr env gid nid 1 `In in
@@ -650,29 +655,31 @@ and lower_node env gr nid node =
               | Basic BOOLEAN -> 3
               | _ -> 0
             in
-            [
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     v_res,
-                     C.Call
-                       ( "sisal_array_create",
-                         [ lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size) ]
-                       ) ));
-            ]
+            ( [
+                C.Expr
+                  (C.BinOp
+                     ( C.Assign,
+                       v_res,
+                       C.Call
+                         ( "sisal_array_create",
+                           [ lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size) ]
+                         ) ));
+              ],
+              env )
           else if sym = SELECT then
             let cond = get_expr env gid nid 0 `In in
             let v_then = get_expr env gid nid 1 `In in
             let v_else = get_expr env gid nid 2 `In in
             let v_res = get_expr env gid nid 0 `Out in
-            [
-              C.Expr (C.BinOp (C.Assign, v_res, C.Cond (cond, v_then, v_else)));
-            ]
+            ( [
+                C.Expr (C.BinOp (C.Assign, v_res, C.Cond (cond, v_then, v_else)));
+              ],
+              env )
           else if sym = ERROR_NODE then
             let e = get_expr env gid nid 0 `In in
             let v_res = get_expr env gid nid 0 `Out in
-            [ C.Expr (C.BinOp (C.Assign, v_res, e)) ]
-          else []
+            ([ C.Expr (C.BinOp (C.Assign, v_res, e)) ], env)
+          else ([], env)
     end
   | Literal (_, code, value, pout) ->
       let v_res = get_expr env gid nid 0 `Out in
@@ -684,11 +691,10 @@ and lower_node env gr nid node =
           | _ -> C.LitInt (int_of_string value)
         with _ -> C.LitInt 0
       in
-      [ C.Expr (C.BinOp (C.Assign, v_res, lit)) ]
-  | _ -> []
+      ([ C.Expr (C.BinOp (C.Assign, v_res, lit)) ], env)
+  | _ -> ([], env)
 
-let lower_procedure tm nid node =
-  next_gr_id := 0;
+let lower_procedure tm nid node next_gr_id =
   match node with
   | Compound (_, INTERNAL, _, pr, sub_gr, _) ->
       let func_name =
@@ -698,7 +704,19 @@ let lower_procedure tm nid node =
       let is_gpu_func =
         contains_substr (String.uppercase_ascii func_name) "GPU"
       in
-      let sub_gid = gen_gr_id () in
+      let env =
+        {
+          tm;
+          var_map = FullPortMap.empty;
+          preds = FullPortMap.empty;
+          curr_gid = 0;
+          next_gr_id;
+          curr_gr = sub_gr;
+          parent_env = None;
+          force_gpu = is_gpu_func;
+        }
+      in
+      let sub_gid, env = gen_gr_id env in
       let params =
         match NM.find_opt 0 sub_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
@@ -723,17 +741,7 @@ let lower_procedure tm nid node =
               FullPortMap.empty ins
         | _ -> FullPortMap.empty
       in
-      let env =
-        {
-          tm;
-          var_map;
-          preds = FullPortMap.empty;
-          curr_gid = sub_gid;
-          curr_gr = sub_gr;
-          parent_env = None;
-          force_gpu = is_gpu_func;
-        }
-      in
+      let env = { env with var_map } in
       let body_stmts, env_after = lower_graph env sub_gr sub_gid in
 
       (* Determine return values from both metadata and edges *)
@@ -786,46 +794,51 @@ let lower_procedure tm nid node =
           @ assigns
           @ [ C.Return (Some (C.Id res_var)) ]
         in
-        Some
-          ( {
-              C.return_ty = C.Basic ("struct " ^ struct_name);
-              name = func_name;
-              params;
-              body = final_body;
-              extern_c = true;
-            },
-            Some (struct_name, fields) )
+        ( Some
+            ( {
+                C.return_ty = C.Basic ("struct " ^ struct_name);
+                name = func_name;
+                params;
+                body = final_body;
+                extern_c = true;
+              },
+              Some (struct_name, fields) ),
+          env_after.next_gr_id )
       else if ret_count = 1 then
         let dp, e = List.hd ret_exprs in
         let ty = get_port_type env_after sub_gr 0 dp `In in
-        Some
-          ( {
-              C.return_ty = ty;
-              name = func_name;
-              params;
-              body = body_stmts @ [ C.Return (Some e) ];
-              extern_c = true;
-            },
-            None )
+        ( Some
+            ( {
+                C.return_ty = ty;
+                name = func_name;
+                params;
+                body = body_stmts @ [ C.Return (Some e) ];
+                extern_c = true;
+              },
+              None ),
+          env_after.next_gr_id )
       else
-        Some
-          ( {
-              C.return_ty = C.Void;
-              name = func_name;
-              params;
-              body = body_stmts;
-              extern_c = true;
-            },
-            None )
-  | _ -> None
+        ( Some
+            ( {
+                C.return_ty = C.Void;
+                name = func_name;
+                params;
+                body = body_stmts;
+                extern_c = true;
+              },
+              None ),
+          env_after.next_gr_id )
+  | _ -> (None, next_gr_id)
 
 let translate (gr : graph) : C.translation_unit =
   let _, tm, _ = gr.typemap in
-  let results =
+  let results, _ =
     NM.fold
-      (fun id node acc ->
-        match lower_procedure tm id node with Some r -> r :: acc | None -> acc)
-      gr.nmap []
+      (fun id node (procs, ngid) ->
+        match lower_procedure tm id node ngid with
+        | Some r, next_ngid -> (r :: procs, next_ngid)
+        | None, next_ngid -> (procs, next_ngid))
+      gr.nmap ([], 0)
   in
   let procedures = List.map fst results in
   let result_struct_decls =
@@ -833,21 +846,20 @@ let translate (gr : graph) : C.translation_unit =
     |> List.map (fun (name, fields) ->
         C.Decl (C.Struct (name, fields), "", None))
   in
-  let seen_field_lists = ref [] in
-  let record_structs =
+  let record_structs, _ =
     TM.fold
-      (fun id ty acc ->
+      (fun id ty (acc, seen) ->
         match ty with
         | Record _ ->
             let fields = collect_record_fields tm id in
-            if fields = [] || List.mem fields !seen_field_lists then acc
-            else (
-              seen_field_lists := fields :: !seen_field_lists;
-              C.Decl
-                (C.Struct ("struct_rec_" ^ string_of_int id, fields), "", None)
-              :: acc)
-        | _ -> acc)
-      tm []
+            if fields = [] || List.mem fields seen then (acc, seen)
+            else
+              ( C.Decl
+                  (C.Struct ("struct_rec_" ^ string_of_int id, fields), "", None)
+                :: acc,
+                fields :: seen )
+        | _ -> (acc, seen))
+      tm ([], [])
   in
   {
     filename = "out.cpp";
