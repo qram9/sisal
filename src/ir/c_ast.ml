@@ -81,6 +81,7 @@ type stmt =
     }
   | Compound of stmt list
   | Prototype of procedure
+  | Type of c_type
   | Comment of string
 
 and procedure = {

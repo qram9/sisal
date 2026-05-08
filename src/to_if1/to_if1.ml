@@ -541,11 +541,6 @@ and check_rec_ty in_gr tty_lis tm outlis =
         match hdty with
         | If1.Som anum -> anum
         | If1.Emp ->
-            print_endline (If1.str_type_trace ());
-            let stack = Printexc.get_callstack 50 in
-            (* Capture top 5 frames *)
-            (*If1.dump_typemap tm;*)
-            print_endline (Printexc.raw_backtrace_to_string stack);
             If1.If1_View.export_debug_html "CRASHED.html" in_gr;
             failwith hdmsg
       in
@@ -1103,7 +1098,7 @@ and get_ports_unified of_gr basis_gr parent_gr =
   match bin with
   | If1.Boundary (in_port_lis, _, _, _) ->
       List.fold_left
-        (fun f_gr (_, xp, xn) ->
+        (fun f_gr (src_n, src_p, xn) ->
           if If1.is_outer_var xn parent_gr = true then
             let cs, ps = f_gr.If1.symtab in
             if If1.SM.mem xn ps = true then
@@ -1115,6 +1110,9 @@ and get_ports_unified of_gr basis_gr parent_gr =
               } =
                 If1.SM.find xn ps
               in
+              let assigned_port, f_gr =
+                If1.add_to_boundary_inputs ~namen:xn src_n src_p f_gr
+              in
               let f_gr =
                 {
                   f_gr with
@@ -1124,13 +1122,12 @@ and get_ports_unified of_gr basis_gr parent_gr =
                           If1.val_ty = t;
                           If1.val_name = xn;
                           If1.val_def = 0;
-                          If1.def_port = xp;
+                          If1.def_port = assigned_port;
                         }
                         cs,
                       ps );
                 }
               in
-              let _, f_gr = If1.add_to_boundary_inputs ~namen:xn 0 xp f_gr in
               f_gr
             else raise (If1.Sem_error ("Cannot find name in outer scope:" ^ xn))
           else f_gr)
@@ -1670,9 +1667,6 @@ and do_decldef in_gr delc =
     match expl with
     | head_expl :: tl_expl -> (head_expl, rhs_exps, tl_expl, in_gr)
     | [] ->
-        if List.length rhs_exps = 0 then (
-          Printexc.print_raw_backtrace stdout (Printexc.get_callstack 50);
-          flush stdout);
         assert (List.length rhs_exps <> 0);
         let exphhd = List.hd rhs_exps in
         let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
@@ -2384,11 +2378,7 @@ and check_tag_types vn_n jj prev in_gr =
         jj ""
     in
     raise
-      (let stack = Printexc.get_callstack 5 in
-       (* Capture top 5 frames *)
-       (*If1.dump_typemap tm;*)
-       print_endline (Printexc.raw_backtrace_to_string stack);
-       If1.If1_View.export_debug_html "CRASHED.html" in_gr;
+      (let () = If1.If1_View.export_debug_html "CRASHED.html" in_gr in
        If1.Sem_error
          ("Output types do not match for:" ^ name_it_jj ^ ", " ^ vn_n ^ ", "
         ^ name_it_prev))

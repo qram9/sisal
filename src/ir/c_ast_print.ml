@@ -18,17 +18,17 @@ let rec string_of_c_type = function
         size
   | Struct (name, fields) ->
       if fields = [] then "struct " ^ name
-      else Printf.sprintf "struct %s { %s }" name (string_of_fields fields)
+      else Printf.sprintf "struct %s {\n  %s\n}" name (string_of_fields fields)
   | Union (name, fields) ->
       if fields = [] then "union " ^ name
-      else Printf.sprintf "union %s { %s }" name (string_of_fields fields)
+      else Printf.sprintf "union %s {\n  %s\n}" name (string_of_fields fields)
   | Void -> "void"
 
 and string_of_fields fields =
   fields
   |> List.map (fun (name, ty) ->
       Printf.sprintf "%s %s;" (string_of_c_type ty) name)
-  |> String.concat " "
+  |> String.concat "\n  "
 
 let string_of_binary_op = function
   | Add -> "+"
@@ -172,6 +172,7 @@ let rec string_of_stmt indent =
       Printf.sprintf "%s%s %s(%s);" prefix
         (string_of_c_type p.return_ty)
         p.name params_s
+  | Type ty -> Printf.sprintf "%s%s;" pad (string_of_c_type ty)
   | Comment s -> Printf.sprintf "%s// %s" pad s
 
 let string_of_procedure p =

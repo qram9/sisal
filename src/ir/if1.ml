@@ -663,10 +663,7 @@ and get_node_rank i ingr =
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
   with _ ->
-    failwith
-      ((let stack = Printexc.get_callstack 5 in
-        Printexc.raw_backtrace_to_string stack)
-      ^ " ISSUE WITH NODE LOOK UP: " ^ string_of_int i)
+    failwith ("ISSUE WITH NODE LOOK UP: " ^ string_of_int i)
 
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
@@ -1386,7 +1383,6 @@ and get_element_type vect =
   match vect with
   | Basic vv -> Basic (get_element_type_impl vv)
   | _ ->
-      print_endline (Printexc.get_backtrace ());
       failwith
         (Printf.sprintf "Cannot get element type for %s, only for vector types"
            (string_of_if1_ty vect))
@@ -1395,7 +1391,6 @@ and get_element_type_code vect =
   match vect with
   | Basic vv -> get_element_type_impl vv
   | _ ->
-      print_endline (Printexc.get_backtrace ());
       failwith
         (Printf.sprintf "Cannot get element type for %s, only for vector types"
            (string_of_if1_ty vect))
@@ -3066,7 +3061,6 @@ and lookup_ty ij in_gr =
   let tm = get_typemap_tm in_gr in
   try TM.find ij tm
   with _ ->
-    Printexc.print_raw_backtrace stdout (Printexc.get_callstack 10);
     print_endline ("When looking up " ^ string_of_int ij);
     raise (Sem_error "Error looking up type")
 
@@ -3388,10 +3382,7 @@ and add_sisal_type
       match MM.mem ty tmn with
       | true -> ((MM.find ty tmn, 0, MM.find ty tmn), in_gr)
       | false ->
-          let _ = string_of_graph in_gr in
-          raise
-            (Printexc.print_raw_backtrace stdout (Printexc.get_callstack 150);
-             Node_not_found ("typename being looked up:" ^ ty)))
+          raise (Node_not_found ("typename being looked up:" ^ ty)))
 
 and add_local_sym in_gr sym_name (sym_def, def_port, def_ty) =
   let cs, ps = get_symtab in_gr in
@@ -4216,7 +4207,7 @@ and string_of_graph ?(offset = 0) in_gr =
     (("Graph {" :: string_of_node_map ~offset in_gr)
     @ string_of_edge_set in_gr ne
     @ string_of_symtab sm tm
-    @ ([ typemap_to_string tm ] @ string_of_typenames tmn)
+    (* @ ([ typemap_to_string tm ] @ string_of_typenames tmn) *)
     @ [ "} " ^ string_of_int tail ])
     "\n"
 
@@ -4259,7 +4250,6 @@ and int_map_printer fmt inmap =
        inmap "")
 
 and outs_graph gr =
-  Printexc.print_raw_backtrace stdout (Printexc.get_callstack 5);
   graph_printer Format.std_formatter gr
 
 and outs_graph_with_msg msg gr =
