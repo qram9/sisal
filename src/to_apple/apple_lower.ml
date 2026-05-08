@@ -205,7 +205,8 @@ and lower_node env gr nid node =
   | Compound (cid, sy, _ty, pr, loop_gr, _) ->
       let sub_gid = alloc_gid env.gid_table gid cid in
       let is_real_forall = sy = INTERNAL &&
-        List.exists (function Name n -> n = "FORALL" | _ -> false) pr in
+        (List.exists (function Name n -> n = "FORALL" | _ -> false) pr ||
+         Option.is_some (find_subgraph loop_gr "GENERATOR")) in
       if is_real_forall then
         lower_forall env gr gid nid cid loop_gr sub_gid pr
       else if Option.is_some (find_subgraph loop_gr "PREDICATE") then
@@ -237,6 +238,7 @@ and lower_simple env gr nid sym _pin _pout _pr =
   let gid = env.curr_gid in
   let e1 = try get_expr_unsafe env gid nid 0 `In with _ -> C.LitInt 0 in
   let e2 = try get_expr_unsafe env gid nid 1 `In with _ -> C.LitInt 0 in
+  let e3 = try get_expr_unsafe env gid nid 2 `In with _ -> C.LitInt 0 in
   let v_res = get_expr_unsafe env gid nid 0 `Out in
   match sym with
   | ADD    -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Add, e1, e2))) ], env)
@@ -254,9 +256,8 @@ and lower_simple env gr nid sym _pin _pout _pr =
       let idx = if sym = DV_LOAD_LINEAR then e2
                 else C.BinOp (C.Sub, e2, C.Member (e1, "lower_bound")) in
       ([ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx))) ], env)
-  | DV_OFFSET_AT ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, e2)) ], env)
-  | RANGEGEN ->
+      | RANGEGEN ->
+
       (* count = hi - lo + 1; port 0 = lo, port 1 = hi *)
       let count = C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1) in
       ([ C.Expr (C.BinOp (C.Assign, v_res, count)) ], env)
@@ -279,9 +280,11 @@ and lower_simple env gr nid sym _pin _pout _pr =
       let set_lb = C.Expr (C.BinOp (C.Assign, C.Member (v_res, "lower_bound"), e2)) in
       ([ copy; set_lb ], env)
   | DV_DIMENSION ->
-      (* DV_DIMENSION(A, k): for 1D arrays, returns size of dimension k *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res,
-           C.Cast (C.Basic "int32_t", C.Member (e1, "size")))) ], env)
+      (* DV_DIMENSION(A, k): returns the size of dimension k. *)
+      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_dv_dimension", [ e1; e2 ]))) ], env)
+  | DV_OFFSET_AT ->
+      (* DV_OFFSET_AT(A, linear_idx, SHAPE_DV): computes element index for broadcasting. *)
+      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_dv_offset_at", [ e1; e2; e3 ]))) ], env)
   | RELEMENTS ->
       (* RELEMENTS(_, dim_result): extracts element count from DV_DIMENSION result *)
       ([ C.Expr (C.BinOp (C.Assign, v_res, e2)) ], env)
@@ -329,6 +332,9 @@ and lower_simple env gr nid sym _pin _pout _pr =
       let args = List.filter_map (fun pid ->
         get_expr env gid nid pid `In) in_ports in
       ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call (fname, args))) ], env)
+  | ERROR_NODE ->
+      (* Initialize error/status ports to 0.0f (no error). *)
+      ([ C.Expr (C.BinOp (C.Assign, v_res, C.LitFloat 0.0)) ], env)
   | _ -> ([], env)
 
 (** [lower_if_graph env parent_gr cid loop_gr loop_gid] lowers an IF compound.
@@ -444,9 +450,11 @@ and lower_forall env gr gid nid cid loop_gr sub_gid pr =
       let gen_stmts, e_gen = lower_graph env_gen gen_gr gen_gid in
       let count  = get_expr_unsafe e_gen gen_gid 0 0 `In in
       let res_v  = get_expr_unsafe env gid nid 0 `Out in
+      let elem_ty = get_elem_type env env.curr_gr nid in
+      let tid = type_id_of_if1_ty env.tm elem_ty in
       let alloc  = C.Expr (C.BinOp (C.Assign, res_v,
         C.Call ("sisal_array_alloc_empty",
-          [ C.LitInt 1; C.LitInt 0; C.Cast (C.Basic "uint64_t", count) ]))) in
+          [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", count) ]))) in
       let body_gid = alloc_gid env.gid_table sub_gid body_nid in
       let loop_idx_var = Printf.sprintf "idx_g%d_n%d" body_gid body_nid in
       (* Find RANGEGEN's lower bound so LFI = lo + idx (Sisal ranges are lo-based).
@@ -523,6 +531,53 @@ and lower_forall env gr gid nid cid loop_gr sub_gid pr =
                  C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)),
         body_stmts @ [ store ]) in
 
+      let shape_opt =
+        let cs, _ps = gr.symtab in
+        SM.fold (fun name entry acc ->
+          if acc <> None then acc
+          else if name = "__LFSH" then get_expr env gid entry.val_def entry.def_port `Out
+          else acc) cs None
+      in
+
+      (* Fallback: if no __LFSH, see if any input to the compound is an array we can copy rank/dims from. *)
+      let fallback_shape_opt =
+        if shape_opt <> None then None
+        else
+          FullPortMap.fold (fun (g, n, p, dir) expr acc ->
+            if acc <> None then acc
+            else if g = gid && expr <> res_v then
+              let ty = try get_port_type env gr n p dir with _ -> C.Basic "unknown" in
+              if ty = C.Basic "sisal_array_t" then Some expr else acc
+            else acc
+          ) env.var_map None
+      in
+
+      (* Populate result array metadata from the shape array or fallback input array *)
+      let meta =
+        match (shape_opt, fallback_shape_opt) with
+        | (Some shape_v, _) ->
+            [
+              C.Expr (C.BinOp (C.Assign, C.Member (res_v, "rank"), C.Member (shape_v, "size")));
+              C.For (C.Decl (C.Basic "int", "i", Some (C.LitInt 0)),
+                     C.BinOp (C.Lt, C.Id "i", C.Member (res_v, "rank")),
+                     C.BinOp (C.Assign, C.Id "i", C.BinOp (C.Add, C.Id "i", C.LitInt 1)),
+                     [ C.Expr (C.BinOp (C.Assign,
+                         C.Index (C.Member (res_v, "dims"), C.Id "i"),
+                         C.Index (C.Cast (C.Pointer (C.Basic "int32_t", []), C.Member (shape_v, "data")), C.Id "i"))) ])
+            ]
+        | (None, Some in_arr_v) ->
+            [
+              C.Expr (C.BinOp (C.Assign, C.Member (res_v, "rank"), C.Member (in_arr_v, "rank")));
+              C.For (C.Decl (C.Basic "int", "i", Some (C.LitInt 0)),
+                     C.BinOp (C.Lt, C.Id "i", C.Member (res_v, "rank")),
+                     C.BinOp (C.Assign, C.Id "i", C.BinOp (C.Add, C.Id "i", C.LitInt 1)),
+                     [ C.Expr (C.BinOp (C.Assign,
+                         C.Index (C.Member (res_v, "dims"), C.Id "i"),
+                         C.Index (C.Member (in_arr_v, "dims"), C.Id "i"))) ])
+            ]
+        | _ -> []
+      in
+
       (* Result propagation: assign child boundary outputs to parent node outputs. *)
       let out_pids = ES.fold (fun ((sn, sp), _, _) acc ->
         if sn = cid then IntSet.add sp acc else acc) gr.eset IntSet.empty
@@ -547,7 +602,7 @@ and lower_forall env gr gid nid cid loop_gr sub_gid pr =
                 (ps @ src_decl @ [ C.Expr (C.BinOp (C.Assign, dst, src)) ], e')
           | None -> (ps, e)) ([], env) out_pids in
 
-      (gen_stmts @ [ alloc; loop ] @ props,
+      (gen_stmts @ [ alloc; loop ] @ meta @ props,
        { env with seen_decls = env.seen_decls })
 
   | _ -> ([], env)
@@ -664,7 +719,6 @@ let translate gr =
       tm [] in
   let prototypes = List.map (fun p -> C.Prototype p) procedures in
   let globals =
-    [ C.Macro "define SISAL_DEBUG" ] @
     record_structs @ result_struct_decls @ prototypes in
   { C.filename = "out.cpp";
     C.includes = [ "stdio.h"; "stdint.h"; "stdbool.h"; "iostream";

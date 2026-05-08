@@ -16,15 +16,53 @@ typedef struct {
     int32_t ref_count;
     int32_t type_id;
     int32_t rank;
+    int64_t dims[8];
 } sisal_array_t;
 
 #ifdef __cplusplus
 #include <iostream>
 inline std::ostream& operator<<(std::ostream& os, const sisal_array_t& a) {
-    os << "array(data=" << a.data << ", size=" << a.size << ", rank=" << a.rank << ", lb=" << a.lower_bound << ")";
+    os << "array(data=" << a.data << ", size=" << a.size << ", rank=" << a.rank << ", dims=[";
+    for(int i=0; i<a.rank; i++) os << (i>0?", ":"") << a.dims[i];
+    os << "])";
     return os;
 }
 #endif
+
+// DV Metadata Helpers
+inline int32_t sisal_dv_dimension(sisal_array_t a, int32_t k) {
+    if (k < 1 || k > a.rank) return 1;
+    return (int32_t)a.dims[k-1];
+}
+
+inline int32_t sisal_dv_offset_at(sisal_array_t a, int32_t idx, sisal_array_t shape) {
+    // 1. Un-flatten global index into multi-dimensional coordinates of the result space
+    // For row-major [D0, D1, ..., Dn], the index is idx = c0*S0 + c1*S1 + ... + cn*Sn
+    // where Sn = 1, Sn-1 = Dn, Sn-2 = Dn*Dn-1, etc.
+    int32_t coords[8] = {0};
+    int32_t remaining = idx;
+    for (int i = (int)shape.rank - 1; i >= 0; i--) {
+        coords[i] = remaining % (int32_t)shape.dims[i];
+        remaining /= (int32_t)shape.dims[i];
+    }
+    
+    // 2. Map back to source array 'a' and flatten using its strides
+    int32_t linear_offset = 0;
+    int32_t current_a_stride = 1;
+    int rank_diff = (int)shape.rank - (int)a.rank;
+    
+    for (int i = (int)a.rank - 1; i >= 0; i--) {
+        int res_axis = i + rank_diff;
+        if (res_axis >= 0) {
+            // Broadcast rule: if a.dims[i] == 1, then coord is 0.
+            if (a.dims[i] > 1) {
+                linear_offset += coords[res_axis] * current_a_stride;
+            }
+        }
+        current_a_stride *= (int32_t)a.dims[i];
+    }
+    return linear_offset;
+}
 
 // Unified memory allocation (4KB aligned for Apple Silicon Zero-Copy)
 inline sisal_array_t sisal_alloc_unified(uint64_t byte_size) {
