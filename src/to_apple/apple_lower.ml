@@ -663,9 +663,12 @@ let translate gr =
       | _ -> acc)
       tm [] in
   let prototypes = List.map (fun p -> C.Prototype p) procedures in
+  let globals =
+    [ C.Macro "define SISAL_DEBUG" ] @
+    record_structs @ result_struct_decls @ prototypes in
   { C.filename = "out.cpp";
-    C.includes = [ "stdio.h"; "stdint.h"; "stdbool.h";
+    C.includes = [ "stdio.h"; "stdint.h"; "stdbool.h"; "iostream";
                    "dispatch/dispatch.h"; "Accelerate/Accelerate.h";
                    "sisal_runtime.h" ];
-    C.globals = record_structs @ result_struct_decls @ prototypes;
+    C.globals = globals;
     C.procedures = procedures }

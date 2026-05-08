@@ -18,6 +18,14 @@ typedef struct {
     int32_t rank;
 } sisal_array_t;
 
+#ifdef __cplusplus
+#include <iostream>
+inline std::ostream& operator<<(std::ostream& os, const sisal_array_t& a) {
+    os << "array(data=" << a.data << ", size=" << a.size << ", rank=" << a.rank << ", lb=" << a.lower_bound << ")";
+    return os;
+}
+#endif
+
 // Unified memory allocation (4KB aligned for Apple Silicon Zero-Copy)
 inline sisal_array_t sisal_alloc_unified(uint64_t byte_size) {
     sisal_array_t arr = {0};

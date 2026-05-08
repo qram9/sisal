@@ -95,17 +95,30 @@ let rec string_of_expr = function
       Printf.sprintf "(%s ? %s : %s)" (string_of_expr c) (string_of_expr t)
         (string_of_expr f)
 
-let rec string_of_stmt indent =
+let is_assign_op = function
+  | Assign | AssignAdd | AssignSub | AssignMul | AssignDiv -> true
+  | _ -> false
+
+let rec string_of_stmt ?(no_debug = false) indent =
   let pad = String.make (indent * 2) ' ' in
   function
   | Decl (ty, name, Some init) ->
-      Printf.sprintf "%s%s %s = %s;" pad (string_of_c_type ty) name
-        (string_of_expr init)
+      let base = Printf.sprintf "%s%s %s = %s;" pad (string_of_c_type ty) name
+        (string_of_expr init) in
+      if no_debug then base else
+      let debug = Printf.sprintf "\n#ifdef SISAL_DEBUG\n%sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \\\"%s\\\" value: \" << %s << std::endl;\n#endif" pad name name in
+      base ^ debug
   | Decl (ty, name, None) ->
       Printf.sprintf "%s%s %s;" pad (string_of_c_type ty) name
+  | Expr (BinOp (op, lhs, rhs)) when is_assign_op op ->
+      let lhs_s = string_of_expr lhs in
+      let base = Printf.sprintf "%s(%s %s %s);" pad lhs_s (string_of_binary_op op) (string_of_expr rhs) in
+      if no_debug then base else
+      let debug = Printf.sprintf "\n#ifdef SISAL_DEBUG\n%sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \\\"%s\\\" value: \" << %s << std::endl;\n#endif" pad (String.escaped lhs_s) lhs_s in
+      base ^ debug
   | Expr e -> Printf.sprintf "%s%s;" pad (string_of_expr e)
   | For (init, cond, step, body) ->
-      let init_s = String.trim (string_of_stmt 0 init) in
+      let init_s = String.trim (string_of_stmt ~no_debug:true 0 init) in
       let init_s =
         if String.length init_s > 0 && init_s.[String.length init_s - 1] = ';'
         then String.sub init_s 0 (String.length init_s - 1)
@@ -146,6 +159,7 @@ let rec string_of_stmt indent =
         (string_of_expr count) queue idx
         (String.concat "\n" (List.map (string_of_stmt (indent + 1)) body))
         pad
+  | Macro s -> Printf.sprintf "%s#%s" pad s
   | MetalKernel k ->
       let params_s =
         k.params
