@@ -172,8 +172,8 @@ let main () =
       write_to !c_dest (Ir.C_ast_print.string_of_unit c_unit ^ "\n")
     end
   with e ->
-    let msg = Printexc.to_string e and stack = Printexc.get_backtrace () in
-    Printf.eprintf "there was an error: %s%s\n" msg stack;
+    let msg = Printexc.to_string e in
+    Printf.eprintf "there was an error: %s\n" msg;
     let lexbuf = !last_lexbuf in
     (match e with
     | Ir.If1.Sem_error msg | Ir.If1.Node_not_found msg ->
@@ -185,5 +185,4 @@ let main () =
         error msg lexbuf);
     exit 1
 
-let parsing = Printexc.print main ()
-let _ = parsing
+let () = main ()

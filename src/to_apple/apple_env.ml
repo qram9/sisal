@@ -87,6 +87,7 @@ type env = {
   curr_gid : int;
   curr_gr : graph;
   parent_env : env option;
+  compound_nid_in_parent : int;  (** node ID of this subgraph within parent's graph; 0 for root *)
   force_gpu : bool;
   gid_table : int GidMap.t;
   fanout_map : int PortFanout.t;
