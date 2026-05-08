@@ -79,6 +79,7 @@ type stmt =
       params : (c_type * string * int) list;
       body : stmt list;
     }
+  | Macro of string
   | Compound of stmt list
   | Prototype of procedure
   | Type of c_type
