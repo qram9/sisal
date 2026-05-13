@@ -46,6 +46,10 @@ APL bulk operations - structural (TAKE/DROP/ROTATE/REVERSE/RAVEL/CONCAT/COMPRESS
   $ sisal apl_structural.sis
 
 DV_COMPRESS — COMPRESS produces array_dv; inputs may be monolithic or dv:
+  $ sisal dv_lifted_arith.sis
+  $ sisal dv_broadcast_complex.sis
+  $ sisal dv_broadcast_numpy.sis
+  $ sisal verify_numpy_broadcast.sis
   $ sisal dv_compress_test.sis
 
 APL bulk operations - sort and search (SORT/GRADE_UP/GRADE_DOWN/ARGMAX/ARGMIN/NONZERO/WHERE):
