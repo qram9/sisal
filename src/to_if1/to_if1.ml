@@ -311,30 +311,32 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
   let _, outer_gr =
     List.fold_left
       (fun (local_pid, outer_gr) (src_n_in_boundary, src_p_in_boundary, xn) ->
-        let (sn, sp, t), outer_gr =
-          try If1.get_symbol_id xn outer_gr
-          with _ -> ((src_n_in_boundary, src_p_in_boundary, 0), outer_gr)
+        let res_opt =
+          try Some (If1.get_symbol_id xn outer_gr) with _ -> None
         in
-        let outer_gr =
-          if sn <> 0 || If1.NM.mem 0 outer_gr.If1.nmap then
-            let sn, sp, _ =
-              If1.find_incoming_regular_node (sn, sp, t) outer_gr
+        match res_opt with
+        | Some ((sn, sp, t), outer_gr) ->
+            let outer_gr =
+              if sn <> 0 || If1.NM.mem 0 outer_gr.If1.nmap then
+                let sn, sp, _ =
+                  If1.find_incoming_regular_node (sn, sp, t) outer_gr
+                in
+                if
+                  If1.ES.exists
+                    (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
+                      sn_e = sn && sp_e = sp && dn_e = cn && dp_e = local_pid)
+                    outer_gr.If1.eset
+                then outer_gr
+                else (
+                  to_if1_msg 3
+                    "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
+                     compound %d port %d"
+                    xn sn sp cn local_pid;
+                  If1.add_edge sn sp cn local_pid t outer_gr)
+              else outer_gr
             in
-            if
-              If1.ES.exists
-                (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
-                  sn_e = sn && sp_e = sp && dn_e = cn && dp_e = local_pid)
-                outer_gr.If1.eset
-            then outer_gr
-            else (
-              to_if1_msg 3
-                "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
-                 compound %d port %d"
-                xn sn sp cn local_pid;
-              If1.add_edge sn sp cn local_pid t outer_gr)
-          else outer_gr
-        in
-        (local_pid + 1, outer_gr))
+            (local_pid + 1, outer_gr)
+        | None -> (local_pid + 1, outer_gr))
       (0, outer_gr) ordered_inputs
   in
   (sub_gr, outer_gr)
@@ -1270,7 +1272,7 @@ and do_for_all inexp bodyexp retexp in_gr =
         (* Add subgraphs to forall_gr FIRST *)
         let (gn, _, _), forall_gr =
           If1.add_node_2
-            (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR" ], []))
+            (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ], []))
             forall_gr
         in
         let gen_gr, forall_gr = wire_all_syms_to_compound gn gen_gr forall_gr in
@@ -1278,7 +1280,7 @@ and do_for_all inexp bodyexp retexp in_gr =
 
         let (bx, by, bz), forall_gr =
           If1.add_node_2
-            (`Compound (body_gr, If1.INTERNAL, 0, [ If1.Name "BODY" ], []))
+            (`Compound (body_gr, If1.INTERNAL, 0, [ If1.Name "BODY"; If1.Compound_of If1.If1_body ], []))
             forall_gr
         in
         let body_gr, forall_gr =
@@ -1313,7 +1315,9 @@ and do_for_all inexp bodyexp retexp in_gr =
           if p >= n_streams then gr
           else
             (* Gen output port P -> Body input port (P-1) *)
-            let gr = If1.add_edge gn p bx (p - 1) 0 gr in
+            let outs = If1.get_boundary_outputs gen_gr in
+            let ty_id = fst (List.nth outs p) in
+            let gr = If1.add_edge gn p bx (p - 1) ty_id gr in
             wire_streams gr (p + 1)
         in
         let forall_gr = wire_streams forall_gr 1 in
@@ -1342,7 +1346,7 @@ and do_for_all inexp bodyexp retexp in_gr =
               get_ports_unified (If1.get_a_new_graph gen_gr) gen_gr gen_gr
             in
             If1.add_node_2
-              (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR" ], []))
+              (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ], []))
               forall_gr
           in
           let gen_gr, forall_gr =
@@ -1385,7 +1389,7 @@ and do_for_all inexp bodyexp retexp in_gr =
                  ( body_nest_gr,
                    If1.INTERNAL,
                    0,
-                   [ If1.Name "FORALL" ],
+                   [ If1.Name "FORALL"; If1.Compound_of If1.If1_forall ],
                    inner_ids ))
               forall_gr
           in
@@ -1471,7 +1475,7 @@ and do_for_all inexp bodyexp retexp in_gr =
          ( forall_gr,
            If1.INTERNAL,
            0,
-           [ If1.Name "FORALL"; If1.Ast_type (Ast.str_simple_exp fall) ],
+           [ If1.Name "FORALL"; If1.Ast_type (Ast.str_simple_exp fall); If1.Compound_of If1.If1_forall ],
            subgr_ids ))
       in_gr
   in
@@ -1757,7 +1761,8 @@ and do_decldef in_gr delc =
               let in_gr_ = If1.graph_clean_multiarity in_gr_ in
               let (cn, _, _), in_gr =
                 If1.add_node_2
-                  (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
+                  (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn; If1.Compound_of If1.If1_procedure ], []))
+
                   in_gr
               in
               let in_gr_, in_gr = wire_all_syms_to_compound cn in_gr_ in_gr in
@@ -1906,7 +1911,8 @@ and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
             let in_gr_ = If1.graph_clean_multiarity in_gr_ in
             let (expnum, _, _), in_gr =
               If1.add_node_2
-                (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn ], []))
+                (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn; If1.Compound_of If1.If1_procedure ], []))
+
                 in_gr
             in
             let in_gr_, in_gr = wire_all_syms_to_compound expnum in_gr_ in_gr in
@@ -2193,8 +2199,10 @@ and get_new_tagcase_graph in_gr vntt e =
     | `AnyTag (_, _, bii) ->
         [
           If1.Name (List.fold_right (fun x y -> If1.cate_nicer x y ",") bii "");
+          If1.Compound_of If1.If1_tagcase_arm;
         ]
-    | `OtherwiseTag -> [ If1.Name "Otherwise" ]
+    | `OtherwiseTag ->
+        [ If1.Name "Otherwise"; If1.Compound_of If1.If1_tagcase_arm ]
   in
   (* return the output types in jj,
       pragmas and updated graph likewise *)
@@ -3128,10 +3136,6 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
 
   let (loop_n, loop_p, loop_t), in_gr = do_simple_exp in_gr loop_ast in
 
-  (* The loop returns a MULTIARITY node with (shape_array, all_compatible) *)
-  let sh_n, sh_p, sh_t = (loop_n, 0, 0 (* type placeholder *)) in
-  let comp_n, comp_p, comp_t = (loop_n, 1, If1.lookup_tyid If1.BOOLEAN) in
-
   (* Determine common shape type (Array_dv[Int] or Array[Int]) *)
   let (sh_ty, _, _), in_gr =
     If1.add_type_to_typemap_dedup
@@ -3139,6 +3143,10 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
        else If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
       in_gr
   in
+
+  (* The loop returns a MULTIARITY node with (shape_array, all_compatible) *)
+  let sh_n, sh_p, sh_t = (loop_n, 0, sh_ty) in
+  let comp_n, comp_p, comp_t = (loop_n, 1, If1.lookup_tyid If1.BOOLEAN) in
 
   (* Error Flag = NOT(all_compatible) *)
   let (not_n, not_p, _), in_gr =
@@ -3658,7 +3666,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
       verify_function_returns "<lambda>" fn_ty new_fun_gr;
       let (lam_node, lam_port, _), in_gr =
         If1.add_node_2
-          (`Compound (new_fun_gr, If1.INTERNAL, 0, [ If1.Name "<lambda>" ], []))
+          (`Compound
+             ( new_fun_gr,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "<lambda>"; If1.Compound_of If1.If1_procedure ],
+               [] ))
           in_gr
       in
       let new_fun_gr, in_gr =
@@ -3870,6 +3883,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
           | Ast.Arg (Ast.Exp [ arr; n ]) ->
               do_simple_exp in_gr (Ast.Drop_exp (arr, n))
           | _ -> raise (If1.Sem_error "DROP: expected DROP(arr, n)"))
+      | "SLICE" -> (
+          match arg with
+          | Ast.Arg (Ast.Exp [ arr; lo; hi ]) ->
+              do_simple_exp in_gr (Ast.Slice_exp (arr, lo, hi))
+          | _ -> raise (If1.Sem_error "SLICE: expected SLICE(arr, lo, hi)"))
       | "COMPRESS" -> (
           match arg with
           | Ast.Arg (Ast.Exp [ mask; arr ]) ->
@@ -4682,23 +4700,46 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (fun elem -> intrinsic_to_ast up_fn elem)
               in_gr
           else
-            let cs, ps = in_gr.If1.symtab in
-            let deref_fn =
-              match String.uppercase_ascii deref_fn with _ -> deref_fn
-            in
-            let symtab_entry =
-              match If1.SM.find_opt deref_fn cs with
-              | Some id -> id
-              | None -> (
-                  match If1.SM.find_opt deref_fn ps with
-                  | Some id -> id
-                  | None -> (
-                      (* 2. Only mangle if exact name lookup fails *)
-                      let target_prefix =
-                        Printf.sprintf "_S%s__%s__" deref_fn
-                          (String.concat ""
-                             (List.map If1.short_name_for_intrinsic arg_types))
-                      in
+            let up_fn = String.uppercase_ascii deref_fn in
+            let expl_ast = match arg with Ast.Arg (Ast.Exp l) -> l | _ -> [] in
+            if List.mem up_fn [ "PLUS"; "ADD" ] && List.length expl_ast = 2 then
+              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.ADD
+            else if List.mem up_fn [ "MINUS"; "SUB"; "SUBTRACT" ] && List.length expl_ast = 2 then
+              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.SUBTRACT
+            else if List.mem up_fn [ "TIMES"; "MUL"; "MULTIPLY" ] && List.length expl_ast = 2 then
+              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.TIMES
+            else if List.mem up_fn [ "DIVIDE"; "DIV" ] && List.length expl_ast = 2 then
+              let left = List.nth expl_ast 0 in
+              let right = List.nth expl_ast 1 in
+              let (nod1, por1, ty1), in_gr = do_simple_exp in_gr left in
+              let op = if If1.is_real_type (If1.lookup_ty ty1 in_gr) then If1.FDIVIDE else If1.IDIVIDE in
+              bin_exp left right in_gr op
+            else
+              let expl, in_gr =
+                match arg with
+                | Ast.Arg aa -> (
+                    match aa with
+                    | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
+                    | Empty -> ([], in_gr))
+              in
+              let expl =
+                List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
+              in
+              let arg_types = List.map (fun (_, _, t) -> t) expl in
+              let cs, ps = in_gr.If1.symtab in
+              let symtab_entry =
+                match If1.SM.find_opt deref_fn cs with
+                | Some id -> id
+                | None -> (
+                    match If1.SM.find_opt deref_fn ps with
+                    | Some id -> id
+                    | None -> (
+                        (* 2. Only mangle if exact name lookup fails *)
+                        let target_prefix =
+                          Printf.sprintf "_S%s__%s__" deref_fn
+                            (String.concat ""
+                               (List.map If1.short_name_for_intrinsic arg_types))
+                        in
                       (* 3. Optimize prefix lookup *)
                       match If1.lookup_mangled_name target_prefix with
                       | Some id -> id
@@ -4718,53 +4759,53 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                       "CRASHED_.html" in_gr;
                                     "Unknown function: " ^ deref_fn
                                     ^ " target prefix " ^ target_prefix)))))
-            in
-            let deref_fn = symtab_entry.val_name in
-            let in_port_00 = Array.make (List.length expl) "" in
-            let prags = [ If1.Name deref_fn ] in
-            let (n, _, _), in_gr =
-              If1.add_node_2
-                (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
-                in_gr
-            in
-            let tm = If1.get_typemap_tm in_gr in
-            let tml =
-              match If1.TM.find_opt symtab_entry.val_ty tm with
-              | Some x -> (
-                  match x with
-                  | If1.Function_ty (_, ret_ty, _) ->
-                      let result = If1.fold_ret_ty_lis ret_ty tm in
-                      result
-                  | _ ->
-                      failwith
-                        ("Expected function type but found: "
-                       ^ If1.string_of_if1_ty x))
-              | None -> (
-                  match If1.lookup_mangled_type symtab_entry.val_ty with
-                  | Some (If1.Function_ty (_, ret_ty, _)) ->
-                      let _, intrinsic_types = Lazy.force If1.intrinsic_lib in
-                      If1.fold_ret_ty_lis ret_ty intrinsic_types
-                  | _ -> failwith "Function type missing in typemap")
-            in
-            let _, output_triple_list =
-              List.fold_right
-                (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
-                tml
-                (List.length tml - 1, [])
-            in
-            let in_gr = add_edges_in_list expl n 0 in_gr in
-            if List.length output_triple_list = 1 then
-              (List.hd output_triple_list, in_gr)
-            else
-              let (n1, _, _), in_gr =
-                let in_port_01 = Array.make (List.length tml) "" in
-                let out_port_01 = Array.make (List.length tml) "" in
+              in
+              let deref_fn = symtab_entry.val_name in
+              let in_port_00 = Array.make (List.length expl) "" in
+              let prags = [ If1.Name deref_fn ] in
+              let (n, _, _), in_gr =
                 If1.add_node_2
-                  (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+                  (`Simple (If1.INVOCATION, in_port_00, out_port_0, prags))
                   in_gr
               in
-              let in_gr = add_edges_in_list output_triple_list n1 0 in_gr in
-              ((n1, 0, 0), in_gr))
+              let tm = If1.get_typemap_tm in_gr in
+              let tml =
+                match If1.TM.find_opt symtab_entry.val_ty tm with
+                | Some x -> (
+                    match x with
+                    | If1.Function_ty (_, ret_ty, _) ->
+                        let result = If1.fold_ret_ty_lis ret_ty tm in
+                        result
+                    | _ ->
+                        failwith
+                          ("Expected function type but found: "
+                         ^ If1.string_of_if1_ty x))
+                | None -> (
+                    match If1.lookup_mangled_type symtab_entry.val_ty with
+                    | Some (If1.Function_ty (_, ret_ty, _)) ->
+                        let _, intrinsic_types = Lazy.force If1.intrinsic_lib in
+                        If1.fold_ret_ty_lis ret_ty intrinsic_types
+                    | _ -> failwith "Function type missing in typemap")
+              in
+              let _, output_triple_list =
+                List.fold_right
+                  (fun ae (lev, re) -> (lev - 1, (n, lev, ae) :: re))
+                  tml
+                  (List.length tml - 1, [])
+              in
+              let in_gr = add_edges_in_list expl n 0 in_gr in
+              if List.length output_triple_list = 1 then
+                (List.hd output_triple_list, in_gr)
+              else
+                let (n1, _, _), in_gr =
+                  let in_port_01 = Array.make (List.length tml) "" in
+                  let out_port_01 = Array.make (List.length tml) "" in
+                  If1.add_node_2
+                    (`Simple (If1.MULTIARITY, in_port_01, out_port_01, prags))
+                    in_gr
+                in
+                let in_gr = add_edges_in_list output_triple_list n1 0 in_gr in
+                ((n1, 0, 0), in_gr))
   | Array_ref (ar_a, ar_b) as aap -> (
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
       match ar_b with
@@ -4828,7 +4869,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* 3. Add the Compound Node (add_node_2 will handle the 1-to-1 Propagator internally) *)
       let (aa, _, _), in_gr =
         If1.add_node_2
-          (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_REC" ], []))
+          (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_REC"; If1.Compound_of If1.If1_Unknown ], []))
           in_gr
       in
       let let_gr, in_gr = wire_all_syms_to_compound aa let_gr in_gr in
@@ -4905,6 +4946,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                [
                  If1.Name "LET_NON_REC";
                  If1.Ast_type (Ast.str_simple_exp (Let (dp, in_exp)));
+                 If1.Compound_of If1.If1_Unknown;
                ],
                [] ))
           in_gr
@@ -5240,7 +5282,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           let (aa, _, _), tagcase_gr =
             If1.add_node_2
-              (`Compound (gr_o, If1.INTERNAL, 0, [ If1.Name "OTHERWISE" ], []))
+              (`Compound (gr_o, If1.INTERNAL, 0, [ If1.Name "OTHERWISE"; If1.Compound_of If1.If1_tagcase_arm ], []))
               tagcase_gr_
           in
           let gr_o, tagcase_gr = wire_all_syms_to_compound aa gr_o tagcase_gr in
@@ -5263,7 +5305,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  ( tagcase_gr,
                    If1.TAGCASE,
                    0,
-                   [ If1.Name "If1.TAGCASE" ],
+                   [ If1.Name "If1.TAGCASE"; If1.Compound_of If1.If1_tagcase ],
                    assoc_lis ))
               in_gr
           in
@@ -5312,7 +5354,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
              ( test_graph,
                If1.INTERNAL,
                0,
-               [ If1.Name ("IS_SUBGRAPH" ^ string_of_int un_ty) ],
+               [
+                 If1.Name ("IS_SUBGRAPH" ^ string_of_int un_ty);
+                 If1.Compound_of If1.If1_Unknown;
+               ],
                tag_nums ))
           in_gr
       in
@@ -5360,11 +5405,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
          compound's output ports (which mirror the subgraph's boundary outputs).
          Returns (compound_n, multiarity_n, updated_outer_gr). *)
       let build_compound_and_ma sub_gr ty_lis pragmas outer_gr =
+        let c_of = match List.find_map (function If1.Name s -> Some s | _ -> None) pragmas with
+          | Some "THEN" -> If1.If1_then
+          | Some "ELSE" -> If1.If1_else
+          | _ -> If1.If1_Unknown in
+        let pragmas = If1.Compound_of c_of :: pragmas in
         let (cn, _, _), outer_gr =
-          If1.add_node_2
-            (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, []))
-            outer_gr
+          If1.add_node_2 (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, [])) outer_gr
         in
+
         let _, outer_gr = wire_all_syms_to_compound cn sub_gr outer_gr in
         let n = If1.IntMap.cardinal ty_lis in
         let (ma_n, _, _), outer_gr =
@@ -5403,8 +5452,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      0,
                      [
                        If1.Name "PREDICATE";
+                       If1.Compound_of If1.If1_predicate;
                        If1.Ast_type (Ast.str_exp predicate);
                      ],
+
                      [] ))
                 in_gr_if
             in
@@ -5481,8 +5532,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      0,
                      [
                        If1.Name "PREDICATE";
+                       If1.Compound_of If1.If1_predicate;
                        If1.Ast_type (Ast.str_exp predicate);
                      ],
+
                      [] ))
                 in_gr_if
             in
@@ -5566,6 +5619,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  0,
                  [
                    If1.Name ("IF_" ^ name_it);
+                   If1.Compound_of If1.If1_if;
                    If1.Ast_type (Ast.str_simple_exp if_ast);
                  ],
                  [] ))
@@ -5663,9 +5717,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
 
       let add_comp_node in_gr namen ?(prag = "") to_gr =
+        let c_of = match namen with
+          | "INIT" -> If1.If1_loop_initial
+          | "TEST" -> If1.If1_loop_test
+          | "BODY" -> If1.If1_body
+          | "RETURNS" | "RETURN" -> If1.If1_results
+          | "FORALL" -> If1.If1_forall
+          | "GENERATOR" -> If1.If1_generator
+          | _ -> If1.If1_Unknown in
         let prags =
-          if prag <> "" then If1.Name namen :: [ If1.Ast_type prag ]
-          else [ If1.Name namen ]
+          if prag <> "" then [ If1.Name namen; If1.Ast_type prag; If1.Compound_of c_of ]
+          else [ If1.Name namen; If1.Compound_of c_of ]
         in
         let (cn, _, _), on =
           If1.add_node_2 (`Compound (in_gr, If1.INTERNAL, 0, prags, [])) to_gr
@@ -5721,7 +5783,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      If1.INTERNAL,
                      0,
                      [
-                       If1.Name "LoopA"; If1.Ast_type (Ast.str_simple_exp finit);
+                       If1.Name "LoopA";
+                       If1.Compound_of If1.If1_loop_initial;
+                       If1.Ast_type (Ast.str_simple_exp finit);
                      ],
                      let lis = get_assoc_list_loopAOrB for_gr in
                      List.length lis :: lis ))
@@ -5792,7 +5856,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      If1.INTERNAL,
                      0,
                      [
-                       If1.Name "LoopB"; If1.Ast_type (Ast.str_simple_exp finit);
+                       If1.Name "LoopB";
+                       If1.Compound_of If1.If1_loop_initial;
+                       If1.Ast_type (Ast.str_simple_exp finit);
                      ],
                      let lis = get_assoc_list_loopAOrB for_gr in
                      List.length lis :: lis ))
@@ -6511,9 +6577,27 @@ and do_simple_exp_impl in_gr in_sim_ex =
                            Ast.No_mask );
                      ] );
                ] ))
-  | Reverse_exp arr ->
+  | Slice_exp (a, lo, hi) ->
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      let (ln, lp, lt), in_gr = do_simple_exp in_gr lo in
+      let (hn, hp, ht), in_gr = do_simple_exp in_gr hi in
+      let (sn, sp, _), in_gr =
+        If1.add_node_2
+          (`Simple
+             ( If1.DV_SLICE,
+               [| ""; ""; "" |],
+               [| "" |],
+               [ If1.No_pragma ] ))
+          in_gr
+      in
+      let in_gr = If1.add_edge an ap sn 0 at in_gr in
+      let in_gr = If1.add_edge ln lp sn 1 lt in_gr in
+      let in_gr = If1.add_edge hn hp sn 2 ht in_gr in
+      ((sn, sp, at), in_gr)
+  | Reverse_exp a ->
       (* DV_REVERSE(arr) — reversed view via stride negation, no new array *)
-      let (an, ap, at), in_gr = do_simple_exp in_gr arr in
+      let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
@@ -7096,7 +7180,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let dope_ty, in_gr = If1.ensure_dope_vec_type in_gr in
       (* The record type is the element type of the dope-vector array *)
       let triplet_ty =
-        match If1.lookup_ty dope_ty in_gr with If1.Array_ty et -> et | _ -> 0
+        match If1.lookup_ty dope_ty in_gr with
+        | If1.Array_ty et
+        | If1.Array_dv et ->
+            et
+        | _ -> 0
       in
       let (rn, rp, _), in_gr =
         If1.add_node_2
@@ -7535,10 +7623,15 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
                   out_gr
               in
               (* Connect triplet to DV_GATHER Port 2 *)
-              let out_gr =
-                If1.add_edge dim_n 0 dd 2 0
-                  (* placeholder for triplet type *) out_gr
+              let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
+              let triplet_ty =
+                match If1.lookup_ty dope_ty out_gr with
+                | If1.Array_ty et
+                | If1.Array_dv et ->
+                    et
+                | _ -> 0
               in
+              let out_gr = If1.add_edge dim_n 0 dd 2 triplet_ty out_gr in
 
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
@@ -7625,8 +7718,8 @@ and add_return_gr in_gr body_gr return_action_list mask_ty_list prag =
 
   let (cn, _, _), in_gr =
     let pragms =
-      if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag ]
-      else [ If1.Name "RETURNS" ]
+      if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag; If1.Compound_of If1.If1_results ]
+      else [ If1.Name "RETURNS"; If1.Compound_of If1.If1_results ]
     in
     If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
   in
@@ -8182,6 +8275,7 @@ and do_internals (names, in_gr) f =
                0,
                [
                  If1.Name (String.concat "." fn_name);
+                 If1.Compound_of If1.If1_procedure;
                  If1.Ast_type (Ast.internals 0 f);
                ],
                [] ))

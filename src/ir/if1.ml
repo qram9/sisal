@@ -323,6 +323,22 @@ type if1_ty =
 
 type port = string
 
+type compound_node_of =
+  | If1_forall
+  | If1_generator
+  | If1_body
+  | If1_results
+  | If1_procedure
+  | If1_if
+  | If1_then
+  | If1_else
+  | If1_predicate
+  | If1_tagcase
+  | If1_tagcase_arm
+  | If1_loop_initial
+  | If1_loop_test
+  | If1_Unknown
+
 type pragma =
   | Bounds of int * int
   | SrcLine of int * int
@@ -337,6 +353,7 @@ type pragma =
   | No_pragma
   | Ast_type of string
   | Subscript of string (* carries einsum index string on EINSUM_NODE *)
+  | Compound_of of compound_node_of
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -1774,6 +1791,14 @@ and add_node nn in_gr =
         w = pi + 1;
       }
   | `Compound (g, sy, ty, prag, alis) ->
+      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      if not has_compound_of then (
+        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
+        Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
+        Printexc.print_backtrace stderr;
+        failwith "Missing Compound_of pragma"
+      );
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let child_ps = snd (get_symtab g) in
@@ -2301,6 +2326,14 @@ and add_node_2 nn in_gr =
           w = pi + 1;
         } )
   | `Compound (g, sy, ty, prag, alis) ->
+      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      if not has_compound_of then (
+        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
+        Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
+        Printexc.print_backtrace stderr;
+        failwith "Missing Compound_of pragma"
+      );
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let base_gr =
@@ -3770,6 +3803,22 @@ and string_of_node_sym = function
   | CONV_V -> "CONV_V"
   | CONV_2D -> "CONV_2D"
 
+and string_of_compound_of = function
+  | If1_forall -> "FORALL"
+  | If1_generator -> "GENERATOR"
+  | If1_body -> "BODY"
+  | If1_results -> "RESULTS"
+  | If1_procedure -> "PROCEDURE"
+  | If1_if -> "IF"
+  | If1_then -> "THEN"
+  | If1_else -> "ELSE"
+  | If1_predicate -> "PREDICATE"
+  | If1_tagcase -> "TAGCASE"
+  | If1_tagcase_arm -> "TAGCASE_ARM"
+  | If1_loop_initial -> "INIT"
+  | If1_loop_test -> "TEST"
+  | If1_Unknown -> "UNKNOWN"
+
 and string_of_pragmas p =
   List.fold_right
     (fun p q ->
@@ -3790,6 +3839,7 @@ and string_of_pragmas p =
         | No_pragma -> ""
         | Ast_type _ -> ""
         | Subscript s -> "Subscript(" ^ s ^ ")"
+        | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
       in
       cate_nicer l q " ,")
     p ""
@@ -3965,13 +4015,13 @@ and string_of_pair_list_final_string zz =
 and string_of_node_ty ?(offset = 2) in_gr n =
   match n with
   | Literal (lab, _, str, _) ->
-      string_of_int lab (*^ " " ^ (string_of_if1_basic_ty ty)*)
+      ("__" ^ string_of_int lab) (*^ " " ^ (string_of_if1_basic_ty ty)*)
       ^ " \"" ^ str ^ "\"" (*^ (string_of_ports pout)*)
   | Simple (lab, n, pin, pout, prag) ->
       cate_nicer
         (cate_nicer
            (cate_nicer
-              (cate_nicer (string_of_int lab) (string_of_node_sym n) " ")
+              (cate_nicer ("__" ^ string_of_int lab) (string_of_node_sym n) " ")
               (string_of_ports pin) " ")
            (string_of_ports pout) " ")
         (string_of_pragmas prag) " "
@@ -3980,13 +4030,13 @@ and string_of_node_ty ?(offset = 2) in_gr n =
         (cate_nicer
            (cate_nicer
               (cate_nicer
-                 (string_of_int lab ^ " " ^ string_of_int ty)
+                 ("__" ^ string_of_int lab ^ " " ^ string_of_int ty)
                  (string_of_pragmas pl) " ")
               (string_of_graph ~offset:(offset + 2) g)
               "\n")
            (string_of_node_sym sy) " ")
         (List.fold_right
-           (fun x y -> cate_nicer (string_of_int x) y ",")
+           (fun x y -> cate_nicer ("__" ^ string_of_int x) y ",")
            assoc "")
         " "
   | Unknown_node -> "Unknown"
@@ -4032,7 +4082,7 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
   let sep2 = if is_error then "::" else ":" in
 
   (* 3. Compose the final "Nicer" string *)
-  let connection = Printf.sprintf "%d%s%d -> %d%s%d" n1 sep1 p1 n2 sep2 p2 in
+  let connection = Printf.sprintf "__%d%s%d -> __%d%s%d" n1 sep1 p1 n2 sep2 p2 in
   let metadata = Printf.sprintf "[ID:%d %s]" tt type_desc in
 
   cate_nicer connection metadata " "
@@ -4055,7 +4105,7 @@ and string_of_if1_value tm = function
         | true -> printable_full_type tm ii
         | false -> ""
       in
-      ttt ^ "; " ^ st ^ "; " ^ "(" ^ string_of_int jj ^ " : " ^ string_of_int p
+      ttt ^ "; " ^ st ^ "; " ^ "(" ^ "__" ^ string_of_int jj ^ " : " ^ string_of_int p
       ^ ")"
 
 and string_of_if1_value_in tm = function
@@ -4070,7 +4120,7 @@ and string_of_if1_value_in tm = function
         | false -> ""
       in
       if jj = 0 then
-        ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ "," ^ string_of_int p
+        ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ "," ^ string_of_int p
         ^ ")"
       else ""
 
@@ -4086,7 +4136,7 @@ and string_of_if1_value_out tm = function
         | false -> ""
       in
       if jj <> 0 then
-        "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ","
+        "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ ","
         ^ string_of_int p ^ ")}"
       else ""
 
@@ -4889,6 +4939,7 @@ module If1_View = struct
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
+          | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
@@ -4911,6 +4962,7 @@ module If1_View = struct
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
+          | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""

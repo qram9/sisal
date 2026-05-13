@@ -132,6 +132,8 @@ and simple_exp =
       simple_exp * simple_exp (* EXPAND(A, axis) insert size-1 dim *)
   | Ravel_exp of
       simple_exp (* RAVEL(A) / FLATTEN_DV — rank-1 view, APL monadic , *)
+  | Slice_exp of
+      simple_exp * simple_exp * simple_exp (* SLICE(A, lo, hi) *)
   | Reverse_exp of simple_exp (* REVERSE(A) — APL monadic ⌽ *)
   (* Stencil / filter *)
   | Stencil_exp of
@@ -1353,6 +1355,9 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Expand_exp (a, k) ->
       " EXPAND(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
   | Ravel_exp a -> " RAVEL(" ^ str_simple_exp a ^ ")"
+  | Slice_exp (a, lo, hi) ->
+      " SLICE(" ^ str_simple_exp a ^ ", " ^ str_simple_exp lo ^ ", "
+      ^ str_simple_exp hi ^ ")"
   | Reverse_exp a -> " REVERSE(" ^ str_simple_exp a ^ ")"
   | Stencil_exp (f, a, dims) ->
       let ds = String.concat ", " (List.map str_simple_exp dims) in

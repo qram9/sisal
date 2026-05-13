@@ -1,7 +1,6 @@
 (** apple_lower.ml: The "Apple Lowering" pass for Sisal. This module implements
     the complex logic of translating dataflow IF1 graphs into imperative C-AST
-    nodes, with specific optimizations for Apple Silicon (GCD for parallelism,
-    Accelerate framework for vector ops). *)
+    nodes, optimized for Apple Silicon. *)
 
 open Ir.If1
 open Apple_env
@@ -9,720 +8,783 @@ open Apple_helpers
 
 (** [c_op_of_node_sym sym] maps a basic IF1 node symbol to a C binary operator. *)
 let c_op_of_node_sym = function
-  | ADD -> Some C.Add
-  | SUBTRACT -> Some C.Sub
-  | TIMES -> Some C.Mul
-  | EQUAL -> Some C.Eq
-  | GREATER -> Some C.Gt
-  | GREATER_EQUAL -> Some C.Ge
-  | LESSER -> Some C.Lt
-  | LESSER_EQUAL -> Some C.Le
-  | _ -> None
+  | ADD -> Some C.Add | SUBTRACT -> Some C.Sub | TIMES -> Some C.Mul
+  | EQUAL -> Some C.Eq | GREATER -> Some C.Gt | GREATER_EQUAL -> Some C.Ge
+  | LESSER -> Some C.Lt | LESSER_EQUAL -> Some C.Le | _ -> None
 
-(** [intrinsic_name_of_node_sym sym] maps special IF1 symbols to runtime helper
-    function names. *)
-let intrinsic_name_of_node_sym = function
-  | "_SABS__F__F" -> Some "fabsf"
-  | "_SABS__D__D" -> Some "fabs"
-  | "_SABS__I__I" -> Some "abs"
-  | "_SSQRT__F__F" -> Some "sqrtf"
-  | "_SSQRT__D__D" -> Some "sqrt"
-  | "_SEXP__F__F" -> Some "expf"
-  | "_SEXP__D__D" -> Some "exp"
-  | "_SLOG__F__F" -> Some "logf"
-  | "_SLOG__D__D" -> Some "log"
-  | "_SSIN__F__F" -> Some "sinf"
-  | "_SSIN__D__D" -> Some "sin"
-  | "_SCOS__F__F" -> Some "cosf"
-  | "_SCOS__D__D" -> Some "cos"
-  | "_STAN__F__F" -> Some "tanf"
-  | "_STAN__D__D" -> Some "tan"
-  | "_SMAX__FF__F" -> Some "fmaxf"
-  | "_SMAX__DD__D" -> Some "fmax"
-  | "_SMIN__FF__F" -> Some "fminf"
-  | "_SMIN__DD__D" -> Some "fmin"
-  | "_SFLOOR__F__F" -> Some "floorf"
-  | "_SFLOOR__D__D" -> Some "floor"
-  | "_SCEIL__F__F" -> Some "ceilf"
-  | "_SCEIL__D__D" -> Some "ceil"
-  | "_STRUNC__F__I" -> Some "(int32_t)truncf"
-  | "_STRUNC__D__L" -> Some "(int64_t)trunc"
-  | "_STRUNC__H__S" -> Some "(int16_t)truncf"
-  | "_SRADIANS__F__F" -> Some "sisal_radians_f"
-  | "_SRADIANS__D__D" -> Some "sisal_radians_d"
-  | "_SDEGREES__F__F" -> Some "sisal_degrees_f"
-  | "_SDEGREES__D__D" -> Some "sisal_degrees_d"
-  | _ -> None
+let string_of_c_type = function
+  | C.Basic s -> s
+  | C.Pointer (C.Basic s, _) -> s ^ "*"
+  | _ -> "int32_t"
 
-let get_expr_unsafe env g n p dir =
-  match get_expr env g n p dir with
-  | Some e -> e
-  | None -> C.Id (var_name env env.curr_gr g n p dir)
+(** [infer_types env gr gid] populates the type_table for the current graph hierarchy. *)
+let infer_types env gr gid =
+  let _, tm, _ = gr.typemap in
+  let table = ref env.type_table in
 
-(** [lower_graph env gr gid] translates an IF1 graph into a list of C statements.
-    Uses the edge set exclusively for boundary input resolution via
-    [compound_nid_in_parent] in the env. *)
-let rec lower_graph env gr gid =
-  assert_compound_boundary_types gr;
-  let fanout_counts, mandatory_ports = compute_fanout gr in
-  let env = { env with curr_gid = gid; curr_gr = gr; fanout_map = fanout_counts; mandatory_ports } in
+  let set_ty g n p d ty =
+    let key = (g, n, p, d) in
+    match FullPortMap.find_opt key !table with
+    | Some existing when existing = C.Basic "sisal_array_t" -> ()
+    | _ -> table := FullPortMap.add key ty !table in
 
-  (* 1. Populate preds from local edges. *)
-  let preds = ES.fold (fun ((sn, sp), (dn, dp), _) m ->
-    FullPortMap.add (gid, dn, dp, `In) (gid, sn, sp, `Out) m)
-    gr.eset env.preds in
-  let env = { env with preds } in
+  let get_ty g n p d = match FullPortMap.find_opt (g, n, p, d) !table with Some ty -> ty | None -> C.Basic "float" in
 
-  let _cs, _ps = gr.symtab in
+  let rec pass1 g cur_gid =
+    (* 0. Seed from Symbol Table (Mandate 4: symtab is truth) *)
+    let cs, _ps = g.symtab in
+    SM.iter (fun _ v ->
+      let ty_val = try TM.find v.val_ty tm with _ -> Basic REAL in
+      set_ty cur_gid v.val_def v.def_port `Out (c_type_of_if1_ty tm ty_val)
+    ) cs;
 
-  (* 2. Materialise boundary inputs using names from cs where available. *)
-  let b_in_pids_all =
-    ES.fold (fun ((sn, sp), _, _) acc -> if sn = 0 then IntSet.add sp acc else acc)
-      gr.eset IntSet.empty |> IntSet.elements in
-  let b_in_decls, env =
-    List.fold_left (fun (decls, e) p ->
-      if FullPortMap.mem (gid, 0, p, `Out) e.var_map || gid = 0 then (decls, e)
-      else
-        let v_o = var_name e gr gid 0 p `Out in
-        if StringSet.mem v_o e.seen_decls then (decls, e)
+    NM.iter (fun nid node ->
+      match node with
+      | Boundary _ ->
+          (* outs stores (src_node, src_port) refs, not type IDs — skip; pass2 propagates types via edges *)
+          ()
+      | Literal (_, code, _, _) ->
+          let ty = match code with | REAL | DOUBLE -> C.Basic "double" | BOOLEAN -> C.Basic "bool" | _ -> C.Basic "int32_t" in
+          set_ty cur_gid nid 0 `Out ty
+      | Simple (_, sym, _, outs, _) ->
+          let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; DV_SCATTER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
+          let ty = if is_int then C.Basic "int32_t" else if is_arr then C.Basic "sisal_array_t" else C.Basic "float" in
+          Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
+          if is_arr || List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+            set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+      | Compound (_, sym, _, pr, sub, _) ->
+          let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
+          let is_forall = get_compound_type pr = If1_forall in
+          if (is_forall || sym = STREAM || sym = MAT) then set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
+          pass1 sub sub_gid
+      | _ -> ()
+    ) g.nmap in
+
+  let rec pass2 g cur_gid =
+    let changed = ref false in
+    ES.iter (fun ((sn, sp), (dn, dp), _) ->
+      let sty = get_ty cur_gid sn sp `Out in
+      let dty = get_ty cur_gid dn dp `In in
+      if sty <> C.Basic "float" && dty = C.Basic "float" then (set_ty cur_gid dn dp `In sty; changed := true)
+      else if dty <> C.Basic "float" && sty = C.Basic "float" then (set_ty cur_gid sn sp `Out dty; changed := true)
+    ) g.eset;
+
+    NM.iter (fun nid node ->
+      match node with
+      | Simple (_, sym, _, _, _) ->
+          if List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+            let in0_ty = get_ty cur_gid nid 0 `In in
+            if in0_ty = C.Basic "float" then (set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t"); changed := true);
+          if sym = AELEMENT || sym = DV_ELEMENT || sym = DV_LOAD_LINEAR || sym = DV_OFFSET_AT || sym = DV_DIMENSION then
+            let in1_ty = get_ty cur_gid nid 1 `In in
+            if in1_ty = C.Basic "float" then (set_ty cur_gid nid 1 `In (C.Basic "int32_t"); changed := true)
+      | Compound (_, _, _, _, sub, _) ->
+          let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
+          let b_ins = match NM.find_opt 0 sub.nmap with Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0 in
+          for i = 0 to b_ins - 1 do
+            let p_ty = get_ty cur_gid nid i `In in
+            let c_ty = get_ty sub_gid 0 i `Out in
+            if p_ty <> C.Basic "float" && c_ty = C.Basic "float" then (set_ty sub_gid 0 i `Out p_ty; changed := true)
+            else if c_ty <> C.Basic "float" && p_ty = C.Basic "float" then (set_ty cur_gid nid i `In c_ty; changed := true)
+          done;
+          let b_outs = match NM.find_opt 0 sub.nmap with Some (Boundary (_, outs, _, _)) -> List.length outs | _ -> 0 in
+          for i = 0 to b_outs - 1 do
+            let c_ty = get_ty sub_gid 0 i `In in
+            let p_ty = get_ty cur_gid nid i `Out in
+            if c_ty <> C.Basic "float" && p_ty = C.Basic "float" then (set_ty cur_gid nid i `Out c_ty; changed := true)
+            else if p_ty <> C.Basic "float" && c_ty = C.Basic "float" then (set_ty sub_gid 0 i `In p_ty; changed := true)
+          done;
+          pass2 sub sub_gid
+      | _ -> ()
+    ) g.nmap;
+    if !changed then pass2 g cur_gid in
+
+  let rec pass0 g cur_gid =
+    NM.iter (fun nid node ->
+      match node with
+      | Simple (_, sym, _, outs, _) ->
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; DV_SCATTER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
+          if is_arr then (
+            Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t")) outs;
+            set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+          );
+          if List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+            set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+      | Compound (_, sym, _, pr, sub, _) ->
+          let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
+          let is_forall = get_compound_type pr = If1_forall in
+          if (is_forall || sym = STREAM || sym = MAT) then set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
+          pass0 sub sub_gid
+      | _ -> ()
+    ) g.nmap in
+
+  pass0 gr gid;
+  pass1 gr gid;
+  pass2 gr gid;
+  { env with type_table = !table }
+
+let get_final_ty env gid nid pid dir =
+  match FullPortMap.find_opt (gid, nid, pid, dir) env.type_table with
+  | Some ty -> ty
+  | None -> C.Basic "float"
+
+(** [is_proc_expr env g n] checks if a node represents a global procedure. *)
+let is_proc_expr env g n =
+  if g = 0 then
+    match IntMap.find_opt n env.proc_map with
+    | Some _ -> true
+    | None -> false
+  else false
+
+(** [scan_fanout gr gid env] populates the fanout_map for the current graph. *)
+let scan_fanout gr gid env =
+  let fmap = ref env.fanout_map in
+  ES.iter (fun ((sn, sp), _, _) ->
+    let key = (gid, sn, sp) in
+    let count = match PortFanout.find_opt key !fmap with Some c -> c | None -> 0 in
+    fmap := PortFanout.add key (count + 1) !fmap
+  ) gr.eset;
+  { env with fanout_map = !fmap }
+
+(** [assign_with_cast env gid nid pid dir src_expr] emits an assignment with
+    an optional declaration if the variable is seen for the first time. *)
+let assign_with_cast env gid nid pid dir src_expr =
+  let is_proc = match src_expr with 
+    | C.Id n -> (String.length n >= 5 && String.sub n 0 5 = "func_") 
+    | _ -> false in
+  if is_proc || is_proc_expr env gid nid then
+    ([ C.Comment ("Skipped function-as-value assignment: " ^ (match src_expr with C.Id n -> n | _ -> "unknown")) ], env)
+  else
+    let dst_ty = get_final_ty env gid nid pid dir in
+    let g = get_graph_by_gid env gid in
+    let name = get_c_name env.proc_map env.gid_name_map gid nid pid dir g in
+    let v_res = C.Id name in
+    let cast_expr = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type dst_ty); src_expr ]) in
+    if StringSet.mem name env.seen_decls then
+      ([ C.Expr (C.BinOp (C.Assign, v_res, cast_expr)) ], env)
+    else
+      let init_val = if dst_ty = C.Basic "sisal_array_t" then Some (C.Id "{0}") else Some (C.LitInt 0) in
+      let decl = C.Decl (dst_ty, name, init_val) in
+      let assign = C.Expr (C.BinOp (C.Assign, v_res, cast_expr)) in
+      let env' = { env with seen_decls = StringSet.add name env.seen_decls; var_map = FullPortMap.add (gid, nid, pid, dir) v_res env.var_map } in
+      ([ decl; assign ], env')
+
+(** [declare_outputs env gr gid nid node] selectively pre-declares outputs
+    of a compound node in its parent scope. *)
+let declare_outputs env gr gid nid node =
+  let env_ref = ref env in
+  let stmts = ref [] in
+  let out_pids, out_dir = match node with
+    | Simple (_, _, _, outs, _) -> (Array.mapi (fun i _ -> i) outs |> Array.to_list, `Out)
+    | Compound (_, _, _, _, sub, _) ->
+        (* Compound node results come from the Boundary inputs (Node 0 In) of the sub-graph *)
+        let b_ins = match NM.find_opt 0 sub.nmap with Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0 in
+        (List.init b_ins (fun i -> i), `Out)
+    | _ -> ([], `Out) in
+  List.iter (fun pid ->
+    let name = get_c_name (!env_ref).proc_map (!env_ref).gid_name_map gid nid pid out_dir gr in
+    if not (StringSet.mem name (!env_ref).seen_decls) then (
+      let ty = get_final_ty !env_ref gid nid pid out_dir in
+      let init_val = if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}") else Some (C.LitInt 0) in
+      stmts := !stmts @ [ C.Decl (ty, name, init_val) ];
+      env_ref := { !env_ref with seen_decls = StringSet.add name (!env_ref).seen_decls;
+                                  var_map = FullPortMap.add (gid, nid, pid, out_dir) (C.Id name) (!env_ref).var_map }
+    )
+  ) out_pids;
+  (!stmts, !env_ref)
+
+(** [pre_declare_graph_locals env gr gid] declares all symbols in the graph's
+    LOCAL symtab and its outputs (Boundary inputs). *)
+let pre_declare_graph_locals env gr gid =
+  let env_ref = ref env in
+  let stmts = ref [] in
+  
+  (* 1. Declare all named symbols from the LOCAL-SYM table, one C variable per name *)
+  let cs, _ps = gr.symtab in
+  SM.iter (fun _ v ->
+    if not (is_proc_expr !env_ref gid v.val_def) then
+      let name = Printf.sprintf "v_%s_n__%d_%s"
+        (scope_of (!env_ref).gid_name_map gid) v.val_def (sanitize v.val_name) in
+      if not (StringSet.mem name (!env_ref).seen_decls) then (
+        let ty = get_final_ty !env_ref gid v.val_def v.def_port `Out in
+        let init_val = if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}") else Some (C.LitInt 0) in
+        stmts := !stmts @ [ C.Decl (ty, name, init_val) ];
+        env_ref := { !env_ref with seen_decls = StringSet.add name (!env_ref).seen_decls;
+                                    var_map = FullPortMap.add (gid, v.val_def, v.def_port, `Out) (C.Id name) (!env_ref).var_map }
+      )
+  ) cs;
+
+  (* 2. Declare boundary in-ports (node 0 out-ports) by scanning the edge set.
+        Boundary.ins adjacency list is unreliable (stale/debug only); edges are authoritative. *)
+  let boundary_in_ports = ES.fold (fun ((sn, sp), _, _) acc ->
+    if sn = 0 then IntSet.add sp acc else acc) gr.eset IntSet.empty in
+  IntSet.iter (fun i ->
+    let name = get_c_name (!env_ref).proc_map (!env_ref).gid_name_map gid 0 i `Out gr in
+    if not (StringSet.mem name (!env_ref).seen_decls) then (
+      let ty = get_final_ty !env_ref gid 0 i `Out in
+      let init_val =
+        match FullPortMap.find_opt (gid, 0, i, `Out) (!env_ref).proc_param_map with
+        | Some arg_expr -> Some arg_expr
+        | None -> if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}") else Some (C.LitInt 0) in
+      stmts := !stmts @ [ C.Decl (ty, name, init_val) ];
+      env_ref := { !env_ref with seen_decls = StringSet.add name (!env_ref).seen_decls;
+                                  var_map = FullPortMap.add (gid, 0, i, `Out) (C.Id name) (!env_ref).var_map }
+    )
+  ) boundary_in_ports;
+  (!stmts, !env_ref)
+let init_boundary_ports env parent_gr compound_nid gr gid =
+  if gid = 0 then ([], env)
+  else
+    (* Use parent_gr.eset edges into compound_nid — authoritative, never stale.
+       Boundary.ins adjacency list is unreliable (stale/debug only). *)
+    let pgid = match env.parent_env with Some pe -> pe.curr_gid | None -> (match IntMap.find_opt gid env.parent_map with Some (p, _) -> p | _ -> 0) in
+    let edges_to_compound = ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
+      if dn = compound_nid then IntMap.add dp (sn, sp) acc else acc) parent_gr.eset IntMap.empty in
+    IntMap.fold (fun dp (psrcN, psrcP) (acc_stmts, e) ->
+      let src_opt =
+        if psrcN = 0 then Some (get_expr e pgid psrcN psrcP `Out)
         else
-          match e.parent_env with
-          | Some p_env ->
-              let cid = e.compound_nid_in_parent in
-              let feeding = all_edges_ending_at_port cid p p_env.curr_gr in
-              (match ES.choose_opt feeding with
-               | Some ((src_n, src_p), _, _) ->
-                   (match get_expr p_env p_env.curr_gid src_n src_p `Out with
-                    | Some src_expr ->
-                        let ty = get_port_type e gr 0 p `Out in
-                        let e' = { e with
-                          seen_decls = StringSet.add v_o e.seen_decls;
-                          var_map = FullPortMap.add (gid, 0, p, `Out) (C.Id v_o) e.var_map } in
-                        (decls @ [ C.Decl (ty, v_o, Some src_expr) ], e')
-                    | None -> (decls, e))
-               | None -> (decls, e))
-          | None -> (decls, e)
-    ) ([], env) b_in_pids_all
-  in
+          match FullPortMap.find_opt (pgid, psrcN, psrcP, `Out) e.var_map with
+          | Some v -> Some v
+          | None ->
+              (* Multi-level reference: source not found in immediate parent scope.
+                 Walk up ancestor envs (e.g. REDUCE_ALL in proc scope referenced
+                 from inside a FORALL body inside a LET body). *)
+              let rec search env_up =
+                match env_up.parent_env with
+                | None -> None
+                | Some pe ->
+                    match FullPortMap.find_opt (pe.curr_gid, psrcN, psrcP, `Out) e.var_map with
+                    | Some v -> Some v
+                    | None -> search pe
+              in
+              search e
+      in
+      let stmts, e' = match src_opt with
+        | None -> ([], e)
+        | Some src_expr -> assign_with_cast e gid 0 dp `Out src_expr in
+      (acc_stmts @ stmts, e')
+    ) edges_to_compound ([], env)
 
-  (* 3. Computation in topological order. *)
-  let res_stmts, env =
-    let sorted_nodes = topo_sort gr in
-    List.fold_left (fun (acc_stmts, e) nid ->
-      if nid = 0 then (acc_stmts, e)
-      else match NM.find_opt nid gr.nmap with
-      | Some (Literal (_, code, value, _)) ->
-          let v_res = var_name e gr gid nid 0 `Out in
-          if StringSet.mem v_res e.seen_decls then (acc_stmts, e)
-          else
-            let ty = get_port_type e gr nid 0 `Out in
-            let lit = try match code with
-              | REAL | DOUBLE -> C.LitFloat (float_of_string value)
-              | BOOLEAN -> C.Id (String.lowercase_ascii value)
-              | _ -> C.LitInt (int_of_string value)
-              with _ -> C.LitInt 0 in
-            let e' = { e with
-              seen_decls = StringSet.add v_res e.seen_decls;
-              var_map = FullPortMap.add (gid, nid, 0, `Out) (C.Id v_res) e.var_map } in
-            (acc_stmts @ [ C.Comment (Printf.sprintf "#%d Literal(%s)" nid value); C.Decl (ty, v_res, Some lit) ], e')
-      | Some node ->
-          let v_res = var_name e gr gid nid 0 `Out in
-          let decl, e = if StringSet.mem v_res e.seen_decls then ([], e)
-            else
-              let ty = get_port_type e gr nid 0 `Out in
-              ([ C.Decl (ty, v_res, None) ],
-               { e with
-                 seen_decls = StringSet.add v_res e.seen_decls;
-                 var_map = FullPortMap.add (gid, nid, 0, `Out) (C.Id v_res) e.var_map }) in
-          (* Declare all output ports > 0 for multi-output nodes (e.g. LET returning tuple). *)
-          let extra_out_ports =
-            ES.fold (fun ((sn, sp), _, _) acc ->
-              if sn = nid && sp > 0 then IntSet.add sp acc else acc)
-              gr.eset IntSet.empty |> IntSet.elements in
-          let extra_decls, e = List.fold_left (fun (ds, ev) sp ->
-            let v_sp = match get_port_name_from_cs gr nid sp `Out with
-                       | Some n -> n | None -> var_name ev gr gid nid sp `Out in
-            if StringSet.mem v_sp ev.seen_decls then (ds, ev)
-            else
-              let ty = get_port_type ev gr nid sp `Out in
-              (ds @ [ C.Decl (ty, v_sp, None) ],
-               { ev with
-                 seen_decls = StringSet.add v_sp ev.seen_decls;
-                 var_map = FullPortMap.add (gid, nid, sp, `Out) (C.Id v_sp) ev.var_map })
-          ) ([], e) extra_out_ports in
-          let e = ES.fold (fun ((sn, sp), (dn, dp), _) ev ->
-            if dn = nid then
-              match get_expr ev gid sn sp `Out with
-              | Some src -> { ev with var_map = FullPortMap.add (gid, dn, dp, `In) src ev.var_map }
-              | None -> ev
-            else ev) gr.eset e in
-          let node_stmts, e' = lower_node e gr nid node in
-          let node_comment = match node with
-            | Simple (_, sym, _, _, _) -> Printf.sprintf "#%d %s" nid (string_of_node_sym sym)
-            | Compound (_, _, _, pr, _, _) ->
-                let label = List.find_map (function Name n -> Some n | _ -> None) pr
-                            |> Option.value ~default:"Compound" in
-                Printf.sprintf "#%d %s" nid label
-            | _ -> Printf.sprintf "#%d" nid in
-          (acc_stmts @ [ C.Comment node_comment ] @ decl @ extra_decls @ node_stmts, e')
-      | None -> (acc_stmts, e)
-    ) ([], env) sorted_nodes
-  in
+(** [lower_graph env parent_gr compound_nid gr gid] translates an IF1 graph into a list of C statements. *)
+let rec lower_graph env parent_gr compound_nid gr gid =
+  let env = { env with curr_gid = gid; curr_gr = gr } in
+  let env = scan_fanout gr gid env in
+  let pre_decl_stmts, env = pre_declare_graph_locals env gr gid in
+  let b_in_stmts, env =
+    if env.parent_env = None || IntMap.mem gid env.proc_map then ([], env)
+    else init_boundary_ports env parent_gr compound_nid gr gid in
 
-  (* 4. Boundary outputs: declare a named variable and assign from inner computation. *)
-  let b_outs_pids =
-    ES.fold (fun (_, (dn, dp), _) acc ->
-      if dn = 0 then IntSet.add dp acc else acc)
-      gr.eset IntSet.empty
-    |> IntSet.elements
-  in
-
-  let b_out_decls, propagation, final_env =
-    List.fold_left (fun (decls, props, e) pid ->
-      let v_i = var_name e gr gid 0 pid `In in
-      match get_expr e gid 0 pid `In with
-      | Some src_expr ->
-          if src_expr = C.Id v_i then (decls, props, e)
-          else
-            let ty = get_port_type e gr 0 pid `In in
-            let decl = if StringSet.mem v_i e.seen_decls then []
-                       else [ C.Decl (ty, v_i, None) ] in
-            let e' = { e with
-              var_map = FullPortMap.add (gid, 0, pid, `In) (C.Id v_i) e.var_map;
-              seen_decls = if decl <> [] then StringSet.add v_i e.seen_decls
-                           else e.seen_decls } in
-            let prop = [ C.Expr (C.BinOp (C.Assign, C.Id v_i, src_expr)) ] in
-            (decls @ decl, props @ prop, e')
-      | None -> (decls, props, e))
-    ([], [], env) b_outs_pids
-  in
-
-  (b_in_decls @ res_stmts @ b_out_decls @ propagation, final_env)
+  let sorted_nodes = topo_sort gr in
+  let res_stmts, final_env = List.fold_left (fun (acc_stmts, e) nid ->
+    if nid = 0 then (acc_stmts, e)
+    else match NM.find_opt nid gr.nmap with
+    | Some (Literal (_, code, value, _)) ->
+        let lit = match code with | REAL | DOUBLE -> C.LitFloat (float_of_string value) | BOOLEAN -> C.Id (String.lowercase_ascii value) | _ -> try C.LitInt (int_of_string value) with _ -> C.LitInt 0 in
+        let stmts, e' = assign_with_cast e gid nid 0 `Out lit in
+        (acc_stmts @ stmts, e')
+    | Some node ->
+        let node_stmts, e' = lower_node e gr nid node in
+        (acc_stmts @ node_stmts, e')
+    | None -> (acc_stmts, e)
+  ) (b_in_stmts, env) sorted_nodes in
+  (pre_decl_stmts @ res_stmts, final_env)
 
 and lower_node env gr nid node =
   let gid = env.curr_gid in
   match node with
   | Compound (cid, sy, _ty, pr, loop_gr, _) ->
-      let sub_gid = alloc_gid env.gid_table gid cid in
-      let is_real_forall = sy = INTERNAL &&
-        (List.exists (function Name n -> n = "FORALL" | _ -> false) pr ||
-         Option.is_some (find_subgraph loop_gr "GENERATOR")) in
-      if is_real_forall then
-        lower_forall env gr gid nid cid loop_gr sub_gid pr
-      else if Option.is_some (find_subgraph loop_gr "PREDICATE") then
-        lower_if_graph env gr cid loop_gr sub_gid
+      let sub_gid = try GidMap.find (gid, nid) env.gid_table with _ -> -1 in
+      let c_of = get_compound_type pr in
+      if c_of = If1_forall then lower_forall env gr gid nid loop_gr sub_gid pr
+      else if c_of = If1_predicate || c_of = If1_if then lower_if_graph env gr nid loop_gr sub_gid
+      else if c_of = If1_loop_initial then lower_for_initial env gr gid nid loop_gr sub_gid pr
       else begin
-        let env_child = { env with
-          curr_gid = sub_gid;
-          curr_gr = loop_gr;
-          parent_env = Some env;
-          compound_nid_in_parent = cid } in
-        let body, env_after = lower_graph env_child loop_gr sub_gid in
-        let results = ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
-          if sn = cid then (sp, dp) :: acc else acc) gr.eset [] in
-        let result_propagation = List.filter_map (fun (sp, dp) ->
-          match get_expr env_after sub_gid 0 sp `In with
-          | Some src ->
-              let dst = get_expr_unsafe env gid cid sp `Out in
-              if src = dst then None
-              else Some (C.Expr (C.BinOp (C.Assign, dst, src)))
-          | None -> None) results in
-        (body @ result_propagation,
-         { env_after with curr_gid = gid; curr_gr = gr; parent_env = env.parent_env })
+        let decl_stmts, env = declare_outputs env gr gid nid node in
+        let env_child = { env with parent_env = Some env; compound_nid_in_parent = nid; parent_map = IntMap.add sub_gid (gid, nid) env.parent_map } in
+        let body, env_after = lower_graph env_child gr nid loop_gr sub_gid in
+        let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+        let res_prop, final_env = List.fold_left (fun (acc, e) dp ->
+          match FullPortMap.find_opt (sub_gid, 0, dp, `In) env_after.var_map with
+          | Some src_expr -> 
+              let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
+              (acc @ stmts, e')
+          | None -> (acc, e)
+        ) ([], { env_after with curr_gid = gid; curr_gr = gr; seen_decls = env_after.seen_decls }) out_pids in
+        (decl_stmts @ [ C.Compound (body @ res_prop) ], final_env)
       end
   | Simple (_, sym, pin, pout, pr) -> lower_simple env gr nid sym pin pout pr
   | Literal _ -> ([], env)
-  | _ -> ([], env)
+  | _ -> failwith (Printf.sprintf "Unsupported IF1 node type at gid=%d nid=%d" gid nid)
 
-and lower_simple env gr nid sym _pin _pout _pr =
+and lower_simple env gr nid sym pin pout pr =
   let gid = env.curr_gid in
-  let e1 = try get_expr_unsafe env gid nid 0 `In with _ -> C.LitInt 0 in
-  let e2 = try get_expr_unsafe env gid nid 1 `In with _ -> C.LitInt 0 in
-  let e3 = try get_expr_unsafe env gid nid 2 `In with _ -> C.LitInt 0 in
-  let v_res = get_expr_unsafe env gid nid 0 `Out in
-  match sym with
-  | ADD    -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Add, e1, e2))) ], env)
-  | SUBTRACT -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Sub, e1, e2))) ], env)
-  | TIMES  -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Mul, e1, e2))) ], env)
-  | EQUAL  -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Eq,  e1, e2))) ], env)
-  | GREATER -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Gt, e1, e2))) ], env)
-  | GREATER_EQUAL -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Ge, e1, e2))) ], env)
-  | LESSER -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Lt, e1, e2))) ], env)
-  | LESSER_EQUAL -> ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.Le, e1, e2))) ], env)
-  | DV_NUM_RANK ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Member (e1, "rank"))) ], env)
+  let get_in_expr p =
+    let producers = ES.fold (fun (src, dst, _) acc -> if dst = (nid, p) then Some src else acc) gr.eset None in
+    match producers with
+    | Some (sn, sp) ->
+        let ty = get_final_ty env gid nid p `In in
+        C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); get_expr env gid sn sp `Out ])
+    | None -> C.LitInt 0 in
+  let e1 = get_in_expr 0 in let e2 = get_in_expr 1 in
+  let t_res = get_final_ty env gid nid 0 `Out in
+  let rhs = match sym with
+  | ADD -> if t_res = C.Basic "sisal_array_t" then C.Call ("sisal_array_add", [ e1; e2 ]) else C.BinOp (C.Add, e1, e2)
+  | SUBTRACT -> if t_res = C.Basic "sisal_array_t" then C.Call ("sisal_array_sub", [ e1; e2 ]) else C.BinOp (C.Sub, e1, e2)
+  | TIMES -> if t_res = C.Basic "sisal_array_t" then C.Call ("sisal_array_mul", [ e1; e2 ]) else C.BinOp (C.Mul, e1, e2)
+  | EQUAL -> C.BinOp (C.Eq, e1, e2)
+  | NOT -> C.UnaryOp (C.LogNot, e1)
+  | NEGATE -> C.UnaryOp (C.Negate, e1)
+  | ERROR_NODE -> C.LitFloat 0.0
+  | OR -> C.BinOp (C.LogOr, e1, e2)
+  | AND -> C.BinOp (C.LogAnd, e1, e2)
+  | SHL -> C.BinOp (C.Shl, e1, e2)
+  | ASHR -> C.BinOp (C.Shr, e1, e2)
+  | BITAND -> C.BinOp (C.BitAnd, e1, e2)
+  | BITOR -> C.BinOp (C.BitOr, e1, e2)
+  | BITXOR -> C.BinOp (C.BitXor, e1, e2)
+  | IDIVIDE | FDIVIDE -> C.BinOp (C.Div, e1, e2)
+  | GREATER -> C.BinOp (C.Gt, e1, e2)
+  | GREATER_EQUAL -> C.BinOp (C.Ge, e1, e2)
+  | LESSER -> C.BinOp (C.Lt, e1, e2)
+  | LESSER_EQUAL -> C.BinOp (C.Le, e1, e2)
   | AELEMENT | DV_ELEMENT | DV_LOAD_LINEAR ->
-      let cast_ptr = C.Cast (C.Pointer (C.Basic "double", []), C.Member (e1, "data")) in
-      let idx = if sym = DV_LOAD_LINEAR then e2
-                else C.BinOp (C.Sub, e2, C.Member (e1, "lower_bound")) in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx))) ], env)
-      | RANGEGEN ->
-
-      (* count = hi - lo + 1; port 0 = lo, port 1 = hi *)
-      let count = C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1) in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, count)) ], env)
-  | ASIZE ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res,
-           C.Cast (C.Basic "int32_t", C.Member (e1, "size")))) ], env)
-  | ALIML ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res,
-           C.Cast (C.Basic "int32_t", C.Member (e1, "lower_bound")))) ], env)
-  | ALIMH ->
-      (* upper_bound = lower_bound + size - 1 *)
-      let ub = C.BinOp (C.Sub,
-        C.BinOp (C.Add, C.Member (e1, "lower_bound"),
-          C.Cast (C.Basic "int64_t", C.Member (e1, "size"))),
-        C.LitInt 1) in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Cast (C.Basic "int32_t", ub))) ], env)
-  | ASETL ->
-      (* Return array with updated lower_bound *)
-      let copy = C.Expr (C.BinOp (C.Assign, v_res, e1)) in
-      let set_lb = C.Expr (C.BinOp (C.Assign, C.Member (v_res, "lower_bound"), e2)) in
-      ([ copy; set_lb ], env)
-  | DV_DIMENSION ->
-      (* DV_DIMENSION(A, k): returns the size of dimension k. *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_dv_dimension", [ e1; e2 ]))) ], env)
-  | DV_OFFSET_AT ->
-      (* DV_OFFSET_AT(A, linear_idx, SHAPE_DV): computes element index for broadcasting. *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call ("sisal_dv_offset_at", [ e1; e2; e3 ]))) ], env)
-  | RELEMENTS ->
-      (* RELEMENTS(_, dim_result): extracts element count from DV_DIMENSION result *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res, e2)) ], env)
-  | DV_RESHAPE_BY_SHAPE ->
-      (* DV_RESHAPE_BY_SHAPE(A, shape): for 1D, identity *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res, e1)) ], env)
-  | OR ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.LogOr, e1, e2))) ], env)
-  | AND ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.BinOp (C.LogAnd, e1, e2))) ], env)
-  | NOT ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.UnaryOp (C.LogNot, e1))) ], env)
-  | NEGATE ->
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.UnaryOp (C.Negate, e1))) ], env)
-  | TYPECAST ->
-      let out_ty = get_port_type env gr nid 0 `Out in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Cast (out_ty, e1))) ], env)
+      let elem_ty = get_final_ty env gid nid 0 `Out in
+      let cast_ptr = C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data")) in
+      let idx = if sym = DV_LOAD_LINEAR then e2 else C.BinOp (C.Sub, e2, C.Member (e1, "lower_bound")) in
+      C.Index (cast_ptr, idx)
+  | RANGEGEN -> C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1)
+  | ASIZE -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
+  | ALIML -> C.Cast (C.Basic "int32_t", C.Member (e1, "lower_bound"))
+  | ALIMH -> C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Member (e1, "lower_bound"), C.Cast (C.Basic "int64_t", C.Member (e1, "size"))), C.LitInt 1))
+  | DV_NUM_RANK -> C.Member (e1, "rank")
+  | DV_DIMENSION -> C.Call ("sisal_dv_dimension", [ e2; e1 ])
+  | DV_OFFSET_AT -> C.Call ("sisal_dv_offset_at", [ e1; e2; get_in_expr 2 ])
+  | DV_RESHAPE_BY_SHAPE -> C.Call ("sisal_array_reshape_by_shape", [ e1; e2 ])
+  | TYPECAST -> e1
+  | RELEMENTS -> e2
+  | DV_COMPRESS -> C.Call ("sisal_array_compress", [ e1; e2 ])
+  | DV_SORT -> C.Call ("sisal_array_sort", [ e1 ])
+  | DV_REVERSE -> C.Call ("sisal_array_reverse", [ e1 ])
+  | DV_ROTATE -> C.Call ("sisal_array_rotate", [ e1; e2 ])
+  | DV_SLICE -> C.Call ("sisal_array_slice", [ e1; e2; get_in_expr 2 ])
+  | DV_PERMUTE -> C.Call ("sisal_array_permute", [ e1; e2 ])
+  | ASETL -> C.Call ("sisal_array_setl", [ e1; C.Cast (C.Basic "int64_t", e2) ])
+  | PAD_NODE -> C.Call ("sisal_array_pad", [ e1; e2; get_in_expr 2; get_in_expr 3 ])
+  | STENCIL_NODE -> C.Call ("sisal_array_stencil", [ e1; e2; get_in_expr 2 ])
+  | WHERE_NODE -> C.Call ("sisal_array_where", [ e1; e2; get_in_expr 2 ])
+  | NONZERO_NODE -> C.Call ("sisal_array_nonzero", [ e1 ])
   | REDUCE_ALL ->
-      let fname = List.find_map (function Name n -> Some n | _ -> None) _pr
-                  |> Option.value ~default:"sum" in
-      let out_ty = get_port_type env gr nid 0 `Out in
-      let reduce_fn = match (String.lowercase_ascii fname, out_ty) with
+      let fname = List.find_map (function Name n -> Some n | _ -> None) pr |> Option.map String.lowercase_ascii |> Option.value ~default:"sum" in
+      let reduce_fn = match (fname, t_res) with
         | ("sum", C.Basic "double") -> "sisal_array_reduce_double_sum"
-        | ("sum", C.Basic "float")  -> "sisal_array_reduce_sum"
+        | ("sum", C.Basic "float") -> "sisal_array_reduce_sum"
         | ("sum", C.Basic "int32_t") -> "sisal_array_reduce_int_sum"
         | ("product", C.Basic "double") -> "sisal_array_reduce_double_product"
-        | ("product", C.Basic "float")  -> "sisal_array_reduce_product"
+        | ("product", C.Basic "float") -> "sisal_array_reduce_float_product"
         | ("product", C.Basic "int32_t") -> "sisal_array_reduce_int_product"
-        | ("least", C.Basic "double")   -> "sisal_array_reduce_double_least"
-        | ("least", C.Basic "float")    -> "sisal_array_reduce_least"
-        | ("least", C.Basic "int32_t")   -> "sisal_array_reduce_int_least"
+        | ("least", C.Basic "double") -> "sisal_array_reduce_double_least"
+        | ("least", C.Basic "float") -> "sisal_array_reduce_least"
+        | ("least", C.Basic "int32_t") -> "sisal_array_reduce_int_least"
         | ("greatest", C.Basic "double") -> "sisal_array_reduce_double_greatest"
-        | ("greatest", C.Basic "float")  -> "sisal_array_reduce_greatest"
+        | ("greatest", C.Basic "float") -> "sisal_array_reduce_greatest"
         | ("greatest", C.Basic "int32_t") -> "sisal_array_reduce_int_greatest"
-        | _ -> "sisal_array_reduce_double_sum"
-      in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call (reduce_fn, [e1]))) ], env)
+        | _ -> "sisal_array_reduce_double_sum" in
+      C.Call (reduce_fn, [e1])
   | INVOCATION ->
-      let fname = List.find_map (function Name n -> Some n | _ -> None) _pr
-                  |> Option.value ~default:"unknown_fn" in
-      let in_ports =
-        ES.fold (fun (_, (dn, dp), _) acc ->
-          if dn = nid then IntSet.add dp acc else acc)
-          gr.eset IntSet.empty |> IntSet.elements in
-      let args = List.filter_map (fun pid ->
-        get_expr env gid nid pid `In) in_ports in
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.Call (fname, args))) ], env)
-  | ERROR_NODE ->
-      (* Initialize error/status ports to 0.0f (no error). *)
-      ([ C.Expr (C.BinOp (C.Assign, v_res, C.LitFloat 0.0)) ], env)
-  | _ -> ([], env)
+      let fname_pragma = List.find_map (function Name n -> Some n | _ -> None) pr in
+      let fname, start_port = match fname_pragma with
+        | Some n -> ("func_" ^ String.uppercase_ascii n, 0)
+        | None ->
+            (match ES.fold (fun (src, dst, _) acc -> if dst = (nid, 0) then Some src else acc) gr.eset None with
+             | Some (0, pn) ->
+                 (match IntMap.find_opt pn env.proc_map with
+                  | Some name -> (name, 1)
+                  | _ -> ("func_UNKNOWN", 1))
+             | _ -> ("func_UNKNOWN", 1)) in
+      let in_ports = ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid then IntSet.add dp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+      let args = List.filter_map (fun pid -> if pid < start_port then None else Some (get_in_expr pid)) in_ports in
+      C.Call (fname, args)
+  | sym -> failwith (Printf.sprintf "Unsupported IF1 Simple node symbol at gid=%d nid=%d: %s" gid nid (string_of_node_sym sym)) in
+  let stmts, e' = assign_with_cast env gid nid 0 `Out rhs in
+  ( stmts, e' )
 
-(** [lower_if_graph env parent_gr cid loop_gr loop_gid] lowers an IF compound.
-    Creates an intermediate env_loop so that PREDICATE/THEN/ELSE boundary inputs
-    resolve against loop_gr's edges, not the outer function graph. *)
-and lower_if_graph env parent_gr cid loop_gr loop_gid =
+and lower_if_graph env parent_gr nid loop_gr loop_gid =
   let gid = env.curr_gid in
-  (* Intermediate env for loop_gr: its parent is the outer function scope. *)
-  let loop_preds = ES.fold (fun ((sn, sp), (dn, dp), _) m ->
-    FullPortMap.add (loop_gid, dn, dp, `In) (loop_gid, sn, sp, `Out) m)
-    loop_gr.eset env.preds in
-  let env_loop = { env with
-    curr_gid = loop_gid;
-    curr_gr = loop_gr;
-    preds = loop_preds;
-    parent_env = Some env;
-    compound_nid_in_parent = cid } in
+  let env_loop_base = { env with parent_env = Some env; compound_nid_in_parent = nid; curr_gid = loop_gid; curr_gr = loop_gr } in
+  let env_loop_base = scan_fanout loop_gr loop_gid env_loop_base in
+  let node = match NM.find_opt nid parent_gr.nmap with Some n -> n | _ -> failwith "no node" in
+  let decl_stmts, env_loop_base = declare_outputs env_loop_base parent_gr gid nid node in
+  let loop_in_stmts, env_loop = init_boundary_ports env_loop_base parent_gr nid loop_gr loop_gid in
+  let pred_cid, pred_sg = match find_subgraph loop_gr "PREDICATE" with | Some x -> x | _ -> failwith "no PRED" in
+  let pgid = try GidMap.find (loop_gid, pred_cid) env.gid_table with _ -> -1 in
+  let env_pred = { env_loop with parent_env = Some env_loop; curr_gid = pgid; curr_gr = pred_sg; parent_map = IntMap.add pgid (loop_gid, pred_cid) env_loop.parent_map } in
+  let pred_stmts, e_pred = lower_graph env_pred loop_gr pred_cid pred_sg pgid in
+  let v_pred = match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) pred_sg.eset None with
+    | Some (sn, sp) -> get_expr e_pred pgid sn sp `Out
+    | None -> C.LitInt 0 in
+  let env_loop = { env_loop with var_map = e_pred.var_map; type_table = e_pred.type_table; seen_decls = e_pred.seen_decls } in
+  let then_cid, then_sg = match find_subgraph loop_gr "THEN" with | Some x -> x | _ -> failwith "no THEN" in
+  let tgid = try GidMap.find (loop_gid, then_cid) env.gid_table with _ -> -1 in
+  let env_then = { env_loop with parent_env = Some env_loop; curr_gid = tgid; curr_gr = then_sg; parent_map = IntMap.add tgid (loop_gid, then_cid) env_loop.parent_map } in
+  let then_stmts, e_then = lower_graph env_then loop_gr then_cid then_sg tgid in
+  let else_cid, else_sg = match find_subgraph loop_gr "ELSE" with | Some x -> x | _ -> failwith "no ELSE" in
+  let egid = try GidMap.find (loop_gid, else_cid) env.gid_table with _ -> -1 in
+  let env_else = { env_loop with parent_env = Some env_loop; curr_gid = egid; curr_gr = else_sg; parent_map = IntMap.add egid (loop_gid, else_cid) env_loop.parent_map } in
+  let else_stmts, e_else = lower_graph env_else loop_gr else_cid else_sg egid in
+  let if_out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) parent_gr.eset IntSet.empty |> IntSet.elements in
+  let then_props, e_final_then = List.fold_left (fun (acc, e) dp ->
+    match FullPortMap.find_opt (tgid, 0, dp, `In) e_then.var_map with
+    | Some src_expr -> 
+        let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
+        (acc @ stmts, e')
+    | None -> (acc, e)
+  ) ([], { e_then with curr_gid = gid; curr_gr = parent_gr }) if_out_pids in
+  let else_props, e_final_else = List.fold_left (fun (acc, e) dp ->
+    match FullPortMap.find_opt (egid, 0, dp, `In) e_else.var_map with
+    | Some src_expr -> 
+        let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
+        (acc @ stmts, e')
+    | None -> (acc, e)
+  ) ([], { e_else with curr_gid = gid; curr_gr = parent_gr }) if_out_pids in
+  let if_stmt = C.If (v_pred, then_stmts @ then_props, else_stmts @ else_props) in
+  (* Note: We union the seen_decls from both branches to avoid duplicate declarations later *)
+  let final_seen = StringSet.union e_final_then.seen_decls e_final_else.seen_decls in
+  (decl_stmts @ loop_in_stmts @ [ C.Compound (pred_stmts @ [ if_stmt ]) ], { e_final_else with seen_decls = final_seen })
 
-  let pred_cid, pred_sg =
-    match find_subgraph loop_gr "PREDICATE" with
-    | Some x -> x | _ -> failwith "lower_if_graph: no PREDICATE" in
-  let pgid = alloc_gid env.gid_table loop_gid pred_cid in
-  let env_pred = { env_loop with
-    curr_gid = pgid; curr_gr = pred_sg;
-    parent_env = Some env_loop;
-    compound_nid_in_parent = pred_cid } in
-  let pred_stmts, e_after = lower_graph env_pred pred_sg pgid in
-  let v_pred = get_expr_unsafe e_after pgid 0 0 `In in
+and lower_forall env gr gid nid loop_gr sub_gid pr =
+  let env_init = { env with parent_env = Some env; compound_nid_in_parent = nid; curr_gid = sub_gid; curr_gr = loop_gr } in
+  let env_init = scan_fanout loop_gr sub_gid env_init in
+  let node = match NM.find_opt nid gr.nmap with Some n -> n | _ -> failwith "no node" in
+  let decl_stmts, env_init = declare_outputs env_init gr gid nid node in
+  let loop_in_stmts, env_loop = init_boundary_ports env_init gr nid loop_gr sub_gid in
+  let gen_nid, gen_gr = match find_subgraph loop_gr "GENERATOR" with | Some x -> x | _ -> failwith "no GEN" in
+  let gen_gid = try GidMap.find (sub_gid, gen_nid) env.gid_table with _ -> -1 in
+  let env_gen = { env_loop with parent_env = Some env_loop; curr_gid = gen_gid; curr_gr = gen_gr; parent_map = IntMap.add gen_gid (sub_gid, gen_nid) env_loop.parent_map } in
+  let gen_stmts, e_gen = lower_graph env_gen loop_gr gen_nid gen_gr gen_gid in
+  let count = match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) gen_gr.eset None with
+    | Some (sn, sp) -> get_expr e_gen gen_gid sn sp `Out
+    | None -> C.LitInt 0 in
+  let env_loop = { env_loop with var_map = e_gen.var_map; type_table = e_gen.type_table; seen_decls = e_gen.seen_decls } in
 
-  let then_cid, then_sg =
-    match find_subgraph loop_gr "THEN" with
-    | Some x -> x | _ -> failwith "lower_if_graph: no THEN" in
-  let tgid = alloc_gid env.gid_table loop_gid then_cid in
-  let env_then = { env_loop with
-    curr_gid = tgid; curr_gr = then_sg;
-    parent_env = Some env_loop;
-    compound_nid_in_parent = then_cid;
-    seen_decls = e_after.seen_decls } in
-  let then_body, e_then = lower_graph env_then then_sg tgid in
-  let then_prop = C.Expr (C.BinOp (C.Assign,
-    get_expr_unsafe env gid cid 0 `Out,
-    get_expr_unsafe e_then tgid 0 0 `In)) in
+  let body_nid, body_gr = match find_subgraph loop_gr "BODY" with | Some x -> x | _ -> failwith "no BODY" in
+  let body_gid = try GidMap.find (sub_gid, body_nid) env.gid_table with _ -> -1 in
+  let idx_port = ES.fold (fun ((sn, _), (dn, dp), _) acc -> if sn = gen_nid && dn = body_nid then Some dp else acc) loop_gr.eset None |> Option.value ~default:0 in
+  let loop_idx_var = Printf.sprintf "__idx_%s" (scope_of env.gid_name_map sub_gid) in
+  (* Lower bound from GENERATOR node 1 (the literal that feeds RANGEGEN port 0). *)
+  let lb_expr = match FullPortMap.find_opt (gen_gid, 1, 0, `Out) e_gen.var_map with
+    | Some ex -> ex | None -> C.LitInt 0 in
+  (* Wire any loop_gr boundary ports that weren't provided by the parent graph. The SISAL loop
+     variable (e.g. I) lives at a boundary port in loop_gr but has no edge from outside — it is
+     generated internally as lb + loop_counter.  We register those ports now so that
+     init_boundary_ports for BODY can resolve them. *)
+  let env_loop =
+    let loop_local_cs, _ = loop_gr.symtab in
+    SM.fold (fun _ v e ->
+      if v.val_def = 0 && not (FullPortMap.mem (sub_gid, 0, v.def_port, `Out) e.var_map) then
+        let loop_var_expr = C.BinOp (C.Add, lb_expr, C.Id loop_idx_var) in
+        { e with var_map = FullPortMap.add (sub_gid, 0, v.def_port, `Out) loop_var_expr e.var_map }
+      else e
+    ) loop_local_cs env_loop in
 
-  let else_cid, else_sg =
-    match find_subgraph loop_gr "ELSE" with
-    | Some x -> x | _ -> failwith "lower_if_graph: no ELSE" in
-  let egid = alloc_gid env.gid_table loop_gid else_cid in
-  let env_else = { env_loop with
-    curr_gid = egid; curr_gr = else_sg;
-    parent_env = Some env_loop;
-    compound_nid_in_parent = else_cid;
-    seen_decls = e_after.seen_decls } in
-  let else_body, e_else = lower_graph env_else else_sg egid in
-  let else_prop = C.Expr (C.BinOp (C.Assign,
-    get_expr_unsafe env gid cid 0 `Out,
-    get_expr_unsafe e_else egid 0 0 `In)) in
+  let stmts_alloc, e_alloc = assign_with_cast env_loop gid nid 0 `Out (C.LitInt 0) in
+  let res_v = match FullPortMap.find_opt (gid, nid, 0, `Out) e_alloc.var_map with Some (C.Id n) -> C.Id n | _ -> C.Id (get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr) in
+  let tid = find_ty_safe env.curr_gr (get_elem_type env env.curr_gr nid) in
+  let alloc = C.Expr (C.BinOp (C.Assign, res_v, C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", count) ]))) in
+  let env_body = { e_alloc with parent_env = Some e_alloc; curr_gid = body_gid; curr_gr = body_gr; parent_map = IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map } in
+  let env_body = { env_body with var_map = FullPortMap.add (body_gid, 0, idx_port, `Out) (C.Id loop_idx_var) env_body.var_map } in
+  (* Pre-seed __LFI in BODY scope: block pre_declare from zeroing it, emit explicit decl with lb+idx *)
+  let lfi_stmt_opt, env_body =
+    let cs, _ = body_gr.symtab in
+    SM.fold (fun _ v (stmt_acc, e) ->
+      if stmt_acc <> None then (stmt_acc, e)
+      else if v.val_name = "__LFI" && v.val_def = 0 then
+        let lfi_name = Printf.sprintf "v_%s_n__0___LFI" (scope_of env.gid_name_map body_gid) in
+        let decl = C.Decl (C.Basic "int32_t", lfi_name,
+          Some (C.BinOp (C.Add, lb_expr, C.Id loop_idx_var))) in
+        let e' = { e with
+          seen_decls = StringSet.add lfi_name e.seen_decls;
+          var_map = FullPortMap.add (body_gid, 0, v.def_port, `Out) (C.Id lfi_name) e.var_map } in
+        (Some decl, e')
+      else (stmt_acc, e)
+    ) cs (None, env_body) in
+  let lfi_stmts = match lfi_stmt_opt with Some s -> [s] | None -> [] in
+  let body_stmts, e_body = lower_graph env_body loop_gr body_nid body_gr body_gid in
+  let out_ty = get_final_ty e_body body_gid 0 0 `In in
+  let body_res = match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) body_gr.eset None with
+    | Some (sn, sp) -> get_expr e_body body_gid sn sp `Out
+    | None -> C.LitInt 0 in
+  let cast_body_res = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); body_res ]) in
+  let store = C.Expr (C.BinOp (C.Assign, C.Index (C.Cast (C.Pointer (out_ty, []), C.Member (res_v, "data")), C.Id loop_idx_var), cast_body_res)) in
+  let loop = C.For (C.Decl (C.Basic "int32_t", loop_idx_var, Some (C.LitInt 0)), C.BinOp (C.Lt, C.Id loop_idx_var, count), C.BinOp (C.Assign, C.Id loop_idx_var, C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)), lfi_stmts @ body_stmts @ [ store ]) in
+  let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+  let props, final_env = List.fold_left (fun (acc, e) dp ->
+    if dp = 0 then (acc, e)
+    else match FullPortMap.find_opt (body_gid, 0, dp, `In) e_body.var_map with
+    | Some src_expr -> 
+        let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
+        (acc @ stmts, e')
+    | None -> (acc, e)
+  ) ([], { e_body with curr_gid = gid; curr_gr = gr }) out_pids in
+  (decl_stmts @ [ C.Compound (loop_in_stmts @ gen_stmts @ stmts_alloc @ [ alloc; loop ] @ props) ], final_env)
 
-  (* Propagate IF outputs back to parent scope. *)
-  let if_out_pids =
-    ES.fold (fun ((sn, sp), _, _) acc ->
-      if sn = cid then IntSet.add sp acc else acc)
-      parent_gr.eset IntSet.empty
-    |> IntSet.elements in
-  let if_out_props = List.filter_map (fun sp ->
-    match get_expr e_then tgid 0 sp `In with
-    | Some _ ->
-        let dst = get_expr_unsafe env gid cid sp `Out in
-        let src_then = get_expr_unsafe e_then tgid 0 sp `In in
-        let src_else = get_expr_unsafe e_else egid 0 sp `In in
-        Some (sp, dst, src_then, src_else)
-    | None -> None) if_out_pids in
-  let then_props = List.filter_map (fun (_, dst, src, _) ->
-    if src = dst then None else Some (C.Expr (C.BinOp (C.Assign, dst, src))))
-    if_out_props in
-  let else_props = List.filter_map (fun (_, dst, _, src) ->
-    if src = dst then None else Some (C.Expr (C.BinOp (C.Assign, dst, src))))
-    if_out_props in
+and lower_for_initial env gr gid nid loop_gr sub_gid pr =
+  let env_init_base = { env with parent_env = Some env; compound_nid_in_parent = nid; curr_gid = sub_gid; curr_gr = loop_gr } in
+  let env_init_base = scan_fanout loop_gr sub_gid env_init_base in
+  let node = match NM.find_opt nid gr.nmap with Some n -> n | _ -> failwith "no node" in
+  let decl_stmts, env_init_base = declare_outputs env_init_base gr gid nid node in
+  let loop_in_stmts, env_loop = init_boundary_ports env_init_base gr nid loop_gr sub_gid in
+  let init_nid, init_gr = match find_subgraph loop_gr "INIT" with | Some x -> x | _ -> failwith "no INIT" in
+  let init_gid = try GidMap.find (sub_gid, init_nid) env.gid_table with _ -> -1 in
+  let env_init = { env_loop with parent_env = Some env_loop; curr_gid = init_gid; curr_gr = init_gr; parent_map = IntMap.add init_gid (sub_gid, init_nid) env_loop.parent_map } in
+  let init_stmts, e_init = lower_graph env_init loop_gr init_nid init_gr init_gid in
+  let env_loop = { env_loop with var_map = e_init.var_map; type_table = e_init.type_table; seen_decls = e_init.seen_decls } in
+  let test_nid, test_gr = match find_subgraph loop_gr "TEST" with | Some x -> x | _ -> failwith "no TEST" in
+  let test_gid = try GidMap.find (sub_gid, test_nid) env.gid_table with _ -> -1 in
+  let env_test = { env_loop with parent_env = Some env_loop; curr_gid = test_gid; curr_gr = test_gr; parent_map = IntMap.add test_gid (sub_gid, test_nid) env_loop.parent_map } in
+  let test_stmts, e_test = lower_graph env_test loop_gr test_nid test_gr test_gid in
+  let cond = match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) test_gr.eset None with
+    | Some (sn, sp) -> get_expr e_test test_gid sn sp `Out
+    | None -> C.LitInt 0 in
+  let env_loop = { env_loop with var_map = e_test.var_map; type_table = e_test.type_table; seen_decls = e_test.seen_decls } in
+  let body_nid, body_gr = match find_subgraph loop_gr "BODY" with | Some x -> x | _ -> failwith "no BODY" in
+  let body_gid = try GidMap.find (sub_gid, body_nid) env.gid_table with _ -> -1 in
+  let env_body = { env_loop with parent_env = Some env_loop; curr_gid = body_gid; curr_gr = body_gr; parent_map = IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map } in
+  let body_stmts, e_body = lower_graph env_body loop_gr body_nid body_gr body_gid in
+  let env_loop = { env_loop with var_map = e_body.var_map; type_table = e_body.type_table; seen_decls = e_body.seen_decls } in
+  let while_loop = C.While (cond, body_stmts @ test_stmts) in
+  let ret_nid, ret_gr = match find_subgraph loop_gr "RETURNS" with | Some x -> x | _ -> failwith "no RET" in
+  let ret_gid = try GidMap.find (sub_gid, ret_nid) env.gid_table with _ -> -1 in
+  let env_ret = { env_loop with parent_env = Some env_loop; curr_gid = ret_gid; curr_gr = ret_gr; parent_map = IntMap.add ret_gid (sub_gid, ret_nid) env_loop.parent_map } in
+  let ret_stmts, e_ret = lower_graph env_ret loop_gr ret_nid ret_gr ret_gid in
+  let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+  let props, final_env = List.fold_left (fun (acc, e) dp ->
+    match FullPortMap.find_opt (ret_gid, 0, dp, `In) e_ret.var_map with
+    | Some src_expr -> 
+        let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
+        (acc @ stmts, e')
+    | None -> (acc, e)
+  ) ([], { e_ret with curr_gid = gid; curr_gr = gr }) out_pids in
+  (decl_stmts @ [ C.Compound (loop_in_stmts @ init_stmts @ test_stmts @ [ while_loop ] @ ret_stmts @ props) ], final_env)
 
-  let seen = StringSet.union e_then.seen_decls e_else.seen_decls in
-  let then_full = then_body @ (if then_props <> [] then then_props else [then_prop]) in
-  let else_full = else_body @ (if else_props <> [] then else_props else [else_prop]) in
-  (pred_stmts @ [ C.If (v_pred, then_full, else_full) ],
-   { e_after with seen_decls = seen;
-                  curr_gid = gid;
-                  curr_gr = parent_gr;
-                  parent_env = env.parent_env })
+let dummy_env tm sub_gr = { tm; var_map = FullPortMap.empty; type_table = FullPortMap.empty; preds = FullPortMap.empty; curr_gid = 0; curr_gr = sub_gr; parent_env = None; compound_nid_in_parent = 0; seen_decls = StringSet.empty; fanout_map = PortFanout.empty; mandatory_ports = PortSet.empty; gid_table = GidMap.empty; parent_map = IntMap.empty; proc_map = IntMap.empty; proc_param_map = FullPortMap.empty; gid_name_map = IntMap.empty; procedures_info = IntMap.empty; force_gpu = false }
 
-(** [lower_forall env gr gid nid cid loop_gr sub_gid pr] lowers a FORALL compound.
-    Creates env_loop for loop_gr so GENERATOR/BODY boundary inputs resolve
-    against loop_gr's edges. *)
-and lower_forall env gr gid nid cid loop_gr sub_gid pr =
-  let _ = cid in
-  (* Intermediate env for loop_gr. *)
-  let loop_preds = ES.fold (fun ((sn, sp), (dn, dp), _) m ->
-    FullPortMap.add (sub_gid, dn, dp, `In) (sub_gid, sn, sp, `Out) m)
-    loop_gr.eset env.preds in
-  let env_loop = { env with
-    curr_gid = sub_gid;
-    curr_gr = loop_gr;
-    preds = loop_preds;
-    parent_env = Some env;
-    compound_nid_in_parent = nid } in
 
-  let gen_info  = find_subgraph loop_gr "GENERATOR" in
-  let body_info = find_subgraph loop_gr "BODY" in
-  match (gen_info, body_info) with
-  | Some (gen_nid, gen_gr), Some (body_nid, body_gr) ->
-      let gen_gid = alloc_gid env.gid_table sub_gid gen_nid in
-      let env_gen = { env_loop with
-        curr_gid = gen_gid; curr_gr = gen_gr;
-        parent_env = Some env_loop;
-        compound_nid_in_parent = gen_nid } in
-      let gen_stmts, e_gen = lower_graph env_gen gen_gr gen_gid in
-      let count  = get_expr_unsafe e_gen gen_gid 0 0 `In in
-      let res_v  = get_expr_unsafe env gid nid 0 `Out in
-      let elem_ty = get_elem_type env env.curr_gr nid in
-      let tid = type_id_of_if1_ty env.tm elem_ty in
-      let alloc  = C.Expr (C.BinOp (C.Assign, res_v,
-        C.Call ("sisal_array_alloc_empty",
-          [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", count) ]))) in
-      let body_gid = alloc_gid env.gid_table sub_gid body_nid in
-      let loop_idx_var = Printf.sprintf "idx_g%d_n%d" body_gid body_nid in
-      (* Find RANGEGEN's lower bound so LFI = lo + idx (Sisal ranges are lo-based).
-         For 0-based ranges (lo=0 or ALIML=0), this is a no-op. *)
-      let rangegen_lo_expr =
-        NM.fold (fun rg_nid node acc ->
-          match acc with Some _ -> acc
-          | None ->
-            (match node with
-             | Simple (_, RANGEGEN, _, _, _) -> get_expr e_gen gen_gid rg_nid 0 `In
-             | _ -> None))
-          gen_gr.nmap None
-      in
-      (* Enrich env_loop so BODY can resolve its boundary inputs via edge-set.
-         (1) Add GENERATOR output so BODY's "count" port resolves correctly.
-         (2) Pre-populate __LFI (the loop iterator) in loop_gr boundary so that
-             BODY's __LFI boundary port resolves to (lo + idx_var) via edge-set. *)
-      let env_loop =
-        let vm = FullPortMap.add (sub_gid, gen_nid, 0, `Out) count env_loop.var_map in
-        let cs, ps = loop_gr.symtab in
-        (* Find loop index boundary port in loop_gr.
-           Strategy 1: look in cs for any boundary input (val_def=0) named "__LFI*".
-           Strategy 2: find the variable defined by gen_nid in ps, then look up in cs.
-           Strategy 1 takes priority to avoid false positives when ps has coincidental val_def matches. *)
-        let lfi_opt =
-          let find_named_lfi m =
-            SM.fold (fun name entry acc ->
-              if acc <> None then acc
-              else if entry.val_def = 0 &&
-                      (sanitize name = "__LFI" ||
-                       String.starts_with ~prefix:"__LFI" (sanitize name)) then
-                Some entry.def_port
-              else acc) m None in
-          match find_named_lfi cs with
-          | Some _ as p -> p
-          | None ->
-              (* Fallback: find the var defined by gen_nid in ps, then look up its boundary port in cs. *)
-              let gen_var_name = SM.fold (fun name entry acc ->
-                if acc <> None then acc
-                else if entry.val_def = gen_nid && entry.def_port = 0 then Some name
-                else acc) ps None in
-              (match gen_var_name with
-               | Some vname ->
-                   (match SM.find_opt vname cs with
-                    | Some e when e.val_def = 0 -> Some e.def_port
-                    | _ -> None)
-               | None -> None)
-        in
-        let lfi_val =
-          match rangegen_lo_expr with
-          | None | Some (C.LitInt 0) -> C.Id loop_idx_var
-          | Some lo -> C.BinOp (C.Add, C.Id loop_idx_var, lo)
-        in
-        let vm = match lfi_opt with
-          | Some lfi_p -> FullPortMap.add (sub_gid, 0, lfi_p, `Out) lfi_val vm
-          | None -> vm in
-        { env_loop with var_map = vm; seen_decls = e_gen.seen_decls } in
-      let env_body = { env_loop with
-        curr_gid = body_gid; curr_gr = body_gr;
-        parent_env = Some env_loop;
-        compound_nid_in_parent = body_nid;
-        seen_decls = StringSet.add loop_idx_var env_loop.seen_decls;
-        var_map = env_loop.var_map } in
-      let body_stmts, e_body = lower_graph env_body body_gr body_gid in
-      let out_ty = get_port_type e_body body_gr 0 0 `In in
-      let store = C.Expr (C.BinOp (C.Assign,
-        C.Index (C.Cast (C.Pointer (out_ty, []), C.Member (res_v, "data")),
-                 C.Id loop_idx_var),
-        get_expr_unsafe e_body body_gid 0 0 `In)) in
-      let loop = C.For (
-        C.Decl (C.Basic "int32_t", loop_idx_var, Some (C.LitInt 0)),
-        C.BinOp (C.Lt, C.Id loop_idx_var, count),
-        C.BinOp (C.Assign, C.Id loop_idx_var,
-                 C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)),
-        body_stmts @ [ store ]) in
-
-      let shape_opt =
-        let cs, _ps = gr.symtab in
-        SM.fold (fun name entry acc ->
-          if acc <> None then acc
-          else if name = "__LFSH" then get_expr env gid entry.val_def entry.def_port `Out
-          else acc) cs None
-      in
-
-      (* Fallback: if no __LFSH, see if any input to the compound is an array we can copy rank/dims from. *)
-      let fallback_shape_opt =
-        if shape_opt <> None then None
-        else
-          FullPortMap.fold (fun (g, n, p, dir) expr acc ->
-            if acc <> None then acc
-            else if g = gid && expr <> res_v then
-              let ty = try get_port_type env gr n p dir with _ -> C.Basic "unknown" in
-              if ty = C.Basic "sisal_array_t" then Some expr else acc
-            else acc
-          ) env.var_map None
-      in
-
-      (* Populate result array metadata from the shape array or fallback input array *)
-      let meta =
-        match (shape_opt, fallback_shape_opt) with
-        | (Some shape_v, _) ->
-            [
-              C.Expr (C.BinOp (C.Assign, C.Member (res_v, "rank"), C.Member (shape_v, "size")));
-              C.For (C.Decl (C.Basic "int", "i", Some (C.LitInt 0)),
-                     C.BinOp (C.Lt, C.Id "i", C.Member (res_v, "rank")),
-                     C.BinOp (C.Assign, C.Id "i", C.BinOp (C.Add, C.Id "i", C.LitInt 1)),
-                     [ C.Expr (C.BinOp (C.Assign,
-                         C.Index (C.Member (res_v, "dims"), C.Id "i"),
-                         C.Index (C.Cast (C.Pointer (C.Basic "int32_t", []), C.Member (shape_v, "data")), C.Id "i"))) ])
-            ]
-        | (None, Some in_arr_v) ->
-            [
-              C.Expr (C.BinOp (C.Assign, C.Member (res_v, "rank"), C.Member (in_arr_v, "rank")));
-              C.For (C.Decl (C.Basic "int", "i", Some (C.LitInt 0)),
-                     C.BinOp (C.Lt, C.Id "i", C.Member (res_v, "rank")),
-                     C.BinOp (C.Assign, C.Id "i", C.BinOp (C.Add, C.Id "i", C.LitInt 1)),
-                     [ C.Expr (C.BinOp (C.Assign,
-                         C.Index (C.Member (res_v, "dims"), C.Id "i"),
-                         C.Index (C.Member (in_arr_v, "dims"), C.Id "i"))) ])
-            ]
-        | _ -> []
-      in
-
-      (* Result propagation: assign child boundary outputs to parent node outputs. *)
-      let out_pids = ES.fold (fun ((sn, sp), _, _) acc ->
-        if sn = cid then IntSet.add sp acc else acc) gr.eset IntSet.empty
-        |> IntSet.elements in
-      let props, env = List.fold_left (fun (ps, e) sp ->
-        if sp = 0 then
-          let dst = get_expr_unsafe env gid cid 0 `Out in
-          if dst = res_v then (ps, e)
-          else (ps @ [ C.Expr (C.BinOp (C.Assign, dst, res_v)) ], e)
-        else
-          match get_expr e_body body_gid 0 sp `In with
-          | Some src ->
-              let dst = get_expr_unsafe env gid cid sp `Out in
-              if src = dst then (ps, e)
-              else
-                (* Ensure 'src' (child boundary var) is declared in parent if not already. *)
-                let src_decl, e' = match src with
-                  | C.Id name when not (StringSet.mem name e.seen_decls) ->
-                      let ty = get_port_type e_body body_gr 0 sp `In in
-                      ([ C.Decl (ty, name, None) ], { e with seen_decls = StringSet.add name e.seen_decls })
-                  | _ -> ([], e) in
-                (ps @ src_decl @ [ C.Expr (C.BinOp (C.Assign, dst, src)) ], e')
-          | None -> (ps, e)) ([], env) out_pids in
-
-      (gen_stmts @ [ alloc; loop ] @ meta @ props,
-       { env with seen_decls = env.seen_decls })
-
-  | _ -> ([], env)
-
-and lower_for_initial _env _gr _gid _nid _cid _loop_gr _sub_gid _var_map_child =
-  ([], _env)
-
-let lower_procedure tm _nid node =
+let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid node gr_module =
   match node with
-  | Compound (_, INTERNAL, _ty, pr, sub_gr, _) ->
-      let func_name =
-        List.find_map (function Name nm -> Some nm | _ -> None) pr
-        |> Option.value ~default:"unnamed_proc" in
-      let sub_gid = 0 in
-      let gid_table = build_gid_table sub_gr in
-      (* Function parameters: use edge set only (in_port_list is unreliable). *)
-      let all_b_ins =
-        ES.fold (fun ((sn, sp), _, _) acc ->
-          if sn = 0 then IntSet.add sp acc else acc)
-          sub_gr.eset IntSet.empty
-        |> IntSet.elements in
-      let dummy_env = {
-        tm;
-        var_map = FullPortMap.empty;
-        preds = FullPortMap.empty;
-        curr_gid = 0;
-        curr_gr = sub_gr;
-        parent_env = None;
-        compound_nid_in_parent = 0;
-        seen_decls = StringSet.empty;
-        fanout_map = PortFanout.empty;
-        mandatory_ports = PortSet.empty;
-        gid_table;
-        force_gpu = false } in
-      let params =
-        List.map (fun pid ->
-          let ty = get_port_type dummy_env sub_gr 0 pid `Out in
-          let name = match get_port_name_from_cs sub_gr 0 pid `Out with
-                     | Some n -> n | None -> var_name dummy_env sub_gr 0 0 pid `Out in
-          (ty, name))
-          all_b_ins in
-      let var_map =
-        List.fold_left2 (fun m pid (_, name) ->
-          FullPortMap.add (0, 0, pid, `Out) (C.Id name) m)
-          FullPortMap.empty all_b_ins params in
-      let env = { dummy_env with
-        var_map;
-        seen_decls =
-          List.fold_left (fun s (_, n) -> StringSet.add n s)
-            StringSet.empty params } in
-      let body, env_after = lower_graph env sub_gr sub_gid in
-      let all_b_outs =
-        ES.fold (fun (_, (dn, dp), _) acc ->
-          if dn = 0 then IntSet.add dp acc else acc)
-          sub_gr.eset IntSet.empty
-        |> IntSet.elements in
-      let ret_exprs =
-        List.map (fun pid ->
-          let res_v = get_expr_unsafe env_after sub_gid 0 pid `In in
-          (pid, res_v))
-          all_b_outs in
-      let ret_count = List.length ret_exprs in
-      if ret_count > 1 then
-        let struct_name = func_name ^ "_results" in
-        let fields = List.map (fun (dp, _) ->
-          let ty = get_port_type env_after sub_gr 0 dp `In in
-          ("res_" ^ string_of_int dp, ty)) ret_exprs in
-        let res_var = "res_obj" in
-        let decl = C.Decl (C.Basic ("struct " ^ struct_name), res_var, None) in
-        let assigns = List.map (fun (dp, e) ->
-          C.Expr (C.BinOp (C.Assign,
-            C.Member (C.Id res_var, "res_" ^ string_of_int dp), e)))
-          ret_exprs in
-        Some ({ C.return_ty = C.Basic ("struct " ^ struct_name);
-                name = func_name; params;
-                body = (decl :: body) @ assigns @ [ C.Return (Some (C.Id res_var)) ];
-                extern_c = true },
-              Some (struct_name, fields))
-      else if ret_count = 1 then
-        let dp, e = List.hd ret_exprs in
-        let ty = get_port_type env_after sub_gr 0 dp `In in
-        Some ({ C.return_ty = ty; name = func_name; params;
-                body = body @ [ C.Return (Some e) ]; extern_c = true }, None)
-      else
-        Some ({ C.return_ty = C.Void; name = func_name; params;
-                body; extern_c = true }, None)
-  | _ -> None
+  | Compound (_, INTERNAL, ty_id, pr, sub_gr, _) ->
+      let func_name = List.find_map (function Name nm -> Some nm | _ -> None) pr |> Option.map String.uppercase_ascii |> Option.map (fun n -> "func_" ^ n) |> Option.value ~default:"unnamed" in
 
-let translate gr =
-  let _, tm, _ = gr.typemap in
-  let procs =
-    NM.fold (fun nid node acc ->
-      match lower_procedure tm nid node with
-      | Some p -> p :: acc
-      | None -> acc)
-      gr.nmap [] in
-  let procedures, result_structs = List.split procs in
-  let result_struct_decls =
-    List.filter_map (function
-      | Some (name, fields) -> Some (C.Type (C.Struct (name, fields)))
-      | None -> None)
-      result_structs in
-  let record_structs =
-    TM.fold (fun id ty acc ->
-      match ty with
-      | Record (_, _fields, _) ->
-          let f_list =
-            List.mapi (fun i tid ->
-              ("f" ^ string_of_int i,
-               c_type_of_if1_ty tm (TM.find tid tm)))
-              (get_tuple_types tm id) in
-          C.Type (C.Struct ("struct_rec_" ^ string_of_int id, f_list)) :: acc
-      | _ -> acc)
-      tm [] in
-  let prototypes = List.map (fun p -> C.Prototype p) procedures in
-  let globals =
-    record_structs @ result_struct_decls @ prototypes in
-  { C.filename = "out.cpp";
-    C.includes = [ "stdio.h"; "stdint.h"; "stdbool.h"; "iostream";
-                   "dispatch/dispatch.h"; "Accelerate/Accelerate.h";
-                   "sisal_runtime.h" ];
-    C.globals = globals;
-    C.procedures = procedures }
+      let all_b_ins = match NM.find_opt 0 sub_gr.nmap with
+        | Some (Boundary (ins, _, _, _)) -> List.init (List.length ins) (fun i -> i)
+        | _ -> [] in
+      let env_module = { (dummy_env tm gr_module) with gid_table; proc_map; gid_name_map; procedures_info = procedures_info_map; curr_gid = 0; curr_gr = gr_module } in
+      let env_init = { (dummy_env tm sub_gr) with gid_table; proc_map; gid_name_map; procedures_info = procedures_info_map; curr_gid = nid; parent_env = Some env_module } in
+
+      (* Seed the procedure types using the function's type definition *)
+      let param_types = get_function_param_types tm ty_id in
+      let env_seeded = List.fold_left2 (fun env_acc pid tid ->
+        let ty_val = try TM.find tid tm with _ -> Basic REAL in
+        { env_acc with type_table = FullPortMap.add (nid, 0, pid, `Out) (c_type_of_if1_ty tm ty_val) env_acc.type_table }
+      ) env_init (List.filter (fun p -> p < List.length param_types) all_b_ins) param_types in
+
+      let env_typed = infer_types env_seeded sub_gr nid in
+      let param_tids = get_function_param_types tm ty_id in
+      let params = List.mapi (fun i pid ->
+        let ty =
+          if i < List.length param_tids then
+            let tid = List.nth param_tids i in
+            let ty_val = try TM.find tid tm with _ -> Basic REAL in
+            c_type_of_if1_ty tm ty_val
+          else get_final_ty env_typed nid 0 pid `Out in
+        let name = match get_port_name_from_cs sub_gr 0 pid `Out with | Some n -> sanitize n | None -> Printf.sprintf "param_%d" pid in
+        (ty, name)
+      ) all_b_ins in
+      (* Seed param names so pre_declare sees them and can detect conflicts *)
+      let env_param_seeded = List.fold_left2 (fun e pid (_, name) -> { e with var_map = FullPortMap.add (nid, 0, pid, `Out) (C.Id name) e.var_map; seen_decls = StringSet.add name e.seen_decls }) env_typed all_b_ins params in
+
+      (* Pre-declare all locals up front; this overwrites boundary-input entries in var_map
+         with the local variable names (e.g. v_g1_n__0_V instead of V) *)
+      let pre_stmts, env_predecl = pre_declare_graph_locals env_param_seeded sub_gr nid in
+
+      (* Bind each function parameter to its newly-created local declaration *)
+      let bind_stmts = List.concat (List.mapi (fun i (ty, param_name) ->
+        match FullPortMap.find_opt (nid, 0, i, `Out) env_predecl.var_map with
+        | Some (C.Id local_name) when local_name <> param_name ->
+            [ C.Expr (C.BinOp (C.Assign, C.Id local_name,
+                C.Call ("SISAL_CAST", [C.Id (string_of_c_type ty); C.Id param_name]))) ]
+        | _ -> []
+      ) params) in
+      (* Bind alias symtab entries (same port, different val_name) to the canonical variable *)
+      let alias_bind_stmts =
+        let cs, _ = sub_gr.symtab in
+        SM.fold (fun _ v acc ->
+          if is_proc_expr env_predecl nid v.val_def then acc
+          else
+            let specific = Printf.sprintf "v_%s_n__%d_%s"
+              (scope_of gid_name_map nid) v.val_def (sanitize v.val_name) in
+            match FullPortMap.find_opt (nid, v.val_def, v.def_port, `Out) env_predecl.var_map with
+            | Some (C.Id canonical) when canonical <> specific
+                && StringSet.mem specific env_predecl.seen_decls ->
+                let ty = get_final_ty env_predecl nid v.val_def v.def_port `Out in
+                acc @ [ C.Expr (C.BinOp (C.Assign, C.Id specific,
+                    C.Call ("SISAL_CAST", [C.Id (string_of_c_type ty); C.Id canonical]))) ]
+            | _ -> acc
+        ) cs [] in
+
+      (* Determine output ports and declare their return variables up front, just like
+         boundary inputs, so they are visible for the whole procedure body *)
+      let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = 0 then IntSet.add sp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+      let ret_decl_stmts, env_predecl = List.fold_left (fun (acc_stmts, e) pid ->
+        let ty = get_final_ty e nid 0 pid `In in
+        let name = get_c_name e.proc_map e.gid_name_map nid 0 pid `In sub_gr in
+        if not (StringSet.mem name e.seen_decls) then
+          let init_val = if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}") else Some (C.LitInt 0) in
+          (acc_stmts @ [ C.Decl (ty, name, init_val) ],
+           { e with seen_decls = StringSet.add name e.seen_decls;
+                    var_map = FullPortMap.add (nid, 0, pid, `In) (C.Id name) e.var_map })
+        else
+          (acc_stmts, e)
+      ) ([], env_predecl) out_pids in
+
+      (* lower_graph will call pre_declare_graph_locals again, but seen_decls already has
+         all names, so it produces no new decls — body is purely the node computations *)
+      let body, env_after = lower_graph env_predecl sub_gr nid sub_gr nid in
+
+      (* Assign computed results into the pre-declared return variables *)
+      let ret_assign_stmts = List.filter_map (fun pid ->
+        let ty = get_final_ty env_after nid 0 pid `In in
+        let ret_name = get_c_name env_after.proc_map env_after.gid_name_map nid 0 pid `In sub_gr in
+        match ES.fold (fun (src, dst, _) acc -> if dst = (0, pid) then Some src else acc) sub_gr.eset None with
+        | Some (sn, sp) ->
+            let src_expr = get_expr env_after nid sn sp `Out in
+            Some (C.Expr (C.BinOp (C.Assign, C.Id ret_name,
+                C.Call ("SISAL_CAST", [C.Id (string_of_c_type ty); src_expr]))))
+        | None -> None
+      ) out_pids in
+
+      let res_struct_name = (String.uppercase_ascii func_name) ^ "_results" in
+      if List.length out_pids = 1 then
+        let pid = List.hd out_pids in
+        let ty = get_final_ty env_after nid 0 pid `In in
+        let ret_name = get_c_name env_after.proc_map env_after.gid_name_map nid 0 pid `In sub_gr in
+        let cast_ret = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); C.Id ret_name ]) in
+        { C.return_ty = ty; name = func_name; params; body = pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body @ ret_assign_stmts @ [ C.Return (Some cast_ret) ]; extern_c = true }
+      else
+        let res_obj_name = "__res_obj" in
+        let assignments = List.map (fun pid ->
+          let ty = get_final_ty env_after nid 0 pid `In in
+          let ret_name = get_c_name env_after.proc_map env_after.gid_name_map nid 0 pid `In sub_gr in
+          C.Expr (C.BinOp (C.Assign, C.Member (C.Id res_obj_name, "res_" ^ string_of_int pid),
+                          C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); C.Id ret_name ])))
+        ) out_pids in
+        { C.return_ty = C.Basic ("struct " ^ res_struct_name); name = func_name; params; body = pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body @ ret_assign_stmts @ [ C.Decl (C.Basic ("struct " ^ res_struct_name), res_obj_name, None) ] @ assignments @ [ C.Return (Some (C.Id res_obj_name)) ]; extern_c = true }
+  | _ -> failwith "not compound"
+
+let build_global_gid_table root_nid gr starting_gid =
+  let table = ref GidMap.empty in
+  let name_map = ref IntMap.empty in
+  let counter = ref starting_gid in
+  let rec visit parent_gid sub_gr =
+    NM.fold (fun nid node () ->
+      match node with
+      | Compound (_, _, _, pr, inner_gr, _) ->
+          incr counter;
+          let gid = !counter in
+          table := GidMap.add (parent_gid, nid) gid !table;
+          let cname = match List.find_map (function Name n -> Some (sanitize n) | _ -> None) pr with
+            | Some n -> n
+            | None -> "g" ^ string_of_int gid in
+          name_map := IntMap.add gid cname !name_map;
+          visit gid inner_gr
+      | _ -> ()) sub_gr.nmap ()
+  in
+  visit root_nid gr; (!table, !counter, !name_map)
+
+let rec collect_all_records tm gr seen =
+  let local_records, seen = TM.fold (fun id ty (acc, s) ->
+    match ty with
+    | Record (field_ty_id, next_label, name) ->
+        if IntSet.mem id s then (acc, s)
+        else
+          let fields = collect_record_fields tm field_ty_id in
+          (C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields)) :: acc, IntSet.add id s)
+    | _ -> (acc, s)) tm ([], seen) in
+  NM.fold (fun _ node (acc, s) -> match node with | Compound (_, _, _, _, sub, _) ->
+      let _, sub_tm, _ = sub.typemap in
+      let sub_recs, s' = collect_all_records sub_tm sub s in
+      (acc @ sub_recs, s') | _ -> (acc, s)) gr.nmap (local_records, seen)
+
+let lower_to_c tm gr filename =
+  let procedures_info = NM.fold (fun nid node acc -> match node with | Compound (_, INTERNAL, _, pr, sub_gr, _) when get_compound_type pr = If1_procedure -> (nid, node, sub_gr) :: acc | _ -> acc) gr.nmap [] in
+  let global_table, gid_name_map = List.fold_left (fun (acc_tbl, acc_names, next_gid) (nid, _, sub_gr) ->
+    let tbl, last_gid, nmap = build_global_gid_table nid sub_gr next_gid in
+    let acc_tbl = GidMap.add (0, nid) nid acc_tbl in
+    let acc_names = IntMap.union (fun _ a _ -> Some a) acc_names nmap in
+    (GidMap.fold (fun k v m -> GidMap.add k v m) tbl acc_tbl, acc_names, last_gid + 1000)
+  ) (GidMap.empty, IntMap.empty, 10000) procedures_info |> (fun (t, n, _) -> (t, n)) in
+
+  let proc_map = List.fold_left (fun m (nid, node, _) ->
+    match node with
+    | Compound (_, INTERNAL, _, pr, _, _) ->
+        let func_name = List.find_map (function Name nm -> Some nm | _ -> None) pr |> Option.map String.uppercase_ascii |> Option.map (fun n -> "func_" ^ n) in
+        (match func_name with Some n -> IntMap.add nid n m | None -> m)
+    | _ -> m
+  ) IntMap.empty procedures_info in
+
+  let procedures_info_map = List.fold_left (fun m (nid, _, sub_gr) -> IntMap.add nid sub_gr m) IntMap.empty procedures_info in
+
+  let procedures = List.map (fun (nid, node, sub_gr) ->
+    let _, proc_tm, _ = sub_gr.typemap in
+    lower_procedure proc_tm global_table gid_name_map proc_map procedures_info_map nid node gr
+  ) procedures_info in
+
+  let result_struct_decls = List.filter_map (fun (nid, node, sub_gr) -> match node with | Compound (_, INTERNAL, _, pr, _, _) ->
+      let func_name = List.find_map (function Name nm -> Some nm | _ -> None) pr |> Option.map String.uppercase_ascii |> Option.map (fun n -> "func_" ^ n) |> Option.value ~default:"unnamed" in
+      let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = 0 then IntSet.add sp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+      if List.length out_pids > 1 then
+        let results = List.map (fun pid -> let env_tmp = { (dummy_env tm sub_gr) with curr_gr = sub_gr; gid_table = global_table; proc_map; gid_name_map; procedures_info = procedures_info_map; curr_gid = nid } in ("res_" ^ string_of_int pid, get_final_ty (infer_types env_tmp sub_gr nid) nid 0 pid `In)) out_pids in
+        Some (C.Type (C.Struct (String.uppercase_ascii func_name ^ "_results", results)))
+      else None | _ -> None) procedures_info in
+  let all_record_decls, _ = List.fold_left (fun (acc, s) (_, _, sub) ->
+    let _, sub_tm, _ = sub.typemap in
+    let recs, s' = collect_all_records sub_tm sub s in
+    (acc @ recs, s')
+  ) (let r, s = collect_all_records tm gr IntSet.empty in (r, s)) procedures_info in
+  let math_wrappers = [
+    C.Raw "extern \"C\" float func__SABS__F__F(float x) { return fabsf(x); }";
+    C.Raw "extern \"C\" double func__SABS__D__D(double x) { return fabs(x); }";
+    C.Raw "extern \"C\" float func__SSQRT__F__F(float x) { return sqrtf(x); }";
+    C.Raw "extern \"C\" double func__SSQRT__D__D(double x) { return sqrt(x); }";
+    C.Raw "extern \"C\" float func__SSIN__F__F(float x) { return sinf(x); }";
+    C.Raw "extern \"C\" double func__SSIN__D__D(double x) { return sin(x); }";
+    C.Raw "extern \"C\" float func__SCOS__F__F(float x) { return cosf(x); }";
+    C.Raw "extern \"C\" double func__SCOS__D__D(double x) { return cos(x); }";
+    C.Raw "extern \"C\" float func__STAN__F__F(float x) { return tanf(x); }";
+    C.Raw "extern \"C\" double func__STAN__D__D(double x) { return tan(x); }";
+    C.Raw "extern \"C\" float func__SASIN__F__F(float x) { return asinf(x); }";
+    C.Raw "extern \"C\" double func__SASIN__D__D(double x) { return asin(x); }";
+    C.Raw "extern \"C\" float func__SACOS__F__F(float x) { return acosf(x); }";
+    C.Raw "extern \"C\" double func__SACOS__D__D(double x) { return acos(x); }";
+    C.Raw "extern \"C\" float func__SATAN__F__F(float x) { return atanf(x); }";
+    C.Raw "extern \"C\" double func__SATAN__D__D(double x) { return atan(x); }";
+    C.Raw "extern \"C\" float func__SSINH__F__F(float x) { return sinhf(x); }";
+    C.Raw "extern \"C\" double func__SSINH__D__D(double x) { return sinh(x); }";
+    C.Raw "extern \"C\" float func__SCOSH__F__F(float x) { return coshf(x); }";
+    C.Raw "extern \"C\" double func__SCOSH__D__D(double x) { return cosh(x); }";
+    C.Raw "extern \"C\" float func__STANH__F__F(float x) { return tanhf(x); }";
+    C.Raw "extern \"C\" double func__STANH__D__D(double x) { return tanh(x); }";
+    C.Raw "extern \"C\" float func__SLOG__F__F(float x) { return logf(x); }";
+    C.Raw "extern \"C\" double func__SLOG__D__D(double x) { return log(x); }";
+    C.Raw "extern \"C\" float func__SLOG10__F__F(float x) { return log10f(x); }";
+    C.Raw "extern \"C\" double func__SLOG10__D__D(double x) { return log(x); }";
+    C.Raw "extern \"C\" float func__SEXP__F__F(float x) { return expf(x); }";
+    C.Raw "extern \"C\" double func__SEXP__D__D(double x) { return exp(x); }";
+    C.Raw "extern \"C\" int32_t func__SFLOOR__F__I(float x) { return (int32_t)floorf(x); }";
+    C.Raw "extern \"C\" int64_t func__SFLOOR__D__L(double x) { return (int64_t)floor(x); }";
+    C.Raw "extern \"C\" int32_t func__STRUNC__F__I(float x) { return (int32_t)x; }";
+    C.Raw "extern \"C\" int64_t func__STRUNC__D__L(double x) { return (int64_t)x; }";
+  ] in
+
+  { C.filename = filename; includes = [ "stdio.h"; "stdint.h"; "stdbool.h"; "math.h"; "iostream"; "dispatch/dispatch.h"; "Accelerate/Accelerate.h"; "sisal_runtime.h" ]; globals = math_wrappers @ all_record_decls @ result_struct_decls @ (List.map (fun p -> C.Prototype p) procedures); procedures = List.rev procedures }

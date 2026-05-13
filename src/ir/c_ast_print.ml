@@ -99,7 +99,7 @@ let is_assign_op = function
   | Assign | AssignAdd | AssignSub | AssignMul | AssignDiv -> true
   | _ -> false
 
-let rec string_of_stmt ?(no_debug = false) indent =
+let rec string_of_stmt ?(no_debug = true) indent =
   let pad = String.make (indent * 2) ' ' in
   function
   | Decl (ty, name, Some init) ->
@@ -188,6 +188,7 @@ let rec string_of_stmt ?(no_debug = false) indent =
         p.name params_s
   | Type ty -> Printf.sprintf "%s%s;" pad (string_of_c_type ty)
   | Comment s -> Printf.sprintf "%s// %s" pad s
+  | Raw s -> Printf.sprintf "%s%s" pad s
 
 let string_of_procedure p =
   let params_s =

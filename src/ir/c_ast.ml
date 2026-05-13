@@ -84,6 +84,7 @@ type stmt =
   | Prototype of procedure
   | Type of c_type
   | Comment of string
+  | Raw of string
 
 and procedure = {
   return_ty : c_type;
