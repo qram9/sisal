@@ -88,13 +88,14 @@ let infer_types env gr gid =
             if p_ty <> C.Basic "float" && c_ty = C.Basic "float" then (set_ty sub_gid 0 i `Out p_ty; changed := true)
             else if c_ty <> C.Basic "float" && p_ty = C.Basic "float" then (set_ty cur_gid nid i `In c_ty; changed := true)
           done;
-          let b_outs = match NM.find_opt 0 sub.nmap with Some (Boundary (_, outs, _, _)) -> List.length outs | _ -> 0 in
-          for i = 0 to b_outs - 1 do
+          (* Use eset to find actual boundary outputs — boundary outs metadata is often stale *)
+          let sub_return_ports = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub.eset IntSet.empty in
+          IntSet.iter (fun i ->
             let c_ty = get_ty sub_gid 0 i `In in
             let p_ty = get_ty cur_gid nid i `Out in
             if c_ty <> C.Basic "float" && p_ty = C.Basic "float" then (set_ty cur_gid nid i `Out c_ty; changed := true)
             else if p_ty <> C.Basic "float" && c_ty = C.Basic "float" then (set_ty sub_gid 0 i `In p_ty; changed := true)
-          done;
+          ) sub_return_ports;
           pass2 sub sub_gid
       | _ -> ()
     ) g.nmap;
@@ -177,10 +178,12 @@ let declare_outputs env gr gid nid node =
   let stmts = ref [] in
   let out_pids, out_dir = match node with
     | Simple (_, _, _, outs, _) -> (Array.mapi (fun i _ -> i) outs |> Array.to_list, `Out)
-    | Compound (_, _, _, _, sub, _) ->
-        (* Compound node results come from the Boundary inputs (Node 0 In) of the sub-graph *)
-        let b_ins = match NM.find_opt 0 sub.nmap with Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0 in
-        (List.init b_ins (fun i -> i), `Out)
+    | Compound (_, _, _, _, _, _) ->
+        (* Derive from parent eset: all edges where this compound node is the source.
+           This matches exactly the set lower_node's res_prop will iterate, ensuring
+           every assigned port is pre-declared in the outer scope. *)
+        let ports = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+        (ports, `Out)
     | _ -> ([], `Out) in
   List.iter (fun pid ->
     let name = get_c_name (!env_ref).proc_map (!env_ref).gid_name_map gid nid pid out_dir gr in
@@ -306,8 +309,17 @@ and lower_node env gr nid node =
         let body, env_after = lower_graph env_child gr nid loop_gr sub_gid in
         let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
         let res_prop, final_env = List.fold_left (fun (acc, e) dp ->
-          match FullPortMap.find_opt (sub_gid, 0, dp, `In) env_after.var_map with
-          | Some src_expr -> 
+          let src_opt =
+            match FullPortMap.find_opt (sub_gid, 0, dp, `In) env_after.var_map with
+            | Some _ as found -> found
+            | None ->
+                (* boundary In ports aren't populated in var_map by lower_graph;
+                   trace via sub-graph eset to find the producing node *)
+                (match ES.fold (fun (src, dst, _) a -> if dst = (0, dp) then Some src else a) loop_gr.eset None with
+                 | Some (sn, sp) -> FullPortMap.find_opt (sub_gid, sn, sp, `Out) env_after.var_map
+                 | None -> None) in
+          match src_opt with
+          | Some src_expr ->
               let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
               (acc @ stmts, e')
           | None -> (acc, e)
@@ -635,7 +647,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid n
 
       (* Determine output ports and declare their return variables up front, just like
          boundary inputs, so they are visible for the whole procedure body *)
-      let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = 0 then IntSet.add sp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+      let out_pids = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
       let ret_decl_stmts, env_predecl = List.fold_left (fun (acc_stmts, e) pid ->
         let ty = get_final_ty e nid 0 pid `In in
         let name = get_c_name e.proc_map e.gid_name_map nid 0 pid `In sub_gr in
@@ -742,7 +754,7 @@ let lower_to_c tm gr filename =
 
   let result_struct_decls = List.filter_map (fun (nid, node, sub_gr) -> match node with | Compound (_, INTERNAL, _, pr, _, _) ->
       let func_name = List.find_map (function Name nm -> Some nm | _ -> None) pr |> Option.map String.uppercase_ascii |> Option.map (fun n -> "func_" ^ n) |> Option.value ~default:"unnamed" in
-      let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = 0 then IntSet.add sp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+      let out_pids = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
       if List.length out_pids > 1 then
         let results = List.map (fun pid -> let env_tmp = { (dummy_env tm sub_gr) with curr_gr = sub_gr; gid_table = global_table; proc_map; gid_name_map; procedures_info = procedures_info_map; curr_gid = nid } in ("res_" ^ string_of_int pid, get_final_ty (infer_types env_tmp sub_gr nid) nid 0 pid `In)) out_pids in
         Some (C.Type (C.Struct (String.uppercase_ascii func_name ^ "_results", results)))

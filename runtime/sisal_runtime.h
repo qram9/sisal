@@ -133,11 +133,11 @@ inline sisal_array_t sisal_array_mul(sisal_array_t a, sisal_array_t b) {
     return res;
 }
 
-inline float sisal_array_reduce_sum(sisal_array_t a) { 
-    double s = 0;
-    double* d = (double*)a.data;
+inline float sisal_array_reduce_sum(sisal_array_t a) {
+    float s = 0;
+    float* d = (float*)a.data;
     for(uint64_t i=0; i<a.size; i++) s += d[i];
-    return (float)s;
+    return s;
 }
 
 inline int32_t sisal_array_reduce_int_product(sisal_array_t a) {
