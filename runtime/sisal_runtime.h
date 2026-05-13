@@ -33,10 +33,20 @@ template<> inline double sisal_cast_dispatch<double, sisal_array_t>(sisal_array_
 template<> inline uint64_t sisal_cast_dispatch<uint64_t, sisal_array_t>(sisal_array_t s) { return (uint64_t)s.size; }
 template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, sisal_array_t>(sisal_array_t s) { return s; }
 
-// Scalar-to-array hacks
-template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, float>(float s) { sisal_array_t a = { NULL, 0, 1, 0, 1, 0, {0} }; return a; }
-template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, double>(double s) { sisal_array_t a = { NULL, 0, 1, 0, 1, 0, {0} }; return a; }
-template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, int32_t>(int32_t s) { sisal_array_t a = { NULL, 0, 1, 0, 1, 0, {0} }; return a; }
+// Scalar-to-array hacks — preserve value in .size and .dims[0] so the roundtrip
+// SISAL_CAST(int32_t, SISAL_CAST(sisal_array_t, x)) == x
+template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, float>(float s) {
+    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? (uint64_t)s : 0), 1, 0, 1, 0, {0} };
+    a.dims[0] = (int64_t)(s > 0 ? (int64_t)s : 0); return a;
+}
+template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, double>(double s) {
+    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? (uint64_t)s : 0), 1, 0, 1, 0, {0} };
+    a.dims[0] = (int64_t)(s > 0 ? (int64_t)s : 0); return a;
+}
+template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, int32_t>(int32_t s) {
+    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? s : 0), 1, 0, 1, 0, {0} };
+    a.dims[0] = (int64_t)s; return a;
+}
 
 #define SISAL_CAST(T, val) sisal_cast_dispatch<T>(val)
 
@@ -48,29 +58,35 @@ inline int32_t sisal_dv_dimension(int32_t dim, sisal_array_t a) {
 inline int32_t sisal_dv_dimension(int32_t dim, int32_t val) { return val; }
 
 inline int32_t sisal_dv_offset_at(sisal_array_t a, int32_t idx, sisal_array_t shape) {
+    // shape is a 1D int32 array: shape.data[i] = size of dimension i
+    // shape.size = number of dimensions (MR)
+    int32_t* sh_data = (int32_t*)shape.data;
+    int32_t ndim = (int32_t)shape.size;
+
     int32_t coords[8] = {0};
     int32_t remaining = idx;
-    // Un-flatten result index (Row-major)
-    for (int i = (int)shape.rank - 1; i >= 0; i--) {
-        int32_t d = (int32_t)shape.dims[i];
+    // Un-flatten result index into per-axis coords (Row-major)
+    for (int i = ndim - 1; i >= 0; i--) {
+        int32_t d = sh_data[i];
         if (d <= 0) d = 1;
         coords[i] = remaining % d;
         remaining /= d;
     }
-    
+
     int32_t linear_offset = 0;
     int32_t current_a_stride = 1;
-    int rank_diff = (int)shape.rank - (int)a.rank;
-    
-    // Flatten for source array 'a' (Row-major)
+    int rank_diff = ndim - (int)a.rank;
+
+    // Re-flatten into source array 'a' index, applying broadcast (dim==1 → always 0)
     for (int i = (int)a.rank - 1; i >= 0; i--) {
         int res_axis = i + rank_diff;
-        if (res_axis >= 0) {
-            if (a.dims[i] > 1) {
-                linear_offset += coords[res_axis] * current_a_stride;
-            }
+        int32_t a_dim = (a.dims[i] > 0) ? (int32_t)a.dims[i]
+                      : (a.rank == 1)    ? (int32_t)a.size
+                      : 1;
+        if (res_axis >= 0 && a_dim > 1) {
+            linear_offset += coords[res_axis] * current_a_stride;
         }
-        current_a_stride *= (int32_t)a.dims[i];
+        current_a_stride *= a_dim;
     }
     return linear_offset;
 }
@@ -84,6 +100,7 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
   a.ref_count = 1;
   a.rank = rank;
   for (int i=0; i<8; i++) a.dims[i] = 0;
+  if (rank == 1) a.dims[0] = (int64_t)size;
   return a;
 }
 
@@ -158,5 +175,55 @@ inline int32_t sisal_array_reduce_int_least(sisal_array_t a) { return 0; }
 inline float sisal_array_reduce_greatest(sisal_array_t a) { return 0.0f; }
 inline double sisal_array_reduce_double_greatest(sisal_array_t a) { return 0.0; }
 inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) { return 0; }
+
+/* COMPRESS: returns elements of `data` where `mask` (bool array) is true */
+inline sisal_array_t sisal_array_compress(sisal_array_t mask, sisal_array_t data) {
+    uint64_t count = 0;
+    bool* m = (bool*)mask.data;
+    for (uint64_t i = 0; i < mask.size; i++) if (m[i]) count++;
+    sisal_array_t res = sisal_array_alloc_empty(data.rank, data.type_id, count);
+    res.lower_bound = 1;
+    uint64_t out = 0;
+    for (uint64_t i = 0; i < mask.size; i++) {
+        if (m[i]) { ((float*)res.data)[out++] = ((float*)data.data)[i]; }
+    }
+    return res;
+}
+
+// Math wrappers — generated code calls these by mangled name
+static inline float  func__SABS__F__F(float x)    { return fabsf(x); }
+static inline double func__SABS__D__D(double x)   { return fabs(x); }
+static inline float  func__SSQRT__F__F(float x)   { return sqrtf(x); }
+static inline double func__SSQRT__D__D(double x)  { return sqrt(x); }
+static inline float  func__SSIN__F__F(float x)    { return sinf(x); }
+static inline double func__SSIN__D__D(double x)   { return sin(x); }
+static inline float  func__SCOS__F__F(float x)    { return cosf(x); }
+static inline double func__SCOS__D__D(double x)   { return cos(x); }
+static inline float  func__STAN__F__F(float x)    { return tanf(x); }
+static inline double func__STAN__D__D(double x)   { return tan(x); }
+static inline float  func__SASIN__F__F(float x)   { return asinf(x); }
+static inline double func__SASIN__D__D(double x)  { return asin(x); }
+static inline float  func__SACOS__F__F(float x)   { return acosf(x); }
+static inline double func__SACOS__D__D(double x)  { return acos(x); }
+static inline float  func__SATAN__F__F(float x)   { return atanf(x); }
+static inline double func__SATAN__D__D(double x)  { return atan(x); }
+static inline float  func__SSINH__F__F(float x)   { return sinhf(x); }
+static inline double func__SSINH__D__D(double x)  { return sinh(x); }
+static inline float  func__SCOSH__F__F(float x)   { return coshf(x); }
+static inline double func__SCOSH__D__D(double x)  { return cosh(x); }
+static inline float  func__STANH__F__F(float x)   { return tanhf(x); }
+static inline double func__STANH__D__D(double x)  { return tanh(x); }
+static inline float  func__SLOG__F__F(float x)    { return logf(x); }
+static inline double func__SLOG__D__D(double x)   { return log(x); }
+static inline float  func__SLOG10__F__F(float x)  { return log10f(x); }
+static inline double func__SLOG10__D__D(double x) { return log(x); }
+static inline float  func__SEXP__F__F(float x)    { return expf(x); }
+static inline double func__SEXP__D__D(double x)   { return exp(x); }
+static inline int32_t func__SFLOOR__F__I(float x)  { return (int32_t)floorf(x); }
+static inline int64_t func__SFLOOR__D__L(double x) { return (int64_t)floor(x); }
+static inline int32_t func__STRUNC__F__I(float x)  { return (int32_t)x; }
+static inline int64_t func__STRUNC__D__L(double x) { return (int64_t)x; }
+static inline int32_t func__SMOD__II__I(int32_t a, int32_t b) { return a % b; }
+static inline int64_t func__SMOD__LL__L(int64_t a, int64_t b) { return a % b; }
 
 #endif
