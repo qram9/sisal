@@ -48,11 +48,11 @@ let infer_types env gr gid =
           let ty = match code with | REAL | DOUBLE -> C.Basic "double" | BOOLEAN -> C.Basic "bool" | _ -> C.Basic "int32_t" in
           set_ty cur_gid nid 0 `Out ty
       | Simple (_, sym, _, outs, _) ->
-          let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; DV_SCATTER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
+          let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_SCATTER; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
           let ty = if is_int then C.Basic "int32_t" else if is_arr then C.Basic "sisal_array_t" else C.Basic "float" in
           Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
-          if is_arr || List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+          if is_arr || List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
       | Compound (_, sym, _, pr, sub, _) ->
           let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
@@ -118,12 +118,12 @@ let infer_types env gr gid =
     NM.iter (fun nid node ->
       match node with
       | Simple (_, sym, _, outs, _) ->
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; DV_SCATTER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS] in
           if is_arr then (
             Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t")) outs;
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
           );
-          if List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+          if List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
       | Compound (_, sym, _, pr, sub, _) ->
           let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
@@ -381,7 +381,7 @@ and lower_simple env gr nid sym pin pout pr =
       let idx = if sym = DV_LOAD_LINEAR then e2 else C.BinOp (C.Sub, e2, C.Member (e1, "lower_bound")) in
       C.Index (cast_ptr, idx)
   | RANGEGEN -> C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1)
-  | ASIZE -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
+  | ASIZE | DV_SCATTER -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
   | ALIML -> C.Cast (C.Basic "int32_t", C.Member (e1, "lower_bound"))
   | ALIMH -> C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Member (e1, "lower_bound"), C.Cast (C.Basic "int64_t", C.Member (e1, "size"))), C.LitInt 1))
   | DV_NUM_RANK -> C.Member (e1, "rank")
@@ -513,18 +513,41 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   (* Lower bound from GENERATOR node 1 (the literal that feeds RANGEGEN port 0). *)
   let lb_expr = match FullPortMap.find_opt (gen_gid, 1, 0, `Out) e_gen.var_map with
     | Some ex -> ex | None -> C.LitInt 0 in
-  (* Wire any loop_gr boundary ports that weren't provided by the parent graph. The SISAL loop
-     variable (e.g. I) lives at a boundary port in loop_gr but has no edge from outside — it is
-     generated internally as lb + loop_counter.  We register those ports now so that
-     init_boundary_ports for BODY can resolve them. *)
+  (* Wire any loop_gr boundary ports that weren't provided by the parent graph.
+     Standard forall: loop variable = lb + loop_counter (index-based).
+     DV element forall ("for i in A dot j in B"): loop variable = A.data[loop_counter] (element). *)
   let env_loop =
     let loop_local_cs, _ = loop_gr.symtab in
-    SM.fold (fun _ v e ->
-      if v.val_def = 0 && not (FullPortMap.mem (sub_gid, 0, v.def_port, `Out) e.var_map) then
-        let loop_var_expr = C.BinOp (C.Add, lb_expr, C.Id loop_idx_var) in
-        { e with var_map = FullPortMap.add (sub_gid, 0, v.def_port, `Out) loop_var_expr e.var_map }
-      else e
-    ) loop_local_cs env_loop in
+    let is_dv_elem_forall =
+      NM.exists (fun _ n -> match n with Simple (_, DV_SCATTER, _, _, _) -> true | _ -> false) gen_gr.nmap in
+    if is_dv_elem_forall then begin
+      (* Pair array inputs with loop variables by sort order of boundary port number. *)
+      let tm = get_typemap_tm loop_gr in
+      let arr_syms = SM.fold (fun _ v acc ->
+        if v.val_def = 0 then match TM.find_opt v.val_ty tm with
+          | Some (Array_dv _) | Some (Array_ty _) -> (v.def_port, v.val_ty) :: acc | _ -> acc
+        else acc) loop_local_cs [] |> List.sort compare in
+      let var_syms = SM.fold (fun _ v acc ->
+        if v.val_def = 0 then match TM.find_opt v.val_ty tm with
+          | Some (Basic _) -> (v.def_port, v.val_ty) :: acc | _ -> acc
+        else acc) loop_local_cs [] |> List.sort compare in
+      List.fold_left2 (fun e (arr_port, _) (var_port, var_ty_id) ->
+        if FullPortMap.mem (sub_gid, 0, var_port, `Out) e.var_map then e
+        else
+          let arr_expr = match FullPortMap.find_opt (sub_gid, 0, arr_port, `Out) e.var_map with
+            | Some ex -> ex | None -> C.LitInt 0 in
+          let elem_if1_ty = try TM.find var_ty_id tm with _ -> Basic INTEGRAL in
+          let elem_ty = c_type_of_if1_ty tm elem_if1_ty in
+          let elem_expr = C.Index (C.Cast (C.Pointer (elem_ty, []), C.Member (arr_expr, "data")), C.Id loop_idx_var) in
+          { e with var_map = FullPortMap.add (sub_gid, 0, var_port, `Out) elem_expr e.var_map }
+      ) env_loop arr_syms var_syms
+    end else
+      SM.fold (fun _ v e ->
+        if v.val_def = 0 && not (FullPortMap.mem (sub_gid, 0, v.def_port, `Out) e.var_map) then
+          let loop_var_expr = C.BinOp (C.Add, lb_expr, C.Id loop_idx_var) in
+          { e with var_map = FullPortMap.add (sub_gid, 0, v.def_port, `Out) loop_var_expr e.var_map }
+        else e
+      ) loop_local_cs env_loop in
 
   (* Identify the body boundary output port that holds the array element (non-BOOLEAN type).
      DV FORALLs have two body outputs: LFCOMPAT (bool, type_id 1) and LFDRES (element).
