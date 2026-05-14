@@ -9,7 +9,8 @@ open Apple_helpers
 (** [c_op_of_node_sym sym] maps a basic IF1 node symbol to a C binary operator. *)
 let c_op_of_node_sym = function
   | ADD -> Some C.Add | SUBTRACT -> Some C.Sub | TIMES -> Some C.Mul
-  | EQUAL -> Some C.Eq | GREATER -> Some C.Gt | GREATER_EQUAL -> Some C.Ge
+  | EQUAL -> Some C.Eq | NOT_EQUAL -> Some C.Ne
+  | GREATER -> Some C.Gt | GREATER_EQUAL -> Some C.Ge
   | LESSER -> Some C.Lt | LESSER_EQUAL -> Some C.Le | _ -> None
 
 let string_of_c_type = function
@@ -63,7 +64,18 @@ let infer_types env gr gid =
 
   let rec pass2 g cur_gid =
     let changed = ref false in
-    ES.iter (fun ((sn, sp), (dn, dp), _) ->
+    let tm = get_typemap_tm g in
+    ES.iter (fun ((sn, sp), (dn, dp), ty_id) ->
+      let sty = get_ty cur_gid sn sp `Out in
+      let dty = get_ty cur_gid dn dp `In in
+      (* Seed concrete types from edge type tags (e.g. INTEGRAL on DV_ELEMENT output edges) *)
+      (match TM.find_opt ty_id tm with
+      | Some edge_if1_ty ->
+          let ety = c_type_of_if1_ty tm edge_if1_ty in
+          if ety <> C.Basic "float" && ety <> C.Basic "sisal_array_t" then (
+            if sty = C.Basic "float" then (set_ty cur_gid sn sp `Out ety; changed := true);
+            if dty = C.Basic "float" then (set_ty cur_gid dn dp `In ety; changed := true))
+      | None -> ());
       let sty = get_ty cur_gid sn sp `Out in
       let dty = get_ty cur_gid dn dp `In in
       if sty <> C.Basic "float" && dty = C.Basic "float" then (set_ty cur_gid dn dp `In sty; changed := true)
@@ -88,8 +100,9 @@ let infer_types env gr gid =
             if p_ty <> C.Basic "float" && c_ty = C.Basic "float" then (set_ty sub_gid 0 i `Out p_ty; changed := true)
             else if c_ty <> C.Basic "float" && p_ty = C.Basic "float" then (set_ty cur_gid nid i `In c_ty; changed := true)
           done;
-          (* Use eset to find actual boundary outputs — boundary outs metadata is often stale *)
-          let sub_return_ports = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub.eset IntSet.empty in
+          (* Use eset to find actual boundary outputs — boundary outs metadata is often stale.
+             Exclude error edges so error-flow ports aren't treated as return values. *)
+          let sub_return_ports = ES.fold (fun (_, (dn, dp), ty) acc -> if dn = 0 && not (is_error_port ty sub) then IntSet.add dp acc else acc) sub.eset IntSet.empty in
           IntSet.iter (fun i ->
             let c_ty = get_ty sub_gid 0 i `In in
             let p_ty = get_ty cur_gid nid i `Out in
@@ -346,6 +359,7 @@ and lower_simple env gr nid sym pin pout pr =
   | SUBTRACT -> if t_res = C.Basic "sisal_array_t" then C.Call ("sisal_array_sub", [ e1; e2 ]) else C.BinOp (C.Sub, e1, e2)
   | TIMES -> if t_res = C.Basic "sisal_array_t" then C.Call ("sisal_array_mul", [ e1; e2 ]) else C.BinOp (C.Mul, e1, e2)
   | EQUAL -> C.BinOp (C.Eq, e1, e2)
+  | NOT_EQUAL -> C.BinOp (C.Ne, e1, e2)
   | NOT -> C.UnaryOp (C.LogNot, e1)
   | NEGATE -> C.UnaryOp (C.Negate, e1)
   | ERROR_NODE -> C.LitFloat 0.0
@@ -447,15 +461,27 @@ and lower_if_graph env parent_gr nid loop_gr loop_gid =
   let else_stmts, e_else = lower_graph env_else loop_gr else_cid else_sg egid in
   let if_out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) parent_gr.eset IntSet.empty |> IntSet.elements in
   let then_props, e_final_then = List.fold_left (fun (acc, e) dp ->
-    match FullPortMap.find_opt (tgid, 0, dp, `In) e_then.var_map with
-    | Some src_expr -> 
+    let src_opt = match FullPortMap.find_opt (tgid, 0, dp, `In) e_then.var_map with
+      | Some _ as found -> found
+      | None ->
+          (match ES.fold (fun (src, dst, _) a -> if dst = (0, dp) then Some src else a) then_sg.eset None with
+           | Some (sn, sp) -> FullPortMap.find_opt (tgid, sn, sp, `Out) e_then.var_map
+           | None -> None) in
+    match src_opt with
+    | Some src_expr ->
         let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
         (acc @ stmts, e')
     | None -> (acc, e)
   ) ([], { e_then with curr_gid = gid; curr_gr = parent_gr }) if_out_pids in
   let else_props, e_final_else = List.fold_left (fun (acc, e) dp ->
-    match FullPortMap.find_opt (egid, 0, dp, `In) e_else.var_map with
-    | Some src_expr -> 
+    let src_opt = match FullPortMap.find_opt (egid, 0, dp, `In) e_else.var_map with
+      | Some _ as found -> found
+      | None ->
+          (match ES.fold (fun (src, dst, _) a -> if dst = (0, dp) then Some src else a) else_sg.eset None with
+           | Some (sn, sp) -> FullPortMap.find_opt (egid, sn, sp, `Out) e_else.var_map
+           | None -> None) in
+    match src_opt with
+    | Some src_expr ->
         let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
         (acc @ stmts, e')
     | None -> (acc, e)
@@ -500,9 +526,24 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
       else e
     ) loop_local_cs env_loop in
 
+  (* Identify the body boundary output port that holds the array element (non-BOOLEAN type).
+     DV FORALLs have two body outputs: LFCOMPAT (bool, type_id 1) and LFDRES (element).
+     Port ordering varies; find the non-boolean port so we accumulate the right value. *)
+  let body_elem_port, body_elem_type_id =
+    match ES.fold (fun (_, (dn, dp), t) acc ->
+      if dn = 0 && t <> 1 then Some (dp, t) else acc) body_gr.eset None with
+    | Some (p, t) -> (p, t)
+    | None ->
+      (match ES.fold (fun (_, (dn, dp), t) acc ->
+        if dn = 0 then Some (dp, t) else acc) body_gr.eset None with
+      | Some (p, t) -> (p, t)
+      | None -> (0, 6)) in
   let stmts_alloc, e_alloc = assign_with_cast env_loop gid nid 0 `Out (C.LitInt 0) in
   let res_v = match FullPortMap.find_opt (gid, nid, 0, `Out) e_alloc.var_map with Some (C.Id n) -> C.Id n | _ -> C.Id (get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr) in
-  let tid = find_ty_safe env.curr_gr (get_elem_type env env.curr_gr nid) in
+  let tid =
+    match get_elem_type env env.curr_gr nid with
+    | Unknown_ty -> body_elem_type_id
+    | ty -> (try find_ty_safe env.curr_gr ty with _ -> body_elem_type_id) in
   let alloc = C.Expr (C.BinOp (C.Assign, res_v, C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", count) ]))) in
   let env_body = { e_alloc with parent_env = Some e_alloc; curr_gid = body_gid; curr_gr = body_gr; parent_map = IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map } in
   let env_body = { env_body with var_map = FullPortMap.add (body_gid, 0, idx_port, `Out) (C.Id loop_idx_var) env_body.var_map } in
@@ -523,8 +564,8 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
     ) cs (None, env_body) in
   let lfi_stmts = match lfi_stmt_opt with Some s -> [s] | None -> [] in
   let body_stmts, e_body = lower_graph env_body loop_gr body_nid body_gr body_gid in
-  let out_ty = get_final_ty e_body body_gid 0 0 `In in
-  let body_res = match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) body_gr.eset None with
+  let out_ty = get_final_ty e_body body_gid 0 body_elem_port `In in
+  let body_res = match ES.fold (fun (src, (dn, dp), _) acc -> if dn = 0 && dp = body_elem_port then Some src else acc) body_gr.eset None with
     | Some (sn, sp) -> get_expr e_body body_gid sn sp `Out
     | None -> C.LitInt 0 in
   let cast_body_res = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); body_res ]) in
@@ -646,8 +687,9 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid n
         ) cs [] in
 
       (* Determine output ports and declare their return variables up front, just like
-         boundary inputs, so they are visible for the whole procedure body *)
-      let out_pids = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+         boundary inputs, so they are visible for the whole procedure body.
+         Exclude error edges (BROADCAST_ERROR etc.) — those are exception flows, not return values. *)
+      let out_pids = ES.fold (fun (_, (dn, dp), ty) acc -> if dn = 0 && not (is_error_port ty sub_gr) then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
       let ret_decl_stmts, env_predecl = List.fold_left (fun (acc_stmts, e) pid ->
         let ty = get_final_ty e nid 0 pid `In in
         let name = get_c_name e.proc_map e.gid_name_map nid 0 pid `In sub_gr in
@@ -754,7 +796,7 @@ let lower_to_c tm gr filename =
 
   let result_struct_decls = List.filter_map (fun (nid, node, sub_gr) -> match node with | Compound (_, INTERNAL, _, pr, _, _) ->
       let func_name = List.find_map (function Name nm -> Some nm | _ -> None) pr |> Option.map String.uppercase_ascii |> Option.map (fun n -> "func_" ^ n) |> Option.value ~default:"unnamed" in
-      let out_pids = ES.fold (fun (_, (dn, dp), _) acc -> if dn = 0 then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
+      let out_pids = ES.fold (fun (_, (dn, dp), ty) acc -> if dn = 0 && not (is_error_port ty sub_gr) then IntSet.add dp acc else acc) sub_gr.eset IntSet.empty |> IntSet.elements in
       if List.length out_pids > 1 then
         let results = List.map (fun pid -> let env_tmp = { (dummy_env tm sub_gr) with curr_gr = sub_gr; gid_table = global_table; proc_map; gid_name_map; procedures_info = procedures_info_map; curr_gid = nid } in ("res_" ^ string_of_int pid, get_final_ty (infer_types env_tmp sub_gr nid) nid 0 pid `In)) out_pids in
         Some (C.Type (C.Struct (String.uppercase_ascii func_name ^ "_results", results)))
@@ -764,39 +806,6 @@ let lower_to_c tm gr filename =
     let recs, s' = collect_all_records sub_tm sub s in
     (acc @ recs, s')
   ) (let r, s = collect_all_records tm gr IntSet.empty in (r, s)) procedures_info in
-  let math_wrappers = [
-    C.Raw "extern \"C\" float func__SABS__F__F(float x) { return fabsf(x); }";
-    C.Raw "extern \"C\" double func__SABS__D__D(double x) { return fabs(x); }";
-    C.Raw "extern \"C\" float func__SSQRT__F__F(float x) { return sqrtf(x); }";
-    C.Raw "extern \"C\" double func__SSQRT__D__D(double x) { return sqrt(x); }";
-    C.Raw "extern \"C\" float func__SSIN__F__F(float x) { return sinf(x); }";
-    C.Raw "extern \"C\" double func__SSIN__D__D(double x) { return sin(x); }";
-    C.Raw "extern \"C\" float func__SCOS__F__F(float x) { return cosf(x); }";
-    C.Raw "extern \"C\" double func__SCOS__D__D(double x) { return cos(x); }";
-    C.Raw "extern \"C\" float func__STAN__F__F(float x) { return tanf(x); }";
-    C.Raw "extern \"C\" double func__STAN__D__D(double x) { return tan(x); }";
-    C.Raw "extern \"C\" float func__SASIN__F__F(float x) { return asinf(x); }";
-    C.Raw "extern \"C\" double func__SASIN__D__D(double x) { return asin(x); }";
-    C.Raw "extern \"C\" float func__SACOS__F__F(float x) { return acosf(x); }";
-    C.Raw "extern \"C\" double func__SACOS__D__D(double x) { return acos(x); }";
-    C.Raw "extern \"C\" float func__SATAN__F__F(float x) { return atanf(x); }";
-    C.Raw "extern \"C\" double func__SATAN__D__D(double x) { return atan(x); }";
-    C.Raw "extern \"C\" float func__SSINH__F__F(float x) { return sinhf(x); }";
-    C.Raw "extern \"C\" double func__SSINH__D__D(double x) { return sinh(x); }";
-    C.Raw "extern \"C\" float func__SCOSH__F__F(float x) { return coshf(x); }";
-    C.Raw "extern \"C\" double func__SCOSH__D__D(double x) { return cosh(x); }";
-    C.Raw "extern \"C\" float func__STANH__F__F(float x) { return tanhf(x); }";
-    C.Raw "extern \"C\" double func__STANH__D__D(double x) { return tanh(x); }";
-    C.Raw "extern \"C\" float func__SLOG__F__F(float x) { return logf(x); }";
-    C.Raw "extern \"C\" double func__SLOG__D__D(double x) { return log(x); }";
-    C.Raw "extern \"C\" float func__SLOG10__F__F(float x) { return log10f(x); }";
-    C.Raw "extern \"C\" double func__SLOG10__D__D(double x) { return log(x); }";
-    C.Raw "extern \"C\" float func__SEXP__F__F(float x) { return expf(x); }";
-    C.Raw "extern \"C\" double func__SEXP__D__D(double x) { return exp(x); }";
-    C.Raw "extern \"C\" int32_t func__SFLOOR__F__I(float x) { return (int32_t)floorf(x); }";
-    C.Raw "extern \"C\" int64_t func__SFLOOR__D__L(double x) { return (int64_t)floor(x); }";
-    C.Raw "extern \"C\" int32_t func__STRUNC__F__I(float x) { return (int32_t)x; }";
-    C.Raw "extern \"C\" int64_t func__STRUNC__D__L(double x) { return (int64_t)x; }";
-  ] in
+  let math_wrappers = [] in (* now provided by sisal_runtime.h *)
 
   { C.filename = filename; includes = [ "stdio.h"; "stdint.h"; "stdbool.h"; "math.h"; "iostream"; "dispatch/dispatch.h"; "Accelerate/Accelerate.h"; "sisal_runtime.h" ]; globals = math_wrappers @ all_record_decls @ result_struct_decls @ (List.map (fun p -> C.Prototype p) procedures); procedures = List.rev procedures }
