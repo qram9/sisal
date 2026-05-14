@@ -114,6 +114,11 @@ extern "C" int32_t func_MIN_TO_N(int32_t N);
 extern "C" int32_t func_MAX_TO_N(int32_t N);
 #endif
 
+#ifdef TEST_INNERPRODUCT_DV
+extern "C" float   func_IP_F32(sisal_array_t A, sisal_array_t B);
+extern "C" int32_t func_IP_I32(sisal_array_t A, sisal_array_t B);
+#endif
+
 #ifdef TEST_BULK_BASIC
 extern "C" sisal_array_t func_T_ARR_ADD(sisal_array_t A, sisal_array_t B);
 extern "C" sisal_array_t func_T_ARR_SUB(sisal_array_t A, sisal_array_t B);
@@ -889,6 +894,31 @@ static void test_forall_reduce_dv(void) {
 }
 #endif
 
+#ifdef TEST_INNERPRODUCT_DV
+static void test_innerproduct_dv(void) {
+    printf("\n=== Group O: dv_innerproduct ===\n");
+    // [1.0, 2.0, 3.0] . [4.0, 5.0, 6.0] = 4+10+18 = 32
+    float fa[] = {1.0f, 2.0f, 3.0f};
+    float fb[] = {4.0f, 5.0f, 6.0f};
+    sisal_array_t va = make_float_arr(fa, 3);
+    sisal_array_t vb = make_float_arr(fb, 3);
+    float r = func_IP_F32(va, vb);
+    check("ip_f32 dot [1,2,3].[4,5,6]", r == 32.0f);
+    if (va.data) free(va.data);
+    if (vb.data) free(vb.data);
+
+    // [1,2,3] . [4,5,6] = 32 (integer)
+    int32_t ia[] = {1, 2, 3};
+    int32_t ib[] = {4, 5, 6};
+    sisal_array_t vai = make_int_arr(ia, 3);
+    sisal_array_t vbi = make_int_arr(ib, 3);
+    int32_t ri = func_IP_I32(vai, vbi);
+    check("ip_i32 dot [1,2,3].[4,5,6]", ri == 32);
+    if (vai.data) free(vai.data);
+    if (vbi.data) free(vbi.data);
+}
+#endif
+
 #ifdef TEST_BULK_BASIC
 static void test_bulk_basic(void) {
     printf("\n=== Group N: dv_bulk_basic ===\n");
@@ -1023,12 +1053,15 @@ int main(void) {
 #ifdef TEST_BULK_BASIC
     test_bulk_basic();
 #endif
+#ifdef TEST_INNERPRODUCT_DV
+    test_innerproduct_dv();
+#endif
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT) && !defined(TEST_LIFTED_ARITH) && \
     !defined(TEST_SHL) && !defined(TEST_TEST_SUBSET) && !defined(TEST_INTRINSICS) && \
     !defined(TEST_BROADCAST_COMPLEX) && !defined(TEST_COMPRESS) && !defined(TEST_BROADCAST_NUMPY) && \
     !defined(TEST_FORALL_CPU) && !defined(TEST_NEGATE_DV) && !defined(TEST_FORALL_BASIC_DV) && \
-    !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC)
+    !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC) && !defined(TEST_INNERPRODUCT_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

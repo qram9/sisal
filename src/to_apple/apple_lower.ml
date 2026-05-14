@@ -430,6 +430,17 @@ and lower_simple env gr nid sym pin pout pr =
   | DV_RESHAPE_BY_SHAPE -> C.Call ("sisal_array_reshape_by_shape", [ e1; e2 ])
   | TYPECAST -> e1
   | RELEMENTS -> e2
+  | DOT | INNERPRODUCT_NODE ->
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty = C.Basic "sisal_array_t" then
+        let dot_fn = match t_res with
+          | C.Basic "double" -> "sisal_array_dot_f64"
+          | C.Basic "int32_t" -> "sisal_array_dot_i32"
+          | _ -> "sisal_array_dot_f32"
+        in
+        C.Call (dot_fn, [ e1; e2 ])
+      else
+        failwith (Printf.sprintf "DOT/INNERPRODUCT for non-DV types not supported at gid=%d nid=%d" gid nid)
   | DV_COMPRESS -> C.Call ("sisal_array_compress", [ e1; e2 ])
   | DV_SORT -> C.Call ("sisal_array_sort", [ e1 ])
   | DV_REVERSE -> C.Call ("sisal_array_reverse", [ e1 ])

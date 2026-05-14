@@ -244,6 +244,20 @@ inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) {
     for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
 }
 
+/* INNERPRODUCT / DOT: element-wise multiply and sum */
+inline float   sisal_array_dot_f32(sisal_array_t a, sisal_array_t b) {
+    float s = 0.0f; float* da = (float*)a.data; float* db = (float*)b.data;
+    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+}
+inline double  sisal_array_dot_f64(sisal_array_t a, sisal_array_t b) {
+    double s = 0.0; double* da = (double*)a.data; double* db = (double*)b.data;
+    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+}
+inline int32_t sisal_array_dot_i32(sisal_array_t a, sisal_array_t b) {
+    int32_t s = 0; int32_t* da = (int32_t*)a.data; int32_t* db = (int32_t*)b.data;
+    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+}
+
 /* REVERSE: return a copy with elements in reverse order */
 inline sisal_array_t sisal_array_reverse(sisal_array_t a) {
     sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);

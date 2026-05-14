@@ -86,6 +86,7 @@ run_group NEGATE_DV         negate_dv            --dv
 run_group FORALL_BASIC_DV   dv_forall_basic      --dv
 run_group FORALL_REDUCE_DV  dv_forall_reduce     --dv
 run_group BULK_BASIC        dv_bulk_basic        --dv
+run_group INNERPRODUCT_DV   dv_innerproduct      --dv
 
 echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"
