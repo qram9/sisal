@@ -91,9 +91,18 @@ inline int32_t sisal_dv_offset_at(sisal_array_t a, int32_t idx, sisal_array_t sh
     return linear_offset;
 }
 
+static inline size_t sisal_elem_size(int32_t type_id) {
+    switch (type_id) {
+        case 1: case 5: case 6: return 4;
+        case 7: return 8;
+        default: return sizeof(sisal_array_t);
+    }
+}
+
 inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint64_t size) {
   sisal_array_t a;
-  a.data = malloc(size * 8); 
+  size_t esz = sisal_elem_size(type_id);
+  a.data = malloc(size * (esz > 8 ? esz : 8));
   a.size = size;
   a.lower_bound = 1;
   a.type_id = type_id;
@@ -102,6 +111,36 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
   for (int i=0; i<8; i++) a.dims[i] = 0;
   if (rank == 1) a.dims[0] = (int64_t)size;
   return a;
+}
+
+inline sisal_array_t sisal_array_replace_i32(sisal_array_t a, int64_t idx, int32_t val) {
+    sisal_array_t res = a;
+    res.data = malloc(a.size * 8);
+    memcpy(res.data, a.data, a.size * 8);
+    ((int32_t*)res.data)[idx - a.lower_bound] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_replace_f32(sisal_array_t a, int64_t idx, float val) {
+    sisal_array_t res = a;
+    res.data = malloc(a.size * 8);
+    memcpy(res.data, a.data, a.size * 8);
+    ((float*)res.data)[idx - a.lower_bound] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_replace_f64(sisal_array_t a, int64_t idx, double val) {
+    sisal_array_t res = a;
+    res.data = malloc(a.size * 8);
+    memcpy(res.data, a.data, a.size * 8);
+    ((double*)res.data)[idx - a.lower_bound] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal_array_t val) {
+    sisal_array_t res = a;
+    size_t esz = sizeof(sisal_array_t);
+    res.data = malloc(a.size * esz);
+    memcpy(res.data, a.data, a.size * esz);
+    ((sisal_array_t*)res.data)[idx - a.lower_bound] = val;
+    return res;
 }
 
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
@@ -164,17 +203,66 @@ inline int32_t sisal_array_reduce_int_product(sisal_array_t a) {
     return p;
 }
 
-// Stubs for remaining reducers
-inline float sisal_array_reduce_float_product(sisal_array_t a) { return 1.0f; }
-inline double sisal_array_reduce_double_sum(sisal_array_t a) { return (double)sisal_array_reduce_sum(a); }
-inline int32_t sisal_array_reduce_int_sum(sisal_array_t a) { return (int32_t)sisal_array_reduce_sum(a); }
-inline double sisal_array_reduce_double_product(sisal_array_t a) { return 1.0; }
-inline float sisal_array_reduce_least(sisal_array_t a) { return 0.0f; }
-inline double sisal_array_reduce_double_least(sisal_array_t a) { return 0.0; }
-inline int32_t sisal_array_reduce_int_least(sisal_array_t a) { return 0; }
-inline float sisal_array_reduce_greatest(sisal_array_t a) { return 0.0f; }
-inline double sisal_array_reduce_double_greatest(sisal_array_t a) { return 0.0; }
-inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) { return 0; }
+inline float sisal_array_reduce_float_product(sisal_array_t a) {
+    float p = 1.0f; float* d = (float*)a.data;
+    for(uint64_t i=0; i<a.size; i++) p *= d[i]; return p;
+}
+inline double sisal_array_reduce_double_sum(sisal_array_t a) {
+    double s = 0.0; double* d = (double*)a.data;
+    for(uint64_t i=0; i<a.size; i++) s += d[i]; return s;
+}
+inline int32_t sisal_array_reduce_int_sum(sisal_array_t a) {
+    int32_t s = 0; int32_t* d = (int32_t*)a.data;
+    for(uint64_t i=0; i<a.size; i++) s += d[i]; return s;
+}
+inline double sisal_array_reduce_double_product(sisal_array_t a) {
+    double p = 1.0; double* d = (double*)a.data;
+    for(uint64_t i=0; i<a.size; i++) p *= d[i]; return p;
+}
+inline float sisal_array_reduce_least(sisal_array_t a) {
+    float* d = (float*)a.data; float v = a.size ? d[0] : 0.0f;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]<v) v=d[i]; return v;
+}
+inline double sisal_array_reduce_double_least(sisal_array_t a) {
+    double* d = (double*)a.data; double v = a.size ? d[0] : 0.0;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]<v) v=d[i]; return v;
+}
+inline int32_t sisal_array_reduce_int_least(sisal_array_t a) {
+    int32_t* d = (int32_t*)a.data; int32_t v = a.size ? d[0] : 0;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]<v) v=d[i]; return v;
+}
+inline float sisal_array_reduce_greatest(sisal_array_t a) {
+    float* d = (float*)a.data; float v = a.size ? d[0] : 0.0f;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
+}
+inline double sisal_array_reduce_double_greatest(sisal_array_t a) {
+    double* d = (double*)a.data; double v = a.size ? d[0] : 0.0;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
+}
+inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) {
+    int32_t* d = (int32_t*)a.data; int32_t v = a.size ? d[0] : 0;
+    for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
+}
+
+/* REVERSE: return a copy with elements in reverse order */
+inline sisal_array_t sisal_array_reverse(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
+    res.lower_bound = a.lower_bound;
+    int32_t* src = (int32_t*)a.data; int32_t* dst = (int32_t*)res.data;
+    for (uint64_t i = 0; i < a.size; i++) dst[i] = src[a.size - 1 - i];
+    return res;
+}
+
+/* SORT: return a sorted copy (ascending, element-size 4 bytes assumed) */
+#include <algorithm>
+inline sisal_array_t sisal_array_sort(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
+    res.lower_bound = a.lower_bound;
+    int32_t* src = (int32_t*)a.data; int32_t* dst = (int32_t*)res.data;
+    for (uint64_t i = 0; i < a.size; i++) dst[i] = src[i];
+    std::sort(dst, dst + a.size);
+    return res;
+}
 
 /* COMPRESS: returns elements of `data` where `mask` (bool array) is true */
 inline sisal_array_t sisal_array_compress(sisal_array_t mask, sisal_array_t data) {
