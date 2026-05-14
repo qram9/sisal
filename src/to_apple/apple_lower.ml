@@ -107,7 +107,7 @@ let infer_types env gr gid =
       let c0 = match TM.find_opt ty_id tm2 with
         | Some edge_if1_ty ->
             let ety = c_type_of_if1_ty tm2 edge_if1_ty in
-            if ety <> C.Basic "float" && ety <> C.Basic "sisal_array_t" then
+            if ety <> C.Basic "float" then
               (let c1 = if sty = C.Basic "float" then set_ty_c cur_gid sn sp `Out ety else false in
                let c2 = if dty = C.Basic "float" then set_ty_c cur_gid dn dp `In ety else false in
                c1 || c2)
