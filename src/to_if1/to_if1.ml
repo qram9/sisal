@@ -4321,11 +4321,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | "INNERPRODUCT" ->
-          (* innerproduct(a, b) dispatches on types:
-             vec * vec  → DOT       (scalar result)
-             mat * mat  → MATMUL    (mat result)
-             mat * vec  → MATVECMUL (vec result)
-             vec * mat  → VECMATMUL (vec result) *)
           let args =
             match arg with
             | Ast.Arg (Ast.Exp exps) -> exps
@@ -4336,24 +4331,45 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (If1.Sem_error "innerproduct() requires exactly two arguments");
           let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
           let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
-          let r1 = get_rank at in_gr in
-          let r2 = get_rank bt in_gr in
-          let opcode, result_ty =
-            match (r1, r2) with
-            | 2, 2 -> (If1.MATMUL, at)
-            | 2, 1 -> (If1.MATVECMUL, bt)
-            | 1, 2 -> (If1.VECMATMUL, at)
-            | 1, 1 -> (If1.DOT, get_deep_elem_ty at in_gr)
-            | _ ->
-                raise
-                  (If1.Sem_error "innerproduct() requires mat or vec arguments")
-          in
-          let (rn, rp, _), in_gr =
-            If1.add_node_2 (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
-          in
-          let in_gr = If1.add_edge an ap rn 0 at in_gr in
-          let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
-          ((rn, rp, result_ty), in_gr)
+          let at_is_dv = match If1.lookup_type_opt at in_gr with
+            | Some (If1.Array_dv _) -> true | _ -> false in
+          if at_is_dv then begin
+            (* DV arrays: rank is a runtime property — emit INNERPRODUCT_NODE
+               so the backend dispatches at runtime (dot, matmul, etc.).
+               Result type = element type of first arg; caller extracts scalar
+               via the _f32/_f64/_i32 runtime wrappers when needed. *)
+            let elem_ty = match If1.lookup_type_opt at in_gr with
+              | Some (If1.Array_dv et) -> et | _ -> at in
+            let (rn, rp, _), in_gr =
+              If1.add_node_2
+                (`Simple (If1.INNERPRODUCT_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+                in_gr
+            in
+            let in_gr = If1.add_edge an ap rn 0 at in_gr in
+            let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
+            ((rn, rp, elem_ty), in_gr)
+          end else begin
+            (* Fixed-size vectors/matrices (FLOAT2/3/4, MAT2/3/4): rank is
+               a compile-time property of the type — dispatch to specific opcode. *)
+            let r1 = get_rank at in_gr in
+            let r2 = get_rank bt in_gr in
+            let opcode, result_ty =
+              match (r1, r2) with
+              | 2, 2 -> (If1.MATMUL, at)
+              | 2, 1 -> (If1.MATVECMUL, bt)
+              | 1, 2 -> (If1.VECMATMUL, at)
+              | 1, 1 -> (If1.DOT, get_deep_elem_ty at in_gr)
+              | _ ->
+                  raise
+                    (If1.Sem_error "innerproduct() requires mat or vec arguments")
+            in
+            let (rn, rp, _), in_gr =
+              If1.add_node_2 (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
+            in
+            let in_gr = If1.add_edge an ap rn 0 at in_gr in
+            let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
+            ((rn, rp, result_ty), in_gr)
+          end
       | "STREAM_EMPTY" ->
           let (n, p, _), in_gr =
             If1.add_node_2

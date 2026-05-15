@@ -244,18 +244,71 @@ inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) {
     for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
 }
 
-/* INNERPRODUCT / DOT: element-wise multiply and sum */
-inline float   sisal_array_dot_f32(sisal_array_t a, sisal_array_t b) {
-    float s = 0.0f; float* da = (float*)a.data; float* db = (float*)b.data;
-    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+/* INNERPRODUCT: rank-polymorphic (APL/numpy semantics, row-major).
+   rank-1 x rank-1 -> rank-1 array of size 1 (scalar wrapped)
+   rank-2 x rank-2 -> rank-2 array (matmul)
+   Caller extracts scalar via _f32/_f64/_i32 wrappers when needed. */
+inline sisal_array_t sisal_array_innerproduct(sisal_array_t a, sisal_array_t b) {
+    if (a.rank == 1 && b.rank == 1) {
+        /* dot product: sum(a[i]*b[i]) packed into a single-element array */
+        sisal_array_t r = sisal_array_alloc_empty(1, a.type_id, 1);
+        r.dims[0] = 1;
+        if (a.type_id == 4) { /* double */
+            double s = 0.0; double* da=(double*)a.data; double* db=(double*)b.data;
+            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
+            ((double*)r.data)[0] = s;
+        } else if (a.type_id == 6) { /* int32 */
+            int32_t s = 0; int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data;
+            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
+            ((int32_t*)r.data)[0] = s;
+        } else { /* float (type_id==8) and fallback */
+            float s = 0.0f; float* da=(float*)a.data; float* db=(float*)b.data;
+            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
+            ((float*)r.data)[0] = s;
+        }
+        return r;
+    } else if (a.rank == 2 && b.rank == 2) {
+        /* matmul: C[i,j] = sum_k A[i,k]*B[k,j], row-major */
+        int64_t M=a.dims[0], K=a.dims[1], N=b.dims[1];
+        sisal_array_t r = sisal_array_alloc_empty(2, a.type_id, (uint64_t)(M*N));
+        r.dims[0]=M; r.dims[1]=N;
+        if (a.type_id == 4) {
+            double* da=(double*)a.data; double* db=(double*)b.data; double* dr=(double*)r.data;
+            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
+                double s=0.0; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
+                dr[i*N+j]=s; }
+        } else if (a.type_id == 6) {
+            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
+            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
+                int32_t s=0; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
+                dr[i*N+j]=s; }
+        } else {
+            float* da=(float*)a.data; float* db=(float*)b.data; float* dr=(float*)r.data;
+            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
+                float s=0.0f; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
+                dr[i*N+j]=s; }
+        }
+        return r;
+    } else {
+        /* unsupported rank combination: return empty */
+        return sisal_array_alloc_empty(1, a.type_id, 0);
+    }
 }
-inline double  sisal_array_dot_f64(sisal_array_t a, sisal_array_t b) {
-    double s = 0.0; double* da = (double*)a.data; double* db = (double*)b.data;
-    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+/* Scalar-extracting wrappers: extract result[0] and free the temp array */
+inline float   sisal_array_innerproduct_f32(sisal_array_t a, sisal_array_t b) {
+    sisal_array_t r = sisal_array_innerproduct(a, b);
+    float v = r.data ? ((float*)r.data)[0] : 0.0f;
+    if (r.data) free(r.data); return v;
 }
-inline int32_t sisal_array_dot_i32(sisal_array_t a, sisal_array_t b) {
-    int32_t s = 0; int32_t* da = (int32_t*)a.data; int32_t* db = (int32_t*)b.data;
-    for (uint64_t i = 0; i < a.size; i++) s += da[i] * db[i]; return s;
+inline double  sisal_array_innerproduct_f64(sisal_array_t a, sisal_array_t b) {
+    sisal_array_t r = sisal_array_innerproduct(a, b);
+    double v = r.data ? ((double*)r.data)[0] : 0.0;
+    if (r.data) free(r.data); return v;
+}
+inline int32_t sisal_array_innerproduct_i32(sisal_array_t a, sisal_array_t b) {
+    sisal_array_t r = sisal_array_innerproduct(a, b);
+    int32_t v = r.data ? ((int32_t*)r.data)[0] : 0;
+    if (r.data) free(r.data); return v;
 }
 
 /* REVERSE: return a copy with elements in reverse order */
