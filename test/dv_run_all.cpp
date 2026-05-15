@@ -115,8 +115,8 @@ extern "C" int32_t func_MAX_TO_N(int32_t N);
 #endif
 
 #ifdef TEST_INNERPRODUCT_DV
-extern "C" float   func_IP_F32(sisal_array_t A, sisal_array_t B);
-extern "C" int32_t func_IP_I32(sisal_array_t A, sisal_array_t B);
+extern "C" sisal_array_t func_IP_F32(sisal_array_t A, sisal_array_t B);
+extern "C" sisal_array_t func_IP_I32(sisal_array_t A, sisal_array_t B);
 #endif
 
 #ifdef TEST_BULK_BASIC
@@ -897,92 +897,99 @@ static void test_forall_reduce_dv(void) {
 #ifdef TEST_INNERPRODUCT_DV
 static void test_innerproduct_dv(void) {
     printf("\n=== Group O: dv_innerproduct ===\n");
+    printf("  (innerproduct always returns sisal_array_t; caller reads [0] for scalar)\n");
 
-    // --- 1D float dot product (via Sisal wrapper) ---
-    // [1,2,3] . [4,5,6] = 4+10+18 = 32
+    // --- 1D float dot via Sisal wrapper: [1,2,3].[4,5,6] = 32 ---
     float fa[] = {1.0f, 2.0f, 3.0f};
     float fb[] = {4.0f, 5.0f, 6.0f};
     sisal_array_t va = make_float_arr(fa, 3);
     sisal_array_t vb = make_float_arr(fb, 3);
-    check("ip_f32 dot [1,2,3].[4,5,6]",  func_IP_F32(va, vb) == 32.0f);
+    sisal_array_t dr = func_IP_F32(va, vb);
+    check("dot_f32 returns rank-1",      dr.rank == 1);
+    check("dot_f32 returns size-1",      (int)dr.size == 1);
+    check("dot_f32 [1,2,3].[4,5,6]=32", af(dr, 0) == 32.0f);
+    if (dr.data) free(dr.data);
     if (va.data) free(va.data);
     if (vb.data) free(vb.data);
 
-    // --- 1D int dot product (via Sisal wrapper) ---
+    // --- 1D int dot via Sisal wrapper: [1,2,3].[4,5,6] = 32 ---
     int32_t ia[] = {1, 2, 3};
     int32_t ib[] = {4, 5, 6};
     sisal_array_t vai = make_int_arr(ia, 3);
     sisal_array_t vbi = make_int_arr(ib, 3);
-    check("ip_i32 dot [1,2,3].[4,5,6]",  func_IP_I32(vai, vbi) == 32);
+    sisal_array_t ir = func_IP_I32(vai, vbi);
+    check("dot_i32 returns rank-1",      ir.rank == 1);
+    check("dot_i32 returns size-1",      (int)ir.size == 1);
+    check("dot_i32 [1,2,3].[4,5,6]=32", ai(ir, 0) == 32);
+    if (ir.data) free(ir.data);
     if (vai.data) free(vai.data);
     if (vbi.data) free(vbi.data);
 
-    // --- 1D float empty dot product ---
+    // --- 1D empty dot ---
     sisal_array_t ve = make_float_arr(NULL, 0);
-    check("ip_f32 dot empty",  func_IP_F32(ve, ve) == 0.0f);
+    sisal_array_t er = func_IP_F32(ve, ve);
+    check("dot_f32 empty returns 0",     af(er, 0) == 0.0f);
+    if (er.data) free(er.data);
     if (ve.data) free(ve.data);
 
-    // --- 2D float matmul (direct runtime call, rank-2 x rank-2 -> rank-2) ---
-    // A = [[1,2],[3,4]]  B = [[5,6],[7,8]]
-    // C = [[1*5+2*7, 1*6+2*8],[3*5+4*7, 3*6+4*8]] = [[19,22],[43,50]]
+    // --- 2D x 2D float matmul via Sisal wrapper ---
+    // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
     float ma[] = {1,2,3,4};
     float mb[] = {5,6,7,8};
     sisal_array_t A2 = make_float_2d(ma, 2, 2);
     sisal_array_t B2 = make_float_2d(mb, 2, 2);
-    sisal_array_t C2 = sisal_array_innerproduct(A2, B2);
+    sisal_array_t C2 = func_IP_F32(A2, B2);
     check("matmul rank",    C2.rank == 2);
-    check("matmul dims[0]", C2.dims[0] == 2);
-    check("matmul dims[1]", C2.dims[1] == 2);
-    check("matmul[0,0]",    af(C2,0) == 19.0f);
-    check("matmul[0,1]",    af(C2,1) == 22.0f);
-    check("matmul[1,0]",    af(C2,2) == 43.0f);
-    check("matmul[1,1]",    af(C2,3) == 50.0f);
+    check("matmul dims[0]", (int)C2.dims[0] == 2);
+    check("matmul dims[1]", (int)C2.dims[1] == 2);
+    check("matmul[0,0]=19", af(C2,0) == 19.0f);
+    check("matmul[0,1]=22", af(C2,1) == 22.0f);
+    check("matmul[1,0]=43", af(C2,2) == 43.0f);
+    check("matmul[1,1]=50", af(C2,3) == 50.0f);
     if (A2.data) free(A2.data);
     if (B2.data) free(B2.data);
     if (C2.data) free(C2.data);
 
-    // --- 2D x 1D matvec (direct runtime call) ---
-    // A = [[1,2,3],[4,5,6]]  x = [1,0,-1]
-    // r = [1*1+2*0+3*(-1), 4*1+5*0+6*(-1)] = [-2, -2]
+    // --- 2D x 1D matvec via Sisal wrapper ---
+    // A=[[1,2,3],[4,5,6]]  x=[1,0,-1]  r=[-2,-2]
     float mav[] = {1,2,3,4,5,6};
     float vx[]  = {1.0f, 0.0f, -1.0f};
     sisal_array_t Amv = make_float_2d(mav, 2, 3);
     sisal_array_t xv  = make_float_arr(vx, 3);
-    sisal_array_t rv  = sisal_array_innerproduct(Amv, xv);
-    check("matvec rank",  rv.rank == 1);
-    check("matvec size",  (int)rv.size == 2);
-    check("matvec[0]",    af(rv,0) == -2.0f);
-    check("matvec[1]",    af(rv,1) == -2.0f);
+    sisal_array_t rv  = func_IP_F32(Amv, xv);
+    check("matvec rank",   rv.rank == 1);
+    check("matvec size=2", (int)rv.size == 2);
+    check("matvec[0]=-2",  af(rv,0) == -2.0f);
+    check("matvec[1]=-2",  af(rv,1) == -2.0f);
     if (Amv.data) free(Amv.data);
     if (xv.data)  free(xv.data);
     if (rv.data)  free(rv.data);
 
-    // --- 1D x 2D vecmat (direct runtime call) ---
-    // y = [1,2]  B = [[1,2,3],[4,5,6]]
-    // r = [1*1+2*4, 1*2+2*5, 1*3+2*6] = [9,12,15]
+    // --- 1D x 2D vecmat via Sisal wrapper ---
+    // y=[1,2]  B=[[1,2,3],[4,5,6]]  r=[9,12,15]
     float vy[]  = {1.0f, 2.0f};
     float mbv[] = {1,2,3,4,5,6};
     sisal_array_t yv  = make_float_arr(vy, 2);
     sisal_array_t Bvm = make_float_2d(mbv, 2, 3);
-    sisal_array_t rvm = sisal_array_innerproduct(yv, Bvm);
-    check("vecmat rank",  rvm.rank == 1);
-    check("vecmat size",  (int)rvm.size == 3);
-    check("vecmat[0]",    af(rvm,0) == 9.0f);
-    check("vecmat[1]",    af(rvm,1) == 12.0f);
-    check("vecmat[2]",    af(rvm,2) == 15.0f);
+    sisal_array_t rvm = func_IP_F32(yv, Bvm);
+    check("vecmat rank",    rvm.rank == 1);
+    check("vecmat size=3",  (int)rvm.size == 3);
+    check("vecmat[0]=9",    af(rvm,0) == 9.0f);
+    check("vecmat[1]=12",   af(rvm,1) == 12.0f);
+    check("vecmat[2]=15",   af(rvm,2) == 15.0f);
     if (yv.data)  free(yv.data);
     if (Bvm.data) free(Bvm.data);
     if (rvm.data) free(rvm.data);
 
-    // --- 1D double dot product ---
-    // [1.0, 2.0] . [3.0, 4.0] = 11.0
+    // --- 1D double dot (direct runtime) ---
+    // [1,2].[3,4] = 11
     double da[] = {1.0, 2.0};
     double db[] = {3.0, 4.0};
     sisal_array_t dva = make_double_arr(da, 2);
     sisal_array_t dvb = make_double_arr(db, 2);
     sisal_array_t dvr = sisal_array_innerproduct(dva, dvb);
-    check("dot_f64 rank",    dvr.rank == 1);
-    check("dot_f64 result",  ((double*)dvr.data)[0] == 11.0);
+    check("dot_f64 rank",   dvr.rank == 1);
+    check("dot_f64 [1,2].[3,4]=11", ((double*)dvr.data)[0] == 11.0);
     if (dva.data) free(dva.data);
     if (dvb.data) free(dvb.data);
     if (dvr.data) free(dvr.data);

@@ -4334,12 +4334,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let at_is_dv = match If1.lookup_type_opt at in_gr with
             | Some (If1.Array_dv _) -> true | _ -> false in
           if at_is_dv then begin
-            (* DV arrays: rank is a runtime property — emit INNERPRODUCT_NODE
-               so the backend dispatches at runtime (dot, matmul, etc.).
-               Result type = element type of first arg; caller extracts scalar
-               via the _f32/_f64/_i32 runtime wrappers when needed. *)
-            let elem_ty = match If1.lookup_type_opt at in_gr with
-              | Some (If1.Array_dv et) -> et | _ -> at in
+            (* DV arrays: rank is a runtime property — emit INNERPRODUCT_NODE.
+               Result type = the input array type (array_dv[T]); the result is
+               always a sisal_array_t buffer so rank-poly works uniformly.
+               Caller indexes [1] to extract a scalar when needed. *)
             let (rn, rp, _), in_gr =
               If1.add_node_2
                 (`Simple (If1.INNERPRODUCT_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
@@ -4347,7 +4345,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             let in_gr = If1.add_edge an ap rn 0 at in_gr in
             let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
-            ((rn, rp, elem_ty), in_gr)
+            ((rn, rp, at), in_gr)
           end else begin
             (* Fixed-size vectors/matrices (FLOAT2/3/4, MAT2/3/4): rank is
                a compile-time property of the type — dispatch to specific opcode. *)

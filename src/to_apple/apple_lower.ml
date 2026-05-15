@@ -433,13 +433,7 @@ and lower_simple env gr nid sym pin pout pr =
   | DOT | INNERPRODUCT_NODE ->
       let in_ty = get_final_ty env gid nid 0 `In in
       if in_ty = C.Basic "sisal_array_t" then
-        let ip_fn = match t_res with
-          | C.Basic "sisal_array_t" -> "sisal_array_innerproduct"
-          | C.Basic "double"        -> "sisal_array_innerproduct_f64"
-          | C.Basic "int32_t"       -> "sisal_array_innerproduct_i32"
-          | _                       -> "sisal_array_innerproduct_f32"
-        in
-        C.Call (ip_fn, [ e1; e2 ])
+        C.Call ("sisal_array_innerproduct", [ e1; e2 ])
       else
         failwith (Printf.sprintf "DOT/INNERPRODUCT for non-DV types not supported at gid=%d nid=%d" gid nid)
   | DV_COMPRESS -> C.Call ("sisal_array_compress", [ e1; e2 ])
