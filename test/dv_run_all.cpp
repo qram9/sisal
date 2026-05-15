@@ -988,11 +988,71 @@ static void test_innerproduct_dv(void) {
     sisal_array_t dva = make_double_arr(da, 2);
     sisal_array_t dvb = make_double_arr(db, 2);
     sisal_array_t dvr = sisal_array_innerproduct(dva, dvb);
-    check("dot_f64 rank",   dvr.rank == 1);
-    check("dot_f64 [1,2].[3,4]=11", ((double*)dvr.data)[0] == 11.0);
+    check("dot_f64 rank",             dvr.rank == 1);
+    check("dot_f64 [1,2].[3,4]=11",   ((double*)dvr.data)[0] == 11.0);
     if (dva.data) free(dva.data);
     if (dvb.data) free(dvb.data);
     if (dvr.data) free(dvr.data);
+
+    // --- rank-3 x rank-1: A(2,3,4) @ b(4) -> r(2,3) ---
+    // A has 24 elements [0..23], b = [1,0,0,0] so result = A[:,:,0]
+    float a3[24]; for(int i=0;i<24;i++) a3[i]=(float)i;
+    float b1[] = {1.0f,0.0f,0.0f,0.0f};
+    sisal_array_t A3 = sisal_array_alloc_empty(3, 8, 24);
+    A3.dims[0]=2; A3.dims[1]=3; A3.dims[2]=4;
+    memcpy(A3.data, a3, 24*sizeof(float));
+    sisal_array_t B1 = make_float_arr(b1, 4);
+    sisal_array_t R31 = sisal_array_innerproduct(A3, B1);
+    // numpy: np.dot(A3,b1) shape=(2,3), values = A3[:,:,0] = [0,4,8,12,16,20]
+    check("rank3x1 result rank=2",    R31.rank == 2);
+    check("rank3x1 dims[0]=2",        (int)R31.dims[0] == 2);
+    check("rank3x1 dims[1]=3",        (int)R31.dims[1] == 3);
+    check("rank3x1 [0,0]=0",          af(R31,0) == 0.0f);
+    check("rank3x1 [0,1]=4",          af(R31,1) == 4.0f);
+    check("rank3x1 [0,2]=8",          af(R31,2) == 8.0f);
+    check("rank3x1 [1,0]=12",         af(R31,3) == 12.0f);
+    check("rank3x1 [1,1]=16",         af(R31,4) == 16.0f);
+    check("rank3x1 [1,2]=20",         af(R31,5) == 20.0f);
+    if (A3.data) free(A3.data);
+    if (B1.data) free(B1.data);
+    if (R31.data) free(R31.data);
+
+    // --- rank-3 x rank-2: A(2,3,4) @ B(4,5) -> r(2,3,5) ---
+    // Use identity-ish B: B[k,j] = (k==j ? 1 : 0) for k<4,j<5 — selects columns
+    float a32[24]; for(int i=0;i<24;i++) a32[i]=(float)i;
+    float b25[20]={0}; for(int k=0;k<4;k++) b25[k*5+k]=1.0f; // identity (4x5 padded)
+    sisal_array_t A32 = sisal_array_alloc_empty(3, 8, 24);
+    A32.dims[0]=2; A32.dims[1]=3; A32.dims[2]=4;
+    memcpy(A32.data, a32, 24*sizeof(float));
+    sisal_array_t B25 = make_float_2d(b25, 4, 5);
+    sisal_array_t R32 = sisal_array_innerproduct(A32, B25);
+    // A(2,3,4) @ I(4,5): result(2,3,5), result[:,:,0..3]=A, result[:,:,4]=0
+    check("rank3x2 result rank=3",    R32.rank == 3);
+    check("rank3x2 dims[0]=2",        (int)R32.dims[0] == 2);
+    check("rank3x2 dims[1]=3",        (int)R32.dims[1] == 3);
+    check("rank3x2 dims[2]=5",        (int)R32.dims[2] == 5);
+    // result[0,0,:] = A[0,0,:] padded = [0,1,2,3,0]
+    check("rank3x2 [0,0,0]=0",        af(R32,0) == 0.0f);
+    check("rank3x2 [0,0,1]=1",        af(R32,1) == 1.0f);
+    check("rank3x2 [0,0,3]=3",        af(R32,3) == 3.0f);
+    check("rank3x2 [0,0,4]=0",        af(R32,4) == 0.0f);
+    // result[1,2,:] = A[1,2,:] padded = [20,21,22,23,0]
+    check("rank3x2 [1,2,0]=20",       af(R32,25) == 20.0f);
+    check("rank3x2 [1,2,3]=23",       af(R32,28) == 23.0f);
+    check("rank3x2 [1,2,4]=0",        af(R32,29) == 0.0f);
+    if (A32.data) free(A32.data);
+    if (B25.data) free(B25.data);
+    if (R32.data) free(R32.data);
+
+    // --- mismatch: rank-2(2,3) @ rank-2(4,5) -> empty (axis error) ---
+    float mm_a[]={1,2,3,4,5,6}, mm_b[20]={0};
+    sisal_array_t Amm = make_float_2d(mm_a, 2, 3);
+    sisal_array_t Bmm = make_float_2d(mm_b, 4, 5);
+    sisal_array_t Rmm = sisal_array_innerproduct(Amm, Bmm);
+    check("mismatch returns empty",   (int)Rmm.size == 0);
+    if (Amm.data) free(Amm.data);
+    if (Bmm.data) free(Bmm.data);
+    if (Rmm.data) free(Rmm.data);
 }
 #endif
 

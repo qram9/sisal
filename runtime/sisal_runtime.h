@@ -249,99 +249,109 @@ inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) {
     for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
 }
 
-/* INNERPRODUCT: rank-polymorphic (APL/numpy dot semantics, row-major).
-   1x1 -> size-1 array (dot)   2x1 -> size-M array (matvec)
-   1x2 -> size-N array (vecmat) 2x2 -> MxN array (matmul)
-   Scalar callers use the _f32/_f64/_i32 wrappers that extract [0] and free. */
+/* INNERPRODUCT: full APL/numpy dot semantics, row-major, any ranks.
+   Contract last axis of A with second-to-last axis of B (last if B rank-1).
+   Result shape = A.shape[:-1] + B.shape[:-2] + B.shape[-1:]
+   Result rank  = rankA + rankB - 2  (minimum 1, dot product wraps in size-1).
+
+   Implementation:
+     A is logically (M, K) where M = prod(A.shape[:-1]), K = A.shape[-1].
+     B rank-1: GEMV → result shape A.shape[:-1]
+     B rank-2: GEMM → result shape A.shape[:-1] + (N,)
+     B rank>2: L batched GEMMs, L = prod(B.shape[:-2]), scattered into result.
+   BLAS (float/double) or loop (int32). */
 inline sisal_array_t sisal_array_innerproduct(sisal_array_t a, sisal_array_t b) {
-    int ar = a.rank, br = b.rank;
-    int tid = a.type_id;
+    int ar = a.rank, br = b.rank, tid = a.type_id;
 
-    if (ar == 1 && br == 1) {
-        /* dot: result is a single-element array */
-        sisal_array_t r = sisal_array_alloc_empty(1, tid, 1);
-        r.dims[0] = 1;
-        int n = (int)a.size;
-        if (tid == 4)
-            ((double*)r.data)[0] = cblas_ddot(n,(double*)a.data,1,(double*)b.data,1);
-        else if (tid == 6) {
-            int32_t s=0; int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data;
-            for(int i=0;i<n;i++) s+=da[i]*db[i];
-            ((int32_t*)r.data)[0] = s;
-        } else
-            ((float*)r.data)[0] = cblas_sdot(n,(float*)a.data,1,(float*)b.data,1);
-        return r;
-
-    } else if (ar == 2 && br == 2) {
-        /* matmul: C[M,N] = A[M,K] * B[K,N], row-major */
-        int M=(int)a.dims[0], K=(int)a.dims[1], N=(int)b.dims[1];
-        sisal_array_t r = sisal_array_alloc_empty(2, tid, (uint64_t)(M*N));
-        r.dims[0]=M; r.dims[1]=N;
-        if (tid == 4)
-            cblas_dgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,M,N,K,
-                        1.0,(double*)a.data,K,(double*)b.data,N,0.0,(double*)r.data,N);
-        else if (tid == 6) {
-            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
-            for(int i=0;i<M;i++) for(int j=0;j<N;j++) {
-                int32_t s=0; for(int k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j]; dr[i*N+j]=s; }
-        } else
-            cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,M,N,K,
-                        1.0f,(float*)a.data,K,(float*)b.data,N,0.0f,(float*)r.data,N);
-        return r;
-
-    } else if (ar == 2 && br == 1) {
-        /* matvec: r[M] = A[M,K] * b[K] */
-        int M=(int)a.dims[0], K=(int)a.dims[1];
-        sisal_array_t r = sisal_array_alloc_empty(1, tid, (uint64_t)M);
-        r.dims[0]=M;
-        if (tid == 4)
-            cblas_dgemv(CblasRowMajor,CblasNoTrans,M,K,1.0,(double*)a.data,K,
-                        (double*)b.data,1,0.0,(double*)r.data,1);
-        else if (tid == 6) {
-            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
-            for(int i=0;i<M;i++) {
-                int32_t s=0; for(int k=0;k<K;k++) s+=da[i*K+k]*db[k]; dr[i]=s; }
-        } else
-            cblas_sgemv(CblasRowMajor,CblasNoTrans,M,K,1.0f,(float*)a.data,K,
-                        (float*)b.data,1,0.0f,(float*)r.data,1);
-        return r;
-
-    } else if (ar == 1 && br == 2) {
-        /* vecmat: r[N] = a[K] * B[K,N]  (= B^T * a) */
-        int K=(int)b.dims[0], N=(int)b.dims[1];
-        sisal_array_t r = sisal_array_alloc_empty(1, tid, (uint64_t)N);
-        r.dims[0]=N;
-        if (tid == 4)
-            cblas_dgemv(CblasRowMajor,CblasTrans,K,N,1.0,(double*)b.data,N,
-                        (double*)a.data,1,0.0,(double*)r.data,1);
-        else if (tid == 6) {
-            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
-            for(int j=0;j<N;j++) {
-                int32_t s=0; for(int k=0;k<K;k++) s+=da[k]*db[k*N+j]; dr[j]=s; }
-        } else
-            cblas_sgemv(CblasRowMajor,CblasTrans,K,N,1.0f,(float*)b.data,N,
-                        (float*)a.data,1,0.0f,(float*)r.data,1);
-        return r;
-
-    } else {
+    /* contraction axis sizes */
+    int64_t Ka = (ar >= 1) ? a.dims[ar-1] : (int64_t)a.size;
+    int64_t Kb = (br <= 1) ? (int64_t)b.size : b.dims[br-2];
+    if (Ka != Kb) {
+        fprintf(stderr, "innerproduct: axis mismatch A[%d]=%lld B[%d]=%lld\n",
+                ar-1, (long long)Ka, br<=1?0:br-2, (long long)Kb);
         return sisal_array_alloc_empty(1, tid, 0);
     }
-}
-/* Scalar-extracting wrappers: extract result[0] and free the temp array */
-inline float   sisal_array_innerproduct_f32(sisal_array_t a, sisal_array_t b) {
-    sisal_array_t r = sisal_array_innerproduct(a, b);
-    float v = r.data ? ((float*)r.data)[0] : 0.0f;
-    if (r.data) free(r.data); return v;
-}
-inline double  sisal_array_innerproduct_f64(sisal_array_t a, sisal_array_t b) {
-    sisal_array_t r = sisal_array_innerproduct(a, b);
-    double v = r.data ? ((double*)r.data)[0] : 0.0;
-    if (r.data) free(r.data); return v;
-}
-inline int32_t sisal_array_innerproduct_i32(sisal_array_t a, sisal_array_t b) {
-    sisal_array_t r = sisal_array_innerproduct(a, b);
-    int32_t v = r.data ? ((int32_t*)r.data)[0] : 0;
-    if (r.data) free(r.data); return v;
+    int K = (int)Ka;
+
+    /* M = prod(A.shape[:-1]),  N = B.shape[-1],  L = prod(B.shape[:-2]) */
+    int64_t M = 1; for (int i=0; i<ar-1; i++) M *= a.dims[i];
+    int64_t N = (br >= 1) ? b.dims[br-1] : 1;
+    int64_t L = 1; for (int i=0; i<br-2; i++) L *= b.dims[i];
+    int Mint=(int)M, Nint=(int)N, Lint=(int)L;
+
+    /* result rank and shape */
+    int rr = (ar-1) + (br >= 2 ? br-1 : 0);
+    if (rr < 1) rr = 1;
+    int64_t rs = (br >= 2) ? M*L*N : (M > 0 ? M : 1);
+    sisal_array_t r = sisal_array_alloc_empty(rr, tid, (uint64_t)rs);
+    { int di=0;
+      for (int i=0; i<ar-1; i++) r.dims[di++] = a.dims[i];   /* A.shape[:-1] */
+      if (br >= 2) {
+        for (int i=0; i<br-2; i++) r.dims[di++] = b.dims[i]; /* B.shape[:-2] */
+        r.dims[di++] = N;                                      /* B.shape[-1]  */
+      }
+      if (di == 0) r.dims[0] = 1; }
+
+    /* K=0: no contraction terms, result is all zeros */
+    if (K == 0) { memset(r.data, 0, (size_t)rs * sisal_elem_size(tid)); return r; }
+
+    /* --- dispatch --- */
+    if (br <= 1) {
+        /* A_flat(M,K) @ b(K) → r(M)  via GEMV */
+        int Mv = Mint > 0 ? Mint : 1;
+        if (tid==4)
+            cblas_dgemv(CblasRowMajor,CblasNoTrans,Mv,K,1.0,
+                        (double*)a.data,K,(double*)b.data,1,0.0,(double*)r.data,1);
+        else if (tid==6) {
+            int32_t *da=(int32_t*)a.data,*db=(int32_t*)b.data,*dr=(int32_t*)r.data;
+            for(int m=0;m<Mv;m++){int32_t s=0;for(int k=0;k<K;k++)s+=da[m*K+k]*db[k];dr[m]=s;}
+        } else
+            cblas_sgemv(CblasRowMajor,CblasNoTrans,Mv,K,1.0f,
+                        (float*)a.data,K,(float*)b.data,1,0.0f,(float*)r.data,1);
+
+    } else if (L == 1) {
+        /* A_flat(M,K) @ B(K,N) → r(M,N)  via GEMM */
+        if (tid==4)
+            cblas_dgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,Mint,Nint,K,
+                        1.0,(double*)a.data,K,(double*)b.data,Nint,0.0,(double*)r.data,Nint);
+        else if (tid==6) {
+            int32_t *da=(int32_t*)a.data,*db=(int32_t*)b.data,*dr=(int32_t*)r.data;
+            for(int m=0;m<Mint;m++) for(int j=0;j<Nint;j++){
+                int32_t s=0;for(int k=0;k<K;k++)s+=da[m*K+k]*db[k*Nint+j];dr[m*Nint+j]=s;}
+        } else
+            cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,Mint,Nint,K,
+                        1.0f,(float*)a.data,K,(float*)b.data,Nint,0.0f,(float*)r.data,Nint);
+
+    } else {
+        /* B has batch dims (L>1): L separate GEMMs, scatter into r[m,l,j].
+           B[l] starts at l*K*N; result[m,l,j] = m*L*N + l*N + j (non-contiguous). */
+        size_t esz = (tid==4)?sizeof(double):(tid==6)?sizeof(int32_t):sizeof(float);
+        void* tmp = malloc((size_t)Mint*(size_t)Nint*esz);
+        for (int l=0; l<Lint; l++) {
+            if (tid==4) {
+                double *da=(double*)a.data, *db_l=(double*)b.data+l*K*Nint;
+                cblas_dgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,Mint,Nint,K,
+                            1.0,da,K,db_l,Nint,0.0,(double*)tmp,Nint);
+                double *dt=(double*)tmp, *dr=(double*)r.data;
+                for(int m=0;m<Mint;m++) for(int j=0;j<Nint;j++)
+                    dr[m*Lint*Nint+l*Nint+j] = dt[m*Nint+j];
+            } else if (tid==6) {
+                int32_t *da=(int32_t*)a.data,*db_l=(int32_t*)b.data+l*K*Nint,*dr=(int32_t*)r.data;
+                for(int m=0;m<Mint;m++) for(int j=0;j<Nint;j++){
+                    int32_t s=0;for(int k=0;k<K;k++)s+=da[m*K+k]*db_l[k*Nint+j];
+                    dr[m*Lint*Nint+l*Nint+j]=s;}
+            } else {
+                float *da=(float*)a.data, *db_l=(float*)b.data+l*K*Nint;
+                cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,Mint,Nint,K,
+                            1.0f,da,K,db_l,Nint,0.0f,(float*)tmp,Nint);
+                float *dt=(float*)tmp, *dr=(float*)r.data;
+                for(int m=0;m<Mint;m++) for(int j=0;j<Nint;j++)
+                    dr[m*Lint*Nint+l*Nint+j] = dt[m*Nint+j];
+            }
+        }
+        free(tmp);
+    }
+    return r;
 }
 
 /* REVERSE: return a copy with elements in reverse order */
