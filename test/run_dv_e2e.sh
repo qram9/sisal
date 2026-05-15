@@ -12,7 +12,7 @@ HARNESS="${REPO}/test/dv_run_all.cpp"
 GENDIR="$(mktemp -d /tmp/sisal_e2e.XXXXXX)"
 trap 'rm -rf "$GENDIR"' EXIT
 
-CXX_BASE="clang++ -std=c++17 -I${RUNTIME} -framework Accelerate"
+CXX_BASE="clang++ -std=c++17 -I${RUNTIME} -framework Accelerate -DACCELERATE_NEW_LAPACK"
 
 echo "=== Building compiler ==="
 (cd "${REPO}" && dune build)

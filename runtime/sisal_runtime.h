@@ -8,6 +8,11 @@
 #include <math.h>
 #include <stdarg.h>
 #include <dispatch/dispatch.h>
+#ifdef __APPLE__
+#  include <Accelerate/Accelerate.h>
+#else
+#  include <cblas.h>
+#endif
 
 typedef struct {
     void* data;
@@ -93,8 +98,8 @@ inline int32_t sisal_dv_offset_at(sisal_array_t a, int32_t idx, sisal_array_t sh
 
 static inline size_t sisal_elem_size(int32_t type_id) {
     switch (type_id) {
-        case 1: case 5: case 6: return 4;
-        case 7: return 8;
+        case 1: case 5: case 6: case 8: return 4;  /* bool/int/int32/float */
+        case 4: case 7: return 8;                   /* double/int64 */
         default: return sizeof(sisal_array_t);
     }
 }
@@ -244,54 +249,82 @@ inline int32_t sisal_array_reduce_int_greatest(sisal_array_t a) {
     for(uint64_t i=1; i<a.size; i++) if(d[i]>v) v=d[i]; return v;
 }
 
-/* INNERPRODUCT: rank-polymorphic (APL/numpy semantics, row-major).
-   rank-1 x rank-1 -> rank-1 array of size 1 (scalar wrapped)
-   rank-2 x rank-2 -> rank-2 array (matmul)
-   Caller extracts scalar via _f32/_f64/_i32 wrappers when needed. */
+/* INNERPRODUCT: rank-polymorphic (APL/numpy dot semantics, row-major).
+   1x1 -> size-1 array (dot)   2x1 -> size-M array (matvec)
+   1x2 -> size-N array (vecmat) 2x2 -> MxN array (matmul)
+   Scalar callers use the _f32/_f64/_i32 wrappers that extract [0] and free. */
 inline sisal_array_t sisal_array_innerproduct(sisal_array_t a, sisal_array_t b) {
-    if (a.rank == 1 && b.rank == 1) {
-        /* dot product: sum(a[i]*b[i]) packed into a single-element array */
-        sisal_array_t r = sisal_array_alloc_empty(1, a.type_id, 1);
+    int ar = a.rank, br = b.rank;
+    int tid = a.type_id;
+
+    if (ar == 1 && br == 1) {
+        /* dot: result is a single-element array */
+        sisal_array_t r = sisal_array_alloc_empty(1, tid, 1);
         r.dims[0] = 1;
-        if (a.type_id == 4) { /* double */
-            double s = 0.0; double* da=(double*)a.data; double* db=(double*)b.data;
-            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
-            ((double*)r.data)[0] = s;
-        } else if (a.type_id == 6) { /* int32 */
-            int32_t s = 0; int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data;
-            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
+        int n = (int)a.size;
+        if (tid == 4)
+            ((double*)r.data)[0] = cblas_ddot(n,(double*)a.data,1,(double*)b.data,1);
+        else if (tid == 6) {
+            int32_t s=0; int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data;
+            for(int i=0;i<n;i++) s+=da[i]*db[i];
             ((int32_t*)r.data)[0] = s;
-        } else { /* float (type_id==8) and fallback */
-            float s = 0.0f; float* da=(float*)a.data; float* db=(float*)b.data;
-            for (uint64_t i=0;i<a.size;i++) s+=da[i]*db[i];
-            ((float*)r.data)[0] = s;
-        }
+        } else
+            ((float*)r.data)[0] = cblas_sdot(n,(float*)a.data,1,(float*)b.data,1);
         return r;
-    } else if (a.rank == 2 && b.rank == 2) {
-        /* matmul: C[i,j] = sum_k A[i,k]*B[k,j], row-major */
-        int64_t M=a.dims[0], K=a.dims[1], N=b.dims[1];
-        sisal_array_t r = sisal_array_alloc_empty(2, a.type_id, (uint64_t)(M*N));
+
+    } else if (ar == 2 && br == 2) {
+        /* matmul: C[M,N] = A[M,K] * B[K,N], row-major */
+        int M=(int)a.dims[0], K=(int)a.dims[1], N=(int)b.dims[1];
+        sisal_array_t r = sisal_array_alloc_empty(2, tid, (uint64_t)(M*N));
         r.dims[0]=M; r.dims[1]=N;
-        if (a.type_id == 4) {
-            double* da=(double*)a.data; double* db=(double*)b.data; double* dr=(double*)r.data;
-            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
-                double s=0.0; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
-                dr[i*N+j]=s; }
-        } else if (a.type_id == 6) {
+        if (tid == 4)
+            cblas_dgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,M,N,K,
+                        1.0,(double*)a.data,K,(double*)b.data,N,0.0,(double*)r.data,N);
+        else if (tid == 6) {
             int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
-            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
-                int32_t s=0; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
-                dr[i*N+j]=s; }
-        } else {
-            float* da=(float*)a.data; float* db=(float*)b.data; float* dr=(float*)r.data;
-            for(int64_t i=0;i<M;i++) for(int64_t j=0;j<N;j++) {
-                float s=0.0f; for(int64_t k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j];
-                dr[i*N+j]=s; }
-        }
+            for(int i=0;i<M;i++) for(int j=0;j<N;j++) {
+                int32_t s=0; for(int k=0;k<K;k++) s+=da[i*K+k]*db[k*N+j]; dr[i*N+j]=s; }
+        } else
+            cblas_sgemm(CblasRowMajor,CblasNoTrans,CblasNoTrans,M,N,K,
+                        1.0f,(float*)a.data,K,(float*)b.data,N,0.0f,(float*)r.data,N);
         return r;
+
+    } else if (ar == 2 && br == 1) {
+        /* matvec: r[M] = A[M,K] * b[K] */
+        int M=(int)a.dims[0], K=(int)a.dims[1];
+        sisal_array_t r = sisal_array_alloc_empty(1, tid, (uint64_t)M);
+        r.dims[0]=M;
+        if (tid == 4)
+            cblas_dgemv(CblasRowMajor,CblasNoTrans,M,K,1.0,(double*)a.data,K,
+                        (double*)b.data,1,0.0,(double*)r.data,1);
+        else if (tid == 6) {
+            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
+            for(int i=0;i<M;i++) {
+                int32_t s=0; for(int k=0;k<K;k++) s+=da[i*K+k]*db[k]; dr[i]=s; }
+        } else
+            cblas_sgemv(CblasRowMajor,CblasNoTrans,M,K,1.0f,(float*)a.data,K,
+                        (float*)b.data,1,0.0f,(float*)r.data,1);
+        return r;
+
+    } else if (ar == 1 && br == 2) {
+        /* vecmat: r[N] = a[K] * B[K,N]  (= B^T * a) */
+        int K=(int)b.dims[0], N=(int)b.dims[1];
+        sisal_array_t r = sisal_array_alloc_empty(1, tid, (uint64_t)N);
+        r.dims[0]=N;
+        if (tid == 4)
+            cblas_dgemv(CblasRowMajor,CblasTrans,K,N,1.0,(double*)b.data,N,
+                        (double*)a.data,1,0.0,(double*)r.data,1);
+        else if (tid == 6) {
+            int32_t* da=(int32_t*)a.data; int32_t* db=(int32_t*)b.data; int32_t* dr=(int32_t*)r.data;
+            for(int j=0;j<N;j++) {
+                int32_t s=0; for(int k=0;k<K;k++) s+=da[k]*db[k*N+j]; dr[j]=s; }
+        } else
+            cblas_sgemv(CblasRowMajor,CblasTrans,K,N,1.0f,(float*)b.data,N,
+                        (float*)a.data,1,0.0f,(float*)r.data,1);
+        return r;
+
     } else {
-        /* unsupported rank combination: return empty */
-        return sisal_array_alloc_empty(1, a.type_id, 0);
+        return sisal_array_alloc_empty(1, tid, 0);
     }
 }
 /* Scalar-extracting wrappers: extract result[0] and free the temp array */
