@@ -8,4 +8,6 @@ module C = Ir.C_ast
 (** [translate gr] initiates the translation of an IF1 graph [gr] into a C
     Abstract Syntax Tree (C-AST) optimized for Apple Silicon, delegating the
     heavy lifting to the [Apple_lower] module. *)
-let translate (gr : graph) : C.translation_unit = Apple_lower.translate gr
+let translate (gr : graph) : C.translation_unit = 
+  let (_, tm, _) = gr.typemap in
+  Apple_lower.lower_to_c tm gr "out.cpp"

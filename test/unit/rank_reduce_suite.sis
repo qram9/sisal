@@ -1,0 +1,159 @@
+% Rank-Reduction and Slicing Test Suite for Flat Tensors
+% This suite emulates NumPy, Fortran, and APL behaviors using the proposed
+% "Load-by-Default" model for flat tensors.
+%
+% Syntax:
+%   A[i, j]       -> Scalar load (Rank reduced to 0)
+%   A[i, ..]      -> Row slice (Rank reduced by 1)
+%   ..            -> Axis placeholder (Select all in this dimension)
+%   ...           -> Greedy ellipsis (Select all remaining dimensions)
+%   A[i..j]       -> Range slice (Rank preserved)
+%   <-            -> Directed update (Replace slice with value/array)
+
+define Main
+
+type Tensor3D = array_dv[double]; % Assume flat 3D tensor
+type Matrix   = array_dv[double]; % Assume flat 2D matrix
+type Vector   = array_dv[double]; % Assume flat 1D vector
+
+% --- TEST 1: Basic Rank Reduction ---
+% A[1, 2, 3] -> Scalar
+function test_scalar_load(A: Tensor3D; i, j, k: integer returns double)
+    A[i, j, k]
+end function
+
+% A[1, 2, ..] -> Vector
+function test_row_slice(A: Tensor3D; i, j: integer returns Vector)
+    A[i, j, ..]
+end function
+
+% A[1, .., ..] -> Matrix
+function test_plane_slice(A: Tensor3D; i: integer returns Matrix)
+    A[i, .., ..]
+end function
+
+
+% --- TEST 2: Range Indexing (Rank Preservation) ---
+% A[1..2, 2, 3] -> Vector (Rank 1)
+function test_range_preservation(A: Tensor3D; i, j, k, l: integer returns Vector)
+    A[i..j, k, l]
+end function
+
+% A[1, 2..3, ..] -> Matrix (Rank 2)
+function test_range_matrix(A: Tensor3D; i, j, k: integer returns Matrix)
+    A[i, j..k, ..]
+end function
+
+
+% --- TEST 3: The Triple Dot (Greedy Ellipsis) ---
+% A[i, ...] -> Matrix (Everything after dim 1)
+function test_trailing_ellipsis(A: Tensor3D; i: integer returns Matrix)
+    A[i, ...]
+end function
+
+% A[..., k] -> Matrix (Cross section through planes/rows)
+function test_leading_ellipsis(A: Tensor3D; k: integer returns Matrix)
+    A[..., k]
+end function
+
+% A[i, ..., k] -> Vector (Row i, Column k across all planes?)
+function test_middle_ellipsis(A: Tensor3D; i, k: integer returns Vector)
+    A[i, ..., k]
+end function
+
+
+% --- TEST 4: Strided Slicing ---
+% A[1..N..2, ..] -> Every other row
+function test_stride(A: Matrix; lo, hi, st: integer returns Matrix)
+    A[lo..hi..st, ..]
+end function
+
+
+% --- TEST 5: Directed Updates (<-) ---
+% Zero out a row
+function test_zero_row(A: Matrix; i: integer returns Matrix)
+    A[i, .. <- 0.0]
+end function
+
+% Replace a block of rows
+function test_block_update(A: Matrix; i, j: integer; B: Matrix returns Matrix)
+    A[i..j, .. <- B]
+end function
+
+% The Gauss-Jordan Pivot Swap
+function test_pivot_swap(A: Matrix; i, j: integer returns Matrix)
+    let
+        RowI := A[i, ..];
+        RowJ := A[j, ..];
+    in
+        A[i, .. <- RowJ;
+          j, .. <- RowI]
+    end let
+end function
+
+
+% --- TEST 6: Advanced/Fancy Indexing ---
+% Sub-matrix of selected rows
+function test_fancy_indexing(A: Matrix; idx: array[integer] returns Matrix)
+    A[idx, ..]
+end function
+
+
+% --- TEST 7: HPF-style Stencil/Shift Slicing ---
+% Emulate boundary exchange and shift patterns
+function test_stencil_shift(A: Vector; lo, hi: integer returns Vector, Vector, Vector)
+    let
+        Left  := A[lo-1 .. hi-1];
+        Mid   := A[lo   .. hi];
+        Right := A[lo+1 .. hi+1];
+    in
+        Left, Mid, Right
+    end let
+end function
+
+
+% --- TEST 8: Semicolon Multi-Update (Atomic Swap) ---
+% Verify multiple region replacements in a single expression
+function test_multi_update(A: Matrix; i, j: integer returns Matrix)
+    A[i, .. : A[j, ..]; 
+      j, .. : A[i, ..]]
+end function
+
+
+% --- TEST 9: The "Anti-Monad" Atomic Swap ---
+% If this were sequential (A >>= update), Row I and J would become identical.
+% Because it is atomic (;), it must perform a clean swap.
+function test_atomic_swap_logic(A: Matrix; i, j: integer returns Matrix)
+    A[i, .. : A[j, ..]; 
+      j, .. : A[i, ..]] 
+end function
+
+
+% --- TEST 10: Linear vs. Axis (The Ambiguity Kill) ---
+% Verify that the compiler distinguishes between:
+% 1. A[i]       -> The i-th scalar in the flat buffer (Linear)
+% 2. A[i, ..]   -> The i-th row (Slice/Rank-Reduction)
+function test_indexing_disambiguation(A: Matrix; i: integer returns double, Vector)
+    let
+        val   := A[i];        % Should be a scalar double
+        slice := A[i, ..];    % Should be a rank-1 array_dv
+    in
+        val, slice
+    end let
+end function
+
+
+% --- TEST 11: Simultaneous Broadcast and Update ---
+% Combining different update types in one atomic block.
+% 1. Replace a whole row with a scalar (Broadcast)
+% 2. Replace a single element with a calculated value
+function test_mixed_atomic(A: Matrix; i, j, k: integer; val: double returns Matrix)
+    A[i, .. : 0.0;           % Row i becomes all zeros (Broadcast)
+      j, k  : val + A[j, k]] % Element (j,k) updated using OLD A value
+end function
+
+
+function Main(N: integer returns double)
+    % Initialization and calling tests would go here
+    0.0
+end function

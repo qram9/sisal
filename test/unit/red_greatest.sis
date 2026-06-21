@@ -1,0 +1,8 @@
+% Reduction: greatest of i*(N+1-i) for i in 1..N  =>  peak in the middle.
+% N=5 -> max of {5,8,9,8,5} = 9
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of greatest i * (N + 1 - i)
+  end for
+end function

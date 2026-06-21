@@ -1,0 +1,10 @@
+function Main( n: integer returns array_dv[integer] )
+  for initial
+    i := 0;
+    v := for j in 1, n returns array_dv of 0 end for
+  while i < n repeat
+    i := old i + 1;
+    v := old v[i: DV_LOAD_LINEAR(old v, i) + 1]
+  returns value of v
+  end for
+end function

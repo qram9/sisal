@@ -1,0 +1,6 @@
+define main
+function main(A, B: array[integer] returns integer)
+    for x in A dot y in B
+    returns value of sum x * y
+    end for
+end function

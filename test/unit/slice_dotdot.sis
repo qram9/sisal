@@ -1,0 +1,11 @@
+% Parse + lower test for the `..` slice (read side).
+% A[i,j] = i*10+j (flat 2-D array_dv).  A[2, ..] = row 2 = DV_RANK_REDUCE(A, 2).
+% N=3  ->  A[2, ..] = [21, 22, 23]
+define main
+function main(N: integer returns array_dv[integer])
+  let
+    A := for i in 1, N cross j in 1, N returns array_dv of i*10 + j end for
+  in
+    A[2, ..]
+  end let
+end function

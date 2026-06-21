@@ -111,6 +111,7 @@ type node_sym =
   | MATVECMUL
   | VECMATMUL
   | DOT
+  | MERGE
   | MULTIARITY
   | NEGATE
   | NOT
@@ -198,11 +199,18 @@ type node_sym =
   | SHAPE_CHECK
     (* SHAPE_CHECK(A,B) → no normal output; error port fires SHAPE_MISMATCH if sizes differ *)
   | DV_CONFORM
-    (* DV_CONFORM(A,B) → port 0: common iteration shape, port 1: error flag (bool) *)
+    (* DV_CONFORM(A,B) → bool: do A and B conform (leading-axis agreement)?  Used as
+       a runtime guard for `A dot B` (`if conform then <forall> else error`); lowers
+       to sisal_dv_conform(A,B).  The shape, when needed (broadcast), is computed
+       separately, not by this node. *)
   | DV_NUM_RANK (* DV_NUM_RANK(A) → integer rank *)
   | DV_DIMENSION (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
   | DV_OFFSET_AT
     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
+  | DV_RANK_REDUCE
+    (* DV_RANK_REDUCE(A, i) → zero-copy view with rank-1 less; fixes dimension 0 at index i *)
+  | DV_RANK_REPLACE
+    (* DV_RANK_REPLACE(A, i, slice) → new A with the rank-(N-1) slice at leading index i copied from `slice` *)
   | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
   | DV_RESHAPE_BY_SHAPE
     (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
@@ -323,6 +331,22 @@ type if1_ty =
 
 type port = string
 
+type compound_node_of =
+  | If1_forall
+  | If1_generator
+  | If1_body
+  | If1_results
+  | If1_procedure
+  | If1_if
+  | If1_then
+  | If1_else
+  | If1_predicate
+  | If1_tagcase
+  | If1_tagcase_arm
+  | If1_loop_initial
+  | If1_loop_test
+  | If1_Unknown
+
 type pragma =
   | Bounds of int * int
   | SrcLine of int * int
@@ -337,6 +361,7 @@ type pragma =
   | No_pragma
   | Ast_type of string
   | Subscript of string (* carries einsum index string on EINSUM_NODE *)
+  | Compound_of of compound_node_of
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -454,7 +479,6 @@ type graph = {
   symtab : if1_value SM.t * if1_value SM.t;
   typemap : int * if1_ty TM.t * int MM.t;
   w : int;
-  prefer_dv : bool;
 }
 (** The graph datastructure used by If1: This record currently uses Map and
     Sets. I need to understand how this impacts performance to decide if other
@@ -478,7 +502,7 @@ and node =
   | Compound of N.t * node_sym * label * pragmas * graph * N.t list
   | Literal of N.t * basic_code * string * ports
   | Boundary of
-      (label * int * string) list
+      (label * int * string * int) list
       * (label * int) list
       * (label * int) list
       * pragmas
@@ -578,7 +602,7 @@ let basic_types =
 let basic_map_tyid inc_map =
   List.fold_left (fun mm (x, y) -> IntMap.add x y mm) inc_map basic_types
 
-let rec get_empty_graph ?(prefer_dv = false) n m =
+let rec get_empty_graph n m =
   (* 1. Initialize the base graph *)
   let nm = NM.add 0 (Boundary ([], [], [], [])) NM.empty in
   let initial_gr =
@@ -588,7 +612,6 @@ let rec get_empty_graph ?(prefer_dv = false) n m =
       symtab = (SM.empty, SM.empty);
       typemap = (m, TM.empty, MM.empty);
       w = n;
-      prefer_dv;
     }
   in
 
@@ -718,7 +741,7 @@ and create_subgraph_symtab in_gr other_gr =
         else (acc_cs, acc_gr))
       cs (other_cs, other_gr)
   in
-  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i; prefer_dv = pdv } =
+  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i } =
     other_gr
   in
   {
@@ -727,7 +750,6 @@ and create_subgraph_symtab in_gr other_gr =
     symtab = (new_cs, other_ps);
     typemap = merge_typeblobs tm otm;
     w = i;
-    prefer_dv = pdv;
   }
 
 and get_boundary_node in_gr =
@@ -1024,7 +1046,7 @@ and visit_by_height mymap height_list vns height_num =
     vn table must be checked and current lists updated.*)
 and cse_by_part in_gr = in_gr
 (*
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } = in_gr in
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
   let nm =
     NM.fold
       (fun _ nod last_nm ->
@@ -1043,7 +1065,7 @@ and cse_by_part in_gr = in_gr
       nm nm
   in
   let node_l, nm, _, _, map_pred = initialize_exp_info es nm in
-  let cur_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } in
+  let cur_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
   (*print_endline
     ("PRED_MAP:\n" ^
        (IntMap.fold (
@@ -1163,7 +1185,7 @@ and cse_by_part in_gr = in_gr
         ES.add ((x, xp), (y, yp), y_ty) res)
       es ES.empty
   in
-  let res_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } in
+  let res_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
   let _ = dot_graph res_gr in
   res_gr
   *)
@@ -1177,7 +1199,6 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
         symtab = sm;
         typemap = tm;
         w = pi;
-        prefer_dv = pdv;
       } =
         in_gr
       in
@@ -1205,7 +1226,6 @@ and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
           symtab = sm;
           typemap = tm;
           w = pi;
-          prefer_dv = pdv;
         }
   | _ -> in_gr
 
@@ -1218,7 +1238,7 @@ and get_named_input_port_map in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, _, _, _) ->
       List.fold_right
-        (fun (_, yy, zz) output_map -> StringMap.add zz yy output_map)
+        (fun (_, yy, zz, _) output_map -> StringMap.add zz yy output_map)
         in_port_list StringMap.empty
   | _ -> StringMap.empty
 
@@ -1227,7 +1247,7 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) -> (
       let rec lookin_lis idx = function
         | [] -> None
-        | (x, y, name) :: _ when n = x && p = y && (name = "" || name = namen)
+        | (x, y, name, _) :: _ when n = x && p = y && (name = "" || name = namen)
           ->
             Some idx
         | _ :: tl -> lookin_lis (idx + 1) tl
@@ -1239,7 +1259,7 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
             if namen <> "" then
               let rev_lis = List.rev in_port_list in
               let rec update i = function
-                | (nn, pp, "") :: tl when i = idx -> (nn, pp, namen) :: tl
+                | (nn, pp, "", dp) :: tl when i = idx -> (nn, pp, namen, dp) :: tl
                 | h :: tl -> h :: update (i + 1) tl
                 | [] -> []
               in
@@ -1264,7 +1284,7 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
               nmap =
                 NM.add 0
                   (Boundary
-                     ( (n, p, namen) :: in_port_list,
+                     ( (n, p, namen, next_port) :: in_port_list,
                        out_port_list,
                        err_ports,
                        boundary_p ))
@@ -1753,7 +1773,6 @@ and add_node nn in_gr =
     symtab = par_cs, par_ps;
     typemap = tm;
     w = pi;
-    prefer_dv = pdv;
   } =
     in_gr
   in
@@ -1774,6 +1793,14 @@ and add_node nn in_gr =
         w = pi + 1;
       }
   | `Compound (g, sy, ty, prag, alis) ->
+      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      if not has_compound_of then (
+        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
+        Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
+        Printexc.print_backtrace stderr;
+        failwith "Missing Compound_of pragma"
+      );
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let child_ps = snd (get_symtab g) in
@@ -1795,7 +1822,7 @@ and add_node nn in_gr =
       in
       let rec loop idx acc_gr = function
         | [] -> acc_gr
-        | (sn, sp, name) :: tl ->
+        | (sn, sp, name, _) :: tl ->
             let ty =
               if SM.mem name par_cs then (SM.find name par_cs).val_ty
               else if SM.mem name par_ps then (SM.find name par_ps).val_ty
@@ -2301,6 +2328,14 @@ and add_node_2 nn in_gr =
           w = pi + 1;
         } )
   | `Compound (g, sy, ty, prag, alis) ->
+      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      if not has_compound_of then (
+        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
+        Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
+        Printexc.print_backtrace stderr;
+        failwith "Missing Compound_of pragma"
+      );
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let base_gr =
@@ -2377,7 +2412,11 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
           :: !edge_trace
     end
   in
-  { in_gr with eset = ES.add ((n1, p1), (n2, p2), ed_ty) pe }
+  let already_driven =
+    ES.exists (fun ((_, _), (dn, dp), _) -> dn = n2 && dp = p2) pe
+  in
+  if already_driven then in_gr
+  else { in_gr with eset = ES.add ((n1, p1), (n2, p2), ed_ty) pe }
 
 and fix_incoming_multiarity n1 p1 n2 p2 aty in_gr =
   let nm, pe = get_node_map_and_edge_set in_gr in
@@ -2504,7 +2543,7 @@ and check_for_multiarity n1 n2 in_gr =
         ("Exception in check_for_multiarity Node not found " ^ string_of_int n1)
 
 and cleanup_multiarity in_gr =
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } =
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
     in_gr
   in
   let new_nm =
@@ -2527,7 +2566,6 @@ and cleanup_multiarity in_gr =
     symtab = sm;
     typemap = tm;
     w = pi;
-    prefer_dv = pdv;
   }
 
 and add_from_edge ((n1, p1), (n2, p2), ed_ty) in_gr =
@@ -2625,17 +2663,17 @@ and fold_multiarity_edge n1 n2 in_gr =
     redirect_edges n2 (ES.diff ending_at edges)
       (ES.cardinal existing_in_edges_n2)
   in
-  let { nmap = _; eset = _; symtab = _; typemap = _; w = _; prefer_dv = _ } =
+  let { nmap = _; eset = _; symtab = _; typemap = _; w = _ } =
     in_gr
   in
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv } =
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
     ES.fold
       (fun ((x, xp), (y, yp), yt) gr -> add_edge x xp y yp yt gr)
       redir_set in_gr
   in
   let es = ES.diff (ES.diff es ending_at) edges in
   let in_gr =
-    { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi; prefer_dv = pdv }
+    { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi }
   in
   in_gr
 
@@ -2712,7 +2750,7 @@ and add_edge_multiarity in_n in_p out_n out_p tt1 in_gr =
 
 and get_types_from_graph g inc_blob =
   let g_ty_idx, g_tm, g_tmn =
-    let { nmap = _; eset = _; symtab = _; typemap = tyblob; w = _; prefer_dv = _ } = g in
+    let { nmap = _; eset = _; symtab = _; typemap = tyblob; w = _ } = g in
     tyblob
   in
   let inc_blob_ty_idx, inc_block_tm, inc_blob_tmn = inc_blob in
@@ -2974,9 +3012,31 @@ and string_of_if1_ty_recursive tm seen ty =
         (String.uppercase_ascii name)
         (String.concat ", " inputs)
         (String.concat ", " outputs)
-  | Record (field_l, _, name) ->
+  | Record (field_l, next_id, name) ->
+      (* A record is a linked list of fields: the header is Record(0, first, nm);
+         each field is Record(field_ty, next, field_name), chain ends at next=0.
+         Walk the chain (the 2nd arg) so we print the real field names + types,
+         not just the header's (always-0) first arg. *)
       let name_str = if name = "" then "" else name ^ " " in
-      name_str ^ "record{" ^ resolve_and_print tm seen field_l ^ "}"
+      if field_l = 0 then
+        let rec walk visited id =
+          if id = 0 || List.mem id visited then []
+          else
+            match TM.find_opt id tm with
+            | Some (Record (ft, nxt, fname)) ->
+                let fld =
+                  (if fname = "" then "" else fname ^ ": ")
+                  ^ resolve_and_print tm (id :: seen) ft
+                in
+                fld :: walk (id :: visited) nxt
+            | _ -> []
+        in
+        name_str ^ "record{" ^ String.concat "; " (walk [] next_id) ^ "}"
+      else
+        (* a field node printed on its own *)
+        name_str ^ "record{"
+        ^ (if name = "" then "" else name ^ ": ")
+        ^ resolve_and_print tm seen field_l ^ "}"
   | Field labels ->
       let inner = List.map (resolve_and_print tm seen) labels in
       String.concat "; " inner
@@ -3144,6 +3204,11 @@ and is_array_type ty_id in_gr =
   | Some (Array_ty _) | Some (Array_dv _) -> true
   | _ -> false
 
+(* True iff the type is a dope-vector array (array_dv). Drives the array_dv vs
+   array operator/type choice from the value's own type, not a global flag. *)
+and is_array_dv ty_id in_gr =
+  match lookup_type_opt ty_id in_gr with Some (Array_dv _) -> true | _ -> false
+
 and is_unsigned_type ty_id in_gr =
   match lookup_type_opt ty_id in_gr with
   | Some (Basic bc) -> (
@@ -3263,7 +3328,6 @@ and add_sisal_type
       symtab = sm;
       typemap = (id, tm, tmn);
       w = pi;
-      prefer_dv = pdv;
     } aty =
   let in_gr =
     {
@@ -3272,7 +3336,6 @@ and add_sisal_type
       symtab = sm;
       typemap = (id, tm, tmn);
       w = pi;
-      prefer_dv = pdv;
     }
   in
   match aty with
@@ -3374,7 +3437,6 @@ and add_sisal_type
           symtab = sm;
           typemap = (id, tm, tmn);
           w = pi;
-          prefer_dv = pdv;
         }
         ct
   | Ast.Error_ty st -> add_type_to_typemap (ERROR st) in_gr
@@ -3400,7 +3462,6 @@ and get_typemap_tm
       symtab = _;
       typemap = (_, tm, _);
       w = _;
-      prefer_dv = _;
     } =
   tm
 
@@ -3416,7 +3477,7 @@ and get_a_new_graph in_gr =
   let in_gr = get_symtab_for_new_scope in_gr in
   let ps = get_parent_symtab in_gr in
   let tmmi = get_typemap in_gr in
-  let out_gr = get_empty_graph ~prefer_dv:in_gr.prefer_dv 1 88 in
+  let out_gr = get_empty_graph 1 88 in
   let tmn1 = get_typemap out_gr in
   let tmn1 = merge_typeblobs tmn1 tmmi in
   { out_gr with symtab = (SM.empty, ps); typemap = tmn1 }
@@ -3581,6 +3642,7 @@ and node_sym_to_num = function
   | SHL -> 75
   | SHR -> 76
   | ASHR -> 77
+  | MERGE -> 131
   | DV_CREATE -> 78
   | DV_ELEMENT -> 79
   | DV_REPLACE -> 80
@@ -3592,6 +3654,8 @@ and node_sym_to_num = function
   | DV_ROTATE -> 85
   | DV_COMPRESS -> 86
   | DV_OUTERPRODUCT -> 87
+  | DV_RANK_REDUCE -> 130
+  | DV_RANK_REPLACE -> 132
   | DV_GRADE_UP -> 88
   | DV_GRADE_DOWN -> 89
   | DV_SORT -> 90
@@ -3663,6 +3727,7 @@ and string_of_node_sym = function
   | SHL -> "SHL"
   | SHR -> "SHR"
   | ASHR -> "ASHR"
+  | MERGE -> "MERGE"
   | BOUNDARY -> "BOUNDARY"
   | CONSTANT -> "CONSTANT"
   | EQUAL -> "EQUAL"
@@ -3766,9 +3831,27 @@ and string_of_node_sym = function
   | DV_OFFSET_AT -> "DV_OFFSET_AT"
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
+  | DV_RANK_REDUCE -> "DV_RANK_REDUCE"
+  | DV_RANK_REPLACE -> "DV_RANK_REPLACE"
   | CONV_H -> "CONV_H"
   | CONV_V -> "CONV_V"
   | CONV_2D -> "CONV_2D"
+
+and string_of_compound_of = function
+  | If1_forall -> "FORALL"
+  | If1_generator -> "GENERATOR"
+  | If1_body -> "BODY"
+  | If1_results -> "RESULTS"
+  | If1_procedure -> "PROCEDURE"
+  | If1_if -> "IF"
+  | If1_then -> "THEN"
+  | If1_else -> "ELSE"
+  | If1_predicate -> "PREDICATE"
+  | If1_tagcase -> "TAGCASE"
+  | If1_tagcase_arm -> "TAGCASE_ARM"
+  | If1_loop_initial -> "INIT"
+  | If1_loop_test -> "TEST"
+  | If1_Unknown -> "UNKNOWN"
 
 and string_of_pragmas p =
   List.fold_right
@@ -3790,6 +3873,7 @@ and string_of_pragmas p =
         | No_pragma -> ""
         | Ast_type _ -> ""
         | Subscript s -> "Subscript(" ^ s ^ ")"
+        | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
       in
       cate_nicer l q " ,")
     p ""
@@ -3955,9 +4039,9 @@ and string_of_pair_list zz =
 and string_of_pair_list_final_string zz =
   "["
   ^ List.fold_right
-      (fun (x, y, w) z ->
+      (fun (x, y, w, dp) z ->
         cate_nicer
-          (("(" ^ string_of_int x) ^ "," ^ string_of_int y ^ "," ^ w ^ ")")
+          (("(" ^ string_of_int x) ^ "," ^ string_of_int y ^ "," ^ w ^ "," ^ string_of_int dp ^ ")")
           z ";")
       zz ""
   ^ "]"
@@ -3965,13 +4049,13 @@ and string_of_pair_list_final_string zz =
 and string_of_node_ty ?(offset = 2) in_gr n =
   match n with
   | Literal (lab, _, str, _) ->
-      string_of_int lab (*^ " " ^ (string_of_if1_basic_ty ty)*)
+      ("__" ^ string_of_int lab) (*^ " " ^ (string_of_if1_basic_ty ty)*)
       ^ " \"" ^ str ^ "\"" (*^ (string_of_ports pout)*)
   | Simple (lab, n, pin, pout, prag) ->
       cate_nicer
         (cate_nicer
            (cate_nicer
-              (cate_nicer (string_of_int lab) (string_of_node_sym n) " ")
+              (cate_nicer ("__" ^ string_of_int lab) (string_of_node_sym n) " ")
               (string_of_ports pin) " ")
            (string_of_ports pout) " ")
         (string_of_pragmas prag) " "
@@ -3980,13 +4064,13 @@ and string_of_node_ty ?(offset = 2) in_gr n =
         (cate_nicer
            (cate_nicer
               (cate_nicer
-                 (string_of_int lab ^ " " ^ string_of_int ty)
+                 ("__" ^ string_of_int lab ^ " " ^ string_of_int ty)
                  (string_of_pragmas pl) " ")
               (string_of_graph ~offset:(offset + 2) g)
               "\n")
            (string_of_node_sym sy) " ")
         (List.fold_right
-           (fun x y -> cate_nicer (string_of_int x) y ",")
+           (fun x y -> cate_nicer ("__" ^ string_of_int x) y ",")
            assoc "")
         " "
   | Unknown_node -> "Unknown"
@@ -4032,7 +4116,7 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
   let sep2 = if is_error then "::" else ":" in
 
   (* 3. Compose the final "Nicer" string *)
-  let connection = Printf.sprintf "%d%s%d -> %d%s%d" n1 sep1 p1 n2 sep2 p2 in
+  let connection = Printf.sprintf "__%d%s%d -> __%d%s%d" n1 sep1 p1 n2 sep2 p2 in
   let metadata = Printf.sprintf "[ID:%d %s]" tt type_desc in
 
   cate_nicer connection metadata " "
@@ -4055,7 +4139,7 @@ and string_of_if1_value tm = function
         | true -> printable_full_type tm ii
         | false -> ""
       in
-      ttt ^ "; " ^ st ^ "; " ^ "(" ^ string_of_int jj ^ " : " ^ string_of_int p
+      ttt ^ "; " ^ st ^ "; " ^ "(" ^ "__" ^ string_of_int jj ^ " : " ^ string_of_int p
       ^ ")"
 
 and string_of_if1_value_in tm = function
@@ -4070,7 +4154,7 @@ and string_of_if1_value_in tm = function
         | false -> ""
       in
       if jj = 0 then
-        ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ "," ^ string_of_int p
+        ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ "," ^ string_of_int p
         ^ ")"
       else ""
 
@@ -4086,7 +4170,7 @@ and string_of_if1_value_out tm = function
         | false -> ""
       in
       if jj <> 0 then
-        "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ string_of_int jj ^ ","
+        "{" ^ ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ ","
         ^ string_of_int p ^ ")}"
       else ""
 
@@ -4097,7 +4181,6 @@ and string_of_symtab_gr in_gr =
     symtab = (ls, _);
     typemap = (_, tm, _);
     w = _;
-    prefer_dv = _;
   } =
     in_gr
   in
@@ -4110,7 +4193,6 @@ and string_of_symtab_gr_in in_gr =
     symtab = (ls, _);
     typemap = (_, tm, _);
     w = _;
-    prefer_dv = _;
   } =
     in_gr
   in
@@ -4123,7 +4205,6 @@ and string_of_symtab_gr_out in_gr =
     symtab = (ls, _);
     typemap = (_, tm, _);
     w = _;
-    prefer_dv = _;
   } =
     in_gr
   in
@@ -4199,7 +4280,6 @@ and string_of_graph ?(offset = 0) in_gr =
     symtab = sm;
     typemap = (_, tm, tmn);
     w = tail;
-    prefer_dv = _;
   } =
     in_gr
   in
@@ -4277,7 +4357,6 @@ and outs_syms
       symtab = (cs, ps);
       typemap = (_, tm, _);
       w = _;
-      prefer_dv = _;
     } =
   symtab_printer Format.std_formatter (cs, ps, tm)
 
@@ -4362,17 +4441,14 @@ and get_symbol_id_old v in_gr =
   let cs, ps = get_symtab in_gr in
   let old_name = "OLD " ^ v in
 
-  (* 1. Check current scope for an existing "OLD" entry *)
+  (* 1. Reuse an "OLD" entry already imported into the current scope. *)
   if SM.mem old_name cs then
     let entry = SM.find old_name cs in
     ((entry.val_def, entry.def_port, entry.val_ty), in_gr)
-    (* 2. Check current scope for "v" and create "OLD" alias *)
-  else if SM.mem v cs then
-    let entry = SM.find v cs in
-    let cs = SM.add old_name { entry with val_name = old_name } cs in
-    ( (entry.val_def, entry.def_port, entry.val_ty),
-      { in_gr with symtab = (cs, ps) } )
-    (* 3. Check parent scope for "OLD v" and import through boundary *)
+    (* 2. The carry-in: import "OLD v" from the parent scope through a boundary
+       input port.  This must take precedence over any in-body redefinition of
+       "v": `old v` always denotes the previous iteration's value, never a value
+       just computed earlier in the same body (e.g. `a := old b; b := old a`). *)
   else if SM.mem old_name ps then
     let p_entry = SM.find old_name ps in
     let next_port, in_gr =
@@ -4384,7 +4460,7 @@ and get_symbol_id_old v in_gr =
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
     ((0, next_port, p_entry.val_ty), in_gr)
-    (* 4. Check parent scope for "v" and import as "OLD" through boundary *)
+    (* 3. Parent scope has "v": import it as "OLD v" through the boundary. *)
   else if SM.mem v ps then
     let p_entry = SM.find v ps in
     let next_port, in_gr =
@@ -4398,6 +4474,16 @@ and get_symbol_id_old v in_gr =
     in
     let in_gr = { in_gr with symtab = (cs, ps) } in
     ((0, next_port, p_entry.val_ty), in_gr)
+    (* 4. LEGACY fallback (the "old way"): the name exists only in the current
+       scope, not in the parent — i.e. a body-local that is not a loop carry.
+       Alias `old v` to that current binding (old v == v).  Demoted to last so it
+       can never shadow a genuine carry-in; retained only to avoid breaking such
+       degenerate references.  Candidate for removal once confirmed unused. *)
+  else if SM.mem v cs then
+    let entry = SM.find v cs in
+    let cs = SM.add old_name { entry with val_name = old_name } cs in
+    ( (entry.val_def, entry.def_port, entry.val_ty),
+      { in_gr with symtab = (cs, ps) } )
   else
     raise
       (Node_not_found
@@ -4410,7 +4496,6 @@ and is_outer_var vv = function
       symtab = (_, ps);
       typemap = _;
       w = _;
-      prefer_dv = _;
     } ->
       SM.mem vv ps
 
@@ -4440,7 +4525,6 @@ and dot_of_graph id in_gr =
     symtab = _;
     typemap = (_, _, _);
     w = _;
-    prefer_dv = _;
   } =
     in_gr
   in
@@ -4499,7 +4583,6 @@ let intrinsic_lib =
          symtab = (SM.empty, SM.empty);
          typemap = (65536, TM.empty, MM.empty);
          w = 65536;
-         prefer_dv = false;
        }
        (* if node num start becoming this big we got a problem *)
        (* 4. Create the function signature objects *)
@@ -4829,7 +4912,6 @@ let intrinsic_lib =
        symtab = _;
        typemap = (_, final_types, _);
        w = _;
-       prefer_dv = _;
      } =
        in_gr
      in
@@ -4889,6 +4971,7 @@ module If1_View = struct
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
+          | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
@@ -4911,6 +4994,7 @@ module If1_View = struct
           | Contiguous -> "Contiguous"
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
+          | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
@@ -5086,6 +5170,16 @@ module If1_View = struct
       \      #dag-content { background: #1e1e1e; margin: 5% auto; padding: \
        20px; width: 90%; height: 80%; overflow: auto; border-radius: 8px; \
        border: 1px solid #444; }\n\
+      \      #dag-toolbar { position: fixed; top: 12px; left: 50%; transform: \
+       translateX(-50%); z-index: 101; background: #2d2d2d; border: 1px solid \
+       #555; border-radius: 6px; padding: 6px 12px; display: flex; \
+       align-items: center; gap: 8px; color: #d4d4d4; }\n\
+      \      #dag-toolbar button { background: #3e3e3e; color: #b5cea8; border: \
+       1px solid #555; border-radius: 3px; cursor: pointer; padding: 0 8px; \
+       font-size: 13px; }\n\
+      \      #dag-zoom { width: 220px; }\n\
+      \      #dag-content svg { transform-origin: top left; max-width: none \
+       !important; height: auto !important; }\n\
       \      .render-btn { font-size: 9px; cursor: pointer; background: \
        #3e3e3e; color: #b5cea8; border: 1px solid #555; border-radius: 3px; \
        margin-left: 10px; padding: 1px 4px; }\n\
@@ -5108,8 +5202,18 @@ module If1_View = struct
        AST origin...</div>\n\
       \      </div>\n\
       \    </div>\n\
-      \    <div id='dag-modal' onclick='this.style.display=\"none\"'><div \
-       id='dag-content' onclick='event.stopPropagation()'></div></div>\n\
+      \    <div id='dag-modal' onclick='this.style.display=\"none\"'>\n\
+      \      <div id='dag-toolbar' onclick='event.stopPropagation()'>\n\
+      \        <span>Zoom</span>\n\
+      \        <button onclick='zoomStep(-0.1)'>-</button>\n\
+      \        <input type='range' id='dag-zoom' min='20' max='400' \
+       value='100' oninput='applyZoom()'>\n\
+      \        <button onclick='zoomStep(0.1)'>+</button>\n\
+      \        <span id='dag-zoom-label'>100%</span>\n\
+      \        <button onclick='resetZoom()'>Reset</button>\n\
+      \      </div>\n\
+      \      <div id='dag-content' onclick='event.stopPropagation()'></div>\n\
+      \    </div>\n\
       \    <script \
        src='https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js'></script>\n\
       \    <script>";
@@ -5179,6 +5283,7 @@ module If1_View = struct
       \          await mermaid.run({\n\
       \            nodes: [pre]\n\
       \          });\n\
+      \          applyZoom();\n\
       \        } catch (err) {\n\
       \          console.error(\"Mermaid Error:\", err);\n\
       \          // If it fails, show the code so you can debug the syntax\n\
@@ -5188,6 +5293,27 @@ module If1_View = struct
       \                                </div>`;\n\
       \        }\n\
       \      }";
+
+    fprintf oc "%s"
+      "\n\
+      \      function applyZoom() {\n\
+      \        const slider = document.getElementById('dag-zoom');\n\
+      \        if (!slider) return;\n\
+      \        const z = slider.value / 100;\n\
+      \        document.getElementById('dag-zoom-label').textContent = \
+       Math.round(z*100) + '%';\n\
+      \        const svg = document.querySelector('#dag-content svg');\n\
+      \        if (svg) { svg.style.transformOrigin = 'top left'; \
+       svg.style.transform = 'scale(' + z + ')'; }\n\
+      \      }\n\
+      \      function zoomStep(d) {\n\
+      \        const s = document.getElementById('dag-zoom');\n\
+      \        s.value = Math.max(20, Math.min(400, parseInt(s.value) + \
+       d*100));\n\
+      \        applyZoom();\n\
+      \      }\n\
+      \      function resetZoom() { document.getElementById('dag-zoom').value \
+       = 100; applyZoom(); }";
 
     fprintf oc "%s"
       "\n\
@@ -5216,7 +5342,11 @@ module If1_View = struct
        + \")\";\n\
       \              }\n\
       \              lines.push(`  N${uid}((\"${n.id}: ${text}\"))`);\n\
-      \              if (n.subgraph) traverse(n.subgraph, uid + \"_\");\n\
+      \              // Do NOT recurse into subgraphs here -- each subgraph has its\n\
+      \              // own 'Render DAG' button in the tree.  Just mark compounds\n\
+      \              // (dashed) so you know to drill in.  Keeps each view one level.\n\
+      \              if (n.subgraph) lines.push(`  style N${uid} \
+       stroke-dasharray: 6 4,stroke-width:2px`);\n\
       \            }\n\
       \          });\n\
       \          (graph.data_edges || []).forEach(e => {\n\

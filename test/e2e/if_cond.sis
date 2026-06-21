@@ -1,0 +1,38 @@
+% if_cond.sis — if / elseif / else lowering (the elseif chain becomes a deeply
+% nested if; see docs).  Exercises simple if, a 3-way elseif, an elseif over
+% three distinct variables (the scope-resolution case), and a deep 6-branch chain.
+
+define if_cond
+
+% simple if/else  ->  min(a,b)
+function ifmin(a, b: integer returns integer)
+  if a < b then a else b end if
+end function
+
+% one elseif (3 outcomes), single value pair
+function if3(i, e: integer returns integer)
+  if i < e then i*2
+  elseif i = e then e+3
+  else i-2
+  end if
+end function
+
+% elseif over THREE distinct variables -- the final `else` reads f, which must
+% resolve in the innermost scope (not the proc's port at the same index).
+function if3v(i, e, f: integer returns integer)
+  if i < e then i
+  elseif e < f then e
+  else f
+  end if
+end function
+
+% deep 6-branch chain -> nested if 6 levels deep
+function ifdeep(x: integer returns integer)
+  if x < 1 then 10
+  elseif x < 2 then 20
+  elseif x < 3 then 30
+  elseif x < 4 then 40
+  elseif x < 5 then 50
+  else 60
+  end if
+end function

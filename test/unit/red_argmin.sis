@@ -1,0 +1,10 @@
+% Reduction: argmin of i*i - 6*i  ( = (i-3)^2 - 9 )  -> the index i at the minimum.
+% N=5 -> values {-5,-8,-9,-8,-5}, min=-9 at i=3 -> argmin = 3
+% NB: the fold expr must NOT start with '(' -- `argmin (...)` parses as the ARGMIN
+% builtin function, not the `value of argmin` reduction op.
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of argmin i * i - 6 * i
+  end for
+end function

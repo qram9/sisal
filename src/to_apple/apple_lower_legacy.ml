@@ -116,7 +116,7 @@ let get_port_type env gr nid pid dir =
         if nid = 0 && dir = `Out then
           let ty_id =
             List.find_map
-              (fun (t, p, _) -> if p = pid then Some t else None)
+              (fun (t, p, _, _) -> if p = pid then Some t else None)
               ins
             |> Option.value ~default:0
           in
@@ -258,7 +258,7 @@ let rec lower_graph env gr gid =
     match NM.find_opt 0 gr.nmap with
     | Some (Boundary (ins, _, _, _)) ->
         List.fold_left
-          (fun (acc, e) (ty_id, pid, name) ->
+          (fun (acc, e) (ty_id, pid, name, _) ->
             let ty = get_port_type e gr 0 pid `Out in
             let local_v = var_name gid 0 pid `Out in
             let src_expr =
@@ -491,7 +491,7 @@ and lower_node env gr nid node =
               match NM.find_opt 0 body_gr.nmap with
               | Some (Boundary (body_ins, _, _, _)) ->
                   List.fold_left
-                    (fun m (_, pid, name) ->
+                    (fun m (_, pid, name, _) ->
                       let sn = sanitize name in
                       if sn = "i" || sn = "idx" || sn = "v_idx" then
                         FullPortMap.add (body_gid, 0, pid, `Out) (C.Id index_var) m
@@ -629,7 +629,7 @@ and lower_node env gr nid node =
             let idx_cast =
               C.Cast
                 ( C.Basic "size_t",
-                  C.BinOp (C.Sub, idx, C.Member (arr, "lower_bound")) )
+                  C.BinOp (C.Sub, idx, C.Index (C.Member (arr, "lower_bound"), C.LitInt 0)) )
             in
             ([ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx_cast))) ], env)
           else if sym = ASIZE || sym = DV_DIMENSION then
@@ -721,10 +721,10 @@ let lower_procedure tm nid node next_gr_id =
         match NM.find_opt 0 sub_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
             let sorted_ins =
-              List.sort (fun (_, p1, _) (_, p2, _) -> compare p1 p2) ins
+              List.sort (fun (_, p1, _, _) (_, p2, _, _) -> compare p1 p2) ins
             in
             List.map
-              (fun (ty_id, pid, name) ->
+              (fun (ty_id, pid, name, _) ->
                 let sn = sanitize name in
                 let if1_ty = try TM.find ty_id tm with _ -> Unknown_ty in
                 let c_ty = c_type_of_if1_ty tm if1_ty in
@@ -736,7 +736,7 @@ let lower_procedure tm nid node next_gr_id =
         match NM.find_opt 0 sub_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
             List.fold_left
-              (fun m (ty_id, pid, name) ->
+              (fun m (ty_id, pid, name, _) ->
                 FullPortMap.add (sub_gid, 0, pid, `Out) (C.Id (sanitize name)) m)
               FullPortMap.empty ins
         | _ -> FullPortMap.empty

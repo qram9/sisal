@@ -1,0 +1,9 @@
+define Main
+
+function Main(flag: boolean returns array[integer], array[double_real])
+    if flag then
+        array [1: 1, 2, 3], array [1: 1.1d0, 2.2d0, 3.3d0]
+    else
+        array [1: 10, 20], array [1: 10.1d0, 20.2d0]
+    end if
+end function

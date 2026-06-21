@@ -1,0 +1,6 @@
+define main
+function main(A, B: array[integer] returns array[array[integer]])
+    for x in A cross y in B
+    returns array of x * y
+    end for
+end function

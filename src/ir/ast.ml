@@ -32,6 +32,7 @@ and simple_exp =
   | Tuple of exp
   | Invocation of function_name * arg
   | Array_ref of simple_exp * exp
+  | Dotdot  (* '..' axis placeholder; only valid as an index inside A[ ... ] *)
   | Array_generator_named of type_name
   | Array_generator_unnamed of sexpr_pair
   | Array_generator_named_addr of type_name * sexpr_pair
@@ -132,6 +133,8 @@ and simple_exp =
       simple_exp * simple_exp (* EXPAND(A, axis) insert size-1 dim *)
   | Ravel_exp of
       simple_exp (* RAVEL(A) / FLATTEN_DV — rank-1 view, APL monadic , *)
+  | Slice_exp of
+      simple_exp * simple_exp * simple_exp (* SLICE(A, lo, hi) *)
   | Reverse_exp of simple_exp (* REVERSE(A) — APL monadic ⌽ *)
   (* Stencil / filter *)
   | Stencil_exp of
@@ -179,7 +182,7 @@ and compilation_unit = Compilation_unit of top_fragment list
 and fun_returns = Returns of sisal_type list
 and decldef = Decldef of (decl list * exp)
 and decldef_part = Decldef_part of decldef list
-and reduction_op = Sum | Product | Least | Greatest | Catenate | No_red
+and reduction_op = Sum | Product | Least | Greatest | Catenate | Argmax | Argmin | No_red
 and direction_op = Left | Right | Tree | No_dir
 
 and in_exp =
@@ -855,6 +858,8 @@ and str_reduction = function
   | Least -> "LEAST"
   | Greatest -> "GREATEST"
   | Catenate -> "CATENATE"
+  | Argmax -> "ARGMAX"
+  | Argmin -> "ARGMIN"
   | No_red -> ""
 
 and str_return_exp = function
@@ -1353,6 +1358,9 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
   | Expand_exp (a, k) ->
       " EXPAND(" ^ str_simple_exp a ^ ", " ^ str_simple_exp k ^ ")"
   | Ravel_exp a -> " RAVEL(" ^ str_simple_exp a ^ ")"
+  | Slice_exp (a, lo, hi) ->
+      " SLICE(" ^ str_simple_exp a ^ ", " ^ str_simple_exp lo ^ ", "
+      ^ str_simple_exp hi ^ ")"
   | Reverse_exp a -> " REVERSE(" ^ str_simple_exp a ^ ")"
   | Stencil_exp (f, a, dims) ->
       let ds = String.concat ", " (List.map str_simple_exp dims) in
@@ -1371,6 +1379,7 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       let extra_padding_len = String.length first_part in
       first_part
       ^ brack (str_exp ~offset:(offset + extra_padding_len) ~preceed_space:0 e)
+  | Dotdot -> ".."
   | Array_generator_named tn -> "ARRAY " ^ tn ^ "[]"
   | Array_generator_named_addr (tn, ep) ->
       "ARRAY " ^ tn ^ brack (str_sexp_pair ep)

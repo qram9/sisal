@@ -1,0 +1,14 @@
+define Main
+% Isolate the gaussj swap piece: each iteration swap rows 1 and 2 of the carried A
+% via the multi-update DV_RANK_REPLACE; both RHS read OLD A (the aliasing case).
+function Main( n: integer; Ain: array_dv[double] returns array_dv[double] )
+  for initial
+    I := 0;
+    A := Ain
+  while I < n repeat
+    I := old I + 1;
+    A := old A[1, .. : DV_RANK_REDUCE(old A, 2);
+               2, .. : DV_RANK_REDUCE(old A, 1)]
+  returns value of A
+  end for
+end function

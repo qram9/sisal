@@ -1,0 +1,48 @@
+% broadcast_parts.sis — bottom-up pieces of the `A + B` broadcast pipeline,
+% each leaf testable in isolation (see docs/broadcast_test_plan.md).
+% These intrinsics are normally synthesized by the `A + B` lift; here they are
+% called by name so each rung of the ladder is checked on its own, like the
+% gaussj parts.
+
+define broadcast_parts
+
+% Step 0 — DV_NUM_RANK(A): number of dimensions.
+function bp_rank(A: array_dv[integer] returns integer)
+  DV_NUM_RANK(A)
+end function
+
+% Step 1 — product reduction over a shape vector (the element count __LFTOTAL).
+function bp_product(S: array_dv[integer] returns integer)
+  product(S)
+end function
+
+% Step 2 — DV_RESHAPE_BY_SHAPE(flat, shape): flat rank-1 -> multi-rank by shape.
+function bp_reshape(A: array_dv[integer]; S: array_dv[integer]
+                    returns array_dv[integer])
+  DV_RESHAPE_BY_SHAPE(A, S)
+end function
+
+% Step 3a — DV_OFFSET_AT(A, k, shape): linear result index k -> source offset in A
+% (applies broadcast: a size-1/missing axis contributes 0).
+function bp_offset(A: array_dv[integer]; k: integer; S: array_dv[integer]
+                   returns integer)
+  DV_OFFSET_AT(A, k, S)
+end function
+
+% Step 3b — DV_LOAD_LINEAR(A, off): element load at a linear offset.
+function bp_load(A: array_dv[integer]; off: integer returns integer)
+  DV_LOAD_LINEAR(A, off)
+end function
+
+% Step 4 — the offset element-wise forall (the heart of `A + B`): for each linear
+% result index, offset+load both operands and add.  Uses the expression bound
+% `total-1` (the generator-as-graph extent fix).  Caller supplies the broadcast
+% shape S and total element count.
+function bp_bcast_add(A: array_dv[integer]; B: array_dv[integer];
+                      S: array_dv[integer]; total: integer
+                      returns array_dv[integer])
+  for k in 0, total-1
+  returns array_dv of DV_LOAD_LINEAR(A, DV_OFFSET_AT(A, k, S))
+                    + DV_LOAD_LINEAR(B, DV_OFFSET_AT(B, k, S))
+  end for
+end function

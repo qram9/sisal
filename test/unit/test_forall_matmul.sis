@@ -1,0 +1,12 @@
+define main
+function main(A, B: array[array[integer]]; N: integer returns array[array[integer]])
+    for i in 1, N
+        row := for j in 1, N
+            val := for k in 1, N
+                returns value of sum A[i, k] * B[k, j]
+            end for
+        returns array of val
+        end for
+    returns array of row
+    end for
+end function

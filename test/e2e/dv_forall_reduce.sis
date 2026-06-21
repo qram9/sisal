@@ -1,0 +1,33 @@
+% dv_forall_reduce.sis — forall scalar reductions (returns value of sum/product/least/greatest)
+% These compile the REDUCE node inside a forall RETURNS subgraph,
+% which is distinct from REDUCE_ALL (bulk post-hoc reduction on an existing array).
+
+define forall_reduce_dv
+
+% Sum integers 1..n  →  n*(n+1)/2
+function sum_to_n(n : integer returns integer)
+  for i in 1, n
+  returns value of sum i
+  end for
+end function
+
+% Product of integers 1..n  →  n!
+function product_to_n(n : integer returns integer)
+  for i in 1, n
+  returns value of product i
+  end for
+end function
+
+% Minimum value in 1..n  →  always 1
+function min_to_n(n : integer returns integer)
+  for i in 1, n
+  returns value of least i
+  end for
+end function
+
+% Maximum value in 1..n  →  always n
+function max_to_n(n : integer returns integer)
+  for i in 1, n
+  returns value of greatest i
+  end for
+end function

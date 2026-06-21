@@ -1,0 +1,11 @@
+define Main
+
+type dvi = array_dv[integer]
+
+function Main(flag: boolean returns dvi)
+    if flag then
+        array dvi [1: 1, 2, 3]
+    else
+        array dvi [1: 4, 5, 6]
+    end if
+end function

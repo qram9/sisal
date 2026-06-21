@@ -1,0 +1,25 @@
+define dv_bulk_basic,
+  t_arr_add, t_arr_sub, t_arr_mul, t_arr_neg,
+  t_arr_eq, t_arr_lt,
+  t_arr_add_scalar, t_arr_mul_scalar,
+  t_sum, t_product, t_least, t_greatest,
+  t_compress, t_sort, t_reverse
+
+type ai = array_dv[integer]
+type ab = array_dv[boolean]
+
+function t_arr_add       (a, b : ai returns ai)  a + b  end function
+function t_arr_sub       (a, b : ai returns ai)  a - b  end function
+function t_arr_mul       (a, b : ai returns ai)  a * b  end function
+function t_arr_neg       (a    : ai returns ai)  -a     end function
+function t_arr_eq        (a, b : ai returns ab)  a = b  end function
+function t_arr_lt        (a, b : ai returns ab)  a < b  end function
+function t_arr_add_scalar(a : ai; n : integer returns ai)  a + n  end function
+function t_arr_mul_scalar(a : ai; n : integer returns ai)  a * n  end function
+function t_sum           (a : ai returns integer)  SUM(a)      end function
+function t_product       (a : ai returns integer)  PRODUCT(a)  end function
+function t_least         (a : ai returns integer)  LEAST(a)    end function
+function t_greatest      (a : ai returns integer)  GREATEST(a) end function
+function t_compress      (mask : ab; a : ai returns ai)  COMPRESS(mask, a)  end function
+function t_sort          (a : ai returns ai)  SORT(a)    end function
+function t_reverse       (a : ai returns ai)  REVERSE(a) end function

@@ -1,0 +1,9 @@
+define Main
+
+function Main(N: integer returns array[double_real], array[integer])
+    for i in 1, N
+    returns 
+        array of if mod(i, 2) = 0 then double_real(i) * 1.5 else double_real(i) * 0.5 end if
+        array of i * i
+    end for
+end function

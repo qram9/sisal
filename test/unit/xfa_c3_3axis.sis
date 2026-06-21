@@ -1,0 +1,6 @@
+define main
+function main(a, b, c: integer returns array_dv[integer])
+  for i in 1, a cross j in 1, b cross k in 1, c
+  returns array_dv of i * j * k
+  end for
+end function

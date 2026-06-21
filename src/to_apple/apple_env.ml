@@ -1,105 +1,63 @@
-(** apple_env.ml: Environment and GID management for the Apple Silicon lowering
-    pass. This module provides the data structures needed to track port
-    mappings, subgraph identities, and the global state during IF1 to C-AST
-    translation. *)
+(** apple_env.ml: Defines the environment and configuration for the Apple
+    Silicon lowering pass. *)
 
-open Ir.If1
-module C = Ir.C_ast
+module NM = Ir.If1.NM
+module SM = Ir.If1.SM
+module TM = Ir.If1.TM
+module ES = Ir.If1.ES
 
+module IntSet = Set.Make (Int)
+module IntMap = Map.Make (Int)
+module StringSet = Set.Make (String)
+
+(** [Direction] distinguishes between input (parameters) and output (results). *)
 type direction = [ `In | `Out ]
-(** Port direction: `In for input ports, `Out for output ports. *)
 
-(** FullPortMap: A mapping from a fully qualified port (GID, Node ID, Port ID,
-    Direction) to a C expression. This is the primary mechanism for tracking
-    dataflow bindings across different scopes. *)
-module FullPortMap = Map.Make (struct
-  type t = int * int * int * direction (* gid, node_id, port_id, direction *)
+(** [PortSet] and [FullPortMap] allow for precise identification of graph ports. *)
+module PortSet = Set.Make (struct
+  type t = int * int * int * direction (* GID, NID, PID, Dir *)
 
   let compare = compare
 end)
 
-(** PortSet: A set of fully qualified ports. *)
-module PortSet = Set.Make (struct
+module FullPortMap = Map.Make (struct
   type t = int * int * int * direction
 
   let compare = compare
 end)
 
-(* ------------------------------------------------------------------ *)
-(*  GID assignment: DFS traversal, sorted by node ID                  *)
-(* ------------------------------------------------------------------ *)
-
-(** GidMap: Maps a (parent_gid, compound_node_id) pair to a unique child GID.
-    The GID (Graph ID) is used to distinguish between different instances of
-    subgraphs (e.g., in nested loops). *)
 module GidMap = Map.Make (struct
-  type t = int * int (* parent_gid * compound_nid *)
+  type t = int * int
 
   let compare = compare
 end)
-
-(** [compound_children_sorted gr] returns all compound children of a graph,
-    sorted by their Node ID to ensure deterministic GID assignment. *)
-let compound_children_sorted (gr : graph) =
-  NM.bindings gr.nmap
-  |> List.filter_map (fun (nid, node) ->
-      match node with
-      | Compound (_, _, _, _, sub_gr, _) -> Some (nid, sub_gr)
-      | _ -> None)
-  |> List.sort (fun (id1, _) (id2, _) -> compare id1 id2)
-
-(** [build_gid_table root_gr] performs a DFS traversal of the compound node
-    hierarchy to pre-assign unique GIDs to every subgraph. The root graph is
-    assigned GID 0. *)
-let build_gid_table (root_gr : graph) : int GidMap.t =
-  let rec visit parent_gid gr (counter, map) =
-    List.fold_left
-      (fun (ctr, m) (nid, sub_gr) ->
-        let gid = ctr in
-        let m' = GidMap.add (parent_gid, nid) gid m in
-        visit gid sub_gr (ctr + 1, m'))
-      (counter, map)
-      (compound_children_sorted gr)
-  in
-  snd (visit 0 root_gr (1, GidMap.empty))
-
-(** [alloc_gid tbl parent_gid nid] retrieves the GID for a specific compound
-    node's subgraph from the pre-built table, or falls back to a deterministic
-    value derived from the inputs. *)
-let alloc_gid (tbl : int GidMap.t) parent_gid nid =
-  match GidMap.find_opt (parent_gid, nid) tbl with
-  | Some gid -> gid
-  | None -> 1_000_000 + (parent_gid * 1_000) + nid
-
-(* ------------------------------------------------------------------ *)
 
 module PortFanout = Map.Make (struct
-  type t = int * int (* node_id * port_id *)
+  type t = int * int * int
+
   let compare = compare
 end)
 
-module StringSet = Set.Make (String)
+module C = Ir.C_ast
 
+(** [env] maintains the state of the lowering pass across different graphs. *)
 type env = {
-  tm : if1_ty TM.t;
+  tm : Ir.If1.if1_ty TM.t;
   var_map : C.expr FullPortMap.t;
-  preds : (int * int * int * direction) FullPortMap.t;
+  type_table : C.c_type FullPortMap.t; (* Unified Type Table *)
+  preds : C.expr FullPortMap.t;
   curr_gid : int;
-  curr_gr : graph;
+  curr_gr : Ir.If1.graph;
   parent_env : env option;
-  compound_nid_in_parent : int;  (** node ID of this subgraph within parent's graph; 0 for root *)
-  force_gpu : bool;
-  gid_table : int GidMap.t;
+  compound_nid_in_parent : int;
+  seen_decls : StringSet.t;
   fanout_map : int PortFanout.t;
   mandatory_ports : PortSet.t;
-  seen_decls : StringSet.t;
+  gid_table : int GidMap.t;
+  parent_map : (int * int) IntMap.t;
+  proc_map : string IntMap.t; (* Global node ID to procedure name *)
+  proc_param_map : C.expr FullPortMap.t; (* Procedure GID, NID, PID, Dir -> param name *)
+  gid_name_map : string IntMap.t; (* GID to human-readable scope name from compound pragma *)
+  procedures_info : Ir.If1.graph IntMap.t; (* Fast lookup for procedure subgraphs *)
+  force_gpu : bool;
 }
-(** [env]: The lowering environment.
-    - [tm]: Type map for IF1 types.
-    - [var_map]: Maps ports to C expressions (Id, Member, etc.).
-    - [preds]: Maps ports to their dataflow predecessors.
-    - [curr_gid]: GID of the graph currently being lowered.
-    - [curr_gr]: The IF1 graph currently being lowered.
-    - [parent_env]: The environment of the enclosing scope.
-    - [force_gpu]: Flag to indicate if GPU kernels should be preferred.
-    - [gid_table]: Pre-calculated table of GID assignments. *)

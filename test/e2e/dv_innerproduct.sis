@@ -1,0 +1,8 @@
+define dv_innerproduct, ip_f32, ip_i32
+
+type af = array_dv[real]
+type ai = array_dv[integer]
+
+% innerproduct always returns array_dv — rank-poly, caller indexes [1] for scalar
+function ip_f32(a, b : af returns af) innerproduct(a, b)  end function
+function ip_i32(a, b : ai returns ai) innerproduct(a, b)  end function

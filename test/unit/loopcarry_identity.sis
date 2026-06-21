@@ -1,0 +1,12 @@
+define Main
+function Main( n: integer; Ain: array_dv[double]; Bin: array_dv[double]
+              returns array_dv[double] )
+  for initial
+    I := 0;
+    A, B := Ain, Bin
+  while I < n repeat
+    I := old I + 1;
+    A, B := old A, old B
+  returns value of B
+  end for
+end function

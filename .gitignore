@@ -2,3 +2,7 @@ _build/*
 main.native
 setup.log
 .aider*
+
+# Sisal IF1 debug dumps (not goldens; cram checks stdout)
+test/**/*.if1
+test/*.if1

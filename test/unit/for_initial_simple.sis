@@ -1,0 +1,10 @@
+function Main(n : integer returns integer)
+  for initial
+    i := 1;
+    s := 0
+  while i <= n repeat
+    i := old i + s + 1;
+    s := old s + old i + i
+  returns value of s
+  end for
+end function

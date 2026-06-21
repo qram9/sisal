@@ -1,0 +1,9 @@
+% Negative test: cross and dot may not be mixed in one for generator.
+% 'a in A DOT b in B CROSS c in C' must fail with
+% "Cross and Dot may not be mixed in a for loop." (cf. old Sisal compiler cdmix).
+% The intended 'zip(A,B) cross C' is expressible only via a nested forall.
+function Main( A: array[integer]; B: array[integer]; C: array[integer] returns array_dv[integer] )
+  for a in A DOT b in B CROSS c in C
+  returns array_dv of a + b + c
+  end for
+end function

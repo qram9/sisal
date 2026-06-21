@@ -1,0 +1,6 @@
+define main
+function main(A: array[integer] returns array[integer])
+    for x in A
+    returns array of x * 2
+    end for
+end function

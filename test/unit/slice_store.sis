@@ -1,0 +1,12 @@
+% Write-side test for `A[i, .. : row]` — replace row i with a row.
+% A[i,j]=i*10+j ; Z = a zero row.  A[2, .. : Z] -> row 2 becomes zeros.
+% N=3 -> flat result [11,12,13, 0,0,0, 31,32,33]
+define main
+function main(N: integer returns array_dv[integer])
+  let
+    A := for i in 1, N cross j in 1, N returns array_dv of i*10 + j end for;
+    Z := for j in 1, N returns array_dv of 0 end for
+  in
+    A[2, .. : Z]
+  end let
+end function

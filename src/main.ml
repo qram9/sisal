@@ -82,7 +82,6 @@ let main () =
   let if1_dest = ref Nothing in
   let c_dest = ref Nothing in
   let files = ref [] in
-  let prefer_dv = ref false in
   let usage () =
     print_string
       "Usage: main.exe [OPTIONS] [FILE...]\n\n\
@@ -93,7 +92,7 @@ let main () =
       \  --if1=FILE       Write IF1 to FILE\n\
       \  --c              Print C to stdout\n\
       \  --c=FILE         Write C to FILE\n\
-      \  --dv             Prefer array_dv for forall/lifted ops\n\
+      \  --dv             (deprecated, ignored) array_dv is chosen by type\n\
       \  --debug=N        Set debug verbosity level to N\n\
       \  --help           Show this help and exit\n\n\
        If no FILE is given, reads from stdin.\n\
@@ -119,7 +118,7 @@ let main () =
         c_dest := Stdout;
         parse rest
     | "--dv" :: rest ->
-        prefer_dv := true;
+        (* deprecated no-op: array_dv vs array is decided by the value's type *)
         parse rest
     | a :: rest when String.length a > 4 && String.sub a 0 4 = "--c=" ->
         c_dest := File (String.sub a 4 (String.length a - 4));
@@ -160,7 +159,7 @@ let main () =
     let sisal_ast = Ast.Compilation_unit all_fragments in
     if !ast_dest <> Nothing then
       write_to !ast_dest (Ast.str_compilation_unit sisal_ast ^ "\n");
-    let ou = To_if1_.do_compilation_unit ~prefer_dv:!prefer_dv sisal_ast in
+    let ou = To_if1_.do_compilation_unit sisal_ast in
     if !Ir.Debug.level > 0 then begin
       If1.If1_View.export_debug_html "compiler_dump.html" ou;
       ignore (If1.write_dot_file ou)

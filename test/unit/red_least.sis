@@ -1,0 +1,7 @@
+% Reduction: least of (i-3)*(i-3) for i in 1..N  =>  min at i=3 -> 0.   N=5 -> 0
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of least (i - 3) * (i - 3)
+  end for
+end function

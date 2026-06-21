@@ -1,0 +1,11 @@
+% rank-3 index permutation (full transpose): a[i,j,k] = b[k,j,i].
+% b[i,j,k]=i*100+j*10+k ; N=3 -> a[1,2,3] = b[3,2,1] = 321
+define main
+function main(N: integer returns integer)
+  let
+    b := for i in 1,N cross j in 1,N cross k in 1,N
+         returns array_dv of i*100 + j*10 + k end for;
+    a := for i in 1,N cross j in 1,N cross k in 1,N
+         returns array_dv of b[k,j,i] end for
+  in a[1,2,3] end let
+end function

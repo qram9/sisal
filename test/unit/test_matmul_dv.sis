@@ -1,0 +1,13 @@
+define main
+type Matrix = array_dv[integer];
+function main(A, B: Matrix; N: integer returns Matrix)
+    for i in 1, N
+        row := for j in 1, N
+            val := for k in 1, N
+                returns value of sum A[i, k] * B[k, j]
+            end for
+        returns array_dv of val
+        end for
+    returns array_dv of row
+    end for
+end function
