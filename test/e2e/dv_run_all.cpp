@@ -1419,6 +1419,63 @@ static void test_if_cond(void) {
 #endif
 
 // ============================================================
+// GROUP FDS — forall_dv_simple  (for i in 1..N → array_dv of i*i)
+// ============================================================
+#ifdef TEST_FORALL_DV_SIMPLE
+extern "C" sisal_array_t func_MAIN(int32_t N);
+static void test_forall_dv_simple(void) {
+    printf("\n=== Group FDS: forall_dv_simple (i*i) ===\n");
+    // func_MAIN(5) → [1, 4, 9, 16, 25]
+    sisal_array_t r = func_MAIN(5);
+    int32_t exp[] = {1, 4, 9, 16, 25};
+    check("fds_size", (int32_t)r.size == 5);
+    for (int i = 0; i < 5; i++) {
+        char n[32]; snprintf(n, sizeof n, "fds[%d]", i);
+        check(n, ai(r, i) == exp[i]);
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
+// ============================================================
+// GROUP CDD — cross_dv_demo  (for i in 1..N cross j in 1..M → array_dv of i*j)
+// ============================================================
+#ifdef TEST_CROSS_DV_DEMO
+extern "C" sisal_array_t func_MAIN(int32_t N, int32_t M);
+static void test_cross_dv_demo(void) {
+    printf("\n=== Group CDD: cross_dv_demo (i*j cross) ===\n");
+    // func_MAIN(2,3): i in 1..2 cross j in 1..3 → [1,2,3, 2,4,6]
+    sisal_array_t r = func_MAIN(2, 3);
+    int32_t exp[] = {1, 2, 3, 2, 4, 6};
+    check("cdd_size", (int32_t)r.size == 6);
+    for (int i = 0; i < 6; i++) {
+        char n[32]; snprintf(n, sizeof n, "cdd[%d]", i);
+        check(n, ai(r, i) == exp[i]);
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
+// ============================================================
+// GROUP FN — forall_negate  (for i in 1..N → array_dv of -real(i))
+// ============================================================
+#ifdef TEST_FORALL_NEGATE
+extern "C" sisal_array_t func_MAIN_GPU(int32_t N);
+static void test_forall_negate(void) {
+    printf("\n=== Group FN: forall_negate (-real(i)) ===\n");
+    // func_MAIN_GPU(4) → [-1.0, -2.0, -3.0, -4.0]
+    sisal_array_t r = func_MAIN_GPU(4);
+    float exp[] = {-1.0f, -2.0f, -3.0f, -4.0f};
+    check("fn_size", (int32_t)r.size == 4);
+    for (int i = 0; i < 4; i++) {
+        char n[32]; snprintf(n, sizeof n, "fn[%d]", i);
+        check(n, near_f(af(r, i), exp[i]));
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
+// ============================================================
 // main — dispatches to the single active test group
 // ============================================================
 
@@ -1491,6 +1548,15 @@ int main(void) {
 #ifdef TEST_IF_COND
     test_if_cond();
 #endif
+#ifdef TEST_FORALL_DV_SIMPLE
+    test_forall_dv_simple();
+#endif
+#ifdef TEST_CROSS_DV_DEMO
+    test_cross_dv_demo();
+#endif
+#ifdef TEST_FORALL_NEGATE
+    test_forall_negate();
+#endif
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT) && !defined(TEST_LIFTED_ARITH) && \
     !defined(TEST_SHL) && !defined(TEST_TEST_SUBSET) && !defined(TEST_INTRINSICS) && \
@@ -1499,7 +1565,9 @@ int main(void) {
     !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC) && !defined(TEST_INNERPRODUCT_DV) && \
     !defined(TEST_FOR_INITIAL) && !defined(TEST_GAUSSJ_PARTS) && \
     !defined(TEST_GAUSSJ) && !defined(TEST_SWAPLOOP) && !defined(TEST_GEN_EXTENT) && \
-    !defined(TEST_BROADCAST_PARTS) && !defined(TEST_IF_COND)
+    !defined(TEST_BROADCAST_PARTS) && !defined(TEST_IF_COND) && \
+    !defined(TEST_FORALL_DV_SIMPLE) && !defined(TEST_CROSS_DV_DEMO) && \
+    !defined(TEST_FORALL_NEGATE)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

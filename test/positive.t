@@ -392,7 +392,7 @@ Scientific benchmarks:
   $ sisal unit/bad.sis
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
-  $ sisal unit/cross_dv_demo.sis
+  $ sisal e2e/cross_dv_demo.sis
   $ sisal unit/if_one.sis
   $ sisal unit/if_two.sis
   $ sisal unit/quadtree.sis
