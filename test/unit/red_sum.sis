@@ -1,0 +1,7 @@
+% Reduction: sum of i for i in 1..N  =>  N*(N+1)/2.   N=5 -> 15
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of sum i
+  end for
+end function

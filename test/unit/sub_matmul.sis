@@ -1,0 +1,14 @@
+% Matmul with 2-D array_dv subscripts.  N=2:
+%   A[i,k]=i+k -> [[2,3],[3,4]] ; B[k,j]=k*j -> [[1,2],[2,4]]
+%   C[1,1] = A[1,1]*B[1,1] + A[1,2]*B[2,1] = 2*1 + 3*2 = 8
+define main
+function main(N: integer returns integer)
+  let
+    A := for i in 1,N cross k in 1,N returns array_dv of i + k end for;
+    B := for k in 1,N cross j in 1,N returns array_dv of k * j end for;
+    C := for i in 1,N cross j in 1,N
+         returns array_dv of
+           for k in 1,N returns value of sum A[i,k] * B[k,j] end for
+         end for
+  in C[1,1] end let
+end function

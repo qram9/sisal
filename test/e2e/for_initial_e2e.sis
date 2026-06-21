@@ -1,0 +1,132 @@
+% for_initial_e2e.sis — end-to-end coverage for the LoopB ("for initial") lowering.
+% Exercises the MERGE-phi lowering: front-edge seeding from INIT, body-output
+% capture, and the backedge copies. Includes a pass-through carry (a variable
+% carried unchanged through the body) to exercise the sn=0 capture path.
+
+define for_initial_e2e
+
+% sum 1..n  ->  n*(n+1)/2
+function fi_sum(n : integer returns integer)
+  for initial
+    i := 1;
+    s := 0;
+  while i <= n repeat
+    i := old i + 1;
+    s := old s + old i;
+  returns value of s
+  end for
+end function
+
+% product 1..n  ->  n!
+function fi_product(n : integer returns integer)
+  for initial
+    i := 1;
+    p := 1;
+  while i <= n repeat
+    i := old i + 1;
+    p := old p * old i;
+  returns value of p
+  end for
+end function
+
+% final value of the loop index i: i runs 1.. and stops once i > n, so result = n+1
+function fi_final_i(n : integer returns integer)
+  for initial
+    i := 1;
+  while i <= n repeat
+    i := old i + 1;
+  returns value of i
+  end for
+end function
+
+% pass-through carry: k is carried but never modified in the body, so it must
+% survive every iteration unchanged. Returns the initial k (42) for any n >= 1.
+function fi_passthru(n : integer returns integer)
+  for initial
+    i := 1;
+    k := 42;
+  while i <= n repeat
+    i := old i + 1;
+    k := old k;
+  returns value of k
+  end for
+end function
+
+% swap: a,b exchange each iteration (a:=old b; b:=old a). Direct SSA-swap hazard —
+% if the backedge copies weren't snapshot-buffered, a and b would collapse to one value.
+% a=10,b=20 → after n iters a = (n odd ? 20 : 10).
+function fi_swap(n : integer returns integer)
+  for initial
+    i := 1;
+    a := 10;
+    b := 20;
+  while i <= n repeat
+    i := old i + 1;
+    a := old b;
+    b := old a;
+  returns value of a
+  end for
+end function
+
+% Fibonacci: mutual recurrence — a:=old b (identity-alias carry) and b:=old a+old b
+% (computed carry) both read each other's previous values. returns a = fib(n).
+function fi_fib(n : integer returns integer)
+  for initial
+    i := 1;
+    a := 0;
+    b := 1;
+  while i <= n repeat
+    i := old i + 1;
+    a := old b;
+    b := old a + old b;
+  returns value of a
+  end for
+end function
+
+% LoopA (post-test, `repeat .. until`) form of Fibonacci. Same mutual recurrence as
+% fi_fib but routed through the Iterator_termination loop block, so it exercises the
+% shared carry predicate on the LoopA path. For n >= 1 it matches fi_fib.
+function fi_fib_a(n : integer returns integer)
+  for initial
+    i := 1;
+    a := 0;
+    b := 1;
+  repeat
+    i := old i + 1;
+    a := old b;
+    b := old a + old b;
+  until i > n
+  returns value of a
+  end for
+end function
+
+% Regression: a loop carry seeded directly from an ARRAY PARAMETER (A := Ain).
+% A aliases the boundary input AIN (val_def=0) with no defining node in INIT, so
+% to_if1's carry-detection dropped it -> no MERGE phi -> `old A` was {0} -> the
+% result came back EMPTY (and any use of old A segfaulted). Identity carry:
+% returns Ain unchanged, so the seed must thread through n iterations intact.
+function fi_param_identity(n : integer; Ain : array_dv[integer]
+                           returns array_dv[integer])
+  for initial
+    i := 0;
+    A := Ain;
+  while i < n repeat
+    i := old i + 1;
+    A := old A;
+  returns value of A
+  end for
+end function
+
+% Same parameter-seeded carry, but modified each iteration: bump every element by 1,
+% n times. Exercises that `old A` is the real carried array (not {0}).
+function fi_param_bump(n : integer; Ain : array_dv[integer]
+                       returns array_dv[integer])
+  for initial
+    i := 0;
+    A := Ain;
+  while i < n repeat
+    i := old i + 1;
+    A := for j in 1, n returns array_dv of old A[j] + 1 end for;
+  returns value of A
+  end for
+end function

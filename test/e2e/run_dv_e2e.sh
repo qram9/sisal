@@ -5,10 +5,10 @@
 
 set -e
 
-REPO="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 SISAL="${REPO}/_build/install/default/bin/sisal"
 RUNTIME="${REPO}/runtime"
-HARNESS="${REPO}/test/dv_run_all.cpp"
+HARNESS="${REPO}/test/e2e/dv_run_all.cpp"
 GENDIR="$(mktemp -d /tmp/sisal_e2e.XXXXXX)"
 trap 'rm -rf "$GENDIR"' EXIT
 
@@ -23,7 +23,7 @@ emit_c() {
     local stem=$1    # e.g. dv_abs_demo
     local flags=$2   # e.g. --dv
     local out="${GENDIR}/${stem}.cpp"
-    "${SISAL}" "${REPO}/test/${stem}.sis" ${flags} --c="${out}" 2>/tmp/sisal_emit_err_${stem}.txt
+    "${SISAL}" "${REPO}/test/e2e/${stem}.sis" ${flags} --c="${out}" 2>/tmp/sisal_emit_err_${stem}.txt
     echo "${out}"
 }
 
@@ -72,21 +72,27 @@ run_group() {
     echo ""
 }
 
-run_group ABS_DEMO          dv_abs_demo          --dv
-run_group AGREEMENT         dv_agreement         --dv
-run_group LIFTED_ARITH      dv_lifted_arith      --dv
-run_group SHL               dv_shl               --dv
-run_group TEST_SUBSET       dv_test_subset       --dv
-run_group INTRINSICS        dv_intrinsics        --dv
-run_group BROADCAST_COMPLEX dv_broadcast_complex --dv
-run_group COMPRESS          dv_compress_test     --dv
-run_group BROADCAST_NUMPY   dv_broadcast_numpy   --dv
-run_group FORALL_CPU        forall_cpu           --dv
-run_group NEGATE_DV         negate_dv            --dv
-run_group FORALL_BASIC_DV   dv_forall_basic      --dv
-run_group FORALL_REDUCE_DV  dv_forall_reduce     --dv
-run_group BULK_BASIC        dv_bulk_basic        --dv
-run_group INNERPRODUCT_DV   dv_innerproduct      --dv
+run_group AGREEMENT         dv_agreement
+run_group LIFTED_ARITH      dv_lifted_arith
+run_group INTRINSICS        dv_intrinsics
+run_group BROADCAST_COMPLEX dv_broadcast_complex
+run_group COMPRESS          dv_compress_test
+run_group BROADCAST_NUMPY   dv_broadcast_numpy
+run_group FORALL_CPU        forall_cpu
+run_group NEGATE_DV         negate_dv
+run_group FORALL_REDUCE_DV  dv_forall_reduce
+run_group BULK_BASIC        dv_bulk_basic
+run_group INNERPRODUCT_DV   dv_innerproduct
+run_group FOR_INITIAL       for_initial_e2e      ""
+run_group GAUSSJ_PARTS       gaussj_parts         ""
+run_group GAUSSJ             gaussj_dv_rr         ""
+run_group SWAPLOOP           swaploop             ""
+run_group GEN_EXTENT         gen_extent           ""
+run_group BROADCAST_PARTS    broadcast_parts      ""
+run_group IF_COND            if_cond              ""
+run_group FORALL_DV_SIMPLE   forall_dv_simple     ""
+run_group CROSS_DV_DEMO      cross_dv_demo        ""
+run_group FORALL_NEGATE      forall_negate        ""
 
 echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"

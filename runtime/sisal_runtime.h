@@ -20,8 +20,15 @@ typedef struct {
     int32_t rank;
     int32_t type_id;
     int32_t ref_count;
-    int64_t lower_bound;
+    /* One descriptor triple per rank: (start, size, stride).
+       - lower_bound[k] = start of axis k (the Sisal lower bound)
+       - dims[k]        = extent of axis k  (ub - lb + 1)
+       - stride[k]      = byte stride to step one index along axis k
+       lower_bound[0] keeps the meaning of the old scalar lower_bound, so rank-1
+       paths are unchanged.  Folding lb into a virtual origin is a later step. */
+    int64_t lower_bound[8];
     int64_t dims[8];
+    int64_t stride[8];
 } sisal_array_t;
 
 template<typename T, typename S>
@@ -41,15 +48,18 @@ template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, sisal_array_t
 // Scalar-to-array hacks — preserve value in .size and .dims[0] so the roundtrip
 // SISAL_CAST(int32_t, SISAL_CAST(sisal_array_t, x)) == x
 template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, float>(float s) {
-    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? (uint64_t)s : 0), 1, 0, 1, 0, {0} };
+    sisal_array_t a = {}; a.size = (uint64_t)(s > 0 ? (uint64_t)s : 0);
+    a.rank = 1; a.ref_count = 1;
     a.dims[0] = (int64_t)(s > 0 ? (int64_t)s : 0); return a;
 }
 template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, double>(double s) {
-    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? (uint64_t)s : 0), 1, 0, 1, 0, {0} };
+    sisal_array_t a = {}; a.size = (uint64_t)(s > 0 ? (uint64_t)s : 0);
+    a.rank = 1; a.ref_count = 1;
     a.dims[0] = (int64_t)(s > 0 ? (int64_t)s : 0); return a;
 }
 template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, int32_t>(int32_t s) {
-    sisal_array_t a = { NULL, (uint64_t)(s > 0 ? s : 0), 1, 0, 1, 0, {0} };
+    sisal_array_t a = {}; a.size = (uint64_t)(s > 0 ? s : 0);
+    a.rank = 1; a.ref_count = 1;
     a.dims[0] = (int64_t)s; return a;
 }
 
@@ -58,6 +68,25 @@ template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, int32_t>(int3
 inline int32_t sisal_dv_dimension(int32_t dim, sisal_array_t a) {
   if (dim >= 0 && dim < a.rank) return (int32_t)a.dims[dim];
   return (int32_t)a.size;
+}
+
+/* Leading-axis conformance guard for `A dot B` (any op iterating two array_dv
+   together).  Returns true iff A and B agree on every axis under trailing (numpy)
+   alignment: per aligned axis the extents must be equal or one of them 1 (a
+   missing leading axis counts as 1).  This is the single intrinsic the front end
+   inserts as a guard -- `if sisal_dv_conform(A,B) then <forall> else error` --
+   replacing the synthesized per-axis conform forall. */
+inline bool sisal_dv_conform(sisal_array_t a, sisal_array_t b) {
+  int ra = (int)a.rank, rb = (int)b.rank;
+  int mr = ra > rb ? ra : rb;
+  for (int k = 0; k < mr; k++) {
+    int ia = k - (mr - ra);            /* 0-based axis into a (trailing-aligned) */
+    int ib = k - (mr - rb);
+    int da = (ia >= 0 && ia < ra) ? (int)a.dims[ia] : 1;
+    int db = (ib >= 0 && ib < rb) ? (int)b.dims[ib] : 1;
+    if (!(da == db || da == 1 || db == 1)) return false;
+  }
+  return true;
 }
 
 inline int32_t sisal_dv_dimension(int32_t dim, int32_t val) { return val; }
@@ -109,11 +138,10 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
   size_t esz = sisal_elem_size(type_id);
   a.data = malloc(size * (esz > 8 ? esz : 8));
   a.size = size;
-  a.lower_bound = 1;
   a.type_id = type_id;
   a.ref_count = 1;
   a.rank = rank;
-  for (int i=0; i<8; i++) a.dims[i] = 0;
+  for (int i=0; i<8; i++) { a.lower_bound[i] = 1; a.dims[i] = 0; a.stride[i] = 0; }
   if (rank == 1) a.dims[0] = (int64_t)size;
   return a;
 }
@@ -122,21 +150,21 @@ inline sisal_array_t sisal_array_replace_i32(sisal_array_t a, int64_t idx, int32
     sisal_array_t res = a;
     res.data = malloc(a.size * 8);
     memcpy(res.data, a.data, a.size * 8);
-    ((int32_t*)res.data)[idx - a.lower_bound] = val;
+    ((int32_t*)res.data)[idx - a.lower_bound[0]] = val;
     return res;
 }
 inline sisal_array_t sisal_array_replace_f32(sisal_array_t a, int64_t idx, float val) {
     sisal_array_t res = a;
     res.data = malloc(a.size * 8);
     memcpy(res.data, a.data, a.size * 8);
-    ((float*)res.data)[idx - a.lower_bound] = val;
+    ((float*)res.data)[idx - a.lower_bound[0]] = val;
     return res;
 }
 inline sisal_array_t sisal_array_replace_f64(sisal_array_t a, int64_t idx, double val) {
     sisal_array_t res = a;
     res.data = malloc(a.size * 8);
     memcpy(res.data, a.data, a.size * 8);
-    ((double*)res.data)[idx - a.lower_bound] = val;
+    ((double*)res.data)[idx - a.lower_bound[0]] = val;
     return res;
 }
 inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal_array_t val) {
@@ -144,13 +172,13 @@ inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal
     size_t esz = sizeof(sisal_array_t);
     res.data = malloc(a.size * esz);
     memcpy(res.data, a.data, a.size * esz);
-    ((sisal_array_t*)res.data)[idx - a.lower_bound] = val;
+    ((sisal_array_t*)res.data)[idx - a.lower_bound[0]] = val;
     return res;
 }
 
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
     sisal_array_t res = a;
-    res.lower_bound = lb;
+    res.lower_bound[0] = lb;
     return res;
 }
 
@@ -357,9 +385,131 @@ inline sisal_array_t sisal_array_innerproduct(sisal_array_t a, sisal_array_t b) 
 /* REVERSE: return a copy with elements in reverse order */
 inline sisal_array_t sisal_array_reverse(sisal_array_t a) {
     sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
-    res.lower_bound = a.lower_bound;
+    for (int i = 0; i < 8; i++) res.lower_bound[i] = a.lower_bound[i];
     int32_t* src = (int32_t*)a.data; int32_t* dst = (int32_t*)res.data;
     for (uint64_t i = 0; i < a.size; i++) dst[i] = src[a.size - 1 - i];
+    return res;
+}
+
+/* ROTATE(a, n): circular LEFT shift by n (APL `n rotate A`); negative n rotates
+   right.  dst[i] = src[(i + n) mod N].  Type-generic via element size. */
+inline sisal_array_t sisal_array_rotate(sisal_array_t a, int32_t n) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
+    for (int i = 0; i < 8; i++) res.lower_bound[i] = a.lower_bound[i];
+    int64_t N = (int64_t)a.size;
+    if (N == 0) return res;
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t sh = (((int64_t)n % N) + N) % N;          /* normalise to [0, N) */
+    char* src = (char*)a.data; char* dst = (char*)res.data;
+    for (int64_t i = 0; i < N; i++)
+        memcpy(dst + i * esz, src + ((i + sh) % N) * esz, esz);
+    return res;
+}
+
+/* SLICE(a, lo, hi): the contiguous sub-range a[lo..hi] (Sisal 1-based, inclusive),
+   re-based to lower_bound 1.  Type-generic. */
+inline sisal_array_t sisal_array_slice(sisal_array_t a, int32_t lo, int32_t hi) {
+    int64_t count = (int64_t)hi - (int64_t)lo + 1;
+    if (count < 0) count = 0;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)count);
+    res.lower_bound[0] = 1;
+    if (count == 0) return res;
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t off = (int64_t)lo - a.lower_bound[0];      /* 0-based start in `a` */
+    if (off < 0) off = 0;
+    memcpy((char*)res.data, (char*)a.data + off * esz, (size_t)count * esz);
+    return res;
+}
+
+/* element i of `a` is non-zero?  (per the array's element type) */
+static inline bool sisal_elem_is_nonzero(sisal_array_t a, uint64_t i) {
+    switch (a.type_id) {
+        case 4: return ((double*)a.data)[i] != 0.0;
+        case 8: return ((float*)a.data)[i] != 0.0f;
+        case 7: return ((int64_t*)a.data)[i] != 0;
+        default: return ((int32_t*)a.data)[i] != 0;   /* int / bool */
+    }
+}
+
+/* NONZERO(a): the 1-based indices (int array) of the non-zero elements of a. */
+inline sisal_array_t sisal_array_nonzero(sisal_array_t a) {
+    uint64_t count = 0;
+    for (uint64_t i = 0; i < a.size; i++) if (sisal_elem_is_nonzero(a, i)) count++;
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, count);   /* int32 indices */
+    res.lower_bound[0] = 1;
+    int32_t* out = (int32_t*)res.data;
+    uint64_t k = 0;
+    for (uint64_t i = 0; i < a.size; i++)
+        if (sisal_elem_is_nonzero(a, i)) out[k++] = (int32_t)(i + a.lower_bound[0]);
+    return res;
+}
+
+/* WHERE(cond, a, b): elementwise select -- result[i] = cond[i] ? a[i] : b[i].
+   cond is a bool array; result takes a's type/shape.  Type-generic. */
+inline sisal_array_t sisal_array_where(sisal_array_t cond, sisal_array_t a, sisal_array_t b) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
+    for (int i = 0; i < 8; i++) { res.lower_bound[i] = a.lower_bound[i]; res.dims[i] = a.dims[i]; }
+    size_t esz = sisal_elem_size(a.type_id);
+    bool* m = (bool*)cond.data;
+    char* ad = (char*)a.data; char* bd = (char*)b.data; char* rd = (char*)res.data;
+    for (uint64_t i = 0; i < a.size; i++)
+        memcpy(rd + i * esz, (m[i] ? ad : bd) + i * esz, esz);
+    return res;
+}
+
+/* write `fill` (a double, converted to the array's element type) into res[i] */
+static inline void sisal_elem_set_d(sisal_array_t res, int64_t i, double fill) {
+    switch (res.type_id) {
+        case 4: ((double*)res.data)[i] = fill; break;
+        case 8: ((float*)res.data)[i] = (float)fill; break;
+        case 7: ((int64_t*)res.data)[i] = (int64_t)fill; break;
+        default: ((int32_t*)res.data)[i] = (int32_t)fill; break;
+    }
+}
+
+/* PERMUTE(a, nperm, d0, d1, ...): reorder axes -- result axis k = source axis
+   d[k] (0-based).  PERMUTE(A,2,1,0) transposes a rank-2 array.  Type-generic,
+   general rank (<= 8). */
+inline sisal_array_t sisal_array_permute(sisal_array_t a, int32_t nperm, ...) {
+    int perm[8];
+    va_list ap; va_start(ap, nperm);
+    for (int i = 0; i < nperm && i < 8; i++) perm[i] = va_arg(ap, int);
+    va_end(ap);
+    int R = (int)a.rank;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
+    size_t esz = sisal_elem_size(a.type_id);
+    if (nperm != R || R <= 1) {           /* nothing to do -> plain copy */
+        for (int i = 0; i < 8; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, (size_t)a.size * esz);
+        return res;
+    }
+    for (int k = 0; k < R; k++) { res.dims[k] = a.dims[perm[k]]; res.lower_bound[k] = a.lower_bound[perm[k]]; }
+    int64_t sstr[8], rstr[8];
+    sstr[R-1] = 1; rstr[R-1] = 1;
+    for (int k = R - 2; k >= 0; k--) { sstr[k] = sstr[k+1] * a.dims[k+1]; rstr[k] = rstr[k+1] * res.dims[k+1]; }
+    for (uint64_t idx = 0; idx < res.size; idx++) {
+        int64_t rem = (int64_t)idx, slin = 0;
+        for (int k = 0; k < R; k++) { int64_t c = rem / rstr[k]; rem %= rstr[k]; slin += c * sstr[perm[k]]; }
+        memcpy((char*)res.data + (int64_t)idx * esz, (char*)a.data + slin * esz, esz);
+    }
+    return res;
+}
+
+/* PAD(a, lo, hi, fill): prepend `lo` and append `hi` copies of `fill`.
+   result = [fill x lo] ++ a ++ [fill x hi].  `fill` arrives as a double and is
+   converted to a's element type. */
+inline sisal_array_t sisal_array_pad(sisal_array_t a, int32_t lo, int32_t hi, double fill) {
+    if (lo < 0) lo = 0;
+    if (hi < 0) hi = 0;
+    int64_t N = (int64_t)a.size;
+    int64_t total = (int64_t)lo + N + (int64_t)hi;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)total);
+    res.lower_bound[0] = 1;
+    size_t esz = sisal_elem_size(a.type_id);
+    for (int64_t i = 0; i < total; i++) {
+        if (i < lo || i >= lo + N) sisal_elem_set_d(res, i, fill);
+        else memcpy((char*)res.data + i * esz, (char*)a.data + (i - lo) * esz, esz);
+    }
     return res;
 }
 
@@ -367,7 +517,7 @@ inline sisal_array_t sisal_array_reverse(sisal_array_t a) {
 #include <algorithm>
 inline sisal_array_t sisal_array_sort(sisal_array_t a) {
     sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size);
-    res.lower_bound = a.lower_bound;
+    for (int i = 0; i < 8; i++) res.lower_bound[i] = a.lower_bound[i];
     int32_t* src = (int32_t*)a.data; int32_t* dst = (int32_t*)res.data;
     for (uint64_t i = 0; i < a.size; i++) dst[i] = src[i];
     std::sort(dst, dst + a.size);
@@ -380,11 +530,44 @@ inline sisal_array_t sisal_array_compress(sisal_array_t mask, sisal_array_t data
     bool* m = (bool*)mask.data;
     for (uint64_t i = 0; i < mask.size; i++) if (m[i]) count++;
     sisal_array_t res = sisal_array_alloc_empty(data.rank, data.type_id, count);
-    res.lower_bound = 1;
+    res.lower_bound[0] = 1;
     uint64_t out = 0;
     for (uint64_t i = 0; i < mask.size; i++) {
         if (m[i]) { ((float*)res.data)[out++] = ((float*)data.data)[i]; }
     }
+    return res;
+}
+
+/* DV_RANK_REDUCE: zero-copy view fixing dimension 0 at 1-based index idx.
+   Returns a sisal_array_t with rank-1 less, data pointer advanced to the slice. */
+inline sisal_array_t sisal_dv_rank_reduce(sisal_array_t a, int32_t idx) {
+    sisal_array_t res = a;
+    if (a.rank <= 0) return a;
+    int32_t dim0 = (a.dims[0] > 0) ? (int32_t)a.dims[0] : (int32_t)a.size;
+    uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
+    size_t esz = sisal_elem_size(a.type_id);
+    res.data = (char*)a.data + (uint64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size * esz;
+    res.rank = a.rank - 1;
+    res.size = (a.rank == 1) ? 1 : slice_size;
+    for (int i = 0; i < 7; i++) { res.lower_bound[i] = a.lower_bound[i + 1]; res.dims[i] = a.dims[i + 1]; }
+    res.lower_bound[7] = 1;
+    res.dims[7] = 0;
+    return res;
+}
+
+/* DV_RANK_REPLACE: functional copy of `a` with the rank-(N-1) slab at 1-based
+   leading index `idx` overwritten by `slice`'s contiguous data. Mirrors
+   sisal_dv_rank_reduce's offset math (slab byte offset = (idx-lb)*slice_size*esz). */
+inline sisal_array_t sisal_dv_replace_slice(sisal_array_t a, int32_t idx, sisal_array_t slice) {
+    sisal_array_t res = a;
+    size_t esz = sisal_elem_size(a.type_id);
+    size_t slot = (esz > 8 ? esz : 8);
+    int32_t dim0 = (a.dims[0] > 0) ? (int32_t)a.dims[0] : (int32_t)a.size;
+    uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
+    res.data = malloc(a.size * slot);
+    memcpy(res.data, a.data, a.size * slot);
+    memcpy((char*)res.data + (uint64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size * esz,
+           slice.data, slice_size * esz);
     return res;
 }
 

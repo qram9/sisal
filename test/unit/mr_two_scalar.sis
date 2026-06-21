@@ -1,0 +1,7 @@
+define Main
+function Two2( a, b: integer returns integer, integer )
+  a + b, a - b
+end function
+function Main( a, b: integer returns integer )
+  let P, Q := Two2( a, b ) in P + Q end let
+end function

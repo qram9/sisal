@@ -1,0 +1,69 @@
+% gaussj_parts.sis — regression for the gaussj component pieces verified bottom-up.
+% Each function was checked in isolation against a hand-computed result; together they
+% guard the new lower_forall paths: multi-output array gather, box-then-flatten
+% (array_dv of an inner-forall row), and multi-output function returns.
+define gaussj_parts
+
+% --- argmax over a 1-D row (the reduction path) ---
+function idfamax( A: array_dv[double]; n: integer returns integer )
+  for i in 1, n returns value of argmax abs(A[i]) end for
+end function
+
+function idfmax( A: array_dv[double]; n: integer returns integer )
+  for i in 1, n returns value of argmax A[i] end for
+end function
+
+% --- a forall returning TWO arrays (multi-output gather): P[i]=A[i]+1, Q[i]=A[i]*2 ---
+function gp_two( n: integer; A: array_dv[double]
+                 returns array_dv[double], array_dv[double] )
+  for i in 1, n
+  returns array_dv of A[i] + 1.0d0
+          array_dv of A[i] * 2.0d0
+  end for
+end function
+
+% --- array-of-rows gather (box-then-flatten): result is flat rank-2 i*10+j ---
+function gp_aor( n: integer returns array_dv[double] )
+  for i in 1, n
+    Arow := for j in 1, n returns array_dv of i*10.0d0 + j end for
+  returns array_dv of Arow
+  end for
+end function
+
+% --- GetPivot: nested forall building cols/maxs + the argmax helpers ---
+function GetPivot( n: integer; A: array_dv[double]; PIVR: array_dv[integer]
+                   returns integer, integer )
+  let cols, maxs :=
+      for i in 1, n
+        col, max := if PIVR[i] = 0 then
+                      let imax := idfamax( DV_RANK_REDUCE(A, i), n ) in
+                        imax, abs(A[i, imax])
+                      end let
+                    else 0, -1.0d0 end if
+      returns array_dv of col
+              array_dv of max
+      end for;
+    irow := idfmax( maxs, n )
+  in cols[irow], irow end let
+end function
+
+% --- Compute: one Gauss-Jordan elimination step (array row output + scalar output) ---
+function Compute( n, pvtrow: integer; Ain: array_dv[double]; Bin: array_dv[double]
+                  returns array_dv[double], array_dv[double] )
+  for i in 1, n
+    pvtele     := Ain[pvtrow, pvtrow];
+    Arow, Bele := if i = pvtrow then
+                    for j in 1, n returns array_dv of Ain[i, j] / pvtele end for,
+                    Bin[i] / pvtele
+                  else
+                    let multipler := Ain[i, pvtrow] / pvtele in
+                      for j in 1, n
+                      returns array_dv of Ain[i, j] - multipler * Ain[pvtrow, j]
+                      end for,
+                      Bin[i] - multipler * Bin[pvtrow]
+                    end let
+                  end if
+  returns array_dv of Arow
+          array_dv of Bele
+  end for
+end function

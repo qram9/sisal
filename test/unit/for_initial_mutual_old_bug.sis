@@ -1,0 +1,40 @@
+% for_initial_mutual_old_bug.sis
+% ---------------------------------------------------------------------------
+% MINIMAL case that gets INCORRECT IF1 lowering.
+%
+% Two loop-carried variables read each other's previous value in the same body:
+%     a := old b;
+%     b := old a;
+% This should SWAP a and b every iteration: with a=10, b=20,
+%     returns value of a  ==  20 for odd n, 10 for even n.
+%
+% Why it lowers wrong:
+%   The front end builds a body's decldefs as SEQUENTIAL nested `let .. in`
+%   (the `;` is NOT a parallel `and`).  Processing `a := old b` first rebinds
+%   `a` (and, via the implicit `old X := X` shift, `old a`) so that the later
+%   `b := old a` reads the CORRUPTED `old a` (== old b) instead of the
+%   iteration's carry-in `old a`.
+%
+%   Result in the IF1: the BODY's carry outputs for `b`, `old a`, `old b` all
+%   source from `old b`'s boundary-in port instead of their own.  Every `old X`
+%   in the body must instead bind to the iteration carry-in, independent of
+%   decldef order (parallel-`and` semantics).
+%
+% Correct expected results:  swap_bug(1)=20  swap_bug(2)=10  swap_bug(3)=20
+% Current (buggy) results:    all 20  (a and b collapse onto old b)
+% ---------------------------------------------------------------------------
+
+define swap_bug
+
+function swap_bug(n : integer returns integer)
+  for initial
+    i := 1;
+    a := 10;
+    b := 20;
+  while i <= n repeat
+    i := old i + 1;
+    a := old b;
+    b := old a;
+  returns value of a
+  end for
+end function

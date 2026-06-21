@@ -1,0 +1,7 @@
+% Reduction: product of i for i in 1..N  =>  N!.   N=5 -> 120
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of product i
+  end for
+end function

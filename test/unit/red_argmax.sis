@@ -1,0 +1,8 @@
+% Reduction: argmax of i*(N+1-i) -> the index i at the peak (returns the index).
+% N=5 -> values {5,8,9,8,5}, max=9 at i=3 -> argmax = 3
+define main
+function main(N: integer returns integer)
+  for i in 1, N
+  returns value of argmax i * (N + 1 - i)
+  end for
+end function

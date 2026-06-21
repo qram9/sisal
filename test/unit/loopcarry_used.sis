@@ -1,0 +1,11 @@
+define Main
+function Main( n: integer; Ain: array_dv[double] returns array_dv[double] )
+  for initial
+    I := 0;
+    A := Ain
+  while I < n repeat
+    I := old I + 1;
+    A := for i in 1, n returns array_dv of old A[i] * 2.0d0 end for
+  returns value of A
+  end for
+end function

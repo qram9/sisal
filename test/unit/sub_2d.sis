@@ -1,0 +1,7 @@
+% 2-D array_dv round-trip: build A[i,j]=i*10+j via cross, read back A[2,3].
+% N=3 -> A[2,3] = 23
+define main
+function main(N: integer returns integer)
+  let A := for i in 1, N cross j in 1, N returns array_dv of i * 10 + j end for
+  in A[2, 3] end let
+end function

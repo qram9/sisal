@@ -1,0 +1,8 @@
+% Reduction over a 2-D cross: sum of i*j  =>  (sum i)*(sum j).
+% N=3,M=4 -> (1+2+3)*(1+2+3+4) = 6*10 = 60
+define main
+function main(N: integer; M: integer returns integer)
+  for i in 1, N cross j in 1, M
+  returns value of sum i * j
+  end for
+end function

@@ -153,7 +153,7 @@ and lower_node env _gr nid node =
   | Boundary (ins, _, _, _) ->
       let var_map =
         List.fold_left
-          (fun m (_, pid, name) ->
+          (fun m (_, pid, name, _) ->
             PortMap.add (0, pid) (C.Id (sanitize name)) m)
           env.var_map ins
       in
@@ -171,7 +171,7 @@ let lower_procedure tm nid node =
         match NM.find_opt 0 sub_gr.nmap with
         | Some (Boundary (ins, _, _, _)) ->
             List.map
-              (fun (_, pid, name) ->
+              (fun (_, pid, name, _) ->
                 let ty_id =
                   ES.fold
                     (fun ((sn, sp), (_dn, _dp), t) acc ->

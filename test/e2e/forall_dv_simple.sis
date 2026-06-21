@@ -1,0 +1,5 @@
+function Main( n: integer returns array_dv[integer] )
+  for i in 1, n
+  returns array_dv of i * i
+  end for
+end function

@@ -119,6 +119,8 @@ let parse_msg lvl fmt = Ir.Debug.msg "parse" lvl fmt
 %token VALUE
 %token WHILE
 %token WHEN
+%token ARGMAX
+%token ARGMIN
 %token CATENATE
 %token PRODUCT
 %token ABS
@@ -352,6 +354,8 @@ function_nest:
       { [$1] }
 |  exp_list COMMA simple_expression
     { $3 :: $1 }
+|  exp_list COMMA DOTDOT
+    { Dotdot :: $1 }   /* '..' axis placeholder in a subscript: A[i, ..] */
   ;
 
   opt_semicolon:
@@ -758,6 +762,10 @@ function_nest:
     { Greatest }
 |   CATENATE
     { Catenate  }
+|   ARGMAX
+    { Argmax }
+|   ARGMIN
+    { Argmin }
   ;
 
   conditional_exp:
@@ -1109,6 +1117,14 @@ invocation :
     { Invocation ($1,Arg Empty)  }
 |   function_name LPAREN expression RPAREN
   { Invocation ($1,Arg $3) }
+|   ARGMAX LPAREN RPAREN
+  { Invocation (Function_name ["ARGMAX"], Arg Empty) }
+|   ARGMAX LPAREN expression RPAREN
+  { Invocation (Function_name ["ARGMAX"], Arg $3) }
+|   ARGMIN LPAREN RPAREN
+  { Invocation (Function_name ["ARGMIN"], Arg Empty) }
+|   ARGMIN LPAREN expression RPAREN
+  { Invocation (Function_name ["ARGMIN"], Arg $3) }
 ;
 
 function_name : NAME

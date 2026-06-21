@@ -126,7 +126,7 @@ function t_argsort (a : ai returns ai) ARGSORT(a) end function
 function t_outerproduct (a, b : ai returns ai)
   OUTERPRODUCT(add_i, a, b)
 end function
-function t_innerproduct (a, b : ar returns real)
+function t_innerproduct (a, b : ar returns ar)
   INNERPRODUCT(a, b)
 end function
 
@@ -172,6 +172,9 @@ end function
 function t_pad_fill (a : ai; lo, hi, fill : integer returns ai)
   PAD(a, lo, hi, fill)
 end function
-function t_stencil (f : integer; a : ai returns ai)
-  STENCIL(f, a, 3)
+% STENCIL's first arg is a FUNCTION applied to each window slice (an array),
+% not a scalar; use a real window reducer.
+function win_sum (w : ai returns integer)  SUM(w)  end function
+function t_stencil (a : ai returns ai)
+  STENCIL(win_sum, a, 3)
 end function

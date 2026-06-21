@@ -38,6 +38,35 @@ let sanitize name =
   in
   if String.length s > 0 && s.[0] >= '0' && s.[0] <= '9' then "_" ^ s else s
 
+(** [fresh_name env base] -> a readable, unique C identifier from [base].
+    Sanitizes [base]; if it is already taken (env.seen_decls), it finds a
+    trailing number and increments it (e.g. "lb" -> "lb1" -> "lb2", "x3" -> "x4")
+    until there is no collision; otherwise it appends a number. The returned env
+    records the chosen name so later calls stay unique. (Same idea LLVM uses to
+    uniquify value names.) Hand every minted temp through this so no name can
+    shadow a parameter, a user variable, or another temp. *)
+let fresh_name env base =
+  let s = match sanitize base with "" -> "_t" | s -> s in
+  if not (StringSet.mem s env.seen_decls) then
+    (s, { env with seen_decls = StringSet.add s env.seen_decls })
+  else begin
+    (* split off any trailing digits: "lb" -> ("lb", 1); "x3" -> ("x", 4) *)
+    let n = String.length s in
+    let i = ref n in
+    while !i > 0 && s.[!i - 1] >= '0' && s.[!i - 1] <= '9' do decr i done;
+    let stem = String.sub s 0 !i in
+    let start =
+      if !i < n then (try int_of_string (String.sub s !i (n - !i)) + 1 with _ -> 1)
+      else 1
+    in
+    let rec pick k =
+      let cand = stem ^ string_of_int k in
+      if StringSet.mem cand env.seen_decls then pick (k + 1) else cand
+    in
+    let name = pick start in
+    (name, { env with seen_decls = StringSet.add name env.seen_decls })
+  end
+
 (** [get_port_name env gr nid pid dir] finds a descriptive name for a port. *)
 let get_port_name _env gr nid pid dir =
   let cs, _ps = gr.symtab in
@@ -176,6 +205,19 @@ let topo_sort gr =
   let _, sorted = List.fold_left (fun (v, s) id -> visit v s id) (IntSet.empty, []) nodes in
   let sorted = List.rev sorted in
   let num_nodes = List.length nodes in if List.length sorted < num_nodes then let sorted_set = List.fold_left (fun s id -> IntSet.add id s) IntSet.empty sorted in sorted @ List.filter (fun id -> not (IntSet.mem id sorted_set)) nodes else sorted
+
+(** [topo_sort_edges gr] returns the graph's edges in data-dependence order.
+    Node 0 (the boundary = graph inputs) comes first, then the nodes in
+    [topo_sort] order; for each node we emit its OUTGOING edges (tail = node).
+    An edge's tail value is ready once that node's own inputs are done, so this
+    walk yields every edge after the edges that feed its tail. *)
+let topo_sort_edges gr =
+  let node_order = 0 :: topo_sort gr in
+  List.concat_map (fun nid ->
+    ES.fold (fun e acc -> let ((sn, _), _, _) = e in if sn = nid then e :: acc else acc)
+      gr.eset []
+    |> List.sort compare)
+    node_order
 
 let get_function_param_types tm ty_id =
   match TM.find_opt ty_id tm with

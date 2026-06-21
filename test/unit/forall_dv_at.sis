@@ -1,0 +1,6 @@
+% for a at i in A — element and its 1-based index
+function Main( A: array[integer] returns array_dv[integer] )
+  for a in A at i
+  returns array_dv of a + i
+  end for
+end function

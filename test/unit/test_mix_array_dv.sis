@@ -1,0 +1,9 @@
+define Main
+
+function Main(N: integer returns array[integer], array_dv[integer])
+    for i in 1, N
+    returns 
+        array of i
+        array_dv of i * 10
+    end for
+end function

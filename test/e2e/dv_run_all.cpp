@@ -114,6 +114,18 @@ extern "C" int32_t func_MIN_TO_N(int32_t N);
 extern "C" int32_t func_MAX_TO_N(int32_t N);
 #endif
 
+#ifdef TEST_FOR_INITIAL
+extern "C" int32_t func_FI_SUM(int32_t N);
+extern "C" int32_t func_FI_PRODUCT(int32_t N);
+extern "C" int32_t func_FI_FINAL_I(int32_t N);
+extern "C" int32_t func_FI_PASSTHRU(int32_t N);
+extern "C" int32_t func_FI_SWAP(int32_t N);
+extern "C" int32_t func_FI_FIB(int32_t N);
+extern "C" int32_t func_FI_FIB_A(int32_t N);
+extern "C" sisal_array_t func_FI_PARAM_IDENTITY(int32_t N, sisal_array_t Ain);
+extern "C" sisal_array_t func_FI_PARAM_BUMP(int32_t N, sisal_array_t Ain);
+#endif
+
 #ifdef TEST_INNERPRODUCT_DV
 extern "C" sisal_array_t func_IP_F32(sisal_array_t A, sisal_array_t B);
 extern "C" sisal_array_t func_IP_I32(sisal_array_t A, sisal_array_t B);
@@ -212,6 +224,15 @@ static sisal_array_t make_double_2d(const double* data, int rows, int cols) {
     a.dims[0] = rows;
     a.dims[1] = cols;
     memcpy(a.data, data, (size_t)n * sizeof(double));
+    return a;
+}
+
+static sisal_array_t make_int_2d(const int32_t* data, int rows, int cols) {
+    int n = rows * cols;
+    sisal_array_t a = sisal_array_alloc_empty(2, 6, (uint64_t)n);
+    a.dims[0] = rows;
+    a.dims[1] = cols;
+    memcpy(a.data, data, (size_t)n * sizeof(int32_t));
     return a;
 }
 
@@ -667,71 +688,49 @@ static void test_intrinsics(void) {
 #ifdef TEST_BROADCAST_COMPLEX
 static void test_broadcast_complex(void) {
     printf("\n=== Group G: dv_broadcast_complex ===\n");
-    printf("  NOTE  Shape metadata is known-wrong (compiler bug); tests assert actual behavior.\n");
 
-    // broadcast_vec_mat: V=[1,2,3] (1D), M=[[10,20,30],[40,50,60]] (shape [2,3])
-    // Correct result: shape [2,3], values [11,22,33,41,52,63]
-    // Actual result:  rank=2, size=18, dims=[3,6], first 3 values correct,
-    //                 [3..5] are wrong (40,50,60 repeated), [6..8]=[41,52,63], etc.
+    // broadcast_vec_mat: V=[1,2,3] (1D) + M=[[10,20,30],[40,50,60]] (shape [2,3])
+    // numpy: result shape [2,3], values [11,22,33, 41,52,63].
     {
         double v_data[] = {1.0, 2.0, 3.0};
         double m_data[] = {10.0,20.0,30.0, 40.0,50.0,60.0};
         sisal_array_t V = make_double_arr(v_data, 3);
         sisal_array_t M = make_double_2d(m_data, 2, 3);
         sisal_array_t r = func_BROADCAST_VEC_MAT(V, M);
-        printf("  INFO  bcast_vec_mat: rank=%d size=%llu dims=[%lld,%lld] (expected rank=2 size=6 dims=[2,3])\n",
-               r.rank, (unsigned long long)r.size, (long long)r.dims[0], (long long)r.dims[1]);
-        // First three elements (row 0) are correct
-        check("bcast_vec_mat_row0[0]", near_d(ad(r,0), 11.0));
-        check("bcast_vec_mat_row0[1]", near_d(ad(r,1), 22.0));
-        check("bcast_vec_mat_row0[2]", near_d(ad(r,2), 33.0));
-        // Row 1 should be [41,52,63] but is at index 6 in the oversized output
-        check("bcast_vec_mat_row1[0]", near_d(ad(r,6), 41.0));
-        check("bcast_vec_mat_row1[1]", near_d(ad(r,7), 52.0));
-        check("bcast_vec_mat_row1[2]", near_d(ad(r,8), 63.0));
-        // Shape is wrong — record as known failure
-        printf("  INFO  bcast_vec_mat_shape: KNOWN BUG (rank=%d dims=[%lld,%lld], expected [2,3])\n",
-               r.rank, (long long)r.dims[0], (long long)r.dims[1]);
-        check("bcast_vec_mat_shape_bug", r.rank == 2 && r.dims[0] == 3 && r.dims[1] == 6);
+        check("bcast_vec_mat shape [2,3]", r.rank==2 && r.dims[0]==2 && r.dims[1]==3 && r.size==6);
+        double ex[] = {11,22,33, 41,52,63};
+        bool ok = (r.size==6); for (int i=0;i<6 && ok;i++) ok &= near_d(ad(r,i), ex[i]);
+        check("bcast_vec_mat values 11 22 33 41 52 63", ok);
         free(V.data); free(M.data); free(r.data);
     }
 
-    // broadcast_unit: A=[[1],[2]] (shape [2,1]), B=[[10,20,30]] (shape [1,3])
-    // Correct result: shape [2,3], values [11,21,31,12,22,32]
-    // Actual result:  rank=2, size=9, dims=[3,3]; first 6 values are correct.
+    // broadcast_unit: A=[[1],[2]] (shape [2,1]) + B=[[10,20,30]] (shape [1,3])
+    // numpy: result shape [2,3], values [11,21,31, 12,22,32].
     {
         double a_data[] = {1.0, 2.0};
         double b_data[] = {10.0, 20.0, 30.0};
         sisal_array_t A = make_double_2d(a_data, 2, 1);
         sisal_array_t B = make_double_2d(b_data, 1, 3);
         sisal_array_t r = func_BROADCAST_UNIT(A, B);
-        printf("  INFO  bcast_unit: rank=%d size=%llu dims=[%lld,%lld] (expected rank=2 size=6 dims=[2,3])\n",
-               r.rank, (unsigned long long)r.size, (long long)r.dims[0], (long long)r.dims[1]);
-        double ex[] = {11.0,21.0,31.0, 12.0,22.0,32.0};
-        bool ok = true;
-        for (int i = 0; i < 6; i++) ok &= near_d(ad(r,i), ex[i]);
-        check("bcast_unit_values_first6", ok);
-        printf("  INFO  bcast_unit_shape: KNOWN BUG (dims=[%lld,%lld], expected [2,3])\n",
-               (long long)r.dims[0], (long long)r.dims[1]);
-        check("bcast_unit_shape_bug", r.rank == 2 && r.dims[0] == 3 && r.dims[1] == 3);
+        check("bcast_unit shape [2,3]", r.rank==2 && r.dims[0]==2 && r.dims[1]==3 && r.size==6);
+        double ex[] = {11,21,31, 12,22,32};
+        bool ok = (r.size==6); for (int i=0;i<6 && ok;i++) ok &= near_d(ad(r,i), ex[i]);
+        check("bcast_unit values 11 21 31 12 22 32", ok);
         free(A.data); free(B.data); free(r.data);
     }
 
-    // broadcast_scalar: S=100.0, M=[[1,2,3],[4,5,6],[7,8,9]] (shape [3,3])
-    // Correct result: shape [3,3], values [101..109]
-    // Actual result:  rank=1, size=9, dims=[9] — values are all correct.
+    // broadcast_scalar: S=100.0 + M=[[1..9]] (shape [3,3]) -> values [101..109].
+    // VALUES are correct; the result SHAPE is still rank-1 [9] -- a separate bug in
+    // the scalar+array path (the conform fix only covers array+array rank mismatch).
     {
         double m_data[] = {1.0,2.0,3.0, 4.0,5.0,6.0, 7.0,8.0,9.0};
         sisal_array_t M = make_double_2d(m_data, 3, 3);
         sisal_array_t r = func_BROADCAST_SCALAR(100.0, M);
-        printf("  INFO  bcast_scalar: rank=%d size=%llu dims=[%lld,%lld] (expected rank=2 size=9 dims=[3,3])\n",
-               r.rank, (unsigned long long)r.size, (long long)r.dims[0], (long long)r.dims[1]);
-        bool ok = true;
-        for (int i = 0; i < 9; i++) ok &= near_d(ad(r,i), m_data[i] + 100.0);
-        check("bcast_scalar_values", ok);
-        printf("  INFO  bcast_scalar_shape: KNOWN BUG (rank=%d dims=[%lld], expected rank=2 [3,3])\n",
-               r.rank, (long long)r.dims[0]);
-        check("bcast_scalar_shape_bug", r.rank == 1 && r.dims[0] == 9);
+        // scalar broadcast keeps M's shape: the flat elementwise result is reshaped
+        // back to M's runtime rank/dims (DV_NUM_RANK -> DV_DIMENSION -> RESHAPE).
+        check("bcast_scalar shape [3,3]", r.rank==2 && r.dims[0]==3 && r.dims[1]==3 && r.size==9);
+        bool ok = (r.size==9); for (int i=0;i<9 && ok;i++) ok &= near_d(ad(r,i), m_data[i] + 100.0);
+        check("bcast_scalar values 101..109", ok);
         free(M.data); free(r.data);
     }
 }
@@ -891,6 +890,58 @@ static void test_forall_reduce_dv(void) {
     check("min_to_n_5",     func_MIN_TO_N(5)     == 1);
     check("max_to_n_5",     func_MAX_TO_N(5)     == 5);
     check("max_to_n_1",     func_MAX_TO_N(1)     == 1);
+}
+#endif
+
+#ifdef TEST_FOR_INITIAL
+static void test_for_initial(void) {
+    printf("\n=== Group FI: for_initial (LoopB) ===\n");
+    // single self-recurrences
+    check("fi_sum_10",      func_FI_SUM(10)      == 55);   // 1+..+10
+    check("fi_sum_1",       func_FI_SUM(1)       == 1);
+    check("fi_product_5",   func_FI_PRODUCT(5)   == 120);  // 5!
+    check("fi_product_1",   func_FI_PRODUCT(1)   == 1);
+    check("fi_final_i_5",   func_FI_FINAL_I(5)   == 6);    // i runs 1..n, stops at n+1
+    check("fi_final_i_1",   func_FI_FINAL_I(1)   == 2);
+    // identity-recurrence carry (k := old k) — needs the MERGE-filter fix
+    check("fi_passthru_5",  func_FI_PASSTHRU(5)  == 42);
+    check("fi_passthru_1",  func_FI_PASSTHRU(1)  == 42);
+    // mutual old-references — needs the get_symbol_id_old carry-in fix
+    check("fi_swap_1",      func_FI_SWAP(1)      == 20);   // a,b exchange each iter
+    check("fi_swap_2",      func_FI_SWAP(2)      == 10);
+    check("fi_swap_3",      func_FI_SWAP(3)      == 20);
+    check("fi_fib_1",       func_FI_FIB(1)       == 1);    // Fibonacci
+    check("fi_fib_5",       func_FI_FIB(5)       == 5);
+    check("fi_fib_7",       func_FI_FIB(7)       == 13);
+    check("fi_fib_10",      func_FI_FIB(10)      == 55);
+    // LoopA (post-test repeat..until) Fibonacci — same recurrence via the other loop block
+    check("fi_fib_a_1",     func_FI_FIB_A(1)     == 1);
+    check("fi_fib_a_5",     func_FI_FIB_A(5)     == 5);
+    check("fi_fib_a_7",     func_FI_FIB_A(7)     == 13);
+    check("fi_fib_a_10",    func_FI_FIB_A(10)    == 55);
+
+    // Regression: array-PARAMETER-seeded carry (A := Ain) — needs the to_if1
+    // INIT-seed MERGE fix (a pass-through alias must still become a loop carry).
+    int32_t seed[] = {10, 20, 30};
+    sisal_array_t s1 = make_int_arr(seed, 3);
+    sisal_array_t id = func_FI_PARAM_IDENTITY(3, s1);   // identity carry -> unchanged
+    check("fi_param_identity rank=1",  id.rank == 1);
+    check("fi_param_identity size=3",  (int)id.size == 3);
+    check("fi_param_identity[0]=10",   ai(id, 0) == 10);
+    check("fi_param_identity[1]=20",   ai(id, 1) == 20);
+    check("fi_param_identity[2]=30",   ai(id, 2) == 30);
+    // identity carry returns the same buffer as the input (id.data == s1.data),
+    // so free it only once.
+    if (s1.data) free(s1.data);
+
+    sisal_array_t s2 = make_int_arr(seed, 3);
+    sisal_array_t bp = func_FI_PARAM_BUMP(3, s2);       // +1 per elem, 3 iters
+    check("fi_param_bump size=3",      (int)bp.size == 3);
+    check("fi_param_bump[0]=13",       ai(bp, 0) == 13);
+    check("fi_param_bump[1]=23",       ai(bp, 1) == 23);
+    check("fi_param_bump[2]=33",       ai(bp, 2) == 33);
+    if (bp.data) free(bp.data);
+    if (s2.data) free(s2.data);
 }
 #endif
 
@@ -1141,6 +1192,289 @@ static void test_bulk_basic(void) {
 }
 #endif
 
+#ifdef TEST_GAUSSJ_PARTS
+struct gp_arr2 { sisal_array_t res_0, res_1; };
+struct gp_int2 { int32_t res_0, res_1; };
+extern "C" int32_t      func_IDFAMAX(sisal_array_t A, int32_t N);
+extern "C" int32_t      func_IDFMAX(sisal_array_t A, int32_t N);
+extern "C" gp_arr2      func_GP_TWO(int32_t N, sisal_array_t A);
+extern "C" sisal_array_t func_GP_AOR(int32_t N);
+extern "C" gp_int2      func_GETPIVOT(int32_t N, sisal_array_t A, sisal_array_t PIVR);
+extern "C" gp_arr2      func_COMPUTE(int32_t N, int32_t PVTROW, sisal_array_t AIN, sisal_array_t BIN);
+
+static void test_gaussj_parts(void) {
+    printf("\n=== Group GJ: gaussj component pieces ===\n");
+
+    // argmax over a row [1,-5,3]: max|.| at idx 2, max at idx 3
+    double row[] = {1.0, -5.0, 3.0};
+    sisal_array_t r = make_double_arr(row, 3);
+    check("idfamax([1,-5,3])=2", func_IDFAMAX(r, 3) == 2);
+    check("idfmax([1,-5,3])=3",  func_IDFMAX(r, 3)  == 3);
+    free(r.data);
+
+    // multi-output 2-array gather: P=A+1, Q=A*2 over [10,20,30]
+    double a3[] = {10.0, 20.0, 30.0};
+    sisal_array_t va = make_double_arr(a3, 3);
+    gp_arr2 t = func_GP_TWO(3, va);
+    check("gp_two P[0]=11", ad(t.res_0, 0) == 11.0);
+    check("gp_two P[2]=31", ad(t.res_0, 2) == 31.0);
+    check("gp_two Q[0]=20", ad(t.res_1, 0) == 20.0);
+    check("gp_two Q[2]=60", ad(t.res_1, 2) == 60.0);
+    free(va.data); free(t.res_0.data); free(t.res_1.data);
+
+    // box-then-flatten: array-of-rows -> flat rank-2 [11,12,21,22]
+    sisal_array_t ar = func_GP_AOR(2);
+    check("gp_aor rank=2", ar.rank == 2);
+    check("gp_aor size=4", (int)ar.size == 4);
+    check("gp_aor=11 12 21 22",
+          ad(ar,0)==11.0 && ad(ar,1)==12.0 && ad(ar,2)==21.0 && ad(ar,3)==22.0);
+    free(ar.data);
+
+    // GetPivot on [[0,2],[3,0]], PIVR=[0,0] -> (Icol=1, Irow=2)
+    double m[] = {0,2, 3,0}; sisal_array_t A2 = make_double_2d(m, 2, 2);
+    int32_t pv[] = {0,0};    sisal_array_t Pv = make_int_arr(pv, 2);
+    gp_int2 gp = func_GETPIVOT(2, A2, Pv);
+    check("GetPivot Icol=1", gp.res_0 == 1);
+    check("GetPivot Irow=2", gp.res_1 == 2);
+    free(A2.data); free(Pv.data);
+
+    // Compute(n=2, pvtrow=1, [[2,4],[1,3]], [2,3]) -> A'=[1,2,0,1], B'=[1,2]
+    double cm[] = {2,4, 1,3}; sisal_array_t Ac = make_double_2d(cm, 2, 2);
+    double cb[] = {2,3};      sisal_array_t Bc = make_double_arr(cb, 2);
+    gp_arr2 c = func_COMPUTE(2, 1, Ac, Bc);
+    check("Compute A'=1 2 0 1",
+          ad(c.res_0,0)==1.0 && ad(c.res_0,1)==2.0 && ad(c.res_0,2)==0.0 && ad(c.res_0,3)==1.0);
+    check("Compute B'=1 2", ad(c.res_1,0)==1.0 && ad(c.res_1,1)==2.0);
+    free(Ac.data); free(Bc.data); free(c.res_0.data); free(c.res_1.data);
+}
+#endif
+
+#ifdef TEST_GAUSSJ
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t A, sisal_array_t B);
+static void test_gaussj(void) {
+    printf("\n=== Group GJX: gaussj full solve (gaussj_dv_rr) ===\n");
+    // 2x2 swap-forcing [[0,2],[3,0]] b=[4,9] -> x=[3,2]
+    { double A[]={0,2, 3,0}, B[]={4,9};
+      sisal_array_t Aa=make_double_2d(A,2,2), Bb=make_double_arr(B,2);
+      sisal_array_t r=func_MAIN(2,Aa,Bb);
+      check("gaussj 2x2 swap x=[3,2]", fabs(ad(r,0)-3.0)<1e-9 && fabs(ad(r,1)-2.0)<1e-9);
+      free(Aa.data); free(Bb.data); free(r.data); }
+    // 2x2 diagonal -> x=[2,3]
+    { double A[]={2,0, 0,3}, B[]={4,9};
+      sisal_array_t Aa=make_double_2d(A,2,2), Bb=make_double_arr(B,2);
+      sisal_array_t r=func_MAIN(2,Aa,Bb);
+      check("gaussj 2x2 diag x=[2,3]", fabs(ad(r,0)-2.0)<1e-9 && fabs(ad(r,1)-3.0)<1e-9);
+      free(Aa.data); free(Bb.data); free(r.data); }
+    // 3x3 dense [[2,1,1],[1,3,2],[1,0,0]] b=[4,5,1] -> x=[1,0,2]
+    { double A[]={2,1,1, 1,3,2, 1,0,0}, B[]={4,5,1};
+      sisal_array_t Aa=make_double_2d(A,3,3), Bb=make_double_arr(B,3);
+      sisal_array_t r=func_MAIN(3,Aa,Bb);
+      check("gaussj 3x3 dense x=[1,0,2]",
+            fabs(ad(r,0)-1.0)<1e-9 && fabs(ad(r,1)-0.0)<1e-9 && fabs(ad(r,2)-2.0)<1e-9);
+      free(Aa.data); free(Bb.data); free(r.data); }
+    // larger B = A*x round-trip: diagonally dominant, x = 1..n, recover x
+    { const int n=12; double A[n*n], B[n], x[n];
+      for (int i=0;i<n;i++) x[i]=i+1;
+      for (int i=0;i<n;i++) for (int j=0;j<n;j++) A[i*n+j]=(i==j)?(double)(n+1):1.0;
+      for (int i=0;i<n;i++){ double s=0; for(int j=0;j<n;j++) s+=A[i*n+j]*x[j]; B[i]=s; }
+      sisal_array_t Aa=make_double_2d(A,n,n), Bb=make_double_arr(B,n);
+      sisal_array_t r=func_MAIN(n,Aa,Bb); double e=0;
+      for (int i=0;i<n;i++){ double d=fabs(ad(r,i)-x[i]); if(d>e) e=d; }
+      check("gaussj 12x12 B=A*x round-trip (err<1e-9)", e<1e-9);
+      free(Aa.data); free(Bb.data); free(r.data); }
+}
+#endif
+
+#ifdef TEST_SWAPLOOP
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t A);
+static void test_swaploop(void) {
+    printf("\n=== Group SWAP: in-loop row swap (DV_RANK_REPLACE, aliasing) ===\n");
+    double A[]={11,12, 21,22};
+    { sisal_array_t Aa=make_double_2d(A,2,2); sisal_array_t r=func_MAIN(1,Aa);  // one swap
+      check("swaploop n=1 -> 21 22 11 12",
+            ad(r,0)==21.0 && ad(r,1)==22.0 && ad(r,2)==11.0 && ad(r,3)==12.0);
+      free(Aa.data); free(r.data); }
+    { sisal_array_t Aa=make_double_2d(A,2,2); sisal_array_t r=func_MAIN(2,Aa);  // two swaps -> original
+      check("swaploop n=2 -> original (round-trip)",
+            ad(r,0)==11.0 && ad(r,1)==12.0 && ad(r,2)==21.0 && ad(r,3)==22.0);
+      free(Aa.data); free(r.data); }
+}
+#endif
+
+#ifdef TEST_GEN_EXTENT
+extern "C" sisal_array_t func_GENEXT_SUB(int32_t n);
+extern "C" sisal_array_t func_GENEXT_LB(int32_t n);
+extern "C" sisal_array_t func_GENEXT_CROSS(int32_t n, int32_t m);
+static void test_gen_extent(void) {
+    printf("\n=== Group GE: generator expression-bound lowering ===\n");
+    // single-level expr upper bound: i in 1..(n-1).  n=5 -> [1,4,9,16]
+    { sisal_array_t r = func_GENEXT_SUB(5);
+      check("genext_sub n=5 -> 1 4 9 16",
+            (int)r.size==4 && ai(r,0)==1 && ai(r,1)==4 && ai(r,2)==9 && ai(r,3)==16);
+      free(r.data); }
+    // expr LOWER bound: i in (n-3)..n.  n=6 -> [3,4,5,6]
+    { sisal_array_t r = func_GENEXT_LB(6);
+      check("genext_lb n=6 -> 3 4 5 6",
+            (int)r.size==4 && ai(r,0)==3 && ai(r,1)==4 && ai(r,2)==5 && ai(r,3)==6);
+      free(r.data); }
+    // cross nest, expr bound on inner axis: i in 1..n, j in 1..(m-1).
+    // n=2,m=4 -> rank2 [2,3]: 11 12 13 21 22 23
+    { sisal_array_t r = func_GENEXT_CROSS(2,4);
+      check("genext_cross n=2,m=4 rank/dims", r.rank==2 && r.dims[0]==2 && r.dims[1]==3);
+      check("genext_cross -> 11 12 13 21 22 23",
+            (int)r.size==6 && ai(r,0)==11 && ai(r,1)==12 && ai(r,2)==13 &&
+            ai(r,3)==21 && ai(r,4)==22 && ai(r,5)==23);
+      free(r.data); }
+}
+#endif
+
+#ifdef TEST_BROADCAST_PARTS
+extern "C" int32_t       func_BP_RANK(sisal_array_t A);
+extern "C" int32_t       func_BP_PRODUCT(sisal_array_t S);
+extern "C" sisal_array_t func_BP_RESHAPE(sisal_array_t A, sisal_array_t S);
+extern "C" int32_t       func_BP_OFFSET(sisal_array_t A, int32_t k, sisal_array_t S);
+extern "C" int32_t       func_BP_LOAD(sisal_array_t A, int32_t off);
+extern "C" sisal_array_t func_BP_BCAST_ADD(sisal_array_t A, sisal_array_t B,
+                                           sisal_array_t S, int32_t total);
+static void test_broadcast_parts(void) {
+    printf("\n=== Group BP: A+B broadcast pieces (bottom-up) ===\n");
+    int32_t d1[]={1,2,3}, d2[]={1,2,3,4,5,6};
+    sisal_array_t v3  = make_int_arr(d1, 3);
+    sisal_array_t v6  = make_int_arr(d2, 6);
+    // Step 0 — rank
+    { sisal_array_t m = make_int_2d(d2, 2, 3);
+      check("bp_rank([3])=1",   func_BP_RANK(v3) == 1);
+      check("bp_rank([2x3])=2", func_BP_RANK(m)  == 2);
+      free(m.data); }
+    // Step 1 — product over shape
+    { int32_t s[]={2,3}, s2[]={2,3,4};
+      sisal_array_t S=make_int_arr(s,2), S2=make_int_arr(s2,3);
+      check("bp_product([2,3])=6",    func_BP_PRODUCT(S)  == 6);
+      check("bp_product([2,3,4])=24", func_BP_PRODUCT(S2) == 24);
+      free(S.data); free(S2.data); }
+    // Step 2 — reshape flat[6] by [2,3]
+    { int32_t s[]={2,3}; sisal_array_t S=make_int_arr(s,2);
+      sisal_array_t r=func_BP_RESHAPE(v6, S);
+      check("bp_reshape rank/dims", r.rank==2 && r.dims[0]==2 && r.dims[1]==3);
+      check("bp_reshape data 1..6",
+            ai(r,0)==1 && ai(r,1)==2 && ai(r,2)==3 && ai(r,3)==4 && ai(r,4)==5 && ai(r,5)==6);
+      // NOTE: reshape aliases the input's data (res = a), so r.data == v6.data --
+      // do NOT free r.data here; v6 is freed once at the end.
+      free(S.data); }
+    // Step 3a — offset (broadcast a [3] across result shape [2,3] -> 0 1 2 0 1 2)
+    { int32_t a[]={10,20,30}, s[]={2,3};
+      sisal_array_t A=make_int_arr(a,3), S=make_int_arr(s,2);
+      bool ok=true; int exp[]={0,1,2,0,1,2};
+      for (int k=0;k<6;k++) ok = ok && (func_BP_OFFSET(A,k,S)==exp[k]);
+      check("bp_offset broadcast 0 1 2 0 1 2", ok);
+      free(A.data); free(S.data); }
+    // Step 3b — linear load
+    { int32_t a[]={10,20,30,40}; sisal_array_t A=make_int_arr(a,4);
+      check("bp_load(a,0)=10", func_BP_LOAD(A,0)==10);
+      check("bp_load(a,2)=30", func_BP_LOAD(A,2)==30);
+      free(A.data); }
+    // Step 4 — offset element-wise forall (same-shape + real broadcast)
+    { int32_t a[]={10,20,30}, b[]={1,2,3}, s[]={3};
+      sisal_array_t A=make_int_arr(a,3), B=make_int_arr(b,3), S=make_int_arr(s,1);
+      sisal_array_t r=func_BP_BCAST_ADD(A,B,S,3);
+      check("bp_bcast_add same-shape -> 11 22 33",
+            (int)r.size==3 && ai(r,0)==11 && ai(r,1)==22 && ai(r,2)==33);
+      free(A.data); free(B.data); free(S.data); free(r.data); }
+    { int32_t a[]={1,2,3,4,5,6}, b[]={10,20,30}, s[]={2,3};
+      sisal_array_t A=make_int_2d(a,2,3), B=make_int_arr(b,3), S=make_int_arr(s,2);
+      sisal_array_t r=func_BP_BCAST_ADD(A,B,S,6);
+      check("bp_bcast_add broadcast -> 11 22 33 14 25 36",
+            (int)r.size==6 && ai(r,0)==11 && ai(r,1)==22 && ai(r,2)==33 &&
+            ai(r,3)==14 && ai(r,4)==25 && ai(r,5)==36);
+      free(A.data); free(B.data); free(S.data); free(r.data); }
+    free(v3.data); free(v6.data);
+}
+#endif
+
+#ifdef TEST_IF_COND
+extern "C" int32_t func_IFMIN(int32_t a, int32_t b);
+extern "C" int32_t func_IF3(int32_t i, int32_t e);
+extern "C" int32_t func_IF3V(int32_t i, int32_t e, int32_t f);
+extern "C" int32_t func_IFDEEP(int32_t x);
+static void test_if_cond(void) {
+    printf("\n=== Group IF: if / elseif / else chains ===\n");
+    // simple if/else = min
+    check("ifmin(3,5)=3", func_IFMIN(3, 5) == 3);
+    check("ifmin(5,3)=3", func_IFMIN(5, 3) == 3);
+    // one elseif: i<e -> i*2 ; i=e -> e+3 ; else -> i-2
+    check("if3(2,5)=4 (i<e)",   func_IF3(2, 5) == 4);
+    check("if3(5,5)=8 (i=e)",   func_IF3(5, 5) == 8);
+    check("if3(7,5)=5 (else)",  func_IF3(7, 5) == 5);
+    // elseif over 3 vars: i<e -> i ; e<f -> e ; else -> f
+    check("if3v(1,5,9)=1 (i<e)",  func_IF3V(1, 5, 9) == 1);
+    check("if3v(5,3,9)=3 (e<f)",  func_IF3V(5, 3, 9) == 3);
+    check("if3v(5,3,1)=1 (else f)",func_IF3V(5, 3, 1) == 1);
+    // deep 6-branch chain
+    check("ifdeep(0)=10", func_IFDEEP(0) == 10);
+    check("ifdeep(2)=30", func_IFDEEP(2) == 30);
+    check("ifdeep(4)=50", func_IFDEEP(4) == 50);
+    check("ifdeep(5)=60", func_IFDEEP(5) == 60);
+    check("ifdeep(9)=60", func_IFDEEP(9) == 60);
+}
+#endif
+
+// ============================================================
+// GROUP FDS — forall_dv_simple  (for i in 1..N → array_dv of i*i)
+// ============================================================
+#ifdef TEST_FORALL_DV_SIMPLE
+extern "C" sisal_array_t func_MAIN(int32_t N);
+static void test_forall_dv_simple(void) {
+    printf("\n=== Group FDS: forall_dv_simple (i*i) ===\n");
+    // func_MAIN(5) → [1, 4, 9, 16, 25]
+    sisal_array_t r = func_MAIN(5);
+    int32_t exp[] = {1, 4, 9, 16, 25};
+    check("fds_size", (int32_t)r.size == 5);
+    for (int i = 0; i < 5; i++) {
+        char n[32]; snprintf(n, sizeof n, "fds[%d]", i);
+        check(n, ai(r, i) == exp[i]);
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
+// ============================================================
+// GROUP CDD — cross_dv_demo  (for i in 1..N cross j in 1..M → array_dv of i*j)
+// ============================================================
+#ifdef TEST_CROSS_DV_DEMO
+extern "C" sisal_array_t func_MAIN(int32_t N, int32_t M);
+static void test_cross_dv_demo(void) {
+    printf("\n=== Group CDD: cross_dv_demo (i*j cross) ===\n");
+    // func_MAIN(2,3): i in 1..2 cross j in 1..3 → [1,2,3, 2,4,6]
+    sisal_array_t r = func_MAIN(2, 3);
+    int32_t exp[] = {1, 2, 3, 2, 4, 6};
+    check("cdd_size", (int32_t)r.size == 6);
+    for (int i = 0; i < 6; i++) {
+        char n[32]; snprintf(n, sizeof n, "cdd[%d]", i);
+        check(n, ai(r, i) == exp[i]);
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
+// ============================================================
+// GROUP FN — forall_negate  (for i in 1..N → array_dv of -real(i))
+// ============================================================
+#ifdef TEST_FORALL_NEGATE
+extern "C" sisal_array_t func_MAIN_GPU(int32_t N);
+static void test_forall_negate(void) {
+    printf("\n=== Group FN: forall_negate (-real(i)) ===\n");
+    // func_MAIN_GPU(4) → [-1.0, -2.0, -3.0, -4.0]
+    sisal_array_t r = func_MAIN_GPU(4);
+    float exp[] = {-1.0f, -2.0f, -3.0f, -4.0f};
+    check("fn_size", (int32_t)r.size == 4);
+    for (int i = 0; i < 4; i++) {
+        char n[32]; snprintf(n, sizeof n, "fn[%d]", i);
+        check(n, near_f(af(r, i), exp[i]));
+    }
+    if (r.data) free(r.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -1193,12 +1527,47 @@ int main(void) {
 #ifdef TEST_INNERPRODUCT_DV
     test_innerproduct_dv();
 #endif
+#ifdef TEST_FOR_INITIAL
+    test_for_initial();
+#endif
+#ifdef TEST_GAUSSJ_PARTS
+    test_gaussj_parts();
+#endif
+#ifdef TEST_GAUSSJ
+    test_gaussj();
+#endif
+#ifdef TEST_SWAPLOOP
+    test_swaploop();
+#endif
+#ifdef TEST_GEN_EXTENT
+    test_gen_extent();
+#endif
+#ifdef TEST_BROADCAST_PARTS
+    test_broadcast_parts();
+#endif
+#ifdef TEST_IF_COND
+    test_if_cond();
+#endif
+#ifdef TEST_FORALL_DV_SIMPLE
+    test_forall_dv_simple();
+#endif
+#ifdef TEST_CROSS_DV_DEMO
+    test_cross_dv_demo();
+#endif
+#ifdef TEST_FORALL_NEGATE
+    test_forall_negate();
+#endif
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT) && !defined(TEST_LIFTED_ARITH) && \
     !defined(TEST_SHL) && !defined(TEST_TEST_SUBSET) && !defined(TEST_INTRINSICS) && \
     !defined(TEST_BROADCAST_COMPLEX) && !defined(TEST_COMPRESS) && !defined(TEST_BROADCAST_NUMPY) && \
     !defined(TEST_FORALL_CPU) && !defined(TEST_NEGATE_DV) && !defined(TEST_FORALL_BASIC_DV) && \
-    !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC) && !defined(TEST_INNERPRODUCT_DV)
+    !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC) && !defined(TEST_INNERPRODUCT_DV) && \
+    !defined(TEST_FOR_INITIAL) && !defined(TEST_GAUSSJ_PARTS) && \
+    !defined(TEST_GAUSSJ) && !defined(TEST_SWAPLOOP) && !defined(TEST_GEN_EXTENT) && \
+    !defined(TEST_BROADCAST_PARTS) && !defined(TEST_IF_COND) && \
+    !defined(TEST_FORALL_DV_SIMPLE) && !defined(TEST_CROSS_DV_DEMO) && \
+    !defined(TEST_FORALL_NEGATE)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

@@ -191,7 +191,7 @@ let rec lower_subgraph env gr gid =
   (* 1. Boundary Input Declarations and Bindings (Outer Block) *)
   let b_in_decls, env =
     List.fold_left
-      (fun (decls, env) (ty_id, pid, name) ->
+      (fun (decls, env) (ty_id, pid, name, _) ->
         let s_name = sanitize name in
         let ty =
           try TM.find ty_id env.tm |> c_type_of_if1_ty env.tm
@@ -335,7 +335,7 @@ and lower_node env gr nid node =
                   C.Cast (C.Pointer (c_elem_ty, []), C.Member (arr, "data"))
                 in
                 let idx_expr =
-                  C.BinOp (C.Sub, idx, C.Member (arr, "lower_bound"))
+                  C.BinOp (C.Sub, idx, C.Index (C.Member (arr, "lower_bound"), C.LitInt 0))
                 in
                 ( [
                     C.Expr
@@ -487,7 +487,7 @@ let lower_procedure tm nid node next_gid =
             (match NM.find_opt 0 sub_gr.nmap with
             | Some (Boundary (ins, _, _, _)) ->
                 List.map
-                  (fun (ty_id, _pid, name) ->
+                  (fun (ty_id, _pid, name, _) ->
                     let ty =
                       try TM.find ty_id tm |> c_type_of_if1_ty tm
                       with _ -> C.Basic "void*"
