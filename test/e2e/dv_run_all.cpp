@@ -220,6 +220,19 @@ extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t A);  // multi-array 
 #ifdef TEST_AA
 extern "C" sisal_array_t func_DVFILL(int32_t LO, int32_t HI, int32_t V);  // array_dv fill
 #endif
+#ifdef TEST_SUB_MATMUL
+extern "C" int32_t func_MAIN(int32_t N);  // matmul via 2-D subscripts, read C[1,1]
+#endif
+#ifdef TEST_PI
+extern "C" float func_MAIN(int32_t Cycles);  // Leibniz pi (for-initial) * 4
+#endif
+#ifdef TEST_TEST_MIX_ARRAY_DV
+struct MIX_ARRAY_DV_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct MIX_ARRAY_DV_results func_MAIN(int32_t N);  // (array of i, array_dv of i*10)
+#endif
+#ifdef TEST_TST_LOOP1_DV
+extern "C" sisal_array_t func_MAIN(int32_t N, double Q, double R, double T, sisal_array_t Y, sisal_array_t Z);  // for K in Y -> K+K
+#endif
 
 // Scatter-axis generators over array params (element var renamed off the array
 // name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
@@ -1434,6 +1447,53 @@ static void test_loopcarry_identity(void) {
 }
 #endif
 
+#ifdef TEST_SUB_MATMUL
+static void test_sub_matmul(void) {
+    printf("\n=== Group: sub_matmul (matmul via 2-D subscripts) ===\n");
+    // A[i,k]=i+k, B[k,j]=k*j; C[1,1] = 2*1 + 3*2 = 8
+    check("sub_matmul(2)=8", func_MAIN(2) == 8);
+}
+#endif
+
+#ifdef TEST_PI
+static void test_pi(void) {
+    printf("\n=== Group: pi (Leibniz for-initial) ===\n");
+    check("pi(100000) ~ 3.14159", fabs(func_MAIN(100000) - 3.14159f) < 1e-3f);
+}
+#endif
+
+#ifdef TEST_TEST_MIX_ARRAY_DV
+// for i in 1,N returns (array of i) AND (array_dv of i*10) — mixed plain+dv outputs.
+static void test_test_mix_array_dv(void) {
+    printf("\n=== Group: test_mix_array_dv (mixed plain + array_dv outputs) ===\n");
+    struct MIX_ARRAY_DV_results r = func_MAIN(3);
+    bool ok0 = ((int)r.res_0.size == 3);
+    for (int k = 0; ok0 && k < 3; k++) ok0 = ok0 && (((int32_t*)r.res_0.data)[k] == k + 1);
+    bool ok1 = ((int)r.res_1.size == 3);
+    for (int k = 0; ok1 && k < 3; k++) ok1 = ok1 && (((int32_t*)r.res_1.data)[k] == (k + 1) * 10);
+    check("mix res_0 = [1,2,3]",    ok0);
+    check("mix res_1 = [10,20,30]", ok1);
+}
+#endif
+
+#ifdef TEST_TST_LOOP1_DV
+// Hydro fragment: for K in Y returns array_dv of K+K (scatter over a double array).
+static void test_tst_loop1_dv(void) {
+    printf("\n=== Group: tst_loop1_dv (scatter for K in Y -> K+K) ===\n");
+    double y[] = {1.0, 2.0, 3.0};
+    sisal_array_t Y = make_double_arr(y, 3);
+    sisal_array_t Z = make_double_arr(y, 3);
+    sisal_array_t r = func_MAIN(3, 0.0, 0.0, 0.0, Y, Z);
+    check("hydro rank-1", r.rank == 1 && (int)r.size == 3);
+    check("hydro[0]=2", ad(r, 0) == 2.0);
+    check("hydro[1]=4", ad(r, 1) == 4.0);
+    check("hydro[2]=6", ad(r, 2) == 6.0);
+    if (Y.data) free(Y.data);
+    if (Z.data) free(Z.data);
+    if (r.data) free(r.data);
+}
+#endif
+
 #ifdef TEST_SUB_2D_DIAG
 static void test_sub_2d_diag(void) {
     printf("\n=== Group: sub_2d_diag (A[1,1]+A[2,2]+A[3,3]) ===\n");
@@ -2191,6 +2251,18 @@ int main(void) {
 #ifdef TEST_LOOPCARRY_IDENTITY
     test_loopcarry_identity();
 #endif
+#ifdef TEST_SUB_MATMUL
+    test_sub_matmul();
+#endif
+#ifdef TEST_PI
+    test_pi();
+#endif
+#ifdef TEST_TEST_MIX_ARRAY_DV
+    test_test_mix_array_dv();
+#endif
+#ifdef TEST_TST_LOOP1_DV
+    test_tst_loop1_dv();
+#endif
 #ifdef TEST_SUB_2D_DIAG
     test_sub_2d_diag();
 #endif
@@ -2310,6 +2382,8 @@ int main(void) {
     !defined(TEST_SUB_2D_DIAG) && !defined(TEST_LET_NESTED_SEQ) && !defined(TEST_FORTY2) && \
     !defined(TEST_XFA_B1_DECLDEF) && !defined(TEST_XFA_C3_3AXIS) && !defined(TEST_SLICE_STORE) && \
     !defined(TEST_MR_TWO_ARRAY) && !defined(TEST_AA) && \
+    !defined(TEST_SUB_MATMUL) && !defined(TEST_PI) && \
+    !defined(TEST_TEST_MIX_ARRAY_DV) && !defined(TEST_TST_LOOP1_DV) && \
     !defined(TEST_RED_SUM) && !defined(TEST_RED_PRODUCT) && !defined(TEST_RED_GREATEST) && \
     !defined(TEST_RED_LEAST) && !defined(TEST_RED_ARGMAX) && !defined(TEST_RED_ARGMIN) && \
     !defined(TEST_RED_SUM_CROSS) && \
