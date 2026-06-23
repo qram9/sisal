@@ -1274,51 +1274,6 @@ and build_multiarity ?(nam = "") siz in_gr =
          [ If1.Name ("multiARITY_" ^ nam) ] ))
     in_gr
 
-and get_ports_unified of_gr basis_gr parent_gr =
-  (* Take basis_gr:boundary and add them to of_gr:boundary
-        with the same port numbers. Confirm that parent_gr
-        contains the symbol, i.e., restrict to outer
-        scope variables.*)
-  let bin = If1.get_boundary_node basis_gr in
-  match bin with
-  | If1.Boundary (in_port_lis, _, _, _) ->
-      List.fold_left
-        (fun f_gr (src_n, src_p, xn, _) ->
-          if If1.is_outer_var xn parent_gr = true then
-            let cs, ps = f_gr.If1.symtab in
-            if If1.SM.mem xn ps = true then
-              let {
-                If1.val_ty = t;
-                If1.val_name = _;
-                If1.val_def = _;
-                If1.def_port = _;
-              } =
-                If1.SM.find xn ps
-              in
-              let assigned_port, f_gr =
-                If1.add_to_boundary_inputs ~namen:xn src_n src_p f_gr
-              in
-              let f_gr =
-                {
-                  f_gr with
-                  If1.symtab =
-                    ( If1.SM.add xn
-                        {
-                          If1.val_ty = t;
-                          If1.val_name = xn;
-                          If1.val_def = 0;
-                          If1.def_port = assigned_port;
-                        }
-                        cs,
-                      ps );
-                }
-              in
-              f_gr
-            else raise (If1.Sem_error ("Cannot find name in outer scope:" ^ xn))
-          else f_gr)
-        of_gr (List.rev in_port_lis)
-  | _ -> of_gr
-
 (* Ordered list of a generator subgraph's boundary outputs:
    (name, out_port, def_node, def_port, ty). A local-symtab name is published
    when it is locally produced (val_def <> 0), OR it is an alias of a
@@ -6595,49 +6550,25 @@ and do_simple_exp_impl in_gr in_sim_ex =
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
-      (* OLD add_decls — kept for reference, commented out
-      let add_decls in_gr dp =
-        to_if1_msg 3 "For_initial: lowering INIT";
-        let build_init_graph in_gr =
-          let init_gr =
-            get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr
-          in
-          init_gr
-        in
-        let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
-        let _, out_gr =
-          let cs = fst out_gr.If1.symtab in
-          If1.SM.fold
-            (fun _
-                 {
-                   If1.val_name = _;
-                   If1.val_ty = t1;
-                   If1.val_def = dd;
-                   If1.def_port = dp;
-                 } (op, out_gr) ->
-              if dd <> 0 then (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
-              else (op, out_gr))
-            cs
-            (If1.boundary_in_port_count out_gr, out_gr)
-        in
-        (xyz, out_gr)
-      in
-      *)
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
         let build_init_graph in_gr =
           If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
         in
-        let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
-        (* A carry seeded by a pass-through alias (`A := Ain`) has val_def = 0 (it aliases
-           a boundary input), so the old `dd <> 0` gate dropped it from INIT's outputs and
-           it never became a loop carry / got a MERGE.  The right test is whether the name
-           is FRESH to the INIT clause -- i.e. NOT already in the parent symtab.  Inherited
-           externals (N, AIN) are in the parent; freshly-bound carries (I, A) are not, so
-           they (and their OLD counterparts) must land on the INIT outputs. *)
-        let parent_syms = fst in_gr.If1.symtab in
-        let is_init_bound v = not (If1.SM.mem v parent_syms) in
+        let init_gr = build_init_graph in_gr in
+        let xyz, out_gr = do_decldef_part init_gr dp in
+        (* A local-symtab name becomes a carry (gets an INIT output seeding a MERGE)
+           iff it is NOT a boundary INPUT of out_gr.  Rationale:
+           after lowering the decldefs, captured/inherited values (X, P, OLD A) live
+           on the boundary input-list; decldef-bound carries (A, K, XT, I) do not --
+           even when a carry aliases a boundary value (`A := X` makes A.val_def=0 like
+           a boundary input), A is still absent from the boundary input-list.  So
+           "not in boundary in-list" cleanly separates carries from captures, where the
+           old "val_def<>0" and "not in parent CS" tests both failed. *)
+        let boundary_in_names =
+          List.map (fun (_, _, name, _) -> name) (If1.get_boundary_inputs out_gr) in
+        let is_init_bound v = not (List.mem v boundary_in_names) in
         let _, out_gr =
           let cs = fst out_gr.If1.symtab in
           (* First pass: export current values *)
@@ -6736,68 +6667,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let loopAOrB i in_gr =
         match i with
         | Ast.Iterator_termination (ii, t) ->
-            (* OLD LoopA lowering — commented out, rewriting from scratch
-            to_if1_msg 3 "LoopA: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
-            let body_gr, return_action_list, _, mask_ty_list =
-              add_body_for_initial decl_gr ii r
-            in
-            let (_, _, _), test_gr = add_terminator body_gr t in
-            let (_, _, _), for_gr, return_action_list =
-              add_ret body_gr return_action_list mask_ty_list
-                (String.concat "\n" (List.map Ast.str_return_clause r))
-            in
-            let for_gr =
-              add_comp_node body_gr "BODY"
-                ~prag:
-                  (Ast.str_decldef_part (`Loop_type d)
-                  ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node test_gr "TEST"
-                ~prag:(Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node decl_gr "INIT"
-                ~prag:(Ast.str_decldef_part (`Loop_type d))
-                for_gr
-            in
-            let for_gr = get_ports_unified for_gr body_gr decl_gr in
-            let (fx, _, _), in_gr =
-              If1.add_node_2
-                (`Compound
-                   ( for_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name "LoopA";
-                       If1.Compound_of If1.If1_loop_initial;
-                       If1.Ast_type (Ast.str_simple_exp finit);
-                     ],
-                     let lis = get_assoc_list_loopAOrB for_gr in
-                     List.length lis :: lis ))
-                in_gr
-            in
-            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
-            verify_compound_inputs fx for_gr in_gr;
-            let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity
-                (List.length return_action_list)
-                in_gr ~nam:"FOR_INITIAL_LOOP_A"
-            in
-            let _, outl, in_gr =
-              List.fold_left
-                (fun (cc, outl, iigr) (wh, tt, aa) ->
-                  ( cc + 1,
-                    outl @ [ (wh, tt, fx, cc) ],
-                    If1.add_edge2 fx aa mul_n cc tt iigr ))
-                (0, [], in_gr) return_action_list
-            in
-            ((mul_n, mul_p, mul_t), outl, in_gr)
-            *)
-            (* NEW LoopA lowering *)
             to_if1_msg 3 "LoopA: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
             to_if1_msg 3 "LoopA: building BODY iterator: %s"
@@ -6857,12 +6726,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is any name FRESH to the INIT clause (not inherited from the
-                   parent), so a pass-through alias (A := Ain, val_def = 0) counts too --
-                   mirrors the INIT-output export in add_decls. *)
-                let parent_syms = fst in_gr.If1.symtab in
-                let is_carry v e = (e.If1.val_def <> 0 || not (If1.SM.mem v parent_syms))
-                                   && not (is_old v) in
+                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
+                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
+                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
+                let init_in_names =
+                  List.map (fun (_, _, name, _) -> name) (If1.get_boundary_inputs decl_gr) in
+                let is_carry v _e = not (List.mem v init_in_names) && not (is_old v) in
                 let non_old_count =
                   If1.SM.fold (fun v e n ->
                     if is_carry v e then n + 1 else n)
@@ -7168,7 +7037,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (List.length merge_nodes);
               fg
             in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
                 (`Compound
@@ -7201,84 +7069,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             ((mul_n, mul_p, mul_t), outl, in_gr)
         | Termination_iterator (t, ii) ->
-            (* OLD LoopB lowering — kept for reference, commented out
-            to_if1_msg 3 "LoopB: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
-            to_if1_msg 3 "LoopB: building TEST termination: %s"
-              (Ast.str_termination t);
-            let (_, _, _), test_gr = add_terminator decl_gr t in
-            to_if1_msg 3 "LoopB: building BODY iterator: %s"
-              (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
-              add_body test_gr ii r
-            in
-            to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
-              (List.length return_action_list);
-            let (_, _, _), for_gr, return_action_list =
-              add_ret body_gr return_action_list mask_ty_list
-                (String.concat "\n" (List.map Ast.str_return_clause r))
-            in
-            let for_gr =
-              add_comp_node body_gr "BODY"
-                ~prag:
-                  (Ast.str_decldef_part (`Loop_type d)
-                  ^ "\n" ^ Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node test_gr "TEST"
-                ~prag:(Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node decl_gr "INIT"
-                ~prag:(Ast.str_decldef_part (`Loop_type d))
-                for_gr
-            in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
-            let (fx, _, _), in_gr =
-              If1.add_node_2
-                (`Compound
-                   ( for_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name "LoopB";
-                       If1.Compound_of If1.If1_loop_initial;
-                       If1.Ast_type (Ast.str_simple_exp finit);
-                     ],
-                     let lis = get_assoc_list_loopAOrB for_gr in
-                     List.length lis :: lis ))
-                in_gr
-            in
-            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
-            verify_compound_inputs fx for_gr in_gr;
-
-            to_if1_msg 3
-              "LoopB: outer compound node=%d, building multiarity for %d \
-               return(s)"
-              fx
-              (List.length return_action_list);
-            let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity
-                (List.length return_action_list)
-                in_gr ~nam:"FOR_INITIAL_LOOP_B"
-            in
-            let _, outl, in_gr =
-              List.fold_left
-                (fun (cc, outl, iigr) (wh, tt, aa) ->
-                  to_if1_msg 4 "LoopB: wiring return port %d ty=%s" cc
-                    (If1.p_f_t iigr tt);
-                  ( cc + 1,
-                    outl @ [ (wh, tt, fx, cc) ],
-                    If1.add_edge2 fx aa mul_n cc tt iigr ))
-                (0, [], in_gr) return_action_list
-            in
-            to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
-              mul_n;
-            ((mul_n, mul_p, mul_t), outl, in_gr)
-            *)
-            (* NEW LoopB lowering *)
             to_if1_msg 3 "LoopB: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
             to_if1_msg 3 "LoopB: building TEST termination: %s"
@@ -7354,12 +7144,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is any name FRESH to the INIT clause (not inherited from the
-                   parent), so a pass-through alias (A := Ain, val_def = 0) counts too --
-                   mirrors the INIT-output export in add_decls. *)
-                let parent_syms = fst in_gr.If1.symtab in
-                let is_carry v e = (e.If1.val_def <> 0 || not (If1.SM.mem v parent_syms))
-                                   && not (is_old v) in
+                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
+                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
+                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
+                let init_in_names =
+                  List.map (fun (_, _, name, _) -> name) (If1.get_boundary_inputs decl_gr) in
+                let is_carry v _e = not (List.mem v init_in_names) && not (is_old v) in
                 let non_old_count =
                   If1.SM.fold (fun v e n ->
                     if is_carry v e then n + 1 else n)
@@ -7712,7 +7502,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
               in
               for_gr
             in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
                 (`Compound

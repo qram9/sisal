@@ -18,7 +18,25 @@ let string_of_c_type = function
   | C.Pointer (C.Basic s, _) -> s ^ "*"
   | _ -> "int32_t"
 
-(* Return Some op_name when the FORALL's RETURNS subgraph folds to a scalar via REDUCE.
+(* A forall RETURNS reduction operator.  Previously stringly-typed (Some "sum" /
+   "argmax" / …), which let an unrecognised RETURNS kind silently fall through to
+   the gather path.  A closed variant makes the lowering matches exhaustive, so a
+   new/unknown operator is a type error rather than a wrong-answer miscompile. *)
+type reduce_op = R_sum | R_product | R_least | R_greatest | R_argmax | R_argmin
+
+(* Parse the operator name carried by the REDUCE node's CHARACTER literal.  Fails
+   loudly on anything unexpected — an unknown reduction is a bug, not a default. *)
+let reduce_op_of_string s =
+  match String.lowercase_ascii s with
+  | "sum"      -> R_sum
+  | "product"  -> R_product
+  | "least"    -> R_least
+  | "greatest" -> R_greatest
+  | "argmax"   -> R_argmax
+  | "argmin"   -> R_argmin
+  | other      -> failwith (Printf.sprintf "forall reduce: unknown operator %S" other)
+
+(* Return Some op when the FORALL's RETURNS subgraph folds to a scalar via REDUCE.
    Used by both infer_types (to suppress the sisal_array_t seed) and lower_forall. *)
 let forall_fold_op loop_gr =
   (* A pure fold FORALL has exactly ONE body output (the element to reduce).
@@ -39,7 +57,7 @@ let forall_fold_op loop_gr =
             let op = ES.fold (fun ((sn, _), (dn, dp), _) a ->
               if dn = reduce_nid && dp = 0 then
                 match NM.find_opt sn ret_gr.nmap with
-                | Some (Literal (_, CHARACTER, value, _)) -> Some (String.lowercase_ascii value)
+                | Some (Literal (_, CHARACTER, value, _)) -> Some (reduce_op_of_string value)
                 | _ -> a
               else a
             ) ret_gr.eset None in
@@ -75,7 +93,7 @@ let forall_reduce_ports loop_gr =
                 ES.fold (fun ((s, _), (d, p), _) a ->
                   if d = sn && p = 0 then
                     match NM.find_opt s ret_gr.nmap with
-                    | Some (Literal (_, CHARACTER, v, _)) -> Some (String.lowercase_ascii v)
+                    | Some (Literal (_, CHARACTER, v, _)) -> Some (reduce_op_of_string v)
                     | _ -> a
                   else a) ret_gr.eset None in
               let bport =
@@ -115,6 +133,38 @@ let forall_gather_ports loop_gr =
               let bport =
                 ES.fold (fun ((s, sp), (d, p), _) a ->
                   if d = sn && p = 1 && s = 0 then
+                    (match List.assoc_opt sp bin_to_body with Some b -> Some b | None -> a)
+                  else a) ret_gr.eset None in
+              (dp, (match bport with Some b -> b | None -> dp)) :: acc
+          | _ -> acc
+        else acc) ret_gr.eset []
+
+(* Companion to forall_reduce_ports / forall_gather_ports: RETURNS outputs fed by a
+   FINALVALUE node — `returns value of X` with NO reduction operator, which keeps the
+   LAST iteration's value (not a gather, not a fold).  The value is FINALVALUE's
+   port-0 input.  Returns (returns_out_port, body_out_port) per such output. *)
+let forall_finalvalue_ports loop_gr =
+  match find_subgraph loop_gr "RETURNS" with
+  | None -> []
+  | Some (_, ret_gr) ->
+      let pfx = "__forall_body_" in
+      let plen = String.length pfx in
+      let bin_to_body =
+        match NM.find_opt 0 ret_gr.nmap with
+        | Some (Boundary (ins, _, _, _)) ->
+            List.filter_map (fun (_, _, name, bp) ->
+              if String.length name > plen && String.sub name 0 plen = pfx then
+                (try Some (bp, int_of_string (String.sub name plen (String.length name - plen)))
+                 with _ -> None)
+              else None) ins
+        | _ -> [] in
+      ES.fold (fun ((sn, _), (dn, dp), _) acc ->
+        if dn = 0 then
+          match NM.find_opt sn ret_gr.nmap with
+          | Some (Simple (_, FINALVALUE, _, _, _)) ->
+              let bport =
+                ES.fold (fun ((s, sp), (d, p), _) a ->
+                  if d = sn && p = 0 && s = 0 then
                     (match List.assoc_opt sp bin_to_body with Some b -> Some b | None -> a)
                   else a) ret_gr.eset None in
               (dp, (match bport with Some b -> b | None -> dp)) :: acc
@@ -173,10 +223,14 @@ let infer_types env gr gid =
              the other reduction ports). *)
           let rports = if is_forall then forall_reduce_ports sub else [] in
           let port0_is_reduce = List.exists (fun (dp, _, _) -> dp = 0) rports in
-          if (is_forall || sym = STREAM || sym = MAT) && not is_fold && not port0_is_reduce then
+          (* FINALVALUE (`value of X`, no operator) keeps the body value's own type
+             (array OR scalar) — don't force sisal_array_t; let pass2 infer it. *)
+          let fports = if is_forall then forall_finalvalue_ports sub else [] in
+          let port0_is_final = List.exists (fun (dp, _) -> dp = 0) fports in
+          if (is_forall || sym = STREAM || sym = MAT) && not is_fold && not port0_is_reduce && not port0_is_final then
             set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
           (match fold_op with
-           | Some ("argmax" | "argmin") -> set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
+           | Some (R_argmax | R_argmin) -> set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
            | _ -> ());
           pass1 sub sub_gid
       | _ -> ()
@@ -268,10 +322,14 @@ let infer_types env gr gid =
              the other reduction ports). *)
           let rports = if is_forall then forall_reduce_ports sub else [] in
           let port0_is_reduce = List.exists (fun (dp, _, _) -> dp = 0) rports in
-          if (is_forall || sym = STREAM || sym = MAT) && not is_fold && not port0_is_reduce then
+          (* FINALVALUE (`value of X`, no operator) keeps the body value's own type
+             (array OR scalar) — don't force sisal_array_t; let pass2 infer it. *)
+          let fports = if is_forall then forall_finalvalue_ports sub else [] in
+          let port0_is_final = List.exists (fun (dp, _) -> dp = 0) fports in
+          if (is_forall || sym = STREAM || sym = MAT) && not is_fold && not port0_is_reduce && not port0_is_final then
             set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
           (match fold_op with
-           | Some ("argmax" | "argmin") -> set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
+           | Some (R_argmax | R_argmin) -> set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
            | _ -> ());
           pass0 sub sub_gid
       | _ -> ()
@@ -720,8 +778,8 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
      Step 1: locate the GENERATOR / BODY / RETURNS subgraph nodes inside loop_gr
      via a node-map walk.  (NM-walk is fine HERE -- we are only FINDING the three
      structural children of the forall, not lowering anything yet.)  Everything
-     else is built up step by step.  The previous (recursive zip_loops) version is
-     preserved below as `_lower_forall_recursive_OLD`. *)
+     else is built up step by step.  (The previous recursive `zip_loops` version
+     was removed once this path had soaked.) *)
   let _ = (nid, sub_gid, pr) in
   let find_role role =
     NM.fold
@@ -1106,6 +1164,11 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           List.find_map (fun (op_port, opn, _) -> if op_port = p then Some opn else None)
             reduce_specs
         in
+        (* RETURNS ports fed by FINALVALUE (`value of X`, keep-last) vs DV_GATHER. *)
+        let final_specs = forall_finalvalue_ports loop_gr in
+        let gather_specs = forall_gather_ports loop_gr in
+        let is_final p = List.exists (fun (fp, _) -> fp = p) final_specs in
+        let is_gather p = List.exists (fun (gp, _) -> gp = p) gather_specs in
         (* primary axis iterator (the Sisal index, for argmax/argmin) *)
         let primary_iter =
           match
@@ -1127,7 +1190,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               let out_ty = try c_type_of_if1_ty tm (TM.find tid tm) with _ -> C.Basic "int32_t" in
               let cast = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); value ]) in
               match reduce_op_of port with
-              | Some ("argmax" | "argmin" as op) ->
+              | Some ((R_argmax | R_argmin) as op) ->
                   (* argmax/argmin: track the best VALUE in a temp accumulator and
                      return the Sisal INDEX (the loop iterator) of the extremum.
                      Result type is the index (int32), accumulator is the value. *)
@@ -1139,8 +1202,8 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   in
                   let accn = Printf.sprintf "__argm_%d_%d" sub_gid port in
                   let accv = C.Id accn in
-                  let sentinel = if op = "argmax" then C.UnaryOp (C.Negate, inf) else inf in
-                  let cmp = if op = "argmax" then C.Gt else C.Lt in
+                  let sentinel = if op = R_argmax then C.UnaryOp (C.Negate, inf) else inf in
+                  let cmp = if op = R_argmax then C.Gt else C.Lt in
                   let idx = match primary_iter with Some i -> i | None -> C.LitInt 0 in
                   let before =
                     [ C.Decl (out_ty, accn, Some sentinel);
@@ -1161,21 +1224,38 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   in
                   let init_val =
                     match op with
-                    | "product" -> C.LitInt 1 | "least" -> inf
-                    | "greatest" -> C.UnaryOp (C.Negate, inf) | _ -> C.LitInt 0
+                    | R_product -> C.LitInt 1 | R_least -> inf
+                    | R_greatest -> C.UnaryOp (C.Negate, inf) | R_sum -> C.LitInt 0
+                    | R_argmax | R_argmin -> assert false (* handled in the arm above *)
                   in
                   let update =
                     match op with
-                    | "product" -> C.Expr (C.BinOp (C.Assign, res_v, C.BinOp (C.Mul, res_v, cast)))
-                    | "least" -> C.If (C.BinOp (C.Lt, cast, res_v), [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ], [])
-                    | "greatest" -> C.If (C.BinOp (C.Gt, cast, res_v), [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ], [])
-                    | _ ->
+                    | R_product -> C.Expr (C.BinOp (C.Assign, res_v, C.BinOp (C.Mul, res_v, cast)))
+                    | R_least -> C.If (C.BinOp (C.Lt, cast, res_v), [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ], [])
+                    | R_greatest -> C.If (C.BinOp (C.Gt, cast, res_v), [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ], [])
+                    | R_sum ->
                         let o = if out_ty = C.Basic "bool" then C.LogOr else C.Add in
                         C.Expr (C.BinOp (C.Assign, res_v, C.BinOp (o, res_v, cast)))
+                    | R_argmax | R_argmin -> assert false (* handled in the arm above *)
                   in
                   ( [ C.Expr (C.BinOp (C.Assign, res_v, init_val)) ], [ update ], [],
                     (res_name, out_ty), (port, res_v) )
+              | None when is_final port ->
+                  (* FINALVALUE: `value of X` with no reduction operator returns the
+                     LAST iteration's value.  Overwrite res_v with the body value each
+                     iteration; after the loop it holds the final value.  No alloc, no
+                     gather counter, no box-then-flatten — works for scalar AND array
+                     bodies (out_ty carries the body value's type). *)
+                  ( [], [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ], [],
+                    (res_name, out_ty), (port, res_v) )
               | None ->
+                  (* Not a reduction and not a FINALVALUE — it MUST be a genuine
+                     DV_GATHER.  Fail loudly on anything else rather than silently
+                     miscompiling an unhandled RETURNS kind as a gather. *)
+                  if not (is_gather port) then
+                    failwith (Printf.sprintf
+                      "lower_forall: RETURNS port %d is neither REDUCE, FINALVALUE nor \
+                       DV_GATHER -- unhandled forall returns kind" port);
                   let alloc =
                     C.Expr (C.BinOp (C.Assign, res_v,
                       C.Call ("sisal_array_alloc_empty",
@@ -1255,7 +1335,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         let afters = List.concat_map (fun (_, _, a, _, _) -> a) per in
         let decls = List.map (fun (_, _, _, d, _) -> d) per in
         let binds = List.map (fun (_, _, _, _, b) -> b) per in
-        let any_gather = List.exists (fun (p, _, _) -> reduce_op_of p = None) body_outs in
+        let any_gather = List.exists (fun (p, _, _) -> reduce_op_of p = None && not (is_final p)) body_outs in
         let before = befores @ (if any_gather then [ C.Decl (C.Basic "int32_t", gctr, Some (C.LitInt 0)) ] else []) in
         let inner = body_stmts @ inners @ (if any_gather then [ C.Expr (C.UnaryOp (C.PostInc, C.Id gctr)) ] else []) in
         (bound_stmts @ lower_gen ~before gen_gr gen_gid inner @ afters, decls, binds)
@@ -1282,884 +1362,6 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   in
   (res_decls @ [ C.Compound (sym_decls @ relay_stmts @ loop_stmts) ], env_out)
 
-and _lower_forall_recursive_OLD env gr gid nid loop_gr sub_gid pr =
-  (* WIP: rewriting forall -> C for the recursive generator / returns form.
-     Goal: walk the nested GENERATOR{ ... GENERATOR{ ... } } into a rank-k loop
-     nest, then the nested RETURNS{ GATHER, RETURNS{ ... } } into the multi-dim
-     store (linear index for array_dv, nested alloc for array).  Build it up
-     starting with the generators.  The previous single-flat-loop implementation
-     is kept commented just below as reference. *)
-  let _ = (gid, pr) in
-  (* STEP 1-3: emit the loop-nest from the generator chain --
-     `for (int <ivar> = <lb>; <ivar> <= <ub>; <ivar>++) { ... }` recursively
-     (innermost generator = base case, empty body).  The body comes next. *)
-  (* Forall scope, with its boundary inputs (N, M, ...) wired so the generators'
-     ub expressions resolve. *)
-  let env_loop =
-    { env with parent_env = Some env; compound_nid_in_parent = nid;
-      curr_gid = sub_gid; curr_gr = loop_gr }
-  in
-  let env_loop = scan_fanout loop_gr sub_gid env_loop in
-  let node = match NM.find_opt nid gr.nmap with Some n -> n | _ -> failwith "forall: no node" in
-  let decl_stmts, env_loop = declare_outputs env_loop gr gid nid node in
-  let loop_in_stmts, env_loop = init_boundary_ports env_loop gr nid loop_gr sub_gid in
-  (* One IF1 value can fan out to several symbol names (e.g. a for-initial INIT carry
-     where the forall result is bound to BOTH `PIVR` and `OLD PIVR` at this node/port).
-     The store below writes only the canonical name (get_c_name); drive every other
-     name bound to the same port from it -- one value, many registers -- so consumers
-     reading any of those names (the MERGE seeds) see the value, not an empty {0}. *)
-  let fanout_stmts =
-    let cs, _ = gr.symtab in
-    let out_ports =
-      ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc)
-        gr.eset IntSet.empty in
-    IntSet.fold (fun pid acc ->
-      let canon = get_c_name env.proc_map env.gid_name_map gid nid pid `Out gr in
-      SM.fold (fun _ v a ->
-        if v.val_def = nid && v.def_port = pid then
-          let nm = Printf.sprintf "v_%s_n__%d_%s"
-            (scope_of env.gid_name_map gid) nid (sanitize v.val_name) in
-          if nm = canon then a
-          else C.Expr (C.BinOp (C.Assign, C.Id nm, C.Id canon)) :: a
-        else a) cs acc)
-      out_ports [] in
-  match find_subgraph loop_gr "GENERATOR" with
-  | Some (gen_nid, gen_gr) ->
-      (* Bind each loop var's generator-compound output port to the C loop var we
-         declare, so the body resolves I/J/K later.  The forall symtab binds each
-         loop-var name (not the __forall_lb/ub_* relays) to the generator
-         compound (gen_nid) at its output port. *)
-      let env_loop =
-        let cs, _ = loop_gr.symtab in
-        SM.fold (fun name v e ->
-          let is_relay =
-            String.length name >= 8 && String.sub name 0 8 = "__forall"
-          in
-          if v.val_def = gen_nid && not is_relay then
-            { e with
-              var_map =
-                FullPortMap.add (sub_gid, gen_nid, v.def_port, `Out) (C.Id name)
-                  e.var_map }
-          else e)
-          cs env_loop
-      in
-      (* Lower the BODY once, here at the forall scope where the loop vars I/J/K
-         are bound on the generator compound.  The resulting statements reference
-         I/J/K (the C loop vars), so they are valid when dropped into the
-         innermost loop.  The body's output value (body_res) is what the store
-         will write (next step). *)
-      let body_stmts, body_res, body_tid, body_outs =
-        match find_subgraph loop_gr "BODY" with
-        | Some (body_nid, body_gr) ->
-            let body_gid =
-              try GidMap.find (sub_gid, body_nid) env.gid_table with _ -> -1
-            in
-            let env_body =
-              { env_loop with parent_env = Some env_loop; curr_gid = body_gid;
-                curr_gr = body_gr;
-                parent_map =
-                  IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map }
-            in
-            let bstmts, e_body =
-              lower_graph env_body loop_gr body_nid body_gr body_gid
-            in
-            (* Every RETURNS-bound body output, one per `... of <expr>`, sorted by
-               destination port.  A forall may return several arrays (e.g. Compute
-               returns two), so collect them all -- not just the last. *)
-            let outs =
-              ES.fold (fun ((sn, sp), (dn, dp), t) acc ->
-                if dn = 0 then (dp, get_expr e_body body_gid sn sp `Out, t) :: acc
-                else acc) body_gr.eset []
-              |> List.sort (fun (a, _, _) (b, _, _) -> compare a b)
-            in
-            let bres, btid =
-              match outs with (_, e, t) :: _ -> (e, t) | [] -> (C.LitInt 0, 6)
-            in
-            (bstmts, bres, btid, outs)
-        | None -> ([], C.LitInt 0, 6, [])
-      in
-      (* The result element type comes from the body's output port; the store
-         writes SISAL_CAST(elem, body_res) into the result's data buffer. *)
-      let tm = get_typemap_tm loop_gr in
-      let out_ty =
-        try c_type_of_if1_ty tm (TM.find body_tid tm) with _ -> C.Basic "int32_t"
-      in
-      let res_v = C.Id (get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr) in
-      let cast_body_res =
-        C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); body_res ])
-      in
-      (* The (first) induction-var name -- argmax/argmin return this Sisal index. *)
-      let loop_var_name =
-        let cs, _ = loop_gr.symtab in
-        SM.fold (fun name v acc ->
-          match acc with
-          | Some _ -> acc
-          | None ->
-              let is_relay =
-                String.length name >= 8 && String.sub name 0 8 = "__forall"
-              in
-              if v.val_def = gen_nid && not is_relay then Some name else None)
-          cs None
-      in
-      let ret_opt =
-        match find_subgraph loop_gr "RETURNS" with
-        | Some (_, rg) -> Some rg
-        | None -> None
-      in
-      (* MULTI-REDUCTION forall (e.g. `returns value of sum i  value of product i`):
-         forall_fold_op only fires for ONE reduction output; for several it returns
-         None and the gather path wrongly allocs an array per reduction.  Lower each
-         reduction output as its own scalar accumulator instead.  (All-reduction case
-         here; mixed gather+reduce is the next step.) *)
-      let reduce_ports = forall_reduce_ports loop_gr in
-      let n_out_ports =
-        match ret_opt with
-        | Some rg -> ES.fold (fun ((sn, _), (dn, dp), _) acc ->
-            if dn = 0 && sn <> 0 then IntSet.add dp acc else acc) rg.eset IntSet.empty
-                     |> IntSet.cardinal
-        | None -> 0 in
-      if List.length reduce_ports > 1 && List.length reduce_ports = n_out_ports then (
-        let scope = scope_of env.gid_name_map sub_gid in
-        let inf_pos oty = match oty with
-          | C.Basic "double" -> C.Id "1e308"
-          | C.Basic "float" -> C.Id "3.4028235e+38f"
-          | _ -> C.Id "0x7fffffff" in
-        let body_val bport =
-          match List.find_opt (fun (p, _, _) -> p = bport) body_outs with
-          | Some (_, e, t) -> (e, t)
-          | None -> (match body_outs with (_, e, t) :: _ -> (e, t) | [] -> (C.LitInt 0, 6)) in
-        let parts = List.map (fun (dp, op, _bport) ->
-          let e, t = body_val dp in
-          let oty = try c_type_of_if1_ty tm (TM.find t tm) with _ -> C.Basic "int32_t" in
-          let rv = C.Id (get_c_name env.proc_map env.gid_name_map gid nid dp `Out gr) in
-          let cbody = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type oty); e ]) in
-          match op with
-          | "argmax" | "argmin" ->
-              let accv = Printf.sprintf "__argm_val_%s_%d" scope dp in
-              let sentinel = if op = "argmax" then C.UnaryOp (C.Negate, inf_pos oty) else inf_pos oty in
-              let cmp = if op = "argmax" then C.Gt else C.Lt in
-              let idx = match loop_var_name with Some n -> C.Id n | None -> C.LitInt 0 in
-              ( [ C.Decl (oty, accv, Some sentinel) ],
-                [ C.Expr (C.BinOp (C.Assign, rv, C.LitInt 0)) ],
-                [ C.If (C.BinOp (cmp, cbody, C.Id accv),
-                    [ C.Expr (C.BinOp (C.Assign, C.Id accv, cbody));
-                      C.Expr (C.BinOp (C.Assign, rv, idx)) ], []) ] )
-          | _ ->
-              let init_val = match op with
-                | "product" -> C.LitInt 1 | "least" -> inf_pos oty
-                | "greatest" -> C.UnaryOp (C.Negate, inf_pos oty) | _ -> C.LitInt 0 in
-              let update = match op with
-                | "product" -> C.Expr (C.BinOp (C.Assign, rv, C.BinOp (C.Mul, rv, cbody)))
-                | "least" -> C.If (C.BinOp (C.Lt, cbody, rv), [ C.Expr (C.BinOp (C.Assign, rv, cbody)) ], [])
-                | "greatest" -> C.If (C.BinOp (C.Gt, cbody, rv), [ C.Expr (C.BinOp (C.Assign, rv, cbody)) ], [])
-                | _ -> let o2 = if oty = C.Basic "bool" then C.LogOr else C.Add in
-                       C.Expr (C.BinOp (C.Assign, rv, C.BinOp (o2, rv, cbody))) in
-              ( [], [ C.Expr (C.BinOp (C.Assign, rv, init_val)) ], [ update ] ))
-          reduce_ports in
-        let decls = List.concat (List.map (fun (d, _, _) -> d) parts) in
-        let inits = List.concat (List.map (fun (_, i, _) -> i) parts) in
-        let updates = List.concat (List.map (fun (_, _, u) -> u) parts) in
-        let make_inner _off = body_stmts @ updates in
-        let prelude, nest_stmts, _extents, env_loop =
-          zip_loops env_loop loop_gr sub_gid gen_nid gen_gr ret_opt None make_inner in
-        (decl_stmts @ loop_in_stmts @ prelude @ decls @ inits @ nest_stmts @ fanout_stmts,
-         { env_loop with curr_gid = gid; curr_gr = gr; parent_env = env.parent_env }))
-      else
-      (match forall_fold_op loop_gr with
-      | Some op ->
-          (* Reduction: fold the body value into a scalar accumulator at the
-             innermost loop -- no array alloc/store.  sum/product/least/greatest
-             accumulate into the result var; argmax/argmin carry a best-value plus
-             the result (the Sisal index of the extremum). *)
-          let scope = scope_of env.gid_name_map sub_gid in
-          let inf_pos =
-            match out_ty with
-            | C.Basic "double" -> C.Id "1e308"
-            | C.Basic "float" -> C.Id "3.4028235e+38f"
-            | _ -> C.Id "0x7fffffff"
-          in
-          let pre, make_inner =
-            match op with
-            | "argmax" | "argmin" ->
-                let acc_val = Printf.sprintf "__argm_val_%s" scope in
-                let sentinel =
-                  if op = "argmax" then C.UnaryOp (C.Negate, inf_pos) else inf_pos
-                in
-                let cmp = if op = "argmax" then C.Gt else C.Lt in
-                let idx =
-                  match loop_var_name with Some n -> C.Id n | None -> C.LitInt 0
-                in
-                ( [ C.Decl (out_ty, acc_val, Some sentinel);
-                    C.Expr (C.BinOp (C.Assign, res_v, C.LitInt 0)) ],
-                  fun _off ->
-                    body_stmts
-                    @ [ C.If
-                          ( C.BinOp (cmp, cast_body_res, C.Id acc_val),
-                            [ C.Expr (C.BinOp (C.Assign, C.Id acc_val, cast_body_res));
-                              C.Expr (C.BinOp (C.Assign, res_v, idx)) ],
-                            [] ) ] )
-            | _ ->
-                let init_val =
-                  match op with
-                  | "product" -> C.LitInt 1
-                  | "least" -> inf_pos
-                  | "greatest" -> C.UnaryOp (C.Negate, inf_pos)
-                  | _ -> C.LitInt 0
-                in
-                let update =
-                  match op with
-                  | "product" ->
-                      C.Expr (C.BinOp (C.Assign, res_v, C.BinOp (C.Mul, res_v, cast_body_res)))
-                  | "least" ->
-                      C.If (C.BinOp (C.Lt, cast_body_res, res_v),
-                        [ C.Expr (C.BinOp (C.Assign, res_v, cast_body_res)) ], [])
-                  | "greatest" ->
-                      C.If (C.BinOp (C.Gt, cast_body_res, res_v),
-                        [ C.Expr (C.BinOp (C.Assign, res_v, cast_body_res)) ], [])
-                  | _ ->
-                      let op2 = if out_ty = C.Basic "bool" then C.LogOr else C.Add in
-                      C.Expr (C.BinOp (C.Assign, res_v, C.BinOp (op2, res_v, cast_body_res)))
-                in
-                ( [ C.Expr (C.BinOp (C.Assign, res_v, init_val)) ],
-                  fun _off -> body_stmts @ [ update ] )
-          in
-          let prelude, nest_stmts, _extents, env_loop =
-            zip_loops env_loop loop_gr sub_gid gen_nid gen_gr ret_opt None make_inner
-          in
-          (decl_stmts @ loop_in_stmts @ prelude @ pre @ nest_stmts @ fanout_stmts,
-           { env_loop with curr_gid = gid; curr_gr = gr; parent_env = env.parent_env })
-      | None ->
-      (* Per-output dispatch for a possibly MIXED forall.  When there are no reduction
-         outputs, keep the original all-gather behavior (one result array per body
-         output).  When reductions ARE present (gather + reduce in one forall, e.g. the
-         broadcast conform loop `array_dv of shape  value of least compat`), lower each
-         output by its kind: gather outputs -> alloc/store (per_out), reduction outputs
-         -> scalar accumulators (the red_ bindings), interleaved in one loop body. *)
-      let reduce_specs = forall_reduce_ports loop_gr in
-      let gather_specs = forall_gather_ports loop_gr in
-      (* The body value for an output is body_outs[output_port] -- the forall output
-         port maps 1:1 to the body output port (same as the all-gather path).  The
-         __forall_body_K index the classifiers also return is unreliable here, so use
-         the output port directly. *)
-      let body_val bp =
-        match List.find_opt (fun (p, _, _) -> p = bp) body_outs with
-        | Some (_, e, t) -> (e, t)
-        | None -> (match body_outs with (_, e, t) :: _ -> (e, t) | [] -> (C.LitInt 0, 6)) in
-      let gather_src =
-        if reduce_specs = [] then body_outs
-        else List.map (fun (out_port, _bp) -> let (e, t) = body_val out_port in (out_port, e, t)) gather_specs in
-      let per_out =
-        List.map (fun (dp, bres, btid) ->
-          let oty = try c_type_of_if1_ty tm (TM.find btid tm) with _ -> C.Basic "int32_t" in
-          let rv = C.Id (get_c_name env.proc_map env.gid_name_map gid nid dp `Out gr) in
-          let cast = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type oty); bres ]) in
-          (rv, oty, btid, cast))
-          gather_src
-      in
-      let red_scope = scope_of env.gid_name_map sub_gid in
-      let red_inf oty = match oty with
-        | C.Basic "double" -> C.Id "1e308" | C.Basic "float" -> C.Id "3.4028235e+38f"
-        | _ -> C.Id "0x7fffffff" in
-      let red_decls, red_inits, red_updates =
-        List.fold_left (fun (ds, is, us) (dp, op, _bp) ->
-          let e, t = body_val dp in
-          let oty = try c_type_of_if1_ty tm (TM.find t tm) with _ -> C.Basic "int32_t" in
-          let rv = C.Id (get_c_name env.proc_map env.gid_name_map gid nid dp `Out gr) in
-          let cb = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type oty); e ]) in
-          match op with
-          | "argmax" | "argmin" ->
-              let accv = Printf.sprintf "__argm_val_%s_%d" red_scope dp in
-              let sentinel = if op = "argmax" then C.UnaryOp (C.Negate, red_inf oty) else red_inf oty in
-              let cmp = if op = "argmax" then C.Gt else C.Lt in
-              let idx = match loop_var_name with Some n -> C.Id n | None -> C.LitInt 0 in
-              ( ds @ [ C.Decl (oty, accv, Some sentinel) ],
-                is @ [ C.Expr (C.BinOp (C.Assign, rv, C.LitInt 0)) ],
-                us @ [ C.If (C.BinOp (cmp, cb, C.Id accv),
-                         [ C.Expr (C.BinOp (C.Assign, C.Id accv, cb));
-                           C.Expr (C.BinOp (C.Assign, rv, idx)) ], []) ] )
-          | _ ->
-              let init_val = match op with
-                | "product" -> C.LitInt 1 | "least" -> red_inf oty
-                | "greatest" -> C.UnaryOp (C.Negate, red_inf oty) | _ -> C.LitInt 0 in
-              let update = match op with
-                | "product" -> C.Expr (C.BinOp (C.Assign, rv, C.BinOp (C.Mul, rv, cb)))
-                | "least" -> C.If (C.BinOp (C.Lt, cb, rv), [ C.Expr (C.BinOp (C.Assign, rv, cb)) ], [])
-                | "greatest" -> C.If (C.BinOp (C.Gt, cb, rv), [ C.Expr (C.BinOp (C.Assign, rv, cb)) ], [])
-                | _ -> let o2 = if oty = C.Basic "bool" then C.LogOr else C.Add in
-                       C.Expr (C.BinOp (C.Assign, rv, C.BinOp (o2, rv, cb))) in
-              ( ds, is @ [ C.Expr (C.BinOp (C.Assign, rv, init_val)) ], us @ [ update ] ))
-          ([], [], []) reduce_specs
-      in
-      let make_inner off =
-        body_stmts
-        @ List.map (fun (rv, oty, _, cast) ->
-              C.Expr
-                (C.BinOp
-                   ( C.Assign,
-                     C.Index
-                       (C.Cast (C.Pointer (oty, []), C.Member (rv, "data")), off),
-                     cast )))
-            per_out
-        @ red_updates
-      in
-      let prelude, nest_stmts, extents, env_loop =
-        zip_loops env_loop loop_gr sub_gid gen_nid gen_gr ret_opt None make_inner
-      in
-      (* Allocate the result descriptor before the nest.  The dims/count need each
-         axis's bounds in the FORALL scope (the inner ub is loop-local), so walk
-         the generator nest and resolve each level's primary RANGEGEN bound up to
-         the forall through the compound ladder.  The store OFFSET stays in-scope
-         (Horner, built inside the loops). *)
-      let feed_of g dnode dport =
-        ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
-          if dn = dnode && dp = dport then Some (sn, sp) else acc) g.eset None
-      in
-      (* Follow a generator-bound source up the compound ladder (innermost-first,
-         last entry's graph = loop_gr) to the forall scope; non-boundary sources
-         (literals) fall back to the gen-scope value the zip already resolved. *)
-      let rec resolve_up (sn, sp) ladder fallback =
-        if sn <> 0 then fallback
-        else
-          match ladder with
-          | [] -> fallback
-          | (comp, pg) :: rest -> (
-              match feed_of pg comp sp with
-              | Some (psn, psp) ->
-                  if rest = [] then get_expr env_loop sub_gid psn psp `Out
-                  else resolve_up (psn, psp) rest fallback
-              | None -> fallback)
-      in
-      (* One (lb, ub) per result dimension, forall-scope, outer -> inner. *)
-      let fa_extents =
-        let rec walk g comp pgraph parent_ladder fbs acc =
-          let ladder = (comp, pgraph) :: parent_ladder in
-          let rg =
-            NM.fold (fun n nd a ->
-              match (a, nd) with
-              | Some _, _ -> a
-              | None, Simple (_, RANGEGEN, _, _, _) -> Some n
-              | _ -> None) g.nmap None
-          in
-          let fb_lb, fb_ub =
-            match fbs with x :: _ -> x | [] -> (C.LitInt 1, C.LitInt 0)
-          in
-          let entry =
-            match rg with
-            | Some r ->
-                let lbf =
-                  match feed_of g r 0 with
-                  | Some s -> resolve_up s ladder fb_lb | None -> fb_lb
-                in
-                let ubf =
-                  match feed_of g r 1 with
-                  | Some s -> resolve_up s ladder fb_ub | None -> fb_ub
-                in
-                [ (lbf, ubf) ]
-            | None -> []
-          in
-          let fbs' = match fbs with _ :: t -> t | [] -> [] in
-          match find_subgraph g "GENERATOR" with
-          | Some (inner_nid, inner_gr) ->
-              walk inner_gr inner_nid g ladder fbs' (acc @ entry)
-          | None -> acc @ entry
-        in
-        walk gen_gr gen_nid loop_gr [] extents []
-      in
-      let rank = List.length fa_extents in
-      let ext_of (lb, ub) =
-        C.BinOp (C.Add, C.BinOp (C.Sub, ub, lb), C.LitInt 1)
-      in
-      let count =
-        List.fold_left (fun acc e -> C.BinOp (C.Mul, acc, ext_of e))
-          (C.LitInt 1) fa_extents
-      in
-      (* Allocate each output descriptor (shared extents/count) and fill its
-         per-axis triple (start, size); stride stays 0 -- the store uses the inline
-         Horner offset, not the stride field, for now. *)
-      let allocs =
-        List.concat
-          (List.map (fun (rv, _, btid, _) ->
-             let alloc =
-               C.Expr (C.BinOp ( C.Assign, rv,
-                 C.Call ("sisal_array_alloc_empty",
-                   [ C.LitInt rank; C.LitInt btid;
-                     C.Cast (C.Basic "uint64_t", count) ]) ))
-             in
-             let dim_sets =
-               List.concat
-                 (List.mapi (fun k (lb, ub) ->
-                    [ C.Expr (C.BinOp (C.Assign,
-                        C.Index (C.Member (rv, "dims"), C.LitInt k), ext_of (lb, ub)));
-                      C.Expr (C.BinOp (C.Assign,
-                        C.Index (C.Member (rv, "lower_bound"), C.LitInt k), lb)) ])
-                    fa_extents)
-             in
-             alloc :: dim_sets)
-            per_out)
-      in
-      (* BOX-then-FLATTEN: a DV_GATHER increments rank.  When the gathered body
-         value is itself an array_dv (e.g. `returns array_dv of <inner forall row>`),
-         the loop above BOXED rows -- it stored row DESCRIPTORS into rv (rank = outer
-         axes).  Re-pack them into a flat rank-(outer + elem.rank) array_dv, reading
-         the element shape ONCE off the first boxed row (it is rectangular, so all
-         rows share rank/dims/size); the only per-row work is a memcpy of its bytes.
-         Scalar gathers (oty <> sisal_array_t) skip this entirely. *)
-      let sat = C.Basic "sisal_array_t" in
-      let flattens =
-        List.concat
-          (List.map (fun (rv, oty, _, _) ->
-             if oty <> sat then []
-             else
-               let rvn = (match rv with C.Id n -> n | _ -> "rv") in
-               let e0 = C.Id ("__e0_" ^ rvn) and fl = C.Id ("__flat_" ^ rvn) in
-               let esz = C.Call ("sisal_elem_size", [ C.Member (e0, "type_id") ]) in
-               let ecount = C.Member (e0, "size") in
-               let bytes = C.BinOp (C.Mul, ecount, esz) in
-               let boxed i =
-                 C.Index (C.Cast (C.Pointer (sat, []), C.Member (rv, "data")), i) in
-               (* __e0 = first boxed row (its rank/dims/size describe every row) *)
-               let decl_e0 = C.Decl (sat, "__e0_" ^ rvn, Some (boxed (C.LitInt 0))) in
-               (* __flat = alloc_empty(rank + __e0.rank, __e0.type_id, count*__e0.size) *)
-               let decl_fl =
-                 C.Decl (sat, "__flat_" ^ rvn,
-                   Some (C.Call ("sisal_array_alloc_empty",
-                     [ C.BinOp (C.Add, C.LitInt rank, C.Member (e0, "rank"));
-                       C.Member (e0, "type_id");
-                       C.Cast (C.Basic "uint64_t",
-                         C.BinOp (C.Mul, C.Cast (C.Basic "uint64_t", count), ecount)) ])) ) in
-               (* outer axes (static) prepend the element's inner axes *)
-               let outer_dims =
-                 List.concat (List.mapi (fun k (lb, ub) ->
-                   [ C.Expr (C.BinOp (C.Assign,
-                       C.Index (C.Member (fl, "dims"), C.LitInt k), ext_of (lb, ub)));
-                     C.Expr (C.BinOp (C.Assign,
-                       C.Index (C.Member (fl, "lower_bound"), C.LitInt k), lb)) ])
-                   fa_extents) in
-               let kk = "__k_" ^ rvn in
-               let inner_dims =
-                 C.For (C.Decl (C.Basic "int32_t", kk, Some (C.LitInt 0)),
-                   C.BinOp (C.Lt, C.Id kk, C.Member (e0, "rank")),
-                   C.UnaryOp (C.PostInc, C.Id kk),
-                   [ C.Expr (C.BinOp (C.Assign,
-                       C.Index (C.Member (fl, "dims"), C.BinOp (C.Add, C.LitInt rank, C.Id kk)),
-                       C.Index (C.Member (e0, "dims"), C.Id kk)));
-                     C.Expr (C.BinOp (C.Assign,
-                       C.Index (C.Member (fl, "lower_bound"), C.BinOp (C.Add, C.LitInt rank, C.Id kk)),
-                       C.Index (C.Member (e0, "lower_bound"), C.Id kk))) ]) in
-               let ii = "__i_" ^ rvn in
-               let copy =
-                 C.For (C.Decl (C.Basic "int32_t", ii, Some (C.LitInt 0)),
-                   C.BinOp (C.Lt, C.Id ii, C.Cast (C.Basic "int32_t", count)),
-                   C.UnaryOp (C.PostInc, C.Id ii),
-                   [ C.Expr (C.Call ("memcpy",
-                       [ C.BinOp (C.Add,
-                           C.Cast (C.Pointer (C.Basic "char", []), C.Member (fl, "data")),
-                           C.BinOp (C.Mul, C.Cast (C.Basic "uint64_t", C.Id ii), bytes));
-                         C.Member (boxed (C.Id ii), "data");
-                         bytes ])) ]) in
-               let back = C.Expr (C.BinOp (C.Assign, rv, fl)) in
-               [ decl_e0; decl_fl ] @ outer_dims @ [ inner_dims; copy; back ])
-            per_out)
-      in
-      (decl_stmts @ loop_in_stmts @ prelude @ red_decls @ red_inits @ allocs @ nest_stmts
-        @ flattens @ fanout_stmts,
-       { env_loop with curr_gid = gid; curr_gr = gr; parent_env = env.parent_env }))
-  | None ->
-      (decl_stmts @ loop_in_stmts,
-       { env_loop with curr_gid = gid; curr_gr = gr; parent_env = env.parent_env })
-
-(* Zip the GENERATOR nest and the RETURNS nest in lockstep, one `for` per level.
-   The generator side gives the loop control (induction var `ivar`, lb, ub); the
-   returns side (when present at this level) contributes a 0-based returns
-   counter `__r<ivar>` carried alongside -- redundant with `ivar - lb` for Sisal
-   1.2, but the decoupling hook for 2.0.  When one nest runs out we keep
-   descending the other:
-     - both present  -> recurse both;
-     - generator deeper (returns ran out, e.g. a reduction) -> loop with NO
-       returns counter;
-     - returns deeper (generator ran out, Sisal 2.0 size-descriptor) -> stub.
-   ret_gr_opt is the returns subgraph for THIS level (None once it's run out). *)
-and zip_loops env parent_gr parent_gid gen_nid gen_gr ret_gr_opt offset_acc make_inner =
-  let gen_gid = try GidMap.find (parent_gid, gen_nid) env.gid_table with _ -> -1 in
-  let env_gen =
-    { env with parent_env = Some env; compound_nid_in_parent = gen_nid;
-      curr_gid = gen_gid; curr_gr = gen_gr;
-      parent_map = IntMap.add gen_gid (parent_gid, gen_nid) env.parent_map }
-  in
-  let gen_in_stmts, env_gen =
-    init_boundary_ports env_gen parent_gr gen_nid gen_gr gen_gid
-  in
-  (* Lower the GENERATOR as a full graph: topo-walk its edges and lower every
-     non-RANGEGEN Simple node (the loop-bound computations, e.g. `n - 1` for
-     `for i in 1, n-1`) in data-dependence order, so each bound is DECLARED as a
-     C variable before anything references it.  RANGEGEN itself becomes the `for`
-     statement (below), so it is skipped here; nested GENERATOR/BODY compounds are
-     handled by `recurse`, so Compounds are skipped too.  These declarations form
-     the generator's contribution to the forall scaffold (the `prelude`), hoisted
-     ahead of the result alloc by the caller; the `for` statement's lb/ub then
-     thread from these declared bound values via `src_of`. *)
-  let bound_stmts, env_gen =
-    (* Walk the generator's edges in data-dependence order.  Each edge carries a
-       value from its TAIL (producer) to its HEAD (consumer).  When the tail is a
-       dataflow Simple node we haven't emitted yet, lower it -- that DECLARES the
-       bound math (e.g. `n-1`) before the `for`/alloc thread it.  Tails we skip:
-       the boundary (graph inputs, already bound), the RANGEGEN axis (it becomes
-       the `for`), nested GENERATOR compounds (handled by `recurse`), and literals
-       (inlined by get_expr where used). *)
-    let lowered = ref IntSet.empty in
-    List.fold_left (fun (acc, e) ((sn, _), (_dn, _dp), _) ->
-      if sn = 0 || IntSet.mem sn !lowered then (acc, e)
-      else match NM.find_opt sn gen_gr.nmap with
-        | Some (Simple (_, RANGEGEN, _, _, _)) -> (acc, e)
-        | Some (Simple _ as node) ->
-            lowered := IntSet.add sn !lowered;
-            let s, e' = lower_node e gen_gr sn node in (acc @ s, e')
-        | _ -> (acc, e))
-      ([], env_gen) (topo_sort_edges gen_gr)
-  in
-  (* All RANGEGENs at THIS generator level.  One axis per level = a cross
-     (nesting); several axes at the SAME level = a `dot` (zip): one loop whose
-     counter drives every axis in lockstep. *)
-  let rangegens =
-    NM.fold (fun n node acc ->
-      match node with Simple (_, RANGEGEN, _, _, _) -> n :: acc | _ -> acc)
-      gen_gr.nmap []
-  in
-  let name_of rg =
-    let cs, _ = gen_gr.symtab in
-    match
-      SM.fold (fun name v acc ->
-        match acc with
-        | Some _ -> acc
-        | None -> if v.val_def = rg && v.def_port = 0 then Some name else None)
-        cs None
-    with
-    | Some nm -> nm
-    | None -> Printf.sprintf "__iv_%d" rg
-  in
-  (* value feeding RANGEGEN input `port` (0 = lb, 1 = ub); get_expr resolves the
-     literal "1" and the wired boundary inputs. *)
-  let src_of rg port dflt =
-    match
-      ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
-        if dn = rg && dp = port then Some (sn, sp) else acc)
-        gen_gr.eset None
-    with
-    | Some (sn, sp) -> get_expr env_gen gen_gid sn sp `Out
-    | None -> dflt
-  in
-  (* This level has a returns dimension iff a returns subgraph was handed down. *)
-  let has_returns = ret_gr_opt <> None in
-  let inner_gen = find_subgraph gen_gr "GENERATOR" in
-  let inner_ret =
-    match ret_gr_opt with Some rg -> find_subgraph rg "RETURNS" | None -> None
-  in
-  (* Recurse one level deeper (or, at the innermost generator, place the body +
-     store via make_inner), carrying the row-major offset accumulated so far. *)
-  let recurse off =
-    match (inner_gen, inner_ret) with
-    | Some (ign, igr), Some (_, irgr) ->
-        zip_loops env_gen gen_gr gen_gid ign igr (Some irgr) off make_inner
-    | Some (ign, igr), None ->
-        zip_loops env_gen gen_gr gen_gid ign igr None off make_inner
-    | None, Some _ ->
-        ( [],
-          make_inner (Option.value off ~default:(C.LitInt 0))
-          @ [ C.Comment "TODO: returns deeper than generator (Sisal 2.0 size-descriptor)" ],
-          [], env_gen )
-    | None, None -> ([], make_inner (Option.value off ~default:(C.LitInt 0)), [], env_gen)
-  in
-  match rangegens with
-  | [] ->
-      (* No range axis at this level (e.g. element scatter `for x in A`) -- TODO;
-         pass through unchanged, offset unchanged. *)
-      let inner_prelude, inner_stmts, inner_exts, _ = recurse offset_acc in
-      (gen_in_stmts @ bound_stmts @ inner_prelude, inner_stmts, inner_exts, env_gen)
-  | primary :: siblings ->
-      (* The primary RANGEGEN drives the loop; dot siblings advance in lockstep:
-         sib = sib_lb + (primary - primary_lb). *)
-      let ivar = name_of primary in
-      let lb_expr = src_of primary 0 (C.LitInt 1) in
-      let ub_expr = src_of primary 1 (C.LitInt 0) in
-      (* Counter name is per-generator so multiple foralls in one scope (e.g. A,
-         B, C in a matmul `let`) don't redefine __rI/__rJ/... *)
-      let ri = Printf.sprintf "__r%d_%s" gen_gid ivar in
-      let ext_expr =
-        C.BinOp (C.Add, C.BinOp (C.Sub, ub_expr, lb_expr), C.LitInt 1)
-      in
-      (* Fold this gather dimension into the row-major store offset (Horner):
-         the first dimension is just its counter, each deeper dimension is
-         acc*extent + counter. *)
-      let off' =
-        if has_returns then
-          Some
-            (match offset_acc with
-             | None -> C.Id ri
-             | Some a -> C.BinOp (C.Add, C.BinOp (C.Mul, a, ext_expr), C.Id ri))
-        else offset_acc
-      in
-      let inner_prelude, inner_stmts, inner_exts, _ = recurse off' in
-      let sibling_decls =
-        List.map (fun rg ->
-          let jvar = name_of rg in
-          let jlb = src_of rg 0 (C.LitInt 1) in
-          C.Decl
-            ( C.Basic "int32_t", jvar,
-              Some (C.BinOp (C.Add, jlb, C.BinOp (C.Sub, C.Id ivar, lb_expr))) ))
-          siblings
-      in
-      let body =
-        sibling_decls @ inner_stmts
-        @ (if has_returns then [ C.Expr (C.UnaryOp (C.PostInc, C.Id ri)) ] else [])
-      in
-      let loop =
-        C.For
-          ( C.Decl (C.Basic "int32_t", ivar, Some lb_expr),
-            C.BinOp (C.Le, C.Id ivar, ub_expr),
-            C.UnaryOp (C.PostInc, C.Id ivar),
-            body )
-      in
-      (* The generator's scaffold (boundary imports + bound math + any hoisted
-         inner-generator scaffold) becomes the PRELUDE -- emitted by the caller
-         BEFORE the result alloc, since the alloc's extents thread from these
-         bound values.  The `ri` reset stays loop-local (inside the parent's loop
-         body via `inner_stmts`) so a nested gather counter resets each outer pass. *)
-      let prelude = gen_in_stmts @ bound_stmts @ inner_prelude in
-      let loop_pre =
-        if has_returns then [ C.Decl (C.Basic "int32_t", ri, Some (C.LitInt 0)) ]
-        else []
-      in
-      (* A gather level contributes one result dimension: extent = ub - lb + 1.
-         A `dot` is one dimension (the siblings advance in lockstep), so only the
-         primary axis's bounds count.  Reductions (has_returns over a non-gather)
-         carry no array dimension -- handled on the reduction path, not here. *)
-      let this_ext = if has_returns then [ (lb_expr, ub_expr) ] else [] in
-      (prelude, loop_pre @ [ loop ], this_ext @ inner_exts, env_gen)
-
-(* ============== OLD lower_forall (single flat loop) — reference ==============
-and lower_forall_OLD env gr gid nid loop_gr sub_gid pr =
-  let env_init = { env with parent_env = Some env; compound_nid_in_parent = nid; curr_gid = sub_gid; curr_gr = loop_gr } in
-  let env_init = scan_fanout loop_gr sub_gid env_init in
-  let node = match NM.find_opt nid gr.nmap with Some n -> n | _ -> failwith "no node" in
-  let decl_stmts, env_init = declare_outputs env_init gr gid nid node in
-  let loop_in_stmts, env_loop = init_boundary_ports env_init gr nid loop_gr sub_gid in
-  let gen_nid, gen_gr = match find_subgraph loop_gr "GENERATOR" with | Some x -> x | _ -> failwith "no GEN" in
-  let gen_gid = try GidMap.find (sub_gid, gen_nid) env.gid_table with _ -> -1 in
-  let env_gen = { env_loop with parent_env = Some env_loop; curr_gid = gen_gid; curr_gr = gen_gr; parent_map = IntMap.add gen_gid (sub_gid, gen_nid) env_loop.parent_map } in
-  let gen_stmts, e_gen = lower_graph env_gen loop_gr gen_nid gen_gr gen_gid in
-  (* Extent is the output of the generator's RANGEGEN/DV_SCATTER/ASCATTER node.
-     Find that node directly rather than trusting a boundary-output port order
-     (generator outputs are now emitted in symtab-map order, so out 0 is not
-     guaranteed to be the extent). RANGEGEN:0 -> (hi-lo)+1; DV_SCATTER:0 -> A.size. *)
-  let count =
-    let ext_node =
-      NM.fold (fun nid n acc ->
-        match acc with
-        | Some _ -> acc
-        | None -> (match n with
-            | Simple (_, (RANGEGEN | DV_SCATTER | ASCATTER), _, _, _) -> Some nid
-            | _ -> None))
-        gen_gr.nmap None
-    in
-    match ext_node with
-    | Some nid -> get_expr e_gen gen_gid nid 0 `Out
-    | None ->
-        (match ES.fold (fun (src, dst, _) acc -> if dst = (0, 0) then Some src else acc) gen_gr.eset None with
-         | Some (sn, sp) -> get_expr e_gen gen_gid sn sp `Out
-         | None -> C.LitInt 0) in
-  let env_loop = { env_loop with var_map = e_gen.var_map; type_table = e_gen.type_table; seen_decls = e_gen.seen_decls } in
-
-  let body_nid, body_gr = match find_subgraph loop_gr "BODY" with | Some x -> x | _ -> failwith "no BODY" in
-  let body_gid = try GidMap.find (sub_gid, body_nid) env.gid_table with _ -> -1 in
-  let _idx_port = ES.fold (fun ((sn, _), (dn, dp), _) acc -> if sn = gen_nid && dn = body_nid then Some dp else acc) loop_gr.eset None |> Option.value ~default:0 in
-  let loop_idx_var = Printf.sprintf "__idx_%s" (scope_of env.gid_name_map sub_gid) in
-  (* Lower bound from GENERATOR node 1 (the literal that feeds RANGEGEN port 0). *)
-  let lb_expr = match FullPortMap.find_opt (gen_gid, 1, 0, `Out) e_gen.var_map with
-    | Some ex -> ex | None -> C.LitInt 0 in
-  (* Wire any loop_gr boundary ports that weren't provided by the parent graph.
-     Standard forall: loop variable = lb + loop_counter (index-based).
-     DV element forall ("for i in A dot j in B"): loop variable = A.data[loop_counter] (element). *)
-  (* Install per-iteration loop-variable values at the GENERATOR compound's
-     output ports (sub_gid, gen_nid, op).  The generator's outputs (induction
-     vars, range bounds, scatter elements, at indices) are now defined by the
-     generator compound, so the body reads them from there.  Driven by the
-     generator's RANGEGEN / DV_SCATTER nodes, so it scales to dot (N axes). *)
-  let env_loop =
-    let tm = get_typemap_tm loop_gr in
-    let gen_out_port gnode gport =
-      ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
-        if sn = gnode && sp = gport && dn = 0 then Some dp else acc) gen_gr.eset None in
-    let val_into gnode gport =
-      match ES.fold (fun ((sn, sp), (dn, dp), _) acc ->
-        if dn = gnode && dp = gport then Some (sn, sp) else acc) gen_gr.eset None with
-      | Some (sn, sp) -> get_expr e_gen gen_gid sn sp `Out
-      | None -> C.LitInt 0 in
-    let out_ty_id gnode gport =
-      ES.fold (fun ((sn, sp), (dn, _), t) acc ->
-        if sn = gnode && sp = gport && dn = 0 then t else acc) gen_gr.eset 0 in
-    let bind gnode gport ex e =
-      match gen_out_port gnode gport with
-      | Some op -> { e with var_map = FullPortMap.add (sub_gid, gen_nid, op, `Out) ex e.var_map }
-      | None -> e in
-    NM.fold (fun gnode gnode_v e ->
-      match gnode_v with
-      | Simple (_, RANGEGEN, _, _, _) ->
-          (* out 0 = induction var = lb + idx ; out 1 = lb ; out 2 = ub *)
-          let lb_k = val_into gnode 0 in
-          let ub_k = val_into gnode 1 in
-          let e = bind gnode 0 (C.BinOp (C.Add, lb_k, C.Id loop_idx_var)) e in
-          let e = bind gnode 1 lb_k e in
-          bind gnode 2 ub_k e
-      | Simple (_, (DV_SCATTER | ASCATTER), _, outs, _) ->
-          (* out 0 = element = A.data[idx] cast to elem ; out p>=1 = at index = A.lb + idx *)
-          let arr_expr = val_into gnode 0 in
-          snd (Array.fold_left (fun (p, e) _ ->
-            let ex =
-              if p = 0 then
-                let elem_ty =
-                  try c_type_of_if1_ty tm (TM.find (out_ty_id gnode 0) tm)
-                  with _ -> C.Basic "int32_t" in
-                C.Index (C.Cast (C.Pointer (elem_ty, []), C.Member (arr_expr, "data")), C.Id loop_idx_var)
-              else
-                C.BinOp (C.Add, C.Cast (C.Basic "int32_t", C.Index (C.Member (arr_expr, "lower_bound"), C.LitInt 0)), C.Id loop_idx_var)
-            in
-            (p + 1, bind gnode p ex e)) (0, e) outs)
-      | _ -> e
-    ) gen_gr.nmap env_loop in
-
-  (* Identify the body boundary output port that holds the array element (non-BOOLEAN type).
-     DV FORALLs have two body outputs: LFCOMPAT (bool, type_id 1) and LFDRES (element).
-     Port ordering varies; find the non-boolean port so we accumulate the right value. *)
-  let body_elem_port, body_elem_type_id =
-    match ES.fold (fun (_, (dn, dp), t) acc ->
-      if dn = 0 && t <> 1 then Some (dp, t) else acc) body_gr.eset None with
-    | Some (p, t) -> (p, t)
-    | None ->
-      (match ES.fold (fun (_, (dn, dp), t) acc ->
-        if dn = 0 then Some (dp, t) else acc) body_gr.eset None with
-      | Some (p, t) -> (p, t)
-      | None -> (0, 6)) in
-  let fold_op = forall_fold_op loop_gr in
-  let stmts_alloc, e_alloc = assign_with_cast env_loop gid nid 0 `Out (C.LitInt 0) in
-  let res_v = match FullPortMap.find_opt (gid, nid, 0, `Out) e_alloc.var_map with Some (C.Id n) -> C.Id n | _ -> C.Id (get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr) in
-  let tid =
-    match get_elem_type env env.curr_gr nid with
-    | Unknown_ty -> body_elem_type_id
-    | ty -> (try find_ty_safe env.curr_gr ty with _ -> body_elem_type_id) in
-  let env_body = { e_alloc with parent_env = Some e_alloc; curr_gid = body_gid; curr_gr = body_gr; parent_map = IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map } in
-  (* The body's loop-variable inputs are wired by init_boundary_ports from the
-     generator compound outputs (sub_gid, gen_nid, op) bound above to lb+idx /
-     element / at-index.  Only register the loop counter as declared. *)
-  let env_body = { env_body with
-    seen_decls = StringSet.add loop_idx_var env_body.seen_decls } in
-  (* Pre-seed __LFI in BODY scope: block pre_declare from zeroing it, emit explicit decl with lb+idx *)
-  let lfi_stmt_opt, env_body =
-    let cs, _ = body_gr.symtab in
-    SM.fold (fun _ v (stmt_acc, e) ->
-      if stmt_acc <> None then (stmt_acc, e)
-      else if v.val_name = "__LFI" && v.val_def = 0 then
-        let lfi_name = Printf.sprintf "v_%s_n__0___LFI" (scope_of env.gid_name_map body_gid) in
-        let decl = C.Decl (C.Basic "int32_t", lfi_name,
-          Some (C.BinOp (C.Add, lb_expr, C.Id loop_idx_var))) in
-        let e' = { e with
-          seen_decls = StringSet.add lfi_name e.seen_decls;
-          var_map = FullPortMap.add (body_gid, 0, v.def_port, `Out) (C.Id lfi_name) e.var_map } in
-        (Some decl, e')
-      else (stmt_acc, e)
-    ) cs (None, env_body) in
-  let lfi_stmts = match lfi_stmt_opt with Some s -> [s] | None -> [] in
-  let body_stmts, e_body = lower_graph env_body loop_gr body_nid body_gr body_gid in
-  let out_ty = get_final_ty e_body body_gid 0 body_elem_port `In in
-  let body_res = match ES.fold (fun (src, (dn, dp), _) acc -> if dn = 0 && dp = body_elem_port then Some src else acc) body_gr.eset None with
-    | Some (sn, sp) -> get_expr e_body body_gid sn sp `Out
-    | None -> C.LitInt 0 in
-  let cast_body_res = C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); body_res ]) in
-  let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
-  match fold_op with
-  | Some ("argmax" | "argmin" as op_name) ->
-      (* Argmax/argmin fold: carry both running-best-value and best-index.
-         Body expression yields the value to compare; result is the 1-based Sisal index. *)
-      let scope = scope_of env.gid_name_map sub_gid in
-      let acc_val_var = Printf.sprintf "__argm_val_%s" scope in
-      let acc_idx_var = Printf.sprintf "__argm_idx_%s" scope in
-      let neg_inf = match out_ty with
-        | C.Basic "double" -> C.UnaryOp (C.Negate, C.Id "1e308")
-        | C.Basic "float"  -> C.UnaryOp (C.Negate, C.Id "3.4028235e+38f")
-        | _                -> C.UnaryOp (C.Negate, C.Id "0x7fffffff") in
-      let pos_inf = match out_ty with
-        | C.Basic "double" -> C.Id "1e308"
-        | C.Basic "float"  -> C.Id "3.4028235e+38f"
-        | _                -> C.Id "0x7fffffff" in
-      let init_sentinel = if op_name = "argmax" then neg_inf else pos_inf in
-      let cmp_op = if op_name = "argmax" then C.Gt else C.Lt in
-      let acc_val_decl = C.Decl (out_ty, acc_val_var, Some init_sentinel) in
-      let acc_idx_decl = C.Decl (C.Basic "int32_t", acc_idx_var, Some (C.LitInt 0)) in
-      (* 1-based Sisal index = loop_idx_var (0-based counter) + lb_expr *)
-      let sisal_idx = C.BinOp (C.Add, C.Id loop_idx_var, lb_expr) in
-      let update_val = C.BinOp (C.Assign, C.Id acc_val_var, cast_body_res) in
-      let update_idx = C.BinOp (C.Assign, C.Id acc_idx_var, sisal_idx) in
-      let update_if = C.If (C.BinOp (cmp_op, cast_body_res, C.Id acc_val_var),
-                            [ C.Expr update_val; C.Expr update_idx ], []) in
-      let loop = C.For (C.Decl (C.Basic "int32_t", loop_idx_var, Some (C.LitInt 0)),
-                        C.BinOp (C.Lt, C.Id loop_idx_var, count),
-                        C.BinOp (C.Assign, C.Id loop_idx_var, C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)),
-                        lfi_stmts @ body_stmts @ [ update_if ]) in
-      let assign_result_stmts, final_env =
-        let stmts, e' = assign_with_cast { e_body with curr_gid = gid; curr_gr = gr } gid nid 0 `Out (C.Id acc_idx_var) in
-        (stmts, e') in
-      (decl_stmts @ [ C.Compound (loop_in_stmts @ gen_stmts @ stmts_alloc @ [ acc_val_decl; acc_idx_decl; loop ] @ assign_result_stmts) ], final_env)
-  | Some op_name ->
-      (* Fold (returns value of sum/product/least/greatest): accumulate a scalar, no array needed. *)
-      let acc_var = Printf.sprintf "__acc_%s" (scope_of env.gid_name_map sub_gid) in
-      let init_val = match (op_name, out_ty) with
-        | ("product", _) -> C.LitInt 1
-        | ("least",  C.Basic "double") -> C.Id "1e308"
-        | ("least",  C.Basic "float")  -> C.Id "3.4028235e+38f"
-        | ("least",  _)                -> C.Id "0x7fffffff"
-        | ("greatest", C.Basic "double") -> C.UnaryOp (C.Negate, C.Id "1e308")
-        | ("greatest", C.Basic "float")  -> C.UnaryOp (C.Negate, C.Id "3.4028235e+38f")
-        | ("greatest", _)                -> C.UnaryOp (C.Negate, C.Id "0x7fffffff")
-        | _ -> C.LitInt 0 in
-      let acc_decl = C.Decl (out_ty, acc_var, Some init_val) in
-      let update = match op_name with
-        | "product" -> C.BinOp (C.Assign, C.Id acc_var, C.BinOp (C.Mul, C.Id acc_var, cast_body_res))
-        | "least"   -> C.BinOp (C.Assign, C.Id acc_var,
-            C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty);
-              C.BinOp (C.Lt, cast_body_res, C.Id acc_var) |> fun cond ->
-                C.Call ("SISAL_CAST", [C.Id (string_of_c_type out_ty);
-                  C.BinOp (C.Add,
-                    C.BinOp (C.Mul, cond, cast_body_res),
-                    C.BinOp (C.Mul, C.UnaryOp (C.LogNot, cond), C.Id acc_var))]) ]))
-        | "greatest" -> C.BinOp (C.Assign, C.Id acc_var,
-            C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty);
-              C.BinOp (C.Gt, cast_body_res, C.Id acc_var) |> fun cond ->
-                C.Call ("SISAL_CAST", [C.Id (string_of_c_type out_ty);
-                  C.BinOp (C.Add,
-                    C.BinOp (C.Mul, cond, cast_body_res),
-                    C.BinOp (C.Mul, C.UnaryOp (C.LogNot, cond), C.Id acc_var))]) ]))
-        | _ (* sum *) ->
-            let upd_op = if out_ty = C.Basic "bool" then C.LogOr else C.Add in
-            C.BinOp (C.Assign, C.Id acc_var, C.BinOp (upd_op, C.Id acc_var, cast_body_res)) in
-      let loop = C.For (C.Decl (C.Basic "int32_t", loop_idx_var, Some (C.LitInt 0)), C.BinOp (C.Lt, C.Id loop_idx_var, count), C.BinOp (C.Assign, C.Id loop_idx_var, C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)), lfi_stmts @ body_stmts @ [ C.Expr update ]) in
-      let assign_result_stmts, final_env =
-        let stmts, e' = assign_with_cast { e_body with curr_gid = gid; curr_gr = gr } gid nid 0 `Out (C.Id acc_var) in
-        (stmts, e') in
-      (decl_stmts @ [ C.Compound (loop_in_stmts @ gen_stmts @ stmts_alloc @ [ acc_decl; loop ] @ assign_result_stmts) ], final_env)
-  | None ->
-      (* Gather (returns array of / returns array_dv of): collect into an array. *)
-      let alloc = C.Expr (C.BinOp (C.Assign, res_v, C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", count) ]))) in
-      let store = C.Expr (C.BinOp (C.Assign, C.Index (C.Cast (C.Pointer (out_ty, []), C.Member (res_v, "data")), C.Id loop_idx_var), cast_body_res)) in
-      let loop = C.For (C.Decl (C.Basic "int32_t", loop_idx_var, Some (C.LitInt 0)), C.BinOp (C.Lt, C.Id loop_idx_var, count), C.BinOp (C.Assign, C.Id loop_idx_var, C.BinOp (C.Add, C.Id loop_idx_var, C.LitInt 1)), lfi_stmts @ body_stmts @ [ store ]) in
-      let props, final_env = List.fold_left (fun (acc, e) dp ->
-        if dp = 0 then (acc, e)
-        else match FullPortMap.find_opt (body_gid, 0, dp, `In) e_body.var_map with
-        | Some src_expr ->
-            let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
-            (acc @ stmts, e')
-        | None -> (acc, e)
-      ) ([], { e_body with curr_gid = gid; curr_gr = gr }) out_pids in
-      (decl_stmts @ [ C.Compound (loop_in_stmts @ gen_stmts @ stmts_alloc @ [ alloc; loop ] @ props) ], final_env)
-============== END OLD lower_forall ============== *)
 
 and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let env_init_base = { env with parent_env = Some env; compound_nid_in_parent = nid; curr_gid = sub_gid; curr_gr = loop_gr } in

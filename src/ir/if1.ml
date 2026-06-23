@@ -715,13 +715,39 @@ and get_symtab_for_new_scope in_gr =
 and inherit_parent_syms other_gr in_gr =
   let other_cs, other_ps = get_symtab other_gr in
   let cs, ps = get_symtab in_gr in
+  let in_gr =
   {
     in_gr with
     symtab =
       ( cs,
         let kkk = fun k v z -> SM.add k v z in
         SM.fold kkk other_cs (SM.fold kkk other_ps ps) );
-  }
+  } in
+  (* Materialize every inherited (PS) name onto THIS graph's boundary via
+     get_symbol_id.  inherit_parent_syms otherwise only copies names, carrying
+     parent-local (and thus meaningless) val_def node-ids into a renumbered
+     subgraph; routing each through the boundary gives a valid child-local
+     reference (val_def=0 + a real input port) and an explicit dataflow edge.
+
+     EXCEPTION: function-typed names (FUNCTION_TYPE ... RETURNS ...) are NOT
+     dataflow values -- they are nominal, resolved by name at the call site, and
+     have no C value-type (the backend's type mapper has no case for them).  They
+     are globally visible, so they ride the flattened PS like everything else, but
+     they must NOT be threaded onto the boundary as positional values or they leak
+     into function signatures as bogus params.  First-class/higher-order use will
+     re-introduce them deliberately as closures (code label + captured env). *)
+  let parent_tm = get_typemap_tm other_gr in
+  let is_function_typed e =
+    match TM.find_opt e.val_ty parent_tm with
+    | Some (Function_ty _) -> true
+    | _ -> false
+  in
+  SM.fold
+    (fun na e in_g ->
+       if is_function_typed e then in_g
+       else
+         let _, in_g = get_symbol_id na in_g in in_g)
+    (snd in_gr.symtab) in_gr
 
 (** Weird case, where we copy local syms to other only if they are not parent
     syms in other. *)

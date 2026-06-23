@@ -607,4 +607,25 @@ static inline int64_t func__STRUNC__D__L(double x) { return (int64_t)x; }
 static inline int32_t func__SMOD__II__I(int32_t a, int32_t b) { return a % b; }
 static inline int64_t func__SMOD__LL__L(int64_t a, int64_t b) { return a % b; }
 
+/* integer abs */
+static inline int32_t func__SABS__I__I(int32_t x) { return x < 0 ? -x : x; }
+static inline int64_t func__SABS__L__L(int64_t x) { return x < 0 ? -x : x; }
+
+/* max / min (a,b) -> larger/smaller */
+static inline int32_t func__SMAX__II__I(int32_t a, int32_t b) { return a > b ? a : b; }
+static inline int32_t func__SMIN__II__I(int32_t a, int32_t b) { return a < b ? a : b; }
+static inline float   func__SMAX__FF__F(float a, float b)     { return a > b ? a : b; }
+static inline float   func__SMIN__FF__F(float a, float b)     { return a < b ? a : b; }
+static inline double  func__SMAX__DD__D(double a, double b)   { return a > b ? a : b; }
+static inline double  func__SMIN__DD__D(double a, double b)   { return a < b ? a : b; }
+
+/* exp(base, n): two-arg form is POWER base^n (Sisal `exp` = exponentiation). */
+static inline float   func__SEXP__FI__F(float base, int32_t n)  { return powf(base, (float)n); }
+static inline double  func__SEXP__DI__D(double base, int32_t n) { return pow(base, (double)n); }
+
+/* etothe(x) = e^x (C exp).  One-arg Sisal `exp` is routed to ETOTHE by to_if1, so
+   this is what one-arg exponential lowers to. */
+static inline float   func__SETOTHE__F__F(float x)  { return expf(x); }
+static inline double  func__SETOTHE__D__D(double x) { return exp(x); }
+
 #endif
