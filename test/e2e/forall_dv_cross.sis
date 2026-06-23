@@ -1,0 +1,8 @@
+% for x cross y in A, B — cartesian product.
+% Element vars (x,y) must not case-collide with the arrays (A,B): Sisal is
+% case-insensitive, so `for a in A` self-shadows A and miscompiles.
+function Main( A: array[integer]; B: array[integer] returns array_dv[integer] )
+  for x in A cross y in B
+  returns array_dv of x * y
+  end for
+end function

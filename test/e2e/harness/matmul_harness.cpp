@@ -21,7 +21,10 @@ void check(const char* name, bool cond) {
 }
 
 sisal_array_t make_matrix(int32_t* data, int32_t rows, int32_t cols) {
-    sisal_array_t a = sisal_array_alloc_empty(2, 4, rows * cols);
+    // type_id 6 = int32 (array_dv[integer]). NOT 4 (=int64/double, 8-byte elems):
+    // sisal_dv_rank_reduce strides rows by sisal_elem_size(type_id), so a mismatch
+    // walks off the int32 data into uninitialized memory.
+    sisal_array_t a = sisal_array_alloc_empty(2, 6, rows * cols);
     a.dims[0] = rows;
     a.dims[1] = cols;
     a.lower_bound[0] = 1;

@@ -127,4 +127,14 @@ decldef body — all correct; dv suite 12 groups pass / 4 pre-existing fails.
 - [ ] **Parallel emit**: make the loop strategy a single pluggable point
       (serial -> GCD `dispatch_apply` / `vectorize` pragma / Metal); default GCD
       over OpenMP on darwin. Pick per-loop via a cost heuristic later.
-- [ ] Front-end diagnostic for case-insensitive self-shadow (`for a in A`).
+- [ ] **Scatter self-shadow `for a in A` — SILENT MISCOMPILE, not just a missing
+      diagnostic.** Sisal is case-insensitive, so `a ≡ A`; the element binding
+      clobbers the scatter source-array boundary port (`_p0_o`), and the emitted C
+      references an *undeclared* `v_FORALL_…_n__0_p0_o` / `v_GENERATOR_…_n__0_p0_o`
+      → won't compile. Renaming the element (`for x in A`) compiles and runs
+      correctly. Fix: either keep the source-array port decl distinct under a name
+      clash, or reject the self-shadow up front. Minimal repro:
+      `for a in A returns array_dv of a + 1 end for` (a ≡ A). The old repro files
+      `forall_dv_{at,cross,dot,dot3}.sis` were renamed (`for x in A …`) and
+      promoted to `test/e2e/`, so they no longer trip it. See
+      `forall_rebuild_note.md` "Known bug — scatter self-shadow".

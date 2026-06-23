@@ -1,6 +1,0 @@
-% for a . b in A, B — zip (paired elements, same length)
-function Main( A: array[integer]; B: array[integer] returns array_dv[integer] )
-  for a in A DOT b in B
-  returns array_dv of a + b
-  end for
-end function

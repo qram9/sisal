@@ -1,0 +1,8 @@
+% for x at i in A — element and its 1-based index.
+% NB: the element var must NOT case-collide with the array (Sisal is
+% case-insensitive, so `for a in A` self-shadows A and miscompiles).
+function Main( A: array[integer] returns array_dv[integer] )
+  for x in A at i
+  returns array_dv of x + i
+  end for
+end function

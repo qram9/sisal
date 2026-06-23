@@ -117,15 +117,73 @@ scaffold) holding the declarations; each generator level is a nested `for`.
 |---|---|---|
 | range gather | `for i in 1,n returns array of i*i` | `1 4 9 16 25` |
 | expression bounds | `1, n-1`, `n*2+1`, nested `1, m-1` | ✓ |
-| scatter | `for x in A` | element loop |
-| at-index | `for a in A at i` | element + `lower_bound+k` |
+| scatter † | `for x in A` | element loop |
+| at-index † | `for x in A at k` | element + `lower_bound+k` |
 | cross (rank-k) | `1,n cross 1,m` | `[2,3]: 11 12 13 21 22 23` |
-| dot (range/scatter) | `A dot B` | `11 22 33` |
+| dot (range/scatter) † | `A dot B` | `11 22 33` |
 | reductions | sum/product/least/greatest | 15/120/1/5 |
 | argmax/argmin | `argmax abs(A[i])` | the index |
 | multi-output | `gp_two` (2 arrays) | per-port dispatch |
 | box-then-flatten | `returns array_dv of <inner row>` | flat rank-k |
 | element type from IF1 | `array_dv[double]` | `(double*)` |
+
+† Scatter axes require the element name to **differ** from the source-array name;
+`for a in A` self-shadows and miscompiles — see "Known bug" above.
+
+## Known bug — scatter self-shadow (`for a in A`)
+
+A scatter generator whose **element variable collides with the source-array name**
+miscompiles. Sisal is **case-insensitive**, so in
+
+```
+for a in A returns array_dv of a + 1 end for      -- a ≡ A
+for a in A at i ...                                 -- forall_dv_at.sis
+for a in A cross b in B ...                         -- forall_dv_cross.sis
+for a in A DOT b in B ...                           -- forall_dv_dot.sis  / _dot3
+```
+
+the element `a` **is** the array `A` (same symtab entry). The element binding
+clobbers the source-array boundary slot, so the generated C references the array
+port that was never declared:
+
+```
+error: use of undeclared identifier 'v_GENERATOR_10003_n__0_p0_o'
+error: use of undeclared identifier 'v_FORALL_10001_n__0_p0_o'   // the scatter source array
+```
+
+**It is purely the name clash, not the scatter machinery.** Renaming the element
+fixes it — all of these compile (0 errors) and run correctly:
+
+```
+for x in A returns array_dv of x + 1 end for        -- [10,20,30] -> [11,21,31]  ✓
+for x in A at k  ...                                  -- ✓
+for x in A cross y in B ...                           -- ✓
+for x in A DOT  y in B ...                            -- ✓
+```
+
+So the "scatter / at-index / dot" rows in the coverage table below hold **only for
+non-colliding names**. Trigger is independent of: param vs local source array,
+`array` vs `array_dv` element type, and presence of `at`.
+
+Root cause: the scatter axis's **source-array slot** (the `_p0_o` boundary port
+that holds the array being scattered) is dropped from the anticipatory-decl /
+copy-in plumbing (rebuild steps 2–3) when its name is already taken by the
+generator's element output. Fix is one of: (a) keep the source-array port's decl
+distinct from the element binding even under a name clash, or (b) reject the
+self-shadow in the front end — see the
+`for a in A` self-shadow work item in `forall_lowering_workitems.md`.
+
+Minimal repro (still miscompiles today):
+
+```
+function Main( A: array_dv[integer] returns array_dv[integer] )
+  for a in A returns array_dv of a + 1 end for     -- a == A  ->  undeclared port
+end function
+```
+
+The former repro files `forall_dv_{at,cross,dot,dot3}.sis` were renamed to
+non-colliding element vars (`for x in A ...`) and promoted to `test/e2e/` as
+passing scatter/at/cross/dot coverage; they no longer exercise the self-shadow.
 
 ## Status
 

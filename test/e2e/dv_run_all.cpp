@@ -131,6 +131,134 @@ extern "C" sisal_array_t func_IP_F32(sisal_array_t A, sisal_array_t B);
 extern "C" sisal_array_t func_IP_I32(sisal_array_t A, sisal_array_t B);
 #endif
 
+#ifdef TEST_MATMUL_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B, int32_t N);  // matmul_dv
+#endif
+
+#ifdef TEST_FOR_INITIAL_DV
+extern "C" sisal_array_t func_MAIN(int32_t N);  // for_initial_dv: array_dv loop-carry
+#endif
+
+// Simple scalar / control-flow / let cases (no arrays).
+#ifdef TEST_THREE
+extern "C" int32_t func_MAIN();                                 // constant 3
+#endif
+#ifdef TEST_FACT
+extern "C" int32_t func_MAIN(int32_t N);                        // scalar recursion: n!
+#endif
+#ifdef TEST_IF_ONE
+extern "C" int32_t func_MAIN(int32_t I, int32_t E);             // if/else -> min
+#endif
+#ifdef TEST_IF_TWO
+extern "C" int32_t func_MAIN(int32_t I, int32_t E);            // if/elseif/else
+#endif
+#ifdef TEST_IF_ELSEIF
+extern "C" int32_t func_MAIN(int32_t I, int32_t E, int32_t F);  // 3-var elseif chain
+#endif
+#ifdef TEST_MR_TWO_SCALAR
+extern "C" int32_t func_MAIN(int32_t A, int32_t B);             // let P,Q := Two2(a,b) -> P+Q
+#endif
+#ifdef TEST_LET_MULTI_BIND
+extern "C" int32_t func_MAIN();                                 // parallel let -> 60
+#endif
+#ifdef TEST_LET_SEQ_BIND
+extern "C" int32_t func_MAIN();                                 // sequential let -> 25
+#endif
+#ifdef TEST_XFA_B2_COND
+extern "C" sisal_array_t func_MAIN(int32_t N, int32_t M);       // if inside forall cross body
+#endif
+#ifdef TEST_AGGREGATE_ADD
+extern "C" sisal_array_t func_VECTORADD_CPU(sisal_array_t A, sisal_array_t B);  // real vector add
+#endif
+#ifdef TEST_AREA
+extern "C" float func_MAIN(float start, float finish, int32_t gran);  // Riemann sum of x^2+1
+#endif
+#ifdef TEST_MULTIDECL
+struct MULTIDECL_results { double res_0; int32_t res_1; };
+extern "C" struct MULTIDECL_results func_MAIN();  // returns (double, integer) reordered
+#endif
+#ifdef TEST_LOOPCARRY_USED
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t AIN);  // double array_dv carry, x2/iter
+#endif
+#ifdef TEST_LOOPCARRY_IDENTITY
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t AIN, sisal_array_t BIN);  // parallel multi-carry, returns B
+#endif
+#ifdef TEST_SUB_2D
+extern "C" int32_t func_MAIN(int32_t N);  // build A[i,j]=i*10+j, read A[2,3]
+#endif
+#ifdef TEST_SUB_3D
+extern "C" int32_t func_MAIN(int32_t N);  // build A[i,j,k], read A[2,3,1]
+#endif
+#ifdef TEST_SLICE_DOTDOT
+extern "C" sisal_array_t func_MAIN(int32_t N);  // A[2, ..] row slice (rank-reduce)
+#endif
+#ifdef TEST_TEST_MULTI_ARRAY_IF
+struct MULTI_ARRAY_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct MULTI_ARRAY_results func_MAIN(int32_t N);  // two array outputs, if-in-body
+#endif
+#ifdef TEST_SUB_2D_DIAG
+extern "C" int32_t func_MAIN(int32_t N);  // A[1,1]+A[2,2]+A[3,3]
+#endif
+#ifdef TEST_LET_NESTED_SEQ
+extern "C" int32_t func_MAIN();  // nested lets -> 25
+#endif
+#ifdef TEST_FORTY2
+extern "C" int32_t func_MAIN(int32_t X, int32_t Y, int32_t Z);  // if/elseif with arithmetic
+#endif
+#ifdef TEST_XFA_B1_DECLDEF
+extern "C" sisal_array_t func_MAIN(int32_t N, int32_t M);  // cross i*j via body decldef
+#endif
+#ifdef TEST_XFA_C3_3AXIS
+extern "C" sisal_array_t func_MAIN(int32_t A, int32_t B, int32_t C);  // rank-3 cross i*j*k
+#endif
+#ifdef TEST_SLICE_STORE
+extern "C" sisal_array_t func_MAIN(int32_t N);  // A[2, .. : Z] write-side slice
+#endif
+#ifdef TEST_MR_TWO_ARRAY
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t A);  // multi-array destructure -> P
+#endif
+#ifdef TEST_AA
+extern "C" sisal_array_t func_DVFILL(int32_t LO, int32_t HI, int32_t V);  // array_dv fill
+#endif
+
+// Scatter-axis generators over array params (element var renamed off the array
+// name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
+#ifdef TEST_FORALL_DV_AT
+extern "C" sisal_array_t func_MAIN(sisal_array_t A);                                   // for x in A at i -> x+i
+#endif
+#ifdef TEST_FORALL_DV_CROSS
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);                  // x cross y -> x*y
+#endif
+#ifdef TEST_FORALL_DV_DOT
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);                  // x dot y -> x+y
+#endif
+#ifdef TEST_FORALL_DV_DOT3
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B, sisal_array_t C); // x dot y dot z -> x+y+z
+#endif
+
+// Scalar forall reductions (red_*.sis): each folds a forall body to one integer.
+#ifdef TEST_RED_SUM
+extern "C" int32_t func_MAIN(int32_t N);  // value of sum i
+#endif
+#ifdef TEST_RED_PRODUCT
+extern "C" int32_t func_MAIN(int32_t N);  // value of product i
+#endif
+#ifdef TEST_RED_GREATEST
+extern "C" int32_t func_MAIN(int32_t N);  // value of greatest i*(N+1-i)
+#endif
+#ifdef TEST_RED_LEAST
+extern "C" int32_t func_MAIN(int32_t N);  // value of least (i-3)*(i-3)
+#endif
+#ifdef TEST_RED_ARGMAX
+extern "C" int32_t func_MAIN(int32_t N);  // value of argmax i*(N+1-i)
+#endif
+#ifdef TEST_RED_ARGMIN
+extern "C" int32_t func_MAIN(int32_t N);  // value of argmin i*i-6*i
+#endif
+#ifdef TEST_RED_SUM_CROSS
+extern "C" int32_t func_MAIN(int32_t N, int32_t M);  // value of sum i*j over i cross j
+#endif
+
 #ifdef TEST_BULK_BASIC
 extern "C" sisal_array_t func_T_ARR_ADD(sisal_array_t A, sisal_array_t B);
 extern "C" sisal_array_t func_T_ARR_SUB(sisal_array_t A, sisal_array_t B);
@@ -1107,6 +1235,494 @@ static void test_innerproduct_dv(void) {
 }
 #endif
 
+#ifdef TEST_MATMUL_DV
+// Explicit triple-nested forall matmul over array_dv[integer] (matmul_dv.sis):
+//   for i,row=for j,val=for k returns sum A[i,k]*B[k,j]
+// Distinct from the innerproduct-wrapper matmul above — this exercises the
+// nested-forall -> array_dv lowering directly.
+static void test_matmul_dv(void) {
+    printf("\n=== Group: matmul_dv (nested forall) ===\n");
+    // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
+    int32_t da[] = {1, 2, 3, 4};
+    int32_t db[] = {5, 6, 7, 8};
+    sisal_array_t A = make_int_2d(da, 2, 2);
+    sisal_array_t B = make_int_2d(db, 2, 2);
+    sisal_array_t C = func_MAIN(A, B, 2);
+    check("matmul_dv rank",    C.rank == 2);
+    check("matmul_dv dims[0]", (int)C.dims[0] == 2);
+    check("matmul_dv dims[1]", (int)C.dims[1] == 2);
+    check("matmul_dv[0,0]=19", ai(C, 0) == 19);
+    check("matmul_dv[0,1]=22", ai(C, 1) == 22);
+    check("matmul_dv[1,0]=43", ai(C, 2) == 43);
+    check("matmul_dv[1,1]=50", ai(C, 3) == 50);
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+    if (C.data) free(C.data);
+
+    // 3x3 to exercise non-trivial K accumulation across rows.
+    // A=[[1,2,3],[4,5,6],[7,8,9]]  B=I3  => C==A
+    int32_t da3[] = {1,2,3,4,5,6,7,8,9};
+    int32_t i3[]  = {1,0,0, 0,1,0, 0,0,1};
+    sisal_array_t A3 = make_int_2d(da3, 3, 3);
+    sisal_array_t I3 = make_int_2d(i3, 3, 3);
+    sisal_array_t C3 = func_MAIN(A3, I3, 3);
+    bool id_ok = (C3.rank == 2) && ((int)C3.dims[0] == 3) && ((int)C3.dims[1] == 3);
+    for (int k = 0; k < 9; k++) id_ok = id_ok && (ai(C3, k) == da3[k]);
+    check("matmul_dv 3x3 * I3 == A", id_ok);
+    if (A3.data) free(A3.data);
+    if (I3.data) free(I3.data);
+    if (C3.data) free(C3.data);
+}
+#endif
+
+// ============================================================
+// GROUPS RED_* — scalar forall reductions (red_*.sis)
+// ============================================================
+
+#ifdef TEST_THREE
+static void test_three(void) {
+    printf("\n=== Group: three (constant) ===\n");
+    check("three()=3", func_MAIN() == 3);
+}
+#endif
+
+#ifdef TEST_FACT
+static void test_fact(void) {
+    printf("\n=== Group: fact (scalar recursion) ===\n");
+    check("fact(0)=1",   func_MAIN(0) == 1);
+    check("fact(1)=1",   func_MAIN(1) == 1);
+    check("fact(5)=120", func_MAIN(5) == 120);
+    check("fact(7)=5040", func_MAIN(7) == 5040);
+}
+#endif
+
+#ifdef TEST_IF_ONE
+static void test_if_one(void) {
+    printf("\n=== Group: if_one (if/else -> min) ===\n");
+    check("if_one(3,7)=3", func_MAIN(3, 7) == 3);
+    check("if_one(7,3)=3", func_MAIN(7, 3) == 3);
+    check("if_one(5,5)=5", func_MAIN(5, 5) == 5);
+}
+#endif
+
+#ifdef TEST_IF_TWO
+static void test_if_two(void) {
+    printf("\n=== Group: if_two (if/elseif/else) ===\n");
+    check("if_two(3,7)=6", func_MAIN(3, 7) == 6);  // I<E -> I*2
+    check("if_two(5,5)=8", func_MAIN(5, 5) == 8);  // I=E -> E+3
+    check("if_two(7,3)=5", func_MAIN(7, 3) == 5);  // else -> I-2
+}
+#endif
+
+#ifdef TEST_IF_ELSEIF
+static void test_if_elseif(void) {
+    printf("\n=== Group: if_elseif (3-var elseif chain) ===\n");
+    check("if_elseif(1,2,3)=1", func_MAIN(1, 2, 3) == 1);  // I<E
+    check("if_elseif(3,2,5)=2", func_MAIN(3, 2, 5) == 2);  // E<F
+    check("if_elseif(5,4,3)=3", func_MAIN(5, 4, 3) == 3);  // else -> F
+}
+#endif
+
+#ifdef TEST_MR_TWO_SCALAR
+static void test_mr_two_scalar(void) {
+    printf("\n=== Group: mr_two_scalar (multi-result destructure) ===\n");
+    // Two2(a,b) = (a+b, a-b); Main returns P+Q = 2a
+    check("mr(10,3)=20", func_MAIN(10, 3) == 20);
+    check("mr(4,9)=8",   func_MAIN(4, 9) == 8);
+    check("mr(0,0)=0",   func_MAIN(0, 0) == 0);
+}
+#endif
+
+#ifdef TEST_LET_MULTI_BIND
+static void test_let_multi_bind(void) {
+    printf("\n=== Group: let_multi_bind (parallel let) ===\n");
+    check("10+20+30=60", func_MAIN() == 60);
+}
+#endif
+
+#ifdef TEST_LET_SEQ_BIND
+static void test_let_seq_bind(void) {
+    printf("\n=== Group: let_seq_bind (sequential let) ===\n");
+    // Base=5; Doubled=10; Tripled=15; -> 25
+    check("Doubled+Tripled=25", func_MAIN() == 25);
+}
+#endif
+
+#ifdef TEST_XFA_B2_COND
+// for i in 1,n cross j in 1,m returns array_dv of (if i<j then i else j)
+static void test_xfa_b2_cond(void) {
+    printf("\n=== Group: xfa_b2_cond (if inside forall cross body) ===\n");
+    sisal_array_t r = func_MAIN(2, 3);
+    // i=1: min(1,1..3)=[1,1,1]; i=2: min(2,1..3)=[1,2,2]
+    int32_t exp[] = {1, 1, 1, 1, 2, 2};
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 3);
+    for (int k = 0; ok && k < 6; k++) ok = ok && (ai(r, k) == exp[k]);
+    check("xfa_b2_cond(2,3) == [1,1,1,1,2,2] 2x3", ok);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_AGGREGATE_ADD
+static void test_aggregate_add(void) {
+    printf("\n=== Group: aggregate_add (real vector add) ===\n");
+    float a[] = {1.0f, 2.0f, 3.0f};
+    float b[] = {10.0f, 20.0f, 30.0f};
+    sisal_array_t A = make_float_arr(a, 3);
+    sisal_array_t B = make_float_arr(b, 3);
+    sisal_array_t r = func_VECTORADD_CPU(A, B);
+    check("vadd rank-1", r.rank == 1 && (int)r.size == 3);
+    check("vadd[0]=11",  near_f(af(r, 0), 11.0f));
+    check("vadd[1]=22",  near_f(af(r, 1), 22.0f));
+    check("vadd[2]=33",  near_f(af(r, 2), 33.0f));
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_AREA
+// Left-Riemann sum of x^2+1 over [start,finish] in `gran` steps; -> integral as gran grows.
+static void test_area(void) {
+    printf("\n=== Group: area (real Riemann sum) ===\n");
+    // integral_1^2 (x^2+1) dx = 10/3; integral_0^1 = 4/3
+    check("area(1,2,100000) ~ 3.3333", fabs(func_MAIN(1.0f, 2.0f, 100000) - 3.33333f) < 1e-3f);
+    check("area(0,1,10000)  ~ 1.3333", fabs(func_MAIN(0.0f, 1.0f, 10000)  - 1.33333f) < 1e-2f);
+}
+#endif
+
+#ifdef TEST_MULTIDECL
+// GetValues() = (10, double(3.14159f)); Main returns (y,x) = (3.14159, 10) reordered.
+static void test_multidecl(void) {
+    printf("\n=== Group: multidecl (mixed multi-result, reordered) ===\n");
+    struct MULTIDECL_results r = func_MAIN();
+    check("multidecl res_0 ~ 3.14159", fabs(r.res_0 - 3.14159) < 1e-4);
+    check("multidecl res_1 = 10",      r.res_1 == 10);
+}
+#endif
+
+#ifdef TEST_LOOPCARRY_USED
+// array_dv[double] carried through `for initial`: each iter doubles every element; n iters -> x2^n.
+static void test_loopcarry_used(void) {
+    printf("\n=== Group: loopcarry_used (double array carry, x2/iter) ===\n");
+    double a[] = {1.0, 2.0, 3.0};
+    sisal_array_t A = make_double_arr(a, 3);
+    sisal_array_t r = func_MAIN(3, A);              // x2 three times = x8
+    check("lcu rank-1", r.rank == 1 && (int)r.size == 3);
+    check("lcu[0]=8",   ad(r, 0) == 8.0);
+    check("lcu[1]=16",  ad(r, 1) == 16.0);
+    check("lcu[2]=24",  ad(r, 2) == 24.0);
+    if (A.data) free(A.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_LOOPCARRY_IDENTITY
+// Parallel multi-carry A,B := old A, old B; returns B unchanged.
+static void test_loopcarry_identity(void) {
+    printf("\n=== Group: loopcarry_identity (parallel multi-carry -> B) ===\n");
+    double a[] = {1.0, 2.0, 3.0}, b[] = {10.0, 20.0, 30.0};
+    sisal_array_t A = make_double_arr(a, 3), B = make_double_arr(b, 3);
+    sisal_array_t r = func_MAIN(3, A, B);
+    check("lci rank-1",  r.rank == 1 && (int)r.size == 3);
+    check("lci[0]=10",   ad(r, 0) == 10.0);
+    check("lci[1]=20",   ad(r, 1) == 20.0);
+    check("lci[2]=30",   ad(r, 2) == 30.0);
+    // Identity carry returns B unchanged, so r.data aliases B.data (no copy):
+    // free A and B only — freeing r too would double-free.
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+}
+#endif
+
+#ifdef TEST_SUB_2D_DIAG
+static void test_sub_2d_diag(void) {
+    printf("\n=== Group: sub_2d_diag (A[1,1]+A[2,2]+A[3,3]) ===\n");
+    check("sub_2d_diag(3)=66", func_MAIN(3) == 66);  // 11+22+33
+}
+#endif
+
+#ifdef TEST_LET_NESTED_SEQ
+static void test_let_nested_seq(void) {
+    printf("\n=== Group: let_nested_seq (nested let scoping) ===\n");
+    // X=10; Y=X+5=15; Z=X+Y=25
+    check("let_nested_seq()=25", func_MAIN() == 25);
+}
+#endif
+
+#ifdef TEST_FORTY2
+static void test_forty2(void) {
+    printf("\n=== Group: forty2 (if/elseif with arithmetic) ===\n");
+    check("forty2(1,5,_)=213", func_MAIN(1, 5, 0) == 213);  // X<Y -> 3+42*5
+    check("forty2(5,1,_)=40",  func_MAIN(5, 1, 0) == 40);   // X>Y -> 3+42-5
+    check("forty2(3,3,3)=11",  func_MAIN(3, 3, 3) == 11);   // Z=Y -> 3+42/5
+    check("forty2(3,3,5)=47",  func_MAIN(3, 3, 5) == 47);   // else -> 5+42
+}
+#endif
+
+#ifdef TEST_XFA_B1_DECLDEF
+static void test_xfa_b1_decldef(void) {
+    printf("\n=== Group: xfa_b1_decldef (cross i*j via body decldef) ===\n");
+    sisal_array_t r = func_MAIN(2, 3);
+    int32_t exp[] = {1, 2, 3, 2, 4, 6};
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 3);
+    for (int k = 0; ok && k < 6; k++) ok = ok && (ai(r, k) == exp[k]);
+    check("xfa_b1_decldef(2,3) == [1,2,3,2,4,6] 2x3", ok);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_XFA_C3_3AXIS
+static void test_xfa_c3_3axis(void) {
+    printf("\n=== Group: xfa_c3_3axis (rank-3 cross i*j*k) ===\n");
+    sisal_array_t r = func_MAIN(2, 2, 2);
+    int32_t exp[] = {1, 2, 2, 4, 2, 4, 4, 8};
+    bool ok = (r.rank == 3) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 2) && ((int)r.dims[2] == 2);
+    for (int k = 0; ok && k < 8; k++) ok = ok && (ai(r, k) == exp[k]);
+    check("xfa_c3_3axis(2,2,2) == [1,2,2,4,2,4,4,8] 2x2x2", ok);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_SLICE_STORE
+static void test_slice_store(void) {
+    printf("\n=== Group: slice_store (A[2, .. : Z] write-side slice) ===\n");
+    sisal_array_t r = func_MAIN(3);  // row 2 replaced by zeros
+    int32_t exp[] = {11, 12, 13, 0, 0, 0, 31, 32, 33};
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == 3) && ((int)r.dims[1] == 3);
+    for (int k = 0; ok && k < 9; k++) ok = ok && (ai(r, k) == exp[k]);
+    check("slice_store(3) == [11,12,13,0,0,0,31,32,33]", ok);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_MR_TWO_ARRAY
+static void test_mr_two_array(void) {
+    printf("\n=== Group: mr_two_array (multi-array destructure -> P) ===\n");
+    double a[] = {1.0, 2.0, 3.0};
+    sisal_array_t A = make_double_arr(a, 3);
+    sisal_array_t r = func_MAIN(3, A);  // P = A[i]+1 = [2,3,4]
+    check("mr_two_array rank-1", r.rank == 1 && (int)r.size == 3);
+    check("mr_two_array[0]=2", ad(r, 0) == 2.0);
+    check("mr_two_array[1]=3", ad(r, 1) == 3.0);
+    check("mr_two_array[2]=4", ad(r, 2) == 4.0);
+    if (A.data) free(A.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_AA
+static void test_aa(void) {
+    printf("\n=== Group: aa (array_dv fill) ===\n");
+    sisal_array_t r = func_DVFILL(1, 5, 7);  // [7,7,7,7,7]
+    check("dvfill rank-1", r.rank == 1 && (int)r.size == 5);
+    bool ok = true;
+    for (int k = 0; k < 5; k++) ok = ok && (ai(r, k) == 7);
+    check("dvfill(1,5,7) == [7]*5", ok);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_SUB_2D
+static void test_sub_2d(void) {
+    printf("\n=== Group: sub_2d (2-D subscript A[2,3]) ===\n");
+    check("sub_2d(3)=23", func_MAIN(3) == 23);   // 2*10+3
+    check("sub_2d(5)=23", func_MAIN(5) == 23);
+}
+#endif
+
+#ifdef TEST_SUB_3D
+static void test_sub_3d(void) {
+    printf("\n=== Group: sub_3d (3-D subscript A[2,3,1]) ===\n");
+    check("sub_3d(3)=231", func_MAIN(3) == 231);  // 2*100+3*10+1
+    check("sub_3d(4)=231", func_MAIN(4) == 231);
+}
+#endif
+
+#ifdef TEST_SLICE_DOTDOT
+static void test_slice_dotdot(void) {
+    printf("\n=== Group: slice_dotdot (A[2, ..] row slice) ===\n");
+    sisal_array_t r = func_MAIN(3);   // row 2 of A[i,j]=i*10+j -> [21,22,23]
+    check("slice rank-1", r.rank == 1 && (int)r.size == 3);
+    check("slice[0]=21",  ai(r, 0) == 21);
+    check("slice[1]=22",  ai(r, 1) == 22);
+    check("slice[2]=23",  ai(r, 2) == 23);
+}
+#endif
+
+#ifdef TEST_TEST_MULTI_ARRAY_IF
+// for i in 1,N returns array of (even? i*1.5 : i*0.5)  AND  array of i*i
+static void test_test_multi_array_if(void) {
+    printf("\n=== Group: test_multi_array_if (dual array output, if-in-body) ===\n");
+    struct MULTI_ARRAY_results r = func_MAIN(4);
+    double e0[] = {0.5, 3.0, 1.5, 6.0};
+    int32_t e1[] = {1, 4, 9, 16};
+    bool ok0 = (r.res_0.rank == 1) && ((int)r.res_0.size == 4);
+    for (int k = 0; ok0 && k < 4; k++) ok0 = ok0 && (((double*)r.res_0.data)[k] == e0[k]);
+    bool ok1 = (r.res_1.rank == 1) && ((int)r.res_1.size == 4);
+    for (int k = 0; ok1 && k < 4; k++) ok1 = ok1 && (((int32_t*)r.res_1.data)[k] == e1[k]);
+    check("multi_array_if res_0 = [0.5,3,1.5,6]", ok0);
+    check("multi_array_if res_1 = [1,4,9,16]",   ok1);
+}
+#endif
+
+#ifdef TEST_FORALL_DV_AT
+// for x in A at i returns array_dv of x + i  (i = 1-based index, lower_bound+k)
+static void test_forall_dv_at(void) {
+    printf("\n=== Group: forall_dv_at (for x in A at i -> x+i) ===\n");
+    int32_t d[] = {10, 20, 30};
+    sisal_array_t A = make_int_arr(d, 3);
+    sisal_array_t r = func_MAIN(A);
+    check("at rank-1",  r.rank == 1 && (int)r.size == 3);
+    check("at[0]=11",   ai(r, 0) == 11);
+    check("at[1]=22",   ai(r, 1) == 22);
+    check("at[2]=33",   ai(r, 2) == 33);
+    if (A.data) free(A.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_FORALL_DV_CROSS
+// for x in A cross y in B returns array_dv of x*y  (rank-2 cartesian product)
+static void test_forall_dv_cross(void) {
+    printf("\n=== Group: forall_dv_cross (x cross y -> x*y) ===\n");
+    int32_t da[] = {1, 2}, db[] = {3, 4};
+    sisal_array_t A = make_int_arr(da, 2), B = make_int_arr(db, 2);
+    sisal_array_t r = func_MAIN(A, B);
+    check("cross rank-2",   r.rank == 2);
+    check("cross dims 2x2", (int)r.dims[0] == 2 && (int)r.dims[1] == 2);
+    check("cross[0]=3",     ai(r, 0) == 3);   // 1*3
+    check("cross[1]=4",     ai(r, 1) == 4);   // 1*4
+    check("cross[2]=6",     ai(r, 2) == 6);   // 2*3
+    check("cross[3]=8",     ai(r, 3) == 8);   // 2*4
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_FORALL_DV_DOT
+// for x in A dot y in B returns array_dv of x+y  (zip)
+static void test_forall_dv_dot(void) {
+    printf("\n=== Group: forall_dv_dot (x dot y -> x+y) ===\n");
+    int32_t da[] = {10, 20, 30}, db[] = {1, 2, 3};
+    sisal_array_t A = make_int_arr(da, 3), B = make_int_arr(db, 3);
+    sisal_array_t r = func_MAIN(A, B);
+    check("dot rank-1", r.rank == 1 && (int)r.size == 3);
+    check("dot[0]=11",  ai(r, 0) == 11);
+    check("dot[1]=22",  ai(r, 1) == 22);
+    check("dot[2]=33",  ai(r, 2) == 33);
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_FORALL_DV_DOT3
+// for x in A dot y in B dot z in C returns array_dv of x+y+z  (3-way zip)
+static void test_forall_dv_dot3(void) {
+    printf("\n=== Group: forall_dv_dot3 (x dot y dot z -> x+y+z) ===\n");
+    int32_t da[] = {1, 2}, db[] = {10, 20}, dc[] = {100, 200};
+    sisal_array_t A = make_int_arr(da, 2), B = make_int_arr(db, 2), C = make_int_arr(dc, 2);
+    sisal_array_t r = func_MAIN(A, B, C);
+    check("dot3 rank-1", r.rank == 1 && (int)r.size == 2);
+    check("dot3[0]=111", ai(r, 0) == 111);
+    check("dot3[1]=222", ai(r, 1) == 222);
+    if (A.data) free(A.data);
+    if (B.data) free(B.data);
+    if (C.data) free(C.data);
+    if (r.data) free(r.data);
+}
+#endif
+
+#ifdef TEST_FOR_INITIAL_DV
+// array_dv carried through a `for initial` loop: v starts as n zeros, each
+// iteration i=1..n bumps element i via v := old v[i: DV_LOAD_LINEAR(old v,i)+1].
+// After n iters every element has been bumped once -> all ones.
+static void test_for_initial_dv(void) {
+    printf("\n=== Group: for_initial_dv (array_dv loop-carry) ===\n");
+    for (int n = 1; n <= 5; n++) {
+        sisal_array_t r = func_MAIN(n);
+        bool ok = (r.rank == 1) && ((int)r.size == n);
+        for (int k = 0; ok && k < n; k++) ok = ok && (ai(r, k) == 1);
+        char msg[48]; snprintf(msg, sizeof msg, "for_initial_dv(%d) == [1]*%d", n, n);
+        check(msg, ok);
+        if (r.data) free(r.data);
+    }
+}
+#endif
+
+#ifdef TEST_RED_SUM
+static void test_red_sum(void) {
+    printf("\n=== Group: red_sum (value of sum i) ===\n");
+    check("red_sum(5)=15",  func_MAIN(5) == 15);
+    check("red_sum(1)=1",   func_MAIN(1) == 1);
+    check("red_sum(0)=0",   func_MAIN(0) == 0);   // empty range -> identity 0
+    check("red_sum(10)=55", func_MAIN(10) == 55);
+}
+#endif
+
+#ifdef TEST_RED_PRODUCT
+static void test_red_product(void) {
+    printf("\n=== Group: red_product (value of product i) ===\n");
+    check("red_product(5)=120", func_MAIN(5) == 120);
+    check("red_product(1)=1",   func_MAIN(1) == 1);
+    check("red_product(0)=1",   func_MAIN(0) == 1);   // empty range -> identity 1
+    check("red_product(4)=24",  func_MAIN(4) == 24);
+}
+#endif
+
+#ifdef TEST_RED_GREATEST
+static void test_red_greatest(void) {
+    printf("\n=== Group: red_greatest (value of greatest i*(N+1-i)) ===\n");
+    // N=5: {5,8,9,8,5} -> 9
+    check("red_greatest(5)=9", func_MAIN(5) == 9);
+    // N=1: {1*1}=1
+    check("red_greatest(1)=1", func_MAIN(1) == 1);
+    // N=4: {4,6,6,4} -> 6
+    check("red_greatest(4)=6", func_MAIN(4) == 6);
+}
+#endif
+
+#ifdef TEST_RED_LEAST
+static void test_red_least(void) {
+    printf("\n=== Group: red_least (value of least (i-3)*(i-3)) ===\n");
+    // N=5: {4,1,0,1,4} -> 0
+    check("red_least(5)=0", func_MAIN(5) == 0);
+    // N=2: {4,1} -> 1
+    check("red_least(2)=1", func_MAIN(2) == 1);
+}
+#endif
+
+#ifdef TEST_RED_ARGMAX
+static void test_red_argmax(void) {
+    printf("\n=== Group: red_argmax (value of argmax i*(N+1-i)) ===\n");
+    // N=5: {5,8,9,8,5}, peak at i=3
+    check("red_argmax(5)=3", func_MAIN(5) == 3);
+    // N=1: only i=1
+    check("red_argmax(1)=1", func_MAIN(1) == 1);
+}
+#endif
+
+#ifdef TEST_RED_ARGMIN
+static void test_red_argmin(void) {
+    printf("\n=== Group: red_argmin (value of argmin i*i-6*i) ===\n");
+    // N=5: {-5,-8,-9,-8,-5}, min at i=3
+    check("red_argmin(5)=3", func_MAIN(5) == 3);
+    // N=2: {-5,-8}, min at i=2
+    check("red_argmin(2)=2", func_MAIN(2) == 2);
+}
+#endif
+
+#ifdef TEST_RED_SUM_CROSS
+static void test_red_sum_cross(void) {
+    printf("\n=== Group: red_sum_cross (value of sum i*j over i cross j) ===\n");
+    // (sum_{1..N} i)*(sum_{1..M} j)
+    check("red_sum_cross(3,4)=60", func_MAIN(3, 4) == 60);  // 6*10
+    check("red_sum_cross(2,2)=9",  func_MAIN(2, 2) == 9);   // 3*3
+    check("red_sum_cross(1,1)=1",  func_MAIN(1, 1) == 1);
+}
+#endif
+
 #ifdef TEST_BULK_BASIC
 static void test_bulk_basic(void) {
     printf("\n=== Group N: dv_bulk_basic ===\n");
@@ -1527,6 +2143,123 @@ int main(void) {
 #ifdef TEST_INNERPRODUCT_DV
     test_innerproduct_dv();
 #endif
+#ifdef TEST_MATMUL_DV
+    test_matmul_dv();
+#endif
+#ifdef TEST_FOR_INITIAL_DV
+    test_for_initial_dv();
+#endif
+#ifdef TEST_THREE
+    test_three();
+#endif
+#ifdef TEST_FACT
+    test_fact();
+#endif
+#ifdef TEST_IF_ONE
+    test_if_one();
+#endif
+#ifdef TEST_IF_TWO
+    test_if_two();
+#endif
+#ifdef TEST_IF_ELSEIF
+    test_if_elseif();
+#endif
+#ifdef TEST_MR_TWO_SCALAR
+    test_mr_two_scalar();
+#endif
+#ifdef TEST_LET_MULTI_BIND
+    test_let_multi_bind();
+#endif
+#ifdef TEST_LET_SEQ_BIND
+    test_let_seq_bind();
+#endif
+#ifdef TEST_XFA_B2_COND
+    test_xfa_b2_cond();
+#endif
+#ifdef TEST_AGGREGATE_ADD
+    test_aggregate_add();
+#endif
+#ifdef TEST_AREA
+    test_area();
+#endif
+#ifdef TEST_MULTIDECL
+    test_multidecl();
+#endif
+#ifdef TEST_LOOPCARRY_USED
+    test_loopcarry_used();
+#endif
+#ifdef TEST_LOOPCARRY_IDENTITY
+    test_loopcarry_identity();
+#endif
+#ifdef TEST_SUB_2D_DIAG
+    test_sub_2d_diag();
+#endif
+#ifdef TEST_LET_NESTED_SEQ
+    test_let_nested_seq();
+#endif
+#ifdef TEST_FORTY2
+    test_forty2();
+#endif
+#ifdef TEST_XFA_B1_DECLDEF
+    test_xfa_b1_decldef();
+#endif
+#ifdef TEST_XFA_C3_3AXIS
+    test_xfa_c3_3axis();
+#endif
+#ifdef TEST_SLICE_STORE
+    test_slice_store();
+#endif
+#ifdef TEST_MR_TWO_ARRAY
+    test_mr_two_array();
+#endif
+#ifdef TEST_AA
+    test_aa();
+#endif
+#ifdef TEST_SUB_2D
+    test_sub_2d();
+#endif
+#ifdef TEST_SUB_3D
+    test_sub_3d();
+#endif
+#ifdef TEST_SLICE_DOTDOT
+    test_slice_dotdot();
+#endif
+#ifdef TEST_TEST_MULTI_ARRAY_IF
+    test_test_multi_array_if();
+#endif
+#ifdef TEST_FORALL_DV_AT
+    test_forall_dv_at();
+#endif
+#ifdef TEST_FORALL_DV_CROSS
+    test_forall_dv_cross();
+#endif
+#ifdef TEST_FORALL_DV_DOT
+    test_forall_dv_dot();
+#endif
+#ifdef TEST_FORALL_DV_DOT3
+    test_forall_dv_dot3();
+#endif
+#ifdef TEST_RED_SUM
+    test_red_sum();
+#endif
+#ifdef TEST_RED_PRODUCT
+    test_red_product();
+#endif
+#ifdef TEST_RED_GREATEST
+    test_red_greatest();
+#endif
+#ifdef TEST_RED_LEAST
+    test_red_least();
+#endif
+#ifdef TEST_RED_ARGMAX
+    test_red_argmax();
+#endif
+#ifdef TEST_RED_ARGMIN
+    test_red_argmin();
+#endif
+#ifdef TEST_RED_SUM_CROSS
+    test_red_sum_cross();
+#endif
 #ifdef TEST_FOR_INITIAL
     test_for_initial();
 #endif
@@ -1563,6 +2296,23 @@ int main(void) {
     !defined(TEST_BROADCAST_COMPLEX) && !defined(TEST_COMPRESS) && !defined(TEST_BROADCAST_NUMPY) && \
     !defined(TEST_FORALL_CPU) && !defined(TEST_NEGATE_DV) && !defined(TEST_FORALL_BASIC_DV) && \
     !defined(TEST_FORALL_REDUCE_DV) && !defined(TEST_BULK_BASIC) && !defined(TEST_INNERPRODUCT_DV) && \
+    !defined(TEST_MATMUL_DV) && !defined(TEST_FOR_INITIAL_DV) && \
+    !defined(TEST_FORALL_DV_AT) && !defined(TEST_FORALL_DV_CROSS) && \
+    !defined(TEST_FORALL_DV_DOT) && !defined(TEST_FORALL_DV_DOT3) && \
+    !defined(TEST_THREE) && !defined(TEST_FACT) && !defined(TEST_IF_ONE) && \
+    !defined(TEST_IF_TWO) && !defined(TEST_IF_ELSEIF) && !defined(TEST_MR_TWO_SCALAR) && \
+    !defined(TEST_LET_MULTI_BIND) && !defined(TEST_LET_SEQ_BIND) && \
+    !defined(TEST_XFA_B2_COND) && !defined(TEST_AGGREGATE_ADD) && \
+    !defined(TEST_AREA) && !defined(TEST_MULTIDECL) && \
+    !defined(TEST_LOOPCARRY_USED) && !defined(TEST_LOOPCARRY_IDENTITY) && \
+    !defined(TEST_SUB_2D) && !defined(TEST_SUB_3D) && !defined(TEST_SLICE_DOTDOT) && \
+    !defined(TEST_TEST_MULTI_ARRAY_IF) && \
+    !defined(TEST_SUB_2D_DIAG) && !defined(TEST_LET_NESTED_SEQ) && !defined(TEST_FORTY2) && \
+    !defined(TEST_XFA_B1_DECLDEF) && !defined(TEST_XFA_C3_3AXIS) && !defined(TEST_SLICE_STORE) && \
+    !defined(TEST_MR_TWO_ARRAY) && !defined(TEST_AA) && \
+    !defined(TEST_RED_SUM) && !defined(TEST_RED_PRODUCT) && !defined(TEST_RED_GREATEST) && \
+    !defined(TEST_RED_LEAST) && !defined(TEST_RED_ARGMAX) && !defined(TEST_RED_ARGMIN) && \
+    !defined(TEST_RED_SUM_CROSS) && \
     !defined(TEST_FOR_INITIAL) && !defined(TEST_GAUSSJ_PARTS) && \
     !defined(TEST_GAUSSJ) && !defined(TEST_SWAPLOOP) && !defined(TEST_GEN_EXTENT) && \
     !defined(TEST_BROADCAST_PARTS) && !defined(TEST_IF_COND) && \

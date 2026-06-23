@@ -1,0 +1,8 @@
+% x in A DOT y in B DOT z in C — zip three arrays.
+% Element vars (x,y,z) must not case-collide with the arrays (A,B,C): Sisal is
+% case-insensitive, so `for a in A` self-shadows A and miscompiles.
+function Main( A: array[integer]; B: array[integer]; C: array[integer] returns array_dv[integer] )
+  for x in A DOT y in B DOT z in C
+  returns array_dv of x + y + z
+  end for
+end function
