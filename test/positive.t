@@ -85,7 +85,11 @@ Records and unions:
   $ sisal unit/union.sis
 
 DV array variants - array_dv OF with correct array_dv return types:
-  $ sisal unit/loop1_dv.sis
+  $ sisal e2e/loop1_dv.sis
+  $ sisal e2e/loop3_dv.sis
+  $ sisal e2e/loop7_dv.sis
+  $ sisal e2e/loop12_dv.sis
+  $ sisal e2e/loop24_dv.sis
   $ sisal e2e/tst_loop1_dv.sis
 
 Sorting algorithms:

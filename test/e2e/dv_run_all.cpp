@@ -237,6 +237,23 @@ extern "C" sisal_array_t func_MAIN(int32_t N, double Q, double R, double T, sisa
 extern "C" sisal_array_t func_MAIN(int32_t IPNT, int32_t IPNTP, sisal_array_t V, sisal_array_t X);  // loop2 inner for-initial
 #endif
 
+// ---- Livermore loop kernels (array_dv), each vs an independent C reference ----
+#ifdef TEST_LOOP1_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double Q, double R, double T, sisal_array_t Y, sisal_array_t Z);  // hydro fragment
+#endif
+#ifdef TEST_LOOP3_DV
+extern "C" double func_MAIN(int32_t REP, int32_t N, sisal_array_t X, sisal_array_t Z);  // inner product
+#endif
+#ifdef TEST_LOOP7_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double R, double T, sisal_array_t U, sisal_array_t Y, sisal_array_t Z);  // equation of state
+#endif
+#ifdef TEST_LOOP12_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t YIN);  // first difference
+#endif
+#ifdef TEST_LOOP24_DV
+extern "C" int32_t func_MAIN(int32_t REP, int32_t N, sisal_array_t X);  // location of first minimum
+#endif
+
 // Scatter-axis generators over array params (element var renamed off the array
 // name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
 #ifdef TEST_FORALL_DV_AT
@@ -2191,6 +2208,90 @@ static void test_forall_negate(void) {
 }
 #endif
 
+// ---- Livermore loop kernels: independent C references + checks ----
+#ifdef TEST_LOOP1_DV
+// Hydro: X[k] = Q + Y[k]*(R*Z[k+10] + T*Z[k+11])  (Sisal 1-based; Z needs n+11)
+static void test_loop1_dv(void) {
+    printf("\n=== Group: loop1_dv (hydro fragment, vs C reference) ===\n");
+    const int n = 8;
+    double Q = 1.0, R = 2.0, T = 3.0;
+    double Y[8]; for (int i = 0; i < n; i++) Y[i] = (double)(i + 1);
+    double Z[19]; for (int j = 0; j < n + 11; j++) Z[j] = 0.1 * (j + 1);
+    double exp[8];
+    for (int k = 0; k < n; k++) exp[k] = Q + Y[k] * (R * Z[k + 10] + T * Z[k + 11]);
+    sisal_array_t Ya = make_double_arr(Y, n), Za = make_double_arr(Z, n + 11);
+    sisal_array_t r = func_MAIN(1, n, Q, R, T, Ya, Za);
+    bool ok = (r.rank == 1) && ((int)r.size == n);
+    for (int k = 0; ok && k < n; k++) ok = ok && (fabs(ad(r, k) - exp[k]) < 1e-9);
+    check("loop1_dv hydro matches C reference (n=8)", ok);
+    if (Ya.data) free(Ya.data); if (Za.data) free(Za.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP3_DV
+// Inner product: sum_{i=1..n} X[i]*Z[i]
+static void test_loop3_dv(void) {
+    printf("\n=== Group: loop3_dv (inner product, vs C reference) ===\n");
+    const int n = 5;
+    double X[5], Z[5]; double exp = 0.0;
+    for (int i = 0; i < n; i++) { X[i] = i + 1; Z[i] = i + 1; exp += X[i] * Z[i]; }
+    sisal_array_t Xa = make_double_arr(X, n), Za = make_double_arr(Z, n);
+    double r = func_MAIN(1, n, Xa, Za);
+    check("loop3_dv inner product == 55", fabs(r - exp) < 1e-9);
+    if (Xa.data) free(Xa.data); if (Za.data) free(Za.data);
+}
+#endif
+#ifdef TEST_LOOP7_DV
+// Equation of state: out[k] = U[k] + R*(Z[k]+R*Y[k])
+//   + T*(U[k+3]+R*(U[k+2]+R*U[k+1]) + T*(U[k+6]+R*(U[k+5]+R*U[k+4])))  (U needs n+6)
+static void test_loop7_dv(void) {
+    printf("\n=== Group: loop7_dv (equation of state, vs C reference) ===\n");
+    const int n = 6;
+    double R = 0.5, T = 0.25;
+    double U[12]; for (int i = 0; i < n + 6; i++) U[i] = 0.1 * (i + 1);
+    double Y[6], Z[6]; for (int i = 0; i < n; i++) { Y[i] = i + 1; Z[i] = 2 * (i + 1); }
+    double exp[6];
+    for (int k = 0; k < n; k++)
+        exp[k] = U[k] + R * (Z[k] + R * Y[k])
+               + T * (U[k+3] + R * (U[k+2] + R * U[k+1])
+               + T * (U[k+6] + R * (U[k+5] + R * U[k+4])));
+    sisal_array_t Ua = make_double_arr(U, n + 6), Ya = make_double_arr(Y, n), Za = make_double_arr(Z, n);
+    sisal_array_t r = func_MAIN(1, n, R, T, Ua, Ya, Za);
+    bool ok = (r.rank == 1) && ((int)r.size == n);
+    for (int k = 0; ok && k < n; k++) ok = ok && (fabs(ad(r, k) - exp[k]) < 1e-9);
+    check("loop7_dv eos matches C reference (n=6)", ok);
+    if (Ua.data) free(Ua.data); if (Ya.data) free(Ya.data); if (Za.data) free(Za.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP12_DV
+// First difference: out[i] = Y[i+1] - Y[i]  (Y needs n+1)
+static void test_loop12_dv(void) {
+    printf("\n=== Group: loop12_dv (first difference, vs C reference) ===\n");
+    const int n = 6;
+    double Y[7]; for (int i = 0; i < n + 1; i++) Y[i] = (double)(i * i);
+    double exp[6]; for (int i = 0; i < n; i++) exp[i] = Y[i + 1] - Y[i];
+    sisal_array_t Ya = make_double_arr(Y, n + 1);
+    sisal_array_t r = func_MAIN(1, n, Ya);
+    bool ok = (r.rank == 1) && ((int)r.size == n);
+    for (int i = 0; ok && i < n; i++) ok = ok && (fabs(ad(r, i) - exp[i]) < 1e-9);
+    check("loop12_dv first-difference matches C reference (2i+1)", ok);
+    if (Ya.data) free(Ya.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP24_DV
+// Location (1-based) of first minimum: loc=1; for k=2..n if X[k]<X[loc] loc=k
+static void test_loop24_dv(void) {
+    printf("\n=== Group: loop24_dv (first-minimum location, vs C reference) ===\n");
+    const int n = 7;
+    double X[7] = {5.0, 3.0, 8.0, 1.0, 1.0, 9.0, 2.0};   // first min (1.0) at 1-based 4
+    int loc = 1;
+    for (int k = 2; k <= n; k++) if (X[k - 1] < X[loc - 1]) loc = k;
+    sisal_array_t Xa = make_double_arr(X, n);
+    int32_t r = func_MAIN(1, n, Xa);
+    check("loop24_dv first-min location == 4", r == loc && r == 4);
+    if (Xa.data) free(Xa.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -2305,6 +2406,21 @@ int main(void) {
 #endif
 #ifdef TEST_LOOP2_INNER
     test_loop2_inner();
+#endif
+#ifdef TEST_LOOP1_DV
+    test_loop1_dv();
+#endif
+#ifdef TEST_LOOP3_DV
+    test_loop3_dv();
+#endif
+#ifdef TEST_LOOP7_DV
+    test_loop7_dv();
+#endif
+#ifdef TEST_LOOP12_DV
+    test_loop12_dv();
+#endif
+#ifdef TEST_LOOP24_DV
+    test_loop24_dv();
 #endif
 #ifdef TEST_SUB_2D_DIAG
     test_sub_2d_diag();
@@ -2435,7 +2551,9 @@ int main(void) {
     !defined(TEST_GAUSSJ) && !defined(TEST_SWAPLOOP) && !defined(TEST_GEN_EXTENT) && \
     !defined(TEST_BROADCAST_PARTS) && !defined(TEST_IF_COND) && \
     !defined(TEST_FORALL_DV_SIMPLE) && !defined(TEST_CROSS_DV_DEMO) && \
-    !defined(TEST_FORALL_NEGATE)
+    !defined(TEST_FORALL_NEGATE) && \
+    !defined(TEST_LOOP1_DV) && !defined(TEST_LOOP3_DV) && !defined(TEST_LOOP7_DV) && \
+    !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
