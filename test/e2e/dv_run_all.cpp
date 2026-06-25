@@ -253,6 +253,12 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t YIN);  
 #ifdef TEST_LOOP24_DV
 extern "C" int32_t func_MAIN(int32_t REP, int32_t N, sisal_array_t X);  // location of first minimum
 #endif
+#ifdef TEST_LOOP9_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double CO, double DM22, double DM23, double DM24, double DM25, double DM26, double DM27, double DM28, sisal_array_t PXIN);  // integrate predictors
+#endif
+#ifdef TEST_LOOP21_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN, sisal_array_t VY);  // matrix*matrix product
+#endif
 
 // Scatter-axis generators over array params (element var renamed off the array
 // name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
@@ -2292,6 +2298,54 @@ static void test_loop24_dv(void) {
 }
 #endif
 
+#ifdef TEST_LOOP9_DV
+// Integrate predictors: out[i] = PX[3,i] + CO*(PX[5,i]+PX[6,i]) + DM22*PX[7,i]
+//   + DM23*PX[8,i] + ... + DM28*PX[13,i].  PX is 13 rows x n cols (row-major).
+static void test_loop9_dv(void) {
+    printf("\n=== Group: loop9_dv (integrate predictors, vs C reference) ===\n");
+    const int n = 4, R = 13;
+    double CO = 0.5, DM[7] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7};  // DM22..DM28
+    double PX[13 * 4];
+    for (int r = 1; r <= R; r++) for (int c = 1; c <= n; c++) PX[(r-1)*n + (c-1)] = (double)(r*100 + c);
+    #define PXV(r,i) PX[((r)-1)*n + ((i)-1)]
+    double exp[4];
+    for (int i = 1; i <= n; i++)
+        exp[i-1] = PXV(3,i) + CO*(PXV(5,i)+PXV(6,i)) + DM[0]*PXV(7,i) + DM[1]*PXV(8,i)
+                 + DM[2]*PXV(9,i) + DM[3]*PXV(10,i) + DM[4]*PXV(11,i) + DM[5]*PXV(12,i) + DM[6]*PXV(13,i);
+    #undef PXV
+    sisal_array_t PXa = make_double_2d(PX, R, n);
+    sisal_array_t r = func_MAIN(1, n, CO, DM[0], DM[1], DM[2], DM[3], DM[4], DM[5], DM[6], PXa);
+    bool ok = (r.rank == 1) && ((int)r.size == n);
+    for (int i = 0; ok && i < n; i++) ok = ok && (fabs(ad(r, i) - exp[i]) < 1e-6);
+    check("loop9_dv integrate-predictors matches C reference (n=4)", ok);
+    if (PXa.data) free(PXa.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP21_DV
+// Matrix*matrix: out[i,j] = PX[i,j] + sum_{k=1..25} VY[i,k]*CX[j,k], i=1..25, j=1..n.
+//   CX is n x 25, VY is 25 x 25, PX is 25 x n; output is 25 x n (row-major).
+static void test_loop21_dv(void) {
+    printf("\n=== Group: loop21_dv (matrix*matrix product, vs C reference) ===\n");
+    const int n = 3, M = 25;
+    double CX[3 * 25], VY[25 * 25], PX[25 * 3];
+    for (int j = 1; j <= n; j++) for (int k = 1; k <= M; k++) CX[(j-1)*M + (k-1)] = 0.01 * (j + k);
+    for (int i = 1; i <= M; i++) for (int k = 1; k <= M; k++) VY[(i-1)*M + (k-1)] = 0.01 * ((i * k) % 7);
+    for (int i = 1; i <= M; i++) for (int j = 1; j <= n; j++) PX[(i-1)*n + (j-1)] = 0.1 * (i + j);
+    double exp[25 * 3];
+    for (int i = 1; i <= M; i++) for (int j = 1; j <= n; j++) {
+        double s = 0.0;
+        for (int k = 1; k <= M; k++) s += VY[(i-1)*M + (k-1)] * CX[(j-1)*M + (k-1)];
+        exp[(i-1)*n + (j-1)] = PX[(i-1)*n + (j-1)] + s;
+    }
+    sisal_array_t CXa = make_double_2d(CX, n, M), PXa = make_double_2d(PX, M, n), VYa = make_double_2d(VY, M, M);
+    sisal_array_t r = func_MAIN(1, n, CXa, PXa, VYa);
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == M) && ((int)r.dims[1] == n);
+    for (int t = 0; ok && t < M * n; t++) ok = ok && (fabs(ad(r, t) - exp[t]) < 1e-6);
+    check("loop21_dv matrix*matrix matches C reference (25x3)", ok);
+    if (CXa.data) free(CXa.data); if (PXa.data) free(PXa.data); if (VYa.data) free(VYa.data); if (r.data) free(r.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -2421,6 +2475,12 @@ int main(void) {
 #endif
 #ifdef TEST_LOOP24_DV
     test_loop24_dv();
+#endif
+#ifdef TEST_LOOP9_DV
+    test_loop9_dv();
+#endif
+#ifdef TEST_LOOP21_DV
+    test_loop21_dv();
 #endif
 #ifdef TEST_SUB_2D_DIAG
     test_sub_2d_diag();
@@ -2553,7 +2613,8 @@ int main(void) {
     !defined(TEST_FORALL_DV_SIMPLE) && !defined(TEST_CROSS_DV_DEMO) && \
     !defined(TEST_FORALL_NEGATE) && \
     !defined(TEST_LOOP1_DV) && !defined(TEST_LOOP3_DV) && !defined(TEST_LOOP7_DV) && \
-    !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV)
+    !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
+    !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
