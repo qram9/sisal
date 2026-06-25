@@ -259,6 +259,12 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double CO, double DM2
 #ifdef TEST_LOOP21_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN, sisal_array_t VY);  // matrix*matrix product
 #endif
+#ifdef TEST_LOOP2_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisal_array_t XIN);  // ICCG excerpt
+#endif
+#ifdef TEST_LOOP2S_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisal_array_t XIN);  // ICCG excerpt (s-form)
+#endif
 
 // Scatter-axis generators over array params (element var renamed off the array
 // name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
@@ -2346,6 +2352,63 @@ static void test_loop21_dv(void) {
 }
 #endif
 
+#if defined(TEST_LOOP2_DV) || defined(TEST_LOOP2S_DV)
+// ICCG excerpt (loop2 / loop2s -- identical kernels, only formatting differs):
+// outer halving sweep (IL = n, n/2, ...) driving an inner tridiagonal-style
+// update Xt[i] = Xt[k] - V[k]*Xt[k-1] + V[k+1]*Xt[k+1] (Sisal 1-based).  In-place
+// on X matches the Sisal `old Xt` semantics: each inner step writes one element
+// and later steps read it back, which is exactly the running carry.  (This is the
+// full kernel whose inner-only form is loop2_inner.)
+static void ref_loop2(int n, const double* V, const double* Xin, int sz, double* X) {
+    for (int j = 0; j < sz; j++) X[j] = Xin[j];
+    int IL = n, IPNTP = 0;
+    while (IL > 1) {
+        int IPNT = IPNTP;
+        IPNTP = IPNTP + IL;
+        IL = IL / 2;
+        int k = IPNT + 2, i = IPNTP;
+        while (k <= IPNTP) {
+            int ok = k; k = ok + 2; i = i + 1;
+            X[i - 1] = X[ok - 1] - V[ok - 1] * X[ok - 2] + V[ok] * X[ok];
+        }
+    }
+}
+#endif
+#ifdef TEST_LOOP2_DV
+static void test_loop2_dv(void) {
+    printf("\n=== Group: loop2_dv (ICCG excerpt, vs C reference) ===\n");
+    const int n = 8, sz = 24;
+    double V[24], Xin[24];
+    for (int j = 0; j < sz; j++) { V[j] = 0.1 * (j + 1); Xin[j] = (double)(j + 1); }
+    double exp[24];
+    ref_loop2(n, V, Xin, sz, exp);
+    sisal_array_t Va = make_double_arr(V, sz), Xa = make_double_arr(Xin, sz);
+    sisal_array_t r = func_MAIN(1, n, Va, Xa);
+    bool ok = (r.rank == 1) && ((int)r.size == sz);
+    for (int j = 0; ok && j < sz; j++) ok = ok && (fabs(ad(r, j) - exp[j]) < 1e-9);
+    check("loop2_dv ICCG matches C reference (n=8)", ok);
+    check("loop2_dv did update X (X[11] != Xin[11])", fabs(ad(r, 11) - Xin[11]) > 1e-12);
+    if (Va.data) free(Va.data); if (Xa.data) free(Xa.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP2S_DV
+// loop2s = loop2 with different source formatting only; same ref_loop2.
+static void test_loop2s_dv(void) {
+    printf("\n=== Group: loop2s_dv (ICCG excerpt, vs C reference) ===\n");
+    const int n = 8, sz = 24;
+    double V[24], Xin[24];
+    for (int j = 0; j < sz; j++) { V[j] = 0.1 * (j + 1); Xin[j] = (double)(j + 1); }
+    double exp[24];
+    ref_loop2(n, V, Xin, sz, exp);
+    sisal_array_t Va = make_double_arr(V, sz), Xa = make_double_arr(Xin, sz);
+    sisal_array_t r = func_MAIN(1, n, Va, Xa);
+    bool ok = (r.rank == 1) && ((int)r.size == sz);
+    for (int j = 0; ok && j < sz; j++) ok = ok && (fabs(ad(r, j) - exp[j]) < 1e-9);
+    check("loop2s_dv ICCG matches C reference (n=8)", ok);
+    if (Va.data) free(Va.data); if (Xa.data) free(Xa.data); if (r.data) free(r.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -2482,6 +2545,12 @@ int main(void) {
 #ifdef TEST_LOOP21_DV
     test_loop21_dv();
 #endif
+#ifdef TEST_LOOP2_DV
+    test_loop2_dv();
+#endif
+#ifdef TEST_LOOP2S_DV
+    test_loop2s_dv();
+#endif
 #ifdef TEST_SUB_2D_DIAG
     test_sub_2d_diag();
 #endif
@@ -2614,7 +2683,8 @@ int main(void) {
     !defined(TEST_FORALL_NEGATE) && \
     !defined(TEST_LOOP1_DV) && !defined(TEST_LOOP3_DV) && !defined(TEST_LOOP7_DV) && \
     !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
-    !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV)
+    !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
+    !defined(TEST_LOOP2S_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
