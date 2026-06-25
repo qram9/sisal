@@ -265,6 +265,12 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisa
 #ifdef TEST_LOOP2S_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisal_array_t XIN);  // ICCG excerpt (s-form)
 #endif
+#ifdef TEST_LOOP6_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
+#endif
+#ifdef TEST_LOOP4_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t XIN, sisal_array_t Y);  // banded linear equations
+#endif
 
 // Scatter-axis generators over array params (element var renamed off the array
 // name to avoid the case-insensitive self-shadow; see forall_rebuild_note.md).
@@ -2409,6 +2415,59 @@ static void test_loop2s_dv(void) {
 }
 #endif
 
+#ifdef TEST_LOOP6_DV
+// General linear recurrence: for ii=2..n,  W[ii] += sum_{k=1..ii-1} B[ii,k]*W[ii-k]
+//   (Sisal 1-based; running W -- reads previously-updated lower indices).  B is nxn.
+static void test_loop6_dv(void) {
+    printf("\n=== Group: loop6_dv (general linear recurrence, vs C reference) ===\n");
+    const int n = 5;
+    double B[5 * 5]; for (int r = 1; r <= n; r++) for (int c = 1; c <= n; c++) B[(r-1)*n + (c-1)] = 0.1 * (r + c);
+    double Win[5]; for (int j = 0; j < n; j++) Win[j] = (double)(j + 1);
+    double W[5];   for (int j = 0; j < n; j++) W[j] = Win[j];
+    for (int ii = 2; ii <= n; ii++) {
+        double V = 0.0;
+        for (int k = 1; k <= ii - 1; k++) V += B[(ii-1)*n + (k-1)] * W[(ii-k) - 1];
+        W[ii - 1] += V;
+    }
+    sisal_array_t Ba = make_double_2d(B, n, n), Wa = make_double_arr(Win, n);
+    sisal_array_t r = func_MAIN(1, n, Ba, Wa);
+    bool ok = (r.rank == 1) && ((int)r.size == n);
+    for (int j = 0; ok && j < n; j++) ok = ok && (fabs(ad(r, j) - W[j]) < 1e-9);
+    check("loop6_dv linear-recurrence matches C reference (n=5)", ok);
+    if (Ba.data) free(Ba.data); if (Wa.data) free(Wa.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_LOOP4_DV
+// Banded linear (steps<6 branch): for p in {6,503,1000} (1-based):
+//   T = X[p] - sum_{i=1..steps} X[p-6+i]*Y[5i];  X[p] := T*Y[5].  (Ts use original X.)
+static void test_loop4_dv(void) {
+    printf("\n=== Group: loop4_dv (banded linear equations, vs C reference) ===\n");
+    const int n = 20, sz = 1000;          // steps = n/5 = 4  (< 6 branch)
+    const int steps = n / 5;
+    double* X = (double*)malloc(sz * sizeof(double));
+    for (int j = 0; j < sz; j++) X[j] = 0.001 * (j + 1);
+    double Y[30]; for (int j = 0; j < 30; j++) Y[j] = 0.01 * (j + 1);
+    int Pp[3] = {6, 503, 1000};
+    double* exp = (double*)malloc(sz * sizeof(double));
+    for (int j = 0; j < sz; j++) exp[j] = X[j];
+    for (int t = 0; t < 3; t++) {
+        int p = Pp[t];
+        double T = X[p - 1];
+        for (int i = 1; i <= steps; i++) T -= X[(p - 6 + i) - 1] * Y[(5 * i) - 1];
+        exp[p - 1] = T * Y[5 - 1];
+    }
+    sisal_array_t Xa = make_double_arr(X, sz), Ya = make_double_arr(Y, 30);
+    sisal_array_t r = func_MAIN(1, n, Xa, Ya);
+    bool ok = (r.rank == 1) && ((int)r.size == sz);
+    for (int j = 0; ok && j < sz; j++) ok = ok && (fabs(ad(r, j) - exp[j]) < 1e-9);
+    check("loop4_dv banded-linear matches C reference (n=20)", ok);
+    check("loop4_dv updated X[6],X[503],X[1000]",
+          fabs(ad(r, 5) - X[5]) > 1e-15 && fabs(ad(r, 502) - X[502]) > 1e-15 && fabs(ad(r, 999) - X[999]) > 1e-15);
+    free(X); free(exp);
+    if (Xa.data) free(Xa.data); if (Ya.data) free(Ya.data); if (r.data) free(r.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -2551,6 +2610,12 @@ int main(void) {
 #ifdef TEST_LOOP2S_DV
     test_loop2s_dv();
 #endif
+#ifdef TEST_LOOP6_DV
+    test_loop6_dv();
+#endif
+#ifdef TEST_LOOP4_DV
+    test_loop4_dv();
+#endif
 #ifdef TEST_SUB_2D_DIAG
     test_sub_2d_diag();
 #endif
@@ -2684,7 +2749,7 @@ int main(void) {
     !defined(TEST_LOOP1_DV) && !defined(TEST_LOOP3_DV) && !defined(TEST_LOOP7_DV) && \
     !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
-    !defined(TEST_LOOP2S_DV)
+    !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
