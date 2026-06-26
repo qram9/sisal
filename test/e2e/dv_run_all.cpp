@@ -973,23 +973,21 @@ static void test_compress(void) {
 
 #ifdef TEST_BROADCAST_NUMPY
 static void test_broadcast_numpy(void) {
-    printf("\n=== Group I: dv_broadcast_numpy ===\n");
-    printf("  NOTE  APL semantics: 2D [2,3] + 1D [3] is a rank mismatch.\n");
-    printf("  NOTE  The function may produce garbage, crash, or return an error result.\n");
-    printf("  NOTE  This test just checks that it doesn't hard-crash the process.\n");
-
-    double a_data[] = {1.0,2.0,3.0, 4.0,5.0,6.0};
+    printf("\n=== Group I: dv_broadcast_numpy (trailing-axis broadcast, vs C reference) ===\n");
+    // Implemented semantics for 2D [2,3] + 1D [3]: broadcast B across rows,
+    //   out[i,j] = A[i,j] + B[j].  (numpy-style, despite the source's stale note.)
+    const int R = 2, C = 3;
+    double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     double b_data[] = {10.0, 20.0, 30.0};
-    sisal_array_t A = make_double_2d(a_data, 2, 3);
-    sisal_array_t B = make_double_arr(b_data, 3);   // 1D, rank=1
-
-    // Call and record whatever comes out — success here means no crash.
+    double exp[6];
+    for (int i = 0; i < R; i++)
+        for (int j = 0; j < C; j++) exp[i * C + j] = a_data[i * C + j] + b_data[j];
+    sisal_array_t A = make_double_2d(a_data, R, C);
+    sisal_array_t B = make_double_arr(b_data, C);   // 1D, rank=1
     sisal_array_t r = func_MAIN(A, B);
-    printf("  INFO  broadcast_numpy returned: rank=%d size=%llu dims[0]=%lld dims[1]=%lld\n",
-           r.rank, (unsigned long long)r.size,
-           (long long)r.dims[0], (long long)r.dims[1]);
-    check("broadcast_numpy_no_crash", true);   // we got here without crashing
-
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == R) && ((int)r.dims[1] == C);
+    for (int t = 0; ok && t < R * C; t++) ok = ok && (fabs(ad(r, t) - exp[t]) < 1e-9);
+    check("broadcast_numpy [2,3]+[3] == A[i,j]+B[j] (vs C reference)", ok);
     free(A.data); free(B.data);
     if (r.data) free(r.data);
 }
