@@ -265,6 +265,14 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisa
 #ifdef TEST_LOOP2S_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t V, sisal_array_t XIN);  // ICCG excerpt (s-form)
 #endif
+#ifdef TEST_MR2_INIT
+struct MR2_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct MR2_results func_MAIN(int32_t N);  // for-initial returning TWO array_dv carries
+#endif
+#ifdef TEST_LOOP16_DV
+struct LOOP16_results { int32_t res_0; int32_t res_1; };
+extern "C" struct LOOP16_results func_MAIN(int32_t REP, int32_t N, double R, double S, double T, sisal_array_t D, sisal_array_t PLAN, sisal_array_t ZONE);  // Monte Carlo search (v1,v2)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2466,6 +2474,68 @@ static void test_loop4_dv(void) {
 }
 #endif
 
+#ifdef TEST_MR2_INIT
+// Minimal two-array for-initial return: H = all 10, P = all 20 (n x n).  Guards the
+// multi-return tuple wiring -- the per-clause (node,port) resolution fix.  Without it
+// both slots collapse to one carry.
+static void test_mr2_init(void) {
+    printf("\n=== Group: mr2_init (for-initial returns two array_dv carries) ===\n");
+    const int n = 3, sz = n * n;
+    struct MR2_results r = func_MAIN(n);
+    bool ok = (r.res_0.rank == 2) && ((int)r.res_0.dims[0] == n) && ((int)r.res_0.dims[1] == n)
+           && (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == n) && ((int)r.res_1.dims[1] == n);
+    for (int t = 0; ok && t < sz; t++) ok = ok && (ai(r.res_0, t) == 10) && (ai(r.res_1, t) == 20);
+    check("mr2_init res_0 all 10 (H) AND res_1 all 20 (P) -- distinct returns", ok);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_LOOP16_DV
+// Monte Carlo search (loop16): Y = least j4 of cells whose classifier C1==0; then
+// (v1,v2) = Y==BIG ? (1,0) : ((Y-3)/(2n)+1, Y).  Sisal `exp(a,b)` is power -> pow.
+static void ref_loop16(int n, double R, double S, double T,
+                       const double* D, const double* PLAN, const int* ZONE,
+                       int* v1, int* v2) {
+    int Z1 = ZONE[0];
+    long BIG = 2L * n * Z1 + 2, Y = BIG;
+    for (int j = 1; j <= n; j++)
+        for (int i = 1; i <= Z1; i++) {
+            int m = n * (i - 1) + j - 1;
+            int j4 = 2 * m + 3;
+            int j5 = ZONE[j4 - 1];
+            int C1;
+            if (j5 < n / 3)        C1 = (PLAN[j5-1] < T) ? ZONE[j4-2] : (PLAN[j5-1] == T) ? 0 : -ZONE[j4-2];
+            else if (j5 < 2*n/3)   C1 = (PLAN[j5-1] < S) ? ZONE[j4-2] : (PLAN[j5-1] == S) ? 0 : -ZONE[j4-2];
+            else if (j5 < n)       C1 = (PLAN[j5-1] < R) ? ZONE[j4-2] : (PLAN[j5-1] == R) ? 0 : -ZONE[j4-2];
+            else if (j5 == n)      C1 = 0;
+            else {
+                double test = D[j5-1] - (D[j5-2] * pow(T - D[j5-3], 2)
+                            + pow(S - D[j5-4], 2) + pow(R - D[j5-5], 2));
+                C1 = (test < 0.0) ? ZONE[j4-2] : -ZONE[j4-2];
+            }
+            long cand = (C1 == 0) ? j4 : BIG;
+            if (cand < Y) Y = cand;
+        }
+    if (Y == BIG) { *v1 = 1; *v2 = 0; }
+    else { *v1 = (int)((Y - 3) / (2 * n) + 1); *v2 = (int)Y; }
+}
+static void test_loop16_dv(void) {
+    printf("\n=== Group: loop16_dv (Monte Carlo search, vs C reference) ===\n");
+    const int n = 3;
+    double R = 0.3, S = 0.5, T = 0.7;
+    double D[8]    = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8};
+    double PLAN[3] = {0.0, 0.0, 0.0};
+    int32_t ZONE[13] = {2, 7, 5, 9, 3, 11, 3, 13, 3, 15, 3, 17, 3};
+    int ev1, ev2;
+    ref_loop16(n, R, S, T, D, PLAN, ZONE, &ev1, &ev2);
+    sisal_array_t Da = make_double_arr(D, 8), Pa = make_double_arr(PLAN, 3), Za = make_int_arr(ZONE, 13);
+    struct LOOP16_results r = func_MAIN(1, n, R, S, T, Da, Pa, Za);
+    check("loop16_dv v1 matches C reference", r.res_0 == ev1);
+    check("loop16_dv v2 matches C reference", r.res_1 == ev2);
+    if (Da.data) free(Da.data); if (Pa.data) free(Pa.data); if (Za.data) free(Za.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -2608,6 +2678,12 @@ int main(void) {
 #ifdef TEST_LOOP2S_DV
     test_loop2s_dv();
 #endif
+#ifdef TEST_MR2_INIT
+    test_mr2_init();
+#endif
+#ifdef TEST_LOOP16_DV
+    test_loop16_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2747,7 +2823,8 @@ int main(void) {
     !defined(TEST_LOOP1_DV) && !defined(TEST_LOOP3_DV) && !defined(TEST_LOOP7_DV) && \
     !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
-    !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV)
+    !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
+    !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

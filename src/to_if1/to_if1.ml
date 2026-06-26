@@ -3444,8 +3444,8 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
   add_return_gr ~nest_returns_levels ~returns_triples for_gr in_gr
     return_action_list mask_ty_list prag
 
-and add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list prag =
-  add_return_gr_loopB decl_gr for_gr body_gr return_action_list mask_ty_list prag
+and add_ret_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list mask_ty_list prag =
+  add_return_gr_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
   (* all edges ending at frm now to end at Boundary *)
@@ -6635,11 +6635,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
-        If1.If1_View.export_debug_html "BEFORE.html" body_gr;
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
-        If1.If1_View.export_debug_html "AFTER.html" body_gr;
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
@@ -6671,7 +6669,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             let (_, _, _), decl_gr = add_decls in_gr d in
             to_if1_msg 3 "LoopA: building BODY iterator: %s"
               (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
+            let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
               add_body_for_initial decl_gr ii r
             in
             to_if1_msg 3 "LoopA: building TEST termination: %s"
@@ -6687,7 +6685,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list
+              add_ret_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
             let for_gr =
@@ -7076,7 +7074,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             let (_, _, _), test_gr = add_terminator decl_gr t in
             to_if1_msg 3 "LoopB: building BODY iterator: %s"
               (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
+            let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
               add_body_for_initial decl_gr ii r
             in
             to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
@@ -7090,7 +7088,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list
+              add_ret_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
             (* Wire each RETURNS compound output port to for_gr's boundary,
@@ -9682,7 +9680,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
     verify_compound_inputs cn ret_gr in_gr;
     ((cn, 0, 0), in_gr, out_lis)
 
-and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list prag =
+and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list mask_ty_list prag =
   to_if1_msg 3 "add_return_gr_loopB: count=%d prag=[%s]" (List.length return_action_list) prag;
   List.iteri (fun i (act, _, _) ->
     let act_s = match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | `FinalVal -> "final" | _ -> "other" in
@@ -9699,55 +9697,40 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
       in_gr.If1.nmap (-1)
   in
   to_if1_msg 3 "add_return_gr_loopB: body_cn=%d" body_cn;
-  (* For each return action: find name in body_gr.cs by val_def=node_n,
-     find out_port from body_gr.eset, add name to for_gr's cs *)
-  let in_gr =
-    List.fold_left (fun in_gr (_, node_n, node_t) ->
-      let name_opt =
-        If1.SM.fold (fun v entry acc ->
-          match acc with Some _ -> acc
-          | None -> if entry.If1.val_def = node_n then Some v else None)
-          (fst body_gr.If1.symtab) None
-      in
-      match name_opt with
-      | None ->
-          to_if1_msg 3 "add_return_gr_loopB: no name found for node_n=%d" node_n;
-          in_gr
-      | Some v ->
-          let out_port =
-            If1.ES.fold (fun ((sn, _), (dn, dp), _) acc ->
-              if sn = node_n && dn = 0 then dp else acc)
-              body_gr.If1.eset (-1)
-          in
-          to_if1_msg 3 "add_return_gr_loopB: name=%s node_n=%d body_cn=%d out_port=%d" v node_n body_cn out_port;
-          let cs, ps = in_gr.If1.symtab in
-          let cs = If1.SM.add v
-            { If1.val_name = v; If1.val_ty = node_t;
-              If1.val_def = body_cn; If1.def_port = out_port }
-            cs
-          in
-          { in_gr with If1.symtab = (cs, ps) })
-    in_gr return_action_list
-  in
-  (* ret_gr is a child of for_gr so get_symbol_id can find the names we just added *)
+  (* (Deleted: the node_n-keyed fold that registered names into for_gr's CS -- it
+     collapsed all pass-through carries onto the first val_def=0 name.  Carry names
+     are now materialized directly onto ret_gr's boundary below, sourced from the
+     BODY compound's output ports.) *)
   let ret_gr = If1.get_a_new_graph in_gr in
-  (* Transform return_action_list: for each (action, node_n, node_t), find name,
-     call get_symbol_id on ret_gr to get the actual boundary port *)
-  let return_action_list, ret_gr =
-    List.fold_left (fun (acc, ret_gr) (action, node_n, node_t) ->
-      let name_opt =
-        If1.SM.fold (fun v entry a ->
-          match a with Some _ -> a
-          | None -> if entry.If1.val_def = node_n then Some v else None)
-          (fst body_gr.If1.symtab) None
-      in
-      match name_opt with
-      | None -> (acc @ [(action, node_t, 0)], ret_gr)
-      | Some v ->
-          let (_, bp, _), ret_gr = If1.get_symbol_id v ret_gr in
-          to_if1_msg 3 "add_return_gr_loopB: import %s via boundary port %d" v bp;
-          (acc @ [(action, node_t, bp)], ret_gr))
-    ([], ret_gr) return_action_list
+  (* Per-clause resolution by (node_n, node_p) -- the (node, port) that do_exp produced
+     for `value of <exp>`.  Find the BODY boundary-output port carrying exactly that
+     (node, port), materialize a ret_gr boundary input sourced from (body_cn, that
+     port), record the for_gr-level edge, and give the clause that ret port.  Name-free:
+     works for bare carries, pass-through carries, and arbitrary expressions alike.
+     node_p comes from ret_tuple_list (parallel to return_action_list). *)
+  let body_out_port_of src_n src_p =
+    If1.ES.fold (fun ((s, p), (dn, dp), _) acc ->
+      if dn = 0 && s = src_n && p = src_p then
+        (match acc with None -> Some dp | _ -> acc)
+      else acc)
+      body_gr.If1.eset None
+  in
+  let (return_action_list, ret_gr, mat_edges), _ =
+    List.fold_left
+      (fun ((acc, rg, edges), idx) ((action, _node_n, node_t), (tn, tp, _tt)) ->
+        match body_out_port_of tn tp with
+        | Some dp ->
+            let nm = Printf.sprintf "__ret_%d" idx in
+            let bp, rg = If1.add_to_boundary_inputs ~namen:nm body_cn dp rg in
+            to_if1_msg 3
+              "add_return_gr_loopB: clause#%d (node=%d,port=%d) -> body_cn:%d -> ret in-port %d"
+              idx tn tp dp bp;
+            ((acc @ [ (action, node_t, bp) ], rg, (body_cn, dp, bp, node_t) :: edges), idx + 1)
+        | None ->
+            to_if1_msg 3 "add_return_gr_loopB: clause#%d no body output for (%d,%d)" idx tn tp;
+            ((acc @ [ (action, node_t, 0) ], rg, edges), idx + 1))
+      (([], ret_gr, []), 0)
+      (List.combine return_action_list ret_tuple_list)
   in
   let mask_ty_list = List.map (fun _ -> None) return_action_list in
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
@@ -9961,6 +9944,16 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
     If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
   in
   let ret_gr, in_gr = wire_all_syms_to_compound cn ret_gr in_gr in
+  (* Lay the materialized for_gr-level edges by RECORDED source (not by name):
+     body_cn:dp -> ret_cn(cn):bp.  wire_all_syms_to_compound resolves by name and
+     can't reach the loop carries, so we add these explicitly. *)
+  let in_gr =
+    List.fold_left
+      (fun g (b_cn, dp, bp, ty) ->
+        to_if1_msg 3 "add_return_gr_loopB: EDGE body_cn:%d -> ret_cn(%d):%d" dp cn bp;
+        If1.add_edge b_cn dp cn bp ty g)
+      in_gr mat_edges
+  in
   verify_compound_inputs cn ret_gr in_gr;
   ((cn, 0, 0), in_gr, out_lis)
 

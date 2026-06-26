@@ -1,0 +1,22 @@
+% Minimal isolation of loop13's shape: a for-initial carrying TWO rank-2
+% array_dv values and returning BOTH (`returns value of H value of P`).
+% H is all 10s, P is all 20s -- distinct so each return slot is checkable.
+% No body mutation (identity carries) so only the multi-array return is tested.
+
+define main
+
+type TwoD = array_dv[integer];
+
+function main( n: integer returns TwoD, TwoD )
+   for initial
+       i := 0;
+       H := for x in 1, n cross y in 1, n returns array_dv of 10 end for;
+       P := for x in 1, n cross y in 1, n returns array_dv of 20 end for;
+   while ( i < n ) repeat
+       i := old i + 1;
+       H := old H;
+       P := old P;
+   returns value of H
+           value of P
+   end for
+end function
