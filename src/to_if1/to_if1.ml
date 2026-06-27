@@ -5891,55 +5891,73 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | Array_generator_unnamed ep -> array_builder_exp in_gr ep
   | Array_replace (p, epl) ->
       let (sn, sp, arr_type), in_gr = do_simple_exp in_gr p in
+      (* Generic per-index-list update -- the mirror of the read's lower_indices.
+         For index list [i1 .. ik] (optionally `..`-terminated): peel each leading
+         concrete index with DV_RANK_REDUCE, do the innermost replace, then rebuild
+         every peeled level with DV_RANK_REPLACE.  Innermost cases:
+           [i]            -> AREPLACE(a, i, value)        (scalar element)
+           i :: .. :: _   -> DV_RANK_REPLACE(a, i, slab)  (rank-(N-1) slab)
+           [..]           -> value                         (replace whole array)
+         No rank/shape assumption: 1-D & N-D element updates and N-D slice updates
+         are all covered here. *)
+      let rec write_at values ((a_sn, a_sp, a_ty), g) = function
+        | [ Ast.Dotdot ] -> do_exp g values
+        | [ idx ] ->
+            let aexp = match values with Ast.Exp e -> e | _ -> [] in
+            let bbu, g = If1.map_exp g aexp [] do_simple_exp in
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple
+                   (If1.AREPLACE, Array.make (List.length aexp + 2) "", [| "" |], []))
+                g
+            in
+            let g =
+              If1.add_edge idxn idxp bb 1 it (If1.add_edge a_sn a_sp bb 0 a_ty g)
+            in
+            ((bb, pp, a_ty), add_edges_in_list bbu bb 2 g)
+        | idx :: Ast.Dotdot :: _ ->
+            let (vn, vp, vt), g = do_exp g values in
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp bb 0 a_ty g in
+            let g = If1.add_edge idxn idxp bb 1 it g in
+            let g = If1.add_edge vn vp bb 2 vt g in
+            ((bb, pp, a_ty), g)
+        | idx :: rest ->
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let (rn, rp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REDUCE, [| ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp rn 0 a_ty g in
+            let g = If1.add_edge idxn idxp rn 1 it g in
+            let (new_sn, new_sp, new_ty), g =
+              write_at values ((rn, rp, a_ty), g) rest
+            in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp bb 0 a_ty g in
+            let g = If1.add_edge idxn idxp bb 1 it g in
+            let g = If1.add_edge new_sn new_sp bb 2 new_ty g in
+            ((bb, pp, a_ty), g)
+        | [] -> failwith "Badly formed array replace (empty index list)"
+      in
       let rec do_array_replace ((sn, sp), in_gr) = function
         | Ast.SExpr_pair (idx, values) :: tl ->
             let idx_items = match idx with Ast.Exp l -> l | _ -> [] in
-            let has_dotdot = List.exists (fun x -> x = Ast.Dotdot) idx_items in
-            let (al, ap), in_gr =
-              if has_dotdot then (
-                (* Slice replace: A[lead, .. : slice] -> DV_RANK_REPLACE(A, lead, slice).
-                   The '..' makes the target rank explicit (a rank-(N-1) slab). *)
-                match idx_items with
-                | [ lead; Ast.Dotdot ] ->
-                    let (vn, vp, vt), in_gr = do_exp in_gr values in
-                    let (idxn, idxp, idxt), in_gr = do_simple_exp in_gr lead in
-                    let (bb, pp, _), in_gr =
-                      If1.add_node_2
-                        (`Simple
-                           (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
-                        in_gr
-                    in
-                    let in_gr = If1.add_edge sn sp bb 0 arr_type in_gr in
-                    let in_gr = If1.add_edge idxn idxp bb 1 idxt in_gr in
-                    let in_gr = If1.add_edge vn vp bb 2 vt in_gr in
-                    ((bb, pp), in_gr)
-                | _ ->
-                    raise
-                      (If1.Sem_error
-                         "slice replace: only A[i, .. : value] supported for now"))
-              else
-              match values with
-              | Empty -> failwith "Badly formed array replace"
-              | Ast.Exp aexp ->
-                  let bbu, in_gr = If1.map_exp in_gr aexp [] do_simple_exp in
-                  let (idxnum, idxport, t2), in_gr = do_exp in_gr idx in
-                  let (bb, pp, _), in_gr =
-                    If1.add_node_2
-                      (`Simple
-                         ( If1.AREPLACE,
-                           Array.make (List.length aexp + 2) "",
-                           [| "" |],
-                           [] ))
-                      in_gr
-                  in
-                  let in_gr =
-                    If1.add_edge idxnum idxport bb 1 t2
-                      (If1.add_edge sn sp bb 0 arr_type in_gr)
-                  in
-                  ((bb, pp), add_edges_in_list bbu bb 2 in_gr)
+            let (al, ap, _), in_gr =
+              write_at values ((sn, sp, arr_type), in_gr) idx_items
             in
-            let (tan, tap), in_gr = do_array_replace ((al, ap), in_gr) tl in
-            ((tan, tap), in_gr)
+            do_array_replace ((al, ap), in_gr) tl
         | [] -> ((sn, sp), in_gr)
       in
       let (oa, oup), in_gr = do_array_replace ((sn, sp), in_gr) epl in

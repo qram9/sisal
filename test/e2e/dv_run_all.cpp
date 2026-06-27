@@ -273,6 +273,10 @@ extern "C" struct MR2_results func_MAIN(int32_t N);  // for-initial returning TW
 struct LOOP16_results { int32_t res_0; int32_t res_1; };
 extern "C" struct LOOP16_results func_MAIN(int32_t REP, int32_t N, double R, double S, double T, sisal_array_t D, sisal_array_t PLAN, sisal_array_t ZONE);  // Monte Carlo search (v1,v2)
 #endif
+#ifdef TEST_LOOP13_DV
+struct LOOP13_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct LOOP13_results func_MAIN(int32_t REP, int32_t N, sisal_array_t E, sisal_array_t F, sisal_array_t B, sisal_array_t C, sisal_array_t HIN, sisal_array_t PIN, sisal_array_t Y, sisal_array_t Z);  // 2-D PIC -> (H,P)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2535,6 +2539,70 @@ static void test_loop16_dv(void) {
     if (Da.data) free(Da.data); if (Pa.data) free(Pa.data); if (Za.data) free(Za.data);
 }
 #endif
+#ifdef TEST_LOOP13_DV
+// 2-D PIC (loop13): per particle i, compute grid cell from P, push P, bump H histogram.
+// MOD2N(i,j): i<0 ? i-(i/j)*j+j/2+|j/2| : i-(i/j)*j+j/2-|j/2|.  All indices Sisal 1-based.
+// P is 4 x n; H/B/C are G x G; E/F/Y/Z 1-based length >= 96.  In-place on P and H matches
+// the Sisal `old P`/`old H` carries (each particle writes its own P column; H accumulates).
+// (This kernel is the regression guard for the 2-D element-update X[r,c: v] fix.)
+static int l13_mod2n(int i, int j) {
+    int r = i - (i / j) * j + j / 2;
+    return (i < 0) ? r + abs(j / 2) : r - abs(j / 2);
+}
+static void ref_loop13(int n, const int32_t* E, const int32_t* F,
+                       const double* B, const double* C, int G,
+                       double* H, double* P, const double* Y, const double* Z) {
+    for (int i = 1; i <= n; i++) {
+        #define PV(r,c) P[((r)-1)*n + ((c)-1)]
+        int i1 = 1 + l13_mod2n((int)trunc(PV(1,i)), 64);
+        int j1 = 1 + l13_mod2n((int)trunc(PV(2,i)), 64);
+        double Bij = B[(i1-1)*G + (j1-1)], Cij = C[(i1-1)*G + (j1-1)];
+        double o1 = PV(1,i), o2 = PV(2,i), o3 = PV(3,i), o4 = PV(4,i);
+        PV(4,i) = o4 + Cij;
+        PV(3,i) = o3 + Bij;
+        PV(2,i) = o2 + o4 + Cij;
+        PV(1,i) = o1 + o3 + Bij;
+        int i2 = l13_mod2n((int)trunc(PV(1,i)), 64);
+        int j2 = l13_mod2n((int)trunc(PV(2,i)), 64);
+        int i3 = i2 + E[(i2 + 32) - 1];
+        int j3 = j2 + F[(j2 + 32) - 1];
+        PV(1,i) = PV(1,i) + Y[(i2 + 32) - 1];
+        PV(2,i) = PV(2,i) + Z[(j2 + 32) - 1];
+        H[(i3 - 1) * G + (j3 - 1)] += 1.0;
+        #undef PV
+    }
+}
+static void test_loop13_dv(void) {
+    printf("\n=== Group: loop13_dv (2-D PIC, vs C reference) ===\n");
+    const int n = 2, G = 64;
+    static int32_t E[96], F[96];
+    static double B[64*64], C[64*64], Hin[64*64], Y[96], Z[96];
+    for (int k = 0; k < 96; k++) { E[k] = 1; F[k] = 1; Y[k] = 0.5; Z[k] = 0.25; }
+    for (int k = 0; k < G*G; k++) { B[k] = 0.0; C[k] = 0.0; Hin[k] = 0.0; }
+    double Pin[4*2] = { 5, 3,  7, 9,  0, 0,  0, 0 };
+    static double Hexp[64*64]; for (int k = 0; k < G*G; k++) Hexp[k] = Hin[k];
+    double Pexp[4*2]; for (int k = 0; k < 8; k++) Pexp[k] = Pin[k];
+    ref_loop13(n, E, F, B, C, G, Hexp, Pexp, Y, Z);
+    sisal_array_t Ea = make_int_arr(E, 96), Fa = make_int_arr(F, 96);
+    sisal_array_t Ba = make_double_2d(B, G, G), Ca = make_double_2d(C, G, G);
+    sisal_array_t Ha = make_double_2d(Hin, G, G), Pa = make_double_2d(Pin, 4, n);
+    sisal_array_t Ya = make_double_arr(Y, 96), Za = make_double_arr(Z, 96);
+    struct LOOP13_results r = func_MAIN(1, n, Ea, Fa, Ba, Ca, Ha, Pa, Ya, Za);
+    bool hok = (r.res_0.rank == 2) && ((int)r.res_0.dims[0] == G) && ((int)r.res_0.dims[1] == G);
+    for (int k = 0; hok && k < G*G; k++) hok = hok && (fabs(ad(r.res_0, k) - Hexp[k]) < 1e-9);
+    bool pok = (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == 4) && ((int)r.res_1.dims[1] == n);
+    for (int k = 0; pok && k < 4*n; k++) pok = pok && (fabs(ad(r.res_1, k) - Pexp[k]) < 1e-9);
+    check("loop13_dv H histogram matches C reference", hok);
+    check("loop13_dv P particles match C reference", pok);
+    check("loop13_dv H got the two particle hits (6,8)&(4,10)",
+          ad(r.res_0, (6-1)*G + (8-1)) == 1.0 && ad(r.res_0, (4-1)*G + (10-1)) == 1.0);
+    if (Ea.data) free(Ea.data); if (Fa.data) free(Fa.data);
+    if (Ba.data) free(Ba.data); if (Ca.data) free(Ca.data);
+    if (Ha.data) free(Ha.data); if (Pa.data) free(Pa.data);
+    if (Ya.data) free(Ya.data); if (Za.data) free(Za.data);
+    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2684,6 +2752,9 @@ int main(void) {
 #ifdef TEST_LOOP16_DV
     test_loop16_dv();
 #endif
+#ifdef TEST_LOOP13_DV
+    test_loop13_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2824,7 +2895,7 @@ int main(void) {
     !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
-    !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV)
+    !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
