@@ -171,6 +171,24 @@ let forall_finalvalue_ports loop_gr =
           | _ -> acc
         else acc) ret_gr.eset []
 
+(* For-initial RETURNS gather.  Unlike forall_gather_ports (which keys boundary
+   inputs by the __forall_body_ prefix), a for-initial RETURNS names its boundary
+   inputs __ret_N (the multi-return convention).  Returns, per DV_GATHER output,
+   (returns_out_port, returns_boundary_in_port): the boundary-in port carries the
+   gathered per-iteration value, which the caller resolves to a BODY output (and
+   thence the body-capture var) via the loop-level edge set. *)
+let for_initial_gather_ports ret_gr =
+  ES.fold (fun ((sn, _), (dn, dp), _) acc ->
+    if dn = 0 then
+      match NM.find_opt sn ret_gr.nmap with
+      | Some (Simple (_, DV_GATHER, _, _, _)) ->
+          let bin =
+            ES.fold (fun ((s, sp), (d, p), _) a ->
+              if d = sn && p = 1 && s = 0 then Some sp else a) ret_gr.eset None in
+          (match bin with Some b -> (dp, b) :: acc | None -> acc)
+      | _ -> acc
+    else acc) ret_gr.eset []
+
 (** [infer_types env gr gid] populates the type_table for the current graph hierarchy. *)
 let infer_types env gr gid =
   let _, tm, _ = gr.typemap in
@@ -667,6 +685,11 @@ and lower_simple env gr nid sym pin pout pr =
       let args = List.filter_map (fun pid -> if pid < start_port then None else Some (get_in_expr pid)) in_ports in
       C.Call (fname, args)
   | FINALVALUE -> e1
+  (* DV_GATHER inside a for-initial RETURNS is realized specially by
+     lower_for_initial (alloc-before-loop + per-iteration store); this generic
+     placeholder only keeps lower_graph from aborting, and the RETURNS port is
+     re-bound to the gather array afterwards. *)
+  | DV_GATHER -> e1
   | sym -> failwith (Printf.sprintf "Unsupported IF1 Simple node symbol at gid=%d nid=%d: %s" gid nid (string_of_node_sym sym)) in
   (* For an INVOCATION of a multi-RETURN function, unpack the returned struct.
      Gate on the CALLEE's declared arity (does it return a *_results record?),
@@ -1515,6 +1538,70 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
       else (decls, assigns, e)
     ) body_gr.eset ([], [], env_loop)
   in
+  (* ---- for-initial gather (`returns array of X`): realize each DV_GATHER RETURNS
+     port as alloc-before-loop + per-iteration store.  Size is read off the loop, not
+     taken from the IF1: upper = the TEST compare's bound operand (cond's RHS), lower =
+     the induction seed (cond's LHS evaluated in the preheader, where the carry still
+     holds its INIT value), size = upper-lower+1 for `<=`.  Both operands are already
+     lowered nodes (in `cond`); we bind them to fresh preheader names and let the C++
+     compiler CSE the duplicates -- no symbol-name guessing. *)
+  let g_ret_nid, g_ret_gr =
+    match find_subgraph loop_gr "RETURNS" with Some x -> x | _ -> failwith "no RET" in
+  let gather_pre, gather_store, gather_binds =
+    List.fold_left
+      (fun (pre, store, binds) (ret_out_port, ret_bin_port) ->
+        (* BODY output port feeding the RETURNS boundary input the gather reads *)
+        let body_port =
+          ES.fold (fun ((s, sp), (d, p), _) a ->
+            if d = g_ret_nid && p = ret_bin_port && s = body_nid then Some sp else a)
+            loop_gr.eset None in
+        match body_port with
+        | None -> (pre, store, binds)
+        | Some bp ->
+          (match FullPortMap.find_opt (sub_gid, body_nid, bp, `Out) env_loop.var_map with
+           | None -> (pre, store, binds)
+           | Some body_val ->
+             let tid =
+               ES.fold (fun ((s, sp), (_, _), ty) a ->
+                 if s = body_nid && sp = bp then Some ty else a) loop_gr.eset None
+               |> (function Some t -> t | None -> 4) in
+             let elem_ty = (try c_type_of_if1_ty env.tm (TM.find tid env.tm) with _ -> C.Basic "double") in
+             (* Read the bound off the TEST compare NODE (cond is only the lowered
+                result variable).  Find the node feeding TEST boundary-out 0, assert
+                it is `<=` for now, and lower its two operands: op0 = induction carry
+                (holds the seed in the preheader), op1 = upper bound. *)
+             let cmp = ES.fold (fun (src, dst, _) a -> if dst = (0, 0) then Some src else a) test_gr.eset None in
+             let cn = match cmp with Some (c, _) -> c | None -> failwith "for-initial gather: no TEST compare" in
+             (match NM.find_opt cn test_gr.nmap with
+              | Some (Simple (_, LESSER_EQUAL, _, _, _)) -> ()
+              | _ -> failwith "for-initial gather: loop test is not `<=` (other comparisons TODO)");
+             let lower_op p =
+               match ES.fold (fun ((s, sp), (d, dp), _) a -> if d = cn && dp = p then Some (s, sp) else a)
+                       test_gr.eset None with
+               | Some (s, sp) -> get_expr e_test1 test_gid s sp `Out
+               | None -> failwith "for-initial gather: missing TEST compare operand" in
+             let lhs = lower_op 0 and rhs = lower_op 1 in
+             let res_name = get_c_name env.proc_map env.gid_name_map gid nid ret_out_port `Out gr in
+             let res_v = C.Id res_name in
+             let lb = Printf.sprintf "__glb_%d_%d" sub_gid ret_out_port in
+             let ub = Printf.sprintf "__gub_%d_%d" sub_gid ret_out_port in
+             let ctr = Printf.sprintf "__gctr_%d_%d" sub_gid ret_out_port in
+             let size = C.BinOp (C.Add, C.BinOp (C.Sub, C.Id ub, C.Id lb), C.LitInt 1) in
+             let pre' =
+               [ C.Decl (C.Basic "int32_t", lb, Some lhs);   (* carry = seed here (preheader) *)
+                 C.Decl (C.Basic "int32_t", ub, Some rhs);
+                 C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                 C.Expr (C.BinOp (C.Assign, res_v,
+                   C.Call ("sisal_array_alloc_empty",
+                     [ C.LitInt 1; C.LitInt tid; C.Cast (C.Basic "uint64_t", size) ]))) ] in
+             let store' =
+               [ C.Expr (C.BinOp (C.Assign,
+                   C.Index (C.Cast (C.Pointer (elem_ty, []), C.Member (res_v, "data")),
+                     C.UnaryOp (C.PostInc, C.Id ctr)),
+                   C.Call ("SISAL_CAST", [ C.Id (string_of_c_type elem_ty); body_val ]))) ] in
+             (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)))
+      ([], [], []) (for_initial_gather_ports g_ret_gr) in
+  let is_gather_port p = List.mem_assoc p gather_binds in
   (* Backedge copies for the loop-carried MERGE phis. Each MERGE takes its body feedback on
      input port 2; copy that into the MERGE variable at the bottom of the loop body, after
      the body captures. Every RHS resolves to a loop-scope bodycap capture, a snapshot
@@ -1544,13 +1631,18 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let env_test2 = { env_loop with parent_env = Some env_loop; curr_gid = test_gid; curr_gr = test_gr; parent_map = IntMap.add test_gid (sub_gid, test_nid) env_loop.parent_map } in
   let test_stmts2, e_test2 = lower_graph env_test2 loop_gr test_nid test_gr test_gid in
   let env_loop = { env_loop with var_map = e_test2.var_map; type_table = e_test2.type_table; seen_decls = e_test2.seen_decls } in
-  let while_loop = C.While (cond, body_stmts @ body_capture_assigns @ merge_backedge_copies @ carry_update_stmts @ test_stmts2) in
+  let while_loop = C.While (cond, body_stmts @ body_capture_assigns @ gather_store @ merge_backedge_copies @ carry_update_stmts @ test_stmts2) in
   let ret_nid, ret_gr = match find_subgraph loop_gr "RETURNS" with | Some x -> x | _ -> failwith "no RET" in
   let ret_gid = try GidMap.find (sub_gid, ret_nid) env.gid_table with _ -> -1 in
   let env_ret = { env_loop with parent_env = Some env_loop; curr_gid = ret_gid; curr_gr = ret_gr; parent_map = IntMap.add ret_gid (sub_gid, ret_nid) env_loop.parent_map } in
   let ret_stmts, e_ret = lower_graph env_ret loop_gr ret_nid ret_gr ret_gid in
   let out_pids = ES.fold (fun ((sn, sp), _, _) acc -> if sn = nid then IntSet.add sp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
   let props, final_env = List.fold_left (fun (acc, e) dp ->
+    if is_gather_port dp then
+      (* gather port: bind to the alloc'd-and-filled array, not the placeholder *)
+      let stmts, e' = assign_with_cast e gid nid dp `Out (List.assoc dp gather_binds) in
+      (acc @ stmts, e')
+    else
     match FullPortMap.find_opt (ret_gid, 0, dp, `In) e_ret.var_map with
     | Some src_expr ->
         let stmts, e' = assign_with_cast e gid nid dp `Out src_expr in
@@ -1567,7 +1659,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
               | None -> (acc, e))
          | None -> (acc, e))
   ) ([], { e_ret with curr_gid = gid; curr_gr = gr }) out_pids in
-  (decl_stmts @ [ C.Compound (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts @ init_stmts @ carry_init_stmts @ merge_init_seeds @ test_stmts1 @ [ while_loop ] @ ret_stmts @ props) ], final_env)
+  (decl_stmts @ [ C.Compound (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts @ init_stmts @ carry_init_stmts @ merge_init_seeds @ test_stmts1 @ gather_pre @ [ while_loop ] @ ret_stmts @ props) ], final_env)
 
 let dummy_env tm sub_gr = { tm; var_map = FullPortMap.empty; type_table = FullPortMap.empty; preds = FullPortMap.empty; curr_gid = 0; curr_gr = sub_gr; parent_env = None; compound_nid_in_parent = 0; seen_decls = StringSet.empty; fanout_map = PortFanout.empty; mandatory_ports = PortSet.empty; gid_table = GidMap.empty; parent_map = IntMap.empty; proc_map = IntMap.empty; proc_param_map = FullPortMap.empty; gid_name_map = IntMap.empty; procedures_info = IntMap.empty; force_gpu = false }
 

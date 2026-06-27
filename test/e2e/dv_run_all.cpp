@@ -277,6 +277,9 @@ extern "C" struct LOOP16_results func_MAIN(int32_t REP, int32_t N, double R, dou
 struct LOOP13_results { sisal_array_t res_0; sisal_array_t res_1; };
 extern "C" struct LOOP13_results func_MAIN(int32_t REP, int32_t N, sisal_array_t E, sisal_array_t F, sisal_array_t B, sisal_array_t C, sisal_array_t HIN, sisal_array_t PIN, sisal_array_t Y, sisal_array_t Z);  // 2-D PIC -> (H,P)
 #endif
+#ifdef TEST_LOOP5_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t XIN, sisal_array_t Y, sisal_array_t Z);  // tridiagonal: for-initial `array of X` gather
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2603,6 +2606,28 @@ static void test_loop13_dv(void) {
     if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data);
 }
 #endif
+#ifdef TEST_LOOP5_DV
+// Livermore loop 5: tridiagonal elimination (sequential recurrence) lowered as a
+// `for initial ... returns array of X`.  X[1]=Xin[1]; X[i]=Z[i]*(Y[i]-X[i-1]) for
+// i=2..n.  The for-initial gather collects the per-iteration body values X[2..n]
+// (n-1 elements) -- the regression guard for the for-initial DV_GATHER realization.
+static void test_loop5_dv(void) {
+    printf("\n=== Group: loop5_dv (tridiagonal for-initial gather, vs C reference) ===\n");
+    const int n = 6;
+    double Xin[6] = { 2, 0, 0, 0, 0, 0 };                 // only Xin[1] used
+    double Y[6]   = { 0, 5, 10, 15, 20, 25 };             // 1-based Y[2..6]
+    double Z[6]   = { 0, 0.5, 0.5, 0.5, 0.5, 0.5 };       // 1-based Z[2..6]
+    double X[7]; X[1] = Xin[0];
+    for (int i = 2; i <= n; i++) X[i] = Z[i-1] * (Y[i-1] - X[i-1]);  // ref recurrence
+    sisal_array_t Xa = make_double_arr(Xin, 6), Ya = make_double_arr(Y, 6), Za = make_double_arr(Z, 6);
+    sisal_array_t r = func_MAIN(1, n, Xa, Ya, Za);
+    bool ok = (r.rank == 1) && ((int)r.size == n - 1) && ((int)r.dims[0] == n - 1);
+    for (int k = 0; ok && k < n - 1; k++) ok = ok && near_d(ad(r, k), X[k + 2]);
+    check("loop5_dv gather [X2..Xn] matches C reference", ok);
+    if (Xa.data) free(Xa.data); if (Ya.data) free(Ya.data); if (Za.data) free(Za.data);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2755,6 +2780,9 @@ int main(void) {
 #ifdef TEST_LOOP13_DV
     test_loop13_dv();
 #endif
+#ifdef TEST_LOOP5_DV
+    test_loop5_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2895,7 +2923,8 @@ int main(void) {
     !defined(TEST_LOOP12_DV) && !defined(TEST_LOOP24_DV) && \
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
-    !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV)
+    !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
+    !defined(TEST_LOOP5_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
