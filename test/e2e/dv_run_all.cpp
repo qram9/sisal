@@ -283,6 +283,10 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t XIN, si
 #ifdef TEST_LOOP11S_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t YIN);  // first-sum (prefix sum): for-initial gather
 #endif
+#ifdef TEST_LOOP17_DV
+struct LOOP17_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
+extern "C" struct LOOP17_results func_MAIN(int32_t REP, int32_t N, sisal_array_t VLIN, sisal_array_t VLR, sisal_array_t VSP, sisal_array_t VSTP, sisal_array_t VXNEIN);  // descending for-initial, 3 gathers
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2648,6 +2652,41 @@ static void test_loop11s_dv(void) {
     if (Ya.data) free(Ya.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_LOOP17_DV
+// Livermore loop 17: implicit conditional computation, a DESCENDING for-initial
+// (i:=n; while i>2; i:=old i-1) with THREE gathers (array of VXNE/VE3/VXND).
+// Exercises multi-gather + the `>` comparison.  Body i = n-1..2 -> n-2 elements.
+#define LV(arr,i) arr[(i)-1]
+static void test_loop17_dv(void) {
+    printf("\n=== Group: loop17_dv (descending for-initial, 3 gathers, vs C reference) ===\n");
+    const int n = 4;
+    double VLIN[4]={0.1,0.2,0.3,0.4}, VLR[4]={1.0,1.1,1.2,1.3}, VSP[4]={2.0,2.1,2.2,2.3},
+           VSTP[4]={0.5,0.6,0.7,0.8}, VXNEin[4]={3.0,3.1,3.2,3.3};
+    double XNMt=1.0/3.0, E6t=1.03/3.07; (void)E6t;
+    double E3=XNMt*LV(VLR,n)+LV(VLIN,n), XNC=5.0/3.0*E3, XNEI=LV(VXNEin,n), E6, XNM;
+    if (XNMt>XNC || XNEI>XNC){ E6=XNMt*LV(VSP,n)+LV(VSTP,n); XNM=E6; }
+    else { E6=E3+E3-XNMt; XNM=E3+E3-XNMt; }
+    double oldXNM=XNM, oldE6=E6; int cnt=n-2; double gV[8],gE[8],gD[8]; int idx=0;
+    for (int i=n-1;i>=2;i--){
+        double e3=oldXNM*LV(VLR,i)+LV(VLIN,i), xnc=5.0/3.0*e3, xnei=LV(VXNEin,i), vxnd=oldE6;
+        double ve3,e6,vxne,xnm;
+        if (oldXNM>xnc || xnei>xnc){ e6=oldXNM*LV(VSP,i)+LV(VSTP,i); ve3=e6;vxne=e6;xnm=e6; }
+        else { ve3=e3; e6=e3+e3-oldXNM; vxne=e3+e3-xnei; xnm=e3+e3-oldXNM; }
+        gV[idx]=vxne; gE[idx]=ve3; gD[idx]=vxnd; idx++; oldXNM=xnm; oldE6=e6;
+    }
+    sisal_array_t a=make_double_arr(VLIN,4), b=make_double_arr(VLR,4), c=make_double_arr(VSP,4),
+                  d=make_double_arr(VSTP,4), e=make_double_arr(VXNEin,4);
+    struct LOOP17_results r = func_MAIN(1, n, a, b, c, d, e);
+    bool ok = ((int)r.res_0.size==cnt) && ((int)r.res_1.size==cnt) && ((int)r.res_2.size==cnt);
+    for (int k=0; ok && k<cnt; k++)
+        ok = ok && near_d(ad(r.res_0,k),gV[k]) && near_d(ad(r.res_1,k),gE[k]) && near_d(ad(r.res_2,k),gD[k]);
+    check("loop17_dv 3 gathers (VXNE,VE3,VXND) match C reference", ok);
+    if (a.data) free(a.data); if (b.data) free(b.data); if (c.data) free(c.data);
+    if (d.data) free(d.data); if (e.data) free(e.data);
+    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
+}
+#undef LV
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2806,6 +2845,9 @@ int main(void) {
 #ifdef TEST_LOOP11S_DV
     test_loop11s_dv();
 #endif
+#ifdef TEST_LOOP17_DV
+    test_loop17_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2947,7 +2989,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

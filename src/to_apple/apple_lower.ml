@@ -1572,24 +1572,34 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                 (holds the seed in the preheader), op1 = upper bound. *)
              let cmp = ES.fold (fun (src, dst, _) a -> if dst = (0, 0) then Some src else a) test_gr.eset None in
              let cn = match cmp with Some (c, _) -> c | None -> failwith "for-initial gather: no TEST compare" in
-             (match NM.find_opt cn test_gr.nmap with
-              | Some (Simple (_, LESSER_EQUAL, _, _, _)) -> ()
-              | _ -> failwith "for-initial gather: loop test is not `<=` (other comparisons TODO)");
+             let cmp_sym = match NM.find_opt cn test_gr.nmap with
+               | Some (Simple (_, s, _, _, _)) -> s
+               | _ -> failwith "for-initial gather: no TEST compare node" in
              let lower_op p =
                match ES.fold (fun ((s, sp), (d, dp), _) a -> if d = cn && dp = p then Some (s, sp) else a)
                        test_gr.eset None with
                | Some (s, sp) -> get_expr e_test1 test_gid s sp `Out
                | None -> failwith "for-initial gather: missing TEST compare operand" in
-             let lhs = lower_op 0 and rhs = lower_op 1 in
+             (* op0 = induction var (holds the seed in the preheader), op1 = bound *)
+             let op0 = lower_op 0 and op1 = lower_op 1 in
              let res_name = get_c_name env.proc_map env.gid_name_map gid nid ret_out_port `Out gr in
              let res_v = C.Id res_name in
-             let lb = Printf.sprintf "__glb_%d_%d" sub_gid ret_out_port in
-             let ub = Printf.sprintf "__gub_%d_%d" sub_gid ret_out_port in
+             let seed = Printf.sprintf "__gseed_%d_%d" sub_gid ret_out_port in
+             let bound = Printf.sprintf "__gbound_%d_%d" sub_gid ret_out_port in
              let ctr = Printf.sprintf "__gctr_%d_%d" sub_gid ret_out_port in
-             let size = C.BinOp (C.Add, C.BinOp (C.Sub, C.Id ub, C.Id lb), C.LitInt 1) in
+             (* iteration count from the bound + comparison op (assumes step +/-1):
+                i<=n: n-seed+1 ; i<n: n-seed ; i>=n: seed-n+1 ; i>n: seed-n. *)
+             let sd = C.Id seed and bd = C.Id bound in
+             let dec a b = C.BinOp (C.Sub, a, b) and inc e = C.BinOp (C.Add, e, C.LitInt 1) in
+             let size = match cmp_sym with
+               | LESSER_EQUAL  -> inc (dec bd sd)
+               | LESSER        -> dec bd sd
+               | GREATER_EQUAL -> inc (dec sd bd)
+               | GREATER       -> dec sd bd
+               | _ -> failwith "for-initial gather: loop test is not a </<=/>/>= comparison" in
              let pre' =
-               [ C.Decl (C.Basic "int32_t", lb, Some lhs);   (* carry = seed here (preheader) *)
-                 C.Decl (C.Basic "int32_t", ub, Some rhs);
+               [ C.Decl (C.Basic "int32_t", seed, Some op0);   (* carry holds the seed in the preheader *)
+                 C.Decl (C.Basic "int32_t", bound, Some op1);
                  C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
                  C.Expr (C.BinOp (C.Assign, res_v,
                    C.Call ("sisal_array_alloc_empty",
