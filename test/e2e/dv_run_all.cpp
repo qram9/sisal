@@ -280,6 +280,9 @@ extern "C" struct LOOP13_results func_MAIN(int32_t REP, int32_t N, sisal_array_t
 #ifdef TEST_LOOP5_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t XIN, sisal_array_t Y, sisal_array_t Z);  // tridiagonal: for-initial `array of X` gather
 #endif
+#ifdef TEST_LOOP11S_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t YIN);  // first-sum (prefix sum): for-initial gather
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2628,6 +2631,23 @@ static void test_loop5_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_LOOP11S_DV
+// Livermore loop 11: first sum (prefix sum), a `for initial ... returns array of X`
+// gather.  X[1]=Yin[1]; X[i]=X[i-1]+Yin[i]; gather body values X[2..n] (n-1 elems).
+static void test_loop11s_dv(void) {
+    printf("\n=== Group: loop11s_dv (first-sum for-initial gather, vs C reference) ===\n");
+    const int n = 6;
+    double Yin[6] = { 1, 2, 3, 4, 5, 6 };
+    double X[7]; X[1] = Yin[0];
+    for (int i = 2; i <= n; i++) X[i] = X[i-1] + Yin[i-1];   // ref prefix sum
+    sisal_array_t Ya = make_double_arr(Yin, 6);
+    sisal_array_t r = func_MAIN(1, n, Ya);
+    bool ok = (r.rank == 1) && ((int)r.size == n - 1) && ((int)r.dims[0] == n - 1);
+    for (int k = 0; ok && k < n - 1; k++) ok = ok && near_d(ad(r, k), X[k + 2]);
+    check("loop11s_dv prefix-sum gather [X2..Xn] matches C reference", ok);
+    if (Ya.data) free(Ya.data); if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2783,6 +2803,9 @@ int main(void) {
 #ifdef TEST_LOOP5_DV
     test_loop5_dv();
 #endif
+#ifdef TEST_LOOP11S_DV
+    test_loop11s_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2924,7 +2947,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
