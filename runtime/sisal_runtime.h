@@ -283,14 +283,21 @@ inline sisal_array_t sisal_array_addl_arr(sisal_array_t a, sisal_array_t b) {
     return res;
 }
 
-/* ADJUST: re-bounded subrange A[lo..hi] -- a window slice.  Result size hi-lo+1,
-   lower_bound=lo, elements copied from A[lo..hi]. */
+/* ADJUST: re-bounded subrange A[lo..hi] along the LEADING axis -- a window of
+   (hi-lo+1) slabs.  Rank-aware: for rank-1 a slab is one element; for rank-k it is a
+   trailing (k-1)-D slab (slice = product of trailing dims).  Result dims[0]=hi-lo+1,
+   trailing dims inherited, lower_bound[0]=lo. */
 inline sisal_array_t sisal_array_adjust(sisal_array_t a, int64_t lo, int64_t hi) {
     size_t esz = sisal_elem_size(a.type_id);
-    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
-    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)n);
+    int64_t rows = (hi >= lo) ? (hi - lo + 1) : 0;
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t slice = (dim0 > 0) ? ((int64_t)a.size / dim0) : 1;
+    int64_t n_elems = rows * slice;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)n_elems);
     res.lower_bound[0] = lo;
-    memcpy(res.data, (char*)a.data + (uint64_t)(lo - a.lower_bound[0]) * esz, (uint64_t)n * esz);
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = rows;
+    memcpy(res.data, (char*)a.data + (uint64_t)(lo - a.lower_bound[0]) * slice * esz, (uint64_t)n_elems * esz);
     return res;
 }
 
