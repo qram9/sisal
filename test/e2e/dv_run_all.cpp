@@ -295,6 +295,9 @@ extern "C" struct LOOP15_results func_MAIN(int32_t REP, int32_t N, sisal_array_t
 struct LOOP22_results { sisal_array_t res_0; sisal_array_t res_1; };
 extern "C" struct LOOP22_results func_MAIN(int32_t REP, int32_t N, sisal_array_t U, sisal_array_t V, sisal_array_t X);  // Planckian -> (W,Y)
 #endif
+#ifdef TEST_BUILDFILL_DV
+extern "C" sisal_array_t func_MAIN(int32_t N);  // empty array_dv build + array_fill keep-last
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2755,6 +2758,19 @@ static void test_loop22_dv(void) {
     if(r.res_0.data)free(r.res_0.data); if(r.res_1.data)free(r.res_1.data);
 }
 #endif
+#ifdef TEST_BUILDFILL_DV
+// Empty array_dv build seed (array OneD []) + array_fill in a for-initial, keep-last
+// on an array carry.  X := array_fill(1,i,2.0) each iteration; value of X = last fill.
+static void test_buildfill_dv(void) {
+    printf("\n=== Group: buildfill_dv (empty DV_ARRAY_BUILD + DV_ARRAY_FILL keep-last) ===\n");
+    const int n = 4;
+    sisal_array_t r = func_MAIN(n);
+    bool ok = (r.rank==1) && ((int)r.size==n) && ((int)r.dims[0]==n);
+    for (int k=0; ok && k<n; k++) ok = ok && (ad(r,k)==2.0);
+    check("buildfill_dv = fill(1,n,2.0) (n twos)", ok);
+    if(r.data)free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2922,6 +2938,9 @@ int main(void) {
 #ifdef TEST_LOOP22_DV
     test_loop22_dv();
 #endif
+#ifdef TEST_BUILDFILL_DV
+    test_buildfill_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -3063,7 +3082,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
