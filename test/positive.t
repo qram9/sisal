@@ -102,6 +102,7 @@ DV array variants - array_dv OF with correct array_dv return types:
   $ sisal e2e/loop5_dv.sis
   $ sisal e2e/loop11s_dv.sis
   $ sisal e2e/loop17_dv.sis
+  $ sisal e2e/loop15_dv.sis
   $ sisal e2e/tst_loop1_dv.sis
 
 Sorting algorithms:

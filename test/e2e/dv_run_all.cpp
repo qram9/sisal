@@ -287,6 +287,10 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t YIN);  
 struct LOOP17_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
 extern "C" struct LOOP17_results func_MAIN(int32_t REP, int32_t N, sisal_array_t VLIN, sisal_array_t VLR, sisal_array_t VSP, sisal_array_t VSTP, sisal_array_t VXNEIN);  // descending for-initial, 3 gathers
 #endif
+#ifdef TEST_LOOP15_DV
+struct LOOP15_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct LOOP15_results func_MAIN(int32_t REP, int32_t N, sisal_array_t VF, sisal_array_t VG, sisal_array_t VH);  // nested forall + addh/fill -> (VS,VYc)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2687,6 +2691,46 @@ static void test_loop17_dv(void) {
 }
 #undef LV
 #endif
+#ifdef TEST_LOOP15_DV
+// Livermore loop 15: nested foralls (j=2..6 outer, i=2..n-1 inner) with conditional
+// branches, per-row array_addh(VSrc,0)/array_addh(VYrc,LastY), and a final
+// array_addh(VYc, array_fill(2,n,0)) appending a zero ROW to a 2-D matrix (the
+// rank-poly DV_ARRAY_ADDH splice).  Returns VS [5 x n-1], VYc [6 x n-1].
+static void test_loop15_dv(void) {
+    printf("\n=== Group: loop15_dv (nested forall + addh/fill, vs C reference) ===\n");
+    const int n = 4, NC = 4;
+    double VF[28], VG[28], VH[28];
+    for (int r=1;r<=7;r++) for (int c=1;c<=4;c++){ VF[(r-1)*4+c-1]=r+0.1*c; VG[(r-1)*4+c-1]=0.5*r+c; VH[(r-1)*4+c-1]=0.3*r+0.2*c; }
+    #define LV(a,r,c) a[((r)-1)*NC + ((c)-1)]
+    const int W = n-1; double VS[15], VYc[15];
+    for (int j=2;j<=6;j++){ int jd=j-2;
+      for (int i=2;i<=n-1;i++){ int id=i-2; double Si;
+        if (LV(VF,j,i)>=LV(VF,j-1,i)){ double R=std::max(LV(VG,j,i),LV(VG,j,i+1)),s=LV(VF,j,i),t=0.053; Si=sqrt(LV(VH,j,i)*LV(VH,j,i)+R*R)*t/s; }
+        else { double R=std::max(LV(VG,j-1,i),LV(VG,j-1,i+1)),s=LV(VF,j-1,i),t=0.073; Si=sqrt(LV(VH,j,i)*LV(VH,j,i)+R*R)*t/s; }
+        double Ti=(LV(VH,j+1,i)>LV(VH,j,i))?0.053:0.073, Yi;
+        if (LV(VF,j,i)>=LV(VF,j,i-1)){ double R=std::max(LV(VH,j,i),LV(VH,j+1,i)),s=LV(VF,j,i); Yi=sqrt(LV(VG,j,i)*LV(VG,j,i)+R*R)*Ti/s; }
+        else { double R=std::max(LV(VH,j,i-1),LV(VH,j+1,i-1)),s=LV(VF,j,i-1); Yi=sqrt(LV(VG,j,i)*LV(VG,j,i)+R*R)*Ti/s; }
+        VS[jd*W+id]=Si; VYc[jd*W+id]=Yi;
+      }
+      double Tj=(LV(VH,j+1,n)>LV(VH,j,n))?0.053:0.073, LastY;
+      if (LV(VF,j,n)>=LV(VF,j,n-1)){ double R=std::max(LV(VH,j,n),LV(VH,j+1,n)),s=LV(VF,j,n); LastY=sqrt(LV(VG,j,n)*LV(VG,j,n)+R*R)*Tj/s; }
+      else { double R=std::max(LV(VH,j,n-1),LV(VH,j+1,n-1)),s=LV(VF,j,n-1); LastY=sqrt(LV(VG,j,n)*LV(VG,j,n)+R*R)*Tj/s; }
+      VS[jd*W+(W-1)]=0.0; VYc[jd*W+(W-1)]=LastY;
+    }
+    double VYcf[18]; for(int k=0;k<5*W;k++)VYcf[k]=VYc[k]; for(int k=0;k<W;k++)VYcf[5*W+k]=0.0;
+    #undef LV
+    sisal_array_t a=make_double_2d(VF,7,4), b=make_double_2d(VG,7,4), c=make_double_2d(VH,7,4);
+    struct LOOP15_results r = func_MAIN(1, n, a, b, c);
+    bool sok = (r.res_0.rank==2)&&((int)r.res_0.dims[0]==5)&&((int)r.res_0.dims[1]==W);
+    for (int k=0;sok&&k<5*W;k++) sok=sok&&(fabs(ad(r.res_0,k)-VS[k])<1e-4);
+    bool yok = (r.res_1.rank==2)&&((int)r.res_1.dims[0]==6)&&((int)r.res_1.dims[1]==W);
+    for (int k=0;yok&&k<6*W;k++) yok=yok&&(fabs(ad(r.res_1,k)-VYcf[k])<1e-4);
+    check("loop15_dv VS [5 x n-1] matches C reference", sok);
+    check("loop15_dv VYc [6 x n-1] (row-append via DV_ARRAY_ADDH) matches C reference", yok);
+    if(a.data)free(a.data); if(b.data)free(b.data); if(c.data)free(c.data);
+    if(r.res_0.data)free(r.res_0.data); if(r.res_1.data)free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2848,6 +2892,9 @@ int main(void) {
 #ifdef TEST_LOOP17_DV
     test_loop17_dv();
 #endif
+#ifdef TEST_LOOP15_DV
+    test_loop15_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -2989,7 +3036,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
