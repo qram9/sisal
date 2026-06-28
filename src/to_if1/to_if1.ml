@@ -5879,7 +5879,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | Array_generator_named tn ->
       let (bb, pp, _), in_gr =
         If1.add_node_2
-          (`Simple (If1.ABUILD, [| "" |], [| "" |], []))
+          (`Simple (If1.DVABUILD, [| "" |], [| "" |], []))
           in_gr
       in
       let tt = If1.lookup_by_typename in_gr tn in
