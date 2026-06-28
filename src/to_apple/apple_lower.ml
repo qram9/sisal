@@ -225,7 +225,7 @@ let infer_types env gr gid =
           set_ty cur_gid nid 0 `Out ty
       | Simple (_, sym, _, outs, _) ->
           let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_SCATTER; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DV_RANK_REDUCE; DV_RANK_REPLACE] in
           let ty = if is_int then C.Basic "int32_t" else if is_arr then C.Basic "sisal_array_t" else C.Basic "float" in
           Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
           (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
@@ -324,7 +324,7 @@ let infer_types env gr gid =
     NM.iter (fun nid node ->
       match node with
       | Simple (_, sym, _, outs, _) ->
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DV_RANK_REDUCE; DV_RANK_REPLACE] in
           if is_arr then (
             Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t")) outs;
             (* AFILL's port 0 is an int bound (lo), not an array -- don't coerce it *)
@@ -660,6 +660,15 @@ and lower_simple env gr nid sym pin pout pr =
         | C.Basic "double" -> "sisal_array_addh_f64"
         | C.Basic "sisal_array_t" -> "sisal_array_addh_arr"
         | _ -> "sisal_array_addh_f32" in
+      C.Call (fn, [ e1; e2 ])
+  | DVAADDL ->
+      (* prepend e2 at the low end of array e1 -> new array_dv of size+1 *)
+      let val_ty = get_final_ty env gid nid 1 `In in
+      let fn = match val_ty with
+        | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_addl_i32"
+        | C.Basic "double" -> "sisal_array_addl_f64"
+        | C.Basic "sisal_array_t" -> "sisal_array_addl_arr"
+        | _ -> "sisal_array_addl_f32" in
       C.Call (fn, [ e1; e2 ])
   | DVAFILL ->
       (* array_fill(lo, hi, val) -> new array [lo..hi], every element = val *)

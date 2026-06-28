@@ -246,6 +246,43 @@ inline sisal_array_t sisal_array_fill_arr(int64_t lo, int64_t hi, sisal_array_t 
     return res;
 }
 
+/* ADDL: prepend `val` at the low end -> size+1, val at index 0, A shifted up,
+   lower_bound-1.  Mirror of ADDH (8-byte slot convention). */
+inline sisal_array_t sisal_array_addl_i32(sisal_array_t a, int32_t val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((int32_t*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_f32(sisal_array_t a, float val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((float*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_f64(sisal_array_t a, double val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((double*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_arr(sisal_array_t a, sisal_array_t b) {
+    /* prepend B (a slab/stack) at the low end -- rank-poly mirror of addh_arr */
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
+    int64_t b_elems = (int64_t)b.size;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + (uint64_t)b_elems);
+    res.lower_bound[0] = a.lower_bound[0] - add_rows;
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = a.dims[0] + add_rows;
+    memcpy(res.data, b.data, (uint64_t)b_elems * esz);
+    memcpy((char*)res.data + (uint64_t)b_elems * esz, a.data, a.size * esz);
+    return res;
+}
+
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
     sisal_array_t res = a;
     res.lower_bound[0] = lb;

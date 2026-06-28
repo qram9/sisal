@@ -4830,7 +4830,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (`Simple
                  ( (match array_addx with
                    | "ARRAY_ADDH" -> If1.DVAADDH
-                   | _ -> If1.AADDL),
+                   | _ -> If1.DVAADDL),
                    in_port_00,
                    out_port_00,
                    [] ))

@@ -70,6 +70,7 @@ type node_sym =
   | AADDH
   | DVAADDH  (* array_dv addh: rank-poly slab/stack append (catenate along axis 0) *)
   | DVAFILL  (* array_dv fill: array_dv[T] of [lo..hi] all = val *)
+  | DVAADDL  (* array_dv addl: prepend at the low end (mirror of DVAADDH) *)
   | AADDL
   | AADJUST
   | ABUILD
@@ -3543,6 +3544,7 @@ and num_to_node_sym = function
   | 29 -> AADDH
   | 133 -> DVAADDH
   | 134 -> DVAFILL
+  | 135 -> DVAADDL
   | 30 -> AADDL
   | 31 -> ABUILD
   | 32 -> AELEMENT
@@ -3597,6 +3599,7 @@ and node_sym_to_num = function
   | AADDH -> 29
   | DVAADDH -> 133
   | DVAFILL -> 134
+  | DVAADDL -> 135
   | AADDL -> 30
   | ABUILD -> 31
   | ACATENATE -> 8
@@ -3736,6 +3739,7 @@ and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
   | DVAADDH -> "DV_ARRAY_ADDH"
   | DVAFILL -> "DV_ARRAY_FILL"
+  | DVAADDL -> "DV_ARRAY_ADDL"
   | AADDL -> "ARRAY_ADDL"
   | ABUILD -> "ARRAY_BUILD"
   | ACATENATE -> "ARRAY_CATENATE"
