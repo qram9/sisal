@@ -651,7 +651,9 @@ and lower_simple env gr nid sym pin pout pr =
         match get_final_ty env gid nid p `In with
         | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_replace_i32"
         | C.Basic "double" -> "sisal_array_replace_f64"
-        | C.Basic "sisal_array_t" -> "sisal_array_replace_arr"
+        (* an array value = a row/slab of a flat 2-D array_dv -> slab replace at the
+           leading index (NOT a boxed element; nested array_dv is disallowed) *)
+        | C.Basic "sisal_array_t" -> "sisal_dv_replace_slice"
         | _ -> "sisal_array_replace_f32" in
       let val_ports =
         ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid && dp >= 2 then dp :: acc else acc)
