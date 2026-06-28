@@ -298,6 +298,10 @@ extern "C" struct LOOP22_results func_MAIN(int32_t REP, int32_t N, sisal_array_t
 #ifdef TEST_BUILDFILL_DV
 extern "C" sisal_array_t func_MAIN(int32_t N);  // empty array_dv build + array_fill keep-last
 #endif
+#ifdef TEST_LOOP20_DV
+struct LOOP20_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct LOOP20_results func_MAIN(int32_t REP, int32_t N, double DK, double S, double T, sisal_array_t XXIN, sisal_array_t G, sisal_array_t U, sisal_array_t V, sisal_array_t VX, sisal_array_t W, sisal_array_t Y, sisal_array_t Z);  // for-initial recurrence + gather -> (Xgather, XX)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2771,6 +2775,35 @@ static void test_buildfill_dv(void) {
     if(r.data)free(r.data);
 }
 #endif
+#ifdef TEST_LOOP20_DV
+// Livermore loop 20: for-initial recurrence.  DI=Y[i]-G[i]/(XX[i]+DK);
+// DN=DI==0?0.2:max(S,min(Z[i]/DI,T)); X=(XX[i]*(W[i]+DN*V[i])+U[i])/(VX[i]+DN*V[i]);
+// XX[i+1]=XX[i]+DN*(X-XX[i]).  returns gather X (i=2..n, n-1 elems) + keep-last XX.
+static void test_loop20_dv(void) {
+    printf("\n=== Group: loop20_dv (for-initial recurrence + gather, vs C reference) ===\n");
+    const int n = 4;
+    double XXin[5]={3,3,3,3,3},G[5]={0,0,0,0,0},Y[5]={1,1,1,1,1},Z[5]={2,2,2,2,2},
+           U[5]={1,1,1,1,1},V[5]={1,1,1,1,1},W[5]={1,1,1,1,1},VX[5]={2,2,2,2,2};
+    double DK=1,S=0,T=100;
+    #define A(arr,i) arr[(i)-1]
+    double XX[6]; for(int k=1;k<=5;k++)XX[k]=A(XXin,k); double Xg[8]; int gc=0;
+    { double DI=A(Y,1)-A(G,1)/(A(XXin,1)+DK); double DN=(DI==0.0)?0.20:std::max(S,std::min(A(Z,1)/DI,T));
+      double X=(A(XXin,1)*(A(W,1)+DN*A(V,1))+A(U,1))/(A(VX,1)+DN*A(V,1)); XX[2]=A(XXin,1)+DN*(X-A(XXin,1)); }
+    for(int i=2;i<=n;i++){ double DI=A(Y,i)-A(G,i)/(XX[i]+DK); double DN=(DI==0.0)?0.20:std::max(S,std::min(A(Z,i)/DI,T));
+      double X=(XX[i]*(A(W,i)+DN*A(V,i))+A(U,i))/(A(VX,i)+DN*A(V,i)); Xg[gc++]=X; XX[i+1]=XX[i]+DN*(X-XX[i]); }
+    #undef A
+    sisal_array_t xx=make_double_arr(XXin,5),g=make_double_arr(G,5),u=make_double_arr(U,5),v=make_double_arr(V,5),
+                  vx=make_double_arr(VX,5),w=make_double_arr(W,5),y=make_double_arr(Y,5),z=make_double_arr(Z,5);
+    struct LOOP20_results r = func_MAIN(1,n,DK,S,T,xx,g,u,v,vx,w,y,z);
+    bool xok=((int)r.res_0.size==gc); for(int k=0;xok&&k<gc;k++) xok=xok&&near_d(ad(r.res_0,k),Xg[k]);
+    bool xxok=((int)r.res_1.size==5); for(int k=0;xxok&&k<5;k++) xxok=xxok&&near_d(ad(r.res_1,k),XX[k+1]);
+    check("loop20_dv X gather (i=2..n) matches C reference", xok);
+    check("loop20_dv XX (keep-last recurrence) matches C reference", xxok);
+    if(xx.data)free(xx.data); if(g.data)free(g.data); if(u.data)free(u.data); if(v.data)free(v.data);
+    if(vx.data)free(vx.data); if(w.data)free(w.data); if(y.data)free(y.data); if(z.data)free(z.data);
+    if(r.res_0.data)free(r.res_0.data); if(r.res_1.data)free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2941,6 +2974,9 @@ int main(void) {
 #ifdef TEST_BUILDFILL_DV
     test_buildfill_dv();
 #endif
+#ifdef TEST_LOOP20_DV
+    test_loop20_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -3082,7 +3118,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
