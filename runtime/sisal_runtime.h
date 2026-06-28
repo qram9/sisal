@@ -176,6 +176,67 @@ inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal
     return res;
 }
 
+/* ADDH: append `val` at the high end -> new array of size+1 (lower_bound kept). */
+inline sisal_array_t sisal_array_addh_i32(sisal_array_t a, int32_t val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((int32_t*)res.data)[a.size] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_addh_f32(sisal_array_t a, float val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((float*)res.data)[a.size] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_addh_f64(sisal_array_t a, double val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((double*)res.data)[a.size] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t val) {
+    size_t esz = sizeof(sisal_array_t);
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * esz);
+    ((sisal_array_t*)res.data)[a.size] = val;
+    return res;
+}
+
+/* FILL(lo, hi, val): new array indexed [lo..hi] (size hi-lo+1), every element = val. */
+inline sisal_array_t sisal_array_fill_i32(int64_t lo, int64_t hi, int32_t val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((int32_t*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_f32(int64_t lo, int64_t hi, float val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 8, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((float*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_f64(int64_t lo, int64_t hi, double val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((double*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_arr(int64_t lo, int64_t hi, sisal_array_t val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, val.type_id, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((sisal_array_t*)res.data)[k] = val;
+    return res;
+}
+
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
     sisal_array_t res = a;
     res.lower_bound[0] = lb;
