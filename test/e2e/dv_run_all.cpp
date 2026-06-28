@@ -291,6 +291,10 @@ extern "C" struct LOOP17_results func_MAIN(int32_t REP, int32_t N, sisal_array_t
 struct LOOP15_results { sisal_array_t res_0; sisal_array_t res_1; };
 extern "C" struct LOOP15_results func_MAIN(int32_t REP, int32_t N, sisal_array_t VF, sisal_array_t VG, sisal_array_t VH);  // nested forall + addh/fill -> (VS,VYc)
 #endif
+#ifdef TEST_LOOP22_DV
+struct LOOP22_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct LOOP22_results func_MAIN(int32_t REP, int32_t N, sisal_array_t U, sisal_array_t V, sisal_array_t X);  // Planckian -> (W,Y)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t B, sisal_array_t WIN);  // general linear recurrence
 #endif
@@ -2731,6 +2735,26 @@ static void test_loop15_dv(void) {
     if(r.res_0.data)free(r.res_0.data); if(r.res_1.data)free(r.res_1.data);
 }
 #endif
+#ifdef TEST_LOOP22_DV
+// Livermore loop 22: Planckian distribution.  forall k: Y=U[k]<20V[k]?U[k]/V[k]:20;
+// W=X[k]/(exp(Y)-1).  Returns (W,Y), each length n.
+static void test_loop22_dv(void) {
+    printf("\n=== Group: loop22_dv (Planckian, vs C reference) ===\n");
+    const int n = 5;
+    double U[5]={1,2,3,100,5}, V[5]={1,1,1,1,1}, X[5]={10,20,30,40,50};
+    double W[5], Y[5];
+    for (int k=0;k<n;k++){ Y[k]=(U[k]<20.0*V[k])?U[k]/V[k]:20.0; W[k]=X[k]/(exp(Y[k])-1.0); }
+    sisal_array_t Ua=make_double_arr(U,5), Va=make_double_arr(V,5), Xa=make_double_arr(X,5);
+    struct LOOP22_results r = func_MAIN(1, n, Ua, Va, Xa);
+    bool wok=((int)r.res_0.size==n), yok=((int)r.res_1.size==n);
+    for (int k=0;wok&&k<n;k++) wok=wok&&near_d(ad(r.res_0,k),W[k]);
+    for (int k=0;yok&&k<n;k++) yok=yok&&near_d(ad(r.res_1,k),Y[k]);
+    check("loop22_dv W (Planckian) matches C reference", wok);
+    check("loop22_dv Y (clamped ratio) matches C reference", yok);
+    if(Ua.data)free(Ua.data); if(Va.data)free(Va.data); if(Xa.data)free(Xa.data);
+    if(r.res_0.data)free(r.res_0.data); if(r.res_1.data)free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -2895,6 +2919,9 @@ int main(void) {
 #ifdef TEST_LOOP15_DV
     test_loop15_dv();
 #endif
+#ifdef TEST_LOOP22_DV
+    test_loop22_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -3036,7 +3063,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
