@@ -10120,7 +10120,7 @@ and do_global in_gr f =
     | Ast.Function_header_nodec (Ast.Function_name fn, _) ->
         String.concat "." fn
   in
-  let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+  let (_, _, fn_ty), in_gr = do_function_header ~is_forward:true in_gr f in
   if is_intrinsic_global fn_name then ((0, 0, fn_ty), in_gr)
   else
     let localsyms, globsyms = If1.get_symtab in_gr in
@@ -10561,7 +10561,7 @@ and do_function_def in_gr = function
         | Ast.Function_header (Ast.Function_name fn, _, _) ->
             String.concat "." fn
       in
-      let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+      let (_, _, fn_ty), in_gr = do_function_header ~is_forward:true in_gr f in
       let localsyms, globsyms = If1.get_symtab in_gr in
       ( (0, 0, fn_ty),
         {
@@ -10578,33 +10578,45 @@ and do_function_def in_gr = function
               globsyms );
         } )
 
-and do_function_header in_gr = function
+and do_function_header ?(is_forward = false) in_gr = function
   | Ast.Function_header_nodec (fn, tl) ->
       let _, in_gr = do_function_name in_gr fn in
       If1.add_sisal_type in_gr
         (Ast.Compound_type (Ast.Sisal_function_type ("", [], tl)))
   | Ast.Function_header (Ast.Function_name fn, decls, tl) ->
-      let nm = in_gr.If1.nmap in
-      let nm =
-        If1.NM.add 0
-          (let bound_node = If1.NM.find_opt 0 nm in
-           match bound_node with
-           | Some (If1.Boundary (k, j, e, p)) ->
-               If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
-           | _ -> failwith "Boundary node missing in graph")
-          nm
+      (* A real definition prepares the body's scope: the function name on the
+         boundary + each formal as a boundary input / symtab entry.  A forward
+         `global` declaration is ONLY a signature -- register its type so calls
+         resolve, but write NOTHING into the surrounding (module) scope: no boundary
+         name, no formal params.  Binding the formals belongs to definition lowering. *)
+      let in_gr =
+        if is_forward then in_gr
+        else
+          let nm = in_gr.If1.nmap in
+          let nm =
+            If1.NM.add 0
+              (let bound_node = If1.NM.find_opt 0 nm in
+               match bound_node with
+               | Some (If1.Boundary (k, j, e, p)) ->
+                   If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
+               | _ -> failwith "Boundary node missing in graph")
+              nm
+          in
+          { in_gr with If1.nmap = nm }
       in
-      let in_gr = { in_gr with If1.nmap = nm } in
       let tyy = extract_types_from_decl_list decls in
-      let _, (_, _, _), in_gr =
-        let rec addeach_decl in_gr decls lasti bi q =
-          match decls with
-          | [] -> (bi, (lasti, q, 0), in_gr)
-          | hde :: tl ->
-              let (lasti, pp, tt1), in_gr = do_params_decl lasti in_gr hde in
-              addeach_decl in_gr tl lasti ((lasti, pp, tt1) :: bi) pp
-        in
-        addeach_decl in_gr decls 0 [] []
+      let in_gr =
+        if is_forward then in_gr
+        else
+          let rec addeach_decl in_gr decls lasti bi q =
+            match decls with
+            | [] -> (bi, (lasti, q, 0), in_gr)
+            | hde :: tl ->
+                let (lasti, pp, tt1), in_gr = do_params_decl lasti in_gr hde in
+                addeach_decl in_gr tl lasti ((lasti, pp, tt1) :: bi) pp
+          in
+          let _, (_, _, _), in_gr = addeach_decl in_gr decls 0 [] [] in
+          in_gr
       in
       If1.add_sisal_type in_gr
         (Ast.Compound_type
