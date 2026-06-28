@@ -644,14 +644,26 @@ and lower_simple env gr nid sym pin pout pr =
         e1 :: C.LitInt (List.length perm_args) :: perm_args)
   | ASETL -> C.Call ("sisal_array_setl", [ e1; C.Cast (C.Basic "int64_t", e2) ])
   | AREPLACE ->
-      let e3 = get_in_expr 2 in
-      let val_ty = get_final_ty env gid nid 2 `In in
-      let fn = match val_ty with
+      (* A[lo: v1,..,vk] -- values are at ports 2..k+1, placed at consecutive indices
+         lo, lo+1, ..., lo+k-1.  Nest single-value replaces (each copies the array),
+         so value at port p lands at lo+(p-2).  k=1 is the plain single replace. *)
+      let replace_fn p =
+        match get_final_ty env gid nid p `In with
         | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_replace_i32"
         | C.Basic "double" -> "sisal_array_replace_f64"
         | C.Basic "sisal_array_t" -> "sisal_array_replace_arr"
         | _ -> "sisal_array_replace_f32" in
-      C.Call (fn, [ e1; C.Cast (C.Basic "int64_t", e2); e3 ])
+      let val_ports =
+        ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid && dp >= 2 then dp :: acc else acc)
+          gr.eset []
+        |> List.sort_uniq compare in
+      let lo = C.Cast (C.Basic "int64_t", e2) in
+      List.fold_left
+        (fun arr_expr p ->
+          let off = p - 2 in
+          let idx = if off = 0 then lo else C.BinOp (C.Add, lo, C.LitInt off) in
+          C.Call (replace_fn p, [ arr_expr; idx; get_in_expr p ]))
+        e1 val_ports
   | DVAADDH ->
       (* append e2 at the high end of array e1 -> new array_dv of size+1 *)
       let val_ty = get_final_ty env gid nid 1 `In in
