@@ -4829,7 +4829,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             If1.add_node_2
               (`Simple
                  ( (match array_addx with
-                   | "ARRAY_ADDH" -> If1.AADDH
+                   | "ARRAY_ADDH" -> If1.DVAADDH
                    | _ -> If1.AADDL),
                    in_port_00,
                    out_port_00,
@@ -5006,9 +5006,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
-          (* array_fill builds a plain array; an array_dv result is obtained by
-             the declared target type (coercion), not a global mode. *)
-          let opcode = If1.AFILL in
+          (* array_fill builds an array_dv (DVAFILL) -- result type array_dv[T]. *)
+          let opcode = If1.DVAFILL in
           let in_ports = [| ""; ""; "" |] in
           let out_ports = [| "" |] in
 
@@ -5032,7 +5031,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
 
                 let (arr_ty_id, _, _), in_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_ty array_element_ty)
+                  If1.add_type_to_typemap_dedup (If1.Array_dv array_element_ty)
                     in_gr
                 in
                 (arr_ty_id, in_gr)

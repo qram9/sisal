@@ -68,6 +68,8 @@ type label_or_none = Som of int | Emp
 
 type node_sym =
   | AADDH
+  | DVAADDH  (* array_dv addh: rank-poly slab/stack append (catenate along axis 0) *)
+  | DVAFILL  (* array_dv fill: array_dv[T] of [lo..hi] all = val *)
   | AADDL
   | AADJUST
   | ABUILD
@@ -3539,6 +3541,8 @@ and num_to_node_sym = function
   | 27 -> SELECT
   | 28 -> RANGEGEN
   | 29 -> AADDH
+  | 133 -> DVAADDH
+  | 134 -> DVAFILL
   | 30 -> AADDL
   | 31 -> ABUILD
   | 32 -> AELEMENT
@@ -3591,6 +3595,8 @@ and num_to_node_sym = function
 
 and node_sym_to_num = function
   | AADDH -> 29
+  | DVAADDH -> 133
+  | DVAFILL -> 134
   | AADDL -> 30
   | ABUILD -> 31
   | ACATENATE -> 8
@@ -3728,6 +3734,8 @@ and node_sym_to_num = function
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
+  | DVAADDH -> "DV_ARRAY_ADDH"
+  | DVAFILL -> "DV_ARRAY_FILL"
   | AADDL -> "ARRAY_ADDL"
   | ABUILD -> "ARRAY_BUILD"
   | ACATENATE -> "ARRAY_CATENATE"

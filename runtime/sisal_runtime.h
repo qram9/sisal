@@ -198,12 +198,21 @@ inline sisal_array_t sisal_array_addh_f64(sisal_array_t a, double val) {
     ((double*)res.data)[a.size] = val;
     return res;
 }
-inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t val) {
-    size_t esz = sizeof(sisal_array_t);
-    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+/* array_dv addh where the appended value is itself an array: rank-polymorphic
+   splice along axis 0.  B is a SLAB (rank == a.rank-1, B == a's trailing dims) -> the
+   leading dim grows by 1; or a STACK (rank == a.rank, trailing dims agree) -> leading
+   dim grows by b.dims[0].  Trailing dims are inherited from A; data is A's flat buffer
+   with B's flat buffer appended.  (Numpy `concatenate`-along-axis-0 semantics.) */
+inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
+    int64_t b_elems = (int64_t)b.size;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + (uint64_t)b_elems);
     res.lower_bound[0] = a.lower_bound[0];
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = a.dims[0] + add_rows;
     memcpy(res.data, a.data, a.size * esz);
-    ((sisal_array_t*)res.data)[a.size] = val;
+    memcpy((char*)res.data + (uint64_t)a.size * esz, b.data, (uint64_t)b_elems * esz);
     return res;
 }
 
