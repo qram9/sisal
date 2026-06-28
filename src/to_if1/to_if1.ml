@@ -4878,7 +4878,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
-              (`Simple (If1.AADJUST, in_port_00, out_port_00, []))
+              (`Simple (If1.DVAADJUST, in_port_00, out_port_00, []))
               in_gr
           in
           let _, in_gr, type_lis =

@@ -283,6 +283,17 @@ inline sisal_array_t sisal_array_addl_arr(sisal_array_t a, sisal_array_t b) {
     return res;
 }
 
+/* ADJUST: re-bounded subrange A[lo..hi] -- a window slice.  Result size hi-lo+1,
+   lower_bound=lo, elements copied from A[lo..hi]. */
+inline sisal_array_t sisal_array_adjust(sisal_array_t a, int64_t lo, int64_t hi) {
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    memcpy(res.data, (char*)a.data + (uint64_t)(lo - a.lower_bound[0]) * esz, (uint64_t)n * esz);
+    return res;
+}
+
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
     sisal_array_t res = a;
     res.lower_bound[0] = lb;

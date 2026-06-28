@@ -72,6 +72,7 @@ type node_sym =
   | DVAFILL  (* array_dv fill: array_dv[T] of [lo..hi] all = val *)
   | DVAADDL  (* array_dv addl: prepend at the low end (mirror of DVAADDH) *)
   | DVABUILD (* array_dv constructor: array_dv T [e1..eN] (or [] = empty) *)
+  | DVAADJUST (* array_dv adjust: re-bounded subrange A[lo..hi] (window slice) *)
   | AADDL
   | AADJUST
   | ABUILD
@@ -3547,6 +3548,7 @@ and num_to_node_sym = function
   | 134 -> DVAFILL
   | 135 -> DVAADDL
   | 136 -> DVABUILD
+  | 137 -> DVAADJUST
   | 30 -> AADDL
   | 31 -> ABUILD
   | 32 -> AELEMENT
@@ -3603,6 +3605,7 @@ and node_sym_to_num = function
   | DVAFILL -> 134
   | DVAADDL -> 135
   | DVABUILD -> 136
+  | DVAADJUST -> 137
   | AADDL -> 30
   | ABUILD -> 31
   | ACATENATE -> 8
@@ -3744,6 +3747,7 @@ and string_of_node_sym = function
   | DVAFILL -> "DV_ARRAY_FILL"
   | DVAADDL -> "DV_ARRAY_ADDL"
   | DVABUILD -> "DV_ARRAY_BUILD"
+  | DVAADJUST -> "DV_ARRAY_ADJUST"
   | AADDL -> "ARRAY_ADDL"
   | ABUILD -> "ARRAY_BUILD"
   | ACATENATE -> "ARRAY_CATENATE"

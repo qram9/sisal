@@ -225,12 +225,12 @@ let infer_types env gr gid =
           set_ty cur_gid nid 0 `Out ty
       | Simple (_, sym, _, outs, _) ->
           let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_SCATTER; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE] in
           let ty = if is_int then C.Basic "int32_t" else if is_arr then C.Basic "sisal_array_t" else C.Basic "float" in
           Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
           (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
              array-producing (is_arr) yet must NOT have port 0 coerced to sisal_array_t. *)
-          if (is_arr && sym <> DVAFILL) || List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+          if (is_arr && sym <> DVAFILL && sym <> DVAADJUST) || List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
       | Compound (_, sym, _, pr, sub, _) ->
           let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
@@ -324,11 +324,11 @@ let infer_types env gr gid =
     NM.iter (fun nid node ->
       match node with
       | Simple (_, sym, _, outs, _) ->
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE] in
           if is_arr then (
             Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t")) outs;
             (* AFILL's port 0 is an int bound (lo), not an array -- don't coerce it *)
-            if sym <> DVAFILL then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+            if sym <> DVAFILL && sym <> DVAADJUST then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
           );
           if List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
@@ -687,6 +687,11 @@ and lower_simple env gr nid sym pin pout pr =
       let out_tyid = ES.fold (fun ((sn, sp), _, ty) acc -> if sn = nid && sp = 0 then ty else acc) gr.eset 0 in
       let elem_tid = match TM.find_opt out_tyid env.tm with Some (Array_dv e) -> e | _ -> 4 in
       C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt elem_tid; C.Cast (C.Basic "uint64_t", C.LitInt 0) ])
+  | DVAADJUST ->
+      (* array_adjust(A, lo, hi) -- window slice A[lo..hi].  Args wired reversed:
+         port 0 = hi (e1), port 1 = lo (e2), port 2 = A. *)
+      C.Call ("sisal_array_adjust",
+        [ get_in_expr 2; C.Cast (C.Basic "int64_t", e2); C.Cast (C.Basic "int64_t", e1) ])
   | PAD_NODE -> C.Call ("sisal_array_pad", [ e1; e2; get_in_expr 2; get_in_expr 3 ])
   | STENCIL_NODE -> C.Call ("sisal_array_stencil", [ e1; e2; get_in_expr 2 ])
   | WHERE_NODE -> C.Call ("sisal_array_where", [ e1; e2; get_in_expr 2 ])
