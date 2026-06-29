@@ -266,6 +266,20 @@ struct FUNC_MAIN_results {
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t REP, int32_t N, double STB5IN, sisal_array_t SA, sisal_array_t SB);
 #endif
+#ifdef TEST_LOOP14_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+  sisal_array_t res_5;
+  sisal_array_t res_6;
+  sisal_array_t res_7;
+  sisal_array_t res_8;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t REP, int32_t N, double FLX, sisal_array_t DEX, sisal_array_t EX, sisal_array_t GRD, sisal_array_t RHIN);
+#endif
 #ifdef TEST_LOOP21_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN, sisal_array_t VY);  // matrix*matrix product
 #endif
@@ -2894,6 +2908,99 @@ static void test_loop19s_dv(void) {
 }
 #endif
 
+#ifdef TEST_LOOP14_DV
+static void test_loop14_dv(void) {
+    printf("\n=== Group: loop14_dv (1-D PIC, vs C reference) ===\n");
+    const int n = 5;
+    double FLX = 0.25;
+    double DEX[1001], EX[1001], GRD[1001], RH[1001];
+    for (int i = 0; i < 1001; i++) {
+        DEX[i] = 0.1 * (i % 5);
+        EX[i] = 1.0 + 0.05 * i;
+        GRD[i] = 1.0 + 0.9 * i;
+        RH[i] = 10.0 + 0.1 * i;
+    }
+    
+    // C Reference Implementation (with 1-based indexing helper)
+    #define A_14(arr, idx) arr[(idx) - 1]
+    double DEX1[5], EX1[5], RX1[5], VX1[5], XI1[5], XX1[5];
+    int32_t IR1[5], IX1[5];
+    for (int i = 1; i <= n; i++) {
+        int j = (int)A_14(GRD, i);
+        EX1[i-1] = A_14(EX, j);
+        DEX1[i-1] = A_14(DEX, j);
+        XI1[i-1] = (double)j;
+        double vx = A_14(EX, j) - A_14(DEX, j) * (double)j;
+        VX1[i-1] = vx;
+        int k = (int)(vx + FLX);
+        int ir;
+        if (k < 0) {
+            ir = k - (k / 512 * 512) + 256 + abs(256);
+        } else {
+            ir = k - (k / 512 * 512) + 256 - abs(256);
+        }
+        ir = ir + 1;
+        IR1[i-1] = ir;
+        IX1[i-1] = j;
+        RX1[i-1] = vx + FLX - (double)k;
+        XX1[i-1] = vx + FLX - (double)k + (double)ir;
+    }
+    double RH_ref[1001];
+    for (int i = 0; i < 1001; i++) RH_ref[i] = RH[i];
+    for (int i = 1; i <= n; i++) {
+        int ir1 = IR1[i-1];
+        double rx1 = RX1[i-1];
+        double val1 = A_14(RH_ref, ir1) - rx1 + 1.0;
+        double val2 = A_14(RH_ref, ir1 + 1) + rx1;
+        A_14(RH_ref, ir1) = val1;
+        A_14(RH_ref, ir1 + 1) = val2;
+    }
+    #undef A_14
+
+    sisal_array_t dex = make_double_arr(DEX, 1001);
+    sisal_array_t ex = make_double_arr(EX, 1001);
+    sisal_array_t grd = make_double_arr(GRD, 1001);
+    sisal_array_t rh = make_double_arr(RH, 1001);
+    struct FUNC_MAIN_results r = func_MAIN(1, n, FLX, dex, ex, grd, rh);
+
+    bool ok = ((int)r.res_0.size == n) && ((int)r.res_1.size == n) &&
+              ((int)r.res_2.size == n) && ((int)r.res_3.size == n) &&
+              ((int)r.res_4.size == n) && ((int)r.res_5.size == n) &&
+              ((int)r.res_6.size == n) && ((int)r.res_7.size == n) &&
+              ((int)r.res_8.size == 1001);
+
+    for (int k = 0; ok && k < n; k++) {
+        ok = ok && near_d(ad(r.res_0, k), DEX1[k]);
+        ok = ok && near_d(ad(r.res_1, k), EX1[k]);
+        ok = ok && (((int32_t*)r.res_2.data)[k] == IR1[k]);
+        ok = ok && (((int32_t*)r.res_3.data)[k] == IX1[k]);
+        ok = ok && near_d(ad(r.res_4, k), RX1[k]);
+        ok = ok && near_d(ad(r.res_5, k), VX1[k]);
+        ok = ok && near_d(ad(r.res_6, k), XI1[k]);
+        ok = ok && near_d(ad(r.res_7, k), XX1[k]);
+    }
+    for (int k = 0; ok && k < 1001; k++) {
+        ok = ok && near_d(ad(r.res_8, k), RH_ref[k]);
+    }
+
+    check("loop14_dv 1-D PIC results match C reference", ok);
+
+    if (dex.data) free(dex.data);
+    if (ex.data) free(ex.data);
+    if (grd.data) free(grd.data);
+    if (rh.data) free(rh.data);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+    if (r.res_2.data) free(r.res_2.data);
+    if (r.res_3.data) free(r.res_3.data);
+    if (r.res_4.data) free(r.res_4.data);
+    if (r.res_5.data) free(r.res_5.data);
+    if (r.res_6.data) free(r.res_6.data);
+    if (r.res_7.data) free(r.res_7.data);
+    if (r.res_8.data) free(r.res_8.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -3072,6 +3179,9 @@ int main(void) {
 #ifdef TEST_LOOP19S_DV
     test_loop19s_dv();
 #endif
+#ifdef TEST_LOOP14_DV
+    test_loop14_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -3177,6 +3287,9 @@ int main(void) {
 #ifdef TEST_FORALL_NEGATE
     test_forall_negate();
 #endif
+#ifdef TEST_LOOP14_DV
+    test_loop14_dv();
+#endif
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT) && !defined(TEST_LIFTED_ARITH) && \
     !defined(TEST_SHL) && !defined(TEST_TEST_SUBSET) && !defined(TEST_INTRINSICS) && \
@@ -3213,7 +3326,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV) && !defined(TEST_LOOP19S_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV) && !defined(TEST_LOOP19S_DV) && !defined(TEST_LOOP14_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
