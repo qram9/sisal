@@ -709,13 +709,6 @@ and lower_simple env gr nid sym pin pout pr =
         | _ -> "sisal_array_fill_f32" in
       C.Call (fn, [ C.Cast (C.Basic "int64_t", e1); C.Cast (C.Basic "int64_t", e2); e3 ])
   | DVABUILD ->
-      (* `array_dv T []` -- empty array_dv seed.  Element type_id from the output
-         array_dv[T] type so a later addh of doubles/ints uses the right elem size.
-         alloc_empty sets dims[0]=0 for size 0. *)
-      let out_tyid = ES.fold (fun ((sn, sp), _, ty) acc -> if sn = nid && sp = 0 then ty else acc) gr.eset 0 in
-      let elem_tid = match TM.find_opt out_tyid env.tm with Some (Array_dv e) -> e | _ -> 4 in
-      C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt elem_tid; C.Cast (C.Basic "uint64_t", C.LitInt 0) ])
-  | ABUILD ->
       let get_raw_in_expr p =
         let producers = ES.fold (fun (src, dst, _) acc -> if dst = (nid, p) then Some src else acc) gr.eset None in
         match producers with
@@ -754,6 +747,8 @@ and lower_simple env gr nid sym pin pout pr =
           "([&]() -> sisal_array_t { const %s __arr[] = {%s}; return %s(%s, %d, __arr); })()"
           elem_c_ty elems_formatted fn_name (Ir.C_ast_print.string_of_expr e_lb) (List.length el_exprs) in
         C.Id lambda_str
+  | ABUILD ->
+      failwith (Printf.sprintf "Standard ARRAY_BUILD is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
   | DVAADJUST ->
       (* array_adjust(A, lo, hi) -- window slice A[lo..hi].  Args wired reversed:
          port 0 = hi (e1), port 1 = lo (e2), port 2 = A. *)

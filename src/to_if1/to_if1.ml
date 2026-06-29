@@ -219,10 +219,11 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
       | Ast.Empty -> ((0, 0, 0), in_gr)
       | Ast.Exp fe_lis ->
           let exp_l, in_gr = If1.map_exp in_gr fe_lis [] do_simple_exp in
+          let node_sym = if (inc_typ <> 0) && (If1.is_array_dv inc_typ in_gr) then If1.DVABUILD else If1.ABUILD in
           let (arrnum, arrport, _), in_gr =
             If1.add_node_2
               (`Simple
-                 ( If1.ABUILD,
+                 ( node_sym,
                    Array.make (List.length fe_lis + 1) "",
                    [| "" |],
                    [ If1.No_pragma ] ))
