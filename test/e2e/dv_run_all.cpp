@@ -256,6 +256,9 @@ extern "C" int32_t func_MAIN(int32_t REP, int32_t N, sisal_array_t X);  // locat
 #ifdef TEST_LOOP9_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double CO, double DM22, double DM23, double DM24, double DM25, double DM26, double DM27, double DM28, sisal_array_t PXIN);  // integrate predictors
 #endif
+#ifdef TEST_LOOP10_DV
+extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN);  // difference predictors
+#endif
 #ifdef TEST_LOOP21_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN, sisal_array_t VY);  // matrix*matrix product
 #endif
@@ -2368,6 +2371,40 @@ static void test_loop9_dv(void) {
     if (PXa.data) free(PXa.data); if (r.data) free(r.data);
 }
 #endif
+
+#ifdef TEST_LOOP10_DV
+static void test_loop10_dv(void) {
+    printf("\n=== Group: loop10_dv (difference predictors, vs C reference) ===\n");
+    const int R = 14, n = 2;
+    double CX[28], PX[28];
+    for (int r = 1; r <= R; r++) {
+        for (int c = 1; c <= n; c++) {
+            CX[(r-1)*n + c-1] = 100 + r;
+            PX[(r-1)*n + c-1] = r;
+        }
+    }
+    double ref[10*n];
+    for (int c = 0; c < n; c++) {
+        double px = CX[(5-1)*n + c];
+        ref[0*n + c] = px;
+        for (int k = 6; k <= 14; k++) {
+            px = px - PX[((k-1)-1)*n + c];
+            ref[(k-5)*n + c] = px;
+        }
+    }
+    sisal_array_t CXa = make_double_2d(CX, R, n);
+    sisal_array_t PXa = make_double_2d(PX, R, n);
+    sisal_array_t r = func_MAIN(1, n, CXa, PXa);
+    bool ok = ((int)r.dims[0] == 10) && ((int)r.dims[1] == n);
+    for (int k = 0; ok && k < 10*n; k++) {
+        ok = ok && (fabs(ad(r, k) - ref[k]) < 1e-9);
+    }
+    check("loop10_dv difference-predictors matches C reference", ok);
+    if (CXa.data) free(CXa.data);
+    if (PXa.data) free(PXa.data);
+    if (r.data) free(r.data);
+}
+#endif
 #ifdef TEST_LOOP21_DV
 // Matrix*matrix: out[i,j] = PX[i,j] + sum_{k=1..25} VY[i,k]*CX[j,k], i=1..25, j=1..n.
 //   CX is n x 25, VY is 25 x 25, PX is 25 x n; output is 25 x n (row-major).
@@ -2938,6 +2975,9 @@ int main(void) {
 #ifdef TEST_LOOP9_DV
     test_loop9_dv();
 #endif
+#ifdef TEST_LOOP10_DV
+    test_loop10_dv();
+#endif
 #ifdef TEST_LOOP21_DV
     test_loop21_dv();
 #endif
@@ -3118,7 +3158,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif

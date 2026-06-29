@@ -156,6 +156,7 @@ type node_sym =
   | DV_REPLACE
   | DV_GATHER
   | DV_SCATTER
+  | DV_FLAT_SIZE
   | DV_RESHAPE
   | DV_SLICE (* DV_SLICE(A, starts[], sizes[]) → zero-copy view *)
   | DV_PERMUTE (* DV_PERMUTE(A, dims[]) → reorder strides, zero-copy *)
@@ -3689,6 +3690,7 @@ and node_sym_to_num = function
   | DV_REPLACE -> 80
   | DV_GATHER -> 81
   | DV_SCATTER -> 125
+  | DV_FLAT_SIZE -> 180
   | DV_RESHAPE -> 82
   | DV_SLICE -> 83
   | DV_PERMUTE -> 84
@@ -3831,6 +3833,7 @@ and string_of_node_sym = function
   | DV_REPLACE -> "DV_REPLACE"
   | DV_GATHER -> "DV_GATHER"
   | DV_SCATTER -> "DV_SCATTER"
+  | DV_FLAT_SIZE -> "DV_FLAT_SIZE"
   | DV_RESHAPE -> "DV_RESHAPE"
   | DV_SLICE -> "DV_SLICE"
   | DV_PERMUTE -> "DV_PERMUTE"

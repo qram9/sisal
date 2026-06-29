@@ -4006,7 +4006,7 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
     let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
     let lo = mk_inv [ "ARRAY_LIML" ] [ a_ref ] in
-    let hi = mk_inv [ "ARRAY_LIMH" ] [ a_ref ] in
+    let hi = Ast.Subtract (Ast.Add (lo, mk_inv [ "DV_FLAT_SIZE" ] [ a_ref ]), Ast.Constant (Ast.Int 1)) in
     let forall =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
@@ -4050,7 +4050,7 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
     let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let lo = mk_inv [ "ARRAY_LIML" ] [ b_ref ] in
-    let hi = mk_inv [ "ARRAY_LIMH" ] [ b_ref ] in
+    let hi = Ast.Subtract (Ast.Add (lo, mk_inv [ "DV_FLAT_SIZE" ] [ b_ref ]), Ast.Constant (Ast.Int 1)) in
     let forall =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
@@ -5045,6 +5045,27 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let (n, _, _), in_gr =
             If1.add_node_2
               (`Simple (If1.ASIZE, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let _, in_gr =
+            match arg with
+            | Ast.Arg aa -> (
+                match aa with
+                | Ast.Exp aexps ->
+                    List.fold_right
+                      (fun x (cou, in_gr) ->
+                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
+                        (cou + 1, If1.add_edge l m n cou tt in_gr))
+                      aexps (0, in_gr)
+                | _ -> (0, in_gr))
+          in
+          ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "DV_FLAT_SIZE" ->
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
+          let (n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple (If1.DV_FLAT_SIZE, in_port_00, out_port_00, []))
               in_gr
           in
           let _, in_gr =

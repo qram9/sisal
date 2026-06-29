@@ -607,9 +607,23 @@ and lower_simple env gr nid sym pin pout pr =
       let idx = if sym = DV_LOAD_LINEAR then e2 else C.BinOp (C.Sub, e2, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0)) in
       C.Index (cast_ptr, idx)
   | RANGEGEN -> C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1)
-  | ASIZE | DV_SCATTER -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
+  | ASIZE | DV_SCATTER ->
+      C.Cast (C.Basic "int32_t",
+        C.Cond (
+          C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
+          C.Index (C.Member (e1, "dims"), C.LitInt 0),
+          C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
+        )
+      )
+  | DV_FLAT_SIZE -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
   | ALIML -> C.Cast (C.Basic "int32_t", C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
-  | ALIMH -> C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), C.Cast (C.Basic "int64_t", C.Member (e1, "size"))), C.LitInt 1))
+  | ALIMH ->
+      let leading_sz = C.Cond (
+        C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
+        C.Index (C.Member (e1, "dims"), C.LitInt 0),
+        C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
+      ) in
+      C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), leading_sz), C.LitInt 1))
   | DV_NUM_RANK -> C.Member (e1, "rank")
   | DV_DIMENSION -> C.Call ("sisal_dv_dimension", [ e2; e1 ])
   | DV_CONFORM -> C.Call ("sisal_dv_conform", [ e1; e2 ])
