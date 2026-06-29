@@ -601,13 +601,34 @@ and lower_simple env gr nid sym pin pout pr =
   | GREATER_EQUAL -> C.BinOp (C.Ge, e1, e2)
   | LESSER -> C.BinOp (C.Lt, e1, e2)
   | LESSER_EQUAL -> C.BinOp (C.Le, e1, e2)
-  | AELEMENT | DV_ELEMENT | DV_LOAD_LINEAR ->
+  | AELEMENT ->
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty <> C.Basic "sisal_array_t" then
+        failwith (Printf.sprintf "Standard AELEMENT is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+      else
+        let elem_ty = get_final_ty env gid nid 0 `Out in
+        let cast_ptr = C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data")) in
+        let idx = C.BinOp (C.Sub, e2, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0)) in
+        C.Index (cast_ptr, idx)
+  | DV_ELEMENT | DV_LOAD_LINEAR ->
       let elem_ty = get_final_ty env gid nid 0 `Out in
       let cast_ptr = C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data")) in
       let idx = if sym = DV_LOAD_LINEAR then e2 else C.BinOp (C.Sub, e2, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0)) in
       C.Index (cast_ptr, idx)
   | RANGEGEN -> C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1)
-  | ASIZE | DV_SCATTER ->
+  | ASIZE ->
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty <> C.Basic "sisal_array_t" then
+        failwith (Printf.sprintf "Standard ASIZE is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+      else
+        C.Cast (C.Basic "int32_t",
+          C.Cond (
+            C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
+            C.Index (C.Member (e1, "dims"), C.LitInt 0),
+            C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
+          )
+        )
+  | DV_SCATTER ->
       C.Cast (C.Basic "int32_t",
         C.Cond (
           C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
@@ -616,14 +637,23 @@ and lower_simple env gr nid sym pin pout pr =
         )
       )
   | DV_FLAT_SIZE -> C.Cast (C.Basic "int32_t", C.Member (e1, "size"))
-  | ALIML -> C.Cast (C.Basic "int32_t", C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
+  | ALIML ->
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty <> C.Basic "sisal_array_t" then
+        failwith (Printf.sprintf "Standard ALIML is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+      else
+        C.Cast (C.Basic "int32_t", C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
   | ALIMH ->
-      let leading_sz = C.Cond (
-        C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
-        C.Index (C.Member (e1, "dims"), C.LitInt 0),
-        C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
-      ) in
-      C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), leading_sz), C.LitInt 1))
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty <> C.Basic "sisal_array_t" then
+        failwith (Printf.sprintf "Standard ALIMH is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+      else
+        let leading_sz = C.Cond (
+          C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
+          C.Index (C.Member (e1, "dims"), C.LitInt 0),
+          C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
+        ) in
+        C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), leading_sz), C.LitInt 1))
   | DV_NUM_RANK -> C.Member (e1, "rank")
   | DV_DIMENSION -> C.Call ("sisal_dv_dimension", [ e2; e1 ])
   | DV_CONFORM -> C.Call ("sisal_dv_conform", [ e1; e2 ])
@@ -656,9 +686,14 @@ and lower_simple env gr nid sym pin pout pr =
       let perm_args = List.map (fun p -> get_in_expr p) perm_ports in
       C.Call ("sisal_array_permute",
         e1 :: C.LitInt (List.length perm_args) :: perm_args)
-  | ASETL -> C.Call ("sisal_array_setl", [ e1; C.Cast (C.Basic "int64_t", e2) ])
+  | ASETL ->
+      failwith (Printf.sprintf "Standard ASETL is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
   | AREPLACE ->
-      (* A[lo: v1,..,vk] -- values are at ports 2..k+1, placed at consecutive indices
+      let in_ty = get_final_ty env gid nid 0 `In in
+      if in_ty <> C.Basic "sisal_array_t" then
+        failwith (Printf.sprintf "Standard AREPLACE is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+      else
+        (* A[lo: v1,..,vk] -- values are at ports 2..k+1, placed at consecutive indices
          lo, lo+1, ..., lo+k-1.  Nest single-value replaces (each copies the array),
          so value at port p lands at lo+(p-2).  k=1 is the plain single replace. *)
       let replace_fn p =
