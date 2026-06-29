@@ -108,3 +108,46 @@ inline sisal_array_t sisal_array_adjust(sisal_array_t a, int64_t lo, int64_t hi)
 5. **Slice Memory Block**: Copies the sub-block starting at offset:
    $$\text{start\_offset} = (\text{lo} - \text{lower\_bound}[0]) \times \text{slice} \times esz$$
    for a length of $\text{n\_elems} \times esz$ bytes.
+
+---
+
+## 5. Dynamic Bounds-Expanding Replacements
+
+Sisal supports dynamic bounds-extension via array element replacement `A[idx: val]`:
+* **Append**: If `idx == upper_bound + 1`, `val` is appended (equivalent to `array_addh`).
+* **Prepend**: If `idx == lower_bound - 1`, `val` is prepended (equivalent to `array_addl`).
+* **In-place**: If `idx` is within `[lower_bound, upper_bound]`, the element is replaced in-place.
+
+The C++ runtime implements this dynamically in functions like `sisal_array_replace_f64`:
+
+```cpp
+inline sisal_array_t sisal_array_replace_f64(sisal_array_t a, int64_t idx, double val) {
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * 8);
+        ((double*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((double*)res.data + 1, a.data, a.size * 8);
+        ((double*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * 8);
+        memcpy(res.data, a.data, a.size * 8);
+        ((double*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
+}
+```

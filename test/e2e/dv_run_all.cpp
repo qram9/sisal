@@ -259,6 +259,13 @@ extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, double CO, double DM2
 #ifdef TEST_LOOP10_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN);  // difference predictors
 #endif
+#ifdef TEST_LOOP19S_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  double res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t REP, int32_t N, double STB5IN, sisal_array_t SA, sisal_array_t SB);
+#endif
 #ifdef TEST_LOOP21_DV
 extern "C" sisal_array_t func_MAIN(int32_t REP, int32_t N, sisal_array_t CX, sisal_array_t PXIN, sisal_array_t VY);  // matrix*matrix product
 #endif
@@ -2842,6 +2849,51 @@ static void test_loop20_dv(void) {
 }
 #endif
 
+#ifdef TEST_LOOP19S_DV
+static void test_loop19s_dv(void) {
+    printf("\n=== Group: loop19s_dv (general linear recurrence, vs C reference) ===\n");
+    const int n = 5;
+    double STB5in = 1.5;
+    double SA[5] = {0.5, 1.2, -0.8, 2.0, 1.1};
+    double SB[5] = {1.1, 0.9, 1.3, 0.8, 1.2};
+    
+    // C Reference Implementation
+    double B5[5] = {0};
+    double STB5 = STB5in;
+    double STB5_tmp = STB5;
+    double B5_tmp[5];
+    B5_tmp[0] = SA[0] + STB5_tmp * SB[0];
+    STB5_tmp = B5_tmp[0] - STB5_tmp;
+    for (int k = 2; k <= n; k++) {
+        B5_tmp[k-1] = SA[k-1] + STB5_tmp * SB[k-1];
+        STB5_tmp = B5_tmp[k-1] - STB5_tmp;
+    }
+    for (int i = 0; i < n; i++) B5[i] = B5_tmp[i];
+    STB5 = STB5_tmp;
+    for (int i = 1; i <= n; i++) {
+        int k = n + 1 - i;
+        double B5V = SA[k-1] + STB5 * SB[k-1];
+        B5[k-1] = B5V;
+        STB5 = B5V - STB5;
+    }
+    
+    sisal_array_t sa = make_double_arr(SA, 5);
+    sisal_array_t sb = make_double_arr(SB, 5);
+    struct FUNC_MAIN_results r = func_MAIN(1, n, STB5in, sa, sb);
+    
+    bool ok = ((int)r.res_0.size == n);
+    for (int k = 0; ok && k < n; k++) {
+        ok = ok && near_d(ad(r.res_0, k), B5[k]);
+    }
+    ok = ok && near_d(r.res_1, STB5);
+    check("loop19s_dv general linear recurrence matches C reference", ok);
+    
+    if (sa.data) free(sa.data);
+    if (sb.data) free(sb.data);
+    if (r.res_0.data) free(r.res_0.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -3017,6 +3069,9 @@ int main(void) {
 #ifdef TEST_LOOP20_DV
     test_loop20_dv();
 #endif
+#ifdef TEST_LOOP19S_DV
+    test_loop19s_dv();
+#endif
 #ifdef TEST_LOOP6_DV
     test_loop6_dv();
 #endif
@@ -3158,7 +3213,7 @@ int main(void) {
     !defined(TEST_LOOP9_DV) && !defined(TEST_LOOP21_DV) && !defined(TEST_LOOP2_DV) && \
     !defined(TEST_LOOP2S_DV) && !defined(TEST_LOOP6_DV) && !defined(TEST_LOOP4_DV) && \
     !defined(TEST_MR2_INIT) && !defined(TEST_LOOP16_DV) && !defined(TEST_LOOP13_DV) && \
-    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV)
+    !defined(TEST_LOOP5_DV) && !defined(TEST_LOOP11S_DV) && !defined(TEST_LOOP17_DV) && !defined(TEST_LOOP15_DV) && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV) && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV) && !defined(TEST_LOOP19S_DV)
     printf("ERROR: No TEST_XXX macro defined.  Compile with e.g. -DTEST_ABS_DEMO\n");
     return 1;
 #endif
