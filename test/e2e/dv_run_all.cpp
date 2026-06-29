@@ -337,6 +337,20 @@ extern "C" struct FUNC_MAIN_results func_MAIN (int32_t REP, int32_t N, double S,
                                                sisal_array_t ZP, sisal_array_t ZQ, sisal_array_t ZRIN,
                                                sisal_array_t ZUIN, sisal_array_t ZVIN, sisal_array_t ZZIN);
 #endif
+#ifdef TEST_LOOP8P_DV
+struct FUNC_MAIN_results
+{
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN (int32_t REP, int32_t N,
+                                               double A11, double A12, double A13,
+                                               double A21, double A22, double A23,
+                                               double A31, double A32, double A33,
+                                               double SIG,
+                                               sisal_array_t U1IN, sisal_array_t U2IN, sisal_array_t U3IN);
+#endif
 #ifdef TEST_LOOP14_DV
 struct FUNC_MAIN_results
 {
@@ -648,6 +662,19 @@ make_double_2d_lb (const double *data, int rows, int cols, int lb0, int lb1)
   a.dims[1] = cols;
   a.lower_bound[0] = lb0;
   a.lower_bound[1] = lb1;
+  memcpy (a.data, data, (size_t)n * sizeof (double));
+  return a;
+}static sisal_array_t
+make_double_3d_lb (const double *data, int d0, int d1, int d2, int lb0, int lb1, int lb2)
+{
+  int n = d0 * d1 * d2;
+  sisal_array_t a = sisal_array_alloc_empty (3, 4, (uint64_t)n);
+  a.dims[0] = d0;
+  a.dims[1] = d1;
+  a.dims[2] = d2;
+  a.lower_bound[0] = lb0;
+  a.lower_bound[1] = lb1;
+  a.lower_bound[2] = lb2;
   memcpy (a.data, data, (size_t)n * sizeof (double));
   return a;
 }
@@ -4517,6 +4544,108 @@ test_loop18p_dv (void)
 }
 #endif
 
+#ifdef TEST_LOOP8P_DV
+static void
+test_loop8p_dv (void)
+{
+  printf ("\n=== Group: loop8p_dv (ADI Integration, vs C reference) ===\n");
+  const int n = 5;
+  double A11 = 0.1, A12 = 0.2, A13 = 0.3;
+  double A21 = 0.15, A22 = 0.25, A23 = 0.35;
+  double A31 = 0.05, A32 = 0.15, A33 = 0.25;
+  double SIG = 0.01;
+
+  double U1[4 * 1 * 6], U2[4 * 1 * 6], U3[4 * 1 * 6];
+  for (int i = 0; i < 24; i++)
+    {
+      U1[i] = 1.0 + 0.05 * i;
+      U2[i] = 2.0 + 0.02 * i;
+      U3[i] = 3.0 + 0.01 * i;
+    }
+
+  // C Reference Implementation
+  double V1_ref[4][6], V2_ref[4][6], V3_ref[4][6];
+  for (int kx = 2; kx <= 3; kx++)
+    {
+      for (int ky = 2; ky <= n; ky++)
+        {
+          double DU1 = U1[(kx - 1) * 6 + ky] - U1[(kx - 1) * 6 + ky - 2];
+          double DU2 = U2[(kx - 1) * 6 + ky] - U2[(kx - 1) * 6 + ky - 2];
+          double DU3 = U3[(kx - 1) * 6 + ky] - U3[(kx - 1) * 6 + ky - 2];
+
+          double v1 = U1[(kx - 1) * 6 + ky - 1] + A11 * DU1 + A12 * DU2 + A13 * DU3 +
+                      SIG * (U1[kx * 6 + ky - 1] - 2.0 * U1[(kx - 1) * 6 + ky - 1] + U1[(kx - 2) * 6 + ky - 1]);
+          double v2 = U2[(kx - 1) * 6 + ky - 1] + A21 * DU1 + A22 * DU2 + A23 * DU3 +
+                      SIG * (U2[kx * 6 + ky - 1] - 2.0 * U2[(kx - 1) * 6 + ky - 1] + U2[(kx - 2) * 6 + ky - 1]);
+          double v3 = U3[(kx - 1) * 6 + ky - 1] + A31 * DU1 + A32 * DU2 + A33 * DU3 +
+                      SIG * (U3[kx * 6 + ky - 1] - 2.0 * U3[(kx - 1) * 6 + ky - 1] + U3[(kx - 2) * 6 + ky - 1]);
+
+          V1_ref[kx][ky] = v1;
+          V2_ref[kx][ky] = v2;
+          V3_ref[kx][ky] = v3;
+        }
+    }
+
+  sisal_array_t u1in = make_double_3d_lb (U1, 4, 1, 6, 1, 1, 1);
+  sisal_array_t u2in = make_double_3d_lb (U2, 4, 1, 6, 1, 1, 1);
+  sisal_array_t u3in = make_double_3d_lb (U3, 4, 1, 6, 1, 1, 1);
+
+  struct FUNC_MAIN_results r = func_MAIN (1, n, A11, A12, A13, A21, A22, A23, A31, A32, A33, SIG, u1in, u2in, u3in);
+
+  bool ok = (r.res_0.rank == 3) && (r.res_1.rank == 3) && (r.res_2.rank == 3);
+  for (int kx = 2; ok && kx <= 3; kx++)
+    {
+      for (int p = 1; ok && p <= 2; p++)
+        {
+          for (int ky = 1; ok && ky <= 6; ky++)
+            {
+              int row_offset = kx - 2;
+              int flat_idx;
+              if (p == 1)
+                flat_idx = row_offset * 10 + (ky - 1);
+              else
+                flat_idx = row_offset * 10 + 6 + (ky - 2);
+
+              double sisal_val1 = ((double*)r.res_0.data)[flat_idx];
+              double sisal_val2 = ((double*)r.res_1.data)[flat_idx];
+              double sisal_val3 = ((double*)r.res_2.data)[flat_idx];
+
+              double ref_val1, ref_val2, ref_val3;
+              if (p == 1)
+                {
+                  ref_val1 = U1[(kx - 1) * 6 + ky - 1];
+                  ref_val2 = U2[(kx - 1) * 6 + ky - 1];
+                  ref_val3 = U3[(kx - 1) * 6 + ky - 1];
+                }
+              else
+                {
+                  if (ky >= 2 && ky <= n)
+                    {
+                      ref_val1 = V1_ref[kx][ky];
+                      ref_val2 = V2_ref[kx][ky];
+                      ref_val3 = V3_ref[kx][ky];
+                    }
+                  else
+                    {
+                      continue;
+                    }
+                }
+              ok = ok && near_d (sisal_val1, ref_val1) && near_d (sisal_val2, ref_val2) && near_d (sisal_val3, ref_val3);
+            }
+        }
+    }
+
+  check ("loop8p_dv ADI integration matches C reference", ok);
+
+  if (u1in.data) free (u1in.data);
+  if (u2in.data) free (u2in.data);
+  if (u3in.data) free (u3in.data);
+  if (r.res_0.data) free (r.res_0.data);
+  if (r.res_1.data) free (r.res_1.data);
+  if (r.res_2.data) free (r.res_2.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -4706,6 +4835,9 @@ main (void)
 #ifdef TEST_LOOP18P_DV
   test_loop18p_dv ();
 #endif
+#ifdef TEST_LOOP8P_DV
+  test_loop8p_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -4858,7 +4990,7 @@ main (void)
     && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV)                \
     && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV)                   \
     && !defined(TEST_LOOP19S_DV) && !defined(TEST_LOOP14_DV)                  \
-    && !defined(TEST_LOOP23S_DV) && !defined(TEST_LOOP18P_DV)
+    && !defined(TEST_LOOP23S_DV) && !defined(TEST_LOOP18P_DV) && !defined(TEST_LOOP8P_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

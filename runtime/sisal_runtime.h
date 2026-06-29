@@ -305,6 +305,44 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
     return res;
 }
 
+inline sisal_array_t sisal_array_build_double(int64_t lb, int count, const double* elems) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)count);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    memcpy(res.data, elems, (size_t)count * sizeof(double));
+    return res;
+}
+inline sisal_array_t sisal_array_build_i32(int64_t lb, int count, const int32_t* elems) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, (uint64_t)count);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    memcpy(res.data, elems, (size_t)count * sizeof(int32_t));
+    return res;
+}
+inline sisal_array_t sisal_array_build_arr(int64_t lb, int count, const sisal_array_t* elems) {
+    int32_t elem_rank = elems[0].rank;
+    int32_t type_id = elems[0].type_id;
+    size_t esz = sisal_elem_size(type_id);
+    uint64_t total_size = 0;
+    for (int i = 0; i < count; i++) {
+        total_size += elems[i].size;
+    }
+    sisal_array_t res = sisal_array_alloc_empty(elem_rank + 1, type_id, total_size);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    for (int k = 0; k < elem_rank; k++) {
+        res.dims[k + 1] = elems[0].dims[k];
+        res.lower_bound[k + 1] = elems[0].lower_bound[k];
+    }
+    char* ptr = (char*)res.data;
+    for (int i = 0; i < count; i++) {
+        uint64_t sz = elems[i].size * esz;
+        memcpy(ptr, elems[i].data, sz);
+        ptr += sz;
+    }
+    return res;
+}
+
 /* FILL(lo, hi, val): new array indexed [lo..hi] (size hi-lo+1), every element = val. */
 inline sisal_array_t sisal_array_fill_i32(int64_t lo, int64_t hi, int32_t val) {
     int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;

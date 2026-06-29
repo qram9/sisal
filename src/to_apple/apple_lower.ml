@@ -715,6 +715,45 @@ and lower_simple env gr nid sym pin pout pr =
       let out_tyid = ES.fold (fun ((sn, sp), _, ty) acc -> if sn = nid && sp = 0 then ty else acc) gr.eset 0 in
       let elem_tid = match TM.find_opt out_tyid env.tm with Some (Array_dv e) -> e | _ -> 4 in
       C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt elem_tid; C.Cast (C.Basic "uint64_t", C.LitInt 0) ])
+  | ABUILD ->
+      let get_raw_in_expr p =
+        let producers = ES.fold (fun (src, dst, _) acc -> if dst = (nid, p) then Some src else acc) gr.eset None in
+        match producers with
+        | Some (sn, sp) -> get_expr env gid sn sp `Out
+        | None -> C.LitInt 0 in
+      let out_tyid = ES.fold (fun ((sn, sp), _, ty) acc -> if sn = nid && sp = 0 then ty else acc) gr.eset 0 in
+      let elem_tid = match TM.find_opt out_tyid env.tm with
+        | Some (Array_dv e) | Some (Array_ty e) -> e
+        | _ -> 4 in
+      let in_ports = ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid then IntSet.add dp acc else acc) gr.eset IntSet.empty |> IntSet.elements in
+      let el_ports = List.filter (fun p -> p > 0) in_ports in
+      let el_exprs = List.map get_raw_in_expr el_ports in
+      if el_exprs = [] then
+        C.Call ("sisal_array_alloc_empty", [ C.LitInt 1; C.LitInt elem_tid; C.Cast (C.Basic "uint64_t", C.LitInt 0) ])
+      else
+        let is_arr_elem =
+          let (sn, sp) = match ES.fold (fun (src, dst, _) acc -> if dst = (nid, List.hd el_ports) then Some src else acc) gr.eset None with
+            | Some (sn, sp) -> (sn, sp)
+            | None -> (0, 0) in
+          let prod_ty = get_final_ty env gid sn sp `Out in
+          match prod_ty with
+          | C.Basic "sisal_array_t" -> true
+          | _ -> false in
+        let elem_c_ty = if is_arr_elem then "sisal_array_t" else match elem_tid with
+          | 6 -> "int32_t"
+          | 4 -> "double"
+          | _ -> "sisal_array_t" in
+        let fn_name = if is_arr_elem then "sisal_array_build_arr" else match elem_tid with
+          | 6 -> "sisal_array_build_i32"
+          | 4 -> "sisal_array_build_double"
+          | _ -> "sisal_array_build_arr" in
+        let e_lb = get_raw_in_expr 0 in
+        let elem_strs = List.map Ir.C_ast_print.string_of_expr el_exprs in
+        let elems_formatted = String.concat ", " elem_strs in
+        let lambda_str = Printf.sprintf
+          "([&]() -> sisal_array_t { const %s __arr[] = {%s}; return %s(%s, %d, __arr); })()"
+          elem_c_ty elems_formatted fn_name (Ir.C_ast_print.string_of_expr e_lb) (List.length el_exprs) in
+        C.Id lambda_str
   | DVAADJUST ->
       (* array_adjust(A, lo, hi) -- window slice A[lo..hi].  Args wired reversed:
          port 0 = hi (e1), port 1 = lo (e2), port 2 = A. *)
