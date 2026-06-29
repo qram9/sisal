@@ -780,8 +780,17 @@ inline sisal_array_t sisal_dv_replace_slice(sisal_array_t a, int32_t idx, sisal_
     uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
     res.data = malloc(a.size * slot);
     memcpy(res.data, a.data, a.size * slot);
-    memcpy((char*)res.data + (uint64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size * esz,
-           slice.data, slice_size * esz);
+    
+    int64_t row_off = (int64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size;
+    int64_t col_off = slice.lower_bound[0] - a.lower_bound[1];
+    int64_t total_off = row_off + col_off;
+    
+    uint64_t copy_size = slice.size;
+    if (col_off + (int64_t)copy_size > (int64_t)slice_size) {
+        copy_size = slice_size - col_off;
+    }
+    
+    memcpy((char*)res.data + total_off * esz, slice.data, copy_size * esz);
     return res;
 }
 
