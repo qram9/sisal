@@ -1,28 +1,3 @@
-(*TODO:
-
-  1: Dot-files must be more descriptive.
-  2: Need to provide a debug-msging mechanism
-   for each pass- like CSE for instance.
-  3: Each visitor could have a debug flag
-   that it passes to its callees - not sure
-   how we may have this. Perhaps a Graph entry.
-  4: BUNCH OF CASES FAIL DUE TO TYPE MISMATCH,
-   MAYBE SOMETHING TRIVIAL. NEED TO ALSO SEE IF
-   THE NESTED FUNCTIONS CAPTURE ANY VARS FROM
-   OUTSIDE AND NEED TO SEE HOW THAT WOULD BE
-   SUPPORTED.. MIGHT BE SOMETHING TO CONFIRM
-   WITH THE STANDARD.
-  5: TODO -> SEEMS LIKE WHEN WE HAVE A DECL WITH
-   MULTIPLE TYPES, ALL TYPES SEEM TO TAKE THE FIRST
-   TYPE ALL THE TIME.
-*)
-
-(* TEST about multiple definition to same variable in a scope,
-   add scope numbers, level etc. *)
-(* Can we add array dope-vectors *)
-(* TO_TEST: inputs to select do not seem to get from outer scope *)
-(* TODO: forall do not seem to pull inputs from outside *)
-(* many boundary boxes are empty *)
 (* TODO (15july2019): Most compiler warnings that remain in this file are
    in the tagcase/If1.union lowering. *)
 (** Ideas here mostly come from the single paper: "IF1, AN INTERMEDIATE FORM FOR
@@ -182,11 +157,11 @@ let carry_needs_merge_in body_sg =
 (* Variable has a name and a type
    and has an associated expression **)
 
-(*A LET EXP MAY CREATE A LOCAL SCOPE
-   IN A FOLLOWING IN EXP, SO CURRENT
-   SCOPE WOULD GET PUSHED IN.
-   AFTER WE ARE OUT OF THE SCOPE,
-   WE WILL NOT SEE THE ELEMENTS.**)
+(* A let exp may create a local scope
+   in a following in exp, so current
+   scope would get pushed in.
+   after we are out of the scope,
+   we will not see the elements.**)
 
 (* We have three numbers returned from
     each recursive call:-
@@ -1139,17 +1114,6 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
       let ((_, _, _), in_gr), dv_infos1 = do_in_exp ~level in_gr ie1 in
       let ((x, y, z), in_gr), dv_infos2 = do_in_exp ~level in_gr ie2 in
       (((x, y, z), in_gr), dv_infos1 @ dv_infos2)
-  (* FLAT FIRST CUT (kept for reference) -- mirrored dot, lowering both axes into
-     ONE generator graph as siblings; that lost the cartesian structure (it looked
-     identical to a dot generator):
-  | Ast.Cross (ie1, ie2) ->
-      let ((_, _, _), in_gr), dv_infos1 = do_in_exp in_gr ie1 in
-      let ((x, y, z), in_gr), dv_infos2 = do_in_exp in_gr ie2 in
-      (((x, y, z), in_gr), dv_infos1 @ dv_infos2)
-     RECURSIVE GENERATOR: lower the OUTER axis (ie1) into THIS generator, then
-     build the inner axis (ie2) into a NESTED sub-GENERATOR compound and relay its
-     outputs up. So the structure is GENERATOR { RANGEGEN(i), GENERATOR { ... } },
-     which carries the cross/cartesian nesting (vs dot's flat siblings). *)
   | Ast.Cross (ie1, ie2) ->
       (* 2-AXIS-ONLY version (kept for reference) -- nested the AST's ie1/ie2
          directly, which mis-nests a left-associative N-axis cross
@@ -5230,15 +5194,16 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
-      | "INNERPRODUCT" ->
+      | "INNERPRODUCT" | "MATMUL" as up_fn ->
+          let fn_lower = String.lowercase_ascii up_fn in
           let args =
             match arg with
             | Ast.Arg (Ast.Exp exps) -> exps
-            | _ -> raise (If1.Sem_error "innerproduct() requires two arguments")
+            | _ -> raise (If1.Sem_error (fn_lower ^ "() requires two arguments"))
           in
           if List.length args <> 2 then
             raise
-              (If1.Sem_error "innerproduct() requires exactly two arguments");
+              (If1.Sem_error (fn_lower ^ "() requires exactly two arguments"));
           let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
           let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
           let at_is_dv =
@@ -5278,7 +5243,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               | _ ->
                   raise
                     (If1.Sem_error
-                       "innerproduct() requires mat or vec arguments")
+                       (fn_lower ^ "() requires mat or vec arguments"))
             in
             let (rn, rp, _), in_gr =
               If1.add_node_2
@@ -9416,7 +9381,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             If1.add_edge fn_ fp rn 3 ft in_gr
       in
       ((rn, rp, at), in_gr)
-  | Innerproduct_exp (a, b) ->
+  | Innerproduct_exp (a, b) | Matmul_exp (a, b) ->
       (* INNERPRODUCT_NODE(A, B): dot product for rank-1, matmul for rank-2 *)
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in

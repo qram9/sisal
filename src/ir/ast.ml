@@ -146,6 +146,8 @@ and simple_exp =
   (* Linear algebra *)
   | Innerproduct_exp of
       simple_exp * simple_exp (* INNERPRODUCT(A,B): dot if 1D, matmul if 2D *)
+  | Matmul_exp of
+      simple_exp * simple_exp (* MATMUL(A,B): dot if 1D, matmul if 2D *)
   | Pos of (int * int) * simple_exp
 
 and exp = Exp of simple_exp list | Empty
@@ -1383,6 +1385,8 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
       ^ str_simple_exp hi ^ ", " ^ str_simple_exp fill ^ ")"
   | Innerproduct_exp (a, b) ->
       " INNERPRODUCT(" ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
+  | Matmul_exp (a, b) ->
+      " MATMUL(" ^ str_simple_exp a ^ ", " ^ str_simple_exp b ^ ")"
   | Pos (_, e) -> str_simple_exp ~offset ~preceed_space e
   | Array_ref (se, e) ->
       let first_part = str_simple_exp ~preceed_space se in

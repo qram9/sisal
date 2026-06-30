@@ -1,0 +1,7 @@
+define dv_matmul, mm_f32, mm_i32
+
+type af = array_dv[real]
+type ai = array_dv[integer]
+
+function mm_f32(a, b : af returns af) matmul(a, b)  end function
+function mm_i32(a, b : ai returns ai) matmul(a, b)  end function

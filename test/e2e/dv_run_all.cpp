@@ -143,6 +143,12 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t A, sisal_array_t B,
                                     int32_t N); // matmul_dv
 #endif
 
+#ifdef TEST_MATMUL_OP_DV
+extern "C" sisal_array_t func_MM_F32 (sisal_array_t A, sisal_array_t B);
+extern "C" sisal_array_t func_MM_I32 (sisal_array_t A, sisal_array_t B);
+#endif
+
+
 #ifdef TEST_FOR_INITIAL_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t N); // for_initial_dv: array_dv loop-carry
@@ -1917,6 +1923,35 @@ test_innerproduct_dv (void)
     free (Rmm.data);
 }
 #endif
+
+#ifdef TEST_MATMUL_OP_DV
+static void
+test_matmul_op_dv (void)
+{
+  printf ("\n=== Group: matmul_op_dv (matmul keyword) ===\n");
+
+  // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
+  float ma[] = { 1, 2, 3, 4 };
+  float mb[] = { 5, 6, 7, 8 };
+  sisal_array_t A2 = make_float_2d (ma, 2, 2);
+  sisal_array_t B2 = make_float_2d (mb, 2, 2);
+  sisal_array_t C2 = func_MM_F32 (A2, B2);
+  check ("matmul_op rank", C2.rank == 2);
+  check ("matmul_op dims[0]", (int)C2.dims[0] == 2);
+  check ("matmul_op dims[1]", (int)C2.dims[1] == 2);
+  check ("matmul_op[0,0]=19", af (C2, 0) == 19.0f);
+  check ("matmul_op[0,1]=22", af (C2, 1) == 22.0f);
+  check ("matmul_op[1,0]=43", af (C2, 2) == 43.0f);
+  check ("matmul_op[1,1]=50", af (C2, 3) == 50.0f);
+  if (A2.data)
+    free (A2.data);
+  if (B2.data)
+    free (B2.data);
+  if (C2.data)
+    free (C2.data);
+}
+#endif
+
 
 #ifdef TEST_MATMUL_DV
 // Explicit triple-nested forall matmul over array_dv[integer] (matmul_dv.sis):
@@ -5029,6 +5064,10 @@ main (void)
 #ifdef TEST_MATMUL_DV
   test_matmul_dv ();
 #endif
+#ifdef TEST_MATMUL_OP_DV
+  test_matmul_op_dv ();
+#endif
+
 #ifdef TEST_FOR_INITIAL_DV
   test_for_initial_dv ();
 #endif
@@ -5383,7 +5422,7 @@ main (void)
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
-    && !defined(TEST_IP_DV)
+    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
