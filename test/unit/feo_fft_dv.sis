@@ -16,7 +16,7 @@ define main
 
 % type double = double_real;
 type OneDim = array_dv[double];
-type TwoDim = array[OneDim];
+type TwoDim = array_dv[double];
 
 global log10( x: double returns double )
 global cos  ( x: double returns double )
@@ -87,9 +87,9 @@ function W( n: integer
   while m < n repeat
     m                              := old m * 4;
     w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
-  returns array of w1re  array of w1im
-          array of w2re  array of w2im
-          array of w3re  array of w3im
+  returns array_dv of w1re  array_dv of w1im
+          array_dv of w2re  array_dv of w2im
+          array_dv of w3re  array_dv of w3im
   end for
 end function
 
