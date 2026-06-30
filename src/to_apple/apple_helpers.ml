@@ -146,7 +146,13 @@ let c_type_of_if1_ty tm ty =
         | 6 -> C.Basic "int32_t" | 7 -> C.Basic "int64_t" | 8 -> C.Basic "float"
         | 12 -> C.Basic "uint32_t" | _ -> C.Basic "sisal_array_t"
       ) else C.Basic (Printf.sprintf "struct struct_rec_%d" id)
-  | _ -> C.Basic "sisal_array_t"
+  (* Error-flow ports carry an error sentinel, not a value; the carried datum is a
+     type number, so an int holds it fine. *)
+  | Typed_error _ | ERROR _ -> C.Basic "int32_t"
+  | _ ->
+      failwith
+        ("c_type_of_if1_ty: don't know how to map this IF1 type to a C type: "
+         ^ string_of_if1_ty ty)
 
 (** [get_compound_type pragma_list] identifies the specific compound node variant. *)
 let get_compound_type pr =

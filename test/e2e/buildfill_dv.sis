@@ -1,0 +1,16 @@
+% Minimal: empty array_dv build seed (array OneD []) + array_fill in a
+% for-initial loop + keep-last on an array-valued carry.  Exercises
+% DV_ARRAY_BUILD (empty) + DV_ARRAY_FILL + FINALVALUE-of-array.
+define main
+type OneD = array_dv[double];
+
+function main( n: integer returns OneD )
+  for initial
+      i := 0;
+      X := array OneD [];
+  while i < n repeat
+      i := old i + 1;
+      X := array_fill( 1, i, 2.0d0 );
+  returns value of X
+  end for
+end function

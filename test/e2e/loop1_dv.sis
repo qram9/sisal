@@ -5,7 +5,7 @@
 Define  Main
 
 %type double = double_real;
-type OneD   = array[double];
+type OneD   = array_dv[double];
 type OneDV  = array_dv[double];
 
 function Loop1( n:integer; Q,R,T:double; Y,Z:OneD returns OneDV )

@@ -509,9 +509,13 @@ function_nest:
   array_generator :
     ARRAY type_name LBRACK RBRACK
       { Array_generator_named $2 }
+|    ARRAY_DV type_name LBRACK RBRACK
+      { Array_generator_named $2 }
 |    ARRAY LBRACK simple_expr_pair RBRACK
     { Array_generator_unnamed $3 }
 |    ARRAY type_name LBRACK simple_expr_pair RBRACK
+    { Array_generator_named_addr ($2,$4) }
+|    ARRAY_DV type_name LBRACK simple_expr_pair RBRACK
     { Array_generator_named_addr ($2,$4) }
 |    primary LBRACK simple_expr_pair_list opt_semicolon RBRACK
     { Array_replace ($1, List.rev $3) }

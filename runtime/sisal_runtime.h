@@ -147,32 +147,284 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
 }
 
 inline sisal_array_t sisal_array_replace_i32(sisal_array_t a, int64_t idx, int32_t val) {
-    sisal_array_t res = a;
-    res.data = malloc(a.size * 8);
-    memcpy(res.data, a.data, a.size * 8);
-    ((int32_t*)res.data)[idx - a.lower_bound[0]] = val;
-    return res;
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * 4);
+        ((int32_t*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((int32_t*)res.data + 1, a.data, a.size * 4);
+        ((int32_t*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * 8);
+        memcpy(res.data, a.data, a.size * 8);
+        ((int32_t*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
 }
 inline sisal_array_t sisal_array_replace_f32(sisal_array_t a, int64_t idx, float val) {
-    sisal_array_t res = a;
-    res.data = malloc(a.size * 8);
-    memcpy(res.data, a.data, a.size * 8);
-    ((float*)res.data)[idx - a.lower_bound[0]] = val;
-    return res;
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * 4);
+        ((float*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((float*)res.data + 1, a.data, a.size * 4);
+        ((float*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * 8);
+        memcpy(res.data, a.data, a.size * 8);
+        ((float*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
 }
 inline sisal_array_t sisal_array_replace_f64(sisal_array_t a, int64_t idx, double val) {
-    sisal_array_t res = a;
-    res.data = malloc(a.size * 8);
-    memcpy(res.data, a.data, a.size * 8);
-    ((double*)res.data)[idx - a.lower_bound[0]] = val;
-    return res;
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * 8);
+        ((double*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((double*)res.data + 1, a.data, a.size * 8);
+        ((double*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * 8);
+        memcpy(res.data, a.data, a.size * 8);
+        ((double*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
 }
 inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal_array_t val) {
-    sisal_array_t res = a;
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
     size_t esz = sizeof(sisal_array_t);
-    res.data = malloc(a.size * esz);
+
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * esz);
+        ((sisal_array_t*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((char*)res.data + esz, a.data, a.size * esz);
+        ((sisal_array_t*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * esz);
+        memcpy(res.data, a.data, a.size * esz);
+        ((sisal_array_t*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
+}
+
+
+/* ADDH: append `val` at the high end -> new array of size+1 (lower_bound kept). */
+inline sisal_array_t sisal_array_addh_i32(sisal_array_t a, int32_t val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((int32_t*)res.data)[a.size] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_addh_f32(sisal_array_t a, float val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((float*)res.data)[a.size] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_addh_f64(sisal_array_t a, double val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * 8);
+    ((double*)res.data)[a.size] = val;
+    return res;
+}
+/* array_dv addh where the appended value is itself an array: rank-polymorphic
+   splice along axis 0.  B is a SLAB (rank == a.rank-1, B == a's trailing dims) -> the
+   leading dim grows by 1; or a STACK (rank == a.rank, trailing dims agree) -> leading
+   dim grows by b.dims[0].  Trailing dims are inherited from A; data is A's flat buffer
+   with B's flat buffer appended.  (Numpy `concatenate`-along-axis-0 semantics.) */
+inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
+    int64_t b_elems = (int64_t)b.size;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + (uint64_t)b_elems);
+    res.lower_bound[0] = a.lower_bound[0];
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = a.dims[0] + add_rows;
     memcpy(res.data, a.data, a.size * esz);
-    ((sisal_array_t*)res.data)[idx - a.lower_bound[0]] = val;
+    memcpy((char*)res.data + (uint64_t)a.size * esz, b.data, (uint64_t)b_elems * esz);
+    return res;
+}
+
+inline sisal_array_t sisal_array_build_double(int64_t lb, int count, const double* elems) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)count);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    memcpy(res.data, elems, (size_t)count * sizeof(double));
+    return res;
+}
+inline sisal_array_t sisal_array_build_i32(int64_t lb, int count, const int32_t* elems) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, (uint64_t)count);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    memcpy(res.data, elems, (size_t)count * sizeof(int32_t));
+    return res;
+}
+inline sisal_array_t sisal_array_build_arr(int64_t lb, int count, const sisal_array_t* elems) {
+    int32_t elem_rank = elems[0].rank;
+    int32_t type_id = elems[0].type_id;
+    size_t esz = sisal_elem_size(type_id);
+    uint64_t total_size = 0;
+    for (int i = 0; i < count; i++) {
+        total_size += elems[i].size;
+    }
+    sisal_array_t res = sisal_array_alloc_empty(elem_rank + 1, type_id, total_size);
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    for (int k = 0; k < elem_rank; k++) {
+        res.dims[k + 1] = elems[0].dims[k];
+        res.lower_bound[k + 1] = elems[0].lower_bound[k];
+    }
+    char* ptr = (char*)res.data;
+    for (int i = 0; i < count; i++) {
+        uint64_t sz = elems[i].size * esz;
+        memcpy(ptr, elems[i].data, sz);
+        ptr += sz;
+    }
+    return res;
+}
+
+/* FILL(lo, hi, val): new array indexed [lo..hi] (size hi-lo+1), every element = val. */
+inline sisal_array_t sisal_array_fill_i32(int64_t lo, int64_t hi, int32_t val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((int32_t*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_f32(int64_t lo, int64_t hi, float val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 8, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((float*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_f64(int64_t lo, int64_t hi, double val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((double*)res.data)[k] = val;
+    return res;
+}
+inline sisal_array_t sisal_array_fill_arr(int64_t lo, int64_t hi, sisal_array_t val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, val.type_id, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((sisal_array_t*)res.data)[k] = val;
+    return res;
+}
+
+/* ADDL: prepend `val` at the low end -> size+1, val at index 0, A shifted up,
+   lower_bound-1.  Mirror of ADDH (8-byte slot convention). */
+inline sisal_array_t sisal_array_addl_i32(sisal_array_t a, int32_t val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((int32_t*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_f32(sisal_array_t a, float val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((float*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_f64(sisal_array_t a, double val) {
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + 1);
+    res.lower_bound[0] = a.lower_bound[0] - 1;
+    ((double*)res.data)[0] = val;
+    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    return res;
+}
+inline sisal_array_t sisal_array_addl_arr(sisal_array_t a, sisal_array_t b) {
+    /* prepend B (a slab/stack) at the low end -- rank-poly mirror of addh_arr */
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
+    int64_t b_elems = (int64_t)b.size;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, a.size + (uint64_t)b_elems);
+    res.lower_bound[0] = a.lower_bound[0] - add_rows;
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = a.dims[0] + add_rows;
+    memcpy(res.data, b.data, (uint64_t)b_elems * esz);
+    memcpy((char*)res.data + (uint64_t)b_elems * esz, a.data, a.size * esz);
+    return res;
+}
+
+/* ADJUST: re-bounded subrange A[lo..hi] along the LEADING axis -- a window of
+   (hi-lo+1) slabs.  Rank-aware: for rank-1 a slab is one element; for rank-k it is a
+   trailing (k-1)-D slab (slice = product of trailing dims).  Result dims[0]=hi-lo+1,
+   trailing dims inherited, lower_bound[0]=lo. */
+inline sisal_array_t sisal_array_adjust(sisal_array_t a, int64_t lo, int64_t hi) {
+    size_t esz = sisal_elem_size(a.type_id);
+    int64_t rows = (hi >= lo) ? (hi - lo + 1) : 0;
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t slice = (dim0 > 0) ? ((int64_t)a.size / dim0) : 1;
+    int64_t n_elems = rows * slice;
+    sisal_array_t res = sisal_array_alloc_empty(a.rank, a.type_id, (uint64_t)n_elems);
+    res.lower_bound[0] = lo;
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = rows;
+    memcpy(res.data, (char*)a.data + (uint64_t)(lo - a.lower_bound[0]) * slice * esz, (uint64_t)n_elems * esz);
     return res;
 }
 
@@ -566,8 +818,17 @@ inline sisal_array_t sisal_dv_replace_slice(sisal_array_t a, int32_t idx, sisal_
     uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
     res.data = malloc(a.size * slot);
     memcpy(res.data, a.data, a.size * slot);
-    memcpy((char*)res.data + (uint64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size * esz,
-           slice.data, slice_size * esz);
+    
+    int64_t row_off = (int64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size;
+    int64_t col_off = slice.lower_bound[0] - a.lower_bound[1];
+    int64_t total_off = row_off + col_off;
+    
+    uint64_t copy_size = slice.size;
+    if (col_off + (int64_t)copy_size > (int64_t)slice_size) {
+        copy_size = slice_size - col_off;
+    }
+    
+    memcpy((char*)res.data + total_off * esz, slice.data, copy_size * esz);
     return res;
 }
 
@@ -606,5 +867,26 @@ static inline int32_t func__STRUNC__F__I(float x)  { return (int32_t)x; }
 static inline int64_t func__STRUNC__D__L(double x) { return (int64_t)x; }
 static inline int32_t func__SMOD__II__I(int32_t a, int32_t b) { return a % b; }
 static inline int64_t func__SMOD__LL__L(int64_t a, int64_t b) { return a % b; }
+
+/* integer abs */
+static inline int32_t func__SABS__I__I(int32_t x) { return x < 0 ? -x : x; }
+static inline int64_t func__SABS__L__L(int64_t x) { return x < 0 ? -x : x; }
+
+/* max / min (a,b) -> larger/smaller */
+static inline int32_t func__SMAX__II__I(int32_t a, int32_t b) { return a > b ? a : b; }
+static inline int32_t func__SMIN__II__I(int32_t a, int32_t b) { return a < b ? a : b; }
+static inline float   func__SMAX__FF__F(float a, float b)     { return a > b ? a : b; }
+static inline float   func__SMIN__FF__F(float a, float b)     { return a < b ? a : b; }
+static inline double  func__SMAX__DD__D(double a, double b)   { return a > b ? a : b; }
+static inline double  func__SMIN__DD__D(double a, double b)   { return a < b ? a : b; }
+
+/* exp(base, n): two-arg form is POWER base^n (Sisal `exp` = exponentiation). */
+static inline float   func__SEXP__FI__F(float base, int32_t n)  { return powf(base, (float)n); }
+static inline double  func__SEXP__DI__D(double base, int32_t n) { return pow(base, (double)n); }
+
+/* etothe(x) = e^x (C exp).  One-arg Sisal `exp` is routed to ETOTHE by to_if1, so
+   this is what one-arg exponential lowers to. */
+static inline float   func__SETOTHE__F__F(float x)  { return expf(x); }
+static inline double  func__SETOTHE__D__D(double x) { return exp(x); }
 
 #endif

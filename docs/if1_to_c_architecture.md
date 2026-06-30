@@ -157,3 +157,58 @@ for (int i = 0; i < N; i++) {
 1.  **Initialize `src/c_ast/`**: Create the OCaml modules (`c_ast.ml`, `c_ast_print.ml`) for the ADT defined above.
 2.  **The Lowering Pass (`src/to_c/`)**: Create a visitor that walks the IF1 graph and instantiates `c_ast` nodes.
 3.  **Memory Model Definition**: Define how Sisal Arrays (and their dope vectors) map to C `structs` to ensure zero-copy views and efficient SIMD gathers.
+
+---
+
+## 5. Array Allocation & Copy Elimination — N-queens case study
+
+Question examined: can a program (here, 8-queens) be written by fully
+anticipating array extents and pre-allocating, under value semantics (no
+in-place mutation; optimize only via reuse-after-last-use or partial update)?
+
+Conclusion — split by which extents are knowable:
+
+- **Per-board state is fully static.** `queen_vec` is a fixed `n`-slot dope
+  vector; the per-column candidate array and validity mask are each exactly
+  `n`; `in_check` reduces to a scalar. All compile-time-known.
+- **Output extent and branching factor are not.** `COMPRESS` (valid-children
+  count) and the `catenate`d solution set (the search's *answer*, 92 for n=8)
+  are data-dependent. They can only be made static by worst-case padding
+  (impractically loose) or by not materializing them.
+
+The clean fully-static form is a **count/stream recursion** over the fixed
+`queen_vec`: fold the branching into a scalar `value of sum`, drop `COMPRESS`
+and `catenate`. The only array touched is the `n`-wide vector, and
+`queens[col : row]` is a **single-element partial update** (prefix `1..col-1`
+read-only, suffix still sentinel).
+
+```
+function Count(n, col : integer; queens : queen_vec returns integer)
+  if col > n then 1
+  else
+    for row in 1, n
+    returns value of sum
+      if in_check(row, col, queens) then 0
+      else Count(n, col+1, queens[col : row])
+      end if
+    end for
+  end if
+end function
+```
+
+**Storage bound under the optimization.** Each node's `n` candidates share one
+scratch buffer (the parent has fanout `n`, but each child is consumed then
+dead); DFS depth ≤ `n`. So the whole search needs an **`n × n` scratch** — one
+`n`-vector per recursion level — independent of tree size. Pre-allocatable up
+front, indexed by depth. This turns "a fresh copy at every tree node" into
+`O(n²)` total live storage.
+
+**Compiler gap.** This requires the (currently unbuilt) copy-elimination work —
+always-copy is the present behavior, `ref_count` is inert. Specifically:
+1. **fanout / last-use–gated in-place reuse** along the DFS spine (reuse the
+   parent buffer when its refcount drops to 1), and
+2. **partial-write recognition** of `a[i : v]` (single-element replace whose
+   producer prefix is read-only) so it does not copy the untouched span.
+
+The one extent that stays irreducibly dynamic is "return every solution board
+as one array" — that is the search's output, unknowable a priori.

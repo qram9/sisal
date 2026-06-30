@@ -1,6 +1,6 @@
 Basic compilation tests - all should succeed with no output.
 
-  $ sisal unit/fact.sis
+  $ sisal e2e/fact.sis
   $ sisal unit/basic.sis
   $ sisal unit/hello.sis
   $ sisal unit/sieve.sis
@@ -12,9 +12,9 @@ Array of function types:
   $ sisal unit/funcarray2.sis
 
 Let bindings:
-  $ sisal unit/let_multi_bind.sis
-  $ sisal unit/let_seq_bind.sis
-  $ sisal unit/let_nested_seq.sis
+  $ sisal e2e/let_multi_bind.sis
+  $ sisal e2e/let_seq_bind.sis
+  $ sisal e2e/let_nested_seq.sis
 
 Let rec - self recursion:
   $ sisal unit/letrec.sis
@@ -85,8 +85,28 @@ Records and unions:
   $ sisal unit/union.sis
 
 DV array variants - array_dv OF with correct array_dv return types:
-  $ sisal unit/loop1_dv.sis
-  $ sisal unit/tst_loop1_dv.sis
+  $ sisal e2e/loop1_dv.sis
+  $ sisal e2e/loop3_dv.sis
+  $ sisal e2e/loop7_dv.sis
+  $ sisal e2e/loop12_dv.sis
+  $ sisal e2e/loop24_dv.sis
+  $ sisal e2e/loop9_dv.sis
+  $ sisal e2e/loop21_dv.sis
+  $ sisal e2e/loop2_dv.sis
+  $ sisal e2e/loop2s_dv.sis
+  $ sisal e2e/loop6p_dv.sis
+  $ sisal e2e/loop4p_dv.sis
+  $ sisal e2e/mr2_init_dv.sis
+  $ sisal e2e/loop16p_dv.sis
+  $ sisal e2e/loop13_dv.sis
+  $ sisal e2e/loop5_dv.sis
+  $ sisal e2e/loop11s_dv.sis
+  $ sisal e2e/loop17_dv.sis
+  $ sisal e2e/loop15_dv.sis
+  $ sisal e2e/loop22_dv.sis
+  $ sisal e2e/buildfill_dv.sis
+  $ sisal e2e/loop20_dv.sis
+  $ sisal e2e/tst_loop1_dv.sis
 
 Sorting algorithms:
   $ sisal unit/bubble.sis
@@ -194,7 +214,7 @@ Streams:
 
 Numeric / math:
   $ sisal unit/sqrt.sis
-  $ sisal unit/pi.sis
+  $ sisal e2e/pi.sis
   $ sisal unit/quad.sis
   $ sisal unit/quadrature.sis
   $ sisal unit/simpson.sis
@@ -231,7 +251,7 @@ Scientific benchmarks:
   $ sisal unit/ada.sis
   $ sisal unit/AngMom.sis
   $ sisal unit/anneal.sis
-  $ sisal unit/area.sis
+  $ sisal e2e/area.sis
   $ sisal unit/arsieve.sis
   $ sisal unit/badfft.sis
   $ sisal unit/bintree.sis
@@ -258,7 +278,7 @@ Scientific benchmarks:
   $ sisal unit/feo.fft.sis
   $ sisal unit/fft.sis
   $ sisal unit/format.sis
-  $ sisal unit/forty2.sis
+  $ sisal e2e/forty2.sis
   $ sisal unit/Freq.sis
   $ sisal unit/fromC.sis
   $ sisal unit/Gauss.sis
@@ -306,7 +326,7 @@ Scientific benchmarks:
   $ sisal unit/memberii.sis
   $ sisal unit/moldyn.sis
   $ sisal unit/monolith.sis
-  $ sisal unit/multidecl.sis
+  $ sisal e2e/multidecl.sis
   $ sisal unit/nanu.sis
   $ sisal unit/nested.sis
   $ sisal unit/newfem.sis
@@ -361,7 +381,7 @@ Scientific benchmarks:
   $ sisal unit/test_bin.sis
   $ sisal unit/test_bin2.sis
   $ sisal unit/test.sis
-  $ sisal unit/three.sis
+  $ sisal e2e/three.sis
   $ sisal unit/trace.sis
   $ sisal unit/transforms.sis
   $ sisal unit/triple_tuple.sis
@@ -393,8 +413,8 @@ Scientific benchmarks:
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis
-  $ sisal unit/if_one.sis
-  $ sisal unit/if_two.sis
+  $ sisal e2e/if_one.sis
+  $ sisal e2e/if_two.sis
   $ sisal unit/quadtree.sis
   $ sisal unit/quadtypes.sis
   $ sisal unit/complex_types.sis

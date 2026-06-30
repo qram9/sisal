@@ -144,7 +144,6 @@ let str_type_trace () =
 let in_port_1 = [| "0"; "" |]
 let in_port_2 = [| "0"; "1" |]
 let out_port_1 = [| "1"; "" |]
-
 let in_port_0 = [||]
 let out_port_0 = [||]
 
@@ -163,13 +162,16 @@ let carry_needs_merge_in body_sg =
   let ins_map =
     match If1.NM.find_opt 0 body_sg.If1.nmap with
     | Some (If1.Boundary (ins, _, _, _)) ->
-        List.fold_left (fun m (_, _, n, dp) -> If1.SM.add n dp m) If1.SM.empty ins
+        List.fold_left
+          (fun m (_, _, n, dp) -> If1.SM.add n dp m)
+          If1.SM.empty ins
     | _ -> If1.SM.empty
   in
   fun name e ->
     if e.If1.val_def = 0 then
-      (match If1.SM.find_opt name ins_map with
-       | Some bp -> e.If1.def_port <> bp | None -> false)
+      match If1.SM.find_opt name ins_map with
+      | Some bp -> e.If1.def_port <> bp
+      | None -> false
     else If1.SM.mem name ins_map
 
 (* an expression like
@@ -219,10 +221,14 @@ let rec array_builder_exp ?(inc_typ = 0) in_gr = function
       | Ast.Empty -> ((0, 0, 0), in_gr)
       | Ast.Exp fe_lis ->
           let exp_l, in_gr = If1.map_exp in_gr fe_lis [] do_simple_exp in
+          let node_sym =
+            if inc_typ <> 0 && If1.is_array_dv inc_typ in_gr then If1.DVABUILD
+            else If1.ABUILD
+          in
           let (arrnum, arrport, _), in_gr =
             If1.add_node_2
               (`Simple
-                 ( If1.ABUILD,
+                 ( node_sym,
                    Array.make (List.length fe_lis + 1) "",
                    [| "" |],
                    [ If1.No_pragma ] ))
@@ -305,16 +311,14 @@ and do_each_exp_in_strm in_gr = function
       in
       let (k, l, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.SAPPEND, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.SAPPEND, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ( (k, l, strm_ty),
         If1.add_edge hdn hdp k 0 elt_ty (If1.add_edge i j k 1 strm_ty in_gr) )
   | [] ->
       If1.add_node_2
-        (`Simple
-           (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
+        (`Simple (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
         in_gr
 
 and get_tys ttts ous =
@@ -331,7 +335,8 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
   let ordered_inputs = List.rev (If1.get_named_input_ports sub_gr) in
   let _, outer_gr =
     List.fold_left
-      (fun (local_pid, outer_gr) (src_n_in_boundary, src_p_in_boundary, xn, _) ->
+      (fun (local_pid, outer_gr) (src_n_in_boundary, src_p_in_boundary, xn, _)
+         ->
         let res_opt =
           try Some (If1.get_symbol_id xn outer_gr) with _ -> None
         in
@@ -381,13 +386,15 @@ and verify_compound_inputs cn sub_gr outer_gr =
               match If1.get_node dn_orig outer_gr with
               | Simple (_, MULTIARITY, _, _, _) ->
                   If1.ES.exists
-                    (fun (_, (dn_e, dp_e), _) -> dn_e = dn_orig && dp_e = dp_orig)
+                    (fun (_, (dn_e, dp_e), _) ->
+                      dn_e = dn_orig && dp_e = dp_orig)
                     outer_gr.If1.eset
               | _ -> true
             in
             if is_valid_source then
               let dn, dp, _ =
-                If1.find_incoming_regular_node (dn_orig, dp_orig, entry.val_ty)
+                If1.find_incoming_regular_node
+                  (dn_orig, dp_orig, entry.val_ty)
                   outer_gr
               in
               let has_edge =
@@ -655,9 +662,7 @@ and do_termination in_gr = function
   | Until e ->
       let (en, ep, et), in_gr = do_exp in_gr e in
       let (nn, np, _), in_gr =
-        If1.add_node_2
-          (`Simple (If1.NOT, [| "" |], [| "" |], []))
-          in_gr
+        If1.add_node_2 (`Simple (If1.NOT, [| "" |], [| "" |], [])) in_gr
       in
       let in_gr = If1.add_edge en ep nn 0 et in_gr in
       ((nn, np, If1.lookup_tyid If1.BOOLEAN), in_gr)
@@ -738,8 +743,8 @@ and do_val_internal in_gr v =
     | `Std10 v -> (If1.get_symbol_id v in_gr, v)
     | `OldMob v -> (If1.get_symbol_id_old v in_gr, v)
   in
-  to_if1_msg 3 "do_val_internal: %s -> initial=(%d, %d, %d [%s])"
-    av nn np nty (If1.p_f_t in_gr nty);
+  to_if1_msg 3 "do_val_internal: %s -> initial=(%d, %d, %d [%s])" av nn np nty
+    (If1.p_f_t in_gr nty);
   let nn, np, nty =
     match If1.get_node nn in_gr with
     | If1.Simple (_, If1.MULTIARITY, _, _, prags)
@@ -749,7 +754,8 @@ and do_val_internal in_gr v =
         (nn, np, nty)
     | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
         let nn', np', nty' = If1.node_incoming_at_port nn np in_gr in
-        to_if1_msg 3 "do_val_internal: %s -> MULTIARITY deref %d:%d to (%d, %d, %d [%s])"
+        to_if1_msg 3
+          "do_val_internal: %s -> MULTIARITY deref %d:%d to (%d, %d, %d [%s])"
           av nn np nn' np' nty' (If1.p_f_t in_gr nty');
         (nn', np', nty')
     | _ -> (nn, np, nty)
@@ -765,8 +771,7 @@ and do_val in_gr = function
 
 and do_exp in_gr = function
   (* Add an expression using add_exp *)
-  | Ast.Exp e -> 
-    add_exp in_gr e 0 []
+  | Ast.Exp e -> add_exp in_gr e 0 []
   | Empty -> ((0, 0, 0), in_gr)
 
 and extr_types in_gr = function
@@ -816,8 +821,10 @@ and first_incoming_triple_to_multiarity e in_gr =
 and all_incoming_triples_to_multiarity e in_gr =
   let pe = in_gr.If1.eset in
   let edges = If1.ES.filter (fun ((_, _), (y, _), _) -> y = e) pe in
-  let sorted_edges = 
-    List.sort (fun (_, (_, p1), _) (_, (_, p2), _) -> compare p1 p2) (If1.ES.elements edges)
+  let sorted_edges =
+    List.sort
+      (fun (_, (_, p1), _) (_, (_, p2), _) -> compare p1 p2)
+      (If1.ES.elements edges)
   in
   List.map (fun ((x, xp), (_, _), aty) -> (x, xp, aty)) sorted_edges
 
@@ -825,14 +832,9 @@ and propagate_error_to_boundary srcn srcp tty in_gr =
   match If1.get_boundary_node in_gr with
   | Boundary (ins, outs, errs, prags) ->
       let next_b_port = List.length errs in
-      let updated_b =
-        If1.Boundary (ins, outs, errs @ [ (srcn, tty) ], prags)
-      in
+      let updated_b = If1.Boundary (ins, outs, errs @ [ (srcn, tty) ], prags) in
       let in_gr =
-        {
-          in_gr with
-          If1.nmap = If1.NM.add 0 updated_b in_gr.If1.nmap;
-        }
+        { in_gr with If1.nmap = If1.NM.add 0 updated_b in_gr.If1.nmap }
       in
       (* Physically wire Error Node -> Boundary Error Port *)
       If1.add_edge2 srcn srcp 0 next_b_port tty in_gr
@@ -1013,10 +1015,14 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                    with the outer axis's and overwrites it during the relay. *)
                 let lvl = "_" ^ string_of_int level in
                 let in_gr =
-                  inject_sym ("__forall_lb_" ^ string_of_int rg ^ lvl) (rg, 1, lb_ty) in_gr
+                  inject_sym
+                    ("__forall_lb_" ^ string_of_int rg ^ lvl)
+                    (rg, 1, lb_ty) in_gr
                 in
                 let in_gr =
-                  inject_sym ("__forall_ub_" ^ string_of_int rg ^ lvl) (rg, 2, ub_ty) in_gr
+                  inject_sym
+                    ("__forall_ub_" ^ string_of_int rg ^ lvl)
+                    (rg, 2, ub_ty) in_gr
                 in
                 (((rg, rp, rt), in_gr), [])
             (* One sub-expression `A` -> an array scatter (element loop). *)
@@ -1103,7 +1109,9 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
   (* `in_exp AT i, j, ...` : first lower the underlying in-exp, then bind each
      index name to the driver's next output port (def_port = bb + level). *)
   | Ast.At_exp (ie, vns) ->
-      let ((aa, bb, cc), in_gr), dv_infos = do_in_exp ~curr_level ~level in_gr ie in
+      let ((aa, bb, cc), in_gr), dv_infos =
+        do_in_exp ~curr_level ~level in_gr ie
+      in
       let in_gr =
         let cs, ps = in_gr.If1.symtab in
         match vns with
@@ -1156,7 +1164,9 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
          twice, thrice, or any number of times). The level tracks nesting depth,
          so each axis's bound temps get a distinct suffix. *)
       let axes = flatten_cross (Ast.Cross (ie1, ie2)) in
-      let ((_, _, _), in_gr), dv_infos1 = do_in_exp ~level in_gr (List.hd axes) in
+      let ((_, _, _), in_gr), dv_infos1 =
+        do_in_exp ~level in_gr (List.hd axes)
+      in
       let ((x, y, z), in_gr), dv_infos2 =
         nest_sub_generator ~level in_gr (rebuild_cross (List.tl axes))
       in
@@ -1190,8 +1200,11 @@ and nest_sub_generator ?(level = 0) in_gr ie =
   let (sgn, _, _), in_gr =
     If1.add_node_2
       (`Compound
-         ( sub_gr, If1.INTERNAL, 0,
-           [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ], [] ))
+         ( sub_gr,
+           If1.INTERNAL,
+           0,
+           [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ],
+           [] ))
       in_gr
   in
   let sub_gr, in_gr = wire_all_syms_to_compound sgn sub_gr in_gr in
@@ -1273,51 +1286,6 @@ and build_multiarity ?(nam = "") siz in_gr =
          out_port_1,
          [ If1.Name ("multiARITY_" ^ nam) ] ))
     in_gr
-
-and get_ports_unified of_gr basis_gr parent_gr =
-  (* Take basis_gr:boundary and add them to of_gr:boundary
-        with the same port numbers. Confirm that parent_gr
-        contains the symbol, i.e., restrict to outer
-        scope variables.*)
-  let bin = If1.get_boundary_node basis_gr in
-  match bin with
-  | If1.Boundary (in_port_lis, _, _, _) ->
-      List.fold_left
-        (fun f_gr (src_n, src_p, xn, _) ->
-          if If1.is_outer_var xn parent_gr = true then
-            let cs, ps = f_gr.If1.symtab in
-            if If1.SM.mem xn ps = true then
-              let {
-                If1.val_ty = t;
-                If1.val_name = _;
-                If1.val_def = _;
-                If1.def_port = _;
-              } =
-                If1.SM.find xn ps
-              in
-              let assigned_port, f_gr =
-                If1.add_to_boundary_inputs ~namen:xn src_n src_p f_gr
-              in
-              let f_gr =
-                {
-                  f_gr with
-                  If1.symtab =
-                    ( If1.SM.add xn
-                        {
-                          If1.val_ty = t;
-                          If1.val_name = xn;
-                          If1.val_def = 0;
-                          If1.def_port = assigned_port;
-                        }
-                        cs,
-                      ps );
-                }
-              in
-              f_gr
-            else raise (If1.Sem_error ("Cannot find name in outer scope:" ^ xn))
-          else f_gr)
-        of_gr (List.rev in_port_lis)
-  | _ -> of_gr
 
 (* Ordered list of a generator subgraph's boundary outputs:
    (name, out_port, def_node, def_port, ty). A local-symtab name is published
@@ -1433,8 +1401,7 @@ and do_for_all inexp bodyexp retexp in_gr =
         in
         oul
     (* A single `dot`/range/element axis -- one nest level. *)
-    | aie ->
-        (1, aie) :: retl
+    | aie -> (1, aie) :: retl
   in
 
   (* [generator_array_lowlim in_gr] classifies the loop's lower-limit source by
@@ -1551,7 +1518,12 @@ and do_for_all inexp bodyexp retexp in_gr =
   let add_generator_to gen_gr forall_gr =
     let (gn, _, _), forall_gr =
       If1.add_node_2
-        (`Compound (gen_gr, If1.INTERNAL, 0, [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ], []))
+        (`Compound
+           ( gen_gr,
+             If1.INTERNAL,
+             0,
+             [ If1.Name "GENERATOR"; If1.Compound_of If1.If1_generator ],
+             [] ))
         forall_gr
     in
     let gen_gr, forall_gr = wire_all_syms_to_compound gn gen_gr forall_gr in
@@ -1625,8 +1597,7 @@ and do_for_all inexp bodyexp retexp in_gr =
                 | Some (If1.Simple (_, If1.RANGEGEN, _, _, _)) when dp = 0 ->
                     Some name
                 | Some
-                    (If1.Simple
-                       (_, (If1.DV_SCATTER | If1.ASCATTER), _, _, _))
+                    (If1.Simple (_, (If1.DV_SCATTER | If1.ASCATTER), _, _, _))
                   when dp >= 1 ->
                     Some name
                 | _ -> None)
@@ -1671,8 +1642,11 @@ and do_for_all inexp bodyexp retexp in_gr =
              ret_gr's counter starts past them, so no two sibling subgraphs ever
              claim the same ID for different structural types. *)
           let base = If1.get_a_new_graph gen_gr in
-          { base with If1.typemap =
-              If1.merge_typeblobs base.If1.typemap body_gr.If1.typemap }
+          {
+            base with
+            If1.typemap =
+              If1.merge_typeblobs base.If1.typemap body_gr.If1.typemap;
+          }
         in
         (* Recursive RETURNS: for an N-axis cross at this (base) axis, the
            returns nests (N-1) extra gather levels -- mirror of the recursive
@@ -1734,7 +1708,12 @@ and do_for_all inexp bodyexp retexp in_gr =
 
         let (bx, by, bz), forall_gr =
           If1.add_node_2
-            (`Compound (body_gr, If1.INTERNAL, 0, [ If1.Name "BODY"; If1.Compound_of If1.If1_body ], []))
+            (`Compound
+               ( body_gr,
+                 If1.INTERNAL,
+                 0,
+                 [ If1.Name "BODY"; If1.Compound_of If1.If1_body ],
+                 [] ))
             forall_gr
         in
         let body_gr, forall_gr =
@@ -1755,7 +1734,8 @@ and do_for_all inexp bodyexp retexp in_gr =
                 let name = "__forall_body_" ^ string_of_int k in
                 let cs, ps = f_gr.If1.symtab in
                 let f_gr =
-                  { f_gr with
+                  {
+                    f_gr with
                     If1.symtab =
                       ( If1.SM.add name
                           {
@@ -1780,8 +1760,7 @@ and do_for_all inexp bodyexp retexp in_gr =
           nest_returns_levels > 0
           && List.exists
                (function
-                 | `Array_of, _, _ | `Dv_array_of _, _, _ -> true
-                 | _ -> false)
+                 | `Array_of, _, _ | `Dv_array_of _, _, _ -> true | _ -> false)
                return_action_list
         in
         (* RETURNS is already added as rn by add_ret. Wire its inputs. *)
@@ -1858,21 +1837,23 @@ and do_for_all inexp bodyexp retexp in_gr =
               let pl =
                 if body_count > 0 then
                   pl
-                  @ [ If1.Ast_type
-                        (Printf.sprintf "body_inputs:start=%d,count=%d" body_base
-                           body_count) ]
+                  @ [
+                      If1.Ast_type
+                        (Printf.sprintf "body_inputs:start=%d,count=%d"
+                           body_base body_count);
+                    ]
                 else pl
               in
               let forall_gr =
-                { forall_gr with
+                {
+                  forall_gr with
                   If1.nmap =
                     If1.NM.add rn
                       (If1.Compound (lab, sy, ty, pl, rn_gr, assoc))
-                      forall_gr.If1.nmap }
+                      forall_gr.If1.nmap;
+                }
               in
-              let _, forall_gr =
-                wire_all_syms_to_compound rn rn_gr forall_gr
-              in
+              let _, forall_gr = wire_all_syms_to_compound rn rn_gr forall_gr in
               verify_compound_inputs rn rn_gr forall_gr;
               forall_gr
           | _ -> forall_gr
@@ -1927,7 +1908,8 @@ and do_for_all inexp bodyexp retexp in_gr =
                 body_nest_gr,
                 inner_ids,
                 inner_dv_infos ) =
-            build_forloop gen_exp_tl bodyexp retexp (If1.get_a_new_graph forall_gr)
+            build_forloop gen_exp_tl bodyexp retexp
+              (If1.get_a_new_graph forall_gr)
           in
 
           (* Merge the inner loop's typemap so sibling subgraphs do not collide
@@ -2021,7 +2003,10 @@ and do_for_all inexp bodyexp retexp in_gr =
      would then resolve that collision in the forall's favour, dropping our type.
      Merge the forall's typemap into in_gr now so later allocations get fresh ids. *)
   let in_gr =
-    { in_gr with If1.typemap = If1.get_types_from_graph forall_gr (If1.get_typemap in_gr) }
+    {
+      in_gr with
+      If1.typemap = If1.get_types_from_graph forall_gr (If1.get_typemap in_gr);
+    }
   in
 
   (* APL error monad: when several axes are array_dv sources, their shapes must
@@ -2056,8 +2041,11 @@ and do_for_all inexp bodyexp retexp in_gr =
            ( forall_gr,
              If1.INTERNAL,
              0,
-             [ If1.Name "FORALL"; If1.Ast_type (Ast.str_simple_exp fall);
-               If1.Compound_of If1.If1_forall ],
+             [
+               If1.Name "FORALL";
+               If1.Ast_type (Ast.str_simple_exp fall);
+               If1.Compound_of If1.If1_forall;
+             ],
              subgr_ids ))
         tgt_gr
     in
@@ -2076,8 +2064,8 @@ and do_for_all inexp bodyexp retexp in_gr =
                   try List.hd acrossl
                   with _ -> raise (If1.Sem_error "Error lowering gen_exp")
                 in
-                add_asetl_for_array_res (get_gen_graph fg) gen_exp iigr fx aa tt cc
-                  mul_n
+                add_asetl_for_array_res (get_gen_graph fg) gen_exp iigr fx aa tt
+                  cc mul_n
               in
               (cc + 1, outl @ [ (wh, tt, ouln, cc) ], iigr)
           | _ ->
@@ -2089,135 +2077,175 @@ and do_for_all inexp bodyexp retexp in_gr =
     (mul_n, mul_p, outl, tgt_gr)
   in
 
-  (match dv_sources with
-   | [] | [ _ ] ->
-       (* 0 or 1 array_dv source: nothing to conform; finish the forall here. *)
-       let mul_n, mul_p, outl, in_gr = finish_forall in_gr in
-       ((mul_n, mul_p, res_ty), outl, in_gr)
-   | first :: rest ->
-       (* >=2 array_dv sources (a `dot`): guard the forall with a conformance
+  match dv_sources with
+  | [] | [ _ ] ->
+      (* 0 or 1 array_dv source: nothing to conform; finish the forall here. *)
+      let mul_n, mul_p, outl, in_gr = finish_forall in_gr in
+      ((mul_n, mul_p, res_ty), outl, in_gr)
+  | first :: rest ->
+      (* >=2 array_dv sources (a `dot`): guard the forall with a conformance
           DIAMOND -- a single hand-built IF (no if_builder, no recursion):
               PREDICATE = DV_CONFORM(first, next) [AND ...]   (true = conforms)
               THEN      = the forall (finished inside this arm)
               ELSE      = ERROR_NODE  (a Typed_error of the result type)
               SELECT(pred, then, else) -> result
           The forall lands in the THEN arm (never referenced twice). *)
-       let bool_ty = If1.lookup_tyid If1.BOOLEAN in
-       (* one type per output value (a forall may have several return clauses) *)
-       let out_types = List.map (fun (_, rt, _) -> rt) return_action_list in
-       let new_sub g = If1.inherit_parent_syms g (If1.get_a_new_graph g) in
-       (* Name the array sources in in_gr so the arms can reference them and
+      let bool_ty = If1.lookup_tyid If1.BOOLEAN in
+      (* one type per output value (a forall may have several return clauses) *)
+      let out_types = List.map (fun (_, rt, _) -> rt) return_action_list in
+      let new_sub g = If1.inherit_parent_syms g (If1.get_a_new_graph g) in
+      (* Name the array sources in in_gr so the arms can reference them and
           wire_all_syms_to_compound can connect them. *)
-       let in_gr, src_names =
-         List.fold_left
-           (fun (gr, names) (i, src) ->
-             let nm = Printf.sprintf "__CFSRC%d" i in
-             (inject_sym nm src gr, names @ [ nm ]))
-           (in_gr, [])
-           (List.mapi (fun i s -> (i, s)) (first :: rest))
-       in
-       (* ---- PREDICATE arm: AND-chain of DV_CONFORM(src0, srcK) ---- *)
-       let pred_sub = new_sub in_gr in
-       let first_nm = List.hd src_names in
-       let (fan, fap, fat), pred_sub = If1.get_symbol_id first_nm pred_sub in
-       let acc_bool, pred_sub =
-         List.fold_left
-           (fun (acc_opt, gr) nm ->
-             let (bn, bp, bt), gr = If1.get_symbol_id nm gr in
-             let (cn, cp, _), gr =
-               If1.add_node_2 (`Simple (If1.DV_CONFORM, [| ""; "" |], [| "" |], [])) gr
-             in
-             let gr = If1.add_edge fan fap cn 0 fat gr in
-             let gr = If1.add_edge bn bp cn 1 bt gr in
-             match acc_opt with
-             | None -> (Some (cn, cp), gr)
-             | Some (pan, pap) ->
-                 let (andn, andp, _), gr =
-                   If1.add_node_2 (`Simple (If1.AND, [| ""; "" |], [| "" |], [])) gr
-                 in
-                 let gr = If1.add_edge pan pap andn 0 bool_ty gr in
-                 let gr = If1.add_edge cn cp andn 1 bool_ty gr in
-                 (Some (andn, andp), gr))
-           (None, pred_sub) (List.tl src_names)
-       in
-       let pcn, pcp = match acc_bool with Some x -> x | None -> (fan, fap) in
-       let pred_sub = point_edges_to_boundary pcn pcp bool_ty pred_sub in
-       (* ---- THEN arm: the forall (its MULTIARITY's N values -> N boundary outs) ---- *)
-       let then_sub = new_sub in_gr in
-       let t_mul_n, t_mul_p, _outl, then_sub = finish_forall then_sub in
-       let then_sub = point_edges_to_boundary t_mul_n t_mul_p res_ty then_sub in
-       (* ---- ELSE arm: one ERROR_NODE per output, each a Typed_error of that out ---- *)
-       let else_sub = new_sub in_gr in
-       let else_sub =
-         List.fold_left
-           (fun gr rt ->
-             let (_, _, terr_ty), gr = If1.add_type_to_typemap_dedup (If1.Typed_error rt) gr in
-             let (en, ep, _), gr =
-               If1.add_node_2 (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ])) gr
-             in
-             point_edges_to_boundary en ep terr_ty gr)
-           else_sub out_types
-       in
-       (* ---- assemble the IF internal graph: predicate/then/else compounds + SELECTs ---- *)
-       let regar = new_sub in_gr in
-       let (pred_cn, _, _), regar =
-         If1.add_node_2
-           (`Compound (pred_sub, If1.INTERNAL, 0,
-              [ If1.Name "PREDICATE"; If1.Compound_of If1.If1_predicate ], [])) regar
-       in
-       let _, regar = wire_all_syms_to_compound pred_cn pred_sub regar in
-       let (then_cn, _, _), regar =
-         If1.add_node_2
-           (`Compound (then_sub, If1.INTERNAL, 0,
-              [ If1.Name "THEN"; If1.Compound_of If1.If1_then ], [])) regar
-       in
-       let _, regar = wire_all_syms_to_compound then_cn then_sub regar in
-       let (else_cn, _, _), regar =
-         If1.add_node_2
-           (`Compound (else_sub, If1.INTERNAL, 0,
-              [ If1.Name "ELSE"; If1.Compound_of If1.If1_else ], [])) regar
-       in
-       let _, regar = wire_all_syms_to_compound else_cn else_sub regar in
-       (* one SELECT per output value: SELECT_k(pred, then:k, else:k) *)
-       let regar, sel_nodes =
-         List.fold_left
-           (fun (gr, sels) (k, rt) ->
-             let (sel_n, _, _), gr =
-               If1.add_node_2
-                 (`Simple (If1.SELECT, [| ""; ""; "" |], [| "" |],
-                    [ If1.Name (Printf.sprintf "SELECT_%d" k) ])) gr
-             in
-             let gr = If1.add_edge pred_cn 0 sel_n 0 bool_ty gr in
-             let gr = If1.add_edge then_cn k sel_n 1 rt gr in
-             let gr = If1.add_edge else_cn k sel_n 2 rt gr in
-             (gr, sels @ [ (sel_n, rt) ]))
-           (regar, []) (List.mapi (fun k rt -> (k, rt)) out_types)
-       in
-       (* collect the SELECT results into a MULTIARITY and export to the IF boundary *)
-       let (sel_ma, _, _), regar = build_multiarity (List.length sel_nodes) regar ~nam:"SEL_MA" in
-       let regar, _ =
-         List.fold_left
-           (fun (gr, k) (sel_n, rt) -> (If1.add_edge sel_n 0 sel_ma k rt gr, k + 1))
-           (regar, 0) sel_nodes
-       in
-       let regar = point_edges_to_boundary sel_ma 0 (snd (List.hd sel_nodes)) regar in
-       (* ---- wrap the IF compound into in_gr, collect its N results via a MULTIARITY ---- *)
-       let (ifn, _, _), in_gr =
-         If1.add_node_2
-           (`Compound (regar, If1.INTERNAL, 0,
-              [ If1.Name "IF_CONFORM"; If1.Compound_of If1.If1_if ], [])) in_gr
-       in
-       let _, in_gr = wire_all_syms_to_compound ifn regar in_gr in
-       let (ma, mp, _), in_gr = build_multiarity (List.length out_types) in_gr ~nam:"IF_RESULT" in
-       let in_gr, _ =
-         List.fold_left
-           (fun (gr, k) rt -> (If1.add_edge ifn k ma k rt gr, k + 1))
-           (in_gr, 0) out_types
-       in
-       let outl_diamond =
-         List.mapi (fun cc (wh, tt, _) -> (wh, tt, ma, cc)) return_action_list
-       in
-       ((ma, mp, res_ty), outl_diamond, in_gr))
+      let in_gr, src_names =
+        List.fold_left
+          (fun (gr, names) (i, src) ->
+            let nm = Printf.sprintf "__CFSRC%d" i in
+            (inject_sym nm src gr, names @ [ nm ]))
+          (in_gr, [])
+          (List.mapi (fun i s -> (i, s)) (first :: rest))
+      in
+      (* ---- PREDICATE arm: AND-chain of DV_CONFORM(src0, srcK) ---- *)
+      let pred_sub = new_sub in_gr in
+      let first_nm = List.hd src_names in
+      let (fan, fap, fat), pred_sub = If1.get_symbol_id first_nm pred_sub in
+      let acc_bool, pred_sub =
+        List.fold_left
+          (fun (acc_opt, gr) nm ->
+            let (bn, bp, bt), gr = If1.get_symbol_id nm gr in
+            let (cn, cp, _), gr =
+              If1.add_node_2
+                (`Simple (If1.DV_CONFORM, [| ""; "" |], [| "" |], []))
+                gr
+            in
+            let gr = If1.add_edge fan fap cn 0 fat gr in
+            let gr = If1.add_edge bn bp cn 1 bt gr in
+            match acc_opt with
+            | None -> (Some (cn, cp), gr)
+            | Some (pan, pap) ->
+                let (andn, andp, _), gr =
+                  If1.add_node_2
+                    (`Simple (If1.AND, [| ""; "" |], [| "" |], []))
+                    gr
+                in
+                let gr = If1.add_edge pan pap andn 0 bool_ty gr in
+                let gr = If1.add_edge cn cp andn 1 bool_ty gr in
+                (Some (andn, andp), gr))
+          (None, pred_sub) (List.tl src_names)
+      in
+      let pcn, pcp = match acc_bool with Some x -> x | None -> (fan, fap) in
+      let pred_sub = point_edges_to_boundary pcn pcp bool_ty pred_sub in
+      (* ---- THEN arm: the forall (its MULTIARITY's N values -> N boundary outs) ---- *)
+      let then_sub = new_sub in_gr in
+      let t_mul_n, t_mul_p, _outl, then_sub = finish_forall then_sub in
+      let then_sub = point_edges_to_boundary t_mul_n t_mul_p res_ty then_sub in
+      (* ---- ELSE arm: one ERROR_NODE per output, each a Typed_error of that out ---- *)
+      let else_sub = new_sub in_gr in
+      let else_sub =
+        List.fold_left
+          (fun gr rt ->
+            let (_, _, terr_ty), gr =
+              If1.add_type_to_typemap_dedup (If1.Typed_error rt) gr
+            in
+            let (en, ep, _), gr =
+              If1.add_node_2
+                (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
+                gr
+            in
+            point_edges_to_boundary en ep terr_ty gr)
+          else_sub out_types
+      in
+      (* ---- assemble the IF internal graph: predicate/then/else compounds + SELECTs ---- *)
+      let regar = new_sub in_gr in
+      let (pred_cn, _, _), regar =
+        If1.add_node_2
+          (`Compound
+             ( pred_sub,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "PREDICATE"; If1.Compound_of If1.If1_predicate ],
+               [] ))
+          regar
+      in
+      let _, regar = wire_all_syms_to_compound pred_cn pred_sub regar in
+      let (then_cn, _, _), regar =
+        If1.add_node_2
+          (`Compound
+             ( then_sub,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "THEN"; If1.Compound_of If1.If1_then ],
+               [] ))
+          regar
+      in
+      let _, regar = wire_all_syms_to_compound then_cn then_sub regar in
+      let (else_cn, _, _), regar =
+        If1.add_node_2
+          (`Compound
+             ( else_sub,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "ELSE"; If1.Compound_of If1.If1_else ],
+               [] ))
+          regar
+      in
+      let _, regar = wire_all_syms_to_compound else_cn else_sub regar in
+      (* one SELECT per output value: SELECT_k(pred, then:k, else:k) *)
+      let regar, sel_nodes =
+        List.fold_left
+          (fun (gr, sels) (k, rt) ->
+            let (sel_n, _, _), gr =
+              If1.add_node_2
+                (`Simple
+                   ( If1.SELECT,
+                     [| ""; ""; "" |],
+                     [| "" |],
+                     [ If1.Name (Printf.sprintf "SELECT_%d" k) ] ))
+                gr
+            in
+            let gr = If1.add_edge pred_cn 0 sel_n 0 bool_ty gr in
+            let gr = If1.add_edge then_cn k sel_n 1 rt gr in
+            let gr = If1.add_edge else_cn k sel_n 2 rt gr in
+            (gr, sels @ [ (sel_n, rt) ]))
+          (regar, [])
+          (List.mapi (fun k rt -> (k, rt)) out_types)
+      in
+      (* collect the SELECT results into a MULTIARITY and export to the IF boundary *)
+      let (sel_ma, _, _), regar =
+        build_multiarity (List.length sel_nodes) regar ~nam:"SEL_MA"
+      in
+      let regar, _ =
+        List.fold_left
+          (fun (gr, k) (sel_n, rt) ->
+            (If1.add_edge sel_n 0 sel_ma k rt gr, k + 1))
+          (regar, 0) sel_nodes
+      in
+      let regar =
+        point_edges_to_boundary sel_ma 0 (snd (List.hd sel_nodes)) regar
+      in
+      (* ---- wrap the IF compound into in_gr, collect its N results via a MULTIARITY ---- *)
+      let (ifn, _, _), in_gr =
+        If1.add_node_2
+          (`Compound
+             ( regar,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "IF_CONFORM"; If1.Compound_of If1.If1_if ],
+               [] ))
+          in_gr
+      in
+      let _, in_gr = wire_all_syms_to_compound ifn regar in_gr in
+      let (ma, mp, _), in_gr =
+        build_multiarity (List.length out_types) in_gr ~nam:"IF_RESULT"
+      in
+      let in_gr, _ =
+        List.fold_left
+          (fun (gr, k) rt -> (If1.add_edge ifn k ma k rt gr, k + 1))
+          (in_gr, 0) out_types
+      in
+      let outl_diamond =
+        List.mapi (fun cc (wh, tt, _) -> (wh, tt, ma, cc)) return_action_list
+      in
+      ((ma, mp, res_ty), outl_diamond, in_gr)
 
 and do_decldef_part in_gr = function
   | Ast.Decldef_part f ->
@@ -2471,8 +2499,12 @@ and do_decldef in_gr delc =
               let in_gr_ = If1.graph_clean_multiarity in_gr_ in
               let (cn, _, _), in_gr =
                 If1.add_node_2
-                  (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn; If1.Compound_of If1.If1_procedure ], []))
-
+                  (`Compound
+                     ( in_gr_,
+                       If1.INTERNAL,
+                       0,
+                       [ If1.Name fn; If1.Compound_of If1.If1_procedure ],
+                       [] ))
                   in_gr
               in
               let in_gr_, in_gr = wire_all_syms_to_compound cn in_gr_ in_gr in
@@ -2621,8 +2653,12 @@ and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
             let in_gr_ = If1.graph_clean_multiarity in_gr_ in
             let (expnum, _, _), in_gr =
               If1.add_node_2
-                (`Compound (in_gr_, If1.INTERNAL, 0, [ If1.Name fn; If1.Compound_of If1.If1_procedure ], []))
-
+                (`Compound
+                   ( in_gr_,
+                     If1.INTERNAL,
+                     0,
+                     [ If1.Name fn; If1.Compound_of If1.If1_procedure ],
+                     [] ))
                 in_gr
             in
             let in_gr_, in_gr = wire_all_syms_to_compound expnum in_gr_ in_gr in
@@ -3224,8 +3260,7 @@ and add_edges_to_boundary a_gr outer_gr to_node =
               (* nx is from an outer scope. Import it into gr's boundary. *)
               let next_p, gr = If1.add_to_boundary_inputs ~namen nx np gr in
               If1.add_edge 0 next_p to_node next_p ty_id gr
-            else
-              If1.add_edge nx np to_node next_p ty_id gr
+            else If1.add_edge nx np to_node next_p ty_id gr
           in
           gr)
         outer_gr ports_in_order
@@ -3260,8 +3295,7 @@ and unary_exp nou in_gr e node_tag =
 and insert_typecast src sp src_ty tgt_ty in_gr =
   let (cast_n, _, _), in_gr =
     If1.add_node_2
-      (`Simple
-         (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
+      (`Simple (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge src sp cast_n 0 src_ty in_gr in
@@ -3489,8 +3523,10 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
   add_return_gr ~nest_returns_levels ~returns_triples for_gr in_gr
     return_action_list mask_ty_list prag
 
-and add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list prag =
-  add_return_gr_loopB decl_gr for_gr body_gr return_action_list mask_ty_list prag
+and add_ret_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list
+    mask_ty_list prag =
+  add_return_gr_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list
+    mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
   (* all edges ending at frm now to end at Boundary *)
@@ -3556,10 +3592,7 @@ and emit_get_dope_vec (an, ap, arr_ty) in_gr =
   let (gn, _, _), in_gr =
     If1.add_node_2
       (`Simple
-         ( If1.GET_DOPE_VEC,
-           [| "" |],
-           [| "dope"; "array" |],
-           [ If1.No_pragma ] ))
+         (If1.GET_DOPE_VEC, [| "" |], [| "dope"; "array" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge an ap gn 0 arr_ty in_gr in
@@ -3636,7 +3669,8 @@ and get_rank ty in_gr =
 and get_deep_elem_ty ty in_gr =
   let res =
     match If1.lookup_ty_safe ty in_gr with
-    | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> get_deep_elem_ty et in_gr
+    | Some (If1.Array_ty et) | Some (If1.Array_dv et) ->
+        get_deep_elem_ty et in_gr
     | Some (If1.Basic _ as b) ->
         if If1.is_mat_type b || If1.is_vector_type b then
           get_deep_elem_ty (If1.lookup_tyid (If1.get_element_type_code b)) in_gr
@@ -3663,8 +3697,7 @@ and maybe_add_shape_check (an, ap, at) (bn, bp, bt) in_gr =
   else
     let (ck_n, _, _), in_gr =
       If1.add_node_2
-        (`Simple
-           (If1.SHAPE_CHECK, [| ""; "" |], [||], [ If1.No_pragma ]))
+        (`Simple (If1.SHAPE_CHECK, [| ""; "" |], [||], [ If1.No_pragma ]))
         in_gr
     in
     let in_gr = If1.add_edge an ap ck_n 0 at in_gr in
@@ -3843,7 +3876,8 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
           ],
         [
           Ast.Return_exp
-            ( (if If1.is_array_dv at in_gr then Ast.Dv_array_of (1, val_n "__LFDRES")
+            ( (if If1.is_array_dv at in_gr then
+                 Ast.Dv_array_of (1, val_n "__LFDRES")
                else Ast.Array_of (val_n "__LFDRES")),
               Ast.No_mask );
           Ast.Return_exp
@@ -3857,7 +3891,8 @@ and emit_dv_conform_check (an, ap, at) (bn, bp, bt) in_gr =
   (* Common shape type follows the operands' kind (array_dv vs array). *)
   let (sh_ty, _, _), in_gr =
     If1.add_type_to_typemap_dedup
-      (if If1.is_array_dv at in_gr then If1.Array_dv (If1.lookup_tyid If1.INTEGRAL)
+      (if If1.is_array_dv at in_gr then
+         If1.Array_dv (If1.lookup_tyid If1.INTEGRAL)
        else If1.Array_ty (If1.lookup_tyid If1.INTEGRAL))
       in_gr
   in
@@ -3903,7 +3938,8 @@ and emit_dv_conform_guard (an, ap, at) (bn, bp, bt) in_gr =
   let in_gr = If1.add_edge cn cp not_n 0 bool_t in_gr in
   (* ERROR_NODE -> typed error token (typed as the operand, like emit_dv_conform_check) *)
   let (err_n, _, _), in_gr =
-    If1.add_node_2 (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
+    If1.add_node_2
+      (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
       in_gr
   in
   let in_gr = If1.add_edge not_n not_p err_n 0 bool_t in_gr in
@@ -3981,7 +4017,9 @@ and lift_binop_forall a_result b_result body_elem in_gr =
   let restore_rank arr_sym flat_triple gr =
     let val_n name = Ast.Val (Ast.Value_name [ name ]) in
     let int_c i = Ast.Constant (Ast.Int i) in
-    let mk_inv fn args = Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args)) in
+    let mk_inv fn args =
+      Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+    in
     let arr_ref = Ast.Val (Ast.Value_name [ arr_sym ]) in
     let gr = inject_sym "__LFRES" flat_triple gr in
     let shape_forall =
@@ -3990,21 +4028,25 @@ and lift_binop_forall a_result b_result body_elem in_gr =
             ( Ast.Value_name [ "__LFK" ],
               Ast.Exp [ int_c 1; mk_inv [ "DV_NUM_RANK" ] [ arr_ref ] ] ),
           Ast.Decldef_part [],
-          [ Ast.Return_exp
+          [
+            Ast.Return_exp
               ( Ast.Dv_array_of
                   ( 1,
                     Ast.Record_ref
                       ( Ast.Dv_dimension
                           (arr_ref, Ast.Subtract (val_n "__LFK", int_c 1)),
                         Ast.Field_name "size" ) ),
-                Ast.No_mask ) ] )
+                Ast.No_mask );
+          ] )
     in
     let sh_triple, gr = do_simple_exp_impl gr shape_forall in
     let gr = inject_sym "__LFSH" sh_triple gr in
     let reshape =
       mk_inv [ "DV_RESHAPE_BY_SHAPE" ]
-        [ Ast.Val (Ast.Value_name [ "__LFRES" ]);
-          Ast.Val (Ast.Value_name [ "__LFSH" ]) ]
+        [
+          Ast.Val (Ast.Value_name [ "__LFRES" ]);
+          Ast.Val (Ast.Value_name [ "__LFSH" ]);
+        ]
     in
     do_simple_exp_impl gr reshape
   in
@@ -4036,22 +4078,24 @@ and lift_binop_forall a_result b_result body_elem in_gr =
       If1.SM.filter
         (fun k entry ->
           let aliases_a =
-            k <> "__LFA"
-            && entry.If1.val_def = an
-            && entry.If1.def_port = ap
+            k <> "__LFA" && entry.If1.val_def = an && entry.If1.def_port = ap
           in
           let aliases_b =
-            k <> "__LFB"
-            && entry.If1.val_def = bn
-            && entry.If1.def_port = bp
+            k <> "__LFB" && entry.If1.val_def = bn && entry.If1.def_port = bp
           in
-          (not aliases_a) && (not aliases_b))
+          (not aliases_a) && not aliases_b)
         cs_save
     in
-    let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
+    let in_gr_restricted =
+      { in_gr with If1.symtab = (cs_restricted, ps_save) }
+    in
     let a_ref = Ast.Val (Ast.Value_name [ "__LFA" ]) in
     let lo = mk_inv [ "ARRAY_LIML" ] [ a_ref ] in
-    let hi = mk_inv [ "ARRAY_LIMH" ] [ a_ref ] in
+    let hi =
+      Ast.Subtract
+        ( Ast.Add (lo, mk_inv [ "DV_FLAT_SIZE" ] [ a_ref ]),
+          Ast.Constant (Ast.Int 1) )
+    in
     let forall =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
@@ -4067,7 +4111,7 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     in
     let in_gr' = { in_gr' with If1.symtab = (cs_final, ps') } in
     restore_rank "__LFA" triple in_gr'
-  else if (a_is_dv || b_is_dv) && not a_is_seq && b_is_seq then
+  else if (a_is_dv || b_is_dv) && (not a_is_seq) && b_is_seq then
     (* ── scalar  op  DV-array ──────────────────────────────────────────────
        Mirror of the case above but using B's element range. *)
     let mk_inv fn args =
@@ -4080,22 +4124,24 @@ and lift_binop_forall a_result b_result body_elem in_gr =
       If1.SM.filter
         (fun k entry ->
           let aliases_a =
-            k <> "__LFA"
-            && entry.If1.val_def = an
-            && entry.If1.def_port = ap
+            k <> "__LFA" && entry.If1.val_def = an && entry.If1.def_port = ap
           in
           let aliases_b =
-            k <> "__LFB"
-            && entry.If1.val_def = bn
-            && entry.If1.def_port = bp
+            k <> "__LFB" && entry.If1.val_def = bn && entry.If1.def_port = bp
           in
-          (not aliases_a) && (not aliases_b))
+          (not aliases_a) && not aliases_b)
         cs_save
     in
-    let in_gr_restricted = { in_gr with If1.symtab = (cs_restricted, ps_save) } in
+    let in_gr_restricted =
+      { in_gr with If1.symtab = (cs_restricted, ps_save) }
+    in
     let b_ref = Ast.Val (Ast.Value_name [ "__LFB" ]) in
     let lo = mk_inv [ "ARRAY_LIML" ] [ b_ref ] in
-    let hi = mk_inv [ "ARRAY_LIMH" ] [ b_ref ] in
+    let hi =
+      Ast.Subtract
+        ( Ast.Add (lo, mk_inv [ "DV_FLAT_SIZE" ] [ b_ref ]),
+          Ast.Constant (Ast.Int 1) )
+    in
     let forall =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ lo; hi ]),
@@ -4180,15 +4226,19 @@ and lift_binop_forall a_result b_result body_elem in_gr =
       Ast.For_all
         ( Ast.In_exp (Ast.Value_name [ "__LFI" ], Ast.Exp [ zero_exp; hi_exp ]),
           Ast.Decldef_part [],
-          [ Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask) ] )
+          [
+            Ast.Return_exp (Ast.Dv_array_of (1, body_rank_agnostic), Ast.No_mask);
+          ] )
     in
 
     let synthetic_ast =
       Ast.Let
         ( Ast.Decldef_part
-            [ Ast.Decldef
+            [
+              Ast.Decldef
                 ( [ Ast.Decl_no_type [ Ast.Decl_name "__LFR1" ] ],
-                  Ast.Exp [ forall_loop ] ) ],
+                  Ast.Exp [ forall_loop ] );
+            ],
           Ast.Exp [ Ast.Val (Ast.Value_name [ "__LFR1" ]) ] )
     in
 
@@ -4197,10 +4247,7 @@ and lift_binop_forall a_result b_result body_elem in_gr =
     let (final_n, final_p, _), in_gr =
       If1.add_node_2
         (`Simple
-           ( If1.DV_RESHAPE_BY_SHAPE,
-             [| ""; "" |],
-             [| "" |],
-             [ If1.No_pragma ] ))
+           (If1.DV_RESHAPE_BY_SHAPE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
         in_gr
     in
     let in_gr = If1.add_edge res1_n res1_p final_n 0 res1_ty in_gr in
@@ -4598,7 +4645,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
          so the grammar routes SUM(arr) through Invocation rather than as
          explicit grammar rules (which caused shift/reduce conflicts).
          We dispatch to the Reduce / Reduce_range AST nodes here. *)
-      | ("SUM" | "PRODUCT" | "LEAST" | "GREATEST" | "ARGMAX" | "ARGMIN" ) as red_fn -> (
+      | ("SUM" | "PRODUCT" | "LEAST" | "GREATEST" | "ARGMAX" | "ARGMIN") as
+        red_fn -> (
           let red_op =
             match red_fn with
             | "SUM" -> Ast.Sum
@@ -4707,8 +4755,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
           match arg with
           | Ast.Arg (Ast.Exp [ arr ]) ->
               do_simple_exp in_gr (Ast.Grade_down_exp arr)
-          | _ -> raise (If1.Sem_error "GRADE_DOWN: expected GRADE_DOWN(arr)"))
-        (*
+          | _ ->
+              raise (If1.Sem_error "GRADE_DOWN: expected GRADE_DOWN(arr)")
+              (*
       | "ARGMAX" -> (
           match arg with
           | Ast.Arg (Ast.Exp [ arr ]) ->
@@ -4729,6 +4778,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               raise
                 (If1.Sem_error
                    "ARGMIN: expected ARGMIN(arr) or ARGMIN(arr, axis)")) *)
+          )
       | "NONZERO" -> (
           match arg with
           | Ast.Arg (Ast.Exp [ arr ]) ->
@@ -4874,8 +4924,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
             If1.add_node_2
               (`Simple
                  ( (match array_addx with
-                   | "ARRAY_ADDH" -> If1.AADDH
-                   | _ -> If1.AADDL),
+                   | "ARRAY_ADDH" -> If1.DVAADDH
+                   | _ -> If1.DVAADDL),
                    in_port_00,
                    out_port_00,
                    [] ))
@@ -4898,24 +4948,34 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, tt), in_gr)
       | "ARRAY_LIMH" ->
+          let aexps =
+            match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
+          in
+          let args_res, in_gr =
+            List.fold_left
+              (fun (acc, g) x ->
+                let r, g = do_simple_exp g x in
+                (r :: acc, g))
+              ([], in_gr) aexps
+          in
+          let args_res = List.rev args_res in
+          let is_dv =
+            match args_res with
+            | (_, _, arr_ty) :: _ -> If1.is_array_dv arr_ty in_gr
+            | _ -> false
+          in
+          let op = if is_dv then If1.DV_LIMH else If1.ALIMH in
           let (n, _, _), in_gr =
             let in_port_00 = [| "" |] in
             let out_port_00 = [| "" |] in
-            If1.add_node_2
-              (`Simple (If1.ALIMH, in_port_00, out_port_00, []))
-              in_gr
+            If1.add_node_2 (`Simple (op, in_port_00, out_port_00, [])) in_gr
           in
-          let _, in_gr =
-            match arg with
-            | Ast.Arg aa -> (
-                match aa with
-                | Ast.Exp aexps ->
-                    List.fold_right
-                      (fun x (cou, in_gr) ->
-                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                        (cou + 1, If1.add_edge l m n cou tt in_gr))
-                      aexps (0, in_gr)
-                | _ -> (0, in_gr))
+          let in_gr =
+            List.fold_left
+              (fun (cou, g) (l, m, tt) ->
+                (cou + 1, If1.add_edge l m n cou tt g))
+              (0, in_gr) args_res
+            |> snd
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | "ARRAY_ADJUST" ->
@@ -4923,7 +4983,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
-              (`Simple (If1.AADJUST, in_port_00, out_port_00, []))
+              (`Simple (If1.DVAADJUST, in_port_00, out_port_00, []))
               in_gr
           in
           let _, in_gr, type_lis =
@@ -4940,24 +5000,34 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, List.hd type_lis), in_gr)
       | "ARRAY_LIML" ->
-          let in_port_00 = [| "" |] in
-          let out_port_00 = [| "" |] in
-          let (n, _, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.ALIML, in_port_00, out_port_00, []))
-              in_gr
+          let aexps =
+            match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
           in
-          let _, in_gr =
-            match arg with
-            | Ast.Arg aa -> (
-                match aa with
-                | Ast.Exp aexps ->
-                    List.fold_right
-                      (fun x (cou, in_gr) ->
-                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                        (cou + 1, If1.add_edge l m n cou tt in_gr))
-                      aexps (0, in_gr)
-                | _ -> (0, in_gr))
+          let args_res, in_gr =
+            List.fold_left
+              (fun (acc, g) x ->
+                let r, g = do_simple_exp g x in
+                (r :: acc, g))
+              ([], in_gr) aexps
+          in
+          let args_res = List.rev args_res in
+          let is_dv =
+            match args_res with
+            | (_, _, arr_ty) :: _ -> If1.is_array_dv arr_ty in_gr
+            | _ -> false
+          in
+          let op = if is_dv then If1.DV_LIML else If1.ALIML in
+          let (n, _, _), in_gr =
+            let in_port_00 = [| "" |] in
+            let out_port_00 = [| "" |] in
+            If1.add_node_2 (`Simple (op, in_port_00, out_port_00, [])) in_gr
+          in
+          let in_gr =
+            List.fold_left
+              (fun (cou, g) (l, m, tt) ->
+                (cou + 1, If1.add_edge l m n cou tt g))
+              (0, in_gr) args_res
+            |> snd
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | ("ARRAY_REML" | "ARRAY_REMH") as array_remx ->
@@ -4995,11 +5065,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let expl =
             List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
           in
-          let in_ports = [| ""; "" |] in
-          let out_ports = [| "" |] in
-          let (n, _, _), in_gr =
-            If1.add_node_2 (`Simple (If1.ASETL, in_ports, out_ports, [])) in_gr
-          in
           let array_triple, low_limit_triple =
             match expl with
             | [
@@ -5017,9 +5082,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (low_limit_node_id, low_limit_port, low_limit_type_id) ) =
             (array_triple, low_limit_triple)
           in
+          let is_dv = If1.is_array_dv array_type_id in_gr in
           let _ =
             match If1.lookup_ty array_type_id in_gr with
-            | Array_ty _ -> ()
+            | Array_ty _ | Array_dv _ -> ()
             | _ ->
                 failwith
                   ("Incorrect type for array-setl; "
@@ -5045,15 +5111,20 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   ^ If1.printable_full_type (If1.get_typemap_tm in_gr)
                       low_limit_type_id)
           in
+          let op = if is_dv then If1.DV_SETL else If1.ASETL in
+          let in_ports = [| ""; "" |] in
+          let out_ports = [| "" |] in
+          let (n, _, _), in_gr =
+            If1.add_node_2 (`Simple (op, in_ports, out_ports, [])) in_gr
+          in
           let in_gr =
             If1.add_edge2 low_limit_node_id low_limit_port n 1 low_limit_type_id
               (If1.add_edge2 array_node_id array_port n 0 array_type_id in_gr)
           in
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
-          (* array_fill builds a plain array; an array_dv result is obtained by
-             the declared target type (coercion), not a global mode. *)
-          let opcode = If1.AFILL in
+          (* array_fill builds an array_dv (DVAFILL) -- result type array_dv[T]. *)
+          let opcode = If1.DVAFILL in
           let in_ports = [| ""; ""; "" |] in
           let out_ports = [| "" |] in
 
@@ -5077,7 +5148,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
 
                 let (arr_ty_id, _, _), in_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_ty array_element_ty)
+                  If1.add_type_to_typemap_dedup (If1.Array_dv array_element_ty)
                     in_gr
                 in
                 (arr_ty_id, in_gr)
@@ -5086,11 +5157,42 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
           ((n, 0, final_ty), in_gr)
       | "ARRAY_SIZE" | "ARRAY_PREFIXSIZE" ->
+          let aexps =
+            match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
+          in
+          let args_res, in_gr =
+            List.fold_left
+              (fun (acc, g) x ->
+                let r, g = do_simple_exp g x in
+                (r :: acc, g))
+              ([], in_gr) aexps
+          in
+          let args_res = List.rev args_res in
+          let is_dv =
+            match args_res with
+            | (_, _, arr_ty) :: _ -> If1.is_array_dv arr_ty in_gr
+            | _ -> false
+          in
+          let op = if is_dv then If1.DV_SIZE else If1.ASIZE in
+          let in_port_00 = [| "" |] in
+          let out_port_00 = [| "" |] in
+          let (n, _, _), in_gr =
+            If1.add_node_2 (`Simple (op, in_port_00, out_port_00, [])) in_gr
+          in
+          let in_gr =
+            List.fold_left
+              (fun (cou, g) (l, m, tt) ->
+                (cou + 1, If1.add_edge l m n cou tt g))
+              (0, in_gr) args_res
+            |> snd
+          in
+          ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
+      | "DV_FLAT_SIZE" ->
           let in_port_00 = [| "" |] in
           let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
             If1.add_node_2
-              (`Simple (If1.ASIZE, in_port_00, out_port_00, []))
+              (`Simple (If1.DV_FLAT_SIZE, in_port_00, out_port_00, []))
               in_gr
           in
           let _, in_gr =
@@ -5117,8 +5219,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (If1.Sem_error "innerproduct() requires exactly two arguments");
           let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth args 0) in
           let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth args 1) in
-          let at_is_dv = match If1.lookup_type_opt at in_gr with
-            | Some (If1.Array_dv _) -> true | _ -> false in
+          let at_is_dv =
+            match If1.lookup_type_opt at in_gr with
+            | Some (If1.Array_dv _) -> true
+            | _ -> false
+          in
           if at_is_dv then begin
             (* DV arrays: rank is a runtime property — emit INNERPRODUCT_NODE.
                Result type = the input array type (array_dv[T]); the result is
@@ -5126,13 +5231,18 @@ and do_simple_exp_impl in_gr in_sim_ex =
                Caller indexes [1] to extract a scalar when needed. *)
             let (rn, rp, _), in_gr =
               If1.add_node_2
-                (`Simple (If1.INNERPRODUCT_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+                (`Simple
+                   ( If1.INNERPRODUCT_NODE,
+                     [| ""; "" |],
+                     [| "" |],
+                     [ If1.No_pragma ] ))
                 in_gr
             in
             let in_gr = If1.add_edge an ap rn 0 at in_gr in
             let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
             ((rn, rp, at), in_gr)
-          end else begin
+          end
+          else begin
             (* Fixed-size vectors/matrices (FLOAT2/3/4, MAT2/3/4): rank is
                a compile-time property of the type — dispatch to specific opcode. *)
             let r1 = get_rank at in_gr in
@@ -5145,10 +5255,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
               | 1, 1 -> (If1.DOT, get_deep_elem_ty at in_gr)
               | _ ->
                   raise
-                    (If1.Sem_error "innerproduct() requires mat or vec arguments")
+                    (If1.Sem_error
+                       "innerproduct() requires mat or vec arguments")
             in
             let (rn, rp, _), in_gr =
-              If1.add_node_2 (`Simple (opcode, [| ""; "" |], [| "" |], [])) in_gr
+              If1.add_node_2
+                (`Simple (opcode, [| ""; "" |], [| "" |], []))
+                in_gr
             in
             let in_gr = If1.add_edge an ap rn 0 at in_gr in
             let in_gr = If1.add_edge bn bp rn 1 bt in_gr in
@@ -5501,22 +5614,41 @@ and do_simple_exp_impl in_gr in_sim_ex =
               in_gr
           else
             let up_fn = String.uppercase_ascii deref_fn in
-            let expl_ast = match arg with Ast.Arg (Ast.Exp l) -> l | _ -> [] in
+            let expl_ast =
+              match arg with Ast.Arg (Ast.Exp l) -> l | _ -> []
+            in
             if List.mem up_fn [ "PLUS"; "ADD" ] && List.length expl_ast = 2 then
               bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.ADD
-            else if List.mem up_fn [ "MINUS"; "SUB"; "SUBTRACT" ] && List.length expl_ast = 2 then
-              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.SUBTRACT
-            else if List.mem up_fn [ "TIMES"; "MUL"; "MULTIPLY" ] && List.length expl_ast = 2 then
-              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr If1.TIMES
-            else if List.mem up_fn [ "DIVIDE"; "DIV" ] && List.length expl_ast = 2 then
+            else if
+              List.mem up_fn [ "MINUS"; "SUB"; "SUBTRACT" ]
+              && List.length expl_ast = 2
+            then
+              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr
+                If1.SUBTRACT
+            else if
+              List.mem up_fn [ "TIMES"; "MUL"; "MULTIPLY" ]
+              && List.length expl_ast = 2
+            then
+              bin_exp (List.nth expl_ast 0) (List.nth expl_ast 1) in_gr
+                If1.TIMES
+            else if
+              List.mem up_fn [ "DIVIDE"; "DIV" ] && List.length expl_ast = 2
+            then
               let left = List.nth expl_ast 0 in
               let right = List.nth expl_ast 1 in
               let (nod1, por1, ty1), in_gr = do_simple_exp in_gr left in
-              let op = if If1.is_real_type (If1.lookup_ty ty1 in_gr) then If1.FDIVIDE else If1.IDIVIDE in
+              let op =
+                if If1.is_real_type (If1.lookup_ty ty1 in_gr) then If1.FDIVIDE
+                else If1.IDIVIDE
+              in
               bin_exp left right in_gr op
             else if up_fn = "DV_LOAD_LINEAR" && List.length expl_ast = 2 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (on_, op_, ot), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (on_, op_, ot), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
               let elem_ty =
                 match If1.lookup_ty at in_gr with
                 | If1.Array_dv et -> et
@@ -5530,12 +5662,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge an ap n 0 at in_gr in
               let in_gr = If1.add_edge on_ op_ n 1 ot in_gr in
               ((n, 0, elem_ty), in_gr)
-            (* Broadcast-pipeline primitives exposed for bottom-up testing
+              (* Broadcast-pipeline primitives exposed for bottom-up testing
                (docs/broadcast_test_plan.md).  These are normally synthesized by
                the `A + B` lift; calling them by name lets each leaf be checked in
                isolation, like the gaussj parts. *)
             else if up_fn = "DV_NUM_RANK" && List.length expl_ast = 1 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
               let (n, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
@@ -5544,9 +5678,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge an ap n 0 at in_gr in
               ((n, 0, If1.lookup_tyid If1.INTEGRAL), in_gr)
             else if up_fn = "DV_OFFSET_AT" && List.length expl_ast = 3 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (in_, ip_, it_), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
-              let (sn_, sp_, st_), in_gr = do_simple_exp in_gr (List.nth expl_ast 2) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (in_, ip_, it_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
+              let (sn_, sp_, st_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 2)
+              in
               let (n, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_OFFSET_AT, [| ""; ""; "" |], [| "" |], []))
@@ -5556,9 +5696,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge in_ ip_ n 1 it_ in_gr in
               let in_gr = If1.add_edge sn_ sp_ n 2 st_ in_gr in
               ((n, 0, If1.lookup_tyid If1.INTEGRAL), in_gr)
-            else if up_fn = "DV_RESHAPE_BY_SHAPE" && List.length expl_ast = 2 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (sn_, sp_, st_), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
+            else if up_fn = "DV_RESHAPE_BY_SHAPE" && List.length expl_ast = 2
+            then
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (sn_, sp_, st_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
               let (n, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_RESHAPE_BY_SHAPE, [| ""; "" |], [| "" |], []))
@@ -5568,8 +5713,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge sn_ sp_ n 1 st_ in_gr in
               ((n, 0, at), in_gr)
             else if up_fn = "DV_CONFORM" && List.length expl_ast = 2 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (bn, bp, bt), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (bn, bp, bt), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
               let (n, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_CONFORM, [| ""; "" |], [| "" |], []))
@@ -5579,8 +5728,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge bn bp n 1 bt in_gr in
               ((n, 0, If1.lookup_tyid If1.BOOLEAN), in_gr)
             else if up_fn = "DV_ELEMENT" && List.length expl_ast = 2 then
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (on_, op_, ot), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (on_, op_, ot), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
               let elem_ty =
                 match If1.lookup_ty at in_gr with
                 | If1.Array_dv et -> et
@@ -5596,9 +5749,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
               ((n, 0, elem_ty), in_gr)
             else if up_fn = "DV_ELEMENT" && List.length expl_ast = 3 then
               (* 2-D load: DV_ELEMENT(A, i, j) = DV_ELEMENT(DV_ELEMENT(A, i), j) *)
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (in_, ip_, it_), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
-              let (jn_, jp_, jt_), in_gr = do_simple_exp in_gr (List.nth expl_ast 2) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (in_, ip_, it_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
+              let (jn_, jp_, jt_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 2)
+              in
               let slice_ty = at in
               let elem_ty =
                 match If1.lookup_ty at in_gr with
@@ -5622,8 +5781,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
               ((n2, 0, elem_ty), in_gr)
             else if up_fn = "DV_RANK_REDUCE" && List.length expl_ast = 2 then
               (* DV_RANK_REDUCE(A, i): drop the leading axis at i; output stays array_dv. *)
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (on_, op_, ot), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (on_, op_, ot), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
               let (n, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_RANK_REDUCE, [| ""; "" |], [| "" |], []))
@@ -5634,9 +5797,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
               ((n, 0, at), in_gr)
             else if up_fn = "DV_RANK_REDUCE" && List.length expl_ast = 3 then
               (* DV_RANK_REDUCE(A, i, j): drop two leading axes = chain two rank-reduces. *)
-              let (an, ap, at), in_gr = do_simple_exp in_gr (List.nth expl_ast 0) in
-              let (in_, ip_, it_), in_gr = do_simple_exp in_gr (List.nth expl_ast 1) in
-              let (jn_, jp_, jt_), in_gr = do_simple_exp in_gr (List.nth expl_ast 2) in
+              let (an, ap, at), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 0)
+              in
+              let (in_, ip_, it_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 1)
+              in
+              let (jn_, jp_, jt_), in_gr =
+                do_simple_exp in_gr (List.nth expl_ast 2)
+              in
               let (n1, _, _), in_gr =
                 If1.add_node_2
                   (`Simple (If1.DV_RANK_REDUCE, [| ""; "" |], [| "" |], []))
@@ -5678,25 +5847,26 @@ and do_simple_exp_impl in_gr in_sim_ex =
                             (String.concat ""
                                (List.map If1.short_name_for_intrinsic arg_types))
                         in
-                      (* 3. Optimize prefix lookup *)
-                      match If1.lookup_mangled_name target_prefix with
-                      | Some id -> id
-                      | None -> (
-                          (* 4. Final Fallback: The "Discovery" scan *)
-                          let discovered =
-                            If1.lookup_partial_mangled_name target_prefix
-                          in
-                          match discovered with
-                          | Some (_, id) -> id
-                          | None ->
-                              print_endline ("ARGUMENTS ARE " ^ Ast.str_arg arg);
-                              flush stdout;
-                              raise
-                                (If1.Sem_error
-                                   (If1.If1_View.export_debug_html
-                                      "CRASHED_.html" in_gr;
-                                    "Unknown function: " ^ deref_fn
-                                    ^ " target prefix " ^ target_prefix)))))
+                        (* 3. Optimize prefix lookup *)
+                        match If1.lookup_mangled_name target_prefix with
+                        | Some id -> id
+                        | None -> (
+                            (* 4. Final Fallback: The "Discovery" scan *)
+                            let discovered =
+                              If1.lookup_partial_mangled_name target_prefix
+                            in
+                            match discovered with
+                            | Some (_, id) -> id
+                            | None ->
+                                print_endline
+                                  ("ARGUMENTS ARE " ^ Ast.str_arg arg);
+                                flush stdout;
+                                raise
+                                  (If1.Sem_error
+                                     (If1.If1_View.export_debug_html
+                                        "CRASHED_.html" in_gr;
+                                      "Unknown function: " ^ deref_fn
+                                      ^ " target prefix " ^ target_prefix)))))
               in
               let deref_fn = symtab_entry.val_name in
               let in_port_00 = Array.make (List.length expl) "" in
@@ -5778,9 +5948,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                       raise (If1.Sem_error msg)
                 in
                 let (arrnum, arrport, _), g =
-                  If1.add_node_2
-                    (`Simple (op, [| ""; "" |], [| "" |], []))
-                    g
+                  If1.add_node_2 (`Simple (op, [| ""; "" |], [| "" |], [])) g
                 in
                 let g = If1.add_edge aaa bbb arrnum 0 cur_att g in
                 let g = If1.add_edge idxnum idxport arrnum 1 it_ty g in
@@ -5813,7 +5981,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* 3. Add the Compound Node (add_node_2 will handle the 1-to-1 Propagator internally) *)
       let (aa, _, _), in_gr =
         If1.add_node_2
-          (`Compound (let_gr, If1.INTERNAL, 0, [ If1.Name "LET_REC"; If1.Compound_of If1.If1_Unknown ], []))
+          (`Compound
+             ( let_gr,
+               If1.INTERNAL,
+               0,
+               [ If1.Name "LET_REC"; If1.Compound_of If1.If1_Unknown ],
+               [] ))
           in_gr
       in
       let let_gr, in_gr = wire_all_syms_to_compound aa let_gr in_gr in
@@ -5924,9 +6097,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
   (*| Tuple x -> (* Make a tuple type and insert it with a type*)*)
   | Array_generator_named tn ->
       let (bb, pp, _), in_gr =
-        If1.add_node_2
-          (`Simple (If1.ABUILD, [| "" |], [| "" |], []))
-          in_gr
+        If1.add_node_2 (`Simple (If1.DVABUILD, [| "" |], [| "" |], [])) in_gr
       in
       let tt = If1.lookup_by_typename in_gr tn in
       ((bb, pp, tt), in_gr)
@@ -5936,55 +6107,75 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | Array_generator_unnamed ep -> array_builder_exp in_gr ep
   | Array_replace (p, epl) ->
       let (sn, sp, arr_type), in_gr = do_simple_exp in_gr p in
+      (* Generic per-index-list update -- the mirror of the read's lower_indices.
+         For index list [i1 .. ik] (optionally `..`-terminated): peel each leading
+         concrete index with DV_RANK_REDUCE, do the innermost replace, then rebuild
+         every peeled level with DV_RANK_REPLACE.  Innermost cases:
+           [i]            -> AREPLACE(a, i, value)        (scalar element)
+           i :: .. :: _   -> DV_RANK_REPLACE(a, i, slab)  (rank-(N-1) slab)
+           [..]           -> value                         (replace whole array)
+         No rank/shape assumption: 1-D & N-D element updates and N-D slice updates
+         are all covered here. *)
+      let rec write_at values ((a_sn, a_sp, a_ty), g) = function
+        | [ Ast.Dotdot ] -> do_exp g values
+        | [ idx ] ->
+            let aexp = match values with Ast.Exp e -> e | _ -> [] in
+            let bbu, g = If1.map_exp g aexp [] do_simple_exp in
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let is_dv = If1.is_array_dv a_ty g in
+            let op = if is_dv then If1.DV_REPLACE else If1.AREPLACE in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple (op, Array.make (List.length aexp + 2) "", [| "" |], []))
+                g
+            in
+            let g =
+              If1.add_edge idxn idxp bb 1 it
+                (If1.add_edge a_sn a_sp bb 0 a_ty g)
+            in
+            ((bb, pp, a_ty), add_edges_in_list bbu bb 2 g)
+        | idx :: Ast.Dotdot :: _ ->
+            let (vn, vp, vt), g = do_exp g values in
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp bb 0 a_ty g in
+            let g = If1.add_edge idxn idxp bb 1 it g in
+            let g = If1.add_edge vn vp bb 2 vt g in
+            ((bb, pp, a_ty), g)
+        | idx :: rest ->
+            let (idxn, idxp, it), g = do_simple_exp g idx in
+            let (rn, rp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REDUCE, [| ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp rn 0 a_ty g in
+            let g = If1.add_edge idxn idxp rn 1 it g in
+            let (new_sn, new_sp, new_ty), g =
+              write_at values ((rn, rp, a_ty), g) rest
+            in
+            let (bb, pp, _), g =
+              If1.add_node_2
+                (`Simple (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
+                g
+            in
+            let g = If1.add_edge a_sn a_sp bb 0 a_ty g in
+            let g = If1.add_edge idxn idxp bb 1 it g in
+            let g = If1.add_edge new_sn new_sp bb 2 new_ty g in
+            ((bb, pp, a_ty), g)
+        | [] -> failwith "Badly formed array replace (empty index list)"
+      in
       let rec do_array_replace ((sn, sp), in_gr) = function
         | Ast.SExpr_pair (idx, values) :: tl ->
             let idx_items = match idx with Ast.Exp l -> l | _ -> [] in
-            let has_dotdot = List.exists (fun x -> x = Ast.Dotdot) idx_items in
-            let (al, ap), in_gr =
-              if has_dotdot then (
-                (* Slice replace: A[lead, .. : slice] -> DV_RANK_REPLACE(A, lead, slice).
-                   The '..' makes the target rank explicit (a rank-(N-1) slab). *)
-                match idx_items with
-                | [ lead; Ast.Dotdot ] ->
-                    let (vn, vp, vt), in_gr = do_exp in_gr values in
-                    let (idxn, idxp, idxt), in_gr = do_simple_exp in_gr lead in
-                    let (bb, pp, _), in_gr =
-                      If1.add_node_2
-                        (`Simple
-                           (If1.DV_RANK_REPLACE, [| ""; ""; "" |], [| "" |], []))
-                        in_gr
-                    in
-                    let in_gr = If1.add_edge sn sp bb 0 arr_type in_gr in
-                    let in_gr = If1.add_edge idxn idxp bb 1 idxt in_gr in
-                    let in_gr = If1.add_edge vn vp bb 2 vt in_gr in
-                    ((bb, pp), in_gr)
-                | _ ->
-                    raise
-                      (If1.Sem_error
-                         "slice replace: only A[i, .. : value] supported for now"))
-              else
-              match values with
-              | Empty -> failwith "Badly formed array replace"
-              | Ast.Exp aexp ->
-                  let bbu, in_gr = If1.map_exp in_gr aexp [] do_simple_exp in
-                  let (idxnum, idxport, t2), in_gr = do_exp in_gr idx in
-                  let (bb, pp, _), in_gr =
-                    If1.add_node_2
-                      (`Simple
-                         ( If1.AREPLACE,
-                           Array.make (List.length aexp + 2) "",
-                           [| "" |],
-                           [] ))
-                      in_gr
-                  in
-                  let in_gr =
-                    If1.add_edge idxnum idxport bb 1 t2
-                      (If1.add_edge sn sp bb 0 arr_type in_gr)
-                  in
-                  ((bb, pp), add_edges_in_list bbu bb 2 in_gr)
+            let (al, ap, _), in_gr =
+              write_at values ((sn, sp, arr_type), in_gr) idx_items
             in
-            let (tan, tap), in_gr = do_array_replace ((al, ap), in_gr) tl in
-            ((tan, tap), in_gr)
+            do_array_replace ((al, ap), in_gr) tl
         | [] -> ((sn, sp), in_gr)
       in
       let (oa, oup), in_gr = do_array_replace ((sn, sp), in_gr) epl in
@@ -6067,8 +6258,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let (bb, pp, _), in_gr =
           let in_porst = [| fn; "" |] in
           If1.add_node_2
-            (`Simple
-               (If1.RELEMENTS, in_porst, [| "" |], [ If1.No_pragma ]))
+            (`Simple (If1.RELEMENTS, in_porst, [| "" |], [ If1.No_pragma ]))
             in_gr
         in
         ((bb, pp, tt2), If1.add_edge ain apo bb 1 tt1 in_gr)
@@ -6118,8 +6308,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let (bb, pp, _), in_gr =
           let in_porst = [| Ast.str_simple_exp re; "" |] in
           If1.add_node_2
-            (`Simple
-               (If1.RELEMENTS, in_porst, [| ""; "" |], [ If1.No_pragma ]))
+            (`Simple (If1.RELEMENTS, in_porst, [| ""; "" |], [ If1.No_pragma ]))
             in_gr
         in
         ( (bb, pp, elem_ty),
@@ -6136,10 +6325,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     let (bb, bp, _), in_gr =
                       If1.add_node_2
                         (`Simple
-                           ( If1.RREPLACE,
-                             in_porst,
-                             [| "" |],
-                             [ If1.No_pragma ] ))
+                           (If1.RREPLACE, in_porst, [| "" |], [ If1.No_pragma ]))
                         in_gr
                     in
                     ((bb, bp, tt), If1.add_edge fe ff bb 0 inctt in_gr)
@@ -6168,8 +6354,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let ty_id = If1.lookup_by_typename in_gr tn in
       let (n, p, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.SBUILD, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ((n, p, ty_id), in_gr)
@@ -6250,7 +6435,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           let (aa, _, _), tagcase_gr =
             If1.add_node_2
-              (`Compound (gr_o, If1.INTERNAL, 0, [ If1.Name "OTHERWISE"; If1.Compound_of If1.If1_tagcase_arm ], []))
+              (`Compound
+                 ( gr_o,
+                   If1.INTERNAL,
+                   0,
+                   [ If1.Name "OTHERWISE"; If1.Compound_of If1.If1_tagcase_arm ],
+                   [] ))
               tagcase_gr_
           in
           let gr_o, tagcase_gr = wire_all_syms_to_compound aa gr_o tagcase_gr in
@@ -6338,8 +6528,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let typecast_out_type = If1.lookup_tyid (If1.get_typecast_type pn) in
       let (typecast_node, typecast_out_port, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.TYPECAST, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       ( (typecast_node, typecast_out_port, typecast_out_type),
@@ -6373,13 +6562,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
          compound's output ports (which mirror the subgraph's boundary outputs).
          Returns (compound_n, multiarity_n, updated_outer_gr). *)
       let build_compound_and_ma sub_gr ty_lis pragmas outer_gr =
-        let c_of = match List.find_map (function If1.Name s -> Some s | _ -> None) pragmas with
+        let c_of =
+          match
+            List.find_map (function If1.Name s -> Some s | _ -> None) pragmas
+          with
           | Some "THEN" -> If1.If1_then
           | Some "ELSE" -> If1.If1_else
-          | _ -> If1.If1_Unknown in
+          | _ -> If1.If1_Unknown
+        in
         let pragmas = If1.Compound_of c_of :: pragmas in
         let (cn, _, _), outer_gr =
-          If1.add_node_2 (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, [])) outer_gr
+          If1.add_node_2
+            (`Compound (sub_gr, If1.INTERNAL, 0, pragmas, []))
+            outer_gr
         in
 
         let _, outer_gr = wire_all_syms_to_compound cn sub_gr outer_gr in
@@ -6401,7 +6596,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* 1. Build predicate first to establish symbol order in boundary *)
             to_if1_msg 3 "If: lowering PREDICATE: %s" (Ast.str_exp predicate);
             let pred_out, predicate_gr =
-              let n_g = (If1.get_a_new_graph in_gr_if) in
+              let n_g = If1.get_a_new_graph in_gr_if in
               do_exp n_g predicate
             in
 
@@ -6423,16 +6618,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
                        If1.Compound_of If1.If1_predicate;
                        If1.Ast_type (Ast.str_exp predicate);
                      ],
-
                      [] ))
                 in_gr_if
             in
-            let _, in_gr_if = wire_all_syms_to_compound pn predicate_gr in_gr_if in
+            let _, in_gr_if =
+              wire_all_syms_to_compound pn predicate_gr in_gr_if
+            in
 
             (* 2. Build else chain *)
             to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
             let ty_lis_else, else_gr =
-              let grr_th = (If1.get_a_new_graph in_gr_if) in
+              let grr_th = If1.get_a_new_graph in_gr_if in
               if_builder tl grr_th els
             in
             let else_cn, else_ma, in_gr_if =
@@ -6595,49 +6791,28 @@ and do_simple_exp_impl in_gr in_sim_ex =
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
-      (* OLD add_decls — kept for reference, commented out
-      let add_decls in_gr dp =
-        to_if1_msg 3 "For_initial: lowering INIT";
-        let build_init_graph in_gr =
-          let init_gr =
-            get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr
-          in
-          init_gr
-        in
-        let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
-        let _, out_gr =
-          let cs = fst out_gr.If1.symtab in
-          If1.SM.fold
-            (fun _
-                 {
-                   If1.val_name = _;
-                   If1.val_ty = t1;
-                   If1.val_def = dd;
-                   If1.def_port = dp;
-                 } (op, out_gr) ->
-              if dd <> 0 then (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
-              else (op, out_gr))
-            cs
-            (If1.boundary_in_port_count out_gr, out_gr)
-        in
-        (xyz, out_gr)
-      in
-      *)
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
         let build_init_graph in_gr =
           If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
         in
-        let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
-        (* A carry seeded by a pass-through alias (`A := Ain`) has val_def = 0 (it aliases
-           a boundary input), so the old `dd <> 0` gate dropped it from INIT's outputs and
-           it never became a loop carry / got a MERGE.  The right test is whether the name
-           is FRESH to the INIT clause -- i.e. NOT already in the parent symtab.  Inherited
-           externals (N, AIN) are in the parent; freshly-bound carries (I, A) are not, so
-           they (and their OLD counterparts) must land on the INIT outputs. *)
-        let parent_syms = fst in_gr.If1.symtab in
-        let is_init_bound v = not (If1.SM.mem v parent_syms) in
+        let init_gr = build_init_graph in_gr in
+        let xyz, out_gr = do_decldef_part init_gr dp in
+        (* A local-symtab name becomes a carry (gets an INIT output seeding a MERGE)
+           iff it is NOT a boundary INPUT of out_gr.  Rationale:
+           after lowering the decldefs, captured/inherited values (X, P, OLD A) live
+           on the boundary input-list; decldef-bound carries (A, K, XT, I) do not --
+           even when a carry aliases a boundary value (`A := X` makes A.val_def=0 like
+           a boundary input), A is still absent from the boundary input-list.  So
+           "not in boundary in-list" cleanly separates carries from captures, where the
+           old "val_def<>0" and "not in parent CS" tests both failed. *)
+        let boundary_in_names =
+          List.map
+            (fun (_, _, name, _) -> name)
+            (If1.get_boundary_inputs out_gr)
+        in
+        let is_init_bound v = not (List.mem v boundary_in_names) in
         let _, out_gr =
           let cs = fst out_gr.If1.symtab in
           (* First pass: export current values *)
@@ -6650,7 +6825,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      If1.val_def = dd;
                      If1.def_port = dp;
                    } (op, out_gr) ->
-                if dd <> 0 || is_init_bound v then (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
+                if dd <> 0 || is_init_bound v then
+                  (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
                 else (op, out_gr))
               cs
               (If1.boundary_out_port_count out_gr, out_gr)
@@ -6669,12 +6845,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let out_gr = If1.add_edge dd dp 0 op t1 out_gr in
                 let cs', ps = out_gr.If1.symtab in
                 let out_gr =
-                  { out_gr with If1.symtab =
-                    ( If1.SM.add old_name
-                        { If1.val_name = old_name; If1.val_ty = t1;
-                          If1.val_def = dd; If1.def_port = dp }
-                        cs',
-                      ps ) }
+                  {
+                    out_gr with
+                    If1.symtab =
+                      ( If1.SM.add old_name
+                          {
+                            If1.val_name = old_name;
+                            If1.val_ty = t1;
+                            If1.val_def = dd;
+                            If1.def_port = dp;
+                          }
+                          cs',
+                        ps );
+                  }
                 in
                 (op + 1, out_gr)
               else (op, out_gr))
@@ -6704,25 +6887,26 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
-        If1.If1_View.export_debug_html "BEFORE.html" body_gr;
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
-        If1.If1_View.export_debug_html "AFTER.html" body_gr;
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
       let add_comp_node in_gr namen ?(prag = "") to_gr =
-        let c_of = match namen with
+        let c_of =
+          match namen with
           | "INIT" -> If1.If1_loop_initial
           | "TEST" -> If1.If1_loop_test
           | "BODY" -> If1.If1_body
           | "RETURNS" | "RETURN" -> If1.If1_results
           | "FORALL" -> If1.If1_forall
           | "GENERATOR" -> If1.If1_generator
-          | _ -> If1.If1_Unknown in
+          | _ -> If1.If1_Unknown
+        in
         let prags =
-          if prag <> "" then [ If1.Name namen; If1.Ast_type prag; If1.Compound_of c_of ]
+          if prag <> "" then
+            [ If1.Name namen; If1.Ast_type prag; If1.Compound_of c_of ]
           else [ If1.Name namen; If1.Compound_of c_of ]
         in
         let (cn, _, _), on =
@@ -6736,23 +6920,36 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let loopAOrB i in_gr =
         match i with
         | Ast.Iterator_termination (ii, t) ->
-            (* OLD LoopA lowering — commented out, rewriting from scratch
             to_if1_msg 3 "LoopA: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
-            let body_gr, return_action_list, _, mask_ty_list =
+            to_if1_msg 3 "LoopA: building BODY iterator: %s"
+              (Ast.str_iterator ii);
+            let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
               add_body_for_initial decl_gr ii r
             in
+            to_if1_msg 3 "LoopA: building TEST termination: %s"
+              (Ast.str_termination t);
             let (_, _, _), test_gr = add_terminator body_gr t in
-            let (_, _, _), for_gr, return_action_list =
-              add_ret body_gr return_action_list mask_ty_list
-                (String.concat "\n" (List.map Ast.str_return_clause r))
-            in
+            to_if1_msg 3 "LoopA: building RETURNS (%d clauses)"
+              (List.length return_action_list);
+            let for_gr = If1.get_a_new_graph in_gr in
             let for_gr =
               add_comp_node body_gr "BODY"
                 ~prag:
                   (Ast.str_decldef_part (`Loop_type d)
                   ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
                 for_gr
+            in
+            let (ret_cn, _, _), for_gr, return_action_list =
+              add_ret_loopB decl_gr for_gr body_gr return_action_list
+                ret_tuple_list mask_ty_list
+                (String.concat "\n" (List.map Ast.str_return_clause r))
+            in
+            let for_gr =
+              List.fold_left
+                (fun fg (_, tt, ret_port) ->
+                  If1.add_to_boundary_outputs ret_cn ret_port tt fg)
+                for_gr return_action_list
             in
             let for_gr =
               add_comp_node test_gr "TEST"
@@ -6764,85 +6961,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 ~prag:(Ast.str_decldef_part (`Loop_type d))
                 for_gr
             in
-            let for_gr = get_ports_unified for_gr body_gr decl_gr in
-            let (fx, _, _), in_gr =
-              If1.add_node_2
-                (`Compound
-                   ( for_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name "LoopA";
-                       If1.Compound_of If1.If1_loop_initial;
-                       If1.Ast_type (Ast.str_simple_exp finit);
-                     ],
-                     let lis = get_assoc_list_loopAOrB for_gr in
-                     List.length lis :: lis ))
-                in_gr
-            in
-            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
-            verify_compound_inputs fx for_gr in_gr;
-            let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity
-                (List.length return_action_list)
-                in_gr ~nam:"FOR_INITIAL_LOOP_A"
-            in
-            let _, outl, in_gr =
-              List.fold_left
-                (fun (cc, outl, iigr) (wh, tt, aa) ->
-                  ( cc + 1,
-                    outl @ [ (wh, tt, fx, cc) ],
-                    If1.add_edge2 fx aa mul_n cc tt iigr ))
-                (0, [], in_gr) return_action_list
-            in
-            ((mul_n, mul_p, mul_t), outl, in_gr)
-            *)
-            (* NEW LoopA lowering *)
-            to_if1_msg 3 "LoopA: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
-            to_if1_msg 3 "LoopA: building BODY iterator: %s"
-              (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
-              add_body_for_initial decl_gr ii r
-            in
-            to_if1_msg 3 "LoopA: building TEST termination: %s"
-              (Ast.str_termination t);
-            let (_, _, _), test_gr = add_terminator body_gr t in
-            to_if1_msg 3 "LoopA: building RETURNS (%d clauses)"
-              (List.length return_action_list);
-            let for_gr = If1.get_a_new_graph in_gr in
-            let for_gr = add_comp_node body_gr "BODY"
-              ~prag:(Ast.str_decldef_part (`Loop_type d)
-                     ^ "\n" ^ Ast.str_iterator ii
-                     ^ "\n" ^ Ast.str_termination t)
-              for_gr
-            in
-            let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list
-                (String.concat "\n" (List.map Ast.str_return_clause r))
-            in
-            let for_gr =
-              List.fold_left (fun fg (_, tt, ret_port) ->
-                If1.add_to_boundary_outputs ret_cn ret_port tt fg)
-              for_gr return_action_list
-            in
-            let for_gr = add_comp_node test_gr "TEST"
-              ~prag:(Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
-              for_gr
-            in
-            let for_gr = add_comp_node decl_gr "INIT"
-              ~prag:(Ast.str_decldef_part (`Loop_type d))
-              for_gr
-            in
             let for_gr =
               let find_cn lname gr =
-                If1.NM.fold (fun nid node acc ->
-                  match node with
-                  | If1.Compound (_, _, _, prags, _, _)
-                    when List.exists
-                           (function If1.Name n -> n = lname | _ -> false) prags ->
-                      nid
-                  | _ -> acc)
+                If1.NM.fold
+                  (fun nid node acc ->
+                    match node with
+                    | If1.Compound (_, _, _, prags, _, _)
+                      when List.exists
+                             (function If1.Name n -> n = lname | _ -> false)
+                             prags ->
+                        nid
+                    | _ -> acc)
                   gr.If1.nmap (-1)
               in
               let body_cn = find_cn "BODY" for_gr in
@@ -6850,40 +6979,46 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let init_cn = find_cn "INIT" for_gr in
               let get_ins sg =
                 match If1.NM.find_opt 0 sg.If1.nmap with
-                | Some (If1.Boundary (ins, _, _, _)) -> ins | _ -> []
+                | Some (If1.Boundary (ins, _, _, _)) -> ins
+                | _ -> []
               in
               let init_ports =
                 let cs = fst decl_gr.If1.symtab in
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is any name FRESH to the INIT clause (not inherited from the
-                   parent), so a pass-through alias (A := Ain, val_def = 0) counts too --
-                   mirrors the INIT-output export in add_decls. *)
-                let parent_syms = fst in_gr.If1.symtab in
-                let is_carry v e = (e.If1.val_def <> 0 || not (If1.SM.mem v parent_syms))
-                                   && not (is_old v) in
+                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
+                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
+                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
+                let init_in_names =
+                  List.map
+                    (fun (_, _, name, _) -> name)
+                    (If1.get_boundary_inputs decl_gr)
+                in
+                let is_carry v _e =
+                  (not (List.mem v init_in_names)) && not (is_old v)
+                in
                 let non_old_count =
-                  If1.SM.fold (fun v e n ->
-                    if is_carry v e then n + 1 else n)
-                  cs 0
+                  If1.SM.fold
+                    (fun v e n -> if is_carry v e then n + 1 else n)
+                    cs 0
                 in
                 let start =
-                  If1.boundary_out_port_count decl_gr - 2 * non_old_count
+                  If1.boundary_out_port_count decl_gr - (2 * non_old_count)
                 in
                 let lst1, p1 =
-                  If1.SM.fold (fun v e (acc, p) ->
-                    if is_carry v e
-                    then (acc @ [(v, p)], p + 1)
-                    else (acc, p))
-                  cs ([], start)
+                  If1.SM.fold
+                    (fun v e (acc, p) ->
+                      if is_carry v e then (acc @ [ (v, p) ], p + 1)
+                      else (acc, p))
+                    cs ([], start)
                 in
                 let lst2, _ =
-                  If1.SM.fold (fun v e (acc, p) ->
-                    if is_carry v e
-                    then (acc @ [("OLD " ^ v, p)], p + 1)
-                    else (acc, p))
-                  cs ([], p1)
+                  If1.SM.fold
+                    (fun v e (acc, p) ->
+                      if is_carry v e then (acc @ [ ("OLD " ^ v, p) ], p + 1)
+                      else (acc, p))
+                    cs ([], p1)
                 in
                 lst1 @ lst2
               in
@@ -6897,43 +7032,57 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let update_compound () =
                   match If1.NM.find_opt consumer_cn !fg_ref.If1.nmap with
                   | Some (If1.Compound (lab, sy, ty, pl, _, assoc)) ->
-                      fg_ref := { !fg_ref with If1.nmap =
-                        If1.NM.add consumer_cn
-                          (If1.Compound (lab, sy, ty, pl, !sg_ref, assoc))
-                          !fg_ref.If1.nmap }
+                      fg_ref :=
+                        {
+                          !fg_ref with
+                          If1.nmap =
+                            If1.NM.add consumer_cn
+                              (If1.Compound (lab, sy, ty, pl, !sg_ref, assoc))
+                              !fg_ref.If1.nmap;
+                        }
                   | _ -> ()
                 in
-                List.iter (fun (name, k) ->
-                  let rec find_pop acc = function
-                    | [] -> (None, List.rev acc)
-                    | (_, _, n, dp) :: rest when n = name ->
-                        (Some dp, List.rev_append acc rest)
-                    | h :: rest -> find_pop (h :: acc) rest
-                  in
-                  let ins_result, rest = find_pop [] !remaining_ins in
-                  match ins_result with
-                  | Some dest_port ->
-                      remaining_ins := rest;
-                      remaining_sym := If1.SM.remove name !remaining_sym;
-                      let ty = match If1.SM.find_opt name merged with
-                        | Some e -> e.If1.val_ty | None -> 0 in
-                      to_if1_msg 3 "LoopA wire[%s]: init%d:%d → cn%d:%d (%s) [ins]"
-                        label init_cn k consumer_cn dest_port name;
-                      fg_ref := If1.add_edge init_cn k consumer_cn dest_port ty !fg_ref
-                  | None ->
-                      (match If1.SM.find_opt name !remaining_sym with
-                      | None -> ()
-                      | Some e ->
-                          remaining_sym := If1.SM.remove name !remaining_sym;
-                          let new_port, new_sg =
-                            If1.add_to_boundary_inputs ~namen:name 0 0 !sg_ref in
-                          sg_ref := new_sg;
-                          update_compound ();
-                          to_if1_msg 3 "LoopA wire[%s]: init%d:%d → cn%d:%d (%s) [new]"
-                            label init_cn k consumer_cn new_port name;
-                          fg_ref := If1.add_edge init_cn k consumer_cn new_port
-                            e.If1.val_ty !fg_ref))
-                init_ports;
+                List.iter
+                  (fun (name, k) ->
+                    let rec find_pop acc = function
+                      | [] -> (None, List.rev acc)
+                      | (_, _, n, dp) :: rest when n = name ->
+                          (Some dp, List.rev_append acc rest)
+                      | h :: rest -> find_pop (h :: acc) rest
+                    in
+                    let ins_result, rest = find_pop [] !remaining_ins in
+                    match ins_result with
+                    | Some dest_port ->
+                        remaining_ins := rest;
+                        remaining_sym := If1.SM.remove name !remaining_sym;
+                        let ty =
+                          match If1.SM.find_opt name merged with
+                          | Some e -> e.If1.val_ty
+                          | None -> 0
+                        in
+                        to_if1_msg 3
+                          "LoopA wire[%s]: init%d:%d → cn%d:%d (%s) [ins]" label
+                          init_cn k consumer_cn dest_port name;
+                        fg_ref :=
+                          If1.add_edge init_cn k consumer_cn dest_port ty
+                            !fg_ref
+                    | None -> (
+                        match If1.SM.find_opt name !remaining_sym with
+                        | None -> ()
+                        | Some e ->
+                            remaining_sym := If1.SM.remove name !remaining_sym;
+                            let new_port, new_sg =
+                              If1.add_to_boundary_inputs ~namen:name 0 0 !sg_ref
+                            in
+                            sg_ref := new_sg;
+                            update_compound ();
+                            to_if1_msg 3
+                              "LoopA wire[%s]: init%d:%d → cn%d:%d (%s) [new]"
+                              label init_cn k consumer_cn new_port name;
+                            fg_ref :=
+                              If1.add_edge init_cn k consumer_cn new_port
+                                e.If1.val_ty !fg_ref))
+                  init_ports;
                 !fg_ref
               in
               (* Wire INIT → BODY only. TEST inherits from BODY, gets edges later. *)
@@ -6941,7 +7090,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let body_pre_port_count =
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
                 If1.ES.fold
                   (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
@@ -6950,7 +7100,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let for_gr =
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
                 let cs = fst body_sg.If1.symtab in
                 let is_old v =
@@ -6958,34 +7109,45 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in
                 let carry_needs_merge = carry_needs_merge_in body_sg in
                 let pass1 =
-                  List.filter_map (fun (name, _) ->
-                    if is_old name then None
-                    else match If1.SM.find_opt name cs with
-                      | Some e when carry_needs_merge name e ->
-                          Some (name, e.If1.val_def, e.If1.def_port, e.If1.val_ty)
-                      | _ -> None)
-                  init_ports
+                  List.filter_map
+                    (fun (name, _) ->
+                      if is_old name then None
+                      else
+                        match If1.SM.find_opt name cs with
+                        | Some e when carry_needs_merge name e ->
+                            Some
+                              (name, e.If1.val_def, e.If1.def_port, e.If1.val_ty)
+                        | _ -> None)
+                    init_ports
                 in
                 let new_sg, k1 =
                   List.fold_left
                     (fun (sg, port) (_, dd, dp, ty) ->
-                      let sg = If1.add_to_boundary_outputs ~start_port:port dd dp ty sg in
+                      let sg =
+                        If1.add_to_boundary_outputs ~start_port:port dd dp ty sg
+                      in
                       (sg, port + 1))
-                    (body_sg, body_pre_port_count) pass1
+                    (body_sg, body_pre_port_count)
+                    pass1
                 in
                 let new_sg, _ =
                   List.fold_left
                     (fun (sg, port) (_, dd, dp, ty) ->
-                      let sg = If1.add_to_boundary_outputs ~start_port:port dd dp ty sg in
+                      let sg =
+                        If1.add_to_boundary_outputs ~start_port:port dd dp ty sg
+                      in
                       (sg, port + 1))
                     (new_sg, k1) pass1
                 in
                 match If1.NM.find_opt body_cn for_gr.If1.nmap with
                 | Some (If1.Compound (lab, sy, nty, pl, _, assoc)) ->
-                    { for_gr with If1.nmap =
-                      If1.NM.add body_cn
-                        (If1.Compound (lab, sy, nty, pl, new_sg, assoc))
-                        for_gr.If1.nmap }
+                    {
+                      for_gr with
+                      If1.nmap =
+                        If1.NM.add body_cn
+                          (If1.Compound (lab, sy, nty, pl, new_sg, assoc))
+                          for_gr.If1.nmap;
+                    }
                 | _ -> for_gr
               in
               (* Wire BODY carry outputs → TEST inputs.
@@ -6993,29 +7155,33 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let pass1_names =
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
                 let cs = fst body_sg.If1.symtab in
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
                 let carry_needs_merge = carry_needs_merge_in body_sg in
-                List.filter_map (fun (name, _) ->
-                  if is_old name then None
-                  else match If1.SM.find_opt name cs with
-                    | Some e when carry_needs_merge name e -> Some name
-                    | _ -> None)
-                init_ports
+                List.filter_map
+                  (fun (name, _) ->
+                    if is_old name then None
+                    else
+                      match If1.SM.find_opt name cs with
+                      | Some e when carry_needs_merge name e -> Some name
+                      | _ -> None)
+                  init_ports
               in
               let carry_out_map =
                 let m, k =
-                  List.fold_left (fun (m, k) name ->
-                    (If1.SM.add name k m, k + 1))
-                    (If1.SM.empty, body_pre_port_count) pass1_names
+                  List.fold_left
+                    (fun (m, k) name -> (If1.SM.add name k m, k + 1))
+                    (If1.SM.empty, body_pre_port_count)
+                    pass1_names
                 in
                 let m, _ =
-                  List.fold_left (fun (m, k) name ->
-                    (If1.SM.add ("OLD " ^ name) k m, k + 1))
+                  List.fold_left
+                    (fun (m, k) name -> (If1.SM.add ("OLD " ^ name) k m, k + 1))
                     (m, k) pass1_names
                 in
                 m
@@ -7023,24 +7189,35 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let for_gr =
                 let test_sg =
                   match If1.NM.find_opt test_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> test_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> test_gr
                 in
                 let test_ins = get_ins test_sg in
-                List.fold_left (fun fg (name, body_port) ->
-                  match List.find_opt (fun (_, _, n, _) -> n = name) test_ins with
-                  | Some (_, _, _, dest_port) ->
-                      let ty =
-                        match If1.SM.find_opt name (fst test_sg.If1.symtab) with
-                        | Some e -> e.If1.val_ty
-                        | None ->
-                            match If1.SM.find_opt name (snd test_sg.If1.symtab) with
-                            | Some e -> e.If1.val_ty | None -> 0
-                      in
-                      to_if1_msg 3 "LoopA wire[TEST]: body%d:%d → test%d:%d (%s)"
-                        body_cn body_port test_cn dest_port name;
-                      If1.add_edge body_cn body_port test_cn dest_port ty fg
-                  | None -> fg)
-                for_gr (If1.SM.bindings carry_out_map)
+                List.fold_left
+                  (fun fg (name, body_port) ->
+                    match
+                      List.find_opt (fun (_, _, n, _) -> n = name) test_ins
+                    with
+                    | Some (_, _, _, dest_port) ->
+                        let ty =
+                          match
+                            If1.SM.find_opt name (fst test_sg.If1.symtab)
+                          with
+                          | Some e -> e.If1.val_ty
+                          | None -> (
+                              match
+                                If1.SM.find_opt name (snd test_sg.If1.symtab)
+                              with
+                              | Some e -> e.If1.val_ty
+                              | None -> 0)
+                        in
+                        to_if1_msg 3
+                          "LoopA wire[TEST]: body%d:%d → test%d:%d (%s)" body_cn
+                          body_port test_cn dest_port name;
+                        If1.add_edge body_cn body_port test_cn dest_port ty fg
+                    | None -> fg)
+                  for_gr
+                  (If1.SM.bindings carry_out_map)
               in
               (* Build MERGE nodes — one per carry variable.
                  Port 0: MERGE_first output (driven below).
@@ -7050,48 +7227,68 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let ins_map =
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
-                List.fold_left (fun m (_, _, name, dp) -> If1.SM.add name dp m)
+                List.fold_left
+                  (fun m (_, _, name, dp) -> If1.SM.add name dp m)
                   If1.SM.empty (get_ins body_sg)
               in
               let fg, merge_nodes =
-                List.fold_left (fun (fg, mns) (name, init_k) ->
-                  match If1.SM.find_opt name ins_map,
-                        If1.SM.find_opt name carry_out_map with
-                  | Some body_inp, Some body_out_k ->
-                      let body_sg =
-                        match If1.NM.find_opt body_cn fg.If1.nmap with
-                        | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
-                      in
-                      let ty =
-                        match If1.SM.find_opt name (fst body_sg.If1.symtab) with
-                        | Some e -> e.If1.val_ty
-                        | None ->
-                            match If1.SM.find_opt name (snd body_sg.If1.symtab) with
-                            | Some e -> e.If1.val_ty | None -> 0
-                      in
-                      let old_edge = ((init_cn, init_k), (body_cn, body_inp), ty) in
-                      let fg = { fg with If1.eset =
-                        If1.ES.remove old_edge fg.If1.eset }
-                      in
-                      let (mn, _, _), fg =
-                        If1.add_node_2
-                          (`Simple (If1.MERGE, [|"";"";""|], [|""|],
-                            [If1.Name ("MERGE_" ^ name)]))
-                          fg
-                      in
-                      let fg = If1.add_edge init_cn init_k    mn 1 ty fg in
-                      let fg = If1.add_edge body_cn body_out_k mn 2 ty fg in
-                      let fg = If1.add_edge mn 0 body_cn body_inp ty fg in
-                      to_if1_msg 3
-                        "LoopA MERGE[%s]: node%d  init%d:%d→p1  body%d:%d→p2  out→body:%d"
-                        name mn init_cn init_k body_cn body_out_k body_inp;
-                      (fg, mn :: mns)
-                  | _ ->
-                      to_if1_msg 3 "LoopA MERGE[%s]: no mapping, skipped" name;
-                      (fg, mns))
-                (for_gr, []) init_ports
+                List.fold_left
+                  (fun (fg, mns) (name, init_k) ->
+                    match
+                      ( If1.SM.find_opt name ins_map,
+                        If1.SM.find_opt name carry_out_map )
+                    with
+                    | Some body_inp, Some body_out_k ->
+                        let body_sg =
+                          match If1.NM.find_opt body_cn fg.If1.nmap with
+                          | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                          | _ -> body_gr
+                        in
+                        let ty =
+                          match
+                            If1.SM.find_opt name (fst body_sg.If1.symtab)
+                          with
+                          | Some e -> e.If1.val_ty
+                          | None -> (
+                              match
+                                If1.SM.find_opt name (snd body_sg.If1.symtab)
+                              with
+                              | Some e -> e.If1.val_ty
+                              | None -> 0)
+                        in
+                        let old_edge =
+                          ((init_cn, init_k), (body_cn, body_inp), ty)
+                        in
+                        let fg =
+                          {
+                            fg with
+                            If1.eset = If1.ES.remove old_edge fg.If1.eset;
+                          }
+                        in
+                        let (mn, _, _), fg =
+                          If1.add_node_2
+                            (`Simple
+                               ( If1.MERGE,
+                                 [| ""; ""; "" |],
+                                 [| "" |],
+                                 [ If1.Name ("MERGE_" ^ name) ] ))
+                            fg
+                        in
+                        let fg = If1.add_edge init_cn init_k mn 1 ty fg in
+                        let fg = If1.add_edge body_cn body_out_k mn 2 ty fg in
+                        let fg = If1.add_edge mn 0 body_cn body_inp ty fg in
+                        to_if1_msg 3
+                          "LoopA MERGE[%s]: node%d  init%d:%d→p1  \
+                           body%d:%d→p2  out→body:%d"
+                          name mn init_cn init_k body_cn body_out_k body_inp;
+                        (fg, mn :: mns)
+                    | _ ->
+                        to_if1_msg 3 "LoopA MERGE[%s]: no mapping, skipped" name;
+                        (fg, mns))
+                  (for_gr, []) init_ports
               in
               (* MERGE_first: INIT True → p0+p1, BODY False → p0+p2.
                  Drives port 0 of all value MERGEs. *)
@@ -7101,20 +7298,27 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 | Some (If1.Compound (lab, sy, nty, pl, init_sg, assoc)) ->
                     let port =
                       If1.ES.fold
-                        (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
+                        (fun ((_, _), (dn, _), _) n ->
+                          if dn = 0 then n + 1 else n)
                         init_sg.If1.eset 0
                     in
                     let (tn, _, _), init_sg =
                       If1.add_node_2
-                        (`Literal (If1.BOOLEAN, "True", [| "" |])) init_sg
+                        (`Literal (If1.BOOLEAN, "True", [| "" |]))
+                        init_sg
                     in
                     let init_sg =
-                      If1.add_to_boundary_outputs ~start_port:port tn 0 bool_ty init_sg
+                      If1.add_to_boundary_outputs ~start_port:port tn 0 bool_ty
+                        init_sg
                     in
-                    let fg = { fg with If1.nmap =
-                      If1.NM.add init_cn
-                        (If1.Compound (lab, sy, nty, pl, init_sg, assoc))
-                        fg.If1.nmap }
+                    let fg =
+                      {
+                        fg with
+                        If1.nmap =
+                          If1.NM.add init_cn
+                            (If1.Compound (lab, sy, nty, pl, init_sg, assoc))
+                            fg.If1.nmap;
+                      }
                     in
                     (port, fg)
                 | _ -> (0, fg)
@@ -7124,36 +7328,50 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 | Some (If1.Compound (lab, sy, nty, pl, body_sg, assoc)) ->
                     let port =
                       If1.ES.fold
-                        (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
+                        (fun ((_, _), (dn, _), _) n ->
+                          if dn = 0 then n + 1 else n)
                         body_sg.If1.eset 0
                     in
                     let (fn, _, _), body_sg =
                       If1.add_node_2
-                        (`Literal (If1.BOOLEAN, "False", [| "" |])) body_sg
+                        (`Literal (If1.BOOLEAN, "False", [| "" |]))
+                        body_sg
                     in
                     let body_sg =
-                      If1.add_to_boundary_outputs ~start_port:port fn 0 bool_ty body_sg
+                      If1.add_to_boundary_outputs ~start_port:port fn 0 bool_ty
+                        body_sg
                     in
-                    let fg = { fg with If1.nmap =
-                      If1.NM.add body_cn
-                        (If1.Compound (lab, sy, nty, pl, body_sg, assoc))
-                        fg.If1.nmap }
+                    let fg =
+                      {
+                        fg with
+                        If1.nmap =
+                          If1.NM.add body_cn
+                            (If1.Compound (lab, sy, nty, pl, body_sg, assoc))
+                            fg.If1.nmap;
+                      }
                     in
                     (port, fg)
                 | _ -> (0, fg)
               in
               let (mf, _, _), fg =
                 If1.add_node_2
-                  (`Simple (If1.MERGE, [|"";"";""|], [|""|],
-                    [If1.Name "MERGE_first"]))
+                  (`Simple
+                     ( If1.MERGE,
+                       [| ""; ""; "" |],
+                       [| "" |],
+                       [ If1.Name "MERGE_first" ] ))
                   fg
               in
               let fg = If1.add_edge init_cn init_true_port mf 0 bool_ty fg in
               let fg = If1.add_edge init_cn init_true_port mf 1 bool_ty fg in
-              let fg = { fg with If1.eset =
-                If1.ES.add
-                  ((body_cn, body_false_port), (mf, 0), bool_ty)
-                  fg.If1.eset }
+              let fg =
+                {
+                  fg with
+                  If1.eset =
+                    If1.ES.add
+                      ((body_cn, body_false_port), (mf, 0), bool_ty)
+                      fg.If1.eset;
+                }
               in
               let fg = If1.add_edge body_cn body_false_port mf 2 bool_ty fg in
               let fg =
@@ -7168,7 +7386,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (List.length merge_nodes);
               fg
             in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
                 (`Compound
@@ -7201,7 +7418,6 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             ((mul_n, mul_p, mul_t), outl, in_gr)
         | Termination_iterator (t, ii) ->
-            (* OLD LoopB lowering — kept for reference, commented out
             to_if1_msg 3 "LoopB: building INIT decls";
             let (_, _, _), decl_gr = add_decls in_gr d in
             to_if1_msg 3 "LoopB: building TEST termination: %s"
@@ -7209,84 +7425,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             let (_, _, _), test_gr = add_terminator decl_gr t in
             to_if1_msg 3 "LoopB: building BODY iterator: %s"
               (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
-              add_body test_gr ii r
-            in
-            to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
-              (List.length return_action_list);
-            let (_, _, _), for_gr, return_action_list =
-              add_ret body_gr return_action_list mask_ty_list
-                (String.concat "\n" (List.map Ast.str_return_clause r))
-            in
-            let for_gr =
-              add_comp_node body_gr "BODY"
-                ~prag:
-                  (Ast.str_decldef_part (`Loop_type d)
-                  ^ "\n" ^ Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node test_gr "TEST"
-                ~prag:(Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
-                for_gr
-            in
-            let for_gr =
-              add_comp_node decl_gr "INIT"
-                ~prag:(Ast.str_decldef_part (`Loop_type d))
-                for_gr
-            in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
-            let (fx, _, _), in_gr =
-              If1.add_node_2
-                (`Compound
-                   ( for_gr,
-                     If1.INTERNAL,
-                     0,
-                     [
-                       If1.Name "LoopB";
-                       If1.Compound_of If1.If1_loop_initial;
-                       If1.Ast_type (Ast.str_simple_exp finit);
-                     ],
-                     let lis = get_assoc_list_loopAOrB for_gr in
-                     List.length lis :: lis ))
-                in_gr
-            in
-            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
-            verify_compound_inputs fx for_gr in_gr;
-
-            to_if1_msg 3
-              "LoopB: outer compound node=%d, building multiarity for %d \
-               return(s)"
-              fx
-              (List.length return_action_list);
-            let (mul_n, mul_p, mul_t), in_gr =
-              build_multiarity
-                (List.length return_action_list)
-                in_gr ~nam:"FOR_INITIAL_LOOP_B"
-            in
-            let _, outl, in_gr =
-              List.fold_left
-                (fun (cc, outl, iigr) (wh, tt, aa) ->
-                  to_if1_msg 4 "LoopB: wiring return port %d ty=%s" cc
-                    (If1.p_f_t iigr tt);
-                  ( cc + 1,
-                    outl @ [ (wh, tt, fx, cc) ],
-                    If1.add_edge2 fx aa mul_n cc tt iigr ))
-                (0, [], in_gr) return_action_list
-            in
-            to_if1_msg 3 "LoopB: tying outer scope to inner, multiarity node=%d"
-              mul_n;
-            ((mul_n, mul_p, mul_t), outl, in_gr)
-            *)
-            (* NEW LoopB lowering *)
-            to_if1_msg 3 "LoopB: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
-            to_if1_msg 3 "LoopB: building TEST termination: %s"
-              (Ast.str_termination t);
-            let (_, _, _), test_gr = add_terminator decl_gr t in
-            to_if1_msg 3 "LoopB: building BODY iterator: %s"
-              (Ast.str_iterator ii);
-            let body_gr, return_action_list, _, mask_ty_list =
+            let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
               add_body_for_initial decl_gr ii r
             in
             to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
@@ -7300,15 +7439,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list mask_ty_list
+              add_ret_loopB decl_gr for_gr body_gr return_action_list
+                ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
             (* Wire each RETURNS compound output port to for_gr's boundary,
                so the LoopB compound exposes them as its own outputs. *)
             let for_gr =
-              List.fold_left (fun fg (_, tt, ret_port) ->
-                If1.add_to_boundary_outputs ret_cn ret_port tt fg)
-              for_gr return_action_list
+              List.fold_left
+                (fun fg (_, tt, ret_port) ->
+                  If1.add_to_boundary_outputs ret_cn ret_port tt fg)
+                for_gr return_action_list
             in
             let for_gr =
               add_comp_node test_gr "TEST"
@@ -7328,13 +7469,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
                a distinct INIT port. *)
             let for_gr =
               let find_cn lname gr =
-                If1.NM.fold (fun nid node acc ->
-                  match node with
-                  | If1.Compound (_, _, _, prags, _, _)
-                    when List.exists
-                           (function If1.Name n -> n = lname | _ -> false) prags ->
-                      nid
-                  | _ -> acc)
+                If1.NM.fold
+                  (fun nid node acc ->
+                    match node with
+                    | If1.Compound (_, _, _, prags, _, _)
+                      when List.exists
+                             (function If1.Name n -> n = lname | _ -> false)
+                             prags ->
+                        nid
+                    | _ -> acc)
                   gr.If1.nmap (-1)
               in
               let body_cn = find_cn "BODY" for_gr in
@@ -7354,33 +7497,38 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is any name FRESH to the INIT clause (not inherited from the
-                   parent), so a pass-through alias (A := Ain, val_def = 0) counts too --
-                   mirrors the INIT-output export in add_decls. *)
-                let parent_syms = fst in_gr.If1.symtab in
-                let is_carry v e = (e.If1.val_def <> 0 || not (If1.SM.mem v parent_syms))
-                                   && not (is_old v) in
+                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
+                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
+                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
+                let init_in_names =
+                  List.map
+                    (fun (_, _, name, _) -> name)
+                    (If1.get_boundary_inputs decl_gr)
+                in
+                let is_carry v _e =
+                  (not (List.mem v init_in_names)) && not (is_old v)
+                in
                 let non_old_count =
-                  If1.SM.fold (fun v e n ->
-                    if is_carry v e then n + 1 else n)
-                  cs 0
+                  If1.SM.fold
+                    (fun v e n -> if is_carry v e then n + 1 else n)
+                    cs 0
                 in
                 let start =
-                  If1.boundary_out_port_count decl_gr - 2 * non_old_count
+                  If1.boundary_out_port_count decl_gr - (2 * non_old_count)
                 in
                 let lst1, p1 =
-                  If1.SM.fold (fun v e (acc, p) ->
-                    if is_carry v e
-                    then (acc @ [(v, p)], p + 1)
-                    else (acc, p))
-                  cs ([], start)
+                  If1.SM.fold
+                    (fun v e (acc, p) ->
+                      if is_carry v e then (acc @ [ (v, p) ], p + 1)
+                      else (acc, p))
+                    cs ([], start)
                 in
                 let lst2, _ =
-                  If1.SM.fold (fun v e (acc, p) ->
-                    if is_carry v e
-                    then (acc @ [("OLD " ^ v, p)], p + 1)
-                    else (acc, p))
-                  cs ([], p1)
+                  If1.SM.fold
+                    (fun v e (acc, p) ->
+                      if is_carry v e then (acc @ [ ("OLD " ^ v, p) ], p + 1)
+                      else (acc, p))
+                    cs ([], p1)
                 in
                 lst1 @ lst2
               in
@@ -7399,43 +7547,57 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let update_compound () =
                   match If1.NM.find_opt consumer_cn !fg_ref.If1.nmap with
                   | Some (If1.Compound (lab, sy, ty, pl, _, assoc)) ->
-                      fg_ref := { !fg_ref with If1.nmap =
-                        If1.NM.add consumer_cn
-                          (If1.Compound (lab, sy, ty, pl, !sg_ref, assoc))
-                          !fg_ref.If1.nmap }
+                      fg_ref :=
+                        {
+                          !fg_ref with
+                          If1.nmap =
+                            If1.NM.add consumer_cn
+                              (If1.Compound (lab, sy, ty, pl, !sg_ref, assoc))
+                              !fg_ref.If1.nmap;
+                        }
                   | _ -> ()
                 in
-                List.iter (fun (name, k) ->
-                  let rec find_pop acc = function
-                    | [] -> (None, List.rev acc)
-                    | (_, _, n, dp) :: rest when n = name ->
-                        (Some dp, List.rev_append acc rest)
-                    | h :: rest -> find_pop (h :: acc) rest
-                  in
-                  let ins_result, rest = find_pop [] !remaining_ins in
-                  match ins_result with
-                  | Some dest_port ->
-                      remaining_ins := rest;
-                      remaining_sym := If1.SM.remove name !remaining_sym;
-                      let ty = match If1.SM.find_opt name merged with
-                        | Some e -> e.If1.val_ty | None -> 0 in
-                      to_if1_msg 3 "LoopB wire[%s]: init%d:%d → cn%d:%d (%s) [ins]"
-                        label init_cn k consumer_cn dest_port name;
-                      fg_ref := If1.add_edge init_cn k consumer_cn dest_port ty !fg_ref
-                  | None ->
-                      (match If1.SM.find_opt name !remaining_sym with
-                      | None -> ()
-                      | Some e ->
-                          remaining_sym := If1.SM.remove name !remaining_sym;
-                          let new_port, new_sg =
-                            If1.add_to_boundary_inputs ~namen:name 0 0 !sg_ref in
-                          sg_ref := new_sg;
-                          update_compound ();
-                          to_if1_msg 3 "LoopB wire[%s]: init%d:%d → cn%d:%d (%s) [new]"
-                            label init_cn k consumer_cn new_port name;
-                          fg_ref := If1.add_edge init_cn k consumer_cn new_port
-                            e.If1.val_ty !fg_ref))
-                init_ports;
+                List.iter
+                  (fun (name, k) ->
+                    let rec find_pop acc = function
+                      | [] -> (None, List.rev acc)
+                      | (_, _, n, dp) :: rest when n = name ->
+                          (Some dp, List.rev_append acc rest)
+                      | h :: rest -> find_pop (h :: acc) rest
+                    in
+                    let ins_result, rest = find_pop [] !remaining_ins in
+                    match ins_result with
+                    | Some dest_port ->
+                        remaining_ins := rest;
+                        remaining_sym := If1.SM.remove name !remaining_sym;
+                        let ty =
+                          match If1.SM.find_opt name merged with
+                          | Some e -> e.If1.val_ty
+                          | None -> 0
+                        in
+                        to_if1_msg 3
+                          "LoopB wire[%s]: init%d:%d → cn%d:%d (%s) [ins]" label
+                          init_cn k consumer_cn dest_port name;
+                        fg_ref :=
+                          If1.add_edge init_cn k consumer_cn dest_port ty
+                            !fg_ref
+                    | None -> (
+                        match If1.SM.find_opt name !remaining_sym with
+                        | None -> ()
+                        | Some e ->
+                            remaining_sym := If1.SM.remove name !remaining_sym;
+                            let new_port, new_sg =
+                              If1.add_to_boundary_inputs ~namen:name 0 0 !sg_ref
+                            in
+                            sg_ref := new_sg;
+                            update_compound ();
+                            to_if1_msg 3
+                              "LoopB wire[%s]: init%d:%d → cn%d:%d (%s) [new]"
+                              label init_cn k consumer_cn new_port name;
+                            fg_ref :=
+                              If1.add_edge init_cn k consumer_cn new_port
+                                e.If1.val_ty !fg_ref))
+                  init_ports;
                 !fg_ref
               in
               let for_gr = wire_consumer for_gr body_cn body_gr "BODY" in
@@ -7446,13 +7608,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let body_pre_port_count =
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
                 If1.ES.fold
                   (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
                   body_sg.If1.eset 0
               in
-              to_if1_msg 3 "LoopB BODY carry-out: pre_existing=%d" body_pre_port_count;
+              to_if1_msg 3 "LoopB BODY carry-out: pre_existing=%d"
+                body_pre_port_count;
               (* Add carry-variable boundary outputs to BODY, mirroring INIT's
                  two-pass SM.fold.  For each non-OLD carry variable in body_sg.cs
                  with val_def≠0, export it (pass 1: current values; pass 2: OLD
@@ -7471,27 +7635,38 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let carry_needs_merge = carry_needs_merge_in body_sg in
                 (* Collect (name, dd, dp, ty) for non-OLD carry vars *)
                 let pass1 =
-                  List.filter_map (fun (name, _) ->
-                    if is_old name then None
-                    else match If1.SM.find_opt name cs with
-                      | Some e when carry_needs_merge name e ->
-                          Some (name, e.If1.val_def, e.If1.def_port, e.If1.val_ty)
-                      | _ -> None)
-                  init_ports
+                  List.filter_map
+                    (fun (name, _) ->
+                      if is_old name then None
+                      else
+                        match If1.SM.find_opt name cs with
+                        | Some e when carry_needs_merge name e ->
+                            Some
+                              (name, e.If1.val_def, e.If1.def_port, e.If1.val_ty)
+                        | _ -> None)
+                    init_ports
                 in
                 let new_sg, k1 =
                   List.fold_left
                     (fun (sg, port) (_, dd, dp, ty) ->
-                      let sg = If1.add_to_boundary_outputs ~start_port:port dd dp ty sg in
-                      to_if1_msg 3 "LoopB BODY out: %d:%d ty=%d port=%d [current]" dd dp ty port;
+                      let sg =
+                        If1.add_to_boundary_outputs ~start_port:port dd dp ty sg
+                      in
+                      to_if1_msg 3
+                        "LoopB BODY out: %d:%d ty=%d port=%d [current]" dd dp ty
+                        port;
                       (sg, port + 1))
-                    (body_sg, body_pre_port_count) pass1
+                    (body_sg, body_pre_port_count)
+                    pass1
                 in
                 let new_sg, _ =
                   List.fold_left
                     (fun (sg, port) (_, dd, dp, ty) ->
-                      let sg = If1.add_to_boundary_outputs ~start_port:port dd dp ty sg in
-                      to_if1_msg 3 "LoopB BODY out: %d:%d ty=%d port=%d [OLD]" dd dp ty port;
+                      let sg =
+                        If1.add_to_boundary_outputs ~start_port:port dd dp ty sg
+                      in
+                      to_if1_msg 3 "LoopB BODY out: %d:%d ty=%d port=%d [OLD]"
+                        dd dp ty port;
                       (sg, port + 1))
                     (new_sg, k1) pass1
                 in
@@ -7499,10 +7674,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let for_gr =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
                   | Some (If1.Compound (lab, sy, nty, pl, _, assoc)) ->
-                      { for_gr with If1.nmap =
-                        If1.NM.add body_cn
-                          (If1.Compound (lab, sy, nty, pl, new_sg, assoc))
-                          for_gr.If1.nmap }
+                      {
+                        for_gr with
+                        If1.nmap =
+                          If1.NM.add body_cn
+                            (If1.Compound (lab, sy, nty, pl, new_sg, assoc))
+                            for_gr.If1.nmap;
+                      }
                   | _ -> for_gr
                 in
                 for_gr
@@ -7520,28 +7698,34 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 (* Retrieve the updated body_sg to read its boundary ins/outs. *)
                 let body_sg =
                   match If1.NM.find_opt body_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> body_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> body_gr
                 in
                 let get_ins sg =
                   match If1.NM.find_opt 0 sg.If1.nmap with
-                  | Some (If1.Boundary (ins, _, _, _)) -> ins | _ -> []
+                  | Some (If1.Boundary (ins, _, _, _)) -> ins
+                  | _ -> []
                 in
                 let get_outs sg =
                   match If1.NM.find_opt 0 sg.If1.nmap with
-                  | Some (If1.Boundary (_, outs, _, _)) -> List.rev outs | _ -> []
+                  | Some (If1.Boundary (_, outs, _, _)) -> List.rev outs
+                  | _ -> []
                 in
                 (* name → body boundary input dest_port *)
                 let ins_map =
-                  List.fold_left (fun m (_, _, name, dp) -> If1.SM.add name dp m)
+                  List.fold_left
+                    (fun m (_, _, name, dp) -> If1.SM.add name dp m)
                     If1.SM.empty (get_ins body_sg)
                 in
                 (* name → test boundary input dest_port *)
                 let test_sg =
                   match If1.NM.find_opt test_cn for_gr.If1.nmap with
-                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg | _ -> test_gr
+                  | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                  | _ -> test_gr
                 in
                 let test_ins_map =
-                  List.fold_left (fun m (_, _, name, dp) -> If1.SM.add name dp m)
+                  List.fold_left
+                    (fun m (_, _, name, dp) -> If1.SM.add name dp m)
                     If1.SM.empty (get_ins test_sg)
                 in
                 (* carry output ports: pass1 names start after pre-existing outs,
@@ -7550,80 +7734,106 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    port indices stay aligned with the boundary outputs that pass1 created. *)
                 let carry_needs_merge = carry_needs_merge_in body_sg in
                 let pass1_names =
-                  List.filter_map (fun (name, _) ->
-                    let is_old = String.length name >= 4
-                                 && String.sub name 0 4 = "OLD " in
-                    if is_old then None
-                    else match If1.SM.find_opt name (fst body_sg.If1.symtab) with
-                      | Some e when carry_needs_merge name e -> Some name
-                      | _ -> None)
-                  init_ports
+                  List.filter_map
+                    (fun (name, _) ->
+                      let is_old =
+                        String.length name >= 4 && String.sub name 0 4 = "OLD "
+                      in
+                      if is_old then None
+                      else
+                        match If1.SM.find_opt name (fst body_sg.If1.symtab) with
+                        | Some e when carry_needs_merge name e -> Some name
+                        | _ -> None)
+                    init_ports
                 in
                 let pre_out = body_pre_port_count in
-                to_if1_msg 3 "LoopB MERGE: pre_out=%d pass1_names=%d" pre_out (List.length pass1_names);
+                to_if1_msg 3 "LoopB MERGE: pre_out=%d pass1_names=%d" pre_out
+                  (List.length pass1_names);
                 let carry_out_map =
                   let m, k =
-                    List.fold_left (fun (m, k) name ->
-                      (If1.SM.add name k m, k + 1))
+                    List.fold_left
+                      (fun (m, k) name -> (If1.SM.add name k m, k + 1))
                       (If1.SM.empty, pre_out) pass1_names
                   in
                   let m, _ =
-                    List.fold_left (fun (m, k) name ->
-                      (If1.SM.add ("OLD " ^ name) k m, k + 1))
+                    List.fold_left
+                      (fun (m, k) name ->
+                        (If1.SM.add ("OLD " ^ name) k m, k + 1))
                       (m, k) pass1_names
                   in
                   m
                 in
                 let _ = get_outs in
                 let fg, merge_nodes =
-                  List.fold_left (fun (fg, mns) (name, init_k) ->
-                    match If1.SM.find_opt name ins_map,
-                          If1.SM.find_opt name carry_out_map with
-                    | Some body_inp, Some body_out_k ->
-                        let ty =
-                          match If1.SM.find_opt name (fst body_sg.If1.symtab) with
-                          | Some e -> e.If1.val_ty
-                          | None ->
-                              match If1.SM.find_opt name (snd body_sg.If1.symtab) with
-                              | Some e -> e.If1.val_ty | None -> 0
-                        in
-                        (* Remove old direct INIT→BODY edge *)
-                        let old_edge = ((init_cn, init_k), (body_cn, body_inp), ty) in
-                        let fg = { fg with If1.eset =
-                          If1.ES.remove old_edge fg.If1.eset }
-                        in
-                        (* Create MERGE node in for_gr *)
-                        let (mn, _, _), fg =
-                          If1.add_node_2
-                            (`Simple (If1.MERGE, [|"";"";""|], [|""|],
-                              [If1.Name ("MERGE_" ^ name)]))
-                            fg
-                        in
-                        let fg = If1.add_edge init_cn init_k    mn 1 ty fg in
-                        let fg = If1.add_edge body_cn body_out_k mn 2 ty fg in
-                        let fg = If1.add_edge mn 0 body_cn body_inp ty fg in
-                        (* Rewire TEST: remove INIT→TEST edge, add MERGE→TEST edge *)
-                        let fg =
-                          match If1.SM.find_opt name test_ins_map with
-                          | Some test_inp ->
-                              let old_test_edge =
-                                ((init_cn, init_k), (test_cn, test_inp), ty)
-                              in
-                              let fg = { fg with If1.eset =
-                                If1.ES.remove old_test_edge fg.If1.eset }
-                              in
-                              If1.add_edge mn 0 test_cn test_inp ty fg
-                          | None -> fg
-                        in
-                        to_if1_msg 3
-                          "LoopB MERGE[%s]: node%d  init%d:%d→port1  \
-                           body%d:%d→port2  out→body:%d"
-                          name mn init_cn init_k body_cn body_out_k body_inp;
-                        (fg, mn :: mns)
-                    | _ ->
-                        to_if1_msg 3 "LoopB MERGE[%s]: no mapping, skipped" name;
-                        (fg, mns))
-                  (for_gr, []) init_ports
+                  List.fold_left
+                    (fun (fg, mns) (name, init_k) ->
+                      match
+                        ( If1.SM.find_opt name ins_map,
+                          If1.SM.find_opt name carry_out_map )
+                      with
+                      | Some body_inp, Some body_out_k ->
+                          let ty =
+                            match
+                              If1.SM.find_opt name (fst body_sg.If1.symtab)
+                            with
+                            | Some e -> e.If1.val_ty
+                            | None -> (
+                                match
+                                  If1.SM.find_opt name (snd body_sg.If1.symtab)
+                                with
+                                | Some e -> e.If1.val_ty
+                                | None -> 0)
+                          in
+                          (* Remove old direct INIT→BODY edge *)
+                          let old_edge =
+                            ((init_cn, init_k), (body_cn, body_inp), ty)
+                          in
+                          let fg =
+                            {
+                              fg with
+                              If1.eset = If1.ES.remove old_edge fg.If1.eset;
+                            }
+                          in
+                          (* Create MERGE node in for_gr *)
+                          let (mn, _, _), fg =
+                            If1.add_node_2
+                              (`Simple
+                                 ( If1.MERGE,
+                                   [| ""; ""; "" |],
+                                   [| "" |],
+                                   [ If1.Name ("MERGE_" ^ name) ] ))
+                              fg
+                          in
+                          let fg = If1.add_edge init_cn init_k mn 1 ty fg in
+                          let fg = If1.add_edge body_cn body_out_k mn 2 ty fg in
+                          let fg = If1.add_edge mn 0 body_cn body_inp ty fg in
+                          (* Rewire TEST: remove INIT→TEST edge, add MERGE→TEST edge *)
+                          let fg =
+                            match If1.SM.find_opt name test_ins_map with
+                            | Some test_inp ->
+                                let old_test_edge =
+                                  ((init_cn, init_k), (test_cn, test_inp), ty)
+                                in
+                                let fg =
+                                  {
+                                    fg with
+                                    If1.eset =
+                                      If1.ES.remove old_test_edge fg.If1.eset;
+                                  }
+                                in
+                                If1.add_edge mn 0 test_cn test_inp ty fg
+                            | None -> fg
+                          in
+                          to_if1_msg 3
+                            "LoopB MERGE[%s]: node%d  init%d:%d→port1  \
+                             body%d:%d→port2  out→body:%d"
+                            name mn init_cn init_k body_cn body_out_k body_inp;
+                          (fg, mn :: mns)
+                      | _ ->
+                          to_if1_msg 3 "LoopB MERGE[%s]: no mapping, skipped"
+                            name;
+                          (fg, mns))
+                    (for_gr, []) init_ports
                 in
                 (* MERGE_first: church-encoding boolean carry.
                    INIT provides literal True  → port 0 (trigger) AND port 1 (value).
@@ -7638,20 +7848,27 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   | Some (If1.Compound (lab, sy, nty, pl, init_sg, assoc)) ->
                       let port =
                         If1.ES.fold
-                          (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
+                          (fun ((_, _), (dn, _), _) n ->
+                            if dn = 0 then n + 1 else n)
                           init_sg.If1.eset 0
                       in
                       let (tn, _, _), init_sg =
                         If1.add_node_2
-                          (`Literal (If1.BOOLEAN, "True", [| "" |])) init_sg
+                          (`Literal (If1.BOOLEAN, "True", [| "" |]))
+                          init_sg
                       in
                       let init_sg =
-                        If1.add_to_boundary_outputs ~start_port:port tn 0 bool_ty init_sg
+                        If1.add_to_boundary_outputs ~start_port:port tn 0
+                          bool_ty init_sg
                       in
-                      let fg = { fg with If1.nmap =
-                        If1.NM.add init_cn
-                          (If1.Compound (lab, sy, nty, pl, init_sg, assoc))
-                          fg.If1.nmap }
+                      let fg =
+                        {
+                          fg with
+                          If1.nmap =
+                            If1.NM.add init_cn
+                              (If1.Compound (lab, sy, nty, pl, init_sg, assoc))
+                              fg.If1.nmap;
+                        }
                       in
                       (port, fg)
                   | _ -> (0, fg)
@@ -7661,28 +7878,38 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   | Some (If1.Compound (lab, sy, nty, pl, body_sg, assoc)) ->
                       let port =
                         If1.ES.fold
-                          (fun ((_, _), (dn, _), _) n -> if dn = 0 then n + 1 else n)
+                          (fun ((_, _), (dn, _), _) n ->
+                            if dn = 0 then n + 1 else n)
                           body_sg.If1.eset 0
                       in
                       let (fn, _, _), body_sg =
                         If1.add_node_2
-                          (`Literal (If1.BOOLEAN, "False", [| "" |])) body_sg
+                          (`Literal (If1.BOOLEAN, "False", [| "" |]))
+                          body_sg
                       in
                       let body_sg =
-                        If1.add_to_boundary_outputs ~start_port:port fn 0 bool_ty body_sg
+                        If1.add_to_boundary_outputs ~start_port:port fn 0
+                          bool_ty body_sg
                       in
-                      let fg = { fg with If1.nmap =
-                        If1.NM.add body_cn
-                          (If1.Compound (lab, sy, nty, pl, body_sg, assoc))
-                          fg.If1.nmap }
+                      let fg =
+                        {
+                          fg with
+                          If1.nmap =
+                            If1.NM.add body_cn
+                              (If1.Compound (lab, sy, nty, pl, body_sg, assoc))
+                              fg.If1.nmap;
+                        }
                       in
                       (port, fg)
                   | _ -> (0, fg)
                 in
                 let (mf, _, _), fg =
                   If1.add_node_2
-                    (`Simple (If1.MERGE, [|"";"";""|], [|""|],
-                      [If1.Name "MERGE_first"]))
+                    (`Simple
+                       ( If1.MERGE,
+                         [| ""; ""; "" |],
+                         [| "" |],
+                         [ If1.Name "MERGE_first" ] ))
                     fg
                 in
                 (* INIT True fans to both port 0 (trigger) and port 1 (value) *)
@@ -7692,10 +7919,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    Port 0 already has INIT's edge so bypass the conflict guard —
                    INIT and BODY fire mutually exclusively, both legitimately drive
                    port 0 at different points in time. *)
-                let fg = { fg with If1.eset =
-                  If1.ES.add
-                    ((body_cn, body_false_port), (mf, 0), bool_ty)
-                    fg.If1.eset }
+                let fg =
+                  {
+                    fg with
+                    If1.eset =
+                      If1.ES.add
+                        ((body_cn, body_false_port), (mf, 0), bool_ty)
+                        fg.If1.eset;
+                  }
                 in
                 let fg = If1.add_edge body_cn body_false_port mf 2 bool_ty fg in
                 let fg =
@@ -7704,15 +7935,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     fg merge_nodes
                 in
                 to_if1_msg 3
-                  "LoopB MERGE_first: node%d  init%d:%d→p0+p1  body%d:%d→p0+p2  \
-                   driving %d MERGE port0s"
+                  "LoopB MERGE_first: node%d  init%d:%d→p0+p1  \
+                   body%d:%d→p0+p2  driving %d MERGE port0s"
                   mf init_cn init_true_port body_cn body_false_port
                   (List.length merge_nodes);
                 fg
               in
               for_gr
             in
-            let for_gr = get_ports_unified for_gr body_gr in_gr in
             let (fx, _, _), in_gr =
               If1.add_node_2
                 (`Compound
@@ -7857,11 +8087,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.REDUCE_ALL,
-               [| "" |],
-               [| "" |],
-               [ If1.Name op_str ] ))
+          (`Simple (If1.REDUCE_ALL, [| "" |], [| "" |], [ If1.Name op_str ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8450,11 +8676,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (hn, hp, ht), in_gr = do_simple_exp in_gr hi in
       let (sn, sp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_SLICE,
-               [| ""; ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_SLICE, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap sn 0 at in_gr in
@@ -8467,11 +8689,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_REVERSE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_REVERSE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8621,8 +8839,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let nn, np, nt = If1.find_incoming_regular_node (nn, np, nt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.DV_ROTATE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.DV_ROTATE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8641,11 +8858,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_COMPRESS,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_COMPRESS, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge mn mp rn 0 mt in_gr in
@@ -8662,10 +8875,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.DV_OUTERPRODUCT,
-               [| ""; ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.DV_OUTERPRODUCT, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge fn_ fp rn 0 ft in_gr in
@@ -8678,11 +8888,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_GRADE_UP,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_GRADE_UP, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8700,11 +8906,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_GRADE_DOWN,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_GRADE_DOWN, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8723,8 +8925,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.DV_SORT, [| "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.DV_SORT, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8738,10 +8939,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.BROADCAST_SCALAR,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.BROADCAST_SCALAR, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge sn sp rn 0 st in_gr in
@@ -8802,11 +9000,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.NONZERO_NODE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.NONZERO_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8829,10 +9023,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.WHERE_NODE,
-               [| ""; ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.WHERE_NODE, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge cn cp rn 0 ct in_gr in
@@ -8862,10 +9053,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.REDUCE_AXIS,
-               [| ""; ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.REDUCE_AXIS, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge ln lp rn 0 lt in_gr in
@@ -8879,10 +9067,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.MEAN_NODE,
-               Array.make n_ports "",
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.MEAN_NODE, Array.make n_ports "", [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8954,10 +9139,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.ANY_NODE,
-               Array.make n_ports "",
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.ANY_NODE, Array.make n_ports "", [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -8979,10 +9161,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.ALL_NODE,
-               Array.make n_ports "",
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.ALL_NODE, Array.make n_ports "", [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9004,10 +9183,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.DV_OFFSET_AT,
-               [| ""; ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.DV_OFFSET_AT, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9020,10 +9196,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.DV_LOAD_LINEAR,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.DV_LOAD_LINEAR, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9033,11 +9206,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (an, ap, at), in_gr = do_simple_exp in_gr a in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_NUM_RANK,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_NUM_RANK, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9049,18 +9218,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* The record type is the element type of the dope-vector array *)
       let triplet_ty =
         match If1.lookup_ty dope_ty in_gr with
-        | If1.Array_ty et
-        | If1.Array_dv et ->
-            et
+        | If1.Array_ty et | If1.Array_dv et -> et
         | _ -> 0
       in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.DV_DIMENSION,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.DV_DIMENSION, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9073,8 +9236,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let pn, pp, pt = If1.find_incoming_regular_node (pn, pp, pt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             (If1.NORM_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+          (`Simple (If1.NORM_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9085,11 +9247,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.CUMSUM_NODE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.CUMSUM_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9099,11 +9257,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.CUMPROD_NODE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.CUMPROD_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9113,11 +9267,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.SQUEEZE_NODE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.SQUEEZE_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9129,11 +9279,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let kn, kp, kt = If1.find_incoming_regular_node (kn, kp, kt) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.EXPAND_NODE,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.EXPAND_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9144,32 +9290,42 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       let (rn, rp, _), in_gr =
         If1.add_node_2
-          (`Simple
-             ( If1.RAVEL_NODE,
-               [| "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+          (`Simple (If1.RAVEL_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       ((rn, rp, at), in_gr)
   | Stencil_exp (f_exp, a, ([ w ] as dims))
-    when (match (let rec u = function Ast.Pos (_, e) -> u e | e -> e in u f_exp) with
-          | Ast.Val (Ast.Value_name _) -> true | _ -> false) ->
+    when match
+           let rec u = function Ast.Pos (_, e) -> u e | e -> e in
+           u f_exp
+         with
+         | Ast.Val (Ast.Value_name _) -> true
+         | _ -> false ->
       (* 1-D STENCIL(f, a, w): a sliding-window map.  Like EACH/MAP, higher-order
          ops LIFT to a forall -- the function call is generated inline in the body,
          no runtime callback.  Each window is taken with SLICE (already in the
          runtime).  Output[i] = f(a[i .. i+w-1]) over the valid positions. *)
       ignore dims;
-      let parts = match (let rec u = function Ast.Pos (_, e) -> u e | e -> e in u f_exp) with
-        | Ast.Val (Ast.Value_name p) -> p | _ -> [] in
-      let mk_inv fn args = Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args)) in
+      let parts =
+        match
+          let rec u = function Ast.Pos (_, e) -> u e | e -> e in
+          u f_exp
+        with
+        | Ast.Val (Ast.Value_name p) -> p
+        | _ -> []
+      in
+      let mk_inv fn args =
+        Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+      in
       let si = Ast.Val (Ast.Value_name [ "__SI" ]) in
       let wm1 = Ast.Subtract (w, Ast.Constant (Ast.Int 1)) in
       let lb = mk_inv [ "ARRAY_LIML" ] [ a ] in
       let ub = Ast.Subtract (mk_inv [ "ARRAY_LIMH" ] [ a ], wm1) in
       let window = Ast.Slice_exp (a, si, Ast.Add (si, wm1)) in
-      let body = Ast.Invocation (Ast.Function_name parts, Ast.Arg (Ast.Exp [ window ])) in
+      let body =
+        Ast.Invocation (Ast.Function_name parts, Ast.Arg (Ast.Exp [ window ]))
+      in
       do_simple_exp in_gr
         (Ast.For_all
            ( Ast.In_exp (Ast.Value_name [ "__SI" ], Ast.Exp [ lb; ub ]),
@@ -9221,10 +9377,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.PAD_NODE,
-               Array.make n_ports "",
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.PAD_NODE, Array.make n_ports "", [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9250,10 +9403,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (rn, rp, _), in_gr =
         If1.add_node_2
           (`Simple
-             ( If1.INNERPRODUCT_NODE,
-               [| ""; "" |],
-               [| "" |],
-               [ If1.No_pragma ] ))
+             (If1.INNERPRODUCT_NODE, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
           in_gr
       in
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
@@ -9343,8 +9493,8 @@ and do_return_exp in_gr ggg =
   | Ast.Dv_array_of (rank, e) ->
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
-      to_if1_msg 3 "do_return_exp: Dv_array_of elem source=(%d, %d, %d [%s])"
-        an ap at (If1.p_f_t in_gr at);
+      to_if1_msg 3 "do_return_exp: Dv_array_of elem source=(%d, %d, %d [%s])" an
+        ap at (If1.p_f_t in_gr at);
       assert (at <> 0);
       let actual_rank =
         match If1.lookup_ty at in_gr with
@@ -9373,13 +9523,19 @@ and declare_returns_input name ty in_gr =
   let p, in_gr = If1.add_to_boundary_inputs ~namen:name 0 0 in_gr in
   let cs, ps = in_gr.If1.symtab in
   let in_gr =
-    { in_gr with
+    {
+      in_gr with
       If1.symtab =
         ( If1.SM.add name
-            { If1.val_name = name; If1.val_ty = ty; If1.val_def = 0;
-              If1.def_port = p }
+            {
+              If1.val_name = name;
+              If1.val_ty = ty;
+              If1.val_def = 0;
+              If1.def_port = p;
+            }
             cs,
-          ps ) }
+          ps );
+    }
   in
   (p, in_gr)
 
@@ -9406,7 +9562,9 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
      level's placeholder, so the inner compound resolves them here and they
      bubble up to be wired from the forall at the import step. *)
   let inner_names =
-    List.rev_map (fun (_, _, nm, _) -> nm) (If1.get_named_input_ports inner_ret_gr)
+    List.rev_map
+      (fun (_, _, nm, _) -> nm)
+      (If1.get_named_input_ports inner_ret_gr)
   in
   let out_gr =
     List.fold_left
@@ -9428,8 +9586,11 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
   let (irn, _, _), out_gr =
     If1.add_node_2
       (`Compound
-         ( inner_ret_gr, If1.INTERNAL, 0,
-           [ If1.Name "RETURNS"; If1.Compound_of If1.If1_results ], [] ))
+         ( inner_ret_gr,
+           If1.INTERNAL,
+           0,
+           [ If1.Name "RETURNS"; If1.Compound_of If1.If1_results ],
+           [] ))
       out_gr
   in
   let _, out_gr = wire_all_syms_to_compound irn inner_ret_gr out_gr in
@@ -9446,7 +9607,9 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
   let num_outputs = List.length (If1.get_boundary_outputs inner_ret_gr) in
   let inner_tys = If1.all_edges_ending_at_ports_types 0 inner_ret_gr in
   let opcode, nports = if is_dv then (If1.DV_GATHER, 3) else (If1.AGATHER, 2) in
-  let is_array k = match List.nth_opt out_is_array k with Some b -> b | None -> true in
+  let is_array k =
+    match List.nth_opt out_is_array k with Some b -> b | None -> true
+  in
   let build_one_gather k out_gr =
     let ity =
       match List.assoc_opt k inner_tys with Some t -> t | None -> int_ty
@@ -9456,60 +9619,61 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
          generator; pass the inner returns' output k straight through. *)
       If1.add_to_boundary_outputs ~start_port:k irn k ity out_gr
     else
-    let result_ty, out_gr =
-      if is_dv then (ity, out_gr)
-      else
-        let (tid, _, _), out_gr =
-          If1.add_type_to_typemap_dedup (If1.Array_ty ity) out_gr
-        in
-        (tid, out_gr)
-    in
-    let (g, ge, _), out_gr =
-      If1.add_node_2
-        (`Simple (opcode, Array.make nports "", [| "" |], [ If1.No_pragma ]))
-        out_gr
-    in
-    let out_gr = If1.add_edge 0 idx_port g 0 5 out_gr in
-    let out_gr = If1.add_edge irn k g 1 ity out_gr in
-    let out_gr =
-      if is_dv then (
-        (* DV_DIMENSION feeds the dope/triplet to DV_GATHER port 2 (rank literal,
+      let result_ty, out_gr =
+        if is_dv then (ity, out_gr)
+        else
+          let (tid, _, _), out_gr =
+            If1.add_type_to_typemap_dedup (If1.Array_ty ity) out_gr
+          in
+          (tid, out_gr)
+      in
+      let (g, ge, _), out_gr =
+        If1.add_node_2
+          (`Simple (opcode, Array.make nports "", [| "" |], [ If1.No_pragma ]))
+          out_gr
+      in
+      let out_gr = If1.add_edge 0 idx_port g 0 5 out_gr in
+      let out_gr = If1.add_edge irn k g 1 ity out_gr in
+      let out_gr =
+        if is_dv then
+          (* DV_DIMENSION feeds the dope/triplet to DV_GATHER port 2 (rank literal,
            shape-source = this level's index at boundary 0:0). *)
-        let (dim_n, _, _), out_gr =
-          If1.add_node_2
-            (`Simple (If1.DV_DIMENSION, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
-            out_gr
-        in
-        let out_gr = If1.add_edge 0 0 dim_n 0 result_ty out_gr in
-        let (rk, _, _), out_gr =
-          If1.add_node_2
-            (`Literal (If1.INTEGRAL, string_of_int rank, [| "" |]))
-            out_gr
-        in
-        let out_gr = If1.add_edge rk 0 dim_n 1 int_ty out_gr in
-        let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
-        let triplet_ty =
-          match If1.lookup_ty dope_ty out_gr with
-          | If1.Array_ty et | If1.Array_dv et -> et
-          | _ -> 0
-        in
-        If1.add_edge dim_n 0 g 2 triplet_ty out_gr)
-      else out_gr
-    in
-    (* This level's lb/ub into the gather (ports 3, 4). *)
-    let out_gr =
-      match lb_name with
-      | Some nm when bport nm out_gr >= 0 ->
-          If1.add_edge 0 (bport nm out_gr) g 3 int_ty out_gr
-      | _ -> out_gr
-    in
-    let out_gr =
-      match ub_name with
-      | Some nm when bport nm out_gr >= 0 ->
-          If1.add_edge 0 (bport nm out_gr) g 4 int_ty out_gr
-      | _ -> out_gr
-    in
-    If1.add_to_boundary_outputs ~start_port:k g ge result_ty out_gr
+          let (dim_n, _, _), out_gr =
+            If1.add_node_2
+              (`Simple
+                 (If1.DV_DIMENSION, [| ""; "" |], [| "" |], [ If1.No_pragma ]))
+              out_gr
+          in
+          let out_gr = If1.add_edge 0 0 dim_n 0 result_ty out_gr in
+          let (rk, _, _), out_gr =
+            If1.add_node_2
+              (`Literal (If1.INTEGRAL, string_of_int rank, [| "" |]))
+              out_gr
+          in
+          let out_gr = If1.add_edge rk 0 dim_n 1 int_ty out_gr in
+          let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
+          let triplet_ty =
+            match If1.lookup_ty dope_ty out_gr with
+            | If1.Array_ty et | If1.Array_dv et -> et
+            | _ -> 0
+          in
+          If1.add_edge dim_n 0 g 2 triplet_ty out_gr
+        else out_gr
+      in
+      (* This level's lb/ub into the gather (ports 3, 4). *)
+      let out_gr =
+        match lb_name with
+        | Some nm when bport nm out_gr >= 0 ->
+            If1.add_edge 0 (bport nm out_gr) g 3 int_ty out_gr
+        | _ -> out_gr
+      in
+      let out_gr =
+        match ub_name with
+        | Some nm when bport nm out_gr >= 0 ->
+            If1.add_edge 0 (bport nm out_gr) g 4 int_ty out_gr
+        | _ -> out_gr
+      in
+      If1.add_to_boundary_outputs ~start_port:k g ge result_ty out_gr
   in
   let rec loop k out_gr =
     if k >= num_outputs then out_gr
@@ -9517,12 +9681,20 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
   in
   loop 0 out_gr
 
-and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_gr return_action_list mask_ty_list prag =
+and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
+    body_gr return_action_list mask_ty_list prag =
   to_if1_msg 3 "add_return_gr: count=%d" (List.length return_action_list);
-  List.iteri (fun i (act, _, _) ->
-    let act_s = match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | `FinalVal -> "final" | _ -> "other" in
-    to_if1_msg 3 "  action #%d: %s" i act_s
-  ) return_action_list;
+  List.iteri
+    (fun i (act, _, _) ->
+      let act_s =
+        match act with
+        | `Array_of -> "array_of"
+        | `Dv_array_of _ -> "dv_array_of"
+        | `FinalVal -> "final"
+        | _ -> "other"
+      in
+      to_if1_msg 3 "  action #%d: %s" i act_s)
+    return_action_list;
   let ret_gr =
     try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
     with e ->
@@ -9593,8 +9765,9 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
                 let (id_x, _, _), out_gr =
                   If1.add_type_to_typemap_dedup (If1.Array_ty tt) out_gr
                 in
-                to_if1_msg 3 "create_return_nodes: Array_of elem_ty=%d -> what_ty=%d"
-                  tt id_x;
+                to_if1_msg 3
+                  "create_return_nodes: Array_of elem_ty=%d -> what_ty=%d" tt
+                  id_x;
                 (id_x, out_gr)
               in
               let out_gr =
@@ -9603,7 +9776,9 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
-              to_if1_msg 3 "create_return_nodes: Array_of added to boundary port %d ty=%d" out_p what_ty;
+              to_if1_msg 3
+                "create_return_nodes: Array_of added to boundary port %d ty=%d"
+                out_p what_ty;
               let out_gr =
                 match hd_c with
                 | Some (aty, pnum) -> If1.add_edge 0 pnum dd 2 aty out_gr
@@ -9665,16 +9840,17 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
               let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
               let triplet_ty =
                 match If1.lookup_ty dope_ty out_gr with
-                | If1.Array_ty et
-                | If1.Array_dv et ->
-                    et
+                | If1.Array_ty et | If1.Array_dv et -> et
                 | _ -> 0
               in
               let out_gr = If1.add_edge dim_n 0 dd 2 triplet_ty out_gr in
 
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
-              to_if1_msg 3 "create_return_nodes: Dv_array_of added to boundary port %d ty=%d" out_p what_ty;
+              to_if1_msg 3
+                "create_return_nodes: Dv_array_of added to boundary port %d \
+                 ty=%d"
+                out_p what_ty;
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
                 (out_lis @ [ (`Dv_array_of (rank + 1), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
@@ -9695,7 +9871,10 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
                 let out_gr = If1.add_edge 0 aa dd 0 tt out_gr in
                 let out_gr = If1.add_to_boundary_outputs dd ee tt out_gr in
                 let out_p = List.length (If1.get_boundary_outputs out_gr) - 1 in
-                to_if1_msg 3 "create_return_nodes: FinalVal added to boundary port %d ty=%d" out_p tt;
+                to_if1_msg 3
+                  "create_return_nodes: FinalVal added to boundary port %d \
+                   ty=%d"
+                  out_p tt;
                 out_gr
               in
               create_return_nodes out_gr (in_count + 1) (out_count + 1)
@@ -9769,7 +9948,9 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
      the forall later (the outermost in-list) / from each level's boundary (the
      inner compounds), decoupling construction from the forall relays. *)
   let is_dv =
-    match return_action_list with (`Dv_array_of _, _, _) :: _ -> true | _ -> false
+    match return_action_list with
+    | (`Dv_array_of _, _, _) :: _ -> true
+    | _ -> false
   in
   (* Nest if the cross has AT LEAST ONE array[_dv] of output. Mixed returns are
      handled per output: array-of outputs nest (one gather level per axis);
@@ -9785,7 +9966,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
   in
   let out_is_array = List.map is_array_of_act return_action_list in
   let ret_gr =
-    if should_nest then (
+    if should_nest then
       let int_ty = If1.lookup_tyid If1.INTEGRAL in
       let n = List.length returns_triples in
       (* Innermost level (last triple): index@0, then one body relay per output
@@ -9806,14 +9987,14 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
       let ret_gr =
         List.fold_left
           (fun g (j, _aa, tt) ->
-            snd (declare_returns_input ("__forall_body_" ^ string_of_int j) tt g))
+            snd
+              (declare_returns_input ("__forall_body_" ^ string_of_int j) tt g))
           ret_gr bodies_by_aa
       in
       let ret_gr =
         List.fold_left
           (fun g -> function
-            | Some nm -> snd (declare_returns_input nm int_ty g)
-            | None -> g)
+            | Some nm -> snd (declare_returns_input nm int_ty g) | None -> g)
           ret_gr [ lb_name; ub_name ]
       in
       (* Connect the innermost level's lb/ub to each ARRAY-OF gather (ports 3,4).
@@ -9823,7 +10004,9 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
           If1.get_boundary_outputs ret_gr
           |> List.mapi (fun k (gn, _) -> (k, gn))
           |> List.filter (fun (k, _) ->
-                 match List.nth_opt out_is_array k with Some b -> b | None -> true)
+              match List.nth_opt out_is_array k with
+              | Some b -> b
+              | None -> true)
           |> List.map snd
         in
         let bport nm =
@@ -9848,13 +10031,14 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
          dimension index (rank) = n - level: innermost (level n-1) is 1 -- which
          is what create_return_nodes already gave it -- and the outermost is n. *)
       let outer_triples =
-        returns_triples |> List.mapi (fun i t -> (i, t))
+        returns_triples
+        |> List.mapi (fun i t -> (i, t))
         |> List.filter (fun (i, _) -> i < n - 1)
       in
       List.fold_right
         (fun (i, triple) g ->
           nest_sub_returns ~is_dv ~triple ~rank:(n - i) ~out_is_array g in_gr)
-        outer_triples ret_gr)
+        outer_triples ret_gr
     else ret_gr
   in
 
@@ -9876,7 +10060,10 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
 
   let (cn, _, _), in_gr =
     let pragms =
-      if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag; If1.Compound_of If1.If1_results ]
+      if prag <> "" then
+        [
+          If1.Name "RETURNS"; If1.Ast_type prag; If1.Compound_of If1.If1_results;
+        ]
       else [ If1.Name "RETURNS"; If1.Compound_of If1.If1_results ]
     in
     If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
@@ -9893,72 +10080,77 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr body_
     verify_compound_inputs cn ret_gr in_gr;
     ((cn, 0, 0), in_gr, out_lis)
 
-and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list prag =
-  to_if1_msg 3 "add_return_gr_loopB: count=%d prag=[%s]" (List.length return_action_list) prag;
-  List.iteri (fun i (act, _, _) ->
-    let act_s = match act with `Array_of -> "array_of" | `Dv_array_of _ -> "dv_array_of" | `FinalVal -> "final" | _ -> "other" in
-    to_if1_msg 3 "  action #%d: %s" i act_s
-  ) return_action_list;
+and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
+    mask_ty_list prag =
+  to_if1_msg 3 "add_return_gr_loopB: count=%d prag=[%s]"
+    (List.length return_action_list)
+    prag;
+  List.iteri
+    (fun i (act, _, _) ->
+      let act_s =
+        match act with
+        | `Array_of -> "array_of"
+        | `Dv_array_of _ -> "dv_array_of"
+        | `FinalVal -> "final"
+        | _ -> "other"
+      in
+      to_if1_msg 3 "  action #%d: %s" i act_s)
+    return_action_list;
   (* Find the BODY compound node in for_gr (in_gr) *)
   let body_cn =
-    If1.NM.fold (fun nid node acc ->
-      match node with
-      | If1.Compound (_, _, _, prags, _, _)
-        when List.exists (function If1.Name "BODY" -> true | _ -> false) prags ->
-          nid
-      | _ -> acc)
+    If1.NM.fold
+      (fun nid node acc ->
+        match node with
+        | If1.Compound (_, _, _, prags, _, _)
+          when List.exists
+                 (function If1.Name "BODY" -> true | _ -> false)
+                 prags ->
+            nid
+        | _ -> acc)
       in_gr.If1.nmap (-1)
   in
   to_if1_msg 3 "add_return_gr_loopB: body_cn=%d" body_cn;
-  (* For each return action: find name in body_gr.cs by val_def=node_n,
-     find out_port from body_gr.eset, add name to for_gr's cs *)
-  let in_gr =
-    List.fold_left (fun in_gr (_, node_n, node_t) ->
-      let name_opt =
-        If1.SM.fold (fun v entry acc ->
-          match acc with Some _ -> acc
-          | None -> if entry.If1.val_def = node_n then Some v else None)
-          (fst body_gr.If1.symtab) None
-      in
-      match name_opt with
-      | None ->
-          to_if1_msg 3 "add_return_gr_loopB: no name found for node_n=%d" node_n;
-          in_gr
-      | Some v ->
-          let out_port =
-            If1.ES.fold (fun ((sn, _), (dn, dp), _) acc ->
-              if sn = node_n && dn = 0 then dp else acc)
-              body_gr.If1.eset (-1)
-          in
-          to_if1_msg 3 "add_return_gr_loopB: name=%s node_n=%d body_cn=%d out_port=%d" v node_n body_cn out_port;
-          let cs, ps = in_gr.If1.symtab in
-          let cs = If1.SM.add v
-            { If1.val_name = v; If1.val_ty = node_t;
-              If1.val_def = body_cn; If1.def_port = out_port }
-            cs
-          in
-          { in_gr with If1.symtab = (cs, ps) })
-    in_gr return_action_list
-  in
-  (* ret_gr is a child of for_gr so get_symbol_id can find the names we just added *)
+  (* (Deleted: the node_n-keyed fold that registered names into for_gr's CS -- it
+     collapsed all pass-through carries onto the first val_def=0 name.  Carry names
+     are now materialized directly onto ret_gr's boundary below, sourced from the
+     BODY compound's output ports.) *)
   let ret_gr = If1.get_a_new_graph in_gr in
-  (* Transform return_action_list: for each (action, node_n, node_t), find name,
-     call get_symbol_id on ret_gr to get the actual boundary port *)
-  let return_action_list, ret_gr =
-    List.fold_left (fun (acc, ret_gr) (action, node_n, node_t) ->
-      let name_opt =
-        If1.SM.fold (fun v entry a ->
-          match a with Some _ -> a
-          | None -> if entry.If1.val_def = node_n then Some v else None)
-          (fst body_gr.If1.symtab) None
-      in
-      match name_opt with
-      | None -> (acc @ [(action, node_t, 0)], ret_gr)
-      | Some v ->
-          let (_, bp, _), ret_gr = If1.get_symbol_id v ret_gr in
-          to_if1_msg 3 "add_return_gr_loopB: import %s via boundary port %d" v bp;
-          (acc @ [(action, node_t, bp)], ret_gr))
-    ([], ret_gr) return_action_list
+  (* Per-clause resolution by (node_n, node_p) -- the (node, port) that do_exp produced
+     for `value of <exp>`.  Find the BODY boundary-output port carrying exactly that
+     (node, port), materialize a ret_gr boundary input sourced from (body_cn, that
+     port), record the for_gr-level edge, and give the clause that ret port.  Name-free:
+     works for bare carries, pass-through carries, and arbitrary expressions alike.
+     node_p comes from ret_tuple_list (parallel to return_action_list). *)
+  let body_out_port_of src_n src_p =
+    If1.ES.fold
+      (fun ((s, p), (dn, dp), _) acc ->
+        if dn = 0 && s = src_n && p = src_p then
+          match acc with None -> Some dp | _ -> acc
+        else acc)
+      body_gr.If1.eset None
+  in
+  let (return_action_list, ret_gr, mat_edges), _ =
+    List.fold_left
+      (fun ((acc, rg, edges), idx) ((action, _node_n, node_t), (tn, tp, _tt)) ->
+        match body_out_port_of tn tp with
+        | Some dp ->
+            let nm = Printf.sprintf "__ret_%d" idx in
+            let bp, rg = If1.add_to_boundary_inputs ~namen:nm body_cn dp rg in
+            to_if1_msg 3
+              "add_return_gr_loopB: clause#%d (node=%d,port=%d) -> body_cn:%d \
+               -> ret in-port %d"
+              idx tn tp dp bp;
+            ( ( acc @ [ (action, node_t, bp) ],
+                rg,
+                (body_cn, dp, bp, node_t) :: edges ),
+              idx + 1 )
+        | None ->
+            to_if1_msg 3
+              "add_return_gr_loopB: clause#%d no body output for (%d,%d)" idx tn
+              tp;
+            ((acc @ [ (action, node_t, 0) ], rg, edges), idx + 1))
+      (([], ret_gr, []), 0)
+      (List.combine return_action_list ret_tuple_list)
   in
   let mask_ty_list = List.map (fun _ -> None) return_action_list in
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
@@ -10018,9 +10210,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
                 in
                 (id_x, out_gr)
               in
-              let out_gr =
-                If1.add_edge 0 0 dd 0 5 out_gr
-              in
+              let out_gr = If1.add_edge 0 0 dd 0 5 out_gr in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               let out_gr =
@@ -10052,9 +10242,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
                     in
                     (id_x, out_gr)
               in
-              let out_gr =
-                If1.add_edge 0 0 dd 0 5 out_gr
-              in
+              let out_gr = If1.add_edge 0 0 dd 0 5 out_gr in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
               let (dim_n, _, _), out_gr =
                 If1.add_node_2
@@ -10079,9 +10267,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
               let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
               let triplet_ty =
                 match If1.lookup_ty dope_ty out_gr with
-                | If1.Array_ty et
-                | If1.Array_dv et ->
-                    et
+                | If1.Array_ty et | If1.Array_dv et -> et
                 | _ -> 0
               in
               let out_gr = If1.add_edge dim_n 0 dd 2 triplet_ty out_gr in
@@ -10166,12 +10352,26 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list mask_ty_list pr
   in
   let (cn, _, _), in_gr =
     let pragms =
-      if prag <> "" then [ If1.Name "RETURNS"; If1.Ast_type prag; If1.Compound_of If1.If1_results ]
+      if prag <> "" then
+        [
+          If1.Name "RETURNS"; If1.Ast_type prag; If1.Compound_of If1.If1_results;
+        ]
       else [ If1.Name "RETURNS"; If1.Compound_of If1.If1_results ]
     in
     If1.add_node_2 (`Compound (ret_gr, If1.INTERNAL, 0, pragms, [])) in_gr
   in
   let ret_gr, in_gr = wire_all_syms_to_compound cn ret_gr in_gr in
+  (* Lay the materialized for_gr-level edges by RECORDED source (not by name):
+     body_cn:dp -> ret_cn(cn):bp.  wire_all_syms_to_compound resolves by name and
+     can't reach the loop carries, so we add these explicitly. *)
+  let in_gr =
+    List.fold_left
+      (fun g (b_cn, dp, bp, ty) ->
+        to_if1_msg 3 "add_return_gr_loopB: EDGE body_cn:%d -> ret_cn(%d):%d" dp
+          cn bp;
+        If1.add_edge b_cn dp cn bp ty g)
+      in_gr mat_edges
+  in
   verify_compound_inputs cn ret_gr in_gr;
   ((cn, 0, 0), in_gr, out_lis)
 
@@ -10320,7 +10520,7 @@ and do_global in_gr f =
     | Ast.Function_header_nodec (Ast.Function_name fn, _) ->
         String.concat "." fn
   in
-  let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+  let (_, _, fn_ty), in_gr = do_function_header ~is_forward:true in_gr f in
   if is_intrinsic_global fn_name then ((0, 0, fn_ty), in_gr)
   else
     let localsyms, globsyms = If1.get_symtab in_gr in
@@ -10410,8 +10610,7 @@ and ensure_complex_types in_gr =
       in
       let _, in_gr = If1.add_sisal_typename in_gr tn tid_re in
       in_gr
-      else in_gr
-
+    else in_gr
   in
   let in_gr = register_one "COMPLEX_HALF" (If1.lookup_tyid If1.HALF) in_gr in
   let in_gr = register_one "COMPLEX_FLOAT" (If1.lookup_tyid If1.REAL) in_gr in
@@ -10491,8 +10690,10 @@ and verify_function_returns strs fn_ty_id in_gr =
       | Some (Tuple_ty (ty, next)) -> ty :: get_expected_ids next
       | Some _ -> [ tid ] (* Single return value case *)
       | None ->
-          to_if1_msg 1 "verify_returns: Missing type ID %d. Typemap contains: [%s]"
-            tid (String.concat "; " (List.map string_of_int (List.map fst (If1.TM.bindings tm))));
+          to_if1_msg 1
+            "verify_returns: Missing type ID %d. Typemap contains: [%s]" tid
+            (String.concat "; "
+               (List.map string_of_int (List.map fst (If1.TM.bindings tm))));
           raise
             (If1.Sem_error
                ("Missing tuple/type definition for ID: " ^ string_of_int tid))
@@ -10593,7 +10794,13 @@ and verify_function_returns strs fn_ty_id in_gr =
                    raise (If1.Sem_error ("Return Type Mismatch: " ^ err_msg)))
            | _ ->
                let tm_entries = If1.TM.bindings (If1.get_typemap_tm in_gr) in
-               let tm_str = String.concat "; " (List.map (fun (id, ty) -> Printf.sprintf "%d:%s" id (If1.string_of_if1_ty ty)) tm_entries) in
+               let tm_str =
+                 String.concat "; "
+                   (List.map
+                      (fun (id, ty) ->
+                        Printf.sprintf "%d:%s" id (If1.string_of_if1_ty ty))
+                      tm_entries)
+               in
                raise
                  (If1.Sem_error
                     (Printf.sprintf
@@ -10761,7 +10968,7 @@ and do_function_def in_gr = function
         | Ast.Function_header (Ast.Function_name fn, _, _) ->
             String.concat "." fn
       in
-      let (_, _, fn_ty), in_gr = do_function_header in_gr f in
+      let (_, _, fn_ty), in_gr = do_function_header ~is_forward:true in_gr f in
       let localsyms, globsyms = If1.get_symtab in_gr in
       ( (0, 0, fn_ty),
         {
@@ -10778,33 +10985,45 @@ and do_function_def in_gr = function
               globsyms );
         } )
 
-and do_function_header in_gr = function
+and do_function_header ?(is_forward = false) in_gr = function
   | Ast.Function_header_nodec (fn, tl) ->
       let _, in_gr = do_function_name in_gr fn in
       If1.add_sisal_type in_gr
         (Ast.Compound_type (Ast.Sisal_function_type ("", [], tl)))
   | Ast.Function_header (Ast.Function_name fn, decls, tl) ->
-      let nm = in_gr.If1.nmap in
-      let nm =
-        If1.NM.add 0
-          (let bound_node = If1.NM.find_opt 0 nm in
-           match bound_node with
-           | Some (If1.Boundary (k, j, e, p)) ->
-               If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
-           | _ -> failwith "Boundary node missing in graph")
-          nm
+      (* A real definition prepares the body's scope: the function name on the
+         boundary + each formal as a boundary input / symtab entry.  A forward
+         `global` declaration is ONLY a signature -- register its type so calls
+         resolve, but write NOTHING into the surrounding (module) scope: no boundary
+         name, no formal params.  Binding the formals belongs to definition lowering. *)
+      let in_gr =
+        if is_forward then in_gr
+        else
+          let nm = in_gr.If1.nmap in
+          let nm =
+            If1.NM.add 0
+              (let bound_node = If1.NM.find_opt 0 nm in
+               match bound_node with
+               | Some (If1.Boundary (k, j, e, p)) ->
+                   If1.Boundary (k, j, e, If1.Name (String.concat "." fn) :: p)
+               | _ -> failwith "Boundary node missing in graph")
+              nm
+          in
+          { in_gr with If1.nmap = nm }
       in
-      let in_gr = { in_gr with If1.nmap = nm } in
       let tyy = extract_types_from_decl_list decls in
-      let _, (_, _, _), in_gr =
-        let rec addeach_decl in_gr decls lasti bi q =
-          match decls with
-          | [] -> (bi, (lasti, q, 0), in_gr)
-          | hde :: tl ->
-              let (lasti, pp, tt1), in_gr = do_params_decl lasti in_gr hde in
-              addeach_decl in_gr tl lasti ((lasti, pp, tt1) :: bi) pp
-        in
-        addeach_decl in_gr decls 0 [] []
+      let in_gr =
+        if is_forward then in_gr
+        else
+          let rec addeach_decl in_gr decls lasti bi q =
+            match decls with
+            | [] -> (bi, (lasti, q, 0), in_gr)
+            | hde :: tl ->
+                let (lasti, pp, tt1), in_gr = do_params_decl lasti in_gr hde in
+                addeach_decl in_gr tl lasti ((lasti, pp, tt1) :: bi) pp
+          in
+          let _, (_, _, _), in_gr = addeach_decl in_gr decls 0 [] [] in
+          in_gr
       in
       If1.add_sisal_type in_gr
         (Ast.Compound_type
