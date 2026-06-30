@@ -4982,16 +4982,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let aexps =
             match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
           in
-          let args_res, in_gr =
+          let eval_args, in_gr =
             List.fold_left
               (fun (acc, g) x ->
                 let r, g = do_simple_exp g x in
                 (r :: acc, g))
               ([], in_gr) aexps
           in
-          let args_res = List.rev args_res in
           let is_dv =
-            match args_res with
+            match List.rev eval_args with
             | (_, _, arr_ty) :: _ -> If1.is_array_dv arr_ty in_gr
             | _ -> false
           in
@@ -5005,11 +5004,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
             List.fold_left
               (fun (cou, g) (l, m, tt) ->
                 (cou + 1, If1.add_edge l m n cou tt g))
-              (0, in_gr) args_res
+              (0, in_gr) eval_args
             |> snd
           in
           let final_ty =
-            match args_res with
+            match List.rev eval_args with
             | (_, _, arr_ty) :: _ -> arr_ty
             | _ -> 0
           in
