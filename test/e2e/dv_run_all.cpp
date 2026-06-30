@@ -524,6 +524,14 @@ extern "C" struct FN3_results func_MAIN();  // function: 3 mixed-rank outputs
 #ifdef TEST_IFTUPLE_FORALL_DV
 extern "C" sisal_array_t func_MAIN();  // if-tuple inside a forall
 #endif
+#ifdef TEST_RED_RANKS_DV
+struct RRK_results { sisal_array_t res_0; int32_t res_1; sisal_array_t res_2; };
+extern "C" struct RRK_results func_MAIN();  // nested reduce/gather -> ranks 1, 0, 2
+#endif
+#ifdef TEST_RED_OPS_DV
+struct ROP_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
+extern "C" struct ROP_results func_MAIN();  // product / greatest / least, gathered (rank 1)
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t REP, int32_t N, sisal_array_t B,
@@ -4823,6 +4831,30 @@ static void test_iftuple_forall_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_RED_RANKS_DV
+static void test_red_ranks_dv(void) {
+    printf("\n=== Group: red_ranks_dv (nested reduce/gather -> ranks 1,0,2) ===\n");
+    struct RRK_results r = func_MAIN();
+    bool gok = (r.res_0.rank==1) && ((int)r.res_0.size==3) && ai(r.res_0,0)==10 && ai(r.res_0,1)==20 && ai(r.res_0,2)==30;
+    bool rok = (r.res_1 == 60);
+    int m[12] = {1,2,3,4,2,4,6,8,3,6,9,12};
+    bool mok = (r.res_2.rank==2) && ((int)r.res_2.dims[0]==3) && ((int)r.res_2.dims[1]==4);
+    for (int k=0; mok && k<12; k++) mok = mok && (ai(r.res_2,k)==m[k]);
+    check("red_ranks_dv reduce/gather alternation gives ranks 1,0,2", gok && rok && mok);
+    if (r.res_0.data) free(r.res_0.data); if (r.res_2.data) free(r.res_2.data);
+}
+#endif
+#ifdef TEST_RED_OPS_DV
+static void test_red_ops_dv(void) {
+    printf("\n=== Group: red_ops_dv (product/greatest/least reductions) ===\n");
+    struct ROP_results r = func_MAIN();
+    int p[3]={24,384,1944}, g[3]={4,8,12}, l[3]={1,2,3};
+    bool ok = (r.res_0.rank==1) && (r.res_1.rank==1) && (r.res_2.rank==1);
+    for (int k=0; ok && k<3; k++) ok = ok && ai(r.res_0,k)==p[k] && ai(r.res_1,k)==g[k] && ai(r.res_2,k)==l[k];
+    check("red_ops_dv product/greatest/least gathered (rank 1)", ok);
+    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5055,6 +5087,12 @@ main (void)
 #ifdef TEST_IFTUPLE_FORALL_DV
   test_iftuple_forall_dv ();
 #endif
+#ifdef TEST_RED_RANKS_DV
+  test_red_ranks_dv ();
+#endif
+#ifdef TEST_RED_OPS_DV
+  test_red_ops_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5214,7 +5252,8 @@ main (void)
     && !defined(TEST_FN_MULTIOUT_DV) && !defined(TEST_IF_MULTIOUT_DV)        \
     && !defined(TEST_FNCALL_FORALL_DV) && !defined(TEST_NESTED_FORALL_DV)     \
     && !defined(TEST_CAP_2DEEP_DV) && !defined(TEST_FN3RANK_DV)               \
-    && !defined(TEST_IFTUPLE_FORALL_DV)
+    && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
+    && !defined(TEST_RED_OPS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

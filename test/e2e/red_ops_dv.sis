@@ -1,0 +1,11 @@
+% three reduction ops, each inner-reduce + outer-gather -> rank 1
+define main
+type IOneD = array_dv[integer];
+function main( returns IOneD, IOneD, IOneD )
+  let
+    p := for i in 1, 3 s := for j in 1, 4 returns value of product i * j end for; returns array_dv of s end for;
+    g := for i in 1, 3 s := for j in 1, 4 returns value of greatest i * j end for; returns array_dv of s end for;
+    l := for i in 1, 3 s := for j in 1, 4 returns value of least i * j end for; returns array_dv of s end for;
+  in p, g, l
+  end let
+end function

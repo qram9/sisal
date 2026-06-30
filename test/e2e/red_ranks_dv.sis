@@ -1,0 +1,21 @@
+% nested loops alternating reduce vs gather -> assert output ranks 1, 0, 2
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function main( returns IOneD, integer, ITwoD )
+  let
+    g := for i in 1, 3
+           s := for j in 1, 4 returns value of sum i * j end for;
+         returns array_dv of s
+         end for;
+    r := for i in 1, 3
+           s := for j in 1, 4 returns value of sum i * j end for;
+         returns value of sum s
+         end for;
+    m := for i in 1, 3
+           row := for j in 1, 4 returns array_dv of i * j end for;
+         returns array_dv of row
+         end for;
+  in g, r, m
+  end let
+end function
