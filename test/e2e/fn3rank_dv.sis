@@ -1,0 +1,15 @@
+% function returns 3 outputs of mixed ranks (scalar,1-D,2-D)
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function triple( n: integer returns integer, IOneD, ITwoD )
+  let grid := for i in 1, n
+                row := array_fill(1, 2, i);
+              returns array_dv of row
+              end for;
+  in n, array_fill(1, n, n), grid
+  end let
+end function
+function main( returns integer, IOneD, ITwoD )
+  triple( 2 )
+end function

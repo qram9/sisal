@@ -1,0 +1,15 @@
+% free-var captured across TWO nested foralls (innermost use)
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function main( returns ITwoD )
+  let base := 1000;
+  in for i in 1, 2
+       row := for j in 1, 3
+                y := base + i*10 + j;
+              returns array_dv of y
+              end for;
+     returns array_dv of row
+     end for
+  end let
+end function

@@ -1,0 +1,10 @@
+% if-expression returning a tuple inside a forall body
+define main
+type IOneD = array_dv[integer];
+function main( returns IOneD )
+  for i in 1, 4
+    a, b := if i > 2 then i, i*10 else i*100, i end if;
+    x := a + b;
+  returns array_dv of x
+  end for
+end function

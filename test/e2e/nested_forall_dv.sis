@@ -1,0 +1,13 @@
+% nested forall (forall inside forall) -> 2-D
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function main( returns ITwoD )
+  for i in 1, 2
+    row := for j in 1, 3
+             y := i * 10 + j;
+           returns array_dv of y
+           end for;
+  returns array_dv of row
+  end for
+end function

@@ -508,6 +508,22 @@ extern "C" struct FNMO_results func_MAIN();  // function multi-output (scalar, a
 struct IFMO_results { int32_t res_0; int32_t res_1; };
 extern "C" struct IFMO_results func_MAIN(int32_t c);  // if-expression multi-output
 #endif
+#ifdef TEST_FNCALL_FORALL_DV
+extern "C" sisal_array_t func_MAIN();  // multi-output fn called inside a forall
+#endif
+#ifdef TEST_NESTED_FORALL_DV
+extern "C" sisal_array_t func_MAIN();  // nested forall -> 2-D
+#endif
+#ifdef TEST_CAP_2DEEP_DV
+extern "C" sisal_array_t func_MAIN();  // capture across two nested foralls -> 2-D
+#endif
+#ifdef TEST_FN3RANK_DV
+struct FN3_results { int32_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
+extern "C" struct FN3_results func_MAIN();  // function: 3 mixed-rank outputs
+#endif
+#ifdef TEST_IFTUPLE_FORALL_DV
+extern "C" sisal_array_t func_MAIN();  // if-tuple inside a forall
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t REP, int32_t N, sisal_array_t B,
@@ -4753,6 +4769,60 @@ static void test_if_multiout_dv(void) {
           r1.res_0==1 && r1.res_1==2 && r2.res_0==3 && r2.res_1==4);
 }
 #endif
+#ifdef TEST_FNCALL_FORALL_DV
+static void test_fncall_forall_dv(void) {
+    printf("\n=== Group: fncall_forall_dv (multi-output fn called in forall) ===\n");
+    sisal_array_t r = func_MAIN();
+    bool ok = ((int)r.size==3) && ai(r,0)==5 && ai(r,1)==10 && ai(r,2)==15;
+    check("fncall_forall_dv a+b per i == [5,10,15]", ok);
+    if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_NESTED_FORALL_DV
+static void test_nested_forall_dv(void) {
+    printf("\n=== Group: nested_forall_dv (nested forall -> 2-D) ===\n");
+    sisal_array_t r = func_MAIN();
+    int exp[6] = {11,12,13,21,22,23};
+    bool ok = (r.rank==2) && ((int)r.dims[0]==2) && ((int)r.dims[1]==3);
+    for (int k=0; ok && k<6; k++) ok = ok && (ai(r,k)==exp[k]);
+    check("nested_forall_dv 2-D == [[11,12,13],[21,22,23]]", ok);
+    if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_CAP_2DEEP_DV
+static void test_cap_2deep_dv(void) {
+    printf("\n=== Group: cap_2deep_dv (capture across two nested foralls) ===\n");
+    sisal_array_t r = func_MAIN();
+    int exp[6] = {1011,1012,1013,1021,1022,1023};
+    bool ok = (r.rank==2) && ((int)r.dims[0]==2) && ((int)r.dims[1]==3);
+    for (int k=0; ok && k<6; k++) ok = ok && (ai(r,k)==exp[k]);
+    check("cap_2deep_dv base captured 2 loops deep", ok);
+    if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_FN3RANK_DV
+static void test_fn3rank_dv(void) {
+    printf("\n=== Group: fn3rank_dv (function 3 mixed-rank outputs) ===\n");
+    struct FN3_results r = func_MAIN();
+    int exp2[4] = {1,1,2,2};
+    bool ok = (r.res_0==2) && ((int)r.res_1.size==2) && ai(r.res_1,0)==2 && ai(r.res_1,1)==2;
+    ok = ok && (r.res_2.rank==2) && ((int)r.res_2.dims[0]==2) && ((int)r.res_2.dims[1]==2);
+    for (int k=0; ok && k<4; k++) ok = ok && (ai(r.res_2,k)==exp2[k]);
+    check("fn3rank_dv triple(2) == (2, [2,2], [[1,1],[2,2]])", ok);
+    if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
+}
+#endif
+#ifdef TEST_IFTUPLE_FORALL_DV
+static void test_iftuple_forall_dv(void) {
+    printf("\n=== Group: iftuple_forall_dv (if-tuple inside forall) ===\n");
+    sisal_array_t r = func_MAIN();
+    int exp[4] = {101,202,33,44};
+    bool ok = ((int)r.size==4);
+    for (int k=0; ok && k<4; k++) ok = ok && (ai(r,k)==exp[k]);
+    check("iftuple_forall_dv == [101,202,33,44]", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -4970,6 +5040,21 @@ main (void)
 #ifdef TEST_IF_MULTIOUT_DV
   test_if_multiout_dv ();
 #endif
+#ifdef TEST_FNCALL_FORALL_DV
+  test_fncall_forall_dv ();
+#endif
+#ifdef TEST_NESTED_FORALL_DV
+  test_nested_forall_dv ();
+#endif
+#ifdef TEST_CAP_2DEEP_DV
+  test_cap_2deep_dv ();
+#endif
+#ifdef TEST_FN3RANK_DV
+  test_fn3rank_dv ();
+#endif
+#ifdef TEST_IFTUPLE_FORALL_DV
+  test_iftuple_forall_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5126,7 +5211,10 @@ main (void)
     && !defined(TEST_CAP_NESTED_DV) && !defined(TEST_CAP_ARRAY_DV)            \
     && !defined(TEST_CAP_FORINIT_DV) && !defined(TEST_MR_FORALL_DV)           \
     && !defined(TEST_MR_FORINIT_DV) && !defined(TEST_MR_1D2D_DV)              \
-    && !defined(TEST_FN_MULTIOUT_DV) && !defined(TEST_IF_MULTIOUT_DV)
+    && !defined(TEST_FN_MULTIOUT_DV) && !defined(TEST_IF_MULTIOUT_DV)        \
+    && !defined(TEST_FNCALL_FORALL_DV) && !defined(TEST_NESTED_FORALL_DV)     \
+    && !defined(TEST_CAP_2DEEP_DV) && !defined(TEST_FN3RANK_DV)               \
+    && !defined(TEST_IFTUPLE_FORALL_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
