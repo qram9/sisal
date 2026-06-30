@@ -536,6 +536,25 @@ extern "C" struct ROP_results func_MAIN();  // product / greatest / least, gathe
 struct RAR_results { sisal_array_t s; sisal_array_t p; sisal_array_t g; sisal_array_t l; sisal_array_t m; };
 extern "C" struct RAR_results func_MAIN();  // array-VALUED reductions (elementwise), 1-D + 2-D
 #endif
+#if defined(TEST_BCAST3D_DV) || defined(TEST_BCAST31_DV)
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly A + B
+// build a rank-1/2/3 double array_dv with explicit dims (numpy-style row-major)
+static sisal_array_t mk_dv3(int rank, int d0, int d1, int d2, const double* v) {
+    int n = (rank==3)? d0*d1*d2 : (rank==2)? d0*d1 : d0;
+    sisal_array_t a = sisal_array_alloc_empty(rank, 4, (uint64_t)n);
+    a.dims[0]=d0; if(rank>=2)a.dims[1]=d1; if(rank>=3)a.dims[2]=d2;
+    for (int i=0;i<n;i++) ((double*)a.data)[i]=v[i];
+    return a;
+}
+static bool dv_eq(sisal_array_t r, int rank, int d0, int d1, int d2, const double* exp, int n) {
+    if (r.rank!=rank || (int)r.dims[0]!=d0) return false;
+    if (rank>=2 && (int)r.dims[1]!=d1) return false;
+    if (rank>=3 && (int)r.dims[2]!=d2) return false;
+    if ((int)r.size!=n) return false;
+    for (int k=0;k<n;k++) if (!(fabs(((double*)r.data)[k] - exp[k]) < 1e-9)) return false;
+    return true;
+}
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t REP, int32_t N, sisal_array_t B,
@@ -4875,6 +4894,39 @@ static void test_red_arr_dv(void) {
     if (r.l.data) free(r.l.data); if (r.m.data) free(r.m.data);
 }
 #endif
+#ifdef TEST_BCAST3D_DV
+static void test_bcast3d_dv(void) {
+    printf("\n=== Group: bcast3d_dv (rank-poly A+B, 3-D + 2-D vs numpy) ===\n");
+    double A[12]={1,2,3,4,5,6,7,8,9,10,11,12};
+    // (2,2,3) + (2,3): B broadcasts over the leading axis  [numpy oracle]
+    double B2[6]={10,20,30,40,50,60};
+    double e1[12]={11,22,33,44,55,66,17,28,39,50,61,72};
+    sisal_array_t a1=mk_dv3(3,2,2,3,A), b1=mk_dv3(2,2,3,0,B2);
+    sisal_array_t r1=func_MAIN(a1,b1);
+    check("bcast3d_dv (2,2,3)+(2,3) == numpy", dv_eq(r1,3,2,2,3,e1,12));
+    // (2,1,3) + (4,3): MUTUAL broadcast -> (2,4,3)  [numpy oracle]
+    double Am[6]={1,2,3,4,5,6};
+    double Bm[12]={10,20,30,40,50,60,70,80,90,100,110,120};
+    double e2[24]={11,22,33,41,52,63,71,82,93,101,112,123,14,25,36,44,55,66,74,85,96,104,115,126};
+    sisal_array_t a2=mk_dv3(3,2,1,3,Am), b2=mk_dv3(2,4,3,0,Bm);
+    sisal_array_t r2=func_MAIN(a2,b2);
+    check("bcast3d_dv mutual (2,1,3)+(4,3) -> (2,4,3) == numpy", dv_eq(r2,3,2,4,3,e2,24));
+    if(a1.data)free(a1.data); if(b1.data)free(b1.data); if(r1.data)free(r1.data);
+    if(a2.data)free(a2.data); if(b2.data)free(b2.data); if(r2.data)free(r2.data);
+}
+#endif
+#ifdef TEST_BCAST31_DV
+static void test_bcast31_dv(void) {
+    printf("\n=== Group: bcast31_dv (rank-poly A+B, 3-D + 1-D vs numpy) ===\n");
+    double A[12]={1,2,3,4,5,6,7,8,9,10,11,12};
+    double B1[3]={100,200,300};
+    double e[12]={101,202,303,104,205,306,107,208,309,110,211,312};
+    sisal_array_t a=mk_dv3(3,2,2,3,A), b=mk_dv3(1,3,0,0,B1);
+    sisal_array_t r=func_MAIN(a,b);
+    check("bcast31_dv (2,2,3)+(3) == numpy", dv_eq(r,3,2,2,3,e,12));
+    if(a.data)free(a.data); if(b.data)free(b.data); if(r.data)free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5116,6 +5168,12 @@ main (void)
 #ifdef TEST_RED_ARR_DV
   test_red_arr_dv ();
 #endif
+#ifdef TEST_BCAST3D_DV
+  test_bcast3d_dv ();
+#endif
+#ifdef TEST_BCAST31_DV
+  test_bcast31_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5276,7 +5334,8 @@ main (void)
     && !defined(TEST_FNCALL_FORALL_DV) && !defined(TEST_NESTED_FORALL_DV)     \
     && !defined(TEST_CAP_2DEEP_DV) && !defined(TEST_FN3RANK_DV)               \
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
-    && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)
+    && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
+    && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

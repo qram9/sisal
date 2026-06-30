@@ -1,0 +1,7 @@
+% rank-poly broadcast: 3-D + 1-D, numpy trailing-alignment (vector over both leading axes).
+define main
+type ThreeD = array_dv[double];
+type OneD   = array_dv[double];
+function main( A: ThreeD; B: OneD returns ThreeD )
+  A + B
+end function

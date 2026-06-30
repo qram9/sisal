@@ -1,0 +1,8 @@
+% rank-poly broadcast: 3-D + 2-D, numpy trailing-alignment semantics.
+% Covers leading-axis broadcast (2,2,3)+(2,3) and mutual broadcast (2,1,3)+(4,3).
+define main
+type ThreeD = array_dv[double];
+type TwoD   = array_dv[double];
+function main( A: ThreeD; B: TwoD returns ThreeD )
+  A + B
+end function
