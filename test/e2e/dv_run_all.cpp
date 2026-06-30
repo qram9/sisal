@@ -1921,6 +1921,34 @@ test_innerproduct_dv (void)
     free (Bmm.data);
   if (Rmm.data)
     free (Rmm.data);
+
+  // --- 4D x 4D float dot via Sisal compiled innerproduct ---
+  float a4[48], b4[48];
+  for (int i = 0; i < 48; i++) {
+    a4[i] = (float)i * 0.1f;
+    b4[i] = (float)(48 - i) * 0.05f;
+  }
+  sisal_array_t A4 = sisal_array_alloc_empty (4, 8, 48);
+  int64_t dims_a4[] = { 2, 3, 2, 4 };
+  memcpy (A4.dims, dims_a4, sizeof (dims_a4));
+  memcpy (A4.data, a4, sizeof (a4));
+
+  sisal_array_t B4 = sisal_array_alloc_empty (4, 8, 48);
+  int64_t dims_b4[] = { 2, 2, 4, 3 };
+  memcpy (B4.dims, dims_b4, sizeof (dims_b4));
+  memcpy (B4.data, b4, sizeof (b4));
+
+  sisal_array_t R4 = func_IP_F32 (A4, B4);
+  check ("dot_f32 4D rank", R4.rank == 6);
+  check ("dot_f32 4D size", (int)R4.size == 144);
+  check ("dot_f32 4D dims[0]", (int)R4.dims[0] == 2);
+  check ("dot_f32 4D dims[5]", (int)R4.dims[5] == 3);
+  check ("dot_f32 4D [0]=1.23", fabsf(af(R4, 0) - 1.23f) < 1e-4f);
+  check ("dot_f32 4D [143]=4.93", fabsf(af(R4, 143) - 4.93f) < 1e-4f);
+
+  if (A4.data) free (A4.data);
+  if (B4.data) free (B4.data);
+  if (R4.data) free (R4.data);
 }
 #endif
 
@@ -1949,6 +1977,34 @@ test_matmul_op_dv (void)
     free (B2.data);
   if (C2.data)
     free (C2.data);
+
+  // --- 4D x 4D float dot via Sisal compiled matmul ---
+  float a4[48], b4[48];
+  for (int i = 0; i < 48; i++) {
+    a4[i] = (float)i * 0.1f;
+    b4[i] = (float)(48 - i) * 0.05f;
+  }
+  sisal_array_t A4 = sisal_array_alloc_empty (4, 8, 48);
+  int64_t dims_a4[] = { 2, 3, 2, 4 };
+  memcpy (A4.dims, dims_a4, sizeof (dims_a4));
+  memcpy (A4.data, a4, sizeof (a4));
+
+  sisal_array_t B4 = sisal_array_alloc_empty (4, 8, 48);
+  int64_t dims_b4[] = { 2, 2, 4, 3 };
+  memcpy (B4.dims, dims_b4, sizeof (dims_b4));
+  memcpy (B4.data, b4, sizeof (b4));
+
+  sisal_array_t R4 = func_MM_F32 (A4, B4);
+  check ("matmul_op 4D rank", R4.rank == 6);
+  check ("matmul_op 4D size", (int)R4.size == 144);
+  check ("matmul_op 4D dims[0]", (int)R4.dims[0] == 2);
+  check ("matmul_op 4D dims[5]", (int)R4.dims[5] == 3);
+  check ("matmul_op 4D [0]=1.23", fabsf(af(R4, 0) - 1.23f) < 1e-4f);
+  check ("matmul_op 4D [143]=4.93", fabsf(af(R4, 143) - 4.93f) < 1e-4f);
+
+  if (A4.data) free (A4.data);
+  if (B4.data) free (B4.data);
+  if (R4.data) free (R4.data);
 }
 #endif
 
