@@ -1,0 +1,23 @@
+% Minimized reproducer for the for-initial MERGE int<->array mis-wiring.
+% Lifted from loop2_dv.sis: the INNERMOST `for initial` only.
+% Carries: k (int), i (int), Xt (array_dv) + their `old` shadows -> the mix of
+% int and array carries permutes INIT-output <-> MERGE-seed wiring in to_if1.
+
+Define  Main
+
+type OneD = array_dv[double];
+
+function Main( IPNT, IPNTP: integer; V, X: OneD returns OneD )
+  for initial
+      k  := IPNT + 2;
+      Xt := X;
+      i  := IPNTP;
+  while ( k <= IPNTP ) repeat
+      k  := old k + 2;
+      i  := old i + 1;
+      Xt := old Xt[i: old Xt[old k] -
+            (V[old k]   * old Xt[old k-1]) +
+            (V[old k+1] * old Xt[old k+1])];
+  returns value of Xt
+  end for
+end function
