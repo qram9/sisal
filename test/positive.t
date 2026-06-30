@@ -120,6 +120,7 @@ DV array variants - array_dv OF with correct array_dv return types:
   $ sisal e2e/iftuple_forall_dv.sis
   $ sisal e2e/red_ranks_dv.sis
   $ sisal e2e/red_ops_dv.sis
+  $ sisal e2e/red_arr_dv.sis
   $ sisal e2e/loop20_dv.sis
   $ sisal e2e/tst_loop1_dv.sis
   $ sisal e2e/loop2_inner_dv.sis

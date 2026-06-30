@@ -1,0 +1,21 @@
+% array-VALUED reductions: outer reduce over inner-gathered arrays.
+% sum/product/greatest/least over 1-D rows (rank 1) + sum over 2-D matrices (rank 2).
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function main( returns IOneD, IOneD, IOneD, IOneD, ITwoD )
+  let
+    s := for i in 1, 3 row := for j in 1, 4 returns array_dv of i * j end for; returns value of sum row      end for;
+    p := for i in 1, 3 row := for j in 1, 4 returns array_dv of i * j end for; returns value of product row  end for;
+    g := for i in 1, 3 row := for j in 1, 4 returns array_dv of i * j end for; returns value of greatest row end for;
+    l := for i in 1, 3 row := for j in 1, 4 returns array_dv of i * j end for; returns value of least row    end for;
+    m := for i in 1, 2
+           mat := for r in 1, 2
+                    row := for c in 1, 3 returns array_dv of i * 100 + r * 10 + c end for;
+                  returns array_dv of row
+                  end for;
+         returns value of sum mat
+         end for;
+  in s, p, g, l, m
+  end let
+end function

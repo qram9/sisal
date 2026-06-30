@@ -2334,6 +2334,37 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                     [],
                     (res_name, C.Basic "int32_t"),
                     (port, res_v) )
+              | Some op when out_ty = C.Basic "sisal_array_t" ->
+                  (* array-VALUED reduction (`value of sum/product/greatest/least
+                     <array>`): scalar res_v OP cast would be struct arithmetic.
+                     Seed the accumulator empty and step it through an elementwise
+                     runtime op (empty acc on the first element copies the value). *)
+                  let opcode =
+                    match op with
+                    | R_sum -> 0
+                    | R_product -> 1
+                    | R_greatest -> 2
+                    | R_least -> 3
+                    | R_argmax | R_argmin -> assert false
+                  in
+                  let update =
+                    C.Expr
+                      (C.BinOp
+                         ( C.Assign,
+                           res_v,
+                           C.Call
+                             ( "sisal_array_ereduce",
+                               [ res_v; value; C.LitInt opcode ] ) ))
+                  in
+                  ( [
+                      C.Expr
+                        (C.BinOp
+                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                    ],
+                    [ update ],
+                    [],
+                    (res_name, out_ty),
+                    (port, res_v) )
               | Some op ->
                   let inf =
                     match out_ty with

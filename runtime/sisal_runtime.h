@@ -146,6 +146,44 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
   return a;
 }
 
+/* Zeroed descriptor (data NULL, size 0) -- the "no element yet" seed for an
+   array-valued forall reduction accumulator. */
+inline sisal_array_t sisal_array_empty(void) { sisal_array_t a = {}; return a; }
+
+/* One elementwise reduction step for an array-VALUED forall reduction
+   (`value of sum/product/greatest/least <array>`).  op: 0=sum(+) 1=product(*)
+   2=greatest(max) 3=least(min).  An empty acc means this is the first element ->
+   return a fresh copy of val; otherwise op(acc, val) elementwise into a new buffer
+   (always-copy).  Shape/dims/lower_bound inherited from the operands. */
+inline sisal_array_t sisal_array_ereduce(sisal_array_t acc, sisal_array_t val, int op) {
+    if (acc.data == NULL || acc.size == 0) {
+        size_t esz = sisal_elem_size(val.type_id);
+        sisal_array_t res = val;
+        res.data = malloc(val.size * (esz > 8 ? esz : 8));
+        memcpy(res.data, val.data, (size_t)val.size * esz);
+        return res;
+    }
+    size_t esz = sisal_elem_size(acc.type_id);
+    sisal_array_t res = acc;
+    res.data = malloc(acc.size * (esz > 8 ? esz : 8));
+    memcpy(res.data, acc.data, (size_t)acc.size * esz);
+    uint64_t n = acc.size < val.size ? acc.size : val.size;
+#define SISAL_EREDUCE_LOOP(T)                                                   \
+    do { T* r = (T*)res.data; T* v = (T*)val.data;                              \
+         for (uint64_t k = 0; k < n; k++)                                       \
+             r[k] = op == 0 ? (T)(r[k] + v[k]) : op == 1 ? (T)(r[k] * v[k])     \
+                  : op == 2 ? (r[k] > v[k] ? r[k] : v[k])                       \
+                            : (r[k] < v[k] ? r[k] : v[k]); } while (0)
+    switch (acc.type_id) {
+        case 4:  SISAL_EREDUCE_LOOP(double);  break;
+        case 5:  SISAL_EREDUCE_LOOP(float);   break;
+        case 7:  SISAL_EREDUCE_LOOP(int64_t); break;
+        default: SISAL_EREDUCE_LOOP(int32_t); break;  /* int32/int/bool */
+    }
+#undef SISAL_EREDUCE_LOOP
+    return res;
+}
+
 inline sisal_array_t sisal_array_replace_i32(sisal_array_t a, int64_t idx, int32_t val) {
     int64_t liml = a.lower_bound[0];
     int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;

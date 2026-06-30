@@ -532,6 +532,10 @@ extern "C" struct RRK_results func_MAIN();  // nested reduce/gather -> ranks 1, 
 struct ROP_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
 extern "C" struct ROP_results func_MAIN();  // product / greatest / least, gathered (rank 1)
 #endif
+#ifdef TEST_RED_ARR_DV
+struct RAR_results { sisal_array_t s; sisal_array_t p; sisal_array_t g; sisal_array_t l; sisal_array_t m; };
+extern "C" struct RAR_results func_MAIN();  // array-VALUED reductions (elementwise), 1-D + 2-D
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t REP, int32_t N, sisal_array_t B,
@@ -4855,6 +4859,22 @@ static void test_red_ops_dv(void) {
     if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
 }
 #endif
+#ifdef TEST_RED_ARR_DV
+static void test_red_arr_dv(void) {
+    printf("\n=== Group: red_arr_dv (array-VALUED reductions, elementwise) ===\n");
+    struct RAR_results r = func_MAIN();
+    int s[4]={6,12,18,24}, p[4]={6,48,162,384}, g[4]={3,6,9,12}, l[4]={1,2,3,4};
+    int m[6]={322,324,326,342,344,346};
+    bool ok = (r.s.rank==1) && (r.p.rank==1) && (r.g.rank==1) && (r.l.rank==1);
+    for (int k=0; ok && k<4; k++)
+        ok = ok && ai(r.s,k)==s[k] && ai(r.p,k)==p[k] && ai(r.g,k)==g[k] && ai(r.l,k)==l[k];
+    ok = ok && (r.m.rank==2) && ((int)r.m.dims[0]==2) && ((int)r.m.dims[1]==3);
+    for (int k=0; ok && k<6; k++) ok = ok && (ai(r.m,k)==m[k]);
+    check("red_arr_dv sum/product/greatest/least of arrays (1-D + 2-D)", ok);
+    if (r.s.data) free(r.s.data); if (r.p.data) free(r.p.data); if (r.g.data) free(r.g.data);
+    if (r.l.data) free(r.l.data); if (r.m.data) free(r.m.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5093,6 +5113,9 @@ main (void)
 #ifdef TEST_RED_OPS_DV
   test_red_ops_dv ();
 #endif
+#ifdef TEST_RED_ARR_DV
+  test_red_arr_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5253,7 +5276,7 @@ main (void)
     && !defined(TEST_FNCALL_FORALL_DV) && !defined(TEST_NESTED_FORALL_DV)     \
     && !defined(TEST_CAP_2DEEP_DV) && !defined(TEST_FN3RANK_DV)               \
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
-    && !defined(TEST_RED_OPS_DV)
+    && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
