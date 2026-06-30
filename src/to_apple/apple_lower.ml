@@ -224,13 +224,13 @@ let infer_types env gr gid =
           let ty = match code with | REAL | DOUBLE -> C.Basic "double" | BOOLEAN -> C.Basic "bool" | _ -> C.Basic "int32_t" in
           set_ty cur_gid nid 0 `Out ty
       | Simple (_, sym, _, outs, _) ->
-          let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_SCATTER; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT] in
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_int = List.mem sym [RANGEGEN; ALIML; ALIMH; ASIZE; DV_SCATTER; DV_DIMENSION; DV_NUM_RANK; DV_OFFSET_AT; DV_SIZE; DV_LIML; DV_LIMH] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE; DV_REPLACE; DV_SETL] in
           let ty = if is_int then C.Basic "int32_t" else if is_arr then C.Basic "sisal_array_t" else C.Basic "float" in
           Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
           (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
              array-producing (is_arr) yet must NOT have port 0 coerced to sisal_array_t. *)
-          if (is_arr && sym <> DVAFILL && sym <> DVAADJUST) || List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+          if (is_arr && sym <> DVAFILL && sym <> DVAADJUST) || List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL; DV_SIZE; DV_LIML; DV_LIMH; DV_REPLACE; DV_SETL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
       | Compound (_, sym, _, pr, sub, _) ->
           let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
@@ -284,12 +284,12 @@ let infer_types env gr gid =
       match node with
       | Simple (_, sym, _, _, _) ->
           let c1 =
-            if List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_RANK_REDUCE; DV_RANK_REPLACE; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL; AREPLACE]
+            if List.mem sym [ALIML; ALIMH; ASIZE; AELEMENT; DV_ELEMENT; DV_RANK_REDUCE; DV_RANK_REPLACE; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL; AREPLACE; DV_SIZE; DV_LIML; DV_LIMH; DV_REPLACE; DV_SETL]
             then let in0 = get_ty cur_gid nid 0 `In in
                  if in0 = C.Basic "float" then set_ty_c cur_gid nid 0 `In (C.Basic "sisal_array_t") else false
             else false in
           let c2 =
-            if sym = AELEMENT || sym = DV_ELEMENT || sym = DV_RANK_REDUCE || sym = DV_RANK_REPLACE || sym = DV_LOAD_LINEAR || sym = DV_OFFSET_AT || sym = DV_DIMENSION || sym = AREPLACE
+            if sym = AELEMENT || sym = DV_ELEMENT || sym = DV_RANK_REDUCE || sym = DV_RANK_REPLACE || sym = DV_LOAD_LINEAR || sym = DV_OFFSET_AT || sym = DV_DIMENSION || sym = AREPLACE || sym = DV_REPLACE
             then let in1 = get_ty cur_gid nid 1 `In in
                  if in1 = C.Basic "float" then set_ty_c cur_gid nid 1 `In (C.Basic "int32_t") else false
             else false in
@@ -324,13 +324,13 @@ let infer_types env gr gid =
     NM.iter (fun nid node ->
       match node with
       | Simple (_, sym, _, outs, _) ->
-          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE] in
+          let is_arr = List.mem sym [DV_CREATE; DV_RESHAPE; DV_SLICE; DV_PERMUTE; DV_ROTATE; DV_COMPRESS; DV_OUTERPRODUCT; DV_SORT; DV_REVERSE; DV_RESHAPE_BY_SHAPE; DV_GATHER; AGATHER; ASCATTER; ABUILD; AFILL; ACREATE; RELEMENTS; AREPLACE; AADDH; DVAADDH; DVAFILL; DVAADDL; DVABUILD; DVAADJUST; DV_RANK_REDUCE; DV_RANK_REPLACE; DV_REPLACE; DV_SETL] in
           if is_arr then (
             Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t")) outs;
             (* AFILL's port 0 is an int bound (lo), not an array -- don't coerce it *)
             if sym <> DVAFILL && sym <> DVAADJUST then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
           );
-          if List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL] then
+          if List.mem sym [ALIML; ALIMH; ASIZE; DV_SCATTER; AELEMENT; DV_ELEMENT; DV_LOAD_LINEAR; DV_DIMENSION; DV_COMPRESS; DV_SORT; DV_REVERSE; DV_ROTATE; DV_SLICE; DV_PERMUTE; REDUCE_ALL; DV_SIZE; DV_LIML; DV_LIMH; DV_REPLACE; DV_SETL] then
             set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
       | Compound (_, sym, _, pr, sub, _) ->
           let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
@@ -628,7 +628,7 @@ and lower_simple env gr nid sym pin pout pr =
             C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
           )
         )
-  | DV_SCATTER ->
+  | DV_SIZE | DV_SCATTER ->
       C.Cast (C.Basic "int32_t",
         C.Cond (
           C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
@@ -643,6 +643,8 @@ and lower_simple env gr nid sym pin pout pr =
         failwith (Printf.sprintf "Standard ALIML is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
       else
         C.Cast (C.Basic "int32_t", C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
+  | DV_LIML ->
+      C.Cast (C.Basic "int32_t", C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
   | ALIMH ->
       let in_ty = get_final_ty env gid nid 0 `In in
       if in_ty <> C.Basic "sisal_array_t" then
@@ -654,6 +656,13 @@ and lower_simple env gr nid sym pin pout pr =
           C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
         ) in
         C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), leading_sz), C.LitInt 1))
+  | DV_LIMH ->
+      let leading_sz = C.Cond (
+        C.BinOp (C.Gt, C.Index (C.Member (e1, "dims"), C.LitInt 0), C.LitInt 0),
+        C.Index (C.Member (e1, "dims"), C.LitInt 0),
+        C.Cast (C.Basic "int64_t", C.Member (e1, "size"))
+      ) in
+      C.Cast (C.Basic "int32_t", C.BinOp (C.Sub, C.BinOp (C.Add, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0), leading_sz), C.LitInt 1))
   | DV_NUM_RANK -> C.Member (e1, "rank")
   | DV_DIMENSION -> C.Call ("sisal_dv_dimension", [ e2; e1 ])
   | DV_CONFORM -> C.Call ("sisal_dv_conform", [ e1; e2 ])
@@ -688,6 +697,8 @@ and lower_simple env gr nid sym pin pout pr =
         e1 :: C.LitInt (List.length perm_args) :: perm_args)
   | ASETL ->
       failwith (Printf.sprintf "Standard ASETL is not supported under the dope vector backend; please use array_dv instead at gid=%d nid=%d" gid nid)
+  | DV_SETL ->
+      C.Call ("sisal_array_setl", [ e1; C.Cast (C.Basic "int64_t", e2) ])
   | AREPLACE ->
       let in_ty = get_final_ty env gid nid 0 `In in
       if in_ty <> C.Basic "sisal_array_t" then
@@ -702,6 +713,24 @@ and lower_simple env gr nid sym pin pout pr =
         | C.Basic "double" -> "sisal_array_replace_f64"
         (* an array value = a row/slab of a flat 2-D array_dv -> slab replace at the
            leading index (NOT a boxed element; nested array_dv is disallowed) *)
+        | C.Basic "sisal_array_t" -> "sisal_dv_replace_slice"
+        | _ -> "sisal_array_replace_f32" in
+      let val_ports =
+        ES.fold (fun (_, (dn, dp), _) acc -> if dn = nid && dp >= 2 then dp :: acc else acc)
+          gr.eset []
+        |> List.sort_uniq compare in
+      let lo = C.Cast (C.Basic "int64_t", e2) in
+      List.fold_left
+        (fun arr_expr p ->
+          let off = p - 2 in
+          let idx = if off = 0 then lo else C.BinOp (C.Add, lo, C.LitInt off) in
+          C.Call (replace_fn p, [ arr_expr; idx; get_in_expr p ]))
+        e1 val_ports
+  | DV_REPLACE ->
+      let replace_fn p =
+        match get_final_ty env gid nid p `In with
+        | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_replace_i32"
+        | C.Basic "double" -> "sisal_array_replace_f64"
         | C.Basic "sisal_array_t" -> "sisal_dv_replace_slice"
         | _ -> "sisal_array_replace_f32" in
       let val_ports =

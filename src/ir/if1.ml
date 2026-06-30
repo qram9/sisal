@@ -220,6 +220,10 @@ type node_sym =
   | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
   | DV_RESHAPE_BY_SHAPE
     (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
+  | DV_SIZE
+  | DV_LIML
+  | DV_LIMH
+  | DV_SETL
   | CONV_H  (** Apple Silicon: Horizontal Convolution *)
   | CONV_V  (** Apple Silicon: Vertical Convolution *)
   | CONV_2D  (** Apple Silicon: 2D Convolution *)
@@ -3550,6 +3554,10 @@ and num_to_node_sym = function
   | 135 -> DVAADDL
   | 136 -> DVABUILD
   | 137 -> DVAADJUST
+  | 138 -> DV_SIZE
+  | 139 -> DV_LIML
+  | 140 -> DV_LIMH
+  | 141 -> DV_SETL
   | 30 -> AADDL
   | 31 -> ABUILD
   | 32 -> AELEMENT
@@ -3607,6 +3615,10 @@ and node_sym_to_num = function
   | DVAADDL -> 135
   | DVABUILD -> 136
   | DVAADJUST -> 137
+  | DV_SIZE -> 138
+  | DV_LIML -> 139
+  | DV_LIMH -> 140
+  | DV_SETL -> 141
   | AADDL -> 30
   | ABUILD -> 31
   | ACATENATE -> 8
@@ -3750,6 +3762,10 @@ and string_of_node_sym = function
   | DVAADDL -> "DV_ARRAY_ADDL"
   | DVABUILD -> "DV_ARRAY_BUILD"
   | DVAADJUST -> "DV_ARRAY_ADJUST"
+  | DV_SIZE -> "DV_SIZE"
+  | DV_LIML -> "DV_LIML"
+  | DV_LIMH -> "DV_LIMH"
+  | DV_SETL -> "DV_SETL"
   | AADDL -> "ARRAY_ADDL"
   | ABUILD -> "ARRAY_BUILD"
   | ACATENATE -> "ARRAY_CATENATE"
