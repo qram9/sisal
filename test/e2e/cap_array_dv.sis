@@ -1,0 +1,13 @@
+% bind array B:=A + scalar s; nested let binds array C:=B; forall grabs B,C,s
+define main
+type IOneD = array_dv[integer];
+function main( A: IOneD returns IOneD )
+  let B := A; s := 10;
+  in let C := B;
+     in for i in 1, 3
+          x := B[i] + C[i] + s;
+        returns array_dv of x
+        end for
+     end let
+  end let
+end function

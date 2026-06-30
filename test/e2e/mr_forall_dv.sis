@@ -1,0 +1,10 @@
+% forall returns scalar (keep-last) + 1-D gather (different ranks)
+define main
+type IOneD = array_dv[integer];
+function main( returns integer, IOneD )
+  for i in 1, 3
+    x := i * 10;
+  returns value of x
+          array_dv of x
+  end for
+end function

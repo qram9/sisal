@@ -1,0 +1,12 @@
+% forall returns a 1-D gather and a 2-D gather (gather of rows)
+define main
+type IOneD = array_dv[integer];
+type ITwoD = array_dv[integer];
+function main( returns IOneD, ITwoD )
+  for i in 1, 3
+    x   := i * 10;
+    row := array_fill( 1, 2, i );
+  returns array_dv of x
+          array_dv of row
+  end for
+end function

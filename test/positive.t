@@ -105,6 +105,14 @@ DV array variants - array_dv OF with correct array_dv return types:
   $ sisal e2e/loop15_dv.sis
   $ sisal e2e/loop22_dv.sis
   $ sisal e2e/buildfill_dv.sis
+  $ sisal e2e/cap_nested_dv.sis
+  $ sisal e2e/cap_array_dv.sis
+  $ sisal e2e/cap_forinit_dv.sis
+  $ sisal e2e/mr_forall_dv.sis
+  $ sisal e2e/mr_forinit_dv.sis
+  $ sisal e2e/mr_1d2d_dv.sis
+  $ sisal e2e/fn_multiout_dv.sis
+  $ sisal e2e/if_multiout_dv.sis
   $ sisal e2e/loop20_dv.sis
   $ sisal e2e/tst_loop1_dv.sis
   $ sisal e2e/loop2_inner_dv.sis

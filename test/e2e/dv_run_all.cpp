@@ -478,6 +478,36 @@ extern "C" struct LOOP20_results func_MAIN (
     sisal_array_t W, sisal_array_t Y,
     sisal_array_t Z); // for-initial recurrence + gather -> (Xgather, XX)
 #endif
+/* ---- language-feature regression tests (capture / multi-rank / multi-output) ---- */
+#ifdef TEST_CAP_NESTED_DV
+extern "C" int32_t func_MAIN();  // free-var capture, nested lets 3 deep
+#endif
+#ifdef TEST_CAP_ARRAY_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A);  // grab arrays + multi-bind nested -> forall
+#endif
+#ifdef TEST_CAP_FORINIT_DV
+extern "C" int32_t func_MAIN(sisal_array_t A);  // grab array into for-initial RHS
+#endif
+#ifdef TEST_MR_FORALL_DV
+struct MRFA_results { int32_t res_0; sisal_array_t res_1; };
+extern "C" struct MRFA_results func_MAIN();  // forall (scalar, 1-D)
+#endif
+#ifdef TEST_MR_FORINIT_DV
+struct MRFI_results { int32_t res_0; sisal_array_t res_1; };
+extern "C" struct MRFI_results func_MAIN();  // for-initial (scalar, 1-D gather)
+#endif
+#ifdef TEST_MR_1D2D_DV
+struct MR12_results { sisal_array_t res_0; sisal_array_t res_1; };
+extern "C" struct MR12_results func_MAIN();  // forall (1-D, 2-D)
+#endif
+#ifdef TEST_FN_MULTIOUT_DV
+struct FNMO_results { int32_t res_0; sisal_array_t res_1; };
+extern "C" struct FNMO_results func_MAIN();  // function multi-output (scalar, array)
+#endif
+#ifdef TEST_IF_MULTIOUT_DV
+struct IFMO_results { int32_t res_0; int32_t res_1; };
+extern "C" struct IFMO_results func_MAIN(int32_t c);  // if-expression multi-output
+#endif
 #ifdef TEST_LOOP6_DV
 extern "C" sisal_array_t
 func_MAIN (int32_t REP, int32_t N, sisal_array_t B,
@@ -4648,6 +4678,82 @@ test_loop8p_dv (void)
 }
 #endif
 
+/* ---- language-feature regression tests ---- */
+#ifdef TEST_CAP_NESTED_DV
+static void test_cap_nested_dv(void) {
+    printf("\n=== Group: cap_nested_dv (free-var capture, nested lets 3 deep) ===\n");
+    check("cap_nested_dv a+b+c (a 3 levels deep) == 22", func_MAIN() == 22);
+}
+#endif
+#ifdef TEST_CAP_ARRAY_DV
+static void test_cap_array_dv(void) {
+    printf("\n=== Group: cap_array_dv (grab arrays + multiple let binds) ===\n");
+    int32_t A[3] = { 100, 200, 300 };
+    sisal_array_t Aa = make_int_arr(A, 3);
+    sisal_array_t r = func_MAIN(Aa);
+    bool ok = ((int)r.size == 3);
+    for (int k = 0; ok && k < 3; k++) ok = ok && (ai(r, k) == 2 * A[k] + 10);
+    check("cap_array_dv B[i]+C[i]+s == 2*A[i]+10", ok);
+    if (Aa.data) free(Aa.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_CAP_FORINIT_DV
+static void test_cap_forinit_dv(void) {
+    printf("\n=== Group: cap_forinit_dv (grab array into for-initial RHS) ===\n");
+    int32_t A[3] = { 100, 200, 300 };
+    sisal_array_t Aa = make_int_arr(A, 3);
+    check("cap_forinit_dv sum(B[i]) == 600", func_MAIN(Aa) == 600);
+    if (Aa.data) free(Aa.data);
+}
+#endif
+#ifdef TEST_MR_FORALL_DV
+static void test_mr_forall_dv(void) {
+    printf("\n=== Group: mr_forall_dv (forall scalar + 1-D) ===\n");
+    struct MRFA_results r = func_MAIN();
+    bool ok = (r.res_0 == 30) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==10 && ai(r.res_1,1)==20 && ai(r.res_1,2)==30;
+    check("mr_forall_dv (value of x=30, array of x=[10,20,30])", ok);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_MR_FORINIT_DV
+static void test_mr_forinit_dv(void) {
+    printf("\n=== Group: mr_forinit_dv (for-initial scalar + 1-D gather) ===\n");
+    struct MRFI_results r = func_MAIN();
+    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==1 && ai(r.res_1,1)==3 && ai(r.res_1,2)==6;
+    check("mr_forinit_dv (value of acc=6, gather=[1,3,6])", ok);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_MR_1D2D_DV
+static void test_mr_1d2d_dv(void) {
+    printf("\n=== Group: mr_1d2d_dv (forall 1-D + 2-D) ===\n");
+    struct MR12_results r = func_MAIN();
+    bool ok = (r.res_0.rank==1) && ((int)r.res_0.size==3) && ai(r.res_0,0)==10 && ai(r.res_0,2)==30;
+    int exp2[6] = {1,1,2,2,3,3};
+    ok = ok && (r.res_1.rank==2) && ((int)r.res_1.dims[0]==3) && ((int)r.res_1.dims[1]==2);
+    for (int k=0; ok && k<6; k++) ok = ok && (ai(r.res_1,k) == exp2[k]);
+    check("mr_1d2d_dv (1-D [10,20,30], 2-D [3,2]=1 1 2 2 3 3)", ok);
+    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_FN_MULTIOUT_DV
+static void test_fn_multiout_dv(void) {
+    printf("\n=== Group: fn_multiout_dv (function multi-output, scalar + array) ===\n");
+    struct FNMO_results r = func_MAIN();
+    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==3 && ai(r.res_1,1)==3 && ai(r.res_1,2)==3;
+    check("fn_multiout_dv pair(3) == (6, [3,3,3])", ok);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_IF_MULTIOUT_DV
+static void test_if_multiout_dv(void) {
+    printf("\n=== Group: if_multiout_dv (if-expression multi-output) ===\n");
+    struct IFMO_results r1 = func_MAIN(5), r2 = func_MAIN(-1);
+    check("if_multiout_dv if(5)==(1,2) && if(-1)==(3,4)",
+          r1.res_0==1 && r1.res_1==2 && r2.res_0==3 && r2.res_1==4);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -4840,6 +4946,30 @@ main (void)
 #ifdef TEST_LOOP8P_DV
   test_loop8p_dv ();
 #endif
+#ifdef TEST_CAP_NESTED_DV
+  test_cap_nested_dv ();
+#endif
+#ifdef TEST_CAP_ARRAY_DV
+  test_cap_array_dv ();
+#endif
+#ifdef TEST_CAP_FORINIT_DV
+  test_cap_forinit_dv ();
+#endif
+#ifdef TEST_MR_FORALL_DV
+  test_mr_forall_dv ();
+#endif
+#ifdef TEST_MR_FORINIT_DV
+  test_mr_forinit_dv ();
+#endif
+#ifdef TEST_MR_1D2D_DV
+  test_mr_1d2d_dv ();
+#endif
+#ifdef TEST_FN_MULTIOUT_DV
+  test_fn_multiout_dv ();
+#endif
+#ifdef TEST_IF_MULTIOUT_DV
+  test_if_multiout_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -4992,7 +5122,11 @@ main (void)
     && !defined(TEST_LOOP22_DV) && !defined(TEST_BUILDFILL_DV)                \
     && !defined(TEST_LOOP20_DV) && !defined(TEST_LOOP10_DV)                   \
     && !defined(TEST_LOOP19S_DV) && !defined(TEST_LOOP14_DV)                  \
-    && !defined(TEST_LOOP23S_DV) && !defined(TEST_LOOP18P_DV) && !defined(TEST_LOOP8P_DV)
+    && !defined(TEST_LOOP23S_DV) && !defined(TEST_LOOP18P_DV) && !defined(TEST_LOOP8P_DV) \
+    && !defined(TEST_CAP_NESTED_DV) && !defined(TEST_CAP_ARRAY_DV)            \
+    && !defined(TEST_CAP_FORINIT_DV) && !defined(TEST_MR_FORALL_DV)           \
+    && !defined(TEST_MR_FORINIT_DV) && !defined(TEST_MR_1D2D_DV)              \
+    && !defined(TEST_FN_MULTIOUT_DV) && !defined(TEST_IF_MULTIOUT_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

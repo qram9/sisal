@@ -1,0 +1,11 @@
+% for-initial body grabs outer array B on RHS
+define main
+type IOneD = array_dv[integer];
+function main( A: IOneD returns integer )
+  let B := A;
+  in for initial i := 0; acc := 0;
+     while i < 3 repeat i := old i + 1; acc := old acc + B[i];
+     returns value of acc
+     end for
+  end let
+end function

@@ -1,0 +1,9 @@
+% function returns multiple outputs of different ranks (scalar + array)
+define main
+type IOneD = array_dv[integer];
+function pair( n: integer returns integer, IOneD )
+  n * 2, array_fill( 1, n, n )
+end function
+function main( returns integer, IOneD )
+  pair( 3 )
+end function

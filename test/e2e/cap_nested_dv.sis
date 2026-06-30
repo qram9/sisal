@@ -1,0 +1,11 @@
+% free-var capture in nested lets, 3 levels deep
+define main
+function main( returns integer )
+  let a := 5;
+  in let b := a + 1;
+     in let c := a + b;
+        in a + b + c
+        end let
+     end let
+  end let
+end function

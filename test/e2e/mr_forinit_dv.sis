@@ -1,0 +1,10 @@
+% for-initial returns scalar (keep-last) + 1-D gather
+define main
+type IOneD = array_dv[integer];
+function main( returns integer, IOneD )
+  for initial i := 0; acc := 0;
+  while i < 3 repeat i := old i + 1; acc := old acc + i;
+  returns value of acc
+          array_dv of acc
+  end for
+end function
