@@ -32,7 +32,7 @@ and simple_exp =
   | Tuple of exp
   | Invocation of function_name * arg
   | Array_ref of simple_exp * exp
-  | Dotdot  (* '..' axis placeholder; only valid as an index inside A[ ... ] *)
+  | Dotdot (* '..' axis placeholder; only valid as an index inside A[ ... ] *)
   | Array_generator_named of type_name
   | Array_generator_unnamed of sexpr_pair
   | Array_generator_named_addr of type_name * sexpr_pair
@@ -133,8 +133,7 @@ and simple_exp =
       simple_exp * simple_exp (* EXPAND(A, axis) insert size-1 dim *)
   | Ravel_exp of
       simple_exp (* RAVEL(A) / FLATTEN_DV — rank-1 view, APL monadic , *)
-  | Slice_exp of
-      simple_exp * simple_exp * simple_exp (* SLICE(A, lo, hi) *)
+  | Slice_exp of simple_exp * simple_exp * simple_exp (* SLICE(A, lo, hi) *)
   | Reverse_exp of simple_exp (* REVERSE(A) — APL monadic ⌽ *)
   (* Stencil / filter *)
   | Stencil_exp of
@@ -182,7 +181,17 @@ and compilation_unit = Compilation_unit of top_fragment list
 and fun_returns = Returns of sisal_type list
 and decldef = Decldef of (decl list * exp)
 and decldef_part = Decldef_part of decldef list
-and reduction_op = Sum | Product | Least | Greatest | Catenate | Argmax | Argmin | No_red
+
+and reduction_op =
+  | Sum
+  | Product
+  | Least
+  | Greatest
+  | Catenate
+  | Argmax
+  | Argmin
+  | No_red
+
 and direction_op = Left | Right | Tree | No_dir
 
 and in_exp =
@@ -1097,7 +1106,8 @@ and str_else ?(offset = 0) = function
       "\n"
       ^ mypad1 offset
           (single_newline_cate "ELSE"
-             (mypad1 (offset + 2) (String.trim (str_exp ~offset:(offset + 2) e))))
+             (mypad1 (offset + 2)
+                (String.trim (str_exp ~offset:(offset + 2) e))))
 
 and str_tag_exp = function
   | Tag_name tn -> tn
@@ -1471,9 +1481,9 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
                 ( mypad1 offset (str_iterator ~offset ii),
                   str_termination ~offset t )
               in
-              if term.[0] = '\n' then (trim_right iter) ^ term
+              if term.[0] = '\n' then trim_right iter ^ term
               else
-                (trim_right iter) ^ "\n" ^ term ^ "\n" ^ mypad1 offset "RETURNS\n"
+                trim_right iter ^ "\n" ^ term ^ "\n" ^ mypad1 offset "RETURNS\n"
                 ^ newline_fold ~offset:(offset + 2)
                     (List.map str_return_clause r
                     |> List.concat_map (String.split_on_char '\n')
@@ -1482,7 +1492,8 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
             in
             let l = trim_right (str_decldef_part ~offset (`Loop_type d)) in
             let m = "\n" ^ mypad1 offset "FOR INITIAL" in
-            m ^ (if l = "" then "" else "\n" ^ l)
+            m
+            ^ (if l = "" then "" else "\n" ^ l)
             ^ (if k.[0] = '\n' then "" else "\n")
             ^ k ^ mypad1 offset "END FOR"
         | Termination_iterator (t, ii) ->

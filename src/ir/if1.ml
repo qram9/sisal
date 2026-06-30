@@ -68,11 +68,13 @@ type label_or_none = Som of int | Emp
 
 type node_sym =
   | AADDH
-  | DVAADDH  (* array_dv addh: rank-poly slab/stack append (catenate along axis 0) *)
-  | DVAFILL  (* array_dv fill: array_dv[T] of [lo..hi] all = val *)
-  | DVAADDL  (* array_dv addl: prepend at the low end (mirror of DVAADDH) *)
+  | DVAADDH
+    (* array_dv addh: rank-poly slab/stack append (catenate along axis 0) *)
+  | DVAFILL (* array_dv fill: array_dv[T] of [lo..hi] all = val *)
+  | DVAADDL (* array_dv addl: prepend at the low end (mirror of DVAADDH) *)
   | DVABUILD (* array_dv constructor: array_dv T [e1..eN] (or [] = empty) *)
-  | DVAADJUST (* array_dv adjust: re-bounded subrange A[lo..hi] (window slice) *)
+  | DVAADJUST
+    (* array_dv adjust: re-bounded subrange A[lo..hi] (window slice) *)
   | AADDL
   | AADJUST
   | ABUILD
@@ -695,8 +697,7 @@ and get_node_rank i ingr =
 
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
-  with _ ->
-    failwith ("ISSUE WITH NODE LOOK UP: " ^ string_of_int i)
+  with _ -> failwith ("ISSUE WITH NODE LOOK UP: " ^ string_of_int i)
 
 and get_symtab in_gr = in_gr.symtab
 and get_typemap in_gr = in_gr.typemap
@@ -726,13 +727,14 @@ and inherit_parent_syms other_gr in_gr =
   let other_cs, other_ps = get_symtab other_gr in
   let cs, ps = get_symtab in_gr in
   let in_gr =
-  {
-    in_gr with
-    symtab =
-      ( cs,
-        let kkk = fun k v z -> SM.add k v z in
-        SM.fold kkk other_cs (SM.fold kkk other_ps ps) );
-  } in
+    {
+      in_gr with
+      symtab =
+        ( cs,
+          let kkk = fun k v z -> SM.add k v z in
+          SM.fold kkk other_cs (SM.fold kkk other_ps ps) );
+    }
+  in
   (* Materialize every inherited (PS) name onto THIS graph's boundary via
      get_symbol_id.  inherit_parent_syms otherwise only copies names, carrying
      parent-local (and thus meaningless) val_def node-ids into a renumbered
@@ -754,9 +756,10 @@ and inherit_parent_syms other_gr in_gr =
   in
   SM.fold
     (fun na e in_g ->
-       if is_function_typed e then in_g
-       else
-         let _, in_g = get_symbol_id na in_g in in_g)
+      if is_function_typed e then in_g
+      else
+        let _, in_g = get_symbol_id na in_g in
+        in_g)
     (snd in_gr.symtab) in_gr
 
 (** Weird case, where we copy local syms to other only if they are not parent
@@ -777,9 +780,7 @@ and create_subgraph_symtab in_gr other_gr =
         else (acc_cs, acc_gr))
       cs (other_cs, other_gr)
   in
-  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i } =
-    other_gr
-  in
+  let { nmap = nm; eset = es; symtab = _; typemap = tm; w = i } = other_gr in
   {
     nmap = nm;
     eset = es;
@@ -793,7 +794,9 @@ and get_boundary_node in_gr =
   NM.find 0 nm
 
 and get_boundary_outputs in_gr =
-  match get_boundary_node in_gr with Boundary (_, outs, _, _) -> outs | _ -> []
+  match get_boundary_node in_gr with
+  | Boundary (_, outs, _, _) -> outs
+  | _ -> []
 
 and get_boundary_inputs in_gr =
   match get_boundary_node in_gr with Boundary (ins, _, _, _) -> ins | _ -> []
@@ -1229,15 +1232,7 @@ and cse_by_part in_gr = in_gr
 and add_to_boundary_outputs ?(start_port = 0) srcn srcp tty in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
-      let {
-        nmap = nm;
-        eset = es;
-        symtab = sm;
-        typemap = tm;
-        w = pi;
-      } =
-        in_gr
-      in
+      let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
       let annod =
         match NM.find_opt srcn nm with
         | Some x -> x
@@ -1295,7 +1290,8 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
             if namen <> "" then
               let rev_lis = List.rev in_port_list in
               let rec update i = function
-                | (nn, pp, "", dp) :: tl when i = idx -> (nn, pp, namen, dp) :: tl
+                | (nn, pp, "", dp) :: tl when i = idx ->
+                    (nn, pp, namen, dp) :: tl
                 | h :: tl -> h :: update (i + 1) tl
                 | [] -> []
               in
@@ -1734,10 +1730,10 @@ and string_of_pair_int (x, y) =
   "(" ^ string_of_int x ^ "," ^ string_of_int y ^ ")"
 
 and safe_set_arr str po arr =
-  if po < Array.length arr then
+  if po < Array.length arr then (
     let new_arr = Array.copy arr in
     new_arr.(po) <- cate_nicer new_arr.(po) str ",";
-    new_arr
+    new_arr)
   else
     (* If we need to expand, we can't just mutate anyway. *)
     let new_len = max (po + 1) (Array.length arr + 1) in
@@ -1803,13 +1799,7 @@ and set_literal dst_nod dst_port src_node =
   | _ -> dst_nod
 
 and add_node nn in_gr =
-  let {
-    nmap = nm;
-    eset = _;
-    symtab = par_cs, par_ps;
-    typemap = tm;
-    w = pi;
-  } =
+  let { nmap = nm; eset = _; symtab = par_cs, par_ps; typemap = tm; w = pi } =
     in_gr
   in
 
@@ -1829,14 +1819,16 @@ and add_node nn in_gr =
         w = pi + 1;
       }
   | `Compound (g, sy, ty, prag, alis) ->
-      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      let has_compound_of =
+        List.exists (function Compound_of _ -> true | _ -> false) prag
+      in
       if not has_compound_of then (
-        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf
+          "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
         Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
         Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
         Printexc.print_backtrace stderr;
-        failwith "Missing Compound_of pragma"
-      );
+        failwith "Missing Compound_of pragma");
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let child_ps = snd (get_symtab g) in
@@ -2364,14 +2356,16 @@ and add_node_2 nn in_gr =
           w = pi + 1;
         } )
   | `Compound (g, sy, ty, prag, alis) ->
-      let has_compound_of = List.exists (function Compound_of _ -> true | _ -> false) prag in
+      let has_compound_of =
+        List.exists (function Compound_of _ -> true | _ -> false) prag
+      in
       if not has_compound_of then (
-        Printf.eprintf "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
+        Printf.eprintf
+          "ASSERTION FAILED: Compound node added without Compound_of pragma.\n";
         Printf.eprintf "Node Sym: %s\n" (string_of_node_sym sy);
         Printf.eprintf "Pragmas: %s\n" (string_of_pragmas prag);
         Printexc.print_backtrace stderr;
-        failwith "Missing Compound_of pragma"
-      );
+        failwith "Missing Compound_of pragma");
       let g_tmn = get_types_from_graph g tm in
       let g = { g with typemap = g_tmn } in
       let base_gr =
@@ -2403,26 +2397,26 @@ and add_edge2 n1 p1 n2 p2 ed_ty in_gr =
   let nm =
     match NM.find_opt n2 nm with
     | Some (Simple (lab, sym, pin, pout, prag)) ->
-        if p2 >= 0 && p2 < Array.length pin then
+        if p2 >= 0 && p2 < Array.length pin then (
           let new_pin = Array.copy pin in
           new_pin.(p2) <- string_of_int n1;
-          NM.add n2 (Simple (lab, sym, new_pin, pout, prag)) nm
+          NM.add n2 (Simple (lab, sym, new_pin, pout, prag)) nm)
         else nm
     | _ -> nm
   in
   let nm =
     match NM.find_opt n1 nm with
     | Some (Simple (lab, sym, pin, pout, prag)) ->
-        if p1 >= 0 && p1 < Array.length pout then
+        if p1 >= 0 && p1 < Array.length pout then (
           let new_pout = Array.copy pout in
           new_pout.(p1) <- cate_nicer new_pout.(p1) (string_of_int n2) ",";
-          NM.add n1 (Simple (lab, sym, pin, new_pout, prag)) nm
+          NM.add n1 (Simple (lab, sym, pin, new_pout, prag)) nm)
         else nm
     | Some (Literal (lab, ty, str, pout)) ->
-        if p1 >= 0 && p1 < Array.length pout then
+        if p1 >= 0 && p1 < Array.length pout then (
           let new_pout = Array.copy pout in
           new_pout.(p1) <- cate_nicer new_pout.(p1) (string_of_int n2) ",";
-          NM.add n1 (Literal (lab, ty, str, new_pout)) nm
+          NM.add n1 (Literal (lab, ty, str, new_pout)) nm)
         else nm
     | _ -> nm
   in
@@ -2579,9 +2573,7 @@ and check_for_multiarity n1 n2 in_gr =
         ("Exception in check_for_multiarity Node not found " ^ string_of_int n1)
 
 and cleanup_multiarity in_gr =
-  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
-    in_gr
-  in
+  let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } = in_gr in
   let new_nm =
     NM.fold
       (fun x y z ->
@@ -2596,13 +2588,7 @@ and cleanup_multiarity in_gr =
     (* CRITICAL FIX: Check both source (x) AND destination (y) *)
     ES.filter (fun ((x, _), (y, _), _) -> NM.mem x new_nm && NM.mem y new_nm) es
   in
-  {
-    nmap = new_nm;
-    eset = new_edges;
-    symtab = sm;
-    typemap = tm;
-    w = pi;
-  }
+  { nmap = new_nm; eset = new_edges; symtab = sm; typemap = tm; w = pi }
 
 and add_from_edge ((n1, p1), (n2, p2), ed_ty) in_gr =
   add_edge n1 p1 n2 p2 ed_ty in_gr
@@ -2699,18 +2685,14 @@ and fold_multiarity_edge n1 n2 in_gr =
     redirect_edges n2 (ES.diff ending_at edges)
       (ES.cardinal existing_in_edges_n2)
   in
-  let { nmap = _; eset = _; symtab = _; typemap = _; w = _ } =
-    in_gr
-  in
+  let { nmap = _; eset = _; symtab = _; typemap = _; w = _ } = in_gr in
   let { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } =
     ES.fold
       (fun ((x, xp), (y, yp), yt) gr -> add_edge x xp y yp yt gr)
       redir_set in_gr
   in
   let es = ES.diff (ES.diff es ending_at) edges in
-  let in_gr =
-    { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi }
-  in
+  let in_gr = { nmap = nm; eset = es; symtab = sm; typemap = tm; w = pi } in
   in_gr
 
 and add_each_in_list in_gr ex lasti appl =
@@ -3072,7 +3054,8 @@ and string_of_if1_ty_recursive tm seen ty =
         (* a field node printed on its own *)
         name_str ^ "record{"
         ^ (if name = "" then "" else name ^ ": ")
-        ^ resolve_and_print tm seen field_l ^ "}"
+        ^ resolve_and_print tm seen field_l
+        ^ "}"
   | Field labels ->
       let inner = List.map (resolve_and_print tm seen) labels in
       String.concat "; " inner
@@ -3167,11 +3150,12 @@ and lookup_ty_safe ij in_gr =
 and find_ty_safe_opt in_gr aty =
   let _, tm, _ = get_typemap in_gr in
   match
-    TM.to_seq tm |> Seq.find (fun (id, va) -> 
-      let res = structurally_equal in_gr [] aty va in
-      (*if res then Printf.eprintf "[if1] find_ty_safe_opt: MATCH FOUND: %s matches ID=%d: %s\n" 
+    TM.to_seq tm
+    |> Seq.find (fun (id, va) ->
+        let res = structurally_equal in_gr [] aty va in
+        (*if res then Printf.eprintf "[if1] find_ty_safe_opt: MATCH FOUND: %s matches ID=%d: %s\n" 
         (string_of_if1_ty aty) id (string_of_if1_ty va);*)
-      res)
+        res)
   with
   | Some (id, _) -> Some id
   | None -> None
@@ -3243,7 +3227,9 @@ and is_array_type ty_id in_gr =
 (* True iff the type is a dope-vector array (array_dv). Drives the array_dv vs
    array operator/type choice from the value's own type, not a global flag. *)
 and is_array_dv ty_id in_gr =
-  match lookup_type_opt ty_id in_gr with Some (Array_dv _) -> true | _ -> false
+  match lookup_type_opt ty_id in_gr with
+  | Some (Array_dv _) -> true
+  | _ -> false
 
 and is_unsigned_type ty_id in_gr =
   match lookup_type_opt ty_id in_gr with
@@ -3358,21 +3344,9 @@ and get_typecast_type = function
   | Ulong_prefix -> ULONG
 
 and add_sisal_type
-    {
-      nmap = nm;
-      eset = pe;
-      symtab = sm;
-      typemap = (id, tm, tmn);
-      w = pi;
-    } aty =
+    { nmap = nm; eset = pe; symtab = sm; typemap = id, tm, tmn; w = pi } aty =
   let in_gr =
-    {
-      nmap = nm;
-      eset = pe;
-      symtab = sm;
-      typemap = (id, tm, tmn);
-      w = pi;
-    }
+    { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
   in
   match aty with
   | Boolean -> (lookup_tyid_triple BOOLEAN, in_gr)
@@ -3467,20 +3441,13 @@ and add_sisal_type
       | Mat4 -> (lookup_tyid_triple MAT4, in_gr))
   | Compound_type ct ->
       add_compound_type
-        {
-          nmap = nm;
-          eset = pe;
-          symtab = sm;
-          typemap = (id, tm, tmn);
-          w = pi;
-        }
+        { nmap = nm; eset = pe; symtab = sm; typemap = (id, tm, tmn); w = pi }
         ct
   | Ast.Error_ty st -> add_type_to_typemap (ERROR st) in_gr
   | Ast.Type_name ty -> (
       match MM.mem ty tmn with
       | true -> ((MM.find ty tmn, 0, MM.find ty tmn), in_gr)
-      | false ->
-          raise (Node_not_found ("typename being looked up:" ^ ty)))
+      | false -> raise (Node_not_found ("typename being looked up:" ^ ty)))
 
 and add_local_sym in_gr sym_name (sym_def, def_port, def_ty) =
   let cs, ps = get_symtab in_gr in
@@ -3491,14 +3458,8 @@ and add_local_sym in_gr sym_name (sym_def, def_port, def_ty) =
   in
   { in_gr with symtab = (cs, ps) }
 
-and get_typemap_tm
-    {
-      nmap = _;
-      eset = _;
-      symtab = _;
-      typemap = (_, tm, _);
-      w = _;
-    } =
+and get_typemap_tm { nmap = _; eset = _; symtab = _; typemap = _, tm, _; w = _ }
+    =
   tm
 
 and get_typename_map in_gr =
@@ -4106,7 +4067,8 @@ and string_of_pair_list_final_string zz =
   ^ List.fold_right
       (fun (x, y, w, dp) z ->
         cate_nicer
-          (("(" ^ string_of_int x) ^ "," ^ string_of_int y ^ "," ^ w ^ "," ^ string_of_int dp ^ ")")
+          (("(" ^ string_of_int x)
+          ^ "," ^ string_of_int y ^ "," ^ w ^ "," ^ string_of_int dp ^ ")")
           z ";")
       zz ""
   ^ "]"
@@ -4181,7 +4143,9 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
   let sep2 = if is_error then "::" else ":" in
 
   (* 3. Compose the final "Nicer" string *)
-  let connection = Printf.sprintf "__%d%s%d -> __%d%s%d" n1 sep1 p1 n2 sep2 p2 in
+  let connection =
+    Printf.sprintf "__%d%s%d -> __%d%s%d" n1 sep1 p1 n2 sep2 p2
+  in
   let metadata = Printf.sprintf "[ID:%d %s]" tt type_desc in
 
   cate_nicer connection metadata " "
@@ -4204,8 +4168,8 @@ and string_of_if1_value tm = function
         | true -> printable_full_type tm ii
         | false -> ""
       in
-      ttt ^ "; " ^ st ^ "; " ^ "(" ^ "__" ^ string_of_int jj ^ " : " ^ string_of_int p
-      ^ ")"
+      ttt ^ "; " ^ st ^ "; " ^ "(" ^ "__" ^ string_of_int jj ^ " : "
+      ^ string_of_int p ^ ")"
 
 and string_of_if1_value_in tm = function
   | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
@@ -4219,8 +4183,8 @@ and string_of_if1_value_in tm = function
         | false -> ""
       in
       if jj = 0 then
-        ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ "," ^ string_of_int p
-        ^ ")"
+        ttt ^ ";" ^ st ^ ";" ^ "(" ^ "__" ^ string_of_int jj ^ ","
+        ^ string_of_int p ^ ")"
       else ""
 
 and string_of_if1_value_out tm = function
@@ -4240,37 +4204,19 @@ and string_of_if1_value_out tm = function
       else ""
 
 and string_of_symtab_gr in_gr =
-  let {
-    nmap = _;
-    eset = _;
-    symtab = (ls, _);
-    typemap = (_, tm, _);
-    w = _;
-  } =
+  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value tm v :: z) ls []
 
 and string_of_symtab_gr_in in_gr =
-  let {
-    nmap = _;
-    eset = _;
-    symtab = (ls, _);
-    typemap = (_, tm, _);
-    w = _;
-  } =
+  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value_in tm v :: z) ls []
 
 and string_of_symtab_gr_out in_gr =
-  let {
-    nmap = _;
-    eset = _;
-    symtab = (ls, _);
-    typemap = (_, tm, _);
-    w = _;
-  } =
+  let { nmap = _; eset = _; symtab = ls, _; typemap = _, tm, _; w = _ } =
     in_gr
   in
   SM.fold (fun _ v z -> string_of_if1_value_out tm v :: z) ls []
@@ -4339,13 +4285,7 @@ and typemap_to_string typemap =
     typemap
 
 and string_of_graph ?(offset = 0) in_gr =
-  let {
-    nmap = _;
-    eset = ne;
-    symtab = sm;
-    typemap = (_, tm, tmn);
-    w = tail;
-  } =
+  let { nmap = _; eset = ne; symtab = sm; typemap = _, tm, tmn; w = tail } =
     in_gr
   in
   cate_list_pad offset
@@ -4394,8 +4334,7 @@ and int_map_printer fmt inmap =
           string_of_int ke ^ " : " ^ string_of_int valu ^ "\n" ^ old))
        inmap "")
 
-and outs_graph gr =
-  graph_printer Format.std_formatter gr
+and outs_graph gr = graph_printer Format.std_formatter gr
 
 and outs_graph_with_msg msg gr =
   print_endline msg;
@@ -4415,14 +4354,8 @@ and symtab_printer fmt (cs, ps, tm) =
   Format.fprintf fmt "----------\n%s\n"
     (cate_list (string_of_symtab (cs, ps) tm) "\n")
 
-and outs_syms
-    {
-      nmap = _;
-      eset = _;
-      symtab = (cs, ps);
-      typemap = (_, tm, _);
-      w = _;
-    } =
+and outs_syms { nmap = _; eset = _; symtab = cs, ps; typemap = _, tm, _; w = _ }
+    =
   symtab_printer Format.std_formatter (cs, ps, tm)
 
 and string_of_triples_list in_gr triplets =
@@ -4555,14 +4488,7 @@ and get_symbol_id_old v in_gr =
          ("Symbol not found in current or parent symtab: " ^ old_name))
 
 and is_outer_var vv = function
-  | {
-      nmap = _;
-      eset = _;
-      symtab = (_, ps);
-      typemap = _;
-      w = _;
-    } ->
-      SM.mem vv ps
+  | { nmap = _; eset = _; symtab = _, ps; typemap = _; w = _ } -> SM.mem vv ps
 
 and dot_of_node_map id mn in_gr =
   NM.fold (fun _ v z -> cate_nicer z (dot_of_node_ty id in_gr v) ";\n") mn ""
@@ -4584,15 +4510,7 @@ and dot_of_edge_set id ne =
   ES.fold (fun x y -> cate_nicer y (dot_of_edge id x) "\n") ne ""
 
 and dot_of_graph id in_gr =
-  let {
-    nmap = nm;
-    eset = ne;
-    symtab = _;
-    typemap = (_, _, _);
-    w = _;
-  } =
-    in_gr
-  in
+  let { nmap = nm; eset = ne; symtab = _; typemap = _, _, _; w = _ } = in_gr in
   cate_nicer (dot_of_node_map id nm in_gr) (dot_of_edge_set id ne) "\n"
 
 and write_dot_file in_gr =
@@ -4971,13 +4889,8 @@ let intrinsic_lib =
                local_symtab ))
          (id, ps) lib_registry
      in
-     let {
-       nmap = _;
-       eset = _;
-       symtab = _;
-       typemap = (_, final_types, _);
-       w = _;
-     } =
+     let { nmap = _; eset = _; symtab = _; typemap = _, final_types, _; w = _ }
+         =
        in_gr
      in
      (final_syms, final_types))
@@ -5239,9 +5152,9 @@ module If1_View = struct
        translateX(-50%); z-index: 101; background: #2d2d2d; border: 1px solid \
        #555; border-radius: 6px; padding: 6px 12px; display: flex; \
        align-items: center; gap: 8px; color: #d4d4d4; }\n\
-      \      #dag-toolbar button { background: #3e3e3e; color: #b5cea8; border: \
-       1px solid #555; border-radius: 3px; cursor: pointer; padding: 0 8px; \
-       font-size: 13px; }\n\
+      \      #dag-toolbar button { background: #3e3e3e; color: #b5cea8; \
+       border: 1px solid #555; border-radius: 3px; cursor: pointer; padding: 0 \
+       8px; font-size: 13px; }\n\
       \      #dag-zoom { width: 220px; }\n\
       \      #dag-content svg { transform-origin: top left; max-width: none \
        !important; height: auto !important; }\n\
@@ -5373,8 +5286,7 @@ module If1_View = struct
       \      }\n\
       \      function zoomStep(d) {\n\
       \        const s = document.getElementById('dag-zoom');\n\
-      \        s.value = Math.max(20, Math.min(400, parseInt(s.value) + \
-       d*100));\n\
+      \        s.value = Math.max(20, Math.min(400, parseInt(s.value) + d*100));\n\
       \        applyZoom();\n\
       \      }\n\
       \      function resetZoom() { document.getElementById('dag-zoom').value \
@@ -5407,9 +5319,12 @@ module If1_View = struct
        + \")\";\n\
       \              }\n\
       \              lines.push(`  N${uid}((\"${n.id}: ${text}\"))`);\n\
-      \              // Do NOT recurse into subgraphs here -- each subgraph has its\n\
-      \              // own 'Render DAG' button in the tree.  Just mark compounds\n\
-      \              // (dashed) so you know to drill in.  Keeps each view one level.\n\
+      \              // Do NOT recurse into subgraphs here -- each subgraph \
+       has its\n\
+      \              // own 'Render DAG' button in the tree.  Just mark \
+       compounds\n\
+      \              // (dashed) so you know to drill in.  Keeps each view one \
+       level.\n\
       \              if (n.subgraph) lines.push(`  style N${uid} \
        stroke-dasharray: 6 4,stroke-width:2px`);\n\
       \            }\n\
