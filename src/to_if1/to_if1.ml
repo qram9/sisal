@@ -4918,34 +4918,34 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, p, arr_typ), in_gr)
       | ("ARRAY_ADDH" | "ARRAY_ADDL") as array_addx ->
-          let (n, _, _), in_gr =
-            let in_port_00 = [| "" |] in
-            let out_port_00 = [| "" |] in
-            If1.add_node_2
-              (`Simple
-                 ( (match array_addx with
-                   | "ARRAY_ADDH" -> If1.DVAADDH
-                   | _ -> If1.DVAADDL),
-                   in_port_00,
-                   out_port_00,
-                   [] ))
-              in_gr
-          in
-          let tt, in_gr =
+          let (l, m, tt), (ii, jj, pp), in_gr =
             match arg with
             | Ast.Arg aa -> (
                 match aa with
                 | Ast.Exp [ fst_exp; last_exp ] ->
                     let (l, m, tt), in_gr = do_simple_exp in_gr fst_exp in
                     let (ii, jj, pp), in_gr = do_simple_exp in_gr last_exp in
-                    let in_gr = If1.add_edge l m n 0 tt in_gr in
-                    let in_gr = If1.add_edge ii jj n 1 pp in_gr in
-                    (tt, in_gr)
+                    ((l, m, tt), (ii, jj, pp), in_gr)
                 | _ ->
                     raise
                       (If1.Sem_error ("Incorrect usage" ^ " for " ^ array_addx))
                 )
           in
+          let is_dv = If1.is_array_dv tt in_gr in
+          let op =
+            match array_addx with
+            | "ARRAY_ADDH" -> if is_dv then If1.DVAADDH else If1.AADDH
+            | _ -> if is_dv then If1.DVAADDL else If1.AADDL
+          in
+          let (n, _, _), in_gr =
+            let in_port_00 = [| ""; "" |] in
+            let out_port_00 = [| "" |] in
+            If1.add_node_2
+              (`Simple (op, in_port_00, out_port_00, []))
+              in_gr
+          in
+          let in_gr = If1.add_edge l m n 0 tt in_gr in
+          let in_gr = If1.add_edge ii jj n 1 pp in_gr in
           ((n, 0, tt), in_gr)
       | "ARRAY_LIMH" ->
           let aexps =
@@ -4979,26 +4979,41 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
       | "ARRAY_ADJUST" ->
+          let aexps =
+            match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
+          in
+          let args_res, in_gr =
+            List.fold_left
+              (fun (acc, g) x ->
+                let r, g = do_simple_exp g x in
+                (r :: acc, g))
+              ([], in_gr) aexps
+          in
+          let args_res = List.rev args_res in
+          let is_dv =
+            match args_res with
+            | (_, _, arr_ty) :: _ -> If1.is_array_dv arr_ty in_gr
+            | _ -> false
+          in
+          let op = if is_dv then If1.DVAADJUST else If1.AADJUST in
           let in_port_00 = [| ""; ""; "" |] in
           let out_port_00 = [| "" |] in
           let (n, _, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.DVAADJUST, in_port_00, out_port_00, []))
-              in_gr
+            If1.add_node_2 (`Simple (op, in_port_00, out_port_00, [])) in_gr
           in
-          let _, in_gr, type_lis =
-            match arg with
-            | Ast.Arg aa -> (
-                match aa with
-                | Ast.Exp aexps ->
-                    List.fold_right
-                      (fun x (cou, in_gr, pa) ->
-                        let (l, m, tt), in_gr = do_simple_exp in_gr x in
-                        (cou + 1, If1.add_edge l m n cou tt in_gr, tt :: pa))
-                      aexps (0, in_gr, [])
-                | _ -> (0, in_gr, []))
+          let in_gr =
+            List.fold_left
+              (fun (cou, g) (l, m, tt) ->
+                (cou + 1, If1.add_edge l m n cou tt g))
+              (0, in_gr) args_res
+            |> snd
           in
-          ((n, 0, List.hd type_lis), in_gr)
+          let final_ty =
+            match args_res with
+            | (_, _, arr_ty) :: _ -> arr_ty
+            | _ -> 0
+          in
+          ((n, 0, final_ty), in_gr)
       | "ARRAY_LIML" ->
           let aexps =
             match arg with Ast.Arg (Ast.Exp aexps) -> aexps | _ -> []
@@ -5123,8 +5138,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
           in
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
-          (* array_fill builds an array_dv (DVAFILL) -- result type array_dv[T]. *)
-          let opcode = If1.DVAFILL in
+          let is_dv =
+            If1.TM.exists (fun _ desc ->
+              match desc with
+              | If1.Array_dv _ -> true
+              | _ -> false)
+              (If1.get_typemap_tm in_gr)
+          in
+          let opcode = if is_dv then If1.DVAFILL else If1.AFILL in
           let in_ports = [| ""; ""; "" |] in
           let out_ports = [| "" |] in
 
@@ -5148,7 +5169,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   raise (If1.Sem_error "ARRAY_FILL requires (low, high, value)");
 
                 let (arr_ty_id, _, _), in_gr =
-                  If1.add_type_to_typemap_dedup (If1.Array_dv array_element_ty)
+                  If1.add_type_to_typemap_dedup
+                    (if is_dv then If1.Array_dv array_element_ty
+                     else If1.Array_ty array_element_ty)
                     in_gr
                 in
                 (arr_ty_id, in_gr)
