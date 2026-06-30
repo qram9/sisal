@@ -536,6 +536,23 @@ extern "C" struct ROP_results func_MAIN();  // product / greatest / least, gathe
 struct RAR_results { sisal_array_t s; sisal_array_t p; sisal_array_t g; sisal_array_t l; sisal_array_t m; };
 extern "C" struct RAR_results func_MAIN();  // array-VALUED reductions (elementwise), 1-D + 2-D
 #endif
+#ifdef TEST_IP_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly innerproduct
+static sisal_array_t mk_dvi(int rank, int d0, int d1, int d2, const int32_t* v) {
+    int n = (rank==3)? d0*d1*d2 : (rank==2)? d0*d1 : d0;
+    sisal_array_t a = sisal_array_alloc_empty(rank, 6, (uint64_t)n);
+    a.dims[0]=d0; if(rank>=2)a.dims[1]=d1; if(rank>=3)a.dims[2]=d2;
+    for (int i=0;i<n;i++) ((int32_t*)a.data)[i]=v[i];
+    return a;
+}
+static bool dvi_eq(sisal_array_t r, int rank, int d0, int d1, const int32_t* exp, int n) {
+    if (r.rank!=rank || (int)r.dims[0]!=d0) return false;
+    if (rank>=2 && (int)r.dims[1]!=d1) return false;
+    if ((int)r.size!=n) return false;
+    for (int k=0;k<n;k++) if (((int32_t*)r.data)[k] != exp[k]) return false;
+    return true;
+}
+#endif
 #if defined(TEST_BCAST3D_DV) || defined(TEST_BCAST31_DV)
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly A + B
 // build a rank-1/2/3 double array_dv with explicit dims (numpy-style row-major)
@@ -4927,6 +4944,33 @@ static void test_bcast31_dv(void) {
     if(a.data)free(a.data); if(b.data)free(b.data); if(r.data)free(r.data);
 }
 #endif
+#ifdef TEST_IP_DV
+static void test_ip_dv(void) {
+    printf("\n=== Group: ip_dv (rank-poly innerproduct vs numpy np.dot) ===\n");
+    int32_t v1[3]={1,2,3}, v2[3]={4,5,6};
+    int32_t e1[1]={32};                                  // 1D.1D dot
+    sisal_array_t a,b,r;
+    a=mk_dvi(1,3,0,0,v1); b=mk_dvi(1,3,0,0,v2); r=func_MAIN(a,b);
+    check("ip_dv 1D.1D == np.dot (32)", dvi_eq(r,1,1,0,e1,1));
+    free(a.data);free(b.data);free(r.data);
+    int32_t m[6]={1,2,3,4,5,6}, ones[3]={1,1,1}; int32_t e2[2]={6,15};   // 2D(2,3).1D(3)
+    a=mk_dvi(2,2,3,0,m); b=mk_dvi(1,3,0,0,ones); r=func_MAIN(a,b);
+    check("ip_dv 2D(2,3).1D(3) == np.dot [6,15]", dvi_eq(r,1,2,0,e2,2));
+    free(a.data);free(b.data);free(r.data);
+    int32_t vv[3]={1,2,3}, M[6]={1,0,0,1,1,1}; int32_t e3[2]={4,5};       // 1D(3).2D(3,2)
+    a=mk_dvi(1,3,0,0,vv); b=mk_dvi(2,3,2,0,M); r=func_MAIN(a,b);
+    check("ip_dv 1D(3).2D(3,2) == np.dot [4,5]", dvi_eq(r,1,2,0,e3,2));
+    free(a.data);free(b.data);free(r.data);
+    int32_t X[4]={1,2,3,4}, Y[4]={5,6,7,8}; int32_t e4[4]={19,22,43,50};  // 2D.2D matmul
+    a=mk_dvi(2,2,2,0,X); b=mk_dvi(2,2,2,0,Y); r=func_MAIN(a,b);
+    check("ip_dv 2D(2,2).2D(2,2) == np.matmul [19,22,43,50]", dvi_eq(r,2,2,2,e4,4));
+    free(a.data);free(b.data);free(r.data);
+    int32_t A3[8]={1,2,3,4,5,6,7,8}, w[2]={1,1}; int32_t e5[4]={3,7,11,15}; // 3D(2,2,2).1D(2)
+    a=mk_dvi(3,2,2,2,A3); b=mk_dvi(1,2,0,0,w); r=func_MAIN(a,b);
+    check("ip_dv 3D(2,2,2).1D(2) == np.dot [[3,7],[11,15]]", dvi_eq(r,2,2,2,e5,4));
+    free(a.data);free(b.data);free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5174,6 +5218,9 @@ main (void)
 #ifdef TEST_BCAST31_DV
   test_bcast31_dv ();
 #endif
+#ifdef TEST_IP_DV
+  test_ip_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5335,7 +5382,8 @@ main (void)
     && !defined(TEST_CAP_2DEEP_DV) && !defined(TEST_FN3RANK_DV)               \
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
-    && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)
+    && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
+    && !defined(TEST_IP_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

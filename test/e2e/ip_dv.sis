@@ -1,0 +1,5 @@
+% rank-poly inner product (innerproduct = APL +.x = np.dot): contract A's last axis
+% with B's first axis.  Verified across rank combos against numpy np.dot.
+define main
+type ai = array_dv[integer];
+function main(a, b : ai returns ai) innerproduct(a, b) end function
