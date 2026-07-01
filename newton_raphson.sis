@@ -1,0 +1,15 @@
+% newton_raphson.sis
+% Newton-Raphson square root algorithm test.
+% Reference: test/unit/for_initial.sis
+
+Define  Main
+
+function Main( X, Eps : real returns real )
+  for initial
+    Root := X/2.0
+  repeat
+    Root := ( X / old Root + old Root ) / 2.0
+  until (X - (Root*Root)) < Eps
+  returns value of Root
+  end for
+end function
