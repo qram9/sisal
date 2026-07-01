@@ -1,0 +1,46 @@
+% dv_rank8_slices.sis — tests complex multi-rank arbitrary slicing on max 8D arrays
+define main
+
+type OneD = array_dv[double];
+type TwoD = array_dv[double];
+type FourD = array_dv[double];
+type EightD = array_dv[double];
+
+function main( returns FourD, TwoD, double, EightD, FourD, FourD )
+  let
+    A := for d1 in 1, 2
+           r1 := for d2 in 1, 2
+                   r2 := for d3 in 1, 2
+                           r3 := for d4 in 1, 2
+                                   r4 := for d5 in 1, 2
+                                           r5 := for d6 in 1, 2
+                                                   r6 := for d7 in 1, 2
+                                                           r7 := for d8 in 1, 2
+                                                                   val := double_real(d1-1)*128.0 + double_real(d2-1)*64.0 + double_real(d3-1)*32.0 + double_real(d4-1)*16.0 + double_real(d5-1)*8.0 + double_real(d6-1)*4.0 + double_real(d7-1)*2.0 + double_real(d8);
+                                                                 returns array_dv of val
+                                                                 end for;
+                                                         returns array_dv of r7
+                                                         end for;
+                                                 returns array_dv of r6
+                                                 end for;
+                                         returns array_dv of r5
+                                         end for;
+                                 returns array_dv of r4
+                                 end for;
+                         returns array_dv of r3
+                         end for;
+                 returns array_dv of r2
+                 end for;
+         returns array_dv of r1
+         end for;
+
+    s1 := A[1, .., 2, .., 1, .., 2, ..]; % rank 4
+    s2 := A[.., 2, 1, 2, 1, 2, 1, ..]; % rank 2
+    s3 := A[1, 1, 1, 1, 1, 1, 1, 1];   % scalar (rank 0)
+    s4 := A[.., .., .., .., .., .., .., ..]; % rank 8 (identity)
+    s5 := A[1, 2, 1, 2, .., .., .., ..]; % rank 4 (leading)
+    s6 := A[.., .., .., .., 1, 2, 1, 2]; % rank 4 (trailing)
+  in
+    s1, s2, s3, s4, s5, s6
+  end let
+end function

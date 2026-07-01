@@ -5908,40 +5908,67 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let (arr_node, arr_port, att), in_gr = do_simple_exp in_gr ar_a in
       match ar_b with
       | Ast.Exp ex_lis ->
-          let rec lower_indices ((aaa, bbb, cur_att), g) = function
-            | [] -> ((aaa, bbb, cur_att), g)
-            | Ast.Dotdot :: rest ->
-                (* '..' keeps this axis: no node, pass the current array through.
-                   The fixed indices before it already rank-reduced (their `rest`
-                   is non-empty), so A[i, ..] = DV_RANK_REDUCE(A, i) = the row. *)
-                lower_indices ((aaa, bbb, cur_att), g) rest
-            | arr_indx :: rest ->
-                let (idxnum, idxport, it_ty), g = do_simple_exp g arr_indx in
-                let op, next_ty =
-                  match If1.lookup_ty cur_att g with
-                  | If1.Array_ty ij -> (If1.AELEMENT, ij)
-                  | If1.Array_dv ij ->
-                      if rest = [] then (If1.DV_ELEMENT, ij)
-                      else (If1.DV_RANK_REDUCE, cur_att)
-                  | _ ->
-                      let msg =
-                        Printf.sprintf "Situation:%s"
-                          (If1.string_of_if1_ty (If1.lookup_ty cur_att g))
-                      in
-                      print_endline
-                        (Ast.str_simple_exp aap ^ " Fails for "
-                       ^ string_of_int cur_att);
-                      If1.If1_View.export_debug_html "compiler_failure.html" g;
-                      raise (If1.Sem_error msg)
-                in
-                let (arrnum, arrport, _), g =
-                  If1.add_node_2 (`Simple (op, [| ""; "" |], [| "" |], [])) g
-                in
-                let g = If1.add_edge aaa bbb arrnum 0 cur_att g in
-                let g = If1.add_edge idxnum idxport arrnum 1 it_ty g in
-                lower_indices ((arrnum, arrport, next_ty), g) rest
-          in
-          lower_indices ((arr_node, arr_port, att), in_gr) ex_lis
+          let has_slice = List.exists (fun x -> x = Ast.Dotdot) ex_lis in
+
+          if not has_slice then
+            let rec lower_indices ((aaa, bbb, cur_att), g) = function
+              | [] -> ((aaa, bbb, cur_att), g)
+              | arr_indx :: rest ->
+                  let (idxnum, idxport, it_ty), g = do_simple_exp g arr_indx in
+                  let op, next_ty =
+                    match If1.lookup_ty cur_att g with
+                    | If1.Array_ty ij -> (If1.AELEMENT, ij)
+                    | If1.Array_dv ij ->
+                        if rest = [] then (If1.DV_ELEMENT, ij)
+                        else (If1.DV_RANK_REDUCE, cur_att)
+                    | _ ->
+                        let msg =
+                          Printf.sprintf "Situation:%s"
+                            (If1.string_of_if1_ty (If1.lookup_ty cur_att g))
+                        in
+                        print_endline
+                          (Ast.str_simple_exp aap ^ " Fails for "
+                         ^ string_of_int cur_att);
+                        If1.If1_View.export_debug_html "compiler_failure.html" g;
+                        raise (If1.Sem_error msg)
+                  in
+                  let (arrnum, arrport, _), g =
+                    If1.add_node_2 (`Simple (op, [| ""; "" |], [| "" |], [])) g
+                  in
+                  let g = If1.add_edge aaa bbb arrnum 0 cur_att g in
+                  let g = If1.add_edge idxnum idxport arrnum 1 it_ty g in
+                  lower_indices ((arrnum, arrport, next_ty), g) rest
+            in
+            lower_indices ((arr_node, arr_port, att), in_gr) ex_lis
+          else
+            (* Slicing case with at least one '..' *)
+            let num_ports = 1 + (2 * List.length ex_lis) in
+            let (n, _, _), in_gr =
+              If1.add_node_2 (`Simple (If1.DV_RANK_REDUCE, Array.make num_ports "", [| "" |], [])) in_gr
+            in
+            let in_gr = If1.add_edge arr_node arr_port n 0 att in_gr in
+            
+            let rec wire_specs g idx = function
+              | [] -> g
+              | sub :: rest ->
+                  let is_dotdot = (sub = Ast.Dotdot) in
+                  let (flag_n, _, _), g =
+                    If1.add_node_2 (`Literal (If1.INTEGRAL, (if is_dotdot then "0" else "1"), [| "" |])) g
+                  in
+                  let (val_n, val_p, val_ty), g =
+                    if is_dotdot then
+                      let (vn, vp, vt), g = If1.add_node_2 (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |])) g in
+                      ((vn, vp, vt), g)
+                    else
+                      do_simple_exp g sub
+                  in
+                  let base = 1 + (2 * idx) in
+                  let g = If1.add_edge flag_n 0 n base (If1.lookup_tyid If1.INTEGRAL) g in
+                  let g = If1.add_edge val_n val_p n (base + 1) val_ty g in
+                  wire_specs g (idx + 1) rest
+            in
+            let in_gr = wire_specs in_gr 0 ex_lis in
+            ((n, 0, att), in_gr)
       | _ -> ((arr_node, arr_port, att), in_gr))
   | Let_rec (dp, e) ->
       (* 1. Setup Recursive Scope and Lower Inner Logic *)

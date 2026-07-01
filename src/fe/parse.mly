@@ -352,6 +352,8 @@ function_nest:
   exp_list :
     simple_expression
       { [$1] }
+|   DOTDOT
+      { [Dotdot] }
 |  exp_list COMMA simple_expression
     { $3 :: $1 }
 |  exp_list COMMA DOTDOT

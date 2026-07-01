@@ -2939,9 +2939,9 @@ and ensure_dope_vec_type in_gr =
   let (id_lo, _, _), in_gr =
     add_type_to_typemap_dedup (Record (int_id, id_stride, "lo")) in_gr
   in
-  (* array[{lo, stride, size}] *)
+  (* array_dv[{lo, stride, size}] *)
   let (dope_ty, _, _), in_gr =
-    add_type_to_typemap_dedup (Array_ty id_lo) in_gr
+    add_type_to_typemap_dedup (Array_dv id_lo) in_gr
   in
   (dope_ty, in_gr)
 

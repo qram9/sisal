@@ -439,6 +439,7 @@ Scientific benchmarks:
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis
+  $ sisal e2e/subscript_slicing.sis
   $ sisal e2e/if_one.sis
   $ sisal e2e/if_two.sis
   $ sisal unit/quadtree.sis

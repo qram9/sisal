@@ -828,6 +828,139 @@ inline sisal_array_t sisal_array_compress(sisal_array_t mask, sisal_array_t data
     return res;
 }
 
+inline sisal_array_t sisal_dv_slice(sisal_array_t a, const int32_t* spec, int32_t spec_rank) {
+    sisal_array_t res = a;
+    
+    uint64_t strides[8];
+    uint64_t current_stride = a.size;
+    for (int i = 0; i < (int)a.rank; i++) {
+        int32_t dim_size = (a.dims[i] > 0) ? (int32_t)a.dims[i] : (int32_t)current_stride;
+        current_stride = (dim_size > 0) ? (current_stride / (uint64_t)dim_size) : 0;
+        strides[i] = current_stride;
+    }
+    
+    uint64_t offset = 0;
+    uint32_t new_rank = 0;
+    int limit = (spec_rank < (int)a.rank) ? spec_rank : (int)a.rank;
+    
+    bool contiguous = true;
+    bool seen_slice = false;
+    for (int i = 0; i < limit; i++) {
+        int32_t is_indexed = spec[2 * i];
+        if (is_indexed) {
+            if (seen_slice) {
+                contiguous = false;
+            }
+        } else {
+            seen_slice = true;
+        }
+    }
+    
+    if (contiguous) {
+        for (int i = 0; i < limit; i++) {
+            int32_t is_indexed = spec[2 * i];
+            int32_t val        = spec[2 * i + 1];
+            if (is_indexed) {
+                offset += (uint64_t)(val - (int32_t)a.lower_bound[i]) * strides[i];
+            } else {
+                res.dims[new_rank] = a.dims[val];
+                res.lower_bound[new_rank] = a.lower_bound[val];
+                new_rank++;
+            }
+        }
+        for (int i = limit; i < (int)a.rank; i++) {
+            res.dims[new_rank] = a.dims[i];
+            res.lower_bound[new_rank] = a.lower_bound[i];
+            new_rank++;
+        }
+        for (uint32_t i = new_rank; i < 8; i++) {
+            res.dims[i] = 0;
+            res.lower_bound[i] = 1;
+        }
+        size_t esz = sisal_elem_size(a.type_id);
+        res.data = (char*)a.data + offset * esz;
+        res.rank = new_rank;
+        uint64_t new_size = 1;
+        for (uint32_t i = 0; i < new_rank; i++) {
+            new_size *= (res.dims[i] > 0 ? res.dims[i] : 1);
+        }
+        res.size = (new_rank == 0) ? 1 : new_size;
+        return res;
+    } else {
+        for (int i = 0; i < limit; i++) {
+            int32_t is_indexed = spec[2 * i];
+            int32_t val        = spec[2 * i + 1];
+            if (!is_indexed) {
+                res.dims[new_rank] = a.dims[val];
+                res.lower_bound[new_rank] = a.lower_bound[val];
+                new_rank++;
+            }
+        }
+        for (int i = limit; i < (int)a.rank; i++) {
+            res.dims[new_rank] = a.dims[i];
+            res.lower_bound[new_rank] = a.lower_bound[i];
+            new_rank++;
+        }
+        for (uint32_t i = new_rank; i < 8; i++) {
+            res.dims[i] = 0;
+            res.lower_bound[i] = 1;
+        }
+        res.rank = new_rank;
+        uint64_t new_size = 1;
+        for (uint32_t i = 0; i < new_rank; i++) {
+            new_size *= (res.dims[i] > 0 ? res.dims[i] : 1);
+        }
+        res.size = (new_rank == 0) ? 1 : new_size;
+        
+        size_t esz = sisal_elem_size(a.type_id);
+        size_t slot = (esz > 8 ? esz : 8);
+        res.data = malloc(res.size * slot);
+        res.ref_count = 1;
+        
+        uint64_t dst_idx = 0;
+        int64_t coords[8];
+        for (int i = 0; i < 8; i++) {
+            coords[i] = res.lower_bound[i];
+        }
+        
+        while (dst_idx < res.size) {
+            int64_t src_coords[8] = {0};
+            int r_idx = 0;
+            for (int i = 0; i < (int)a.rank; i++) {
+                if (i < limit) {
+                    int32_t is_indexed = spec[2 * i];
+                    int32_t val        = spec[2 * i + 1];
+                    if (is_indexed) {
+                        src_coords[i] = val;
+                    } else {
+                        src_coords[i] = coords[r_idx++];
+                    }
+                } else {
+                    src_coords[i] = coords[r_idx++];
+                }
+            }
+            
+            uint64_t src_offset = 0;
+            for (int i = 0; i < (int)a.rank; i++) {
+                src_offset += (uint64_t)(src_coords[i] - a.lower_bound[i]) * strides[i];
+            }
+            
+            memcpy((char*)res.data + dst_idx * slot, (char*)a.data + src_offset * esz, esz);
+            dst_idx++;
+            
+            for (int d = (int)new_rank - 1; d >= 0; d--) {
+                coords[d]++;
+                if (coords[d] < res.lower_bound[d] + res.dims[d]) {
+                    break;
+                }
+                coords[d] = res.lower_bound[d];
+            }
+        }
+        
+        return res;
+    }
+}
+
 /* DV_RANK_REDUCE: zero-copy view fixing dimension 0 at 1-based index idx.
    Returns a sisal_array_t with rank-1 less, data pointer advanced to the slice. */
 inline sisal_array_t sisal_dv_rank_reduce(sisal_array_t a, int32_t idx) {

@@ -353,7 +353,6 @@ let infer_types env gr gid =
                   ABUILD;
                   AFILL;
                   ACREATE;
-                  RELEMENTS;
                   AREPLACE;
                   AADDH;
                   DVAADDH;
@@ -365,6 +364,7 @@ let infer_types env gr gid =
                   DV_RANK_REPLACE;
                   DV_REPLACE;
                   DV_SETL;
+                  GET_DOPE_VEC;
                 ]
             in
             let ty =
@@ -400,7 +400,12 @@ let infer_types env gr gid =
                      DV_REPLACE;
                      DV_SETL;
                    ]
-            then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+            then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t");
+            if sym = DV_RANK_REDUCE || sym = DV_PERMUTE then begin
+              for i = 1 to 40 do
+                set_ty cur_gid nid i `In (C.Basic "int32_t")
+              done
+            end
         | Compound (_, sym, _, pr, sub, _) ->
             let sub_gid =
               try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1
@@ -622,7 +627,6 @@ let infer_types env gr gid =
                   ABUILD;
                   AFILL;
                   ACREATE;
-                  RELEMENTS;
                   AREPLACE;
                   AADDH;
                   DVAADDH;
@@ -1223,7 +1227,17 @@ and lower_simple env gr nid sym pin pout pr =
     | DV_OFFSET_AT -> C.Call ("sisal_dv_offset_at", [ e1; e2; get_in_expr 2 ])
     | DV_RESHAPE_BY_SHAPE -> C.Call ("sisal_array_reshape_by_shape", [ e1; e2 ])
     | TYPECAST -> e1
-    | RELEMENTS -> e2
+    | RELEMENTS ->
+        let fn = pin.(0) in
+        (match e2 with
+         | C.Index (C.Cast (_, C.Member (arr, "data")), idx)
+           when fn = "lo" || fn = "stride" || fn = "size" ->
+             (match fn with
+              | "lo" -> C.Index (C.Member (arr, "lower_bound"), idx)
+              | "stride" -> C.Index (C.Member (arr, "stride"), idx)
+              | "size" -> C.Index (C.Member (arr, "dims"), idx)
+              | _ -> assert false)
+         | _ -> e2)
     | DOT | INNERPRODUCT_NODE ->
         let in_ty = get_final_ty env gid nid 0 `In in
         if in_ty = C.Basic "sisal_array_t" then
@@ -1239,7 +1253,28 @@ and lower_simple env gr nid sym pin pout pr =
     | DV_REVERSE -> C.Call ("sisal_array_reverse", [ e1 ])
     | DV_ROTATE -> C.Call ("sisal_array_rotate", [ e1; e2 ])
     | DV_SLICE -> C.Call ("sisal_array_slice", [ e1; e2; get_in_expr 2 ])
-    | DV_RANK_REDUCE -> C.Call ("sisal_dv_rank_reduce", [ e1; e2 ])
+    | GET_DOPE_VEC -> e1
+    | DV_RANK_REDUCE ->
+        let in_ports =
+          ES.fold
+            (fun (_, (dn, dp), _) acc ->
+              if dn = nid then IntSet.add dp acc else acc)
+            gr.eset IntSet.empty
+          |> IntSet.elements
+        in
+        let spec_ports = List.filter (fun p -> p > 0) in_ports in
+        if List.length spec_ports = 1 then
+          C.Call ("sisal_dv_rank_reduce", [ e1; e2 ])
+        else
+          let spec_exprs = List.map (fun p -> get_in_expr p) spec_ports in
+          let spec_strs = List.map Ir.C_ast_print.string_of_expr spec_exprs in
+          let spec_literal =
+            Printf.sprintf "(int32_t[]){ %s }" (String.concat ", " spec_strs)
+          in
+          let rank = List.length spec_ports / 2 in
+          C.Call
+            ( "sisal_dv_slice",
+              [ e1; C.Id spec_literal; C.LitInt rank ] )
     | DV_RANK_REPLACE ->
         C.Call ("sisal_dv_replace_slice", [ e1; e2; get_in_expr 2 ])
     | DV_PERMUTE ->
@@ -1596,6 +1631,10 @@ and lower_simple env gr nid sym pin pout pr =
             ([ decl_tmp ], env) out_ports
         end
         else assign_with_cast env gid nid 0 `Out rhs
+    | GET_DOPE_VEC ->
+        let ss0, e' = assign_with_cast env gid nid 0 `Out rhs in
+        let ss1, e'' = assign_with_cast e' gid nid 1 `Out rhs in
+        (ss0 @ ss1, e'')
     | _ -> assign_with_cast env gid nid 0 `Out rhs
   in
   (stmts, e')

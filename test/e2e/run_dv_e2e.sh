@@ -49,7 +49,7 @@ run_group() {
     fi
 
     printf 'Building TEST_%-20s ' "${macro}..."
-    if ${CXX_BASE} -DTEST_${macro} "${HARNESS}" "${src}" -o "${bin}" \
+    if ${CXX_BASE} -DTEST_${macro} "${HARNESS}" "${REPO}/test/e2e/numpy_verify.cpp" "${src}" -o "${bin}" \
             2>/tmp/sisal_build_err_${macro}.txt; then
         echo -n "OK"
     else
@@ -182,6 +182,7 @@ run_group IF_COND            if_cond              ""
 run_group FORALL_DV_SIMPLE   forall_dv_simple     ""
 run_group CROSS_DV_DEMO      cross_dv_demo        ""
 run_group FORALL_NEGATE      forall_negate        ""
+run_group RANK8_SLICES       dv_rank8_slices      ""
 
 echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"

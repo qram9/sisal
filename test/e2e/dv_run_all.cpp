@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dv_rank8_slices_harness.h"
+
+
 // ============================================================
 // External declarations — one block per generated .cpp file.
 // Only the block matching the active TEST_XXX guard is linked.
@@ -5421,6 +5424,10 @@ main (void)
 #ifdef TEST_FORALL_NEGATE
   test_forall_negate ();
 #endif
+#ifdef TEST_RANK8_SLICES
+  run_rank8_slices ();
+#endif
+
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
     && !defined(TEST_LIFTED_ARITH) && !defined(TEST_SHL)                      \
@@ -5478,7 +5485,8 @@ main (void)
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
-    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV)
+    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV)                    \
+    && !defined(TEST_RANK8_SLICES)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
