@@ -630,6 +630,9 @@ static bool dvi_eq(sisal_array_t r, int rank, int d0, int d1, const int32_t* exp
     return true;
 }
 #endif
+#ifdef TEST_CONV_DV
+extern "C" sisal_array_t func_MAIN(int32_t M, int32_t Cycles);  // convolution Y[i]=Σ_j A[j]*X[i+j-1]
+#endif
 #if defined(TEST_BCAST3D_DV) || defined(TEST_BCAST31_DV)
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly A + B
 // build a rank-1/2/3 double array_dv with explicit dims (numpy-style row-major)
@@ -5225,6 +5228,19 @@ static void test_ip_dv(void) {
     free(a.data);free(b.data);free(r.data);
 }
 #endif
+#ifdef TEST_CONV_DV
+static void test_conv_dv(void) {
+    printf("\n=== Group: conv_dv (convolution Y[i]=sum_j A[j]*X[i+j-1]) ===\n");
+    // Main builds A=[1..M], X=[1..M*Cycles]; M=3,Cycles=2 -> A=[1,2,3], X=[1..6].
+    // Y[i] = sum_{j=1..3} A[j]*X[i+j-1], i=1..4  ->  [14,20,26,32] (hand/numpy verified)
+    sisal_array_t r = func_MAIN(3, 2);
+    double ex[4] = { 14, 20, 26, 32 };
+    bool ok = ((int)r.size == 4);
+    for (int k = 0; ok && k < 4; k++) ok = ok && (fabs(((double*)r.data)[k] - ex[k]) < 1e-9);
+    check("conv_dv(3,2) == [14,20,26,32]", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5479,6 +5495,9 @@ main (void)
 #ifdef TEST_IP_DV
   test_ip_dv ();
 #endif
+#ifdef TEST_CONV_DV
+  test_conv_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5666,7 +5685,7 @@ main (void)
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
-    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV)                    \
+    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV)                    \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
