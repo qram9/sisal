@@ -264,7 +264,7 @@ DV variants of scientific benchmarks:
   $ sisal unit/inverse_dv.sis
   $ sisal unit/kin16_dv.sis
   $ sisal unit/LegPoly_dv.sis
-  $ sisal unit/laplace_dv.sis
+  $ sisal e2e/laplace_dv.sis
   $ sisal unit/lu_npiv_dv.sis
   $ sisal unit/lu_piv_dv.sis
   $ sisal unit/newgauss_dv.sis

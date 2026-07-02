@@ -633,6 +633,9 @@ static bool dvi_eq(sisal_array_t r, int rank, int d0, int d1, const int32_t* exp
 #ifdef TEST_CONV_DV
 extern "C" sisal_array_t func_MAIN(int32_t M, int32_t Cycles);  // convolution Y[i]=Σ_j A[j]*X[i+j-1]
 #endif
+#ifdef TEST_LAPLACE_DV
+extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Cols);  // Laplace relaxation -> flat 2-D grid
+#endif
 #if defined(TEST_BCAST3D_DV) || defined(TEST_BCAST31_DV)
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly A + B
 // build a rank-1/2/3 double array_dv with explicit dims (numpy-style row-major)
@@ -5241,6 +5244,19 @@ static void test_conv_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_LAPLACE_DV
+static void test_laplace_dv(void) {
+    printf("\n=== Group: laplace_dv (Laplace relaxation, flat 2-D array_dv) ===\n");
+    // Main(1,2,2): 4x4 grid, one Jacobi sweep. Phi(a,b)=a*b boundaries; interior avg.
+    // Python-verified: [1,2,3,4, 2,1,2.75,8, 3,2.75,6,12, 4,8,12,16]
+    sisal_array_t r = func_MAIN(1, 2, 2);
+    double ex[16] = { 1,2,3,4, 2,1,2.75,8, 3,2.75,6,12, 4,8,12,16 };
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == 4) && ((int)r.dims[1] == 4) && ((int)r.size == 16);
+    for (int k = 0; ok && k < 16; k++) ok = ok && (fabs(((double*)r.data)[k] - ex[k]) < 1e-9);
+    check("laplace_dv(1,2,2) == relaxed 4x4 grid (vs python)", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5498,6 +5514,9 @@ main (void)
 #ifdef TEST_CONV_DV
   test_conv_dv ();
 #endif
+#ifdef TEST_LAPLACE_DV
+  test_laplace_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5685,7 +5704,7 @@ main (void)
     && !defined(TEST_IFTUPLE_FORALL_DV) && !defined(TEST_RED_RANKS_DV)         \
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
-    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV)                    \
+    && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

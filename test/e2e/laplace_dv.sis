@@ -1,28 +1,17 @@
 % Laplace relaxation — DV variant (based on laplace.sis)
 %
-% DV changes:
-%   • OneDim = array_dv[double_real]: inner row vectors are DV.
-%   • Grid   = array[OneDim]: outer grid stays a plain array of DV rows.
-%   • singleton(v)  — 1-indexed single-element DV (for right-boundary append).
-%   • singleton0(v) — 0-indexed single-element DV (for left-boundary prepend).
-%   • array_addl(inner, v) → singleton0(v) || inner (building 0-based DV rows).
-%   • array_addh(inner, v) → inner || singleton(v).
-%   • array_setl(Bottom, 0) eliminated: Top/Bottom built 0-based directly.
-%   • array_addh/array_addl on the outer Grid (plain array) are unchanged.
+% DV changes (fully array_dv, C-lowerable):
+%   • Grid = array_dv[double_real]: a flat rank-2 dope vector (was array[OneDim] AoA).
+%   • Rows built directly 0-based in one forall over 0..Columns+1 with a boundary
+%     conditional — no singleton/singleton0 helpers, no `||` catenate.
+%   • Grid rows gathered with `array_dv of Row` (2-D box-then-flatten).
+%   • Row access into the 2-D grid uses rank-reduce `G[r, ..]` (a bare `G[r]` is a
+%     scalar load); element access `G[i,j]` unchanged.
 
 define Main
 
 type OneDim = array_dv[double_real];
-type Grid   = array[OneDim];
-
-
-function singleton( v: double_real returns OneDim )
-  for dummy in 1, 1 returns array_dv of v end for
-end function
-
-function singleton0( v: double_real returns OneDim )
-  for dummy in 0, 0 returns array_dv of v end for
-end function
+type Grid   = array_dv[double_real];   % flat rank-2 dope vector (was array[OneDim] AoA)
 
 
 function Phi( A, B: integer returns double_real )
@@ -49,8 +38,12 @@ function BuildGrid( Rows, Columns: integer returns Grid )
     Middle := for I in 1, Rows
                 Low  := Phi(I+1, 1);
                 High := Phi(I+1, Columns+2);
-                Row  := for J in 1, Columns returns array_dv of 0.0D0 end for
-              returns array of (singleton0(Low) || Row || singleton(High))
+                Row  := for J in 0, Columns+1
+                          returns array_dv of ( if J = 0            then Low
+                                                elseif J = Columns+1 then High
+                                                else 0.0D0 end if )
+                        end for
+              returns array_dv of Row
               end for;
 
     Temp1  := array_addh(Middle, Bottom)
@@ -70,14 +63,15 @@ function DoWork( G: Grid; Rows, Columns: integer returns Grid )
     Rlast  := Rows + 1;
     Clast  := Columns + 1;
     Middle := for I in 1, Rows
-                Mid := for J in 1, Columns
-                         returns array_dv of Compute(G, I, J)
-                       end for;
-                Row := singleton0(G[I,0]) || Mid || singleton(G[I,Clast])
-              returns array of Row
+                Row := for J in 0, Clast
+                         returns array_dv of ( if J = 0     then G[I,0]
+                                               elseif J = Clast then G[I,Clast]
+                                               else Compute(G, I, J) end if )
+                       end for
+              returns array_dv of Row
               end for
   in
-    array_addl(array_addh(Middle, G[Rlast]), G[0])
+    array_addl(array_addh(Middle, G[Rlast, ..]), G[0, ..])
   end let
 end function
 
