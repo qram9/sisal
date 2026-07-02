@@ -9,7 +9,7 @@ function Main( X, Eps : real returns real )
     Root := X/2.0
   repeat
     Root := ( X / old Root + old Root ) / 2.0
-  until (X - (Root*Root)) < Eps
+  until (X - (Root*Root) < Eps) & ((Root*Root) - X < Eps)
   returns value of Root
   end for
 end function

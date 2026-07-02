@@ -1,0 +1,40 @@
+% feo_fft_parts1.sis
+% Part 1: log2, cadd, cmult, data generation.
+
+define main
+
+type OneDim = array_dv[double];
+
+global log10( x: double returns double )
+global cos  ( x: double returns double )
+global sin  ( x: double returns double )
+global atan ( x: double returns double )
+
+function log2( n: integer returns integer )
+  integer( log10(double_real(n)) / log10(2.0d0) )
+end function
+
+function cadd( re1, im1, re2, im2: double returns double, double )
+  re1 + re2, im1 + im2
+end function
+
+function cmult( re1, im1, re2, im2: double returns double, double )
+  re1 * re2 - im1 * im2, re1 * im2 + im1 * re2
+end function
+
+function data( n: integer returns OneDim, OneDim )
+  for i in 0, n-1
+    tt := 8.0d0 * atan(1.0d0) / double_real(n)
+  returns array_dv of cos(tt * double_real(i))
+          array_dv of 0.0d0
+  end for
+end function
+
+function main(returns integer, double, double, OneDim, OneDim)
+  let
+    re, im := cmult(1.0d0, 2.0d0, 3.0d0, 4.0d0);
+    dre, dim := data(4)
+  in
+    log2(16), re, im, dre, dim
+  end let
+end function

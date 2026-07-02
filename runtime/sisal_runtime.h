@@ -150,6 +150,32 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
    array-valued forall reduction accumulator. */
 inline sisal_array_t sisal_array_empty(void) { sisal_array_t a = {}; return a; }
 
+/* For-initial gather of ARRAY-valued elements (`returns array_dv of w` where w is
+   itself an array): FLATTEN, don't box.  Append val's buffer to acc, growing the
+   leading dim by 1 -> rank-2 dims=[niter, row].  Empty acc seeds from val.  Grows
+   per REAL iteration, so it's correct for any induction (incl. multiplicative), and
+   avoids the nested array_dv[array_dv[..]] a boxed store would produce. */
+inline sisal_array_t sisal_array_concat_grow(sisal_array_t acc, sisal_array_t val) {
+    size_t esz = sisal_elem_size(val.type_id);
+    if (acc.data == NULL) {
+        sisal_array_t res = sisal_array_alloc_empty(2, val.type_id, val.size);
+        res.dims[0] = 1;
+        res.dims[1] = (int64_t)val.size;
+        if (val.size) memcpy(res.data, val.data, (size_t)val.size * esz);
+        return res;
+    }
+    uint64_t newsize = acc.size + val.size;
+    sisal_array_t res = acc;
+    res.data = malloc((size_t)(newsize ? newsize : 1) * (esz > 8 ? esz : 8));
+    if (acc.size) memcpy(res.data, acc.data, (size_t)acc.size * esz);
+    if (val.size) memcpy((char*)res.data + (size_t)acc.size * esz, val.data, (size_t)val.size * esz);
+    res.size = newsize;
+    res.rank = 2;
+    res.dims[0] = acc.dims[0] + 1;
+    res.dims[1] = (int64_t)val.size;   /* row size (assumes uniform rows) */
+    return res;
+}
+
 /* One elementwise reduction step for an array-VALUED forall reduction
    (`value of sum/product/greatest/least <array>`).  op: 0=sum(+) 1=product(*)
    2=greatest(max) 3=least(min).  An empty acc means this is the first element ->
@@ -341,6 +367,17 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
     memcpy(res.data, a.data, a.size * esz);
     memcpy((char*)res.data + (uint64_t)a.size * esz, b.data, (uint64_t)b_elems * esz);
     return res;
+}
+
+inline sisal_array_t sisal_array_catenate(sisal_array_t acc, sisal_array_t val) {
+    if (acc.data == NULL || acc.size == 0) {
+        size_t esz = sisal_elem_size(val.type_id);
+        sisal_array_t res = val;
+        res.data = malloc(val.size * (esz > 8 ? esz : 8));
+        memcpy(res.data, val.data, (size_t)val.size * esz);
+        return res;
+    }
+    return sisal_array_addh_arr(acc, val);
 }
 
 inline sisal_array_t sisal_array_build_double(int64_t lb, int count, const double* elems) {

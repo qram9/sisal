@@ -1,0 +1,61 @@
+% feo_fft_parts3.sis
+% Part 3: fft_4_2 and Pack_j butterfly kernels.
+
+define main
+
+type OneDim = array_dv[double];
+
+function cadd( re1, im1, re2, im2: double returns double, double )
+  re1 + re2, im1 + im2
+end function
+
+function cmult( re1, im1, re2, im2: double returns double, double )
+  re1 * re2 - im1 * im2, re1 * im2 + im1 * re2
+end function
+
+function fft_4_2( are, aim, bre, bim, cre, cim, dre, dim: double;
+                  wre1, wim1, wre2, wim2, wre3, wim3    : double
+                  returns double, double, double, double,
+                          double, double, double, double )
+  let
+    wbre, wbim := cmult(wre1, wim1, bre, bim);
+    wcre, wcim := cmult(wre2, wim2, cre, cim);
+    wdre, wdim := cmult(wre3, wim3, dre, dim);
+    a1re, a1im := cadd(are,  aim,   wcre,  wcim);
+    b1re, b1im := cadd(wbre, wbim,  wdre,  wdim);
+    c1re, c1im := cadd(are,  aim,  -wcre, -wcim);
+    d1re, d1im := cadd(wbre, wbim, -wdre, -wdim)
+  in
+    cadd(a1re, a1im,  b1re,  b1im),
+    cadd(a1re, a1im, -b1re, -b1im),
+    cadd(c1re, c1im,  d1im, -d1re),
+    cadd(c1re, c1im, -d1im,  d1re)
+  end let
+end function
+
+function Pack_j( cards, p0, p1, p2, p3             : integer;
+                 xre, xim                          : OneDim;
+                 w1re, w1im, w2re, w2im, w3re, w3im: double
+                 returns OneDim, OneDim, OneDim, OneDim,
+                         OneDim, OneDim, OneDim, OneDim )
+  for k in 0, cards/4 - 1
+    are, aim, bre, bim,
+    cre, cim, dre, dim :=
+      fft_4_2(xre[k+p0], xim[k+p0], xre[k+p1], xim[k+p1],
+              xre[k+p2], xim[k+p2], xre[k+p3], xim[k+p3],
+              w1re, w1im, w2re, w2im, w3re, w3im)
+  returns array_dv of are  array_dv of aim
+          array_dv of bre  array_dv of bim
+          array_dv of cre  array_dv of cim
+          array_dv of dre  array_dv of dim
+  end for
+end function
+
+function main(returns OneDim, OneDim, OneDim, OneDim, OneDim, OneDim, OneDim, OneDim)
+  let
+    xre := for i in 0, 3 returns array_dv of double_real(i+1) end for;
+    xim := for i in 0, 3 returns array_dv of 0.0d0 end for
+  in
+    Pack_j(4, 0, 1, 2, 3, xre, xim, 1.0d0, 0.0d0, 1.0d0, 0.0d0, 1.0d0, 0.0d0)
+  end let
+end function

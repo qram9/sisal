@@ -36,6 +36,7 @@ type reduce_op =
   | R_greatest
   | R_argmax
   | R_argmin
+  | R_catenate
 
 (* Parse the operator name carried by the REDUCE node's CHARACTER literal.  Fails
    loudly on anything unexpected — an unknown reduction is a bug, not a default. *)
@@ -47,6 +48,7 @@ let reduce_op_of_string s =
   | "greatest" -> R_greatest
   | "argmax" -> R_argmax
   | "argmin" -> R_argmin
+  | "catenate" -> R_catenate
   | other ->
       failwith (Printf.sprintf "forall reduce: unknown operator %S" other)
 
@@ -181,7 +183,7 @@ let forall_gather_ports loop_gr =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, DV_GATHER, _, _, _)) ->
+            | Some (Simple (_, (DV_GATHER | AGATHER), _, _, _)) ->
                 let bport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
@@ -255,7 +257,7 @@ let for_initial_gather_ports ret_gr =
     (fun ((sn, _), (dn, dp), _) acc ->
       if dn = 0 then
         match NM.find_opt sn ret_gr.nmap with
-        | Some (Simple (_, DV_GATHER, _, _, _)) -> (
+        | Some (Simple (_, (DV_GATHER | AGATHER), _, _, _)) -> (
             let bin =
               ES.fold
                 (fun ((s, sp), (d, p), _) a ->
@@ -356,6 +358,7 @@ let infer_types env gr gid =
                   AREPLACE;
                   AADDH;
                   DVAADDH;
+                  ACATENATE;
                   DVAFILL;
                   DVAADDL;
                   DVABUILD;
@@ -364,6 +367,7 @@ let infer_types env gr gid =
                   DV_RANK_REPLACE;
                   DV_REPLACE;
                   DV_SETL;
+                  ASETL;
                   GET_DOPE_VEC;
                 ]
             in
@@ -630,6 +634,7 @@ let infer_types env gr gid =
                   AREPLACE;
                   AADDH;
                   DVAADDH;
+                  ACATENATE;
                   DVAFILL;
                   DVAADDL;
                   DVABUILD;
@@ -638,6 +643,7 @@ let infer_types env gr gid =
                   DV_RANK_REPLACE;
                   DV_REPLACE;
                   DV_SETL;
+                  ASETL;
                 ]
             in
             if is_arr then (
@@ -1292,13 +1298,7 @@ and lower_simple env gr nid sym pin pout pr =
         C.Call
           ( "sisal_array_permute",
             e1 :: C.LitInt (List.length perm_args) :: perm_args )
-    | ASETL ->
-        failwith
-          (Printf.sprintf
-             "Standard ASETL is not supported under the dope vector backend; \
-              please use array_dv instead at gid=%d nid=%d"
-             gid nid)
-    | DV_SETL ->
+    | DV_SETL | ASETL ->
         C.Call ("sisal_array_setl", [ e1; C.Cast (C.Basic "int64_t", e2) ])
     | AREPLACE ->
         let in_ty = get_final_ty env gid nid 0 `In in
@@ -1361,7 +1361,7 @@ and lower_simple env gr nid sym pin pout pr =
             in
             C.Call (replace_fn p, [ arr_expr; idx; get_in_expr p ]))
           e1 val_ports
-    | DVAADDH ->
+    | DVAADDH | AADDH ->
         (* append e2 at the high end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in
         let fn =
@@ -1372,6 +1372,8 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> "sisal_array_addh_f32"
         in
         C.Call (fn, [ e1; e2 ])
+    | ACATENATE ->
+        C.Call ("sisal_array_addh_arr", [ e1; e2 ])
     | DVAADDL ->
         (* prepend e2 at the low end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in
@@ -1399,7 +1401,7 @@ and lower_simple env gr nid sym pin pout pr =
             [
               C.Cast (C.Basic "int64_t", e1); C.Cast (C.Basic "int64_t", e2); e3;
             ] )
-    | DVABUILD ->
+    | DVABUILD | ABUILD ->
         let get_raw_in_expr p =
           let producers =
             ES.fold
@@ -1482,12 +1484,6 @@ and lower_simple env gr nid sym pin pout pr =
               (List.length el_exprs)
           in
           C.Id lambda_str
-    | ABUILD ->
-        failwith
-          (Printf.sprintf
-             "Standard ARRAY_BUILD is not supported under the dope vector \
-              backend; please use array_dv instead at gid=%d nid=%d"
-             gid nid)
     | DVAADJUST ->
         (* array_adjust(A, lo, hi) -- window slice A[lo..hi].  Args wired reversed:
          port 0 = hi (e1), port 1 = lo (e2), port 2 = A. *)
@@ -1565,7 +1561,7 @@ and lower_simple env gr nid sym pin pout pr =
      lower_for_initial (alloc-before-loop + per-iteration store); this generic
      placeholder only keeps lower_graph from aborting, and the RETURNS port is
      re-bound to the gather array afterwards. *)
-    | DV_GATHER -> e1
+    | DV_GATHER | AGATHER -> e1
     | sym ->
         failwith
           (Printf.sprintf
@@ -2374,36 +2370,50 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                     (res_name, C.Basic "int32_t"),
                     (port, res_v) )
               | Some op when out_ty = C.Basic "sisal_array_t" ->
-                  (* array-VALUED reduction (`value of sum/product/greatest/least
-                     <array>`): scalar res_v OP cast would be struct arithmetic.
-                     Seed the accumulator empty and step it through an elementwise
-                     runtime op (empty acc on the first element copies the value). *)
-                  let opcode =
-                    match op with
-                    | R_sum -> 0
-                    | R_product -> 1
-                    | R_greatest -> 2
-                    | R_least -> 3
-                    | R_argmax | R_argmin -> assert false
-                  in
-                  let update =
-                    C.Expr
-                      (C.BinOp
-                         ( C.Assign,
-                           res_v,
-                           C.Call
-                             ( "sisal_array_ereduce",
-                               [ res_v; value; C.LitInt opcode ] ) ))
-                  in
-                  ( [
+                  if op = R_catenate then
+                    let update =
                       C.Expr
                         (C.BinOp
-                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                    ],
-                    [ update ],
-                    [],
-                    (res_name, out_ty),
-                    (port, res_v) )
+                           ( C.Assign,
+                             res_v,
+                             C.Call ("sisal_array_catenate", [ res_v; value ]) ))
+                    in
+                    ( [
+                        C.Expr
+                          (C.BinOp
+                             (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                      ],
+                      [ update ],
+                      [],
+                      (res_name, out_ty),
+                      (port, res_v) )
+                  else
+                    let opcode =
+                      match op with
+                      | R_sum -> 0
+                      | R_product -> 1
+                      | R_greatest -> 2
+                      | R_least -> 3
+                      | _ -> assert false
+                    in
+                    let update =
+                      C.Expr
+                        (C.BinOp
+                           ( C.Assign,
+                             res_v,
+                             C.Call
+                               ( "sisal_array_ereduce",
+                                 [ res_v; value; C.LitInt opcode ] ) ))
+                    in
+                    ( [
+                        C.Expr
+                          (C.BinOp
+                             (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                      ],
+                      [ update ],
+                      [],
+                      (res_name, out_ty),
+                      (port, res_v) )
               | Some op ->
                   let inf =
                     match out_ty with
@@ -2417,7 +2427,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                     | R_least -> inf
                     | R_greatest -> C.UnaryOp (C.Negate, inf)
                     | R_sum -> C.LitInt 0
-                    | R_argmax | R_argmin ->
+                    | R_argmax | R_argmin | R_catenate ->
                         assert false (* handled in the arm above *)
                   in
                   let update =
@@ -2442,7 +2452,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         in
                         C.Expr
                           (C.BinOp (C.Assign, res_v, C.BinOp (o, res_v, cast)))
-                    | R_argmax | R_argmin ->
+                    | R_argmax | R_argmin | R_catenate ->
                         assert false (* handled in the arm above *)
                   in
                   ( [ C.Expr (C.BinOp (C.Assign, res_v, init_val)) ],
@@ -3126,40 +3136,65 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                         "for-initial gather: loop test is not a </<=/>/>= \
                          comparison"
                 in
+                (* When the gathered element is itself an array_dv (elem_ty ==
+                   sisal_array_t), FLATTEN by copying each iteration's buffer into a
+                   growing rank-2 result -- NOT a boxed descriptor per iteration (which
+                   would make a nested array_dv[array_dv[..]]).  Grows per real
+                   iteration, so it also sidesteps the static bound-seed sizing.  The
+                   scalar case is unchanged (static alloc + store at __gctr) for now. *)
+                let is_arr_elem = elem_ty = C.Basic "sisal_array_t" in
                 let pre' =
-                  [
-                    C.Decl (C.Basic "int32_t", seed, Some op0);
-                    (* carry holds the seed in the preheader *)
-                    C.Decl (C.Basic "int32_t", bound, Some op1);
-                    C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
-                    C.Expr
-                      (C.BinOp
-                         ( C.Assign,
-                           res_v,
-                           C.Call
-                             ( "sisal_array_alloc_empty",
-                               [
-                                 C.LitInt 1;
-                                 C.LitInt tid;
-                                 C.Cast (C.Basic "uint64_t", size);
-                               ] ) ));
-                  ]
+                  if is_arr_elem then
+                    [
+                      C.Expr
+                        (C.BinOp
+                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                    ]
+                  else
+                    [
+                      C.Decl (C.Basic "int32_t", seed, Some op0);
+                      (* carry holds the seed in the preheader *)
+                      C.Decl (C.Basic "int32_t", bound, Some op1);
+                      C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                      C.Expr
+                        (C.BinOp
+                           ( C.Assign,
+                             res_v,
+                             C.Call
+                               ( "sisal_array_alloc_empty",
+                                 [
+                                   C.LitInt 1;
+                                   C.LitInt tid;
+                                   C.Cast (C.Basic "uint64_t", size);
+                                 ] ) ));
+                    ]
                 in
                 let store' =
-                  [
-                    C.Expr
-                      (C.BinOp
-                         ( C.Assign,
-                           C.Index
-                             ( C.Cast
-                                 ( C.Pointer (elem_ty, []),
-                                   C.Member (res_v, "data") ),
-                               C.UnaryOp (C.PostInc, C.Id ctr) ),
-                           C.Call
-                             ( "SISAL_CAST",
-                               [ C.Id (string_of_c_type elem_ty); body_val ] )
-                         ));
-                  ]
+                  if is_arr_elem then
+                    [
+                      C.Expr
+                        (C.BinOp
+                           ( C.Assign,
+                             res_v,
+                             C.Call
+                               ("sisal_array_concat_grow", [ res_v; body_val ])
+                           ));
+                    ]
+                  else
+                    [
+                      C.Expr
+                        (C.BinOp
+                           ( C.Assign,
+                             C.Index
+                               ( C.Cast
+                                   ( C.Pointer (elem_ty, []),
+                                     C.Member (res_v, "data") ),
+                                 C.UnaryOp (C.PostInc, C.Id ctr) ),
+                             C.Call
+                               ( "SISAL_CAST",
+                                 [ C.Id (string_of_c_type elem_ty); body_val ] )
+                           ));
+                    ]
                 in
                 (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)))
       ([], [], [])

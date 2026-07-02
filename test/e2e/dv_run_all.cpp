@@ -124,6 +124,74 @@ extern "C" int32_t func_MIN_TO_N (int32_t N);
 extern "C" int32_t func_MAX_TO_N (int32_t N);
 #endif
 
+#ifdef TEST_NEWTON_RAPHSON
+extern "C" float func_MAIN(float X, float Eps);
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS1
+struct FUNC_MAIN_results {
+  int32_t res_0;
+  double res_1;
+  double res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS2
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+  sisal_array_t res_5;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS3
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+  sisal_array_t res_5;
+  sisal_array_t res_6;
+  sisal_array_t res_7;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS4
+struct FUNC_MAIN_results {
+  int32_t res_0;
+  int32_t res_1;
+  int32_t res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
+#ifdef TEST_FEO_FFT_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+#endif
+
+#ifdef TEST_FEO_FFT
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+#endif
+
 #ifdef TEST_FOR_INITIAL
 extern "C" int32_t func_FI_SUM (int32_t N);
 extern "C" int32_t func_FI_PRODUCT (int32_t N);
@@ -3277,6 +3345,98 @@ test_forall_negate (void)
 }
 #endif
 
+#ifdef TEST_NEWTON_RAPHSON
+static void
+test_newton_raphson (void)
+{
+  printf ("\n=== Group: newton_raphson (iterative sqrt, LoopA) ===\n");
+  check ("newton_raphson sqrt(25.0) == 5.0", fabs(func_MAIN(25.0f, 1e-4f) - 5.0f) < 1e-4f);
+  check ("newton_raphson sqrt(2.0) == 1.4142", fabs(func_MAIN(2.0f, 1e-4f) - 1.4142135f) < 1e-4f);
+}
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS1
+static void
+test_feo_fft_parts1 (void)
+{
+  printf ("\n=== Group: feo_fft_parts1 ===\n");
+  FUNC_MAIN_results r = func_MAIN();
+  check ("log2(16) == 4", r.res_0 == 4);
+  check ("cmult real == -5.0", fabs(r.res_1 - (-5.0)) < 1e-9);
+  check ("cmult imag == 10.0", fabs(r.res_2 - 10.0) < 1e-9);
+  check ("data real size == 4", r.res_3.size == 4);
+  check ("data imag size == 4", r.res_4.size == 4);
+}
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS2
+static void
+test_feo_fft_parts2 (void)
+{
+  printf ("\n=== Group: feo_fft_parts2 ===\n");
+  FUNC_MAIN_results r = func_MAIN();
+  check ("W[0] size == 3", r.res_0.size == 3);
+  check ("W[1] size == 3", r.res_1.size == 3);
+}
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS3
+static void
+test_feo_fft_parts3 (void)
+{
+  printf ("\n=== Group: feo_fft_parts3 (radix-4 butterfly, values vs python DFT) ===\n");
+  FUNC_MAIN_results r = func_MAIN();
+  // Pack_j on x=[1,2,3,4], im=0, twiddles=(1,0): DFT([1,2,3,4]) in decimated order.
+  // are/bre/cre/dre = 10,-2,-2,-2 ; aim/bim/cim/dim = 0,0,2,-2  (python-verified)
+  sisal_array_t o[8] = { r.res_0, r.res_1, r.res_2, r.res_3, r.res_4, r.res_5, r.res_6, r.res_7 };
+  double ex[8] = { 10, 0, -2, 0, -2, 2, -2, -2 };
+  const char *nm[8] = { "are", "aim", "bre", "bim", "cre", "cim", "dre", "dim" };
+  for (int i = 0; i < 8; i++) {
+    bool ok = (o[i].size == 1) && (fabs (((double *) o[i].data)[0] - ex[i]) < 1e-9);
+    char msg[64];
+    snprintf (msg, sizeof msg, "Pack_j %s == %g", nm[i], ex[i]);
+    check (msg, ok);
+  }
+}
+#endif
+
+#ifdef TEST_FEO_FFT_PARTS4
+static void
+test_feo_fft_parts4 (void)
+{
+  printf ("\n=== Group: feo_fft_parts4 ===\n");
+  FUNC_MAIN_results r = func_MAIN();
+  check ("level_1: i == 1", r.res_0 == 1);
+  check ("level_1: cards == 1", r.res_1 == 1);
+  check ("level_1: packs == 4", r.res_2 == 4);
+  check ("level_1: xre size == 4", r.res_3.size == 4);
+  check ("level_1: xim size == 4", r.res_4.size == 4);
+}
+#endif
+
+#ifdef TEST_FEO_FFT_DV
+static void
+test_feo_fft_dv (void)
+{
+  printf ("\n=== Group: feo_fft_dv (Full Radix-4 FFT) ===\n");
+  FUNC_MAIN_results r = func_MAIN(4);
+  printf("DEBUG size: %llu %llu\n", (unsigned long long)r.res_0.size, (unsigned long long)r.res_1.size);
+  check ("res_0 size == 4", r.res_0.size == 4);
+  check ("res_1 size == 4", r.res_1.size == 4);
+}
+#endif
+
+#ifdef TEST_FEO_FFT
+static void
+test_feo_fft (void)
+{
+  printf ("\n=== Group: feo_fft (Full Radix-4 standard) ===\n");
+  FUNC_MAIN_results r = func_MAIN(4);
+  check ("res_0 size == 4", r.res_0.size == 4);
+  check ("res_1 size == 4", r.res_1.size == 4);
+}
+#endif
+
 // ---- Livermore loop kernels: independent C references + checks ----
 #ifdef TEST_LOOP1_DV
 // Hydro: X[k] = Q + Y[k]*(R*Z[k+10] + T*Z[k+11])  (Sisal 1-based; Z needs
@@ -5427,6 +5587,27 @@ main (void)
 #ifdef TEST_RANK8_SLICES
   run_rank8_slices ();
 #endif
+#ifdef TEST_NEWTON_RAPHSON
+  test_newton_raphson ();
+#endif
+#ifdef TEST_FEO_FFT_PARTS1
+  test_feo_fft_parts1 ();
+#endif
+#ifdef TEST_FEO_FFT_PARTS2
+  test_feo_fft_parts2 ();
+#endif
+#ifdef TEST_FEO_FFT_PARTS3
+  test_feo_fft_parts3 ();
+#endif
+#ifdef TEST_FEO_FFT_PARTS4
+  test_feo_fft_parts4 ();
+#endif
+#ifdef TEST_FEO_FFT_DV
+  test_feo_fft_dv ();
+#endif
+#ifdef TEST_FEO_FFT
+  test_feo_fft ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -5486,7 +5667,11 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV)                    \
-    && !defined(TEST_RANK8_SLICES)
+    && !defined(TEST_RANK8_SLICES)                                            \
+    && !defined(TEST_NEWTON_RAPHSON)                                          \
+    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
+    && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
