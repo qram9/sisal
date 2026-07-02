@@ -9516,6 +9516,20 @@ and do_return_exp in_gr ggg =
         | _ -> rank
       in
       (`Dv_array_of actual_rank, (an, ap, at), in_gr)
+  | Ast.Dv_array_shaped (_extent, e) ->
+      (* Explicit-extent gather `array_dv(e1,e2,..) of elem`.  FOUNDATION: parse +
+         lower like a bare Dv_array_of for now; _extent is captured but not yet used
+         to drive the gather's allocation/shape (that override is the next step, in
+         apple_lower's gather realization -- it replaces bound-seed sizing). *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr e in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      assert (at <> 0);
+      let actual_rank =
+        match If1.lookup_ty at in_gr with
+        | If1.Array_dv _et -> If1.get_node_rank an in_gr + 1
+        | _ -> 1
+      in
+      (`Dv_array_of actual_rank, (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in

@@ -745,6 +745,8 @@ function_nest:
     { Array_of $3 }
 |   ARRAY_DV OF simple_expression
     { Dv_array_of (1, $3) }
+|   ARRAY_DV LPAREN expression RPAREN OF simple_expression
+    { Dv_array_shaped ($3, $6) }
 |   STREAM OF simple_expression
     { Stream_of $3 }
   ;

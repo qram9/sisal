@@ -209,6 +209,9 @@ and return_exp =
   | Value_of of direction_op * reduction_op * simple_exp
   | Array_of of simple_exp
   | Dv_array_of of int * simple_exp (* rank (number of ..), element expr *)
+  | Dv_array_shaped of exp * simple_exp
+      (* explicit-extent gather: array_dv(e1,e2,..) of elem.
+         first = the extent list (an Exp), second = element expr *)
   | Stream_of of simple_exp
 
 and masking_clause = Unless of simple_exp | When of simple_exp | No_mask
@@ -885,6 +888,10 @@ and str_return_exp = function
       single_space_cate "ARRAY OF" (str_simple_exp ~preceed_space:1 e)
   | Dv_array_of (_rank, e) ->
       single_space_cate "ARRAY_DV OF" (str_simple_exp ~preceed_space:1 e)
+  | Dv_array_shaped (ext, e) ->
+      single_space_cate
+        ("ARRAY_DV(" ^ str_exp ext ^ ") OF")
+        (str_simple_exp ~preceed_space:1 e)
   | Stream_of e -> single_space_cate "STREAM OF" (str_simple_exp e)
 
 and str_masking_clause = function
