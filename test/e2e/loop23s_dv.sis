@@ -25,7 +25,7 @@ function Loop23( n:integer; ZAin,ZB:TwoD;
 		      old ZAt[j,k+1] * ZU[j,k] + old ZA * ZV[j,k] +
 		      ZZ[j,k];
 		ZA := old ZAt[j,k] + 0.175d0 * (QA - old ZAt[j,k]);
-	      returns array_dv of ZA
+	      returns array_dv(n - 1) of ZA
 	      end for;
 
       ZAt  := old ZAt[ j:array_addh( ZArc, old ZAt[j,n+1] ) ];

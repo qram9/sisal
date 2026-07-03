@@ -24,7 +24,7 @@ function Loop20( n:integer; DK,S,T:double;
              end if;
        X  := (old XX[i] * (W[i] + DN * V[i]) + U[i]) / (VX[i] + DN * V[i]);
        XX := old XX[i+1: old XX[i] + DN * (X - old XX[i])];
-   returns array_dv of X
+   returns array_dv(n - 1) of X
            value of XX
    end for
 end function

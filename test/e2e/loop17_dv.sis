@@ -58,9 +58,9 @@ function Loop17( n:integer; VLIN,VLR,VSP,VSTP,VXNEin:OneD;
 	 else
 	    E3, E3 + E3 - old XNM, E3 + E3 - XNEI, E3 + E3 - old XNM
 	 end if;
-  returns array_dv of VXNE
-          array_dv of VE3
-          array_dv of VXND
+  returns array_dv(n - 2) of VXNE
+          array_dv(n - 2) of VE3
+          array_dv(n - 2) of VXND
   end for
 end function
 

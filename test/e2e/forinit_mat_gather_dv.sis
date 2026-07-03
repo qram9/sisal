@@ -17,6 +17,6 @@ function main( returns OneD )
     m := 1;
   while m < 4 repeat
     m := old m * 2;
-  returns array_dv of mat(m)
+  returns array_dv(2) of mat(m)
   end for
 end function
