@@ -212,6 +212,13 @@ type node_sym =
        to sisal_dv_conform(A,B).  The shape, when needed (broadcast), is computed
        separately, not by this node. *)
   | DV_NUM_RANK (* DV_NUM_RANK(A) → integer rank *)
+  | DV_MAKE_DOPE
+    (* DV_MAKE_DOPE(elem, rank, e1..ek) → dope vector for an explicit-extent
+       gather `array_dv(e1,..,ek) of elem`: k leading dims {lo=0, size=ei,
+       stride}, followed by elem's own dims when elem is an array_dv.  rank
+       (port 1) is the result rank: a static literal k for scalar/record elems,
+       or DV_NUM_RANK(elem)+k when elem is an array_dv (runtime).  Element byte
+       size likewise comes from elem's dope at runtime in the array_dv case. *)
   | DV_DIMENSION (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
   | DV_OFFSET_AT
     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
@@ -3708,6 +3715,7 @@ and node_sym_to_num = function
   | SHAPE_CHECK -> 120
   | DV_CONFORM -> 121
   | DV_NUM_RANK -> 122
+  | DV_MAKE_DOPE -> 130
   | DV_DIMENSION -> 123
   | DV_OFFSET_AT -> 124
   | DV_LOAD_LINEAR -> 125
@@ -3853,6 +3861,7 @@ and string_of_node_sym = function
   | SHAPE_CHECK -> "SHAPE_CHECK"
   | DV_CONFORM -> "DV_CONFORM"
   | DV_NUM_RANK -> "DV_NUM_RANK"
+  | DV_MAKE_DOPE -> "DV_MAKE_DOPE"
   | DV_DIMENSION -> "DV_DIMENSION"
   | DV_OFFSET_AT -> "DV_OFFSET_AT"
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"

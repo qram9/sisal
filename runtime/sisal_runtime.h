@@ -176,6 +176,27 @@ inline sisal_array_t sisal_array_concat_grow(sisal_array_t acc, sisal_array_t va
     return res;
 }
 
+/* Shaped for-initial gather of ARRAY-valued elements (`returns array_dv(n) of w`
+   where w is itself an array): place val's buffer in slot `idx` of a result
+   preallocated to `ext` leading slots.  The element byte size AND rank are
+   runtime values read off val's dope, so allocation happens lazily on the first
+   call (leading dim = declared extent, remaining dims = val's own).  Exact
+   preallocation -- no per-iteration growth -- and correct for any induction. */
+inline sisal_array_t sisal_array_shaped_store(sisal_array_t acc, sisal_array_t val,
+                                              int64_t ext, int64_t idx) {
+    size_t esz = sisal_elem_size(val.type_id);
+    if (acc.data == NULL) {
+        uint64_t total = (uint64_t)(ext > 0 ? ext : 0) * val.size;
+        acc = sisal_array_alloc_empty(val.rank + 1, val.type_id, total);
+        acc.dims[0] = ext;
+        for (int i = 0; i < (int)val.rank && i < 7; i++) acc.dims[i + 1] = val.dims[i];
+    }
+    if (idx >= 0 && idx < acc.dims[0] && val.size)
+        memcpy((char*)acc.data + (size_t)idx * (size_t)val.size * esz,
+               val.data, (size_t)val.size * esz);
+    return acc;
+}
+
 /* One elementwise reduction step for an array-VALUED forall reduction
    (`value of sum/product/greatest/least <array>`).  op: 0=sum(+) 1=product(*)
    2=greatest(max) 3=least(min).  An empty acc means this is the first element ->

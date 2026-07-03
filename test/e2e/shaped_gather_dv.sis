@@ -1,0 +1,25 @@
+% shaped_gather_dv.sis — explicit-extent gather `array_dv(e) of x` in a
+% NON-ADDITIVE for-initial (m := old m * 4), where bound-seed trip counting is
+% unsound (it would size the scalar result as bound - seed = 63).  The declared
+% extent drives the allocation instead:
+%   scalar elements   -> exact preallocation, rank = extent-list length
+%   array_dv elements -> element byte size and rank are RUNTIME values read off
+%     the element's dope (DV_NUM_RANK + DV_MAKE_DOPE); leading dim = extent.
+define main
+
+type OneD = array_dv[integer];
+
+function row( k: integer returns OneD )
+  for j in 1, 4 returns array_dv of j * k end for
+end function
+
+% scalars: [4,16,64]  |  rows: 3x4 [[4,8,12,16],[16,32,48,64],[64,128,192,256]]
+function main( returns OneD, OneD )
+  for initial
+    m := 1;
+  while m < 64 repeat
+    m := old m * 4;
+  returns array_dv(3) of m
+          array_dv(3) of row(m)
+  end for
+end function

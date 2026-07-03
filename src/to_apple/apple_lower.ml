@@ -1560,8 +1560,10 @@ and lower_simple env gr nid sym pin pout pr =
     (* DV_GATHER inside a for-initial RETURNS is realized specially by
      lower_for_initial (alloc-before-loop + per-iteration store); this generic
      placeholder only keeps lower_graph from aborting, and the RETURNS port is
-     re-bound to the gather array afterwards. *)
-    | DV_GATHER | AGATHER -> e1
+     re-bound to the gather array afterwards.  DV_MAKE_DOPE (the shaped
+     gather's dope source) likewise: its extent operands are read structurally
+     off the RETURNS graph by the gather realization, never evaluated here. *)
+    | DV_GATHER | AGATHER | DV_MAKE_DOPE -> e1
     | sym ->
         failwith
           (Printf.sprintf
@@ -3074,129 +3076,272 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                   try c_type_of_if1_ty env.tm (TM.find tid env.tm)
                   with _ -> C.Basic "double"
                 in
-                (* Read the bound off the TEST compare NODE (cond is only the lowered
-                result variable).  Find the node feeding TEST boundary-out 0, assert
-                it is `<=` for now, and lower its two operands: op0 = induction carry
-                (holds the seed in the preheader), op1 = upper bound. *)
-                let cmp =
-                  ES.fold
-                    (fun (src, dst, _) a ->
-                      if dst = (0, 0) then Some src else a)
-                    test_gr.eset None
-                in
-                let cn =
-                  match cmp with
-                  | Some (c, _) -> c
-                  | None -> failwith "for-initial gather: no TEST compare"
-                in
-                let cmp_sym =
-                  match NM.find_opt cn test_gr.nmap with
-                  | Some (Simple (_, s, _, _, _)) -> s
-                  | _ -> failwith "for-initial gather: no TEST compare node"
-                in
-                let lower_op p =
-                  match
-                    ES.fold
-                      (fun ((s, sp), (d, dp), _) a ->
-                        if d = cn && dp = p then Some (s, sp) else a)
-                      test_gr.eset None
-                  with
-                  | Some (s, sp) -> get_expr e_test1 test_gid s sp `Out
-                  | None ->
-                      failwith
-                        "for-initial gather: missing TEST compare operand"
-                in
-                (* op0 = induction var (holds the seed in the preheader), op1 = bound *)
-                let op0 = lower_op 0 and op1 = lower_op 1 in
                 let res_name =
                   get_c_name env.proc_map env.gid_name_map gid nid ret_out_port
                     `Out gr
                 in
                 let res_v = C.Id res_name in
-                let seed =
-                  Printf.sprintf "__gseed_%d_%d" sub_gid ret_out_port
-                in
-                let bound =
-                  Printf.sprintf "__gbound_%d_%d" sub_gid ret_out_port
-                in
                 let ctr = Printf.sprintf "__gctr_%d_%d" sub_gid ret_out_port in
-                (* iteration count from the bound + comparison op (assumes step +/-1):
-                i<=n: n-seed+1 ; i<n: n-seed ; i>=n: seed-n+1 ; i>n: seed-n. *)
-                let sd = C.Id seed and bd = C.Id bound in
-                let dec a b = C.BinOp (C.Sub, a, b)
-                and inc e = C.BinOp (C.Add, e, C.LitInt 1) in
-                let size =
-                  match cmp_sym with
-                  | LESSER_EQUAL -> inc (dec bd sd)
-                  | LESSER -> dec bd sd
-                  | GREATER_EQUAL -> inc (dec sd bd)
-                  | GREATER -> dec sd bd
-                  | _ ->
-                      failwith
-                        "for-initial gather: loop test is not a </<=/>/>= \
-                         comparison"
-                in
-                (* When the gathered element is itself an array_dv (elem_ty ==
-                   sisal_array_t), FLATTEN by copying each iteration's buffer into a
-                   growing rank-2 result -- NOT a boxed descriptor per iteration (which
-                   would make a nested array_dv[array_dv[..]]).  Grows per real
-                   iteration, so it also sidesteps the static bound-seed sizing.  The
-                   scalar case is unchanged (static alloc + store at __gctr) for now. *)
                 let is_arr_elem = elem_ty = C.Basic "sisal_array_t" in
-                let pre' =
-                  if is_arr_elem then
-                    [
-                      C.Expr
-                        (C.BinOp
-                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                    ]
-                  else
-                    [
-                      C.Decl (C.Basic "int32_t", seed, Some op0);
-                      (* carry holds the seed in the preheader *)
-                      C.Decl (C.Basic "int32_t", bound, Some op1);
-                      C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
-                      C.Expr
-                        (C.BinOp
-                           ( C.Assign,
-                             res_v,
-                             C.Call
-                               ( "sisal_array_alloc_empty",
-                                 [
-                                   C.LitInt 1;
-                                   C.LitInt tid;
-                                   C.Cast (C.Basic "uint64_t", size);
-                                 ] ) ));
-                    ]
+                let scalar_store =
+                  [
+                    C.Expr
+                      (C.BinOp
+                         ( C.Assign,
+                           C.Index
+                             ( C.Cast
+                                 ( C.Pointer (elem_ty, []),
+                                   C.Member (res_v, "data") ),
+                               C.UnaryOp (C.PostInc, C.Id ctr) ),
+                           C.Call
+                             ( "SISAL_CAST",
+                               [ C.Id (string_of_c_type elem_ty); body_val ] )
+                         ));
+                  ]
                 in
-                let store' =
-                  if is_arr_elem then
-                    [
-                      C.Expr
-                        (C.BinOp
-                           ( C.Assign,
-                             res_v,
-                             C.Call
-                               ("sisal_array_concat_grow", [ res_v; body_val ])
-                           ));
-                    ]
-                  else
-                    [
-                      C.Expr
-                        (C.BinOp
-                           ( C.Assign,
-                             C.Index
-                               ( C.Cast
-                                   ( C.Pointer (elem_ty, []),
-                                     C.Member (res_v, "data") ),
-                                 C.UnaryOp (C.PostInc, C.Id ctr) ),
-                             C.Call
-                               ( "SISAL_CAST",
-                                 [ C.Id (string_of_c_type elem_ty); body_val ] )
-                           ));
-                    ]
+                (* Shaped gather `array_dv(e1,..,ek) of`: the RETURNS DV_GATHER's
+                   dope port is fed by DV_MAKE_DOPE, whose extent operands are
+                   loop-invariant RETURNS boundary inputs wired from the loop
+                   compound boundary -- so their C exprs are preheader-safe.
+                   Collect them in DV_MAKE_DOPE port order. *)
+                let shaped_exts =
+                  let gnid =
+                    ES.fold
+                      (fun ((sn, _), (dn, dp), _) a ->
+                        if dn = 0 && dp = ret_out_port then Some sn else a)
+                      g_ret_gr.eset None
+                  in
+                  match gnid with
+                  | None -> None
+                  | Some gnid -> (
+                      let dope_src =
+                        ES.fold
+                          (fun ((sn, _), (dn, dp), _) a ->
+                            if dn = gnid && dp = 2 then Some sn else a)
+                          g_ret_gr.eset None
+                      in
+                      match dope_src with
+                      | Some mnid -> (
+                          match NM.find_opt mnid g_ret_gr.nmap with
+                          | Some (Simple (_, DV_MAKE_DOPE, _, _, _)) ->
+                              let ext_ports =
+                                ES.fold
+                                  (fun ((sn, sp), (dn, dp), _) acc ->
+                                    if dn = mnid && dp >= 2 && sn = 0 then
+                                      (dp, sp) :: acc
+                                    else acc)
+                                  g_ret_gr.eset []
+                                |> List.sort compare
+                              in
+                              Some
+                                (List.map
+                                   (fun (_, extp) ->
+                                     match
+                                       ES.fold
+                                         (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                           if dn2 = g_ret_nid && dp2 = extp
+                                           then Some (sn2, sp2)
+                                           else a)
+                                         loop_gr.eset None
+                                     with
+                                     | Some (sn2, sp2) ->
+                                         get_expr env_loop sub_gid sn2 sp2 `Out
+                                     | None ->
+                                         failwith
+                                           "shaped gather: extent not wired \
+                                            into RETURNS")
+                                   ext_ports)
+                          | _ -> None)
+                      | None -> None)
                 in
-                (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)))
+                match shaped_exts with
+                | Some exts ->
+                    (* Extent-driven sizing: the TEST compare is never read, so
+                       non-additive inductions (m := old m * 4) are fine. *)
+                    if is_arr_elem then
+                      (* array_dv element: element byte size and rank are RUNTIME
+                         values read off the incoming element's dope; allocation
+                         happens lazily on the first iteration (leading dim from
+                         the declared extent, the rest from the element). *)
+                      let ext0 = List.hd exts in
+                      let pre' =
+                        [
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call ("sisal_array_empty", []) ));
+                          C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                        ]
+                      in
+                      let store' =
+                        [
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call
+                                   ( "sisal_array_shaped_store",
+                                     [
+                                       res_v;
+                                       body_val;
+                                       C.Cast (C.Basic "int64_t", ext0);
+                                       C.Cast
+                                         ( C.Basic "int64_t",
+                                           C.UnaryOp (C.PostInc, C.Id ctr) );
+                                     ] ) ));
+                        ]
+                      in
+                      ( pre @ pre',
+                        store @ store',
+                        (ret_out_port, res_v) :: binds )
+                    else
+                      let k = List.length exts in
+                      let total =
+                        List.fold_left
+                          (fun a e -> C.BinOp (C.Mul, a, e))
+                          (List.hd exts) (List.tl exts)
+                      in
+                      let dims_sets =
+                        (* alloc_empty already sets dims[0] for rank 1 *)
+                        if k = 1 then []
+                        else
+                          List.mapi
+                            (fun j e ->
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Index
+                                       (C.Member (res_v, "dims"), C.LitInt j),
+                                     C.Cast (C.Basic "int64_t", e) )))
+                            exts
+                      in
+                      let pre' =
+                        [
+                          C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call
+                                   ( "sisal_array_alloc_empty",
+                                     [
+                                       C.LitInt k;
+                                       C.LitInt tid;
+                                       C.Cast (C.Basic "uint64_t", total);
+                                     ] ) ));
+                        ]
+                        @ dims_sets
+                      in
+                      ( pre @ pre',
+                        store @ scalar_store,
+                        (ret_out_port, res_v) :: binds )
+                | None ->
+                    (* Bare gather: read the bound off the TEST compare NODE (cond
+                    is only the lowered result variable).  Find the node feeding
+                    TEST boundary-out 0, assert it is `<=` for now, and lower its
+                    two operands: op0 = induction carry (holds the seed in the
+                    preheader), op1 = upper bound. *)
+                    let cmp =
+                      ES.fold
+                        (fun (src, dst, _) a ->
+                          if dst = (0, 0) then Some src else a)
+                        test_gr.eset None
+                    in
+                    let cn =
+                      match cmp with
+                      | Some (c, _) -> c
+                      | None -> failwith "for-initial gather: no TEST compare"
+                    in
+                    let cmp_sym =
+                      match NM.find_opt cn test_gr.nmap with
+                      | Some (Simple (_, s, _, _, _)) -> s
+                      | _ -> failwith "for-initial gather: no TEST compare node"
+                    in
+                    let lower_op p =
+                      match
+                        ES.fold
+                          (fun ((s, sp), (d, dp), _) a ->
+                            if d = cn && dp = p then Some (s, sp) else a)
+                          test_gr.eset None
+                      with
+                      | Some (s, sp) -> get_expr e_test1 test_gid s sp `Out
+                      | None ->
+                          failwith
+                            "for-initial gather: missing TEST compare operand"
+                    in
+                    (* op0 = induction var (holds the seed in the preheader), op1 = bound *)
+                    let op0 = lower_op 0 and op1 = lower_op 1 in
+                    let seed =
+                      Printf.sprintf "__gseed_%d_%d" sub_gid ret_out_port
+                    in
+                    let bound =
+                      Printf.sprintf "__gbound_%d_%d" sub_gid ret_out_port
+                    in
+                    (* iteration count from the bound + comparison op (assumes step +/-1):
+                    i<=n: n-seed+1 ; i<n: n-seed ; i>=n: seed-n+1 ; i>n: seed-n. *)
+                    let sd = C.Id seed and bd = C.Id bound in
+                    let dec a b = C.BinOp (C.Sub, a, b)
+                    and inc e = C.BinOp (C.Add, e, C.LitInt 1) in
+                    let size =
+                      match cmp_sym with
+                      | LESSER_EQUAL -> inc (dec bd sd)
+                      | LESSER -> dec bd sd
+                      | GREATER_EQUAL -> inc (dec sd bd)
+                      | GREATER -> dec sd bd
+                      | _ ->
+                          failwith
+                            "for-initial gather: loop test is not a </<=/>/>= \
+                             comparison"
+                    in
+                    (* When the gathered element is itself an array_dv (elem_ty ==
+                       sisal_array_t), FLATTEN by copying each iteration's buffer into a
+                       growing rank-2 result -- NOT a boxed descriptor per iteration (which
+                       would make a nested array_dv[array_dv[..]]).  Grows per real
+                       iteration, so it also sidesteps the static bound-seed sizing.  The
+                       scalar case is unchanged (static alloc + store at __gctr) for now. *)
+                    let pre' =
+                      if is_arr_elem then
+                        [
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call ("sisal_array_empty", []) ));
+                        ]
+                      else
+                        [
+                          C.Decl (C.Basic "int32_t", seed, Some op0);
+                          (* carry holds the seed in the preheader *)
+                          C.Decl (C.Basic "int32_t", bound, Some op1);
+                          C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call
+                                   ( "sisal_array_alloc_empty",
+                                     [
+                                       C.LitInt 1;
+                                       C.LitInt tid;
+                                       C.Cast (C.Basic "uint64_t", size);
+                                     ] ) ));
+                        ]
+                    in
+                    let store' =
+                      if is_arr_elem then
+                        [
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 res_v,
+                                 C.Call
+                                   ( "sisal_array_concat_grow",
+                                     [ res_v; body_val ] ) ));
+                        ]
+                      else scalar_store
+                    in
+                    (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)))
       ([], [], [])
       (for_initial_gather_ports g_ret_gr)
   in

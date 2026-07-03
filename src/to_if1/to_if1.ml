@@ -3487,10 +3487,10 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
   add_return_gr ~nest_returns_levels ~returns_triples for_gr in_gr
     return_action_list mask_ty_list prag
 
-and add_ret_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list
-    mask_ty_list prag =
-  add_return_gr_loopB decl_gr for_gr body_gr return_action_list ret_tuple_list
-    mask_ty_list prag
+and add_ret_for_initial ?(ext_names = []) decl_gr for_gr body_gr
+    return_action_list ret_tuple_list mask_ty_list prag =
+  add_return_gr_for_initial ~ext_names decl_gr for_gr body_gr
+    return_action_list ret_tuple_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
   (* all edges ending at frm now to end at Boundary *)
@@ -6805,6 +6805,73 @@ and do_simple_exp_impl in_gr in_sim_ex =
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
+      (* Explicit-extent (`array_dv(e1,..) of`) clauses: lower every extent expr
+         HERE, into the enclosing graph.  An extent describes the final size of
+         the result, so it must be loop-invariant -- lowering it in in_gr
+         enforces that by construction (carry/body names don't resolve in this
+         scope).  All extents are bundled under one MULTIARITY and registered
+         under synthetic __ext names; get_symbol_id + wire_all_syms_to_compound
+         then thread them through the LoopA/B compound boundary into the
+         RETURNS graph, where DV_MAKE_DOPE consumes them. *)
+      let ext_names, in_gr =
+        let ext_asts_per_clause =
+          List.map
+            (function
+              | Ast.Return_exp (Ast.Dv_array_shaped (Ast.Exp es, _), _) -> es
+              | _ -> [])
+            r
+        in
+        let total =
+          List.fold_left (fun a es -> a + List.length es) 0 ext_asts_per_clause
+        in
+        if total = 0 then (List.map (fun _ -> []) ext_asts_per_clause, in_gr)
+        else
+          let (mn, _, _), in_gr =
+            build_multiarity total in_gr ~nam:"EXTENTS"
+          in
+          let _, names, in_gr =
+            List.fold_left
+              (fun (port, acc, in_gr) (ci, es) ->
+                let port, nms, in_gr =
+                  List.fold_left
+                    (fun (port, nms, in_gr) e ->
+                      let (en, ep, et), in_gr = do_simple_exp in_gr e in
+                      let en, ep, et =
+                        If1.find_incoming_regular_node (en, ep, et) in_gr
+                      in
+                      let in_gr = If1.add_edge en ep mn port et in_gr in
+                      let nm =
+                        Printf.sprintf "__ext_m%d_%d_%d" mn ci
+                          (List.length nms)
+                      in
+                      let cs, ps = in_gr.If1.symtab in
+                      let in_gr =
+                        {
+                          in_gr with
+                          If1.symtab =
+                            ( If1.SM.add nm
+                                {
+                                  If1.val_name = nm;
+                                  If1.val_ty = et;
+                                  If1.val_def = mn;
+                                  If1.def_port = port;
+                                }
+                                cs,
+                              ps );
+                        }
+                      in
+                      to_if1_msg 3
+                        "For_initial: extent %s := %s lowered at %d:%d" nm
+                        (Ast.str_simple_exp e) mn port;
+                      (port + 1, nms @ [ nm ], in_gr))
+                    (port, [], in_gr) es
+                in
+                (port, acc @ [ nms ], in_gr))
+              (0, [], in_gr)
+              (List.mapi (fun i es -> (i, es)) ext_asts_per_clause)
+          in
+          (names, in_gr)
+      in
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
@@ -6901,6 +6968,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
           do_returns_clause_list body_gr rclau [] [] []
         in
+        List.iteri
+          (fun i (act, _, _) ->
+            match act with
+            | `Dv_array_of (rank, exts) ->
+                to_if1_msg 3
+                  "add_body_for_initial: clause#%d dv_array_of rank=%d \
+                   extents=[%s]"
+                  i rank
+                  (String.concat "; " (List.map Ast.str_simple_exp exts))
+            | _ -> ())
+          return_action_list;
         let body_gr =
           If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
         in
@@ -6955,7 +7033,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list
+              add_ret_for_initial ~ext_names decl_gr for_gr body_gr return_action_list
                 ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
@@ -7453,7 +7531,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_loopB decl_gr for_gr body_gr return_action_list
+              add_ret_for_initial ~ext_names decl_gr for_gr body_gr return_action_list
                 ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
@@ -9515,21 +9593,21 @@ and do_return_exp in_gr ggg =
         | If1.Array_dv _et -> If1.get_node_rank an in_gr + rank
         | _ -> rank
       in
-      (`Dv_array_of actual_rank, (an, ap, at), in_gr)
-  | Ast.Dv_array_shaped (_extent, e) ->
-      (* Explicit-extent gather `array_dv(e1,e2,..) of elem`.  FOUNDATION: parse +
-         lower like a bare Dv_array_of for now; _extent is captured but not yet used
-         to drive the gather's allocation/shape (that override is the next step, in
-         apple_lower's gather realization -- it replaces bound-seed sizing). *)
+      (`Dv_array_of (actual_rank, []), (an, ap, at), in_gr)
+  | Ast.Dv_array_shaped (extent, e) ->
+      (* Explicit-extent gather `array_dv(e1,e2,..) of elem`.  The extent list
+         IS the full result shape -- one expr per dimension, rank = list length:
+         array_dv(10) of double -> rank-1 10-vector; array_dv(10,10) -> matrix.
+         The extents are NOT lowered here: an extent describes the final size of
+         the result, so it must be loop-invariant -- the loop builder lowers the
+         exprs into the ENCLOSING graph (in_gr of the loop expression, where body
+         names don't even resolve) and wires them through the compound boundary.
+         Until then the raw AST exprs ride the action payload. *)
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
-      let actual_rank =
-        match If1.lookup_ty at in_gr with
-        | If1.Array_dv _et -> If1.get_node_rank an in_gr + 1
-        | _ -> 1
-      in
-      (`Dv_array_of actual_rank, (an, ap, at), in_gr)
+      let ext_asts = match extent with Ast.Exp es -> es | _ -> [] in
+      (`Dv_array_of (List.length ext_asts, ext_asts), (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
@@ -9815,7 +9893,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
               create_return_nodes out_gr (in_count + n_ports) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
-          | `Dv_array_of rank, tt, aa ->
+          | `Dv_array_of (rank, exts), tt, aa ->
               assert (tt <> 0);
               let (dd, ee, _), out_gr =
                 If1.add_node_2
@@ -9880,7 +9958,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                  ty=%d"
                 out_p what_ty;
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
-                (out_lis @ [ (`Dv_array_of (rank + 1), what_ty, out_count) ])
+                (out_lis @ [ (`Dv_array_of (rank + 1, exts), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               to_if1_msg 4
@@ -10108,9 +10186,9 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     verify_compound_inputs cn ret_gr in_gr;
     ((cn, 0, 0), in_gr, out_lis)
 
-and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
-    mask_ty_list prag =
-  to_if1_msg 3 "add_return_gr_loopB: count=%d prag=[%s]"
+and add_return_gr_for_initial ?(ext_names = []) decl_gr in_gr body_gr
+    return_action_list ret_tuple_list mask_ty_list prag =
+  to_if1_msg 3 "add_return_gr_for_initial: count=%d prag=[%s]"
     (List.length return_action_list)
     prag;
   List.iteri
@@ -10137,7 +10215,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
         | _ -> acc)
       in_gr.If1.nmap (-1)
   in
-  to_if1_msg 3 "add_return_gr_loopB: body_cn=%d" body_cn;
+  to_if1_msg 3 "add_return_gr_for_initial: body_cn=%d" body_cn;
   (* (Deleted: the node_n-keyed fold that registered names into for_gr's CS -- it
      collapsed all pass-through carries onto the first val_def=0 name.  Carry names
      are now materialized directly onto ret_gr's boundary below, sourced from the
@@ -10157,15 +10235,43 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
         else acc)
       body_gr.If1.eset None
   in
+  (* Resolve a shaped clause's extents INTO ret_gr: the __ext names were
+     registered against the enclosing graph by the For_initial handler, so
+     get_symbol_id auto-imports each as a named ret_gr boundary input (wired by
+     name at every compound insertion).  The action payload swaps from AST
+     exprs to the resolved (0, port, ty) boundary references. *)
+  let resolve_exts idx action rg =
+    match action with
+    | `Dv_array_of (rank, (_ : Ast.simple_exp list)) ->
+        let nms =
+          match List.nth_opt ext_names idx with Some l -> l | None -> []
+        in
+        let exts, rg =
+          List.fold_left
+            (fun (l, rg) nm ->
+              let (en, ep, ety), rg = If1.get_symbol_id nm rg in
+              to_if1_msg 3
+                "add_return_gr_for_initial: clause#%d extent %s -> ret (%d,%d)"
+                idx nm en ep;
+              (l @ [ (en, ep, ety) ], rg))
+            ([], rg) nms
+        in
+        (`Dv_array_of (rank, exts), rg)
+    | `Array_of -> (`Array_of, rg)
+    | `FinalVal -> (`FinalVal, rg)
+    | `Stream_of -> (`Stream_of, rg)
+    | `Reduce r -> (`Reduce r, rg)
+  in
   let (return_action_list, ret_gr, mat_edges), _ =
     List.fold_left
       (fun ((acc, rg, edges), idx) ((action, _node_n, node_t), (tn, tp, _tt)) ->
+        let action, rg = resolve_exts idx action rg in
         match body_out_port_of tn tp with
         | Some dp ->
             let nm = Printf.sprintf "__ret_%d" idx in
             let bp, rg = If1.add_to_boundary_inputs ~namen:nm body_cn dp rg in
             to_if1_msg 3
-              "add_return_gr_loopB: clause#%d (node=%d,port=%d) -> body_cn:%d \
+              "add_return_gr_for_initial: clause#%d (node=%d,port=%d) -> body_cn:%d \
                -> ret in-port %d"
               idx tn tp dp bp;
             ( ( acc @ [ (action, node_t, bp) ],
@@ -10174,7 +10280,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
               idx + 1 )
         | None ->
             to_if1_msg 3
-              "add_return_gr_loopB: clause#%d no body output for (%d,%d)" idx tn
+              "add_return_gr_for_initial: clause#%d no body output for (%d,%d)" idx tn
               tp;
             ((acc @ [ (action, node_t, 0) ], rg, edges), idx + 1))
       (([], ret_gr, []), 0)
@@ -10249,7 +10355,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
               create_return_nodes out_gr (in_count + n_ports) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
-          | `Dv_array_of rank, tt, aa ->
+          | `Dv_array_of (rank, exts), tt, aa ->
               assert (tt <> 0);
               let (dd, ee, _), out_gr =
                 If1.add_node_2
@@ -10272,36 +10378,102 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
               in
               let out_gr = If1.add_edge 0 0 dd 0 5 out_gr in
               let out_gr = If1.add_edge 0 aa dd 1 tt out_gr in
-              let (dim_n, _, _), out_gr =
-                If1.add_node_2
-                  (`Simple
-                     ( If1.DV_DIMENSION,
-                       [| ""; "" |],
-                       [| "" |],
-                       [ If1.No_pragma ] ))
-                  out_gr
-              in
-              let out_gr = If1.add_edge 0 0 dim_n 0 what_ty out_gr in
-              let (rank_idx_n, _, _), out_gr =
-                If1.add_node_2
-                  (`Literal (If1.INTEGRAL, string_of_int rank, [| "" |]))
-                  out_gr
-              in
               let out_gr =
-                If1.add_edge rank_idx_n 0 dim_n 1
-                  (If1.lookup_tyid If1.INTEGRAL)
-                  out_gr
+                match exts with
+                | [] ->
+                    (* Bare `array_dv of`: DV_DIMENSION triplet (static rank
+                       literal) feeds the gather's dope port, as before. *)
+                    let (dim_n, _, _), out_gr =
+                      If1.add_node_2
+                        (`Simple
+                           ( If1.DV_DIMENSION,
+                             [| ""; "" |],
+                             [| "" |],
+                             [ If1.No_pragma ] ))
+                        out_gr
+                    in
+                    let out_gr = If1.add_edge 0 0 dim_n 0 what_ty out_gr in
+                    let (rank_idx_n, _, _), out_gr =
+                      If1.add_node_2
+                        (`Literal (If1.INTEGRAL, string_of_int rank, [| "" |]))
+                        out_gr
+                    in
+                    let out_gr =
+                      If1.add_edge rank_idx_n 0 dim_n 1
+                        (If1.lookup_tyid If1.INTEGRAL)
+                        out_gr
+                    in
+                    let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
+                    let triplet_ty =
+                      match If1.lookup_ty dope_ty out_gr with
+                      | If1.Array_ty et | If1.Array_dv et -> et
+                      | _ -> 0
+                    in
+                    If1.add_edge dim_n 0 dd 2 triplet_ty out_gr
+                | _ ->
+                    (* Shaped `array_dv(e1,..,ek) of`: DV_MAKE_DOPE builds the
+                       result dope from the declared extents.  Rank: static k
+                       for scalar/record elems; the element's rank is a RUNTIME
+                       quantity for array_dv elems, so emit DV_NUM_RANK(elem) +
+                       k instead of a compile-time guess. *)
+                    let k = List.length exts in
+                    let int_ty = If1.lookup_tyid If1.INTEGRAL in
+                    let (rk_n, rk_p), out_gr =
+                      match If1.lookup_ty tt out_gr with
+                      | If1.Array_dv _ ->
+                          let (nr, _, _), out_gr =
+                            If1.add_node_2
+                              (`Simple
+                                 (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
+                              out_gr
+                          in
+                          let out_gr = If1.add_edge 0 aa nr 0 tt out_gr in
+                          let (kl, _, _), out_gr =
+                            If1.add_node_2
+                              (`Literal
+                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              out_gr
+                          in
+                          let (ad, _, _), out_gr =
+                            If1.add_node_2
+                              (`Simple (If1.ADD, [| ""; "" |], [| "" |], []))
+                              out_gr
+                          in
+                          let out_gr = If1.add_edge nr 0 ad 0 int_ty out_gr in
+                          let out_gr = If1.add_edge kl 0 ad 1 int_ty out_gr in
+                          ((ad, 0), out_gr)
+                      | _ ->
+                          let (kl, _, _), out_gr =
+                            If1.add_node_2
+                              (`Literal
+                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              out_gr
+                          in
+                          ((kl, 0), out_gr)
+                    in
+                    let (md, _, _), out_gr =
+                      If1.add_node_2
+                        (`Simple
+                           ( If1.DV_MAKE_DOPE,
+                             Array.make (2 + k) "",
+                             [| "" |],
+                             [ If1.No_pragma ] ))
+                        out_gr
+                    in
+                    let out_gr = If1.add_edge 0 aa md 0 tt out_gr in
+                    let out_gr = If1.add_edge rk_n rk_p md 1 int_ty out_gr in
+                    let out_gr, _ =
+                      List.fold_left
+                        (fun (g, j) (en, ep, ety) ->
+                          (If1.add_edge en ep md (2 + j) ety g, j + 1))
+                        (out_gr, 0) exts
+                    in
+                    let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
+                    If1.add_edge md 0 dd 2 dope_ty out_gr
               in
-              let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
-              let triplet_ty =
-                match If1.lookup_ty dope_ty out_gr with
-                | If1.Array_ty et | If1.Array_dv et -> et
-                | _ -> 0
-              in
-              let out_gr = If1.add_edge dim_n 0 dd 2 triplet_ty out_gr in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
-                (out_lis @ [ (`Dv_array_of (rank + 1), what_ty, out_count) ])
+                (out_lis @ [ (`Dv_array_of (rank + 1, exts), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               let out_gr =
@@ -10395,7 +10567,7 @@ and add_return_gr_loopB decl_gr in_gr body_gr return_action_list ret_tuple_list
   let in_gr =
     List.fold_left
       (fun g (b_cn, dp, bp, ty) ->
-        to_if1_msg 3 "add_return_gr_loopB: EDGE body_cn:%d -> ret_cn(%d):%d" dp
+        to_if1_msg 3 "add_return_gr_for_initial: EDGE body_cn:%d -> ret_cn(%d):%d" dp
           cn bp;
         If1.add_edge b_cn dp cn bp ty g)
       in_gr mat_edges

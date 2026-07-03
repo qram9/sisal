@@ -151,6 +151,14 @@ struct FUNC_MAIN_results {
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
+#ifdef TEST_SHAPED_GATHER_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5257,6 +5265,27 @@ static void test_laplace_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_SHAPED_GATHER_DV
+static void test_shaped_gather_dv(void) {
+    printf("\n=== Group: shaped_gather_dv (explicit-extent gather, non-additive loop) ===\n");
+    // m := old m * 4 while m < 64 -> iterates m = 4, 16, 64.  bound-seed sizing
+    // would allocate 64-1 = 63 slots; the declared extent (3) sizes it exactly.
+    struct FUNC_MAIN_results r = func_MAIN();
+    int32_t ex0[3] = { 4, 16, 64 };
+    bool ok0 = (r.res_0.rank == 1) && ((int)r.res_0.dims[0] == 3) && ((int)r.res_0.size == 3);
+    for (int k = 0; ok0 && k < 3; k++) ok0 = ok0 && (((int32_t*)r.res_0.data)[k] == ex0[k]);
+    check("scalar array_dv(3) of m == [4,16,64]", ok0);
+    // Row gather: element rank and byte size come off the element's dope at
+    // RUNTIME (DV_NUM_RANK / sisal_array_shaped_store); leading dim = extent.
+    int32_t ex1[12] = { 4,8,12,16, 16,32,48,64, 64,128,192,256 };
+    bool ok1 = (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == 3)
+            && ((int)r.res_1.dims[1] == 4) && ((int)r.res_1.size == 12);
+    for (int k = 0; ok1 && k < 12; k++) ok1 = ok1 && (((int32_t*)r.res_1.data)[k] == ex1[k]);
+    check("row array_dv(3) of row(m) == 3x4 rows", ok1);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5517,6 +5546,9 @@ main (void)
 #ifdef TEST_LAPLACE_DV
   test_laplace_dv ();
 #endif
+#ifdef TEST_SHAPED_GATHER_DV
+  test_shaped_gather_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5705,6 +5737,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
+    && !defined(TEST_SHAPED_GATHER_DV)                                        \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
