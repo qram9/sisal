@@ -267,6 +267,7 @@ DV variants of scientific benchmarks:
   $ sisal e2e/laplace_dv.sis
   $ sisal e2e/shaped_gather_dv.sis
   $ sisal e2e/forinit_mat_gather_dv.sis
+  $ sisal e2e/scatter_at_dv.sis
   $ sisal unit/lu_npiv_dv.sis
   $ sisal unit/lu_piv_dv.sis
   $ sisal unit/newgauss_dv.sis

@@ -212,6 +212,11 @@ and return_exp =
   | Dv_array_shaped of exp * simple_exp
       (* explicit-extent gather: array_dv(e1,e2,..) of elem.
          first = the extent list (an Exp), second = element expr *)
+  | Dv_array_shaped_at of exp * simple_exp * exp
+      (* explicit-extent SCATTER: array_dv(e1,..,ek) of elem at [i1,..,ik].
+         extent list (loop-invariant, sizes the store), element expr, placement
+         index list (PER-ITERATION destination; Dotdot marks the axes the
+         element's own extent fills, dual of Dotdot in a load subscript). *)
   | Stream_of of simple_exp
 
 and masking_clause = Unless of simple_exp | When of simple_exp | No_mask
@@ -892,6 +897,10 @@ and str_return_exp = function
       single_space_cate
         ("ARRAY_DV(" ^ str_exp ext ^ ") OF")
         (str_simple_exp ~preceed_space:1 e)
+  | Dv_array_shaped_at (ext, e, plc) ->
+      single_space_cate
+        ("ARRAY_DV(" ^ str_exp ext ^ ") OF")
+        (str_simple_exp ~preceed_space:1 e ^ " AT [" ^ str_exp plc ^ "]")
   | Stream_of e -> single_space_cate "STREAM OF" (str_simple_exp e)
 
 and str_masking_clause = function

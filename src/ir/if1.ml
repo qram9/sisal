@@ -219,6 +219,12 @@ type node_sym =
        (port 1) is the result rank: a static literal k for scalar/record elems,
        or DV_NUM_RANK(elem)+k when elem is an array_dv (runtime).  Element byte
        size likewise comes from elem's dope at runtime in the array_dv case. *)
+  | DV_SCATTER_AT
+    (* RETURNS-side scatter `array_dv(e1,..,ek) of elem at [i1,..,ik]`: same
+       ports as DV_GATHER (0 index, 1 element, 2 dope) plus the per-iteration
+       placement coordinates on ports 3+.  Stores land at the coordinates, not
+       in iteration order.  Distinct from DV_SCATTER, which is the forall
+       GENERATOR's element-iteration driver. *)
   | DV_DIMENSION (* DV_DIMENSION(A, k) → triplet (base, stride, size) *)
   | DV_OFFSET_AT
     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
@@ -3705,6 +3711,7 @@ and node_sym_to_num = function
   | DV_CONFORM -> 121
   | DV_NUM_RANK -> 122
   | DV_MAKE_DOPE -> 130
+  | DV_SCATTER_AT -> 131
   | DV_DIMENSION -> 123
   | DV_OFFSET_AT -> 124
   | DV_LOAD_LINEAR -> 125
@@ -3851,6 +3858,7 @@ and string_of_node_sym = function
   | DV_CONFORM -> "DV_CONFORM"
   | DV_NUM_RANK -> "DV_NUM_RANK"
   | DV_MAKE_DOPE -> "DV_MAKE_DOPE"
+  | DV_SCATTER_AT -> "DV_SCATTER_AT"
   | DV_DIMENSION -> "DV_DIMENSION"
   | DV_OFFSET_AT -> "DV_OFFSET_AT"
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"

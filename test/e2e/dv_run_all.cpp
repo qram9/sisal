@@ -163,6 +163,14 @@ extern "C" struct FUNC_MAIN_results func_MAIN();
 extern "C" sisal_array_t func_MAIN();  // bare for-initial gather of rank-2 elems
 #endif
 
+#ifdef TEST_SCATTER_AT_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5305,6 +5313,25 @@ static void test_forinit_mat_gather_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_SCATTER_AT_DV
+static void test_scatter_at_dv(void) {
+    printf("\n=== Group: scatter_at_dv (array_dv(n) of v at [..] -- shuffled placement) ===\n");
+    // i = 1..3; value i*i lands at slot 4-i (reverse shuffle) -> [9,4,1];
+    // row(i) lands at slot 4-i -> rows reversed, whole-row memcpy per iteration.
+    struct FUNC_MAIN_results r = func_MAIN();
+    int32_t ex0[3] = { 9, 4, 1 };
+    bool ok0 = (r.res_0.rank == 1) && ((int)r.res_0.dims[0] == 3) && ((int)r.res_0.size == 3);
+    for (int k = 0; ok0 && k < 3; k++) ok0 = ok0 && (((int32_t*)r.res_0.data)[k] == ex0[k]);
+    check("scalar i*i at [4-i] == [9,4,1]", ok0);
+    int32_t ex1[12] = { 3,6,9,12, 2,4,6,8, 1,2,3,4 };
+    bool ok1 = (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == 3)
+            && ((int)r.res_1.dims[1] == 4) && ((int)r.res_1.size == 12);
+    for (int k = 0; ok1 && k < 12; k++) ok1 = ok1 && (((int32_t*)r.res_1.data)[k] == ex1[k]);
+    check("row(i) at [4-i] == reversed rows (3,4)", ok1);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5571,6 +5598,9 @@ main (void)
 #ifdef TEST_FORINIT_MAT_GATHER_DV
   test_forinit_mat_gather_dv ();
 #endif
+#ifdef TEST_SCATTER_AT_DV
+  test_scatter_at_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5760,6 +5790,7 @@ main (void)
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
+    && !defined(TEST_SCATTER_AT_DV)                                           \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

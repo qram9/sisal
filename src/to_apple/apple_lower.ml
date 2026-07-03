@@ -257,7 +257,7 @@ let for_initial_gather_ports ret_gr =
     (fun ((sn, _), (dn, dp), _) acc ->
       if dn = 0 then
         match NM.find_opt sn ret_gr.nmap with
-        | Some (Simple (_, (DV_GATHER | AGATHER), _, _, _)) -> (
+        | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT), _, _, _)) -> (
             let bin =
               ES.fold
                 (fun ((s, sp), (d, p), _) a ->
@@ -1563,7 +1563,7 @@ and lower_simple env gr nid sym pin pout pr =
      re-bound to the gather array afterwards.  DV_MAKE_DOPE (the shaped
      gather's dope source) likewise: its extent operands are read structurally
      off the RETURNS graph by the gather realization, never evaluated here. *)
-    | DV_GATHER | AGATHER | DV_MAKE_DOPE -> e1
+    | DV_GATHER | AGATHER | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
     | sym ->
         failwith
           (Printf.sprintf
@@ -3083,6 +3083,74 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                 let res_v = C.Id res_name in
                 let ctr = Printf.sprintf "__gctr_%d_%d" sub_gid ret_out_port in
                 let is_arr_elem = elem_ty = C.Basic "sisal_array_t" in
+                let gnid =
+                  ES.fold
+                    (fun ((sn, _), (dn, dp), _) a ->
+                      if dn = 0 && dp = ret_out_port then Some sn else a)
+                    g_ret_gr.eset None
+                in
+                (* DV_SCATTER_AT: the per-iteration destination coordinate is on
+                   node port 3, a RETURNS boundary input wired from a BODY
+                   output -- it resolves to the body-capture var, which is
+                   assigned each iteration BEFORE the gather store runs.
+                   Placement is 1-based (Sisal indexing); the store subtracts
+                   the lower bound. *)
+                let place_opt =
+                  match gnid with
+                  | Some g -> (
+                      match NM.find_opt g g_ret_gr.nmap with
+                      | Some (Simple (_, DV_SCATTER_AT, _, _, _)) ->
+                          if
+                            ES.exists
+                              (fun ((_, _), (dn, dp), _) -> dn = g && dp = 4)
+                              g_ret_gr.eset
+                          then
+                            failwith
+                              "scatter: multi-coordinate placement (rank > 1) \
+                               not lowered yet";
+                          let pb =
+                            match
+                              ES.fold
+                                (fun ((sn, sp), (dn, dp), _) a ->
+                                  if dn = g && dp = 3 && sn = 0 then Some sp
+                                  else a)
+                                g_ret_gr.eset None
+                            with
+                            | Some pb -> pb
+                            | None ->
+                                failwith
+                                  "scatter: missing placement on port 3"
+                          in
+                          let sn2, sp2 =
+                            match
+                              ES.fold
+                                (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                  if dn2 = g_ret_nid && dp2 = pb then
+                                    Some (sn2, sp2)
+                                  else a)
+                                loop_gr.eset None
+                            with
+                            | Some x -> x
+                            | None ->
+                                failwith
+                                  "scatter: placement not wired into RETURNS"
+                          in
+                          Some (get_expr env_loop sub_gid sn2 sp2 `Out)
+                      | _ -> None)
+                  | None -> None
+                in
+                (* store slot: scatter coordinate (1-based -> -1) or the
+                   iteration counter *)
+                let slot =
+                  match place_opt with
+                  | Some p ->
+                      C.BinOp
+                        (C.Sub, C.Cast (C.Basic "int64_t", p), C.LitInt 1)
+                  | None ->
+                      C.Cast
+                        ( C.Basic "int64_t",
+                          C.UnaryOp (C.PostInc, C.Id ctr) )
+                in
                 let scalar_store =
                   [
                     C.Expr
@@ -3092,7 +3160,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                              ( C.Cast
                                  ( C.Pointer (elem_ty, []),
                                    C.Member (res_v, "data") ),
-                               C.UnaryOp (C.PostInc, C.Id ctr) ),
+                               slot ),
                            C.Call
                              ( "SISAL_CAST",
                                [ C.Id (string_of_c_type elem_ty); body_val ] )
@@ -3105,12 +3173,6 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                    compound boundary -- so their C exprs are preheader-safe.
                    Collect them in DV_MAKE_DOPE port order. *)
                 let shaped_exts =
-                  let gnid =
-                    ES.fold
-                      (fun ((sn, _), (dn, dp), _) a ->
-                        if dn = 0 && dp = ret_out_port then Some sn else a)
-                      g_ret_gr.eset None
-                  in
                   match gnid with
                   | None -> None
                   | Some gnid -> (
@@ -3186,9 +3248,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                        res_v;
                                        body_val;
                                        C.Cast (C.Basic "int64_t", ext0);
-                                       C.Cast
-                                         ( C.Basic "int64_t",
-                                           C.UnaryOp (C.PostInc, C.Id ctr) );
+                                       slot;
                                      ] ) ));
                         ]
                       in

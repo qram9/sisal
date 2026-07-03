@@ -1,0 +1,20 @@
+% reverse scatter: per-iteration value lands at a SHUFFLED slot
+define main
+
+type OneD = array_dv[integer];
+
+function row( k: integer returns OneD )
+  for j in 1, 4 returns array_dv of j * k end for
+end function
+
+% r0: i*i at slot 6-i -> [25,16,9,4,1]
+% r1: row(i) at slot 4-i -> rows reversed: [3,6,9,12, 2,4,6,8, 1,2,3,4]
+function main( returns OneD, OneD )
+  for initial
+    i := 0;
+  while i < 3 repeat
+    i := old i + 1;
+  returns array_dv(3) of i*i at [4 - i]
+          array_dv(3) of row(i) at [4 - i]
+  end for
+end function

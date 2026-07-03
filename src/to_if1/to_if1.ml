@@ -6817,7 +6817,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let ext_asts_per_clause =
           List.map
             (function
-              | Ast.Return_exp (Ast.Dv_array_shaped (Ast.Exp es, _), _) -> es
+              | Ast.Return_exp (Ast.Dv_array_shaped (Ast.Exp es, _), _)
+              | Ast.Return_exp (Ast.Dv_array_shaped_at (Ast.Exp es, _, _), _)
+                ->
+                  es
               | _ -> [])
             r
         in
@@ -6971,16 +6974,28 @@ and do_simple_exp_impl in_gr in_sim_ex =
         List.iteri
           (fun i (act, _, _) ->
             match act with
-            | `Dv_array_of (rank, exts) ->
+            | `Dv_array_of (rank, exts, plcs) ->
                 to_if1_msg 3
                   "add_body_for_initial: clause#%d dv_array_of rank=%d \
-                   extents=[%s]"
+                   extents=[%s] placements=%d"
                   i rank
                   (String.concat "; " (List.map Ast.str_simple_exp exts))
+                  (List.length plcs)
             | _ -> ())
           return_action_list;
+        (* Scatter placements are PER-ITERATION body values: export them as
+           BODY boundary outputs alongside the clause values, so the RETURNS
+           graph can resolve them with the same body_out_port_of machinery. *)
+        let plc_tuples =
+          List.concat_map
+            (fun (act, _, _) ->
+              match act with `Dv_array_of (_, _, plcs) -> plcs | _ -> [])
+            return_action_list
+        in
         let body_gr =
-          If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
+          If1.output_bound_names_for_subgraphs
+            (ret_tuple_list @ plc_tuples)
+            body_gr
         in
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
@@ -9593,21 +9608,62 @@ and do_return_exp in_gr ggg =
          the element's dope (e0.rank / DV_NUM_RANK), never from this literal.
          (get_node_rank, the old compile-time guess via the Ar pragma, is
          deleted.) *)
-      (`Dv_array_of (rank, []), (an, ap, at), in_gr)
+      (`Dv_array_of (rank, [], []), (an, ap, at), in_gr)
   | Ast.Dv_array_shaped (extent, e) ->
       (* Explicit-extent gather `array_dv(e1,e2,..) of elem`.  The extent list
-         IS the full result shape -- one expr per dimension, rank = list length:
-         array_dv(10) of double -> rank-1 10-vector; array_dv(10,10) -> matrix.
-         The extents are NOT lowered here: an extent describes the final size of
-         the result, so it must be loop-invariant -- the loop builder lowers the
-         exprs into the ENCLOSING graph (in_gr of the loop expression, where body
-         names don't even resolve) and wires them through the compound boundary.
-         Until then the raw AST exprs ride the action payload. *)
+         declares the dims THIS gather contributes -- one expr per NEW dimension;
+         an array_dv element's own dims are implicitly appended (a wrap prepends
+         its extents to the element's dope at runtime), so no single site ever
+         states the full result shape.  The extents are NOT lowered here: an
+         extent must be loop-invariant, so the loop builder lowers the exprs
+         into the ENCLOSING graph (where body names don't even resolve) and
+         wires them through the compound boundary.  Until then the raw AST
+         exprs ride the action payload. *)
       let (an, ap, at), in_gr = do_simple_exp in_gr e in
       let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
       assert (at <> 0);
       let ext_asts = match extent with Ast.Exp es -> es | _ -> [] in
-      (`Dv_array_of (List.length ext_asts, ext_asts), (an, ap, at), in_gr)
+      (`Dv_array_of (List.length ext_asts, ext_asts, []), (an, ap, at), in_gr)
+  | Ast.Dv_array_shaped_at (extent, e, placement) ->
+      (* Explicit-extent SCATTER `array_dv(e1,..,ek) of elem at [i1,..,ik]`.
+         Extents: as in the shaped gather (loop-invariant, enclosing scope).
+         Placements: PER-ITERATION destination coordinates -- lowered HERE into
+         the body graph exactly like the element value, and carried as resolved
+         (node, port, ty) tuples; one coordinate per contributed dim, the
+         element's own dims fill the trailing axes.  A scatter is thus a gather
+         with placements: same action tag, placements non-empty. *)
+      let (an, ap, at), in_gr = do_simple_exp in_gr e in
+      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
+      assert (at <> 0);
+      let ext_asts = match extent with Ast.Exp es -> es | _ -> [] in
+      let plc_asts = match placement with Ast.Exp es -> es | _ -> [] in
+      let plcs, in_gr =
+        List.fold_left
+          (fun (plcs, in_gr) p ->
+            match p with
+            | Ast.Dotdot ->
+                failwith
+                  "array_dv(..) of .. at: `..` placement axes are not \
+                   supported yet (the element's dims already fill the \
+                   trailing axes implicitly)"
+            | _ ->
+                let (pn, pp, pt), in_gr = do_simple_exp in_gr p in
+                let pn, pp, pt =
+                  If1.find_incoming_regular_node (pn, pp, pt) in_gr
+                in
+                to_if1_msg 3
+                  "do_return_exp: scatter placement %s -> (%d,%d) ty=%s"
+                  (Ast.str_simple_exp p) pn pp (If1.p_f_t in_gr pt);
+                (plcs @ [ (pn, pp, pt) ], in_gr))
+          ([], in_gr) plc_asts
+      in
+      if List.length ext_asts <> List.length plcs then
+        failwith
+          (Printf.sprintf
+             "array_dv(..) of .. at [..]: %d extent(s) but %d placement \
+              coordinate(s) -- one placement per contributed dim"
+             (List.length ext_asts) (List.length plcs));
+      (`Dv_array_of (List.length ext_asts, ext_asts, plcs), (an, ap, at), in_gr)
   | Ast.Stream_of e ->
       let (sn, sp, st), in_gr = do_simple_exp in_gr e in
       let sn, sp, st = If1.find_incoming_regular_node (sn, sp, st) in_gr in
@@ -9893,8 +9949,12 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
               create_return_nodes out_gr (in_count + n_ports) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
-          | `Dv_array_of (rank, exts), tt, aa ->
+          | `Dv_array_of (rank, exts, plcs), tt, aa ->
               assert (tt <> 0);
+              if plcs <> [] then
+                failwith
+                  "array_dv(..) of .. at [..]: scatter returns are not \
+                   supported in forall yet (for-initial only)";
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
@@ -9958,7 +10018,8 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                  ty=%d"
                 out_p what_ty;
               create_return_nodes out_gr (in_count + 3) (out_count + 1)
-                (out_lis @ [ (`Dv_array_of (rank + 1, exts), what_ty, out_count) ])
+                (out_lis
+                @ [ (`Dv_array_of (rank + 1, exts, plcs), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               to_if1_msg 4
@@ -10242,7 +10303,7 @@ and add_return_gr_for_initial ?(ext_names = []) decl_gr in_gr body_gr
      exprs to the resolved (0, port, ty) boundary references. *)
   let resolve_exts idx action rg =
     match action with
-    | `Dv_array_of (rank, (_ : Ast.simple_exp list)) ->
+    | `Dv_array_of (rank, (_ : Ast.simple_exp list), plcs) ->
         let nms =
           match List.nth_opt ext_names idx with Some l -> l | None -> []
         in
@@ -10256,16 +10317,52 @@ and add_return_gr_for_initial ?(ext_names = []) decl_gr in_gr body_gr
               (l @ [ (en, ep, ety) ], rg))
             ([], rg) nms
         in
-        (`Dv_array_of (rank, exts), rg)
+        (`Dv_array_of (rank, exts, plcs), rg)
     | `Array_of -> (`Array_of, rg)
     | `FinalVal -> (`FinalVal, rg)
     | `Stream_of -> (`Stream_of, rg)
     | `Reduce r -> (`Reduce r, rg)
   in
+  (* Scatter placements: per-iteration BODY values (exported as body boundary
+     outputs by add_body_for_initial).  Resolve each like the clause value --
+     body_out_port_of -> __ret_plc boundary input + for_gr-level edge -- and
+     swap the payload's body tuples for ret-boundary refs (0, port, ty). *)
+  let resolve_plcs idx action rg edges =
+    match action with
+    | `Dv_array_of (rank, exts, plcs) when plcs <> [] ->
+        let plcs', rg, edges, _ =
+          List.fold_left
+            (fun (l, rg, edges, j) (pn, pp, pt) ->
+              match body_out_port_of pn pp with
+              | Some dp ->
+                  let nm = Printf.sprintf "__ret_plc_%d_%d" idx j in
+                  let bp, rg =
+                    If1.add_to_boundary_inputs ~namen:nm body_cn dp rg
+                  in
+                  to_if1_msg 3
+                    "add_return_gr_for_initial: clause#%d placement#%d \
+                     (%d,%d) -> body_cn:%d -> ret in-port %d"
+                    idx j pn pp dp bp;
+                  ( l @ [ (0, bp, pt) ],
+                    rg,
+                    (body_cn, dp, bp, pt) :: edges,
+                    j + 1 )
+              | None ->
+                  failwith
+                    (Printf.sprintf
+                       "add_return_gr_for_initial: clause#%d placement#%d \
+                        (%d,%d) has no BODY boundary output"
+                       idx j pn pp))
+            ([], rg, edges, 0) plcs
+        in
+        (`Dv_array_of (rank, exts, plcs'), rg, edges)
+    | a -> (a, rg, edges)
+  in
   let (return_action_list, ret_gr, mat_edges), _ =
     List.fold_left
       (fun ((acc, rg, edges), idx) ((action, _node_n, node_t), (tn, tp, _tt)) ->
         let action, rg = resolve_exts idx action rg in
+        let action, rg, edges = resolve_plcs idx action rg edges in
         match body_out_port_of tn tp with
         | Some dp ->
             let nm = Printf.sprintf "__ret_%d" idx in
@@ -10355,13 +10452,20 @@ and add_return_gr_for_initial ?(ext_names = []) decl_gr in_gr body_gr
               create_return_nodes out_gr (in_count + n_ports) (out_count + 1)
                 (out_lis @ [ (`Array_of, what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
-          | `Dv_array_of (rank, exts), tt, aa ->
+          | `Dv_array_of (rank, exts, plcs), tt, aa ->
               assert (tt <> 0);
+              (* plcs = [] -> DV_GATHER (store in iteration order); plcs <> []
+                 -> DV_SCATTER (store at the per-iteration coordinates, wired
+                 on ports 3+).  Everything else -- index, element, dope -- is
+                 identical. *)
+              let opcode =
+                if plcs = [] then If1.DV_GATHER else If1.DV_SCATTER_AT
+              in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple
-                     ( If1.DV_GATHER,
-                       [| ""; ""; "" |],
+                     ( opcode,
+                       Array.make (3 + List.length plcs) "",
                        [| "" |],
                        [ If1.No_pragma ] ))
                   out_gr
@@ -10471,9 +10575,19 @@ and add_return_gr_for_initial ?(ext_names = []) decl_gr in_gr body_gr
                     let dope_ty, out_gr = If1.ensure_dope_vec_type out_gr in
                     If1.add_edge md 0 dd 2 dope_ty out_gr
               in
+              (* Scatter: per-iteration placement coordinates on ports 3+. *)
+              let out_gr, _ =
+                List.fold_left
+                  (fun (g, j) (pn, pp, pt) ->
+                    (If1.add_edge pn pp dd (3 + j) pt g, j + 1))
+                  (out_gr, 0) plcs
+              in
               let out_gr = If1.add_to_boundary_outputs dd ee what_ty out_gr in
-              create_return_nodes out_gr (in_count + 3) (out_count + 1)
-                (out_lis @ [ (`Dv_array_of (rank + 1, exts), what_ty, out_count) ])
+              create_return_nodes out_gr
+                (in_count + 3 + List.length plcs)
+                (out_count + 1)
+                (out_lis
+                @ [ (`Dv_array_of (rank + 1, exts, plcs), what_ty, out_count) ])
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               let out_gr =
