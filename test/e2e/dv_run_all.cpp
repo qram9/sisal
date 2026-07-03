@@ -159,6 +159,10 @@ struct FUNC_MAIN_results {
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
+#ifdef TEST_FORINIT_MAT_GATHER_DV
+extern "C" sisal_array_t func_MAIN();  // bare for-initial gather of rank-2 elems
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5286,6 +5290,21 @@ static void test_shaped_gather_dv(void) {
     if (r.res_1.data) free(r.res_1.data);
 }
 #endif
+#ifdef TEST_FORINIT_MAT_GATHER_DV
+static void test_forinit_mat_gather_dv(void) {
+    printf("\n=== Group: forinit_mat_gather_dv (bare gather of rank-2 elems, concat_grow rank) ===\n");
+    // m iterates 2, 4 -> gathers two 2x3 matrices.  concat_grow used to hardcode
+    // rank=2 / dims[1]=val.size, flattening the element dims to (2,6); the
+    // element's rank must be read off its dope at runtime -> rank 3, (2,2,3).
+    sisal_array_t r = func_MAIN();
+    int32_t ex[12] = { 22,24,26, 42,44,46,  44,48,52, 84,88,92 };
+    bool ok = (r.rank == 3) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 2)
+           && ((int)r.dims[2] == 3) && ((int)r.size == 12);
+    for (int k = 0; ok && k < 12; k++) ok = ok && (((int32_t*)r.data)[k] == ex[k]);
+    check("bare array_dv of mat(m) == rank-3 (2,2,3)", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5549,6 +5568,9 @@ main (void)
 #ifdef TEST_SHAPED_GATHER_DV
   test_shaped_gather_dv ();
 #endif
+#ifdef TEST_FORINIT_MAT_GATHER_DV
+  test_forinit_mat_gather_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5737,7 +5759,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
-    && !defined(TEST_SHAPED_GATHER_DV)                                        \
+    && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

@@ -1,0 +1,22 @@
+% forinit_mat_gather_dv.sis — bare for-initial gather of RANK-2 elements.
+% Exposes the sisal_array_concat_grow rank bug: it hardcoded res.rank = 2 and
+% dims[1] = val.size, flattening the element's own dims -- gathering a 2x3
+% matrix per iteration must give rank 3 dims (niter,2,3), not rank 2 (niter,6).
+% The element's rank is a RUNTIME quantity read off its dope (val.rank).
+define main
+
+type OneD = array_dv[integer];
+
+function mat( k: integer returns OneD )
+  for i in 1, 2 cross j in 1, 3 returns array_dv of (i*10 + j) * k end for
+end function
+
+% m iterates 2, 4 -> two 2x3 matrices -> rank-3 (2,2,3)
+function main( returns OneD )
+  for initial
+    m := 1;
+  while m < 4 repeat
+    m := old m * 2;
+  returns array_dv of mat(m)
+  end for
+end function

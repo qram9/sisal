@@ -152,15 +152,22 @@ inline sisal_array_t sisal_array_empty(void) { sisal_array_t a = {}; return a; }
 
 /* For-initial gather of ARRAY-valued elements (`returns array_dv of w` where w is
    itself an array): FLATTEN, don't box.  Append val's buffer to acc, growing the
-   leading dim by 1 -> rank-2 dims=[niter, row].  Empty acc seeds from val.  Grows
-   per REAL iteration, so it's correct for any induction (incl. multiplicative), and
-   avoids the nested array_dv[array_dv[..]] a boxed store would produce. */
+   leading dim by 1.  Empty acc seeds from val.  Grows per REAL iteration, so it's
+   correct for any induction (incl. multiplicative), and avoids the nested
+   array_dv[array_dv[..]] a boxed store would produce.  The element's rank is a
+   RUNTIME quantity read off its dope: result rank = val.rank + 1, inner dims
+   copied from val (assumes uniform elements). */
+inline void sisal_copy_inner_dims(sisal_array_t* res, sisal_array_t val) {
+    for (int i = 0; i < (int)val.rank && i < 7; i++) res->dims[i + 1] = val.dims[i];
+    /* rank-1 vals from casts/views may carry dims[0]=0 with size set */
+    if (val.rank == 1 && res->dims[1] == 0) res->dims[1] = (int64_t)val.size;
+}
 inline sisal_array_t sisal_array_concat_grow(sisal_array_t acc, sisal_array_t val) {
     size_t esz = sisal_elem_size(val.type_id);
     if (acc.data == NULL) {
-        sisal_array_t res = sisal_array_alloc_empty(2, val.type_id, val.size);
+        sisal_array_t res = sisal_array_alloc_empty(val.rank + 1, val.type_id, val.size);
         res.dims[0] = 1;
-        res.dims[1] = (int64_t)val.size;
+        sisal_copy_inner_dims(&res, val);
         if (val.size) memcpy(res.data, val.data, (size_t)val.size * esz);
         return res;
     }
@@ -170,9 +177,9 @@ inline sisal_array_t sisal_array_concat_grow(sisal_array_t acc, sisal_array_t va
     if (acc.size) memcpy(res.data, acc.data, (size_t)acc.size * esz);
     if (val.size) memcpy((char*)res.data + (size_t)acc.size * esz, val.data, (size_t)val.size * esz);
     res.size = newsize;
-    res.rank = 2;
+    res.rank = val.rank + 1;
     res.dims[0] = acc.dims[0] + 1;
-    res.dims[1] = (int64_t)val.size;   /* row size (assumes uniform rows) */
+    sisal_copy_inner_dims(&res, val);
     return res;
 }
 

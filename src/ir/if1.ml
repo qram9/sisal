@@ -691,17 +691,6 @@ and get_graph_from_label ii ingr =
 
 and has_node i ingr = NM.mem i (get_node_map ingr)
 
-and get_node_rank i ingr =
-  let rec find_rank = function
-    | Ar r :: _ -> r
-    | _ :: tl -> find_rank tl
-    | [] -> 1
-  in
-  match get_node i ingr with
-  | Simple (_, _, _, _, p) -> find_rank p
-  | Compound (_, _, _, p, _, _) -> find_rank p
-  | _ -> 1
-
 and get_node i ingr =
   try NM.find i (get_node_map ingr)
   with _ -> failwith ("ISSUE WITH NODE LOOK UP: " ^ string_of_int i)

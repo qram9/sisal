@@ -9588,12 +9588,12 @@ and do_return_exp in_gr ggg =
       to_if1_msg 3 "do_return_exp: Dv_array_of elem source=(%d, %d, %d [%s])" an
         ap at (If1.p_f_t in_gr at);
       assert (at <> 0);
-      let actual_rank =
-        match If1.lookup_ty at in_gr with
-        | If1.Array_dv _et -> If1.get_node_rank an in_gr + rank
-        | _ -> rank
-      in
-      (`Dv_array_of (actual_rank, []), (an, ap, at), in_gr)
+      (* rank = the AST's declared gather contribution only.  An array_dv
+         element's own rank is a RUNTIME quantity -- the backend reads it off
+         the element's dope (e0.rank / DV_NUM_RANK), never from this literal.
+         (get_node_rank, the old compile-time guess via the Ar pragma, is
+         deleted.) *)
+      (`Dv_array_of (rank, []), (an, ap, at), in_gr)
   | Ast.Dv_array_shaped (extent, e) ->
       (* Explicit-extent gather `array_dv(e1,e2,..) of elem`.  The extent list
          IS the full result shape -- one expr per dimension, rank = list length:
