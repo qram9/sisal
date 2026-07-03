@@ -60,9 +60,9 @@ function W( n: integer
   while m < n repeat
     m                              := old m * 4;
     w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
-  returns array_dv of w1re  array_dv of w1im
-          array_dv of w2re  array_dv of w2im
-          array_dv of w3re  array_dv of w3im
+  returns array_dv(log2(n)/2 - 1) of w1re  array_dv(log2(n)/2 - 1) of w1im
+          array_dv(log2(n)/2 - 1) of w2re  array_dv(log2(n)/2 - 1) of w2im
+          array_dv(log2(n)/2 - 1) of w3re  array_dv(log2(n)/2 - 1) of w3im
   end for
 end function
 
