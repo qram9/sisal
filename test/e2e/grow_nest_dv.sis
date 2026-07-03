@@ -1,0 +1,27 @@
+% rank grows inner -> outer: 1 -> 2 -> 3.  Each level declares ONLY the dim it
+% contributes; the element's dims append implicitly (runtime dope prepend).
+define main
+
+type OneD = array_dv[integer];
+
+function vec( k: integer returns OneD )        % rank 1: [k, 2k, 3k]
+  for j in 1, 3 returns array_dv of j * k end for
+end function
+
+function plane( p: integer returns OneD )      % rank 2 = 1 (contributed) + 1
+  for initial
+    i := 0;
+  while i < 2 repeat
+    i := old i + 1;
+  returns array_dv(2) of vec(i * p)
+  end for
+end function
+
+function main( returns OneD )                  % rank 3 = 1 (contributed) + 2,
+  for initial                                  % scattered in REVERSE order
+    q := 0;
+  while q < 2 repeat
+    q := old q + 1;
+  returns array_dv(2) of plane(q) at [3 - q]
+  end for
+end function

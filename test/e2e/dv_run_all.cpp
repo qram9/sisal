@@ -171,6 +171,10 @@ struct FUNC_MAIN_results {
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
+#ifdef TEST_GROW_NEST_DV
+extern "C" sisal_array_t func_MAIN();  // rank grows 1->2->3 inner nest to outer
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5332,6 +5336,21 @@ static void test_scatter_at_dv(void) {
     if (r.res_1.data) free(r.res_1.data);
 }
 #endif
+#ifdef TEST_GROW_NEST_DV
+static void test_grow_nest_dv(void) {
+    printf("\n=== Group: grow_nest_dv (rank grows 1->2->3, inner nest to outer) ===\n");
+    // vec (forall, rank 1) -> plane wraps 2 vecs (for-initial gather, rank 2)
+    // -> main scatters 2 planes REVERSED (rank 3).  Each level declares only
+    // its contributed dim; full shape (2,2,3) is assembled in the dope.
+    sisal_array_t r = func_MAIN();
+    int32_t ex[12] = { 2,4,6, 4,8,12,  1,2,3, 2,4,6 };
+    bool ok = (r.rank == 3) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 2)
+           && ((int)r.dims[2] == 3) && ((int)r.size == 12);
+    for (int k = 0; ok && k < 12; k++) ok = ok && (((int32_t*)r.data)[k] == ex[k]);
+    check("plane(q) at [3-q] == rank-3 (2,2,3), planes reversed", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5601,6 +5620,9 @@ main (void)
 #ifdef TEST_SCATTER_AT_DV
   test_scatter_at_dv ();
 #endif
+#ifdef TEST_GROW_NEST_DV
+  test_grow_nest_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5790,7 +5812,7 @@ main (void)
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
-    && !defined(TEST_SCATTER_AT_DV)                                           \
+    && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
