@@ -1238,11 +1238,12 @@ and lower_shaped_extents in_gr rclauses =
      HERE, into the enclosing graph.  An extent describes the size a clause
      CONTRIBUTES to its result, so it must be loop-invariant -- lowering it in
      in_gr enforces that by construction (loop/body names don't resolve in
-     this scope).  All extents are bundled under one MULTIARITY and registered
-     under synthetic __ext names; the name-based boundary machinery threads
-     them through the loop compound into the RETURNS graph, where DV_MAKE_DOPE
-     consumes them.  Shared by the for-initial (LoopA/B) and forall builders.
-     Returns the per-clause name lists (parallel to rclauses). *)
+     this scope).  Returns the per-clause (node, port, ty) source triples
+     (parallel to rclauses) -- name or expression, the triple is the definitive
+     handle; NOTHING is registered in any symtab (no synthetic names, so no
+     collision surface), and the loop builders thread the triples and lay the
+     boundary-crossing edges explicitly, mat_edges-style.  Shared by the
+     for-initial (LoopA/B) and forall builders. *)
   let ext_asts_per_clause =
     List.map
       (function
@@ -1252,53 +1253,22 @@ and lower_shaped_extents in_gr rclauses =
         | _ -> [])
       rclauses
   in
-  let total =
-    List.fold_left (fun a es -> a + List.length es) 0 ext_asts_per_clause
-  in
-  if total = 0 then (List.map (fun _ -> []) ext_asts_per_clause, in_gr)
-  else
-    let (mn, _, _), in_gr = build_multiarity total in_gr ~nam:"EXTENTS" in
-    let _, names, in_gr =
-      List.fold_left
-        (fun (port, acc, in_gr) (ci, es) ->
-          let port, nms, in_gr =
-            List.fold_left
-              (fun (port, nms, in_gr) e ->
-                let (en, ep, et), in_gr = do_simple_exp in_gr e in
-                let en, ep, et =
-                  If1.find_incoming_regular_node (en, ep, et) in_gr
-                in
-                let in_gr = If1.add_edge en ep mn port et in_gr in
-                let nm =
-                  Printf.sprintf "__ext_m%d_%d_%d" mn ci (List.length nms)
-                in
-                let cs, ps = in_gr.If1.symtab in
-                let in_gr =
-                  {
-                    in_gr with
-                    If1.symtab =
-                      ( If1.SM.add nm
-                          {
-                            If1.val_name = nm;
-                            If1.val_ty = et;
-                            If1.val_def = mn;
-                            If1.def_port = port;
-                          }
-                          cs,
-                        ps );
-                  }
-                in
-                to_if1_msg 3
-                  "lower_shaped_extents: %s := %s lowered at %d:%d" nm
-                  (Ast.str_simple_exp e) mn port;
-                (port + 1, nms @ [ nm ], in_gr))
-              (port, [], in_gr) es
-          in
-          (port, acc @ [ nms ], in_gr))
-        (0, [], in_gr)
-        (List.mapi (fun i es -> (i, es)) ext_asts_per_clause)
-    in
-    (names, in_gr)
+  List.fold_left
+    (fun (acc, in_gr) es ->
+      let srcs, in_gr =
+        List.fold_left
+          (fun (srcs, in_gr) e ->
+            let (en, ep, et), in_gr = do_simple_exp in_gr e in
+            let en, ep, et =
+              If1.find_incoming_regular_node (en, ep, et) in_gr
+            in
+            to_if1_msg 3 "lower_shaped_extents: %s lowered at (%d,%d) ty=%s"
+              (Ast.str_simple_exp e) en ep (If1.p_f_t in_gr et);
+            (srcs @ [ (en, ep, et) ], in_gr))
+          ([], in_gr) es
+      in
+      (acc @ [ srcs ], in_gr))
+    ([], in_gr) ext_asts_per_clause
 
 and build_multiarity ?(nam = "") siz in_gr =
   (* Helper function building a If1.MULTIARITY node *)
@@ -1389,7 +1359,7 @@ and generator_outputs gen_gr =
                    result array(s)/stream(s).
    A `cross` (nested) forall becomes nested FORALLs; a single (possibly `dot`)
    level is the base case. Returns ((node,port,ty), out-port list, graph). *)
-and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
+and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
   (* A single forall generator's in-exp-list must be homogeneous: all `cross` or
      all `dot`, never both (Sisal 2.0 grammar; the old Sisal compiler rejects the
      mix with error cdmix).  Our grammar is left-recursive with cross/dot at one
@@ -1794,47 +1764,43 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
           in
           forall_gr
         in
-        (* Scatter placements: one relay name per placement, bound to the BODY
-           compound port that carries it (found by edge search in body_gr).
-           Declared between the body relays and the bounds -- the POSITIONAL
-           contract shared with add_return_gr's payload rewrite:
+        (* Scatter placements: resolve each to its BODY compound port (edge
+           search in body_gr).  No symtab registration -- the triples are
+           threaded and the RETURNS boundary entries + edges are laid
+           explicitly below, in the POSITIONAL contract order shared with
+           add_return_gr's payload rewrite:
            [axis@0; bodies@1..n; plcs; exts; bounds]. *)
-        let forall_gr =
-          let _, forall_gr =
+        let plc_ports =
+          List.map
+            (fun (pn, pp, ty) ->
+              match
+                If1.ES.fold
+                  (fun ((s, p), (dn, dpp), _) acc ->
+                    if dn = 0 && s = pn && p = pp then Some dpp else acc)
+                  body_gr.If1.eset None
+              with
+              | Some dp -> (dp, ty)
+              | None ->
+                  failwith
+                    "forall scatter: placement has no BODY boundary output")
+            plc_tuples
+        in
+        (* Extents: create one forall boundary input per source, recording the
+           ENCLOSING (en,ep) -- hop A (enclosing -> forall compound port q) is
+           laid by finish_forall once the compound exists.  Distinct cosmetic
+           labels defeat add_to_boundary_inputs' (node,port) dedup; they are
+           never in any symtab. *)
+        let ext_qs, ext_hops, forall_gr =
+          let _, qs, hops, fg =
             List.fold_left
-              (fun (k, f_gr) (pn, pp, ty) ->
-                let dp =
-                  If1.ES.fold
-                    (fun ((s, p), (dn, dpp), _) acc ->
-                      if dn = 0 && s = pn && p = pp then Some dpp else acc)
-                    body_gr.If1.eset None
-                in
-                match dp with
-                | None ->
-                    failwith
-                      "forall scatter: placement has no BODY boundary output"
-                | Some dp ->
-                    let name = "__forall_plc_" ^ string_of_int k in
-                    let cs, ps = f_gr.If1.symtab in
-                    let f_gr =
-                      {
-                        f_gr with
-                        If1.symtab =
-                          ( If1.SM.add name
-                              {
-                                If1.val_name = name;
-                                If1.val_ty = ty;
-                                If1.val_def = bx;
-                                If1.def_port = dp;
-                              }
-                              cs,
-                            ps );
-                      }
-                    in
-                    (k + 1, f_gr))
-              (0, forall_gr) plc_tuples
+              (fun (k, qs, hops, fg) (en, ep, et) ->
+                let lbl = "__ext_" ^ string_of_int k in
+                let q, fg = If1.add_to_boundary_inputs ~namen:lbl en ep fg in
+                (k + 1, qs @ [ (q, et) ], hops @ [ (en, ep, et, q) ], fg))
+              (0, [], [], forall_gr)
+              (List.concat ext_srcs)
           in
-          forall_gr
+          (qs, hops, fg)
         in
 
         (* Did add_return_gr build the recursive (cross) RETURNS nest?  Same gate
@@ -1894,40 +1860,68 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
                  body relays, then append lb/ub -- which land on later ports
                  with no internal gather edge (available to the backend, not
                  read by the gather). *)
-              let import_names =
-                (match placement_name with Some nm -> [ nm ] | None -> [])
+              let nbodies = List.length ret_tuple_list in
+              let imports =
+                (match placement_name with Some nm -> [ `Name nm ] | None -> [])
                 @ List.mapi
-                    (fun k _ -> "__forall_body_" ^ string_of_int k)
+                    (fun k _ -> `Name ("__forall_body_" ^ string_of_int k))
                     ret_tuple_list
                 @ List.mapi
-                    (fun k _ -> "__forall_plc_" ^ string_of_int k)
-                    plc_tuples
-                @ List.concat ext_relays
-                @ bound_names
+                    (fun k (dp, ty) ->
+                      (* per-iteration placement, from the BODY compound *)
+                      `Src
+                        ( bx,
+                          dp,
+                          ty,
+                          "__plc_" ^ string_of_int k,
+                          1 + nbodies + k ))
+                    plc_ports
+                @ List.mapi
+                    (fun k (q, ty) ->
+                      (* loop-invariant extent, from the FORALL boundary *)
+                      `Src
+                        ( 0,
+                          q,
+                          ty,
+                          "__ext_" ^ string_of_int k,
+                          1 + nbodies + List.length plc_ports + k ))
+                    ext_qs
+                @ List.map (fun nm -> `Name nm) bound_names
               in
               let is_body nm =
                 String.length nm >= 13 && String.sub nm 0 13 = "__forall_body"
               in
-              let rn_gr, body_base, body_count =
+              let rn_gr, body_base, body_count, rn_edges =
                 List.fold_left
-                  (fun (rn_gr, base, cnt) nm ->
-                    match
-                      (* __ext names live in the ENCLOSING scope (ps), not the
-                         forall's own cs -- fall through to ps. *)
-                      (match If1.SM.find_opt nm cs_forall with
-                      | Some e -> Some e
-                      | None ->
-                          If1.SM.find_opt nm (snd forall_gr.If1.symtab))
-                    with
-                    | Some { If1.val_def = dd; If1.def_port = dp; _ } ->
+                  (fun (rn_gr, base, cnt, redges) item ->
+                    match item with
+                    | `Name nm -> (
+                        match If1.SM.find_opt nm cs_forall with
+                        | Some { If1.val_def = dd; If1.def_port = dp; _ } ->
+                            let p, rn_gr =
+                              If1.add_to_boundary_inputs ~namen:nm dd dp rn_gr
+                            in
+                            if is_body nm then
+                              (rn_gr, (if cnt = 0 then p else base), cnt + 1,
+                               redges)
+                            else (rn_gr, base, cnt, redges)
+                        | None -> (rn_gr, base, cnt, redges))
+                    | `Src (sn, sp, ty, lbl, expect) ->
+                        (* placement/extent: recorded source, explicit edge --
+                           wire_all_syms can't lay these (labels are cosmetic,
+                           never in a symtab).  The port MUST land where
+                           add_return_gr's payload rewrite computed it. *)
                         let p, rn_gr =
-                          If1.add_to_boundary_inputs ~namen:nm dd dp rn_gr
+                          If1.add_to_boundary_inputs ~namen:lbl sn sp rn_gr
                         in
-                        if is_body nm then
-                          (rn_gr, (if cnt = 0 then p else base), cnt + 1)
-                        else (rn_gr, base, cnt)
-                    | None -> (rn_gr, base, cnt))
-                  (rn_gr, -1, 0) import_names
+                        if p <> expect then
+                          failwith
+                            (Printf.sprintf
+                               "forall returns positional contract violated: \
+                                %s landed on port %d, expected %d"
+                               lbl p expect);
+                        (rn_gr, base, cnt, redges @ [ (sn, sp, p, ty) ]))
+                  (rn_gr, -1, 0, []) imports
               in
               (* Record which RETURNS input ports carry body results, so the
                  range is identifiable downstream. *)
@@ -1951,6 +1945,15 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
                 }
               in
               let _, forall_gr = wire_all_syms_to_compound rn rn_gr forall_gr in
+              (* placement/extent edges into RETURNS, by recorded source *)
+              let forall_gr =
+                List.fold_left
+                  (fun g (sn, sp, p, ty) ->
+                    to_if1_msg 3 "forall RETURNS src edge: (%d,%d) -> rn(%d):%d"
+                      sn sp rn p;
+                    If1.add_edge sn sp rn p ty g)
+                  forall_gr rn_edges
+              in
               verify_compound_inputs rn rn_gr forall_gr;
               forall_gr
           | _ -> forall_gr
@@ -1971,7 +1974,8 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
           mask_ty_list,
           forall_gr,
           [ gn; bx; rn ],
-          dv_infos )
+          dv_infos,
+          ext_hops )
     (* ---- RECURSIVE CASE: this axis is OUTER; the rest nest inside it. ---- *)
     | (curr_lev, gen_exp) :: gen_exp_tl ->
         let ( (inner_gen_n, inner_gen_p, inner_gen_ty),
@@ -1979,7 +1983,8 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
               mask_ty_list,
               forall_gr,
               inner_ids,
-              inner_dv_infos ) =
+              inner_dv_infos,
+              inner_ext_hops ) =
           (* Build the OUTER axis's generator. *)
           let (_, _, _), gen_gr, dv_infos =
             build_gen_graph curr_lev in_gr gen_exp
@@ -2004,10 +2009,18 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
                 mask_ty_list,
                 body_nest_gr,
                 inner_ids,
-                inner_dv_infos ) =
+                inner_dv_infos,
+                inner_ext_hops ) =
             build_forloop gen_exp_tl bodyexp retexp
               (If1.get_a_new_graph forall_gr)
           in
+          (* Scatter/shaped extents are consumed by the FLAT base case only;
+             a spelling that routes them through the recursive nest is not
+             wired (their hop-A target would be the inner body-slot compound,
+             not the outermost forall). *)
+          if inner_ext_hops <> [] then
+            failwith
+              "forall extents through the recursive cross nest not supported";
 
           (* Merge the inner loop's typemap so sibling subgraphs do not collide
              on type ids. *)
@@ -2075,7 +2088,8 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
             mask_ty_list,
             forall_gr,
             [ gn; fx; rn ],
-            dv_infos @ inner_dv_infos )
+            dv_infos @ inner_dv_infos,
+            inner_ext_hops )
         in
         (* Hand this level's assembled forall back up to the caller. *)
         ( (inner_gen_n, inner_gen_p, inner_gen_ty),
@@ -2083,13 +2097,14 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
           mask_ty_list,
           forall_gr,
           inner_ids,
-          inner_dv_infos )
+          inner_dv_infos,
+          inner_ext_hops )
   in
 
   (* ---- OUTER ASSEMBLY: drive build_forloop and finish the FORALL node. ---- *)
   (* Flatten the generator into the axis list, then build the whole loop nest. *)
   let acrossl = get_cross_exp_lis inexp [] in
-  let _, return_action_list, _, forall_gr, subgr_ids, dv_infos =
+  let _, return_action_list, _, forall_gr, subgr_ids, dv_infos, ext_hops =
     build_forloop acrossl bodyexp retexp in_gr
   in
   (* build_forloop assembles forall_gr in its OWN typemap branch and returns only
@@ -2147,6 +2162,18 @@ and do_for_all ?(ext_relays = []) inexp bodyexp retexp in_gr =
         tgt_gr
     in
     let fg, tgt_gr = wire_all_syms_to_compound fx forall_gr tgt_gr in
+    (* hop A: enclosing extent sources -> the forall compound's ports (recorded
+       by the flat-returns import; laid here because the compound only now
+       exists).  wire_all_syms can't do it: the labels are cosmetic, never in
+       any symtab. *)
+    let tgt_gr =
+      List.fold_left
+        (fun g (en, ep, et, q) ->
+          to_if1_msg 3 "forall ext hop A: (%d,%d) -> compound(%d):%d" en ep fx
+            q;
+          If1.add_edge en ep fx q et g)
+        tgt_gr ext_hops
+    in
     verify_compound_inputs fx fg tgt_gr;
     let (mul_n, mul_p, _mul_t), tgt_gr =
       build_multiarity ~nam:"FOR_ALL" (List.length return_action_list) tgt_gr
@@ -3620,9 +3647,9 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
   add_return_gr ~nest_returns_levels ~returns_triples for_gr in_gr
     return_action_list mask_ty_list prag
 
-and add_ret_for_initial ?(ext_relays = []) decl_gr for_gr body_gr
+and add_ret_for_initial ?(ext_srcs = []) decl_gr for_gr body_gr
     return_action_list ret_tuple_list mask_ty_list prag =
-  add_return_gr_for_initial ~ext_relays decl_gr for_gr body_gr
+  add_return_gr_for_initial ~ext_srcs decl_gr for_gr body_gr
     return_action_list ret_tuple_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
@@ -6929,8 +6956,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
       (* First we build a hierarchy based on in-exps,
         then we add the body/returns in it. Perhaps
         we could do this easily... i am not sure yet *)
-      let ext_relays, in_gr = lower_shaped_extents in_gr r in
-      let (fx, fy, _), ret_actions, in_gr = do_for_all ~ext_relays i d r in_gr in
+      let ext_srcs, in_gr = lower_shaped_extents in_gr r in
+      let (fx, fy, _), ret_actions, in_gr = do_for_all ~ext_srcs i d r in_gr in
       (* Propagate the actual array type so maybe_add_dope (called by the
          do_simple_exp wrapper) can insert GET_DOPE_VEC automatically. *)
       let ty =
@@ -6939,7 +6966,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       ((fx, fy, ty), in_gr)
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
-      let ext_relays, in_gr = lower_shaped_extents in_gr r in
+      let ext_srcs, in_gr = lower_shaped_extents in_gr r in
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
@@ -7112,8 +7139,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
                 for_gr
             in
-            let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_for_initial ~ext_relays decl_gr for_gr body_gr return_action_list
+            let (ret_cn, _, _), for_gr, return_action_list, ext_hops =
+              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr return_action_list
                 ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
@@ -7574,6 +7601,18 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in_gr
             in
             let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
+            (* hop A: enclosing extent sources -> the loop compound's ports
+               (recorded by add_return_gr_for_initial; laid here because the
+               compound only now exists).  wire_all_syms can't do it: the
+               boundary labels are cosmetic, never in any symtab. *)
+            let in_gr =
+              List.fold_left
+                (fun g (en, ep, et, q) ->
+                  to_if1_msg 3 "loop ext hop A: (%d,%d) -> compound(%d):%d" en
+                    ep fx q;
+                  If1.add_edge en ep fx q et g)
+                in_gr ext_hops
+            in
             verify_compound_inputs fx for_gr in_gr;
             let (mul_n, mul_p, mul_t), in_gr =
               build_multiarity
@@ -7610,8 +7649,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                   ^ "\n" ^ Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
                 for_gr
             in
-            let (ret_cn, _, _), for_gr, return_action_list =
-              add_ret_for_initial ~ext_relays decl_gr for_gr body_gr return_action_list
+            let (ret_cn, _, _), for_gr, return_action_list, ext_hops =
+              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr return_action_list
                 ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
@@ -8131,6 +8170,18 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in_gr
             in
             let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
+            (* hop A: enclosing extent sources -> the loop compound's ports
+               (recorded by add_return_gr_for_initial; laid here because the
+               compound only now exists).  wire_all_syms can't do it: the
+               boundary labels are cosmetic, never in any symtab. *)
+            let in_gr =
+              List.fold_left
+                (fun g (en, ep, et, q) ->
+                  to_if1_msg 3 "loop ext hop A: (%d,%d) -> compound(%d):%d" en
+                    ep fx q;
+                  If1.add_edge en ep fx q et g)
+                in_gr ext_hops
+            in
             verify_compound_inputs fx for_gr in_gr;
 
             to_if1_msg 3
@@ -10460,7 +10511,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     verify_compound_inputs cn ret_gr in_gr;
     ((cn, 0, 0), in_gr, out_lis)
 
-and add_return_gr_for_initial ?(ext_relays = []) decl_gr in_gr body_gr
+and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
     return_action_list ret_tuple_list mask_ty_list prag =
   to_if1_msg 3 "add_return_gr_for_initial: count=%d prag=[%s]"
     (List.length return_action_list)
@@ -10509,32 +10560,48 @@ and add_return_gr_for_initial ?(ext_relays = []) decl_gr in_gr body_gr
         else acc)
       body_gr.If1.eset None
   in
-  (* Resolve a shaped clause's extents INTO ret_gr: the __ext names were
-     registered against the enclosing graph by the For_initial handler, so
-     get_symbol_id auto-imports each as a named ret_gr boundary input (wired by
-     name at every compound insertion).  The action payload swaps from AST
-     exprs to the resolved (0, port, ty) boundary references. *)
-  let resolve_exts idx action rg =
+  (* Resolve a shaped clause's extents INTO ret_gr.  ext_srcs carries the
+     (node, port, ty) sources in the ENCLOSING graph (lower_shaped_extents);
+     no names, no symtab -- thread the value explicitly, mat_edges-style:
+       hop A (deferred): enclosing (en,ep) -> loop compound port q   [caller]
+       hop B (here):     loop boundary 0:q -> ret compound port rp   [mat_edge]
+     Boundary entries get DISTINCT cosmetic labels: add_to_boundary_inputs
+     dedups same-(node,port) entries UNLESS names differ, and these labels are
+     never registered in any symtab (wire_all_syms/verify skip unresolvable
+     names while still counting ports).  The payload swaps to the ret-boundary
+     refs (0, rp, ty); hop-A pendings accumulate for the loop builder. *)
+  let resolve_exts idx action rg for_gr edges hops =
     match action with
     | `Dv_array_of (rank, (_ : Ast.simple_exp list), plcs) ->
-        let nms =
-          match List.nth_opt ext_relays idx with Some l -> l | None -> []
+        let srcs =
+          match List.nth_opt ext_srcs idx with Some l -> l | None -> []
         in
-        let exts, rg =
+        let exts, rg, for_gr, edges, hops, _ =
           List.fold_left
-            (fun (l, rg) nm ->
-              let (en, ep, ety), rg = If1.get_symbol_id nm rg in
+            (fun (l, rg, for_gr, edges, hops, j) (en, ep, et) ->
+              let lbl = Printf.sprintf "__ext_%d_%d" idx j in
+              let q, for_gr =
+                If1.add_to_boundary_inputs ~namen:lbl en ep for_gr
+              in
+              let rp, rg = If1.add_to_boundary_inputs ~namen:lbl 0 q rg in
               to_if1_msg 3
-                "add_return_gr_for_initial: clause#%d extent %s -> ret (%d,%d)"
-                idx nm en ep;
-              (l @ [ (en, ep, ety) ], rg))
-            ([], rg) nms
+                "add_return_gr_for_initial: clause#%d extent#%d (%d,%d) -> \
+                 loop port %d -> ret in-port %d"
+                idx j en ep q rp;
+              ( l @ [ (0, rp, et) ],
+                rg,
+                for_gr,
+                (0, q, rp, et) :: edges,
+                hops @ [ (en, ep, et, q) ],
+                j + 1 ))
+            ([], rg, for_gr, edges, hops, 0)
+            srcs
         in
-        (`Dv_array_of (rank, exts, plcs), rg)
-    | `Array_of -> (`Array_of, rg)
-    | `FinalVal -> (`FinalVal, rg)
-    | `Stream_of -> (`Stream_of, rg)
-    | `Reduce r -> (`Reduce r, rg)
+        (`Dv_array_of (rank, exts, plcs), rg, for_gr, edges, hops)
+    | `Array_of -> (`Array_of, rg, for_gr, edges, hops)
+    | `FinalVal -> (`FinalVal, rg, for_gr, edges, hops)
+    | `Stream_of -> (`Stream_of, rg, for_gr, edges, hops)
+    | `Reduce r -> (`Reduce r, rg, for_gr, edges, hops)
   in
   (* Scatter placements: per-iteration BODY values (exported as body boundary
      outputs by add_body_for_initial).  Resolve each like the clause value --
@@ -10571,10 +10638,13 @@ and add_return_gr_for_initial ?(ext_relays = []) decl_gr in_gr body_gr
         (`Dv_array_of (rank, exts, plcs'), rg, edges)
     | a -> (a, rg, edges)
   in
-  let (return_action_list, ret_gr, mat_edges), _ =
+  let (return_action_list, ret_gr, in_gr, mat_edges, ext_hops), _ =
     List.fold_left
-      (fun ((acc, rg, edges), idx) ((action, _node_n, node_t), (tn, tp, _tt)) ->
-        let action, rg = resolve_exts idx action rg in
+      (fun ((acc, rg, fg, edges, hops), idx)
+           ((action, _node_n, node_t), (tn, tp, _tt)) ->
+        let action, rg, fg, edges, hops =
+          resolve_exts idx action rg fg edges hops
+        in
         let action, rg, edges = resolve_plcs idx action rg edges in
         match body_out_port_of tn tp with
         | Some dp ->
@@ -10586,14 +10656,16 @@ and add_return_gr_for_initial ?(ext_relays = []) decl_gr in_gr body_gr
               idx tn tp dp bp;
             ( ( acc @ [ (action, node_t, bp) ],
                 rg,
-                (body_cn, dp, bp, node_t) :: edges ),
+                fg,
+                (body_cn, dp, bp, node_t) :: edges,
+                hops ),
               idx + 1 )
         | None ->
             to_if1_msg 3
               "add_return_gr_for_initial: clause#%d no body output for (%d,%d)" idx tn
               tp;
-            ((acc @ [ (action, node_t, 0) ], rg, edges), idx + 1))
-      (([], ret_gr, []), 0)
+            ((acc @ [ (action, node_t, 0) ], rg, fg, edges, hops), idx + 1))
+      (([], ret_gr, in_gr, [], []), 0)
       (List.combine return_action_list ret_tuple_list)
   in
   let mask_ty_list = List.map (fun _ -> None) return_action_list in
@@ -10900,7 +10972,10 @@ and add_return_gr_for_initial ?(ext_relays = []) decl_gr in_gr body_gr
       in_gr mat_edges
   in
   verify_compound_inputs cn ret_gr in_gr;
-  ((cn, 0, 0), in_gr, out_lis)
+  (* ext_hops = hop A pendings: enclosing (en,ep) -> the loop compound's port q.
+     The loop compound does not exist yet -- the LoopA/B builder lays these
+     right after creating it. *)
+  ((cn, 0, 0), in_gr, out_lis, ext_hops)
 
 and get_gen_graph in_gr =
   let xyz = find_in_graph_from_pragma in_gr "GENERATOR" in
