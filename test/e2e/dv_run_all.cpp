@@ -183,6 +183,10 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t A, int32_t n, int32_t m);
 extern "C" sisal_array_t func_MAIN();
 #endif
 
+#ifdef TEST_SMOOTH_DV
+extern "C" sisal_array_t func_MAIN(int32_t n);  // 3-D 3-point stencil, 3 passes
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5389,6 +5393,28 @@ static void test_forall_rowscatter_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_SMOOTH_DV
+static void test_smooth_dv(void) {
+    printf("\n=== Group: smooth_dv (rank-3 triple-cross stencil, 3 passes) ===\n");
+    // Q quadratic per axis -> each pass adds 0.3*(D*2)/D = 0.6 at interior
+    // points; boundary keeps S.  After 3 passes: interior = S + 1.8.
+    int n = 4;
+    sisal_array_t r = func_MAIN(n);
+    float S = 924.143567f;
+    bool ok = (r.rank == 3) && ((int)r.dims[0] == n) && ((int)r.dims[1] == n)
+           && ((int)r.dims[2] == n) && ((int)r.size == n*n*n);
+    for (int j = 1; ok && j <= n; j++)
+      for (int k = 1; ok && k <= n; k++)
+        for (int l = 1; ok && l <= n; l++) {
+          bool interior = (j>1 && j<n && k>1 && k<n && l>1 && l<n);
+          float exp = interior ? S + 1.8f : S;
+          float got = ((float*)r.data)[((j-1)*n + (k-1))*n + (l-1)];
+          ok = ok && (fabsf(got - exp) < 1e-2f);
+        }
+    check("smooth(4): interior == S+1.8, boundary == S, dims (4,4,4)", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5667,6 +5693,9 @@ main (void)
 #ifdef TEST_FORALL_ROWSCATTER_DV
   test_forall_rowscatter_dv ();
 #endif
+#ifdef TEST_SMOOTH_DV
+  test_smooth_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5858,6 +5887,7 @@ main (void)
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
+    && !defined(TEST_SMOOTH_DV)                                               \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

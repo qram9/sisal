@@ -61,10 +61,15 @@ function Smooth(n : integer; Q, S, D : Grid returns Grid)
   end let
 end function
 
+% Q is QUADRATIC in each axis so the 3-point second difference is exactly 2
+% per axis: with D constant, each pass adds 0.3 * (D * 2) / D = 0.6 at interior
+% points.  Expected result: S + 1.8 at interior (all coords in 2..n-1), S at
+% the boundary.  (A constant Q makes the stencil vanish -- v = e everywhere --
+% and the test would pass even with broken arithmetic.)
 function main(n : integer returns Grid)
   let
     Q := for i in 1, n cross j in 1, n cross k in 1, n
-         returns array_dv of 1.1234
+         returns array_dv of real(i*i + j*j + k*k)
          end for;
     S := for i in 1, n cross j in 1, n cross k in 1, n
          returns array_dv of 924.143567
