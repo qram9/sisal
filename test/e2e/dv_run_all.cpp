@@ -191,6 +191,11 @@ extern "C" sisal_array_t func_MAIN(int32_t n);  // 3-D 3-point stencil, 3 passes
 extern "C" sisal_array_t func_MAIN(int32_t N);  // DFT, complex_double records in array_dv
 #endif
 
+#ifdef TEST_RECORD_OPS_DV
+struct FUNC_MAIN_results { int32_t r0, r1, r2; };
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5438,6 +5443,17 @@ static void test_dft_dv(void) {
     if (y.data) free(y.data);
 }
 #endif
+#ifdef TEST_RECORD_OPS_DV
+static void test_record_ops_dv(void) {
+    printf("\n=== Group: record_ops_dv (nested records, chained reads, replace) ===\n");
+    // p = Pair{a:7, n:Inner{x:1,y:2}}; q = p replace [a:40].
+    // Checks RBUILD (nested), RELEMENTS chains (p.n.x), RREPLACE, and the
+    // TOPOLOGICAL struct emission (Inner defined before Pair embeds it).
+    struct FUNC_MAIN_results r = func_MAIN();
+    check("p.a+q.a, p.n.x+p.n.y, q.n.y == 47, 3, 2",
+          r.r0 == 47 && r.r1 == 3 && r.r2 == 2);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5722,6 +5738,9 @@ main (void)
 #ifdef TEST_DFT_DV
   test_dft_dv ();
 #endif
+#ifdef TEST_RECORD_OPS_DV
+  test_record_ops_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5914,6 +5933,7 @@ main (void)
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
+    && !defined(TEST_RECORD_OPS_DV)                                           \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

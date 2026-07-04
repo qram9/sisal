@@ -383,7 +383,7 @@ let infer_types env gr gid =
                -- the only way a record output gets its `struct struct_rec_N`
                C type (the default float would make assign_with_cast emit
                SISAL_CAST(float, struct)). *)
-            (if sym = RBUILD || sym = RELEMENTS then
+            (if sym = RBUILD || sym = RELEMENTS || sym = RREPLACE then
                let _, gtm, _ = g.typemap in
                ES.iter
                  (fun ((sn, sp), _, tyid) ->
@@ -1671,6 +1671,61 @@ and lower_simple env gr nid sym pin pout pr =
             failwith
               (Printf.sprintf "RBUILD at gid=%d nid=%d: no output edge" gid nid)
         )
+    | RREPLACE -> (
+        (* Functional field update `r replace [f: v]`: rebuild the whole
+           struct -- every field copied from the operand except the named one
+           substituted.  Pure expression (BraceInit), no temp needed; the
+           operand is a variable, so per-field member reads don't recompute.
+           Ports: 0 = record, 2 = new value; field name rides pseudo-port 1. *)
+        let fn = pin.(1) in
+        let out_tyid =
+          ES.fold
+            (fun ((sn, sp), _, ty) acc ->
+              if sn = nid && sp = 0 then Some ty else acc)
+            gr.eset None
+        in
+        let tm = get_typemap_tm gr in
+        let raw_in k =
+          match
+            ES.fold
+              (fun (src, dst, _) acc ->
+                if dst = (nid, k) then Some src else acc)
+              gr.eset None
+          with
+          | Some (sn, sp) -> get_expr env gid sn sp `Out
+          | None -> C.LitInt 0
+        in
+        match out_tyid with
+        | Some tid -> (
+            match c_type_of_if1_tyid tm tid with
+            | C.Basic nm
+              when String.length nm > 7 && String.sub nm 0 7 = "struct " ->
+                let sname = String.sub nm 7 (String.length nm - 7) in
+                let fields = collect_record_fields tm tid in
+                if not (List.mem_assoc fn fields) then
+                  failwith
+                    (Printf.sprintf
+                       "RREPLACE at gid=%d nid=%d: no field `%s` in %s" gid
+                       nid fn nm);
+                let recv = raw_in 0 and newv = raw_in 2 in
+                let args =
+                  List.map
+                    (fun (name, fty) ->
+                      if name = fn then C.Cast (fty, newv)
+                      else C.Member (recv, name))
+                    fields
+                in
+                C.BraceInit (sname, args)
+            | _ ->
+                failwith
+                  (Printf.sprintf
+                     "RREPLACE at gid=%d nid=%d: output type %d is not a \
+                      record"
+                     gid nid tid))
+        | None ->
+            failwith
+              (Printf.sprintf "RREPLACE at gid=%d nid=%d: no output edge" gid
+                 nid))
     | sym ->
         failwith
           (Printf.sprintf
@@ -4216,23 +4271,46 @@ let build_global_gid_table root_nid gr starting_gid =
   (gid_map, final_counter, nmap)
 
 let rec collect_all_records tm gr seen =
+  (* Emission must be TOPOLOGICAL over by-value nesting: C requires an inner
+     struct's definition before an outer struct uses it as a field.  DFS over
+     each record's field-type references, memoized in [seen]; a record's
+     dependencies emit first.  (Cycles can't occur among by-value records --
+     they'd be infinite-size; recursive types arrive boxed in phase 2.) *)
+  let field_record_deps id =
+    let rec chain lbl acc =
+      match TM.find_opt lbl tm with
+      | Some (Record (0, next, "")) -> chain next acc
+      | Some (Record (fty, next, _)) ->
+          let acc =
+            match TM.find_opt fty tm with
+            | Some (Record _) -> fty :: acc
+            | _ -> acc
+          in
+          chain next acc
+      | _ -> acc
+    in
+    chain id []
+  in
+  let rec emit id (acc, s) =
+    if IntSet.mem id s then (acc, s)
+    else
+      let s = IntSet.add id s in
+      let acc, s = List.fold_left (fun st d -> emit d st) (acc, s)
+          (field_record_deps id)
+      in
+      (* fields = the chain starting at THIS node (headers contribute none);
+         struct name = this node's own typemap id, matching
+         c_type_of_if1_tyid. *)
+      let fields = collect_record_fields tm id in
+      if fields = [] then (acc, s)
+      else
+        ( acc @ [ C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields)) ],
+          s )
+  in
   let local_records, seen =
     TM.fold
-      (fun id ty (acc, s) ->
-        match ty with
-        | Record _ ->
-            if IntSet.mem id s then (acc, s)
-            else
-              (* fields = the chain starting at THIS node (headers contribute
-                 none); struct name = this node's own typemap id, matching
-                 c_type_of_if1_tyid. *)
-              let fields = collect_record_fields tm id in
-              if fields = [] then (acc, IntSet.add id s)
-              else
-                ( C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields))
-                  :: acc,
-                  IntSet.add id s )
-        | _ -> (acc, s))
+      (fun id ty st ->
+        match ty with Record _ -> emit id st | _ -> st)
       tm ([], seen)
   in
   NM.fold
