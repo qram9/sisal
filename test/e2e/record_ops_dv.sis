@@ -1,11 +1,14 @@
 % record ops: nested BY-VALUE records (Inner inside Pair -- struct emission
-% must be topological), chained field reads, functional replace
+% must be topological), chained field reads, functional replace, and
+% NESTED-FIELD replace chains (p replace [n.x: v] == read-modify-write),
+% mixed with a plain clause in one replace list.
 define main
 type Inner = record[ x: integer; y: integer ];
 type Pair  = record[ a: integer; n: Inner ];
-function main( returns integer, integer, integer )
+function main( returns integer, integer, integer, integer, integer )
   let p := record Pair [a: 7; n: record Inner [x: 1; y: 2]];
-      q := p replace [a: 40]
-  in p.a + q.a, p.n.x + p.n.y, q.n.y
+      q := p replace [a: 40];
+      s := p replace [n.x: 9; a: 50]
+  in p.a + q.a, p.n.x + p.n.y, q.n.y, s.n.x + s.n.y, s.a
   end let
 end function

@@ -6487,6 +6487,37 @@ and do_simple_exp_impl in_gr in_sim_ex =
         in
         ( (bb, pp, elem_ty),
           If1.add_edge ain apn bb 1 tt0 (If1.add_edge aim apm bb 0 tt1 in_gr) )
+  | Ast.Record_generator_primary (e, fdle)
+    when List.exists
+           (function
+             | Ast.Field_exp (Ast.Field fl, _) -> List.length fl > 1)
+           fdle ->
+      (* NESTED-field replace chains desugar to read-modify-write at the AST:
+           p replace [f.g: v]  ==  p replace [f: (p.f replace [g: v])]
+         recursively; a multi-clause list folds left as successive replaces on
+         the accumulated record.  (The old direct chain wired RREPLACE(g)
+         against the OUTER record type -- caught loudly by the C lowering's
+         field-membership check.)  The base AST is re-lowered inside the
+         desugar: duplicate nodes in a pure IR, not duplicate effects; for
+         the common case (a name) it resolves to the same node anyway. *)
+      let rec one_clause base = function
+        | Ast.Field_exp (Ast.Field [ _ ], _) as c ->
+            Ast.Record_generator_primary (base, [ c ])
+        | Ast.Field_exp (Ast.Field (f :: rest), v) ->
+            Ast.Record_generator_primary
+              ( base,
+                [
+                  Ast.Field_exp
+                    ( Ast.Field [ f ],
+                      one_clause
+                        (Ast.Record_ref (base, f))
+                        (Ast.Field_exp (Ast.Field rest, v)) );
+                ] )
+        | Ast.Field_exp (Ast.Field [], _) as c ->
+            Ast.Record_generator_primary (base, [ c ])
+      in
+      let final_ast = List.fold_left one_clause e fdle in
+      do_simple_exp in_gr final_ast
   | Ast.Record_generator_primary (e, fdle) ->
       let (e, p, inctt), in_gr = do_simple_exp in_gr e in
       let rec do_each_field ((a, b, tt), in_gr) = function

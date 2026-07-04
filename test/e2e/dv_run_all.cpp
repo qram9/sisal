@@ -192,7 +192,7 @@ extern "C" sisal_array_t func_MAIN(int32_t N);  // DFT, complex_double records i
 #endif
 
 #ifdef TEST_RECORD_OPS_DV
-struct FUNC_MAIN_results { int32_t r0, r1, r2; };
+struct FUNC_MAIN_results { int32_t r0, r1, r2, r3, r4; };
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
@@ -5446,12 +5446,15 @@ static void test_dft_dv(void) {
 #ifdef TEST_RECORD_OPS_DV
 static void test_record_ops_dv(void) {
     printf("\n=== Group: record_ops_dv (nested records, chained reads, replace) ===\n");
-    // p = Pair{a:7, n:Inner{x:1,y:2}}; q = p replace [a:40].
-    // Checks RBUILD (nested), RELEMENTS chains (p.n.x), RREPLACE, and the
-    // TOPOLOGICAL struct emission (Inner defined before Pair embeds it).
+    // p = Pair{a:7, n:Inner{x:1,y:2}}; q = p replace [a:40];
+    // s = p replace [n.x:9; a:50] (nested-field chain + plain clause).
+    // Checks RBUILD (nested), RELEMENTS chains (p.n.x), RREPLACE, the
+    // read-modify-write desugar for n.x, and TOPOLOGICAL struct emission.
     struct FUNC_MAIN_results r = func_MAIN();
-    check("p.a+q.a, p.n.x+p.n.y, q.n.y == 47, 3, 2",
+    check("q: p.a+q.a, p.n.x+p.n.y, q.n.y == 47, 3, 2",
           r.r0 == 47 && r.r1 == 3 && r.r2 == 2);
+    check("s = p replace [n.x:9; a:50]: s.n.x+s.n.y, s.a == 11, 50",
+          r.r3 == 11 && r.r4 == 50);
 }
 #endif
 
