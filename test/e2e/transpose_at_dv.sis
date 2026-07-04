@@ -1,0 +1,11 @@
+% transpose_at_dv.sis -- transpose WITHOUT loop interchange: the cross forall
+% iterates row-major over A (good read locality) and the scatter placement
+% [j, i] supplies the store coordinates.  The Sisal 1.2 idiom needed the loops
+% interchanged (column-major reads) to bend iteration order into storage order.
+define main
+type TwoD = array_dv[integer];
+function main( A: TwoD; n, m: integer returns TwoD )
+  for i in 1, n cross j in 1, m
+  returns array_dv(m, n) of A[i, j] at [j, i]
+  end for
+end function

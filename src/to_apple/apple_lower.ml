@@ -183,7 +183,8 @@ let forall_gather_ports loop_gr =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, (DV_GATHER | AGATHER), _, _, _)) ->
+            | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT), _, _, _))
+              ->
                 let bport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
@@ -350,6 +351,7 @@ let infer_types env gr gid =
                   DV_REVERSE;
                   DV_RESHAPE_BY_SHAPE;
                   DV_GATHER;
+                  DV_SCATTER_AT;
                   AGATHER;
                   ASCATTER;
                   ABUILD;
@@ -626,6 +628,7 @@ let infer_types env gr gid =
                   DV_REVERSE;
                   DV_RESHAPE_BY_SHAPE;
                   DV_GATHER;
+                  DV_SCATTER_AT;
                   AGATHER;
                   ASCATTER;
                   ABUILD;
@@ -1894,6 +1897,39 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   let sym_decls, seen2, env_loop =
     collect loop_gr sub_gid ([], StringSet.empty, env_loop)
   in
+  (* Supplement: bind EVERY parent-fed forall boundary port not covered by the
+     symtab walk.  Scatter extents arrive as UNNAMED boundary entries (the
+     triple-based extent plumbing registers nothing in symtabs), so their
+     value would otherwise never be declared. *)
+  let sym_decls, seen2, env_loop =
+    ES.fold
+      (fun ((sn, sp), (dn, dp), tyid) (decls, seen, e) ->
+        if dn <> nid then (decls, seen, e)
+        else if FullPortMap.mem (sub_gid, 0, dp, `Out) e.var_map then
+          (decls, seen, e)
+        else
+          let cname =
+            get_c_name e.proc_map e.gid_name_map sub_gid 0 dp `Out loop_gr
+          in
+          if StringSet.mem cname seen then (decls, seen, e)
+          else
+            let cty =
+              try c_type_of_if1_ty env.tm (TM.find tyid env.tm)
+              with _ -> C.Basic "int32_t"
+            in
+            let init = Some (get_expr env gid sn sp `Out) in
+            let e =
+              {
+                e with
+                var_map =
+                  FullPortMap.add (sub_gid, 0, dp, `Out) (C.Id cname) e.var_map;
+                type_table =
+                  FullPortMap.add (sub_gid, 0, dp, `Out) cty e.type_table;
+              }
+            in
+            (decls @ [ C.Decl (cty, cname, init) ], StringSet.add cname seen, e))
+      gr.eset (sym_decls, seen2, env_loop)
+  in
   (* Mark the hoisted names as already-declared so later lowering (lower_graph for
      the body/returns) ASSIGNS them instead of re-declaring. *)
   let env_loop =
@@ -2484,6 +2520,170 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                           FINALVALUE nor DV_GATHER -- unhandled forall returns \
                           kind"
                          port);
+                  (* DV_SCATTER_AT: store slot comes from the PLACEMENT values
+                     (node ports 3+), allocation from the DECLARED extents
+                     (DV_MAKE_DOPE ports 2+) -- NOT from the generator ranges
+                     or the flat counter.  Placements are per-iteration BODY
+                     values; extents arrive on the forall boundary
+                     (loop-invariant, preheader-safe). *)
+                  let scatter =
+                    match find_subgraph loop_gr "RETURNS" with
+                    | None -> None
+                    | Some (rn_nid, r_gr) -> (
+                        let gnid =
+                          ES.fold
+                            (fun ((sn, _), (dn, dp), _) a ->
+                              if dn = 0 && dp = port then Some sn else a)
+                            r_gr.eset None
+                        in
+                        match gnid with
+                        | Some g -> (
+                            match NM.find_opt g r_gr.nmap with
+                            | Some (Simple (_, DV_SCATTER_AT, _, _, _)) ->
+                                (* RETURNS boundary port -> C expr, via the
+                                   forall-level edge into the RETURNS compound:
+                                   src 0 = forall boundary (extent), src other
+                                   = BODY compound (placement). *)
+                                let rb_expr rp =
+                                  match
+                                    ES.fold
+                                      (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                        if dn2 = rn_nid && dp2 = rp then
+                                          Some (sn2, sp2)
+                                        else a)
+                                      loop_gr.eset None
+                                  with
+                                  | Some (0, q) ->
+                                      get_expr env_loop sub_gid 0 q `Out
+                                  | Some (_, dp) -> (
+                                      match
+                                        List.find_opt
+                                          (fun (p, _, _) -> p = dp)
+                                          body_outs
+                                      with
+                                      | Some (_, e, _) -> e
+                                      | None ->
+                                          failwith
+                                            "forall scatter: placement has no \
+                                             lowered body output")
+                                  | None ->
+                                      failwith
+                                        "forall scatter: RETURNS input not \
+                                         wired"
+                                in
+                                let ports_from node lo =
+                                  ES.fold
+                                    (fun ((sn, sp), (dn, dp), _) acc ->
+                                      if dn = node && dp >= lo && sn = 0 then
+                                        (dp, sp) :: acc
+                                      else acc)
+                                    r_gr.eset []
+                                  |> List.sort compare
+                                in
+                                let plcs =
+                                  List.map
+                                    (fun (_, rp) -> rb_expr rp)
+                                    (ports_from g 3)
+                                in
+                                let exts =
+                                  match
+                                    ES.fold
+                                      (fun ((sn, _), (dn, dp), _) a ->
+                                        if dn = g && dp = 2 then Some sn else a)
+                                      r_gr.eset None
+                                  with
+                                  | Some m ->
+                                      List.map
+                                        (fun (_, rp) -> rb_expr rp)
+                                        (ports_from m 2)
+                                  | None -> []
+                                in
+                                Some (plcs, exts)
+                            | _ -> None)
+                        | None -> None)
+                  in
+                  match scatter with
+                  | Some (plcs, exts) ->
+                      if out_ty = C.Basic "sisal_array_t" then
+                        failwith
+                          "forall scatter of array-valued elements not \
+                           lowered yet";
+                      if plcs = [] || List.length plcs <> List.length exts then
+                        failwith
+                          "forall scatter: placement/extent arity mismatch";
+                      let k = List.length exts in
+                      let total =
+                        List.fold_left
+                          (fun a e -> C.BinOp (C.Mul, a, e))
+                          (List.hd exts) (List.tl exts)
+                      in
+                      let alloc =
+                        C.Expr
+                          (C.BinOp
+                             ( C.Assign,
+                               res_v,
+                               C.Call
+                                 ( "sisal_array_alloc_empty",
+                                   [
+                                     C.LitInt k;
+                                     C.LitInt tid;
+                                     C.Cast (C.Basic "uint64_t", total);
+                                   ] ) ))
+                        :: List.concat
+                             (List.mapi
+                                (fun j e ->
+                                  [
+                                    C.Expr
+                                      (C.BinOp
+                                         ( C.Assign,
+                                           C.Index
+                                             ( C.Member (res_v, "dims"),
+                                               C.LitInt j ),
+                                           e ));
+                                    C.Expr
+                                      (C.BinOp
+                                         ( C.Assign,
+                                           C.Index
+                                             ( C.Member (res_v, "lower_bound"),
+                                               C.LitInt j ),
+                                           C.LitInt 1 ));
+                                  ])
+                                exts)
+                      in
+                      (* row-major slot from 1-based placements (Horner):
+                         slot = (...((p0-1)*e1 + (p1-1))*e2 + ...) *)
+                      let slot =
+                        match (plcs, exts) with
+                        | p0 :: ptl, _ :: etl ->
+                            List.fold_left2
+                              (fun acc p e ->
+                                C.BinOp
+                                  ( C.Add,
+                                    C.BinOp (C.Mul, acc, e),
+                                    C.BinOp (C.Sub, p, C.LitInt 1) ))
+                              (C.BinOp (C.Sub, p0, C.LitInt 1))
+                              ptl etl
+                        | _ -> assert false
+                      in
+                      let store =
+                        [
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 C.Index
+                                   ( C.Cast
+                                       ( C.Pointer (out_ty, []),
+                                         C.Member (res_v, "data") ),
+                                     C.Cast (C.Basic "int64_t", slot) ),
+                                 cast ));
+                        ]
+                      in
+                      ( alloc,
+                        store,
+                        [],
+                        (res_name, C.Basic "sisal_array_t"),
+                        (port, res_v) )
+                  | None ->
                   let alloc =
                     C.Expr
                       (C.BinOp
@@ -2659,7 +2859,15 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         ]
                   in
                   (alloc, store, after, (res_name, sat), (port, res_v)))
-            body_outs
+            (* Only the CLAUSE outputs: the BODY also exports scatter
+               placements (ports past the RETURNS output count), which are
+               operands of the scatter stores, not forall outputs. *)
+            (let n_forall_outs =
+               match find_subgraph loop_gr "RETURNS" with
+               | Some (_, rg) -> List.length (get_boundary_outputs rg)
+               | None -> List.length body_outs
+             in
+             List.filter (fun (p, _, _) -> p < n_forall_outs) body_outs)
         in
         let befores = List.concat_map (fun (b, _, _, _, _) -> b) per in
         let inners = List.concat_map (fun (_, i, _, _, _) -> i) per in

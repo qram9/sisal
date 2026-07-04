@@ -175,6 +175,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN();
 extern "C" sisal_array_t func_MAIN();  // rank grows 1->2->3 inner nest to outer
 #endif
 
+#ifdef TEST_TRANSPOSE_AT_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, int32_t n, int32_t m);
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5351,6 +5355,23 @@ static void test_grow_nest_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_TRANSPOSE_AT_DV
+static void test_transpose_at_dv(void) {
+    printf("\n=== Group: transpose_at_dv (cross forall scatter, no loop interchange) ===\n");
+    // A 2x3 row-major [[1,2,3],[4,5,6]]; scatter at [j,i] -> 3x2 [[1,4],[2,5],[3,6]].
+    sisal_array_t a = sisal_array_alloc_empty(2, 6, 6);
+    a.dims[0] = 2; a.dims[1] = 3;
+    for (int i = 0; i < 6; i++) ((int32_t*)a.data)[i] = i + 1;
+    sisal_array_t t = func_MAIN(a, 2, 3);
+    int32_t ex[6] = { 1,4, 2,5, 3,6 };
+    bool ok = (t.rank == 2) && ((int)t.dims[0] == 3) && ((int)t.dims[1] == 2)
+           && ((int)t.size == 6);
+    for (int k = 0; ok && k < 6; k++) ok = ok && (((int32_t*)t.data)[k] == ex[k]);
+    check("transpose(2x3) at [j,i] == 3x2", ok);
+    if (a.data) free(a.data);
+    if (t.data) free(t.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5623,6 +5644,9 @@ main (void)
 #ifdef TEST_GROW_NEST_DV
   test_grow_nest_dv ();
 #endif
+#ifdef TEST_TRANSPOSE_AT_DV
+  test_transpose_at_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5813,6 +5837,7 @@ main (void)
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
+    && !defined(TEST_TRANSPOSE_AT_DV)                                         \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
