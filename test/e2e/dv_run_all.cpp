@@ -187,6 +187,10 @@ extern "C" sisal_array_t func_MAIN();
 extern "C" sisal_array_t func_MAIN(int32_t n);  // 3-D 3-point stencil, 3 passes
 #endif
 
+#ifdef TEST_DFT_DV
+extern "C" sisal_array_t func_MAIN(int32_t N);  // DFT, complex_double records in array_dv
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5415,6 +5419,25 @@ static void test_smooth_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_DFT_DV
+static void test_dft_dv(void) {
+    printf("\n=== Group: dft_dv (DFT; RECORDS (complex_double) in array_dv) ===\n");
+    // X[j] = sin(N*pi/8) is a CONSTANT signal (N=4 -> c=1): Y[1] = (N*c, 0),
+    // all other bins 0.  First e2e exercising RBUILD/RELEMENTS lowering and
+    // records as array_dv elements.  Tolerance 1e-6: some intermediates ride
+    // float-typed slots (pre-existing inference default), not a records issue.
+    struct cdbl { double re, im; };
+    int N = 4;
+    sisal_array_t y = func_MAIN(N);
+    struct cdbl* d = (struct cdbl*)y.data;
+    bool ok = ((int)y.size == N);
+    ok = ok && (fabs(d[0].re - 4.0) < 1e-6) && (fabs(d[0].im) < 1e-6);
+    for (int k = 1; ok && k < N; k++)
+      ok = ok && (fabs(d[k].re) < 1e-6) && (fabs(d[k].im) < 1e-6);
+    check("dft(const signal, N=4) == [(4,0), 0, 0, 0]", ok);
+    if (y.data) free(y.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5696,6 +5719,9 @@ main (void)
 #ifdef TEST_SMOOTH_DV
   test_smooth_dv ();
 #endif
+#ifdef TEST_DFT_DV
+  test_dft_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5887,7 +5913,7 @@ main (void)
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
-    && !defined(TEST_SMOOTH_DV)                                               \
+    && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

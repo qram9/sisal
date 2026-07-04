@@ -241,11 +241,43 @@ let get_elem_type env gr nid =
   let tm = get_typemap_tm gr in
   try match TM.find ty_id tm with | Array_dv et_id | Array_ty et_id -> TM.find et_id tm | _ -> Unknown_ty with _ -> Unknown_ty
 
+(** [c_type_of_if1_tyid tm tyid] — like c_type_of_if1_ty but takes the type ID,
+    which is required to name record types correctly: a record value's C type is
+    `struct struct_rec_<its own typemap id>` (matching collect_all_records'
+    emission), not the id of its first FIELD's type, which is all the
+    value-based mapper can see. *)
+let c_type_of_if1_tyid tm tyid =
+  match TM.find_opt tyid tm with
+  | Some (Record (_, _, name) as ty) ->
+      let sname = String.lowercase_ascii name in
+      if
+        sname = "int" || sname = "integer" || sname = "int32"
+        || sname = "double" || sname = "double_real" || sname = "float"
+        || sname = "real" || sname = "bool" || sname = "boolean"
+      then c_type_of_if1_ty tm ty
+      else C.Basic (Printf.sprintf "struct struct_rec_%d" tyid)
+  | Some ty -> c_type_of_if1_ty tm ty
+  | None -> C.Basic "float"
+
+(** [is_struct_cty ty] — is this C type an emitted record struct? *)
+let is_struct_cty = function
+  | C.Basic s -> String.length s > 7 && String.sub s 0 7 = "struct "
+  | _ -> false
+
+(** [default_init_for ty] — the zero initializer a declaration of [ty] needs:
+    aggregates take brace init, scalars take 0. *)
+let default_init_for ty =
+  if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
+  else if is_struct_cty ty then Some (C.Id "{}")
+  else Some (C.LitInt 0)
+
 let rec collect_record_fields tm label =
   match TM.find_opt label tm with
+  | Some (Record (0, next_label, "")) ->
+      (* chain HEADER (Record (0, first_field, "")): no field of its own *)
+      collect_record_fields tm next_label
   | Some (Record (field_ty_id, next_label, name)) ->
-      let ty = c_type_of_if1_ty tm (try TM.find field_ty_id tm with _ -> Basic REAL) in
-      let fields = [ (name, ty) ] in
+      let fields = [ (name, c_type_of_if1_tyid tm field_ty_id) ] in
       fields @ collect_record_fields tm next_label
   | _ -> []
 

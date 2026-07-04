@@ -305,8 +305,8 @@ let infer_types env gr gid =
     let cs, _ps = g.symtab in
     SM.iter
       (fun _ v ->
-        let ty_val = try TM.find v.val_ty tm with _ -> Basic REAL in
-        set_ty cur_gid v.val_def v.def_port `Out (c_type_of_if1_ty tm ty_val))
+        set_ty cur_gid v.val_def v.def_port `Out
+          (c_type_of_if1_tyid tm v.val_ty))
       cs;
     NM.iter
       (fun nid node ->
@@ -379,6 +379,17 @@ let infer_types env gr gid =
               else C.Basic "float"
             in
             Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
+            (* RBUILD/RELEMENTS: type outputs from the OUT EDGE's IF1 type id
+               -- the only way a record output gets its `struct struct_rec_N`
+               C type (the default float would make assign_with_cast emit
+               SISAL_CAST(float, struct)). *)
+            (if sym = RBUILD || sym = RELEMENTS then
+               let _, gtm, _ = g.typemap in
+               ES.iter
+                 (fun ((sn, sp), _, tyid) ->
+                   if sn = nid && tyid <> 0 then
+                     set_ty cur_gid nid sp `Out (c_type_of_if1_tyid gtm tyid))
+                 g.eset);
             (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
              array-producing (is_arr) yet must NOT have port 0 coerced to sisal_array_t. *)
             if
@@ -459,8 +470,8 @@ let infer_types env gr gid =
          source that pass0/pass1 already typed as int32_t. *)
           let c0 =
             match TM.find_opt ty_id tm2 with
-            | Some edge_if1_ty ->
-                let ety = c_type_of_if1_ty tm2 edge_if1_ty in
+            | Some _ ->
+                let ety = c_type_of_if1_tyid tm2 ty_id in
                 if ety <> C.Basic "float" then
                   let c1 =
                     if sty = C.Basic "float" then
@@ -784,10 +795,7 @@ let assign_with_cast env gid nid pid dir src_expr =
     if StringSet.mem name env.seen_decls then
       ([ C.Expr (C.BinOp (C.Assign, v_res, cast_expr)) ], env)
     else
-      let init_val =
-        if dst_ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
-        else Some (C.LitInt 0)
-      in
+      let init_val = default_init_for dst_ty in
       let decl = C.Decl (dst_ty, name, init_val) in
       let assign = C.Expr (C.BinOp (C.Assign, v_res, cast_expr)) in
       let env' =
@@ -826,10 +834,7 @@ let declare_outputs env gr gid nid node =
       if StringSet.mem name e.seen_decls then (acc_stmts, e)
       else
         let ty = get_final_ty e gid nid pid out_dir in
-        let init_val =
-          if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
-          else Some (C.LitInt 0)
-        in
+        let init_val = default_init_for ty in
         ( acc_stmts @ [ C.Decl (ty, name, init_val) ],
           {
             e with
@@ -857,10 +862,7 @@ let pre_declare_graph_locals env gr gid =
           if StringSet.mem name e.seen_decls then (acc_stmts, e)
           else
             let ty = get_final_ty e gid v.val_def v.def_port `Out in
-            let init_val =
-              if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
-              else Some (C.LitInt 0)
-            in
+            let init_val = default_init_for ty in
             ( acc_stmts @ [ C.Decl (ty, name, init_val) ],
               {
                 e with
@@ -890,9 +892,7 @@ let pre_declare_graph_locals env gr gid =
           let init_val =
             match FullPortMap.find_opt (gid, 0, i, `Out) e.proc_param_map with
             | Some arg_expr -> Some arg_expr
-            | None ->
-                if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
-                else Some (C.LitInt 0)
+            | None -> default_init_for ty
           in
           ( acc_stmts @ [ C.Decl (ty, name, init_val) ],
             {
@@ -1246,7 +1246,44 @@ and lower_simple env gr nid sym pin pout pr =
               | "stride" -> C.Index (C.Member (arr, "stride"), idx)
               | "size" -> C.Index (C.Member (arr, "dims"), idx)
               | _ -> assert false)
-         | _ -> e2)
+         | _ ->
+             (* Dope-triplet reads collapse: DV_DIMENSION's C value IS already
+                the selected component (an int), so RELEMENTS on the {lo,
+                stride, size} record is a passthrough -- the pre-records
+                contract.  Everything else is a REAL record field read: RAW
+                operand (no SISAL_CAST -- a struct needs no scalar cast and its
+                inferred port type is unreliable), member selected by the field
+                name riding pseudo-port 0. *)
+             let in_tyid =
+               ES.fold
+                 (fun ((_, _), (dn, dp), ty) acc ->
+                   if dn = nid && dp = 1 then Some ty else acc)
+                 gr.eset None
+             in
+             let is_dope_triplet =
+               match in_tyid with
+               | Some t -> (
+                   match
+                     List.map fst
+                       (collect_record_fields (get_typemap_tm gr) t)
+                   with
+                   | [ "lo"; "stride"; "size" ] -> true
+                   | _ -> false)
+               | None -> false
+             in
+             if is_dope_triplet then e2
+             else
+               let recv =
+                 match
+                   ES.fold
+                     (fun (src, dst, _) acc ->
+                       if dst = (nid, 1) then Some src else acc)
+                     gr.eset None
+                 with
+                 | Some (sn, sp) -> get_expr env gid sn sp `Out
+                 | None -> C.LitInt 0
+               in
+               C.Member (recv, fn))
     | DOT | INNERPRODUCT_NODE ->
         let in_ty = get_final_ty env gid nid 0 `In in
         if in_ty = C.Basic "sisal_array_t" then
@@ -1567,6 +1604,51 @@ and lower_simple env gr nid sym pin pout pr =
      gather's dope source) likewise: its extent operands are read structurally
      off the RETURNS graph by the gather realization, never evaluated here. *)
     | DV_GATHER | AGATHER | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
+    | RBUILD -> (
+        (* Record construction: C++ aggregate init `struct_rec_N{f0, ..}`.
+           Port k = k-th field in chain order (= source order = struct
+           emission order; pinned empirically); the last in-port is the
+           optional base, unused.  Each field arg is cast to its declared C
+           type -- C++ brace init rejects narrowing.  The struct name comes
+           from the OUT EDGE's type id, the id both c_type_of_if1_tyid and
+           collect_all_records name structs by. *)
+        let out_tyid =
+          ES.fold
+            (fun ((sn, sp), _, ty) acc ->
+              if sn = nid && sp = 0 then Some ty else acc)
+            gr.eset None
+        in
+        let tm = get_typemap_tm gr in
+        let raw_in k =
+          match
+            ES.fold
+              (fun (src, dst, _) acc ->
+                if dst = (nid, k) then Some src else acc)
+              gr.eset None
+          with
+          | Some (sn, sp) -> get_expr env gid sn sp `Out
+          | None -> C.LitInt 0
+        in
+        match out_tyid with
+        | Some tid -> (
+            match c_type_of_if1_tyid tm tid with
+            | C.Basic nm
+              when String.length nm > 7 && String.sub nm 0 7 = "struct " ->
+                let sname = String.sub nm 7 (String.length nm - 7) in
+                let fields = collect_record_fields tm tid in
+                let args =
+                  List.mapi (fun k (_, fty) -> C.Cast (fty, raw_in k)) fields
+                in
+                C.BraceInit (sname, args)
+            | _ ->
+                failwith
+                  (Printf.sprintf
+                     "RBUILD at gid=%d nid=%d: output type %d is not a record"
+                     gid nid tid))
+        | None ->
+            failwith
+              (Printf.sprintf "RBUILD at gid=%d nid=%d: no output edge" gid nid)
+        )
     | sym ->
         failwith
           (Printf.sprintf
@@ -1854,9 +1936,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
      RESOLVE a port to its slot name -- or OVERRIDE it (relays). *)
   let rec collect g ggid (acc, seen, e) =
     let tm = get_typemap_tm g in
-    let cty_of v =
-      try c_type_of_if1_ty tm (TM.find v.val_ty tm) with _ -> C.Basic "float"
-    in
+    let cty_of v = c_type_of_if1_tyid tm v.val_ty in
     let cs, _ = g.symtab in
     let acc, seen, e =
       SM.fold
@@ -1913,10 +1993,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           in
           if StringSet.mem cname seen then (decls, seen, e)
           else
-            let cty =
-              try c_type_of_if1_ty env.tm (TM.find tyid env.tm)
-              with _ -> C.Basic "int32_t"
-            in
+            let cty = c_type_of_if1_tyid env.tm tyid in
             let init = Some (get_expr env gid sn sp `Out) in
             let e =
               {
@@ -2361,8 +2438,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               in
               let res_v = C.Id res_name in
               let out_ty =
-                try c_type_of_if1_ty tm (TM.find tid tm)
-                with _ -> C.Basic "int32_t"
+                c_type_of_if1_tyid tm tid
               in
               let cast =
                 C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); value ])
@@ -3325,10 +3401,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                   | Some t -> t
                   | None -> 4
                 in
-                let elem_ty =
-                  try c_type_of_if1_ty env.tm (TM.find tid env.tm)
-                  with _ -> C.Basic "double"
-                in
+                let elem_ty = c_type_of_if1_tyid env.tm tid in
                 let res_name =
                   get_c_name env.proc_map env.gid_name_map gid nid ret_out_port
                     `Out gr
@@ -3873,8 +3946,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
             let ty =
               if i < List.length param_tids then
                 let tid = List.nth param_tids i in
-                let ty_val = try TM.find tid tm with _ -> Basic REAL in
-                c_type_of_if1_ty tm ty_val
+                c_type_of_if1_tyid tm tid
               else get_final_ty env_typed nid 0 pid `Out
             in
             let name =
@@ -4126,13 +4198,18 @@ let rec collect_all_records tm gr seen =
     TM.fold
       (fun id ty (acc, s) ->
         match ty with
-        | Record (field_ty_id, next_label, name) ->
+        | Record _ ->
             if IntSet.mem id s then (acc, s)
             else
-              let fields = collect_record_fields tm field_ty_id in
-              ( C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields))
-                :: acc,
-                IntSet.add id s )
+              (* fields = the chain starting at THIS node (headers contribute
+                 none); struct name = this node's own typemap id, matching
+                 c_type_of_if1_tyid. *)
+              let fields = collect_record_fields tm id in
+              if fields = [] then (acc, IntSet.add id s)
+              else
+                ( C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields))
+                  :: acc,
+                  IntSet.add id s )
         | _ -> (acc, s))
       tm ([], seen)
   in

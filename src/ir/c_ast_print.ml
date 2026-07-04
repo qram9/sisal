@@ -94,6 +94,12 @@ let rec string_of_expr = function
   | Cond (c, t, f) ->
       Printf.sprintf "(%s ? %s : %s)" (string_of_expr c) (string_of_expr t)
         (string_of_expr f)
+  | BraceInit (name, args) ->
+      (* parenthesized so the inner commas can't split function-like macro
+         arguments (SISAL_CAST(T, (S{a, b}))) -- macro parsing respects parens
+         but not braces *)
+      Printf.sprintf "(%s{%s})" name
+        (String.concat ", " (List.map string_of_expr args))
 
 let is_assign_op = function
   | Assign | AssignAdd | AssignSub | AssignMul | AssignDiv -> true

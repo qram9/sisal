@@ -61,6 +61,10 @@ type expr =
   | Arrow of expr * string
   | Cast of c_type * expr
   | Cond of expr * expr * expr
+  | BraceInit of string * expr list
+      (* C++ aggregate initialization `name{e1, e2, ..}` -- record/struct
+         construction (RBUILD).  name is the bare struct tag (no `struct`
+         keyword: C++ functional notation requires a simple type name). *)
 
 type stmt =
   | Decl of c_type * string * expr option

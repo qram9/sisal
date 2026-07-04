@@ -272,6 +272,7 @@ DV variants of scientific benchmarks:
   $ sisal e2e/transpose_at_dv.sis
   $ sisal e2e/forall_rowscatter_dv.sis
   $ sisal e2e/smooth_dv.sis
+  $ sisal e2e/dft_dv.sis
   $ sisal unit/lu_npiv_dv.sis
   $ sisal unit/lu_piv_dv.sis
   $ sisal unit/newgauss_dv.sis
