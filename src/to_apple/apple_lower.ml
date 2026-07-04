@@ -968,17 +968,19 @@ let rec lower_graph env parent_gr compound_nid gr gid =
   in
 
   let sorted_nodes = topo_sort gr in
-  (* The walk, as an explicit recursion: what happens at a later node can
-     depend on decisions made at an earlier one (a fold's stepper can't edit
-     the worklist).  [visited] holds nodes CONSUMED by an earlier step (a
-     fused tile lowered them as part of itself, binding their output ports);
-     the walk silently drops them.  Nothing populates it yet -- the tiling
-     pass (catenate spines; dv_dimension+RELEMENTS fusion) will. *)
-  let rec walk_nodes visited acc_stmts e = function
+  (* The walk, as an explicit recursion.  NOTE on terms: topo_sort already
+     yields each node exactly once, so no traversal-correctness "visited" set
+     is needed.  [covered] is a COVERING mark (instruction-selection sense:
+     tree tiling / maximal munch): nodes whose work was emitted as part of a
+     larger unit rooted at an earlier node, with their output ports already
+     bound there -- the walk drops them instead of translating them
+     independently.  Nothing populates it yet; the catenate-spine fold and
+     the dv_dimension+RELEMENTS fusion will. *)
+  let rec walk_nodes covered acc_stmts e = function
     | [] -> (acc_stmts, e)
-    | nid :: rest when IntSet.mem nid visited ->
-        walk_nodes visited acc_stmts e rest
-    | 0 :: rest -> walk_nodes visited acc_stmts e rest (* boundary *)
+    | nid :: rest when IntSet.mem nid covered ->
+        walk_nodes covered acc_stmts e rest
+    | 0 :: rest -> walk_nodes covered acc_stmts e rest (* boundary *)
     | nid :: rest -> (
         match NM.find_opt nid gr.nmap with
         | Some (Literal (_, code, value, _)) ->
@@ -990,11 +992,11 @@ let rec lower_graph env parent_gr compound_nid gr gid =
                   try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
             in
             let stmts, e' = assign_with_cast e gid nid 0 `Out lit in
-            walk_nodes visited (acc_stmts @ stmts) e' rest
+            walk_nodes covered (acc_stmts @ stmts) e' rest
         | Some node ->
             let node_stmts, e' = lower_node e gr nid node in
-            walk_nodes visited (acc_stmts @ node_stmts) e' rest
-        | None -> walk_nodes visited acc_stmts e rest)
+            walk_nodes covered (acc_stmts @ node_stmts) e' rest
+        | None -> walk_nodes covered acc_stmts e rest)
   in
   let res_stmts, final_env =
     walk_nodes IntSet.empty b_in_stmts env sorted_nodes
