@@ -2603,11 +2603,56 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         | None -> None)
                   in
                   match scatter with
+                  | Some (plcs, exts)
+                    when out_ty = C.Basic "sisal_array_t" ->
+                      (* ARRAY-valued element: the element's dims become the
+                         TAIL of the shape at its slot.  Element byte size and
+                         rank are runtime values off the element's dope, so
+                         allocation is lazy (first store) -- reuse the
+                         for-initial helper: one whole-element memcpy per
+                         iteration at slot = placement - 1.  Single leading
+                         coordinate only for now (a rank>1 placement of a tile
+                         needs strided copies). *)
+                      (match (plcs, exts) with
+                      | [ p ], [ e ] ->
+                          let before =
+                            [
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     res_v,
+                                     C.Call ("sisal_array_empty", []) ));
+                            ]
+                          in
+                          let store =
+                            [
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     res_v,
+                                     C.Call
+                                       ( "sisal_array_shaped_store",
+                                         [
+                                           res_v;
+                                           value;
+                                           C.Cast (C.Basic "int64_t", e);
+                                           C.Cast
+                                             ( C.Basic "int64_t",
+                                               C.BinOp (C.Sub, p, C.LitInt 1)
+                                             );
+                                         ] ) ));
+                            ]
+                          in
+                          ( before,
+                            store,
+                            [],
+                            (res_name, C.Basic "sisal_array_t"),
+                            (port, res_v) )
+                      | _ ->
+                          failwith
+                            "forall scatter of array elements: single leading \
+                             coordinate only (tile placement not lowered yet)")
                   | Some (plcs, exts) ->
-                      if out_ty = C.Basic "sisal_array_t" then
-                        failwith
-                          "forall scatter of array-valued elements not \
-                           lowered yet";
                       if plcs = [] || List.length plcs <> List.length exts then
                         failwith
                           "forall scatter: placement/extent arity mismatch";

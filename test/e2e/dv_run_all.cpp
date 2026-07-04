@@ -179,6 +179,10 @@ extern "C" sisal_array_t func_MAIN();  // rank grows 1->2->3 inner nest to outer
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, int32_t n, int32_t m);
 #endif
 
+#ifdef TEST_FORALL_ROWSCATTER_DV
+extern "C" sisal_array_t func_MAIN();
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5372,6 +5376,19 @@ static void test_transpose_at_dv(void) {
     if (t.data) free(t.data);
 }
 #endif
+#ifdef TEST_FORALL_ROWSCATTER_DV
+static void test_forall_rowscatter_dv(void) {
+    printf("\n=== Group: forall_rowscatter_dv (whole arrays as tails at an index) ===\n");
+    // row(i) lands at slot 4-i -> rows reversed; element dims = the slot's tail.
+    sisal_array_t r = func_MAIN();
+    int32_t ex[12] = { 3,6,9,12, 2,4,6,8, 1,2,3,4 };
+    bool ok = (r.rank == 2) && ((int)r.dims[0] == 3) && ((int)r.dims[1] == 4)
+           && ((int)r.size == 12);
+    for (int k = 0; ok && k < 12; k++) ok = ok && (((int32_t*)r.data)[k] == ex[k]);
+    check("forall row(i) at [4-i] == reversed rows (3,4)", ok);
+    if (r.data) free(r.data);
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -5647,6 +5664,9 @@ main (void)
 #ifdef TEST_TRANSPOSE_AT_DV
   test_transpose_at_dv ();
 #endif
+#ifdef TEST_FORALL_ROWSCATTER_DV
+  test_forall_rowscatter_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5837,7 +5857,7 @@ main (void)
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
-    && !defined(TEST_TRANSPOSE_AT_DV)                                         \
+    && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
