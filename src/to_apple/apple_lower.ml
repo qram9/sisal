@@ -1271,7 +1271,18 @@ and lower_simple env gr nid sym pin pout pr =
                    | _ -> false)
                | None -> false
              in
-             if is_dope_triplet then e2
+             if is_dope_triplet then (
+               (* The collapse hard-codes ONE component: sisal_dv_dimension
+                  returns a.dims[dim] -- the SIZE.  A lo/stride read off a
+                  DV_DIMENSION value would silently get the size instead;
+                  no current graph does that (dope-ARRAY triplet loads take
+                  the Index-pattern arm above), so keep it impossible. *)
+               if fn <> "size" then
+                 failwith
+                   (Printf.sprintf
+                      "RELEMENTS(%s) on a collapsed dope triplet at gid=%d                        nid=%d: only `size` survives the DV_DIMENSION collapse"
+                      fn gid nid);
+               e2)
              else
                let recv =
                  match
