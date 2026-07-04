@@ -9753,15 +9753,28 @@ and do_return_exp in_gr ggg =
       assert (at <> 0);
       let ext_asts = match extent with Ast.Exp es -> es | _ -> [] in
       let plc_asts = match placement with Ast.Exp es -> es | _ -> [] in
+      (* TRAILING `..` in a placement is a NOP annotation: the element's dims
+         already fill the trailing axes implicitly, so `at [i, ..]` == `at [i]`
+         -- the mirror of the load side, where rank-reduce makes A[i, ..] ==
+         A[i].  Strip them.  NON-trailing `..` (e.g. `at [.., j]`, the element
+         on the LEADING axes -- a strided column scatter) is a real operator
+         and stays unimplemented-loud. *)
+      let plc_asts =
+        let rec strip_trailing = function
+          | Ast.Dotdot :: tl -> strip_trailing tl
+          | l -> List.rev l
+        in
+        strip_trailing (List.rev plc_asts)
+      in
       let plcs, in_gr =
         List.fold_left
           (fun (plcs, in_gr) p ->
             match p with
             | Ast.Dotdot ->
                 failwith
-                  "array_dv(..) of .. at: `..` placement axes are not \
-                   supported yet (the element's dims already fill the \
-                   trailing axes implicitly)"
+                  "array_dv(..) of .. at: non-trailing `..` placement (element \
+                   on leading axes) is not supported yet; trailing `..` is \
+                   redundant and allowed"
             | _ ->
                 let (pn, pp, pt), in_gr = do_simple_exp in_gr p in
                 let pn, pp, pt =
