@@ -3355,6 +3355,89 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   (res_decls @ [ C.Compound (sym_decls @ relay_stmts @ loop_stmts) ], env_out)
 
 and lower_for_initial env gr gid nid loop_gr sub_gid pr =
+  let init_nid, init_gr =
+    match find_subgraph loop_gr "INIT" with
+    | Some x -> x
+    | _ -> failwith "no INIT"
+  in
+  let augment_loop_symtab () =
+    let test_nid, test_gr =
+      match find_subgraph loop_gr "TEST" with | Some x -> x | _ -> failwith "no TEST"
+    in
+    let body_nid, body_gr =
+      match find_subgraph loop_gr "BODY" with | Some x -> x | _ -> failwith "no BODY"
+    in
+    let ret_nid, ret_gr =
+      match find_subgraph loop_gr "RETURNS" with | Some x -> x | _ -> failwith "no RET"
+    in
+    let get_subgraph_by_nid dn =
+      if dn = test_nid then Some test_gr
+      else if dn = body_nid then Some body_gr
+      else if dn = ret_nid then Some ret_gr
+      else None
+    in
+    let merge_nodes =
+      NM.fold
+        (fun nid node acc ->
+          match node with
+          | Simple (_, MERGE, _, _, _) -> IntSet.add nid acc
+          | _ -> acc)
+        loop_gr.nmap IntSet.empty
+    in
+    let merged_init_ports =
+      ES.fold
+        (fun ((sn, sp), (dn, dp), _) acc ->
+          if sn = init_nid && IntSet.mem dn merge_nodes && dp = 1 then
+            IntSet.add sp acc
+          else acc)
+        loop_gr.eset IntSet.empty
+    in
+    let init_outputs =
+      ES.fold
+        (fun ((sn, sp), _, _) acc ->
+          if sn = init_nid then IntSet.add sp acc else acc)
+        loop_gr.eset IntSet.empty
+    in
+    let non_merged_ports = IntSet.diff init_outputs merged_init_ports in
+    if IntSet.is_empty non_merged_ports then (loop_gr, IntSet.empty)
+    else
+      let cs_loop, ps_loop = loop_gr.symtab in
+      let cs_loop' =
+        IntSet.fold
+          (fun sp cs_acc ->
+            match
+              ES.fold
+                (fun ((sn, sp2), (dn, dp), _) a ->
+                  if sn = init_nid && sp2 = sp && dn <> 0 then Some (dn, dp) else a)
+                loop_gr.eset None
+            with
+            | Some (dn, dp) -> (
+                match get_subgraph_by_nid dn with
+                | Some target_gr -> (
+                    let cs_t, _ = target_gr.symtab in
+                    match
+                      SM.fold
+                        (fun v name_entry a ->
+                          if name_entry.val_def = 0 && name_entry.def_port = dp then Some (v, name_entry.val_ty) else a)
+                        cs_t None
+                    with
+                    | Some (v, val_ty) ->
+                        SM.add v
+                          {
+                            val_name = v;
+                            val_ty = val_ty;
+                            val_def = init_nid;
+                            def_port = sp;
+                          }
+                          cs_acc
+                    | None -> cs_acc)
+                | None -> cs_acc)
+            | None -> cs_acc)
+          non_merged_ports cs_loop
+      in
+      ({ loop_gr with symtab = (cs_loop', ps_loop) }, non_merged_ports)
+  in
+  let loop_gr, non_merged_ports = augment_loop_symtab () in
   let env_init_base =
     {
       env with
@@ -3495,29 +3578,17 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
         else (acc_stmts, e))
       loop_gr.eset ([], e_outer)
   in
-  (* Map subgraph outputs into parent loop GID's var_map so consumer subgraphs
-     (like TEST or BODY) can resolve them via boundary ports. *)
-  let map_sub_outputs sub_nid sub_gid_x sub_gr_x e_sub e_outer =
-    ES.fold
-      (fun ((sn, sp), _, _) e ->
-        if sn = sub_nid then
-          match get_sub_out_expr_and_ty sub_gid_x sub_nid sub_gr_x e_sub sp with
-          | Some (expr, ty) ->
-              {
-                e with
-                var_map =
-                  FullPortMap.add (sub_gid, sub_nid, sp, `Out) expr e.var_map;
-                type_table =
-                  FullPortMap.add (sub_gid, sub_nid, sp, `Out) ty e.type_table;
-              }
-          | None -> e
-        else e)
-      loop_gr.eset e_outer
-  in
-  let init_nid, init_gr =
-    match find_subgraph loop_gr "INIT" with
-    | Some x -> x
-    | _ -> failwith "no INIT"
+  (* Copy non-merged boundary outputs of INIT into parent-level variables *)
+  let copy_non_merged_outputs sub_nid sub_gid_x sub_gr_x e_sub e_outer =
+    IntSet.fold
+      (fun sp (acc_stmts, e) ->
+        match get_sub_out_expr sub_gid_x sub_nid sub_gr_x e_sub sp with
+        | Some src_expr ->
+            let parent_var = get_expr e sub_gid sub_nid sp `Out in
+            let assign = C.Expr (C.BinOp (C.Assign, parent_var, src_expr)) in
+            (acc_stmts @ [ assign ], e)
+        | None -> (acc_stmts, e))
+      non_merged_ports ([], e_outer)
   in
   let init_gid =
     try GidMap.find (sub_gid, init_nid) env.gid_table with _ -> -1
@@ -3546,8 +3617,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let carry_init_stmts, env_loop =
     update_carry_slots init_nid init_gid init_gr e_init env_loop
   in
-  let env_loop =
-    map_sub_outputs init_nid init_gid init_gr e_init env_loop
+  let copy_non_merged_stmts, env_loop =
+    copy_non_merged_outputs init_nid init_gid init_gr e_init env_loop
   in
   (* Front-edge seeding: copy each MERGE phi's initial value (input port 1, sourced from an
      INIT boundary output) into the MERGE variable BEFORE the loop runs. This is the entry
@@ -4195,7 +4266,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     @ [
         C.Compound
           (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
-         @ init_stmts @ carry_init_stmts @ merge_init_seeds @ test_stmts1
+         @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts @ merge_init_seeds @ test_stmts1
          @ gather_pre @ [ while_loop ] @ ret_stmts @ props);
       ],
     final_env )
