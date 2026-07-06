@@ -305,6 +305,9 @@ extern "C" struct FUNC_MAIN_results func_MAIN (float re1, float im1, float re2, 
 #ifdef TEST_BUBBLE_E2E
 extern "C" sisal_array_t func_BUBBLE (int32_t N, sisal_array_t AIN);
 #endif
+#ifdef TEST_LEGPOLY_DV_E2E
+extern "C" sisal_array_t func_LEGENDREPOLYOF1STKIND (int32_t IR, int32_t IRMAX2, int32_t JXXMX, float COAS, float SIAS, float DELTAS);
+#endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
                               int32_t B); // let P,Q := Two2(a,b) -> P+Q
@@ -2295,6 +2298,25 @@ test_bubble_e2e (void)
   check ("bubble[3] == 5", ai (r, 3) == exp[3]);
   check ("bubble[4] == 8", ai (r, 4) == exp[4]);
   free (va.data);
+  free (r.data);
+}
+#endif
+#ifdef TEST_LEGPOLY_DV_E2E
+static void
+test_legpoly_dv_e2e (void)
+{
+  printf ("\n=== Group: legpoly_dv_e2e ===\n");
+  sisal_array_t r = func_LEGENDREPOLYOF1STKIND (2, 4, 16, 0.5f, 0.8660254f, 1.04719755f);
+  check ("legpoly_dv size == 16", r.size == 16);
+  check ("legpoly_dv[0] check", fabs (((double*)r.data)[0] - 0.70710678) < 1e-5);
+  check ("legpoly_dv[1] check", fabs (((double*)r.data)[1] - 0.6123724) < 1e-5);
+  check ("legpoly_dv[2] check", fabs (((double*)r.data)[2] - -0.1976423) < 1e-5);
+  check ("legpoly_dv[3] check", fabs (((double*)r.data)[3] - -0.818488) < 1e-5);
+  check ("legpoly_dv[4] check", fabs (((double*)r.data)[4] - 0.75) < 1e-5);
+  check ("legpoly_dv[5] check", fabs (((double*)r.data)[5] - 0.838525) < 1e-5);
+  check ("legpoly_dv[6] check", fabs (((double*)r.data)[6] - 0.17539) < 1e-5);
+  check ("legpoly_dv[7] check", fabs (((double*)r.data)[7] - -0.641862) < 1e-5);
+  check ("legpoly_dv[8] check", ((double*)r.data)[8] == 0.0);
   free (r.data);
 }
 #endif
@@ -5855,6 +5877,9 @@ main (void)
 #ifdef TEST_BUBBLE_E2E
   test_bubble_e2e ();
 #endif
+#ifdef TEST_LEGPOLY_DV_E2E
+  test_legpoly_dv_e2e ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -6053,6 +6078,7 @@ main (void)
     && !defined(TEST_COMPLEX_FEATURES_E2E)                                    \
     && !defined(TEST_COMPLEX_OPS_E2E)                                         \
     && !defined(TEST_BUBBLE_E2E)                                              \
+    && !defined(TEST_LEGPOLY_DV_E2E)                                          \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

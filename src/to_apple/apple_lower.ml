@@ -3433,10 +3433,16 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
         | _ -> (acc, e))
       loop_gr.nmap ([], env_loop)
   in
-  (* Helper: find C expression for subgraph boundary output port op after lowering *)
-  let get_sub_out_expr sub_gid_x nid_x sub_gr_x e_sub op =
+  (* Helper: find C expression and type for subgraph boundary output port op after lowering *)
+  let get_sub_out_expr_and_ty sub_gid_x nid_x sub_gr_x e_sub op =
     match FullPortMap.find_opt (sub_gid_x, 0, op, `In) e_sub.var_map with
-    | Some expr -> Some expr
+    | Some expr ->
+        let ty =
+          match FullPortMap.find_opt (sub_gid_x, 0, op, `In) e_sub.type_table with
+          | Some t -> t
+          | None -> C.Basic "int32_t"
+        in
+        Some (expr, ty)
     | None -> (
         match
           ES.fold
@@ -3444,8 +3450,20 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
               if dn = 0 && dp = op then Some (sn, sp) else a)
             sub_gr_x.eset None
         with
-        | Some (sn, sp) ->
-            FullPortMap.find_opt (sub_gid_x, sn, sp, `Out) e_sub.var_map
+        | Some (sn, sp) -> (
+            match
+              FullPortMap.find_opt (sub_gid_x, sn, sp, `Out) e_sub.var_map
+            with
+            | Some expr ->
+                let ty =
+                  match
+                    FullPortMap.find_opt (sub_gid_x, sn, sp, `Out) e_sub.type_table
+                  with
+                  | Some t -> t
+                  | None -> C.Basic "int32_t"
+                in
+                Some (expr, ty)
+            | None -> None)
         | None -> (
             (* Try looking up via compound output edge in loop_gr *)
             match
@@ -3456,6 +3474,11 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
             with
             | Some _ -> None
             | None -> None))
+  in
+  let get_sub_out_expr sub_gid_x nid_x sub_gr_x e_sub op =
+    match get_sub_out_expr_and_ty sub_gid_x nid_x sub_gr_x e_sub op with
+    | Some (expr, _) -> Some expr
+    | None -> None
   in
   (* Bug 5: helper to copy subgraph outputs to carry-slot var_map entries.
      For each edge (subgraph_nid:op) → (0:cp) in loop_gr, find the C expression
@@ -3471,6 +3494,25 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
           | None -> (acc_stmts, e)
         else (acc_stmts, e))
       loop_gr.eset ([], e_outer)
+  in
+  (* Map subgraph outputs into parent loop GID's var_map so consumer subgraphs
+     (like TEST or BODY) can resolve them via boundary ports. *)
+  let map_sub_outputs sub_nid sub_gid_x sub_gr_x e_sub e_outer =
+    ES.fold
+      (fun ((sn, sp), _, _) e ->
+        if sn = sub_nid then
+          match get_sub_out_expr_and_ty sub_gid_x sub_nid sub_gr_x e_sub sp with
+          | Some (expr, ty) ->
+              {
+                e with
+                var_map =
+                  FullPortMap.add (sub_gid, sub_nid, sp, `Out) expr e.var_map;
+                type_table =
+                  FullPortMap.add (sub_gid, sub_nid, sp, `Out) ty e.type_table;
+              }
+          | None -> e
+        else e)
+      loop_gr.eset e_outer
   in
   let init_nid, init_gr =
     match find_subgraph loop_gr "INIT" with
@@ -3503,6 +3545,9 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   (* Bug 5: after INIT, initialise carry-slot C variables from INIT outputs *)
   let carry_init_stmts, env_loop =
     update_carry_slots init_nid init_gid init_gr e_init env_loop
+  in
+  let env_loop =
+    map_sub_outputs init_nid init_gid init_gr e_init env_loop
   in
   (* Front-edge seeding: copy each MERGE phi's initial value (input port 1, sourced from an
      INIT boundary output) into the MERGE variable BEFORE the loop runs. This is the entry
@@ -4056,6 +4101,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let carry_update_stmts, env_loop =
     update_carry_slots body_nid body_gid body_gr e_body env_loop
   in
+
   (* Run TEST a second time inside the while body.  Its variables are already
      pre-declared (in seen_decls from the first run), so only assignments are
      emitted — no duplicate declarations in C. *)
