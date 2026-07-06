@@ -1,0 +1,41 @@
+define Main
+
+type Complex = record [ re: real; im: real ]
+type ComplexArray = array_dv[Complex]
+
+function ComplexAdd(A : Complex; B : Complex; returns Complex)
+  record Complex [ re: A.re + B.re; im: A.im + B.im ]
+end function
+
+function ComplexMul(A : Complex; B : Complex; returns Complex)
+  record Complex [
+    re: A.re * B.re - A.im * B.im;
+    im: A.re * B.im + A.im * B.re
+  ]
+end function
+
+function ComplexSum(arr : ComplexArray; returns Complex)
+  let
+    sum_re, sum_im := 
+      for elem in arr
+        returns value of sum elem.re
+                value of sum elem.im
+      end for
+  in
+    record Complex [ re: sum_re; im: sum_im ]
+  end let
+end function
+
+function Main(re1, im1, re2, im2 : real; returns real, real, real, real, real, real)
+  let
+    A := record Complex [ re: re1; im: im1 ];
+    B := record Complex [ re: re2; im: im2 ];
+    C := ComplexAdd(A, B);
+    D := ComplexMul(A, B);
+    
+    arr := array_fill(1, 4, A);
+    sum_res := ComplexSum(arr)
+  in
+    C.re, C.im, D.re, D.im, sum_res.re, sum_res.im
+  end let
+end function

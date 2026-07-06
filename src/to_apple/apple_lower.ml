@@ -1471,18 +1471,35 @@ and lower_simple env gr nid sym pin pout pr =
         (* array_fill(lo, hi, val) -> new array [lo..hi], every element = val *)
         let e3 = get_in_expr 2 in
         let val_ty = get_final_ty env gid nid 2 `In in
-        let fn =
-          match val_ty with
-          | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_fill_i32"
-          | C.Basic "double" -> "sisal_array_fill_f64"
-          | C.Basic "sisal_array_t" -> "sisal_array_fill_arr"
-          | _ -> "sisal_array_fill_f32"
-        in
-        C.Call
-          ( fn,
-            [
-              C.Cast (C.Basic "int64_t", e1); C.Cast (C.Basic "int64_t", e2); e3;
-            ] )
+        if is_struct_cty val_ty then
+          let out_ty_id =
+            ES.fold
+              (fun ((sn, sp), _, t) acc ->
+                if sn = nid && sp = 0 && t <> 0 then Some t else acc)
+              gr.eset None
+            |> Option.value ~default:0
+          in
+          C.Call
+            ( "sisal_array_fill_rec",
+              [
+                C.Cast (C.Basic "int64_t", e1);
+                C.Cast (C.Basic "int64_t", e2);
+                e3;
+                C.LitInt out_ty_id;
+              ] )
+        else
+          let fn =
+            match val_ty with
+            | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_fill_i32"
+            | C.Basic "double" -> "sisal_array_fill_f64"
+            | C.Basic "sisal_array_t" -> "sisal_array_fill_arr"
+            | _ -> "sisal_array_fill_f32"
+          in
+          C.Call
+            ( fn,
+              [
+                C.Cast (C.Basic "int64_t", e1); C.Cast (C.Basic "int64_t", e2); e3;
+              ] )
     | DVABUILD | ABUILD ->
         let get_raw_in_expr p =
           let producers =
@@ -2370,7 +2387,6 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   let rec lower_gen ?(before = []) g ggid inner =
     let env_g0 = { env_loop with curr_gid = ggid; curr_gr = g } in
     let slot n p = get_c_name env.proc_map env.gid_name_map ggid n p `Out g in
-    let tm = get_typemap_tm g in
     let port_cty n p =
       match
         ES.fold
@@ -2378,8 +2394,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
             if sn = n && sp = p && t <> 0 then Some t else acc)
           g.eset None
       with
-      | Some t -> (
-          try c_type_of_if1_ty tm (TM.find t tm) with _ -> C.Basic "int32_t")
+      | Some t -> c_type_of_if1_tyid env_loop.tm t
       | None -> C.Basic "int32_t"
     in
     let bind e n p =
@@ -4336,10 +4351,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
               get_c_name e.proc_map e.gid_name_map nid 0 pid `In sub_gr
             in
             if not (StringSet.mem name e.seen_decls) then
-              let init_val =
-                if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
-                else Some (C.LitInt 0)
-              in
+              let init_val = default_init_for ty in
               ( acc_stmts @ [ C.Decl (ty, name, init_val) ],
                 {
                   e with

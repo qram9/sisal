@@ -290,6 +290,7 @@ let c_type_of_if1_tyid tm tyid =
 (** [is_struct_cty ty] — is this C type an emitted record struct? *)
 let is_struct_cty = function
   | C.Basic s -> String.length s > 7 && String.sub s 0 7 = "struct "
+  | C.Struct _ | C.Union _ -> true
   | _ -> false
 
 (** [default_init_for ty] — the zero initializer a declaration of [ty] needs:

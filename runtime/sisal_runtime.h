@@ -501,6 +501,15 @@ inline sisal_array_t sisal_array_fill_arr(int64_t lo, int64_t hi, sisal_array_t 
     return res;
 }
 
+template <typename T>
+inline sisal_array_t sisal_array_fill_rec(int64_t lo, int64_t hi, T val, int32_t type_id) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_sized(1, type_id, (uint64_t)n, sizeof(T));
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((T*)res.data)[k] = val;
+    return res;
+}
+
 /* ADDL: prepend `val` at the low end -> size+1, val at index 0, A shifted up,
    lower_bound-1.  Mirror of ADDH (8-byte slot convention). */
 inline sisal_array_t sisal_array_addl_i32(sisal_array_t a, int32_t val) {

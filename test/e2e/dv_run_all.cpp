@@ -298,6 +298,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN (int32_t SEL, float VAL);
 #ifdef TEST_COMPLEX_FEATURES_E2E
 extern "C" float func_MAIN (int32_t SEL, float VAL, int32_t SIZE);
 #endif
+#ifdef TEST_COMPLEX_OPS_E2E
+struct FUNC_MAIN_results { float r0; float r1; float r2; float r3; float r4; float r5; };
+extern "C" struct FUNC_MAIN_results func_MAIN (float re1, float im1, float re2, float im2);
+#endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
                               int32_t B); // let P,Q := Two2(a,b) -> P+Q
@@ -2257,6 +2261,20 @@ test_complex_features_e2e (void)
 
   float r3 = func_MAIN (3, 3.14f, 4);
   check ("sel=3 (for all array sum) == 12.56", fabs (r3 - 12.56f) < 1e-5);
+}
+#endif
+#ifdef TEST_COMPLEX_OPS_E2E
+static void
+test_complex_ops_e2e (void)
+{
+  printf ("\n=== Group: complex_ops_e2e ===\n");
+  struct FUNC_MAIN_results r = func_MAIN (1.5f, 2.5f, 3.0f, -4.0f);
+  check ("Add real == 4.5", fabs (r.r0 - 4.5f) < 1e-5);
+  check ("Add imag == -1.5", fabs (r.r1 - -1.5f) < 1e-5);
+  check ("Mul real == 14.5", fabs (r.r2 - 14.5f) < 1e-5);
+  check ("Mul imag == 1.5", fabs (r.r3 - 1.5f) < 1e-5);
+  check ("Sum real == 6.0", fabs (r.r4 - 6.0f) < 1e-5);
+  check ("Sum imag == 10.0", fabs (r.r5 - 10.0f) < 1e-5);
 }
 #endif
 
@@ -5810,6 +5828,9 @@ main (void)
 #ifdef TEST_COMPLEX_FEATURES_E2E
   test_complex_features_e2e ();
 #endif
+#ifdef TEST_COMPLEX_OPS_E2E
+  test_complex_ops_e2e ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -6006,6 +6027,7 @@ main (void)
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
     && !defined(TEST_COMPLEX_FEATURES_E2E)                                    \
+    && !defined(TEST_COMPLEX_OPS_E2E)                                         \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
