@@ -3029,6 +3029,12 @@ and find_matching_union_str eee tm =
 and get_new_tagcase_graph in_gr vntt e =
   let tagcase_gr_n = If1.get_a_new_graph in_gr in
   let cs, ps = tagcase_gr_n.If1.symtab in
+  let ps =
+    If1.SM.filter
+      (fun _ entry -> not (entry.If1.val_def = 0 && entry.If1.def_port = 0))
+      ps
+  in
+  let tagcase_gr_n = { tagcase_gr_n with If1.symtab = (cs, ps) } in
   (* We can only add the tagcase If1.Name
       to matched variants. Otherwise
       cannot have access to the union's
@@ -6596,7 +6602,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
        Finally, will need to add the above symbol name to the
        boundaries of a new graph and set the type from the
        tag name. *)
-      let (_, _, aunion_type), in_gr, vn_n =
+      let (an, po, aunion_type), in_gr, vn_n =
         match ae with
         | Assign (vn, e) ->
             let vn_n =
@@ -6622,6 +6628,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
         to the newly setup graph: tagcase_gr_.*)
       let output_type_list, tagcase_gr_, tag_map =
         let tagcase_gr_ = new_graph_for_tag_case vn_n aunion_type in_gr in
+        let _, tagcase_gr_ =
+          If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" an po tagcase_gr_
+        in
         tag_builder aunion_type in_gr tagcase_gr_ tc vn_n If1.IntMap.empty
           If1.IntMap.empty
       in
@@ -6636,7 +6645,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 in
                 let jj, gr_o = extr_types gr_o (outlis, If1.IntMap.empty) in
                 let _ = check_tag_types vn_n jj output_type_list tagcase_gr_ in
-                tagcase_gr_
+                gr_o
           in
           let (aa, _, _), tagcase_gr =
             If1.add_node_2
@@ -6672,6 +6681,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    assoc_lis ))
               in_gr
           in
+          let out_gr = If1.add_edge an po fin_node 0 aunion_type out_gr in
           let tagcase_gr, out_gr =
             wire_all_syms_to_compound fin_node tagcase_gr out_gr
           in

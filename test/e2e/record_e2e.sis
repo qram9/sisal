@@ -1,0 +1,13 @@
+define Main
+
+type Cart = record[X:integer; Y:real]
+
+function Main(returns integer, real)
+  let Origin : Cart := record[X:42;Y:3.0] in
+  let XX : INTEGER := Origin.X * 2 in
+  let HOME : Cart := Origin replace [X:XX] in
+    HOME.X, HOME.Y
+  end let
+  end let
+  end let
+end function

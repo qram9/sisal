@@ -5,10 +5,16 @@
 define main
 type Inner = record[ x: integer; y: integer ];
 type Pair  = record[ a: integer; n: Inner ];
-function main( returns integer, integer, integer, integer, integer )
+function main( returns integer, integer, integer, integer, integer,
+                       integer, integer )
   let p := record Pair [a: 7; n: record Inner [x: 1; y: 2]];
       q := p replace [a: 40];
-      s := p replace [n.x: 9; a: 50]
-  in p.a + q.a, p.n.x + p.n.y, q.n.y, s.n.x + s.n.y, s.a
+      s := p replace [n.x: 9; a: 50];
+      % record ARRAYS through a byte-math runtime helper: catenate strides by
+      % the descriptor's elem_bytes (set at alloc), not the type_id guess
+      A := for i in 1, 2 returns array_dv of record Inner [x: i; y: 10*i] end for;
+      B := A || A
+  in p.a + q.a, p.n.x + p.n.y, q.n.y, s.n.x + s.n.y, s.a,
+     B[1].x + B[3].x, B[4].y
   end let
 end function

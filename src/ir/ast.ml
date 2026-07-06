@@ -923,19 +923,25 @@ and str_return_clause = function
   | Return_exp (re, mc) ->
       space_fold [ str_return_exp re; str_masking_clause mc ]
 
-and str_taglist = function
+and str_taglist ?(offset = 0) = function
   | Tag_list (tns, e) ->
-      single_space_cate
-        (single_space_cate (single_space_cate "TAG" (str_tagnames tns)) ":")
-        (str_exp e)
+      let label = mypad1 offset ("TAG " ^ str_tagnames tns ^ " :") in
+      let expr_str = str_exp ~offset:(offset + 2) e in
+      single_space_cate label (String.trim expr_str)
 
-and str_taglist_list tls = newline_fold (List.map str_taglist tls)
+and str_taglist_list ?(offset = 0) tls =
+  newline_fold (List.map (str_taglist ~offset) tls)
 
-and str_tagcase_exp = function
-  | Assign (vn, e) -> "TAGCASE " ^ str_val vn ^ ":=" ^ str_simple_exp e
-  | Tagcase_exp exp -> "TAGCASE " ^ str_simple_exp exp
+and str_tagcase_exp ?(offset = 0) = function
+  | Assign (vn, e) -> mypad1 offset ("TAGCASE " ^ str_val vn ^ " := " ^ str_simple_exp e)
+  | Tagcase_exp exp -> mypad1 offset ("TAGCASE " ^ str_simple_exp exp)
 
-and str_otherwise = function Otherwise e -> "OTHERWISE " ^ str_exp e
+and str_otherwise ?(offset = 0) = function
+  | Otherwise Empty -> ""
+  | Otherwise e ->
+      let label = mypad1 offset "OTHERWISE:" in
+      let expr_str = str_exp ~offset:(offset + 2) e in
+      single_newline_cate label expr_str
 and str_colon_spec = function sl, s -> comma_fold sl ^ ":" ^ str_sisal_type s
 
 and str_compound_type = function
@@ -1467,10 +1473,17 @@ and str_simple_exp ?(offset = 0) ?(preceed_space = 1) = function
          if k.[0] <> '\n' then "\n" ^ mypad1 offset (String.trim k) else k)
       ^ "\n" ^ mypad1 offset "END LET"
   | Tagcase (ae, tc, o) ->
+      let header = str_tagcase_exp ~offset ae in
+      let arms = str_taglist_list ~offset:(offset + 2) tc in
+      let otherwise = str_otherwise ~offset o in
+      let end_tagcase = mypad1 offset "END TAGCASE" in
       let kk =
-        single_newline_cate
-          (single_newline_cate (str_tagcase_exp ae) (str_taglist_list tc))
-          (str_otherwise o)
+        if otherwise = "" then
+          single_newline_cate (single_newline_cate header arms) end_tagcase
+        else
+          single_newline_cate
+            (single_newline_cate (single_newline_cate header arms) otherwise)
+            end_tagcase
       in
       kk
   | If (cl, el) ->

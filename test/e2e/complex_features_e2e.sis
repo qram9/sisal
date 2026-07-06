@@ -1,0 +1,41 @@
+define Main
+
+type AR = array_dv[real];
+type UN = union[A : integer; B : real; D : AR];
+
+function ProcessUnion(union_input : UN; returns real)
+  tagcase payload := union_input
+    tag A:
+      for initial
+        loop_i := 1.0;
+        loop_acc := 0.0;
+      while loop_i <= double_real(payload) repeat
+        loop_i := old loop_i + 1.0;
+        loop_acc := old loop_acc + old loop_i;
+      returns value of loop_acc
+      end for
+    tag B:
+      payload * 2.0
+    tag D:
+      for array_elem in payload
+        returns value of sum array_elem
+      end for
+    otherwise:
+      0.0
+  end tagcase
+end function
+
+function Main(input_sel : integer; input_val : real; input_size : integer; returns real)
+  let
+    u_val := 
+      if input_sel = 1 then
+        union UN [ A: input_size ]
+      elseif input_sel = 2 then
+        union UN [ B: input_val ]
+      else
+        union UN [ D: array_fill(1, input_size, input_val) ]
+      end if
+  in
+    ProcessUnion(u_val)
+  end let
+end function

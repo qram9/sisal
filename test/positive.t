@@ -82,6 +82,9 @@ Math builtins - matrix (abs/max/min/sin/cos/sqrt on mat2/mat4):
 
 Records and unions:
   $ sisal unit/record.sis
+  $ sisal e2e/record_e2e.sis
+  $ sisal e2e/tagcase_e2e.sis
+  $ sisal e2e/complex_features_e2e.sis
   $ sisal unit/union.sis
 
 DV array variants - array_dv OF with correct array_dv return types:

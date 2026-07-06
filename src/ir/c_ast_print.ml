@@ -210,6 +210,7 @@ let string_of_procedure p =
     (String.concat "\n" (List.map (string_of_stmt 1) p.body))
 
 let string_of_unit u =
+  let def_s = "#define SISAL_CUSTOM_ELEM_SIZE" in
   let inc_s =
     List.map (fun s -> "#include <" ^ s ^ ">") u.includes |> String.concat "\n"
   in
@@ -217,4 +218,4 @@ let string_of_unit u =
   let proc_s =
     List.map string_of_procedure u.procedures |> String.concat "\n\n"
   in
-  String.concat "\n\n" [ inc_s; glob_s; proc_s ]
+  String.concat "\n\n" [ def_s; inc_s; glob_s; proc_s ]

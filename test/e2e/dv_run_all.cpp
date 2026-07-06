@@ -192,7 +192,7 @@ extern "C" sisal_array_t func_MAIN(int32_t N);  // DFT, complex_double records i
 #endif
 
 #ifdef TEST_RECORD_OPS_DV
-struct FUNC_MAIN_results { int32_t r0, r1, r2, r3, r4; };
+struct FUNC_MAIN_results { int32_t r0, r1, r2, r3, r4, r5, r6; };
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
@@ -286,6 +286,17 @@ extern "C" int32_t func_MAIN (int32_t I, int32_t E); // if/elseif/else
 #ifdef TEST_IF_ELSEIF
 extern "C" int32_t func_MAIN (int32_t I, int32_t E,
                               int32_t F); // 3-var elseif chain
+#endif
+#ifdef TEST_RECORD_E2E
+struct FUNC_MAIN_results { int32_t r0; float r1; };
+extern "C" struct FUNC_MAIN_results func_MAIN ();
+#endif
+#ifdef TEST_TAGCASE_E2E
+struct FUNC_MAIN_results { float r0; float r1; };
+extern "C" struct FUNC_MAIN_results func_MAIN (int32_t SEL, float VAL);
+#endif
+#ifdef TEST_COMPLEX_FEATURES_E2E
+extern "C" float func_MAIN (int32_t SEL, float VAL, int32_t SIZE);
 #endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
@@ -2203,6 +2214,49 @@ test_fact (void)
   check ("fact(1)=1", func_MAIN (1) == 1);
   check ("fact(5)=120", func_MAIN (5) == 120);
   check ("fact(7)=5040", func_MAIN (7) == 5040);
+}
+#endif
+#ifdef TEST_RECORD_E2E
+static void
+test_record_e2e (void)
+{
+  printf ("\n=== Group: record_e2e (flat record construct and replace) ===\n");
+  struct FUNC_MAIN_results r = func_MAIN ();
+  check ("val_x == 84", r.r0 == 84);
+  check ("val_y == 3.0", r.r1 == 3.0f);
+}
+#endif
+#ifdef TEST_TAGCASE_E2E
+static void
+test_tagcase_e2e (void)
+{
+  printf ("\n=== Group: tagcase_e2e (union match and tagcase selection) ===\n");
+  struct FUNC_MAIN_results r1 = func_MAIN (1, 3.14f);
+  check ("sel=1, res_0 == 2.0", r1.r0 == 2.0f);
+  check ("sel=1, res_1 == 4.0", r1.r1 == 4.0f);
+
+  struct FUNC_MAIN_results r2 = func_MAIN (2, 3.14f);
+  check ("sel=2, res_0 == 3.14", fabs(r2.r0 - 3.14f) < 1e-5);
+  check ("sel=2, res_1 == 3.14", fabs(r2.r1 - 3.14f) < 1e-5);
+
+  struct FUNC_MAIN_results r3 = func_MAIN (3, 3.14f);
+  check ("sel=3, res_0 == 5.0", r3.r0 == 5.0f);
+  check ("sel=3, res_1 == 3.0", r3.r1 == 3.0f);
+}
+#endif
+#ifdef TEST_COMPLEX_FEATURES_E2E
+static void
+test_complex_features_e2e (void)
+{
+  printf ("\n=== Group: complex_features_e2e (combined conditional, tagcase, for-initial, and for-all) ===\n");
+  float r1 = func_MAIN (1, 3.14f, 4);
+  check ("sel=1 (for initial sum of 1..4) == 10.0", fabs (r1 - 10.0f) < 1e-5);
+
+  float r2 = func_MAIN (2, 3.14f, 4);
+  check ("sel=2 (scalar payload * 2) == 6.28", fabs (r2 - 6.28f) < 1e-5);
+
+  float r3 = func_MAIN (3, 3.14f, 4);
+  check ("sel=3 (for all array sum) == 12.56", fabs (r3 - 12.56f) < 1e-5);
 }
 #endif
 
@@ -5455,6 +5509,9 @@ static void test_record_ops_dv(void) {
           r.r0 == 47 && r.r1 == 3 && r.r2 == 2);
     check("s = p replace [n.x:9; a:50]: s.n.x+s.n.y, s.a == 11, 50",
           r.r3 == 11 && r.r4 == 50);
+    // record ARRAY through catenate (byte-math helper; elem_bytes authoritative)
+    check("B = A || A: B[1].x+B[3].x, B[4].y == 2, 20",
+          r.r5 == 2 && r.r6 == 20);
 }
 #endif
 
@@ -5744,6 +5801,15 @@ main (void)
 #ifdef TEST_RECORD_OPS_DV
   test_record_ops_dv ();
 #endif
+#ifdef TEST_RECORD_E2E
+  test_record_e2e ();
+#endif
+#ifdef TEST_TAGCASE_E2E
+  test_tagcase_e2e ();
+#endif
+#ifdef TEST_COMPLEX_FEATURES_E2E
+  test_complex_features_e2e ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -5937,6 +6003,9 @@ main (void)
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
     && !defined(TEST_RECORD_OPS_DV)                                           \
+    && !defined(TEST_RECORD_E2E)                                              \
+    && !defined(TEST_TAGCASE_E2E)                                              \
+    && !defined(TEST_COMPLEX_FEATURES_E2E)                                    \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \

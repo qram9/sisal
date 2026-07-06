@@ -127,6 +127,7 @@ let c_type_of_if1_basic = function
   | LONG | ULONG -> C.Basic "int64_t"
   | SHORT | USHORT -> C.Basic "int16_t"
   | UINT -> C.Basic "uint32_t"
+  | NULL -> C.Basic "void*"
   | _ -> C.Basic "float"
 
 (** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type. *)
@@ -146,6 +147,18 @@ let c_type_of_if1_ty tm ty =
         | 6 -> C.Basic "int32_t" | 7 -> C.Basic "int64_t" | 8 -> C.Basic "float"
         | 12 -> C.Basic "uint32_t" | _ -> C.Basic "sisal_array_t"
       ) else C.Basic (Printf.sprintf "struct struct_rec_%d" id)
+  | Union (id, _, name) ->
+      let sname = String.lowercase_ascii name in
+      if sname = "int" || sname = "integer" || sname = "int32" then C.Basic "int32_t"
+      else if sname = "double" || sname = "double_real" then C.Basic "double"
+      else if sname = "float" || sname = "real" then C.Basic "float"
+      else if sname = "bool" || sname = "boolean" then C.Basic "bool"
+      else if id <= 12 then (
+        match id with
+        | 1 -> C.Basic "bool" | 3 -> C.Basic "char" | 4 | 5 -> C.Basic "double"
+        | 6 -> C.Basic "int32_t" | 7 -> C.Basic "int64_t" | 8 -> C.Basic "float"
+        | 12 -> C.Basic "uint32_t" | _ -> C.Basic "sisal_array_t"
+      ) else C.Basic (Printf.sprintf "struct union_un_%d" id)
   (* Error-flow ports carry an error sentinel, not a value; the carried datum is a
      type number, so an int holds it fine. *)
   | Typed_error _ | ERROR _ -> C.Basic "int32_t"
@@ -246,7 +259,14 @@ let get_elem_type env gr nid =
     `struct struct_rec_<its own typemap id>` (matching collect_all_records'
     emission), not the id of its first FIELD's type, which is all the
     value-based mapper can see. *)
+let global_alias_map = ref TM.empty
+
 let c_type_of_if1_tyid tm tyid =
+  let tyid =
+    match TM.find_opt tyid !global_alias_map with
+    | Some leader -> leader
+    | None -> tyid
+  in
   match TM.find_opt tyid tm with
   | Some (Record (_, _, name) as ty) ->
       let sname = String.lowercase_ascii name in
@@ -256,6 +276,14 @@ let c_type_of_if1_tyid tm tyid =
         || sname = "real" || sname = "bool" || sname = "boolean"
       then c_type_of_if1_ty tm ty
       else C.Basic (Printf.sprintf "struct struct_rec_%d" tyid)
+  | Some (Union (_, _, name) as ty) ->
+      let sname = String.lowercase_ascii name in
+      if
+        sname = "int" || sname = "integer" || sname = "int32"
+        || sname = "double" || sname = "double_real" || sname = "float"
+        || sname = "real" || sname = "bool" || sname = "boolean"
+      then c_type_of_if1_ty tm ty
+      else C.Basic (Printf.sprintf "struct union_un_%d" tyid)
   | Some ty -> c_type_of_if1_ty tm ty
   | None -> C.Basic "float"
 
@@ -279,6 +307,24 @@ let rec collect_record_fields tm label =
   | Some (Record (field_ty_id, next_label, name)) ->
       let fields = [ (name, c_type_of_if1_tyid tm field_ty_id) ] in
       fields @ collect_record_fields tm next_label
+  | _ -> []
+
+let rec collect_union_tags tm label =
+  match TM.find_opt label tm with
+  | Some (Union (0, next_label, "")) ->
+      collect_union_tags tm next_label
+  | Some (Union (field_ty_id, next_label, name)) ->
+      let tags = [ (name, c_type_of_if1_tyid tm field_ty_id) ] in
+      tags @ collect_union_tags tm next_label
+  | _ -> []
+
+let rec collect_union_tags_with_ids tm label =
+  match TM.find_opt label tm with
+  | Some (Union (0, next_label, "")) ->
+      collect_union_tags_with_ids tm next_label
+  | Some (Union (field_ty_id, next_label, name)) ->
+      let tags = [ (label, name, c_type_of_if1_tyid tm field_ty_id) ] in
+      tags @ collect_union_tags_with_ids tm next_label
   | _ -> []
 
 let boundary_in_port_count gr = match NM.find_opt 0 gr.nmap with | Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0
