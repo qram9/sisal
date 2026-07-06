@@ -302,6 +302,9 @@ extern "C" float func_MAIN (int32_t SEL, float VAL, int32_t SIZE);
 struct FUNC_MAIN_results { float r0; float r1; float r2; float r3; float r4; float r5; };
 extern "C" struct FUNC_MAIN_results func_MAIN (float re1, float im1, float re2, float im2);
 #endif
+#ifdef TEST_BUBBLE_E2E
+extern "C" sisal_array_t func_BUBBLE (int32_t N, sisal_array_t AIN);
+#endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
                               int32_t B); // let P,Q := Two2(a,b) -> P+Q
@@ -2275,6 +2278,24 @@ test_complex_ops_e2e (void)
   check ("Mul imag == 1.5", fabs (r.r3 - 1.5f) < 1e-5);
   check ("Sum real == 6.0", fabs (r.r4 - 6.0f) < 1e-5);
   check ("Sum imag == 10.0", fabs (r.r5 - 10.0f) < 1e-5);
+}
+#endif
+#ifdef TEST_BUBBLE_E2E
+static void
+test_bubble_e2e (void)
+{
+  printf ("\n=== Group: bubble_e2e ===\n");
+  int32_t a[] = { 5, 1, 4, 2, 8 };
+  int32_t exp[] = { 1, 2, 4, 5, 8 };
+  sisal_array_t va = make_int_arr (a, 5);
+  sisal_array_t r = func_BUBBLE (5, va);
+  check ("bubble[0] == 1", ai (r, 0) == exp[0]);
+  check ("bubble[1] == 2", ai (r, 1) == exp[1]);
+  check ("bubble[2] == 4", ai (r, 2) == exp[2]);
+  check ("bubble[3] == 5", ai (r, 3) == exp[3]);
+  check ("bubble[4] == 8", ai (r, 4) == exp[4]);
+  free (va.data);
+  free (r.data);
 }
 #endif
 
@@ -5831,6 +5852,9 @@ main (void)
 #ifdef TEST_COMPLEX_OPS_E2E
   test_complex_ops_e2e ();
 #endif
+#ifdef TEST_BUBBLE_E2E
+  test_bubble_e2e ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -6028,6 +6052,7 @@ main (void)
     && !defined(TEST_TAGCASE_E2E)                                              \
     && !defined(TEST_COMPLEX_FEATURES_E2E)                                    \
     && !defined(TEST_COMPLEX_OPS_E2E)                                         \
+    && !defined(TEST_BUBBLE_E2E)                                              \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
