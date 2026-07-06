@@ -308,6 +308,12 @@ extern "C" sisal_array_t func_BUBBLE (int32_t N, sisal_array_t AIN);
 #ifdef TEST_LEGPOLY_DV_E2E
 extern "C" sisal_array_t func_LEGENDREPOLYOF1STKIND (int32_t IR, int32_t IRMAX2, int32_t JXXMX, float COAS, float SIAS, float DELTAS);
 #endif
+#ifdef TEST_NESTED_INIT_MERGE_DV
+extern "C" sisal_array_t func_MAIN (int32_t n, sisal_array_t X);
+#endif
+#ifdef TEST_MUTUAL_BUG_E2E
+extern "C" int32_t func_SWAP_BUG (int32_t n);
+#endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
                               int32_t B); // let P,Q := Two2(a,b) -> P+Q
@@ -2318,6 +2324,32 @@ test_legpoly_dv_e2e (void)
   check ("legpoly_dv[7] check", fabs (((double*)r.data)[7] - -0.641862) < 1e-5);
   check ("legpoly_dv[8] check", ((double*)r.data)[8] == 0.0);
   free (r.data);
+}
+#endif
+#ifdef TEST_NESTED_INIT_MERGE_DV
+static void
+test_nested_init_merge_dv (void)
+{
+  printf ("\n=== Group: nested_init_merge_dv ===\n");
+  sisal_array_t X;
+  X.size = 5;
+  X.data = malloc (5 * sizeof (double));
+  double* d = (double*)X.data;
+  d[0] = 1.0; d[1] = 2.0; d[2] = 3.0; d[3] = 4.0; d[4] = 5.0;
+  sisal_array_t r = func_MAIN (3, X);
+  check ("nested_init_merge_dv result size == 5", r.size == 5);
+  free (X.data);
+  free (r.data);
+}
+#endif
+#ifdef TEST_MUTUAL_BUG_E2E
+static void
+test_mutual_bug_e2e (void)
+{
+  printf ("\n=== Group: mutual_bug_e2e ===\n");
+  check ("swap_bug(1) == 20", func_SWAP_BUG (1) == 20);
+  check ("swap_bug(2) == 10", func_SWAP_BUG (2) == 10);
+  check ("swap_bug(3) == 20", func_SWAP_BUG (3) == 20);
 }
 #endif
 
@@ -5880,6 +5912,12 @@ main (void)
 #ifdef TEST_LEGPOLY_DV_E2E
   test_legpoly_dv_e2e ();
 #endif
+#ifdef TEST_NESTED_INIT_MERGE_DV
+  test_nested_init_merge_dv ();
+#endif
+#ifdef TEST_MUTUAL_BUG_E2E
+  test_mutual_bug_e2e ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -6079,6 +6117,8 @@ main (void)
     && !defined(TEST_COMPLEX_OPS_E2E)                                         \
     && !defined(TEST_BUBBLE_E2E)                                              \
     && !defined(TEST_LEGPOLY_DV_E2E)                                          \
+    && !defined(TEST_NESTED_INIT_MERGE_DV)                                    \
+    && !defined(TEST_MUTUAL_BUG_E2E)                                          \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
