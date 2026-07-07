@@ -450,6 +450,12 @@ Scientific benchmarks:
   $ sisal unit/array_ex.sis
   $ sisal unit/bad.sis
   $ sisal unit/for_all_argmax.sis
+  $ sisal unit/test_if_array_dv.sis
+  $ sisal unit/test_if_multi_array_dv.sis
+  $ sisal unit/test_mix_array_dv_if.sis
+  $ sisal unit/test_mix_scalar_array_dv.sis
+  $ sisal unit/test_multi_array_if_dv.sis
+  $ sisal unit/test_union_array_if_dv.sis
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis
