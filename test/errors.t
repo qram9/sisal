@@ -11,3 +11,15 @@ Parse error - using = instead of := in let:
   Parse error in <stdin>, line 1, col 34:
     Expected ':=' or ':' after name in let binding.
   [1]
+
+Mixed Cross and Dot in forall generators (Cross then Dot):
+  $ sisal unit/forall_dv_cross_dot.sis 2>&1
+  Cross and Dot may not be mixed in a for loop. near "" in file: unit/forall_dv_cross_dot.sis (line 10: char 0..0)
+  there was an error: Ir.If1.Sem_error("Cross and Dot may not be mixed in a for loop.")
+  [1]
+
+Mixed Cross and Dot in forall generators (Dot then Cross):
+  $ sisal unit/forall_dv_dot_cross.sis 2>&1
+  Cross and Dot may not be mixed in a for loop. near "" in file: unit/forall_dv_dot_cross.sis (line 10: char 0..0)
+  there was an error: Ir.If1.Sem_error("Cross and Dot may not be mixed in a for loop.")
+  [1]
