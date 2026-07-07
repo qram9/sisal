@@ -93,6 +93,10 @@ let var_name gid_name_map gid nid pid dir =
   let d_str = match dir with `In -> "i" | `Out -> "o" in
   Printf.sprintf "v_%s_n__%d_p%d_%s" (scope_of gid_name_map gid) nid pid d_str
 
+(** [get_c_name proc_map gid_name_map gid nid pid dir gr] — the canonical C
+    identifier for a port: the procedure name at gid 0, a symtab-derived name
+    (v_<scope>_n__<nid>_<name>) when the port is named, else the positional
+    v_<scope>_n__<nid>_p<pid>_<dir> form. *)
 let get_c_name proc_map gid_name_map gid nid pid dir gr =
   if gid = 0 && IntMap.mem nid proc_map then
     IntMap.find nid proc_map
@@ -238,6 +242,8 @@ let topo_sort_edges gr =
     |> List.sort compare)
     node_order
 
+(** [get_function_param_types tm ty_id] — the parameter type ids of a
+    Function_ty, flattening its input Tuple_ty chain. *)
 let get_function_param_types tm ty_id =
   match TM.find_opt ty_id tm with
   | Some (Function_ty (ins, _, _)) ->
@@ -249,6 +255,9 @@ let get_function_param_types tm ty_id =
       flatten ins
   | _ -> []
 
+(** [get_elem_type env gr nid] — the IF1 ELEMENT type of the array value
+    flowing out of [nid] (port 0), via the out-edge's type id; Unknown_ty
+    when it isn't an array. *)
 let get_elem_type env gr nid =
   let ty_id = ES.fold (fun ((sn, sp), _, t) acc -> if sn = nid && sp = 0 && t <> 0 then Some t else acc) gr.eset None |> Option.value ~default:0 in
   let tm = get_typemap_tm gr in
@@ -261,6 +270,9 @@ let get_elem_type env gr nid =
     value-based mapper can see. *)
 let global_alias_map = ref TM.empty
 
+(** [basic_type_of_id id] — the PRELOADED scalar typemap ids (the fixed
+    low-id table every graph starts from) mapped back to their basic type;
+    None for program-allocated ids. *)
 let basic_type_of_id = function
   | 1 -> Some BOOLEAN
   | 2 -> Some BYTE
@@ -321,6 +333,10 @@ let default_init_for ty =
   else if is_struct_cty ty then Some (C.Id "{}")
   else Some (C.LitInt 0)
 
+(** [collect_record_fields tm label] — (field name, C type) list for the
+    Record chain starting at [label]; chain HEADERS (Record (0, next, ""))
+    contribute no field.  Field order = chain order = source order = struct
+    emission order (load-bearing for RBUILD's positional aggregate init). *)
 let rec collect_record_fields tm label =
   match TM.find_opt label tm with
   | Some (Record (0, next_label, "")) ->
@@ -331,6 +347,9 @@ let rec collect_record_fields tm label =
       fields @ collect_record_fields tm next_label
   | _ -> []
 
+(** [collect_union_tags tm label] — (tag name, payload C type) list for the
+    Union chain starting at [label]; headers contribute nothing.  Union
+    mirror of collect_record_fields. *)
 let rec collect_union_tags tm label =
   match TM.find_opt label tm with
   | Some (Union (0, next_label, "")) ->
@@ -340,6 +359,9 @@ let rec collect_union_tags tm label =
       tags @ collect_union_tags tm next_label
   | _ -> []
 
+(** [collect_union_tags_with_ids tm label] — like collect_union_tags but
+    each entry also carries the tag's own typemap id (the id TAGCASE arms and
+    UBUILD reference). *)
 let rec collect_union_tags_with_ids tm label =
   match TM.find_opt label tm with
   | Some (Union (0, next_label, "")) ->
@@ -349,5 +371,6 @@ let rec collect_union_tags_with_ids tm label =
       tags @ collect_union_tags_with_ids tm next_label
   | _ -> []
 
+(** Boundary port counts (node 0's in/out lists). *)
 let boundary_in_port_count gr = match NM.find_opt 0 gr.nmap with | Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0
 let boundary_out_port_count gr = match NM.find_opt 0 gr.nmap with | Some (Boundary (_, outs, _, _)) -> List.length outs | _ -> 0

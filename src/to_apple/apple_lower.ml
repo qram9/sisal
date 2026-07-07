@@ -22,16 +22,24 @@ let c_op_of_node_sym = function
   | LESSER_EQUAL -> Some C.Le
   | _ -> None
 
+(** [rank_of_type tm ty] — STATIC rank of an IF1 type: the count of nested
+    Array_dv/Array_ty wrappers.  NOTE: for array_dv VALUES the authoritative
+    rank is the runtime dope field (a.rank); this static count only reflects
+    type-level nesting, which the flat-dv model keeps at 1 for any rank. *)
 let rec rank_of_type tm = function
   | Array_dv t -> 1 + (match TM.find_opt t tm with Some ty -> rank_of_type tm ty | None -> 0)
   | Array_ty t -> 1 + (match TM.find_opt t tm with Some ty -> rank_of_type tm ty | None -> 0)
   | _ -> 0
 
+(** [rank_of_type_id tm tid] — rank_of_type looked up by typemap id. *)
 let rank_of_type_id tm tid =
   match TM.find_opt tid tm with
   | Some ty -> rank_of_type tm ty
   | None -> 0
 
+(** [string_of_c_type ty] — compact C spelling of a C-AST type, used for
+    SISAL_CAST's template argument (local variant; the full printer lives in
+    C_ast_print). *)
 let string_of_c_type = function
   | C.Basic s -> s
   | C.Pointer (C.Basic s, _) -> s ^ "*"
@@ -164,6 +172,10 @@ let forall_reduce_ports loop_gr =
           else acc)
         ret_gr.eset []
 
+(** [forall_reduce_filter_of loop_gr out_port] — for a forall RETURNS
+    reduction at [out_port], the BODY output port carrying its `when` mask
+    (the boolean filter), or None when the reduction is unmasked.  Resolved
+    through the __forall_body_<k> boundary-name convention. *)
 let forall_reduce_filter_of loop_gr out_port =
   match find_subgraph loop_gr "RETURNS" with
   | None -> None
@@ -779,6 +791,10 @@ let infer_types env gr gid =
       Hashtbl.fold (fun k v m -> FullPortMap.add k v m) table FullPortMap.empty;
   }
 
+(** [get_final_ty env gid nid pid dir] — the C type infer_types settled on
+    for a port, from env.type_table.  Defaults to float when the port was
+    never typed (the known inference gap: untyped double intermediates ride
+    float slots). *)
 let get_final_ty env gid nid pid dir =
   match FullPortMap.find_opt (gid, nid, pid, dir) env.type_table with
   | Some ty -> ty
@@ -1064,6 +1080,11 @@ let rec lower_graph env parent_gr compound_nid gr gid =
   in
   (pre_decl_stmts @ res_stmts, final_env)
 
+(** [lower_node env gr nid node] — lower ONE node.  Compounds dispatch by
+    role: forall / if-select / for-initial (LoopA/B) / tagcase get dedicated
+    lowerings; other compounds recurse generically via lower_graph.  Simple
+    nodes go to lower_simple; Literals emit nothing (resolved at use by
+    get_expr). *)
 and lower_node env gr nid node =
   let gid = env.curr_gid in
   match node with
@@ -1139,6 +1160,14 @@ and lower_node env gr nid node =
       failwith
         (Printf.sprintf "Unsupported IF1 node type at gid=%d nid=%d" gid nid)
 
+(** [lower_simple env gr nid sym pin pout pr] — one Simple node to C.
+    Operands resolve through edges + var_map (get_in_expr wraps them in
+    SISAL_CAST to the inferred in-type); the rhs expression is chosen by the
+    opcode match; assign_with_cast binds it to the node's output variable.
+    Placeholder contracts live here too: DV_GATHER/DV_MAKE_DOPE/DV_SCATTER_AT
+    forward e1 (realized structurally by the loop lowerings), and RELEMENTS
+    on a collapsed dope triplet passes through.  [pin]/[pout] are the port
+    NAME arrays -- pseudo-ports carry record field / union tag names. *)
 and lower_simple env gr nid sym pin pout pr =
   let gid = env.curr_gid in
   let get_in_expr p =
@@ -1924,6 +1953,10 @@ and lower_simple env gr nid sym pin pout pr =
   in
   (stmts, e')
 
+(** [lower_if_graph env parent_gr nid loop_gr loop_gid] — an IF/SELECT
+    compound to a C if/else: lower the PREDICATE subgraph, then each arm's
+    subgraph inside its branch, and merge arm results by assigning both arms'
+    values to the compound's shared output variables (the phi). *)
 and lower_if_graph env parent_gr nid loop_gr loop_gid =
   let gid = env.curr_gid in
   let env_loop_base =
@@ -2078,6 +2111,11 @@ and lower_if_graph env parent_gr nid loop_gr loop_gid =
   in
   (decl_stmts @ body, { e_final with curr_gid = gid; curr_gr = parent_gr })
 
+(** [lower_tagcase env parent_gr nid loop_gr loop_gid] — a TAGCASE compound:
+    dispatch on the union value's runtime tag, bind the selected payload into
+    the chosen arm's scope, lower each arm's subgraph in its branch, and merge
+    arm outputs into the compound's output variables.  Union type ids resolve
+    through global_alias_map (dedup'd union ids -> leader). *)
 and lower_tagcase env parent_gr nid loop_gr loop_gid =
   let gid = env.curr_gid in
   let tm = get_typemap_tm parent_gr in
@@ -2263,6 +2301,15 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
   in
   (decl_stmts @ [ C.Raw switch_stmt_str ], env)
 
+(** [lower_forall env gr gid nid loop_gr sub_gid pr] — a FORALL compound to
+    C loops.  Generator nest -> counted for-loops (extents/lb read off the
+    RANGEGENs); BODY lowered inline; RETURNS realized PER OUTPUT PORT:
+    reductions accumulate, FINALVALUE keeps the last value, gathers allocate
+    up front (extent product) and store at the flat counter, DV_SCATTER_AT
+    stores at the placement coordinates instead, array-valued gathers box
+    descriptors then re-pack flat (rank read off the first element at
+    runtime).  Masked reductions guard their accumulation with the `when`
+    filter port. *)
 and lower_forall env gr gid nid loop_gr sub_gid pr =
   (* ===== FRESH forall -> C lowering (rebuilt from scratch) =====
      Step 1: locate the GENERATOR / BODY / RETURNS subgraph nodes inside loop_gr
@@ -3476,6 +3523,15 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   in
   (res_decls @ [ C.Compound (sym_decls @ relay_stmts @ loop_stmts) ], env_out)
 
+(** [lower_for_initial env gr gid nid loop_gr sub_gid pr] — a LoopA/LoopB
+    (for-initial) compound to preheader + while.  Loop-carried state lives in
+    MERGE (phi) variables: seeded from INIT outputs before the loop, fed back
+    by snapshot copies at the bottom of the body (bodycaps).  INIT lowers
+    flat into the loop scope; TEST lowers twice (preheader cond + in-loop
+    re-evaluation); RETURNS gathers/scatters are realized as
+    alloc-before-loop + per-iteration store (declared extents when shaped,
+    TEST bound-seed as the bare fallback), and the RETURNS graph itself is
+    lowered after the loop with gather ports re-bound to the filled arrays. *)
 and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let init_nid, init_gr =
     match find_subgraph loop_gr "INIT" with
@@ -4393,6 +4449,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
       ],
     final_env )
 
+(** [dummy_env tm sub_gr] — a fresh empty lowering environment; the seed
+    lower_to_c builds the real env from. *)
 let dummy_env tm sub_gr =
   {
     tm;
@@ -4415,6 +4473,11 @@ let dummy_env tm sub_gr =
     force_gpu = false;
   }
 
+(** [lower_procedure tm gid_table gid_name_map proc_map procedures_info_map
+    nid node gr_module] — one top-level function compound to a C function:
+    parameters from its Function_ty (boundary inputs in declared order), body
+    via lower_graph under a fresh env, single return value or a
+    FUNC_<NAME>_results struct for multi-output functions. *)
 let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
     node gr_module =
   match node with
@@ -4694,6 +4757,10 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
         }
   | _ -> failwith "not compound"
 
+(** [build_global_gid_table root_nid gr starting_gid] — assign a globally
+    unique gid to every compound, keyed by (parent_gid, nid), plus a readable
+    scope name per gid; gids are the C-name scoping backbone
+    (v_<scope>_<gid>_... variables). *)
 let build_global_gid_table root_nid gr starting_gid =
   let table = Hashtbl.create 64 in
   let name_map = Hashtbl.create 64 in
@@ -4727,6 +4794,10 @@ let build_global_gid_table root_nid gr starting_gid =
   in
   (gid_map, final_counter, nmap)
 
+(** [collect_typemaps g acc] — every subgraph's typemap, collected for
+    whole-program passes (struct/union emission, signatures).  Ids are
+    allocated per graph; the merge discipline in to_if1 keeps sibling id
+    spaces collision-free. *)
 let rec collect_typemaps g acc =
   let _, tm, _ = g.typemap in
   let acc = tm :: acc in
@@ -4736,6 +4807,10 @@ let rec collect_typemaps g acc =
     | _ -> acc
   ) g.nmap acc
 
+(** [lower_to_c tm gr filename] — the backend entry point: build the gid
+    table and procedures info, emit record/union struct definitions
+    (topologically), then lower every procedure; returns the complete C
+    compilation unit. *)
 let lower_to_c tm gr filename =
   TM.iter (fun id ty -> Printf.fprintf stderr "DEBUG ROOT TYPEMAP: id=%d\n" id) tm;
   let procedures_info =
