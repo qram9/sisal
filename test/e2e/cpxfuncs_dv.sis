@@ -10,11 +10,7 @@
 define Cadd, Csub, Cmul, Cdiv, Crmul, Crsub, Crdiv, Conjg, Cneg,
        Csqrt, Cabs, CabsSqr
 
-% --- Intrinsic functions ---
-global SINR  (num : real returns real)
-global COSR  (num : real returns real)
-global ATANR (num : real returns real)
-global SQRTR (num : real returns real)
+% Math intrinsics (sqrt/sin/cos/atan) are implicit -- no global decls needed.
 
 % cnum1 + cnum2
 function Cadd(cnum1, cnum2 : complex_float returns complex_float)
@@ -73,16 +69,16 @@ function Csqrt(cnum : complex_float returns complex_float)
   let
     RR    := cnum.re;
     II    := cnum.im;
-    mag   := SQRTR(SQRTR(RR * RR + II * II));
-    angle := ATANR(II / RR) / 2.0
+    mag   := sqrt(sqrt(RR * RR + II * II));
+    angle := atan(II / RR) / 2.0
   in
-    record complex_float [re : mag * COSR(angle); im : mag * SINR(angle)]
+    record complex_float [re : mag * cos(angle); im : mag * sin(angle)]
   end let
 end function
 
 % |cnum| — magnitude
 function Cabs(cnum : complex_float returns real)
-  SQRTR(cnum.re * cnum.re + cnum.im * cnum.im)
+  sqrt(cnum.re * cnum.re + cnum.im * cnum.im)
 end function
 
 % |cnum|^2 — magnitude squared

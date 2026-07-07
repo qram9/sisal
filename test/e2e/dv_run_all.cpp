@@ -209,6 +209,18 @@ struct FUNC_MAIN_results { sisal_array_t r0, r1, r2; };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
 #endif
 
+#ifdef TEST_CPXFUNCS_DV
+struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
+extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
+extern "C" struct cfx func_CSUB(struct cfx a, struct cfx b);
+extern "C" struct cfx func_CMUL(struct cfx a, struct cfx b);
+extern "C" struct cfx func_CDIV(struct cfx a, struct cfx b);
+extern "C" struct cfx func_CONJG(struct cfx a);
+extern "C" struct cfx func_CNEG(struct cfx a);
+extern "C" float func_CABS(struct cfx a);
+extern "C" float func_CABSSQR(struct cfx a);
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5724,6 +5736,31 @@ static void test_array_add_dv(void) {
     free(a.data); free(b.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_CPXFUNCS_DV
+static void test_cpxfuncs_dv(void) {
+    printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
+    struct cfx a = {3.0f, -4.0f}, b = {-1.5f, 2.0f};
+    // reference C implementations
+    struct cfx radd = {a.re+b.re, a.im+b.im}, rsub = {a.re-b.re, a.im-b.im};
+    struct cfx rmul = {a.re*b.re - a.im*b.im, a.re*b.im + a.im*b.re};
+    float den = b.re*b.re + b.im*b.im;
+    struct cfx rdiv = {(a.re*b.re + a.im*b.im)/den, (a.im*b.re - a.re*b.im)/den};
+    struct cfx rcj = {a.re, -a.im}, rng = {-a.re, -a.im};
+    float rabs = 5.0f, rabs2 = 25.0f;
+    struct cfx g;
+    bool ok = true;
+    #define EQ(x,y) (fabsf((x)-(y)) < 1e-5f)
+    g = func_CADD(a,b);  ok = ok && EQ(g.re,radd.re) && EQ(g.im,radd.im);
+    g = func_CSUB(a,b);  ok = ok && EQ(g.re,rsub.re) && EQ(g.im,rsub.im);
+    g = func_CMUL(a,b);  ok = ok && EQ(g.re,rmul.re) && EQ(g.im,rmul.im);
+    g = func_CDIV(a,b);  ok = ok && EQ(g.re,rdiv.re) && EQ(g.im,rdiv.im);
+    g = func_CONJG(a);   ok = ok && EQ(g.re,rcj.re)  && EQ(g.im,rcj.im);
+    g = func_CNEG(a);    ok = ok && EQ(g.re,rng.re)  && EQ(g.im,rng.im);
+    ok = ok && EQ(func_CABS(a), rabs) && EQ(func_CABSSQR(a), rabs2);
+    #undef EQ
+    check("Cadd/Csub/Cmul/Cdiv/Conjg/Cneg/Cabs/CabsSqr match C reference", ok);
+}
+#endif
 #ifdef TEST_ZERO_ARRAYS
 static void test_zero_arrays(void) {
     printf("\n=== Group: zero_arrays (array literals per element type; vs C reference) ===\n");
@@ -6057,6 +6094,9 @@ main (void)
 #ifdef TEST_ZERO_ARRAYS
   test_zero_arrays ();
 #endif
+#ifdef TEST_CPXFUNCS_DV
+  test_cpxfuncs_dv ();
+#endif
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
 #endif
@@ -6280,7 +6320,7 @@ main (void)
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
     && !defined(TEST_RECORD_OPS_DV) && !defined(TEST_ARRAY_ADD_DV)\
-    && !defined(TEST_ZERO_ARRAYS)\
+    && !defined(TEST_ZERO_ARRAYS) && !defined(TEST_CPXFUNCS_DV)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \

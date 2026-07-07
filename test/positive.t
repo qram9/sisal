@@ -280,6 +280,7 @@ DV variants of scientific benchmarks:
   $ sisal e2e/array_add_dv.sis
   $ sisal e2e/pick_dv.sis
   $ sisal e2e/zero_arrays.sis
+  $ sisal e2e/cpxfuncs_dv.sis
   $ sisal unit/lu_npiv_dv.sis
   $ sisal unit/lu_piv_dv.sis
   $ sisal unit/newgauss_dv.sis
