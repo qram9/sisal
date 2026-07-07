@@ -207,6 +207,8 @@ run_group FEO_FFT_PARTS3    feo_fft_parts3       ""
 run_group FEO_FFT_PARTS4    feo_fft_parts4       ""
 run_group NESTED_INIT_MERGE_DV nested_init_merge_dv ""
 run_group MUTUAL_BUG_E2E    for_initial_mutual_old_bug_e2e ""
+run_group LU_NPIV_DV        lu_npiv_dv           ""
+run_group LU_PIV_DV         lu_piv_dv            ""
 run_group FEO_FFT_DV        feo_fft_dv           ""
 run_group FEO_FFT           feo_fft              ""
 

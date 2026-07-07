@@ -1762,6 +1762,32 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                 (k + 1, f_gr))
               (0, forall_gr) ret_tuple_list
           in
+          let _, _, forall_gr =
+            List.fold_left
+              (fun (k, mask_idx, f_gr) msk_opt ->
+                match msk_opt with
+                | Some (_, _, ty) ->
+                    let name = "__forall_mask_" ^ string_of_int k in
+                    let cs, ps = f_gr.If1.symtab in
+                    let f_gr =
+                      {
+                        f_gr with
+                        If1.symtab =
+                          ( If1.SM.add name
+                              {
+                                If1.val_name = name;
+                                If1.val_ty = ty;
+                                If1.val_def = bx;
+                                If1.def_port = (List.length ret_tuple_list) + mask_idx;
+                              }
+                              cs,
+                            ps );
+                      }
+                    in
+                    (k + 1, mask_idx + 1, f_gr)
+                | None -> (k + 1, mask_idx, f_gr))
+              (0, 0, forall_gr) mask_ty_list
+          in
           forall_gr
         in
         (* Scatter placements: resolve each to its BODY compound port (edge
@@ -1861,11 +1887,34 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                  with no internal gather edge (available to the backend, not
                  read by the gather). *)
               let nbodies = List.length ret_tuple_list in
+              let mask_imports =
+                let _, _, srcs =
+                  List.fold_left
+                    (fun (k, mask_idx, acc) msk_opt ->
+                      match msk_opt with
+                      | Some (_, _, ty) ->
+                          ( k + 1,
+                            mask_idx + 1,
+                            acc
+                            @ [
+                                `Src
+                                  ( bx,
+                                    nbodies + mask_idx,
+                                    ty,
+                                    "__forall_mask_" ^ string_of_int k,
+                                    1 + nbodies + mask_idx );
+                              ] )
+                      | None -> (k + 1, mask_idx, acc))
+                    (0, 0, []) mask_ty_list
+                in
+                srcs
+              in
               let imports =
                 (match placement_name with Some nm -> [ `Name nm ] | None -> [])
                 @ List.mapi
                     (fun k _ -> `Name ("__forall_body_" ^ string_of_int k))
                     ret_tuple_list
+                @ mask_imports
                 @ List.mapi
                     (fun k (dp, ty) ->
                       (* per-iteration placement, from the BODY compound *)
@@ -3618,27 +3667,20 @@ and bin_exp a b in_gr node_tag =
         ((z, 0, res_ty), in_gr)
 
 and organize_ret_info return_action_list mask_ty_list =
-  let return_action_list, port_remap, cou =
-    List.fold_right
-      (fun (y, x, tt) (outL, port_remap, cou) ->
-        if If1.IntMap.mem x port_remap = true then
-          ((y, tt, If1.IntMap.find x port_remap) :: outL, port_remap, cou)
-        else ((y, tt, cou) :: outL, If1.IntMap.add x cou port_remap, cou + 1))
-      return_action_list ([], If1.IntMap.empty, 1)
+  let return_action_list =
+    List.mapi
+      (fun idx (y, x, tt) -> (y, tt, 1 + idx))
+      return_action_list
   in
-
-  (* TODO -> GO HERE NEED TO ADD THIS TO THE OTHER LOOPS *)
-  let mask_ty_list, _, _ =
-    List.fold_right
-      (fun rrr (outL, port_remap, cou) ->
+  let nbodies = List.length return_action_list in
+  let _, mask_ty_list =
+    List.fold_left
+      (fun (mask_idx, acc) rrr ->
         match rrr with
         | Some (x, _, tt) ->
-            if If1.IntMap.mem x port_remap = true then
-              (Some (tt, If1.IntMap.find x port_remap) :: outL, port_remap, cou)
-            else
-              (Some (tt, cou) :: outL, If1.IntMap.add x cou port_remap, cou + 1)
-        | None -> (None :: outL, port_remap, cou))
-      mask_ty_list ([], port_remap, cou)
+            (mask_idx + 1, acc @ [ Some (tt, 1 + nbodies + mask_idx) ])
+        | None -> (mask_idx, acc @ [ None ]))
+      (0, []) mask_ty_list
   in
   (return_action_list, mask_ty_list)
 

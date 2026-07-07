@@ -261,6 +261,23 @@ let get_elem_type env gr nid =
     value-based mapper can see. *)
 let global_alias_map = ref TM.empty
 
+let basic_type_of_id = function
+  | 1 -> Some BOOLEAN
+  | 2 -> Some BYTE
+  | 3 -> Some CHARACTER
+  | 4 -> Some DOUBLE
+  | 5 -> Some HALF
+  | 6 -> Some INTEGRAL
+  | 7 -> Some LONG
+  | 8 -> Some REAL
+  | 9 -> Some SHORT
+  | 10 -> Some UBYTE
+  | 11 -> Some UCHAR
+  | 12 -> Some UINT
+  | 13 -> Some ULONG
+  | 14 -> Some USHORT
+  | _ -> None
+
 let c_type_of_if1_tyid tm tyid =
   let tyid =
     match TM.find_opt tyid !global_alias_map with
@@ -285,7 +302,11 @@ let c_type_of_if1_tyid tm tyid =
       then c_type_of_if1_ty tm ty
       else C.Basic (Printf.sprintf "struct union_un_%d" tyid)
   | Some ty -> c_type_of_if1_ty tm ty
-  | None -> C.Basic "float"
+  | None -> (
+      match basic_type_of_id tyid with
+      | Some b -> c_type_of_if1_basic b
+      | None -> C.Basic "float"
+  )
 
 (** [is_struct_cty ty] — is this C type an emitted record struct? *)
 let is_struct_cty = function

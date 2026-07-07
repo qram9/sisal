@@ -1077,6 +1077,10 @@ inline sisal_array_t sisal_dv_rank_reduce(sisal_array_t a, int32_t idx) {
     return res;
 }
 
+inline sisal_array_t sisal_array_get_row(sisal_array_t a, int32_t offset) {
+    return sisal_dv_rank_reduce(a, (int32_t)a.lower_bound[0] + offset);
+}
+
 /* DV_RANK_REPLACE: functional copy of `a` with the rank-(N-1) slab at 1-based
    leading index `idx` overwritten by `slice`'s contiguous data. Mirrors
    sisal_dv_rank_reduce's offset math (slab byte offset = (idx-lb)*slice_size*esz). */

@@ -449,6 +449,7 @@ Scientific benchmarks:
   $ sisal unit/zbuffer2.sis
   $ sisal unit/array_ex.sis
   $ sisal unit/bad.sis
+  $ sisal unit/for_all_argmax.sis
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis

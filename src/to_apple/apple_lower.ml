@@ -22,6 +22,16 @@ let c_op_of_node_sym = function
   | LESSER_EQUAL -> Some C.Le
   | _ -> None
 
+let rec rank_of_type tm = function
+  | Array_dv t -> 1 + (match TM.find_opt t tm with Some ty -> rank_of_type tm ty | None -> 0)
+  | Array_ty t -> 1 + (match TM.find_opt t tm with Some ty -> rank_of_type tm ty | None -> 0)
+  | _ -> 0
+
+let rank_of_type_id tm tid =
+  match TM.find_opt tid tm with
+  | Some ty -> rank_of_type tm ty
+  | None -> 0
+
 let string_of_c_type = function
   | C.Basic s -> s
   | C.Pointer (C.Basic s, _) -> s ^ "*"
@@ -153,6 +163,42 @@ let forall_reduce_ports loop_gr =
             | _ -> acc
           else acc)
         ret_gr.eset []
+
+let forall_reduce_filter_of loop_gr out_port =
+  match find_subgraph loop_gr "RETURNS" with
+  | None -> None
+  | Some (_, ret_gr) ->
+      let bin_to_body =
+        match NM.find_opt 0 ret_gr.nmap with
+        | Some (Boundary (ins, _, _, _)) ->
+            List.filter_map
+              (fun (_, sp, name, bp) ->
+                if (String.length name >= 14 && String.sub name 0 14 = "__forall_mask_") ||
+                   (String.length name >= 15 && String.sub name 0 15 = "__forall_body_")
+                then Some (bp, sp)
+                else None)
+              ins
+        | _ -> []
+      in
+      ES.fold
+        (fun ((sn, _), (dn, dp), _) acc ->
+          if dn = 0 && dp = out_port then
+            match NM.find_opt sn ret_gr.nmap with
+            | Some (Simple (_, REDUCE, _, _, _)) -> (
+                let fport =
+                  ES.fold
+                    (fun ((s, sp), (d, p), _) a ->
+                      if d = sn && p = 2 && s = 0 then
+                        match List.assoc_opt sp bin_to_body with
+                        | Some b -> Some b
+                        | None -> a
+                      else a)
+                    ret_gr.eset None
+                in
+                fport)
+            | _ -> acc
+          else acc)
+        ret_gr.eset None
 
 (* Companion to forall_reduce_ports: list of (returns_out_port, body_out_port) for each
    RETURNS output fed by a DV_GATHER node (an array output).  Together they classify
@@ -470,25 +516,22 @@ let infer_types env gr gid =
          body-expression edge tags (e.g. DOUBLE on an argmax output) from overriding a
          source that pass0/pass1 already typed as int32_t. *)
           let c0 =
-            match TM.find_opt ty_id tm2 with
-            | Some _ ->
-                let ety = c_type_of_if1_tyid tm2 ty_id in
-                if ety <> C.Basic "float" then
-                  let c1 =
-                    if sty = C.Basic "float" then
-                      set_ty_c cur_gid sn sp `Out ety
-                    else false
-                  in
-                  let c2 =
-                    if
-                      dty = C.Basic "float"
-                      && (sty = C.Basic "float" || sty = ety)
-                    then set_ty_c cur_gid dn dp `In ety
-                    else false
-                  in
-                  c1 || c2
+            let ety = c_type_of_if1_tyid tm2 ty_id in
+            if ety <> C.Basic "float" then
+              let c1 =
+                if sty = C.Basic "float" then
+                  set_ty_c cur_gid sn sp `Out ety
                 else false
-            | None -> false
+              in
+              let c2 =
+                if
+                  dty = C.Basic "float"
+                  && (sty = C.Basic "float" || sty = ety)
+                then set_ty_c cur_gid dn dp `In ety
+                else false
+              in
+              c1 || c2
+            else false
           in
           let sty = get_ty cur_gid sn sp `Out in
           let dty = get_ty cur_gid dn dp `In in
@@ -1156,26 +1199,55 @@ and lower_simple env gr nid sym pin pout pr =
                gid nid)
         else
           let elem_ty = get_final_ty env gid nid 0 `Out in
-          let cast_ptr =
-            C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data"))
-          in
           let idx =
             C.BinOp
               (C.Sub, e2, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
           in
-          C.Index (cast_ptr, idx)
+          let arr_tyid =
+            match
+              ES.fold
+                (fun ((sn, sp), (dn, dp), ty) acc ->
+                  if dn = nid && dp = 0 && ty <> 0 then Some ty else acc)
+                gr.eset None
+            with
+            | Some ty -> ty
+            | None -> 0
+          in
+          let rk = rank_of_type_id env.tm arr_tyid in
+          if rk > 1 && elem_ty = C.Basic "sisal_array_t" then
+            C.Call ("sisal_array_get_row", [ e1; idx ])
+          else
+            let cast_ptr =
+              C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data"))
+            in
+            C.Index (cast_ptr, idx)
     | DV_ELEMENT | DV_LOAD_LINEAR ->
         let elem_ty = get_final_ty env gid nid 0 `Out in
-        let cast_ptr =
-          C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data"))
-        in
+        Printf.fprintf stderr "DEBUG COMPILER DV_ELEMENT: gid=%d, nid=%d, elem_ty=%s\n"
+          gid nid (string_of_c_type elem_ty);
         let idx =
           if sym = DV_LOAD_LINEAR then e2
           else
             C.BinOp
               (C.Sub, e2, C.Index (C.Member (e1, "lower_bound"), C.LitInt 0))
         in
-        C.Index (cast_ptr, idx)
+        let arr_tyid =
+          match
+            ES.fold
+              (fun ((sn, sp), (dn, dp), ty) acc ->
+                if dn = nid && dp = 0 && ty <> 0 then Some ty else acc)
+              gr.eset None
+          with
+          | Some ty -> ty
+          | None -> 0
+        in
+        if sym = DV_ELEMENT && rank_of_type_id env.tm arr_tyid > 1 && elem_ty = C.Basic "sisal_array_t" then
+          C.Call ("sisal_array_get_row", [ e1; idx ])
+        else
+          let cast_ptr =
+            C.Cast (C.Pointer (elem_ty, []), C.Member (e1, "data"))
+          in
+          C.Index (cast_ptr, idx)
     | RANGEGEN -> C.BinOp (C.Add, C.BinOp (C.Sub, e2, e1), C.LitInt 1)
     | ASIZE ->
         let in_ty = get_final_ty env gid nid 0 `In in
@@ -2412,7 +2484,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           | Some (Simple (_, RANGEGEN, _, _, _)) ->
               (pre, rs @ [ n ], ss, bind (bind (bind e n 0) n 1) n 2)
           | Some (Simple (_, DV_SCATTER, _, _, _)) ->
-              (pre, rs, ss @ [ (n, `Dv) ], bind e n 0)
+              (pre, rs, ss @ [ (n, `Dv) ], bind (bind e n 0) n 1)
           | Some (Simple (_, ASCATTER, _, _, _)) ->
               (pre, rs, ss @ [ (n, `Arr) ], bind (bind e n 0) n 1)
           | Some (Simple _) ->
@@ -2483,20 +2555,33 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
             (fun (s, kind) ->
               let arr = resolve_in s 0 in
               let ety = port_cty s 0 in
+              let arr_tyid =
+                match
+                  ES.fold
+                    (fun ((sn, sp), (dn, dp), ty) acc ->
+                      if dn = s && dp = 0 && ty <> 0 then Some ty else acc)
+                    g.eset None
+                with
+                | Some ty -> ty
+                | None -> 0
+              in
               let elem =
-                C.Index
-                  (C.Cast (C.Pointer (ety, []), C.Member (arr, "data")), C.Id k)
+                if rank_of_type_id env_loop.tm arr_tyid > 1 && ety = C.Basic "sisal_array_t" then
+                  C.Call ("sisal_array_get_row", [ arr; C.Id k ])
+                else
+                  C.Index
+                    (C.Cast (C.Pointer (ety, []), C.Member (arr, "data")), C.Id k)
               in
               let base =
                 [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 0), elem)) ]
               in
-              (* the `at` index (port 1) only exists for ARRAY_SCATTER, and only when
-                 it is actually consumed (`for a in A at i`); skip it otherwise. *)
               let at_used =
-                ES.exists (fun ((sn, sp), _, _) -> sn = s && sp = 1) g.eset
+                SM.exists
+                  (fun _ v -> v.val_def = s && v.def_port = 1)
+                  (fst g.symtab)
               in
               match kind with
-              | `Arr when at_used ->
+              | (`Arr | `Dv) when at_used ->
                   (* `at` index (port 1) = lower_bound[0] + k *)
                   let idx =
                     C.BinOp
@@ -2511,6 +2596,22 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               | _ -> base)
             scatters
         in
+        let arr_tyid =
+          match
+            ES.fold
+              (fun ((sn, sp), (dn, dp), ty) acc ->
+                if dn = pn && dp = 0 && ty <> 0 then Some ty else acc)
+              g.eset None
+          with
+          | Some ty -> ty
+          | None -> 0
+        in
+        let limit_expr =
+          if rank_of_type_id env_loop.tm arr_tyid > 1 then
+            C.Index (C.Member (parr, "dims"), C.LitInt 0)
+          else
+            C.Member (parr, "size")
+        in
         pre @ before
         @ [
             C.For
@@ -2518,7 +2619,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 C.BinOp
                   ( C.Lt,
                     C.Id k,
-                    C.Cast (C.Basic "int32_t", C.Member (parr, "size")) ),
+                    C.Cast (C.Basic "int32_t", limit_expr) ),
                 C.UnaryOp (C.PostInc, C.Id k),
                 assigns @ inner' );
           ]
@@ -2692,7 +2793,9 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 | _ ->
                     [
                       ( C.Cast
-                          (C.Basic "int32_t", C.Member (resolve n 0, "size")),
+                          ( C.Basic "int32_t",
+                            C.Index (C.Member (resolve n 0, "dims"), C.LitInt 0)
+                          ),
                         C.LitInt 1 );
                     ])
             | None -> []
@@ -3294,11 +3397,30 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
              in
              List.filter (fun (p, _, _) -> p < n_forall_outs) body_outs)
         in
-        let befores = List.concat_map (fun (b, _, _, _, _) -> b) per in
-        let inners = List.concat_map (fun (_, i, _, _, _) -> i) per in
-        let afters = List.concat_map (fun (_, _, a, _, _) -> a) per in
-        let decls = List.map (fun (_, _, _, d, _) -> d) per in
-        let binds = List.map (fun (_, _, _, _, b) -> b) per in
+        let per_filtered =
+          List.map
+            (fun (before, updates, after, ty, (port, res_v)) ->
+              let filter_opt = forall_reduce_filter_of loop_gr port in
+              match filter_opt with
+              | Some filter_bport ->
+                  let filter_expr =
+                    match
+                      List.find_opt
+                        (fun (dp, _, _) -> dp = filter_bport)
+                        body_outs
+                    with
+                    | Some (_, expr, _) -> expr
+                    | None -> C.LitInt 1
+                  in
+                  (before, [ C.If (filter_expr, updates, []) ], after, ty, (port, res_v))
+              | None -> (before, updates, after, ty, (port, res_v)))
+            per
+        in
+        let befores = List.concat_map (fun (b, _, _, _, _) -> b) per_filtered in
+        let inners = List.concat_map (fun (_, i, _, _, _) -> i) per_filtered in
+        let afters = List.concat_map (fun (_, _, a, _, _) -> a) per_filtered in
+        let decls = List.map (fun (_, _, _, d, _) -> d) per_filtered in
+        let binds = List.map (fun (_, _, _, _, b) -> b) per_filtered in
         let any_gather =
           List.exists
             (fun (p, _, _) -> reduce_op_of p = None && not (is_final p))
@@ -4297,6 +4419,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
     node gr_module =
   match node with
   | Compound (_, INTERNAL, ty_id, pr, sub_gr, _) ->
+      Printf.fprintf stderr "DEBUG LOWER_PROCEDURE: nid=%d, ty_id=%d\n" nid ty_id;
       let func_name =
         List.find_map (function Name nm -> Some nm | _ -> None) pr
         |> Option.map String.uppercase_ascii
@@ -4371,6 +4494,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
           all_b_ins
       in
       (* Seed param names so pre_declare sees them and can detect conflicts *)
+      List.iter (fun (ty, name) -> Printf.fprintf stderr "DEBUG PARAM: name=%s, ty=%s\n" name (string_of_c_type ty)) params;
       let env_param_seeded =
         List.fold_left2
           (fun e pid (_, name) ->
@@ -4613,6 +4737,7 @@ let rec collect_typemaps g acc =
   ) g.nmap acc
 
 let lower_to_c tm gr filename =
+  TM.iter (fun id ty -> Printf.fprintf stderr "DEBUG ROOT TYPEMAP: id=%d\n" id) tm;
   let procedures_info =
     NM.fold
       (fun nid node acc ->

@@ -314,6 +314,12 @@ extern "C" sisal_array_t func_MAIN (int32_t n, sisal_array_t X);
 #ifdef TEST_MUTUAL_BUG_E2E
 extern "C" int32_t func_SWAP_BUG (int32_t n);
 #endif
+#ifdef TEST_LU_NPIV_DV
+extern "C" sisal_array_t func_MAIN (int32_t n, sisal_array_t Ain, sisal_array_t Bin);
+#endif
+#ifdef TEST_LU_PIV_DV
+extern "C" sisal_array_t func_MAIN (int32_t n, sisal_array_t Ain, sisal_array_t Bin);
+#endif
 #ifdef TEST_MR_TWO_SCALAR
 extern "C" int32_t func_MAIN (int32_t A,
                               int32_t B); // let P,Q := Two2(a,b) -> P+Q
@@ -926,6 +932,32 @@ make_double_3d_lb (const double *data, int d0, int d1, int d2, int lb0, int lb1,
   a.lower_bound[2] = lb2;
   memcpy (a.data, data, (size_t)n * sizeof (double));
   return a;
+}
+
+static sisal_array_t
+make_nested_double_2d (const double *data, int rows, int cols)
+{
+  sisal_array_t A = sisal_array_alloc_empty (1, 94, (uint64_t)rows);
+  A.dims[0] = rows;
+  for (int i = 0; i < rows; i++)
+    {
+      sisal_array_t row = sisal_array_alloc_empty (1, 4, (uint64_t)cols);
+      row.dims[0] = cols;
+      memcpy (row.data, data + i * cols, (size_t)cols * sizeof (double));
+      ((sisal_array_t*)A.data)[i] = row;
+    }
+  return A;
+}
+
+static void
+free_nested_double_2d (sisal_array_t A)
+{
+  for (int i = 0; i < A.size; i++)
+    {
+      sisal_array_t row = ((sisal_array_t*)A.data)[i];
+      if (row.data) free (row.data);
+    }
+  if (A.data) free (A.data);
 }
 
 static sisal_array_t
@@ -2350,6 +2382,60 @@ test_mutual_bug_e2e (void)
   check ("swap_bug(1) == 20", func_SWAP_BUG (1) == 20);
   check ("swap_bug(2) == 10", func_SWAP_BUG (2) == 10);
   check ("swap_bug(3) == 20", func_SWAP_BUG (3) == 20);
+}
+#endif
+#ifdef TEST_LU_NPIV_DV
+static void
+test_lu_npiv_dv (void)
+{
+  printf ("\n=== Group: lu_npiv_dv ===\n");
+  double flat_A[9] = {
+    2.0,  1.0, -1.0,
+   -3.0, -1.0,  2.0,
+   -2.0,  1.0,  2.0
+  };
+  double flat_B[3] = { 8.0, -11.0, -3.0 };
+  sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
+  sisal_array_t Bin = make_double_arr (flat_B, 3);
+  sisal_array_t r = func_MAIN (3, Ain, Bin);
+  printf("DEBUG LU_NPIV: size = %lld, data = %p\n", (long long)r.size, r.data);
+  if (r.data && r.size >= 3) {
+    printf("DEBUG LU_NPIV: x = [%f, %f, %f]\n", ((double*)r.data)[0], ((double*)r.data)[1], ((double*)r.data)[2]);
+  }
+  check ("lu_npiv_dv result size == 3", r.size == 3);
+  check ("lu_npiv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
+  check ("lu_npiv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
+  check ("lu_npiv_dv x[2] == -1.0", fabs (((double*)r.data)[2] - -1.0) < 1e-5);
+  free (Ain.data);
+  free (Bin.data);
+  free (r.data);
+}
+#endif
+#ifdef TEST_LU_PIV_DV
+static void
+test_lu_piv_dv (void)
+{
+  printf ("\n=== Group: lu_piv_dv ===\n");
+  double flat_A[9] = {
+    2.0,  1.0, -1.0,
+   -3.0, -1.0,  2.0,
+   -2.0,  1.0,  2.0
+  };
+  double flat_B[3] = { 8.0, -11.0, -3.0 };
+  sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
+  sisal_array_t Bin = make_double_arr (flat_B, 3);
+  sisal_array_t r = func_MAIN (3, Ain, Bin);
+  printf("DEBUG LU_PIV: size = %lld, data = %p\n", (long long)r.size, r.data);
+  if (r.data && r.size >= 3) {
+    printf("DEBUG LU_PIV: x = [%f, %f, %f]\n", ((double*)r.data)[0], ((double*)r.data)[1], ((double*)r.data)[2]);
+  }
+  check ("lu_piv_dv result size == 3", r.size == 3);
+  check ("lu_piv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
+  check ("lu_piv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
+  check ("lu_piv_dv x[2] == -1.0", fabs (((double*)r.data)[2] - -1.0) < 1e-5);
+  free (Ain.data);
+  free (Bin.data);
+  free (r.data);
 }
 #endif
 
@@ -5918,6 +6004,12 @@ main (void)
 #ifdef TEST_MUTUAL_BUG_E2E
   test_mutual_bug_e2e ();
 #endif
+#ifdef TEST_LU_NPIV_DV
+  test_lu_npiv_dv ();
+#endif
+#ifdef TEST_LU_PIV_DV
+  test_lu_piv_dv ();
+#endif
 #ifdef TEST_LOOP6_DV
   test_loop6_dv ();
 #endif
@@ -6119,6 +6211,8 @@ main (void)
     && !defined(TEST_LEGPOLY_DV_E2E)                                          \
     && !defined(TEST_NESTED_INIT_MERGE_DV)                                    \
     && !defined(TEST_MUTUAL_BUG_E2E)                                          \
+    && !defined(TEST_LU_NPIV_DV)                                              \
+    && !defined(TEST_LU_PIV_DV)                                               \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
