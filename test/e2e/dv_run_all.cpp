@@ -196,6 +196,14 @@ struct FUNC_MAIN_results { int32_t r0, r1, r2, r3, r4, r5, r6; };
 extern "C" struct FUNC_MAIN_results func_MAIN();
 #endif
 
+#ifdef TEST_ARRAY_ADD_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);
+#endif
+
+#ifdef TEST_PICK_DV
+extern "C" sisal_array_t func_PICK(int32_t mode, sisal_array_t A);
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5694,6 +5702,47 @@ static void test_record_ops_dv(void) {
 }
 #endif
 
+#ifdef TEST_ARRAY_ADD_DV
+static void test_array_add_dv(void) {
+    printf("\n=== Group: array_add_dv (element-wise add, 0-based indexing; vs C reference) ===\n");
+    const int n = 5;
+    sisal_array_t a = sisal_array_alloc_empty(1, 8, n), b = sisal_array_alloc_empty(1, 8, n);
+    a.lower_bound[0] = 0; b.lower_bound[0] = 0;   // the .sis loop runs 0 .. size-1
+    for (int i = 0; i < n; i++) { ((float*)a.data)[i] = (float)(i*i + 1); ((float*)b.data)[i] = (float)(7*i - 3); }
+    // reference C implementation
+    float ref[n];
+    for (int i = 0; i < n; i++) ref[i] = ((float*)a.data)[i] + ((float*)b.data)[i];
+    sisal_array_t r = func_MAIN(a, b);
+    bool ok = ((int)r.size == n);
+    for (int i = 0; ok && i < n; i++) ok = (((float*)r.data)[i] == ref[i]);
+    check("A + B matches C reference", ok);
+    free(a.data); free(b.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_PICK_DV
+static void test_pick_dv(void) {
+    printf("\n=== Group: pick_dv (if/elseif with array_dv results; vs C reference) ===\n");
+    const int n = 4;
+    sisal_array_t a = sisal_array_alloc_empty(1, 6, n);
+    for (int i = 0; i < n; i++) ((int32_t*)a.data)[i] = 3*i - 1;
+    // reference C implementation of pick(mode, A)
+    int32_t ref[3][n];
+    for (int i = 0; i < n; i++) {
+        int32_t v = ((int32_t*)a.data)[i];
+        ref[0][i] = v; ref[1][i] = -v; ref[2][i] = 2*v;
+    }
+    bool ok = true;
+    for (int m = 0; m < 3; m++) {
+        sisal_array_t r = func_PICK(m, a);
+        ok = ok && ((int)r.size == n);
+        for (int i = 0; ok && i < n; i++) ok = (((int32_t*)r.data)[i] == ref[m][i]);
+        if (r.data && r.data != a.data) free(r.data);
+    }
+    check("pick(0/1/2) matches C reference (identity/negate/double)", ok);
+    free(a.data);
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -5980,6 +6029,12 @@ main (void)
 #ifdef TEST_RECORD_OPS_DV
   test_record_ops_dv ();
 #endif
+#ifdef TEST_ARRAY_ADD_DV
+  test_array_add_dv ();
+#endif
+#ifdef TEST_PICK_DV
+  test_pick_dv ();
+#endif
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
 #endif
@@ -6202,7 +6257,8 @@ main (void)
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
-    && !defined(TEST_RECORD_OPS_DV)                                           \
+    && !defined(TEST_RECORD_OPS_DV) && !defined(TEST_ARRAY_ADD_DV)\
+    && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
     && !defined(TEST_COMPLEX_FEATURES_E2E)                                    \
