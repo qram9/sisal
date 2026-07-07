@@ -1,0 +1,13 @@
+define Main
+
+type AnyVal = union[i: integer; d: double_real]
+type dvd = array_dv[double_real]
+type dva = array_dv[AnyVal]
+
+function Main(N: integer returns dvd, dva)
+    for i in 1, N
+    returns 
+        array of if mod(i, 2) = 0 then double_real(i) * 1.5 else double_real(i) * 0.5 end if
+        array of if mod(i, 2) = 0 then union AnyVal [i: i] else union AnyVal [d: double_real(i)] end if
+    end for
+end function

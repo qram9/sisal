@@ -1,0 +1,12 @@
+define Main
+
+type dvi = array_dv[integer]
+type dvd = array_dv[double_real]
+
+function Main(flag: boolean returns dvi, dvd)
+    if flag then
+        array dvi [1: 1, 2, 3], array dvd [1: 1.1d0, 2.2d0, 3.3d0]
+    else
+        array dvi [1: 10, 20], array dvd [1: 10.1d0, 20.2d0]
+    end if
+end function

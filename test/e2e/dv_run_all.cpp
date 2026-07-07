@@ -209,6 +209,9 @@ struct FUNC_MAIN_results { sisal_array_t r0, r1, r2; };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
 #endif
 
+#ifdef TEST_XFA_B4_REDUCE
+extern "C" int32_t func_MAIN(int32_t n, int32_t m);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -5736,6 +5739,14 @@ static void test_array_add_dv(void) {
     free(a.data); free(b.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_XFA_B4_REDUCE
+static void test_xfa_b4_reduce(void) {
+    printf("\n=== Group: xfa_b4_reduce (cross-forall sum; vs C reference) ===\n");
+    int n = 5, m = 7; int32_t ref = 0;
+    for (int i = 1; i <= n; i++) for (int j = 1; j <= m; j++) ref += i * j;
+    check("sum i*j over cross matches C reference", func_MAIN(n, m) == ref);
+}
+#endif
 #ifdef TEST_CPXFUNCS_DV
 static void test_cpxfuncs_dv(void) {
     printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
@@ -6097,6 +6108,10 @@ main (void)
 #ifdef TEST_CPXFUNCS_DV
   test_cpxfuncs_dv ();
 #endif
+#ifdef TEST_XFA_B4_REDUCE
+  test_xfa_b4_reduce ();
+#endif
+
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
 #endif
@@ -6321,6 +6336,7 @@ main (void)
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
     && !defined(TEST_RECORD_OPS_DV) && !defined(TEST_ARRAY_ADD_DV)\
     && !defined(TEST_ZERO_ARRAYS) && !defined(TEST_CPXFUNCS_DV)\
+    && !defined(TEST_XFA_B4_REDUCE)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
