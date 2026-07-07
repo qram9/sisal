@@ -456,6 +456,9 @@ Scientific benchmarks:
   $ sisal unit/test_mix_scalar_array_dv.sis
   $ sisal unit/test_multi_array_if_dv.sis
   $ sisal unit/test_union_array_if_dv.sis
+  $ sisal unit/sub_r3_perm.sis
+  $ sisal unit/sub_r4_perm.sis
+  $ sisal unit/sub_r5_perm.sis
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis
