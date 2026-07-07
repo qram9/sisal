@@ -4482,7 +4482,6 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
     node gr_module =
   match node with
   | Compound (_, INTERNAL, ty_id, pr, sub_gr, _) ->
-      Printf.fprintf stderr "DEBUG LOWER_PROCEDURE: nid=%d, ty_id=%d\n" nid ty_id;
       let func_name =
         List.find_map (function Name nm -> Some nm | _ -> None) pr
         |> Option.map String.uppercase_ascii
