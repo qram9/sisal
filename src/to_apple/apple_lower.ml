@@ -1656,32 +1656,44 @@ and lower_simple env gr nid sym pin pout pr =
             let prod_ty = get_final_ty env gid sn sp `Out in
             match prod_ty with C.Basic "sisal_array_t" -> true | _ -> false
           in
+          (* Element C type from the typemap id (NOT an ad-hoc id match --
+             the old 6/4-only dispatch sent float/bool/int64 literals through
+             the sisal_array_t staging array, a miscompile).  Boxed
+             array-valued elements keep sisal_array_build_arr (it flattens);
+             everything else uses the generic templated builder, type_id
+             recorded in the dope. *)
           let elem_c_ty =
             if is_arr_elem then "sisal_array_t"
             else
-              match elem_tid with
-              | 6 -> "int32_t"
-              | 4 -> "double"
-              | _ -> "sisal_array_t"
-          in
-          let fn_name =
-            if is_arr_elem then "sisal_array_build_arr"
-            else
-              match elem_tid with
-              | 6 -> "sisal_array_build_i32"
-              | 4 -> "sisal_array_build_double"
-              | _ -> "sisal_array_build_arr"
+              Ir.C_ast_print.string_of_c_type
+                (c_type_of_if1_tyid (get_typemap_tm gr) elem_tid)
           in
           let e_lb = get_raw_in_expr 0 in
-          let elem_strs = List.map Ir.C_ast_print.string_of_expr el_exprs in
+          (* per-element cast to the staging type: C++ brace init rejects
+             narrowing (double-typed intermediates into a float array) *)
+          let elem_strs =
+            List.map
+              (fun e ->
+                Printf.sprintf "(%s)(%s)" elem_c_ty
+                  (Ir.C_ast_print.string_of_expr e))
+              el_exprs
+          in
           let elems_formatted = String.concat ", " elem_strs in
+          let call_str =
+            if is_arr_elem then
+              Printf.sprintf "sisal_array_build_arr(%s, %d, __arr)"
+                (Ir.C_ast_print.string_of_expr e_lb)
+                (List.length el_exprs)
+            else
+              Printf.sprintf "sisal_array_build_elems(%s, %d, __arr, %d)"
+                (Ir.C_ast_print.string_of_expr e_lb)
+                (List.length el_exprs) elem_tid
+          in
           let lambda_str =
             Printf.sprintf
               "([&]() -> sisal_array_t { const %s __arr[] = {%s}; return \
-               %s(%s, %d, __arr); })()"
-              elem_c_ty elems_formatted fn_name
-              (Ir.C_ast_print.string_of_expr e_lb)
-              (List.length el_exprs)
+               %s; })()"
+              elem_c_ty elems_formatted call_str
           in
           C.Id lambda_str
     | DVAADJUST ->

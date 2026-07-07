@@ -447,6 +447,18 @@ inline sisal_array_t sisal_array_build_i32(int64_t lb, int count, const int32_t*
     memcpy(res.data, elems, (size_t)count * sizeof(int32_t));
     return res;
 }
+/* Generic array-literal builder: element type known statically at the call
+   site (T), type_id recorded for the dope, elem_bytes = sizeof(T) so helpers
+   agree with the typed-pointer writers. */
+template<typename T>
+inline sisal_array_t sisal_array_build_elems(int64_t lb, int count, const T* elems, int32_t type_id) {
+    sisal_array_t res = sisal_array_alloc_sized(1, type_id, (uint64_t)count, sizeof(T));
+    res.lower_bound[0] = lb;
+    res.dims[0] = count;
+    if (count > 0) memcpy(res.data, elems, (size_t)count * sizeof(T));
+    return res;
+}
+
 inline sisal_array_t sisal_array_build_arr(int64_t lb, int count, const sisal_array_t* elems) {
     int32_t elem_rank = elems[0].rank;
     int32_t type_id = elems[0].type_id;

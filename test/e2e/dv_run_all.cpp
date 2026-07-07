@@ -204,6 +204,11 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);
 extern "C" sisal_array_t func_PICK(int32_t mode, sisal_array_t A);
 #endif
 
+#ifdef TEST_ZERO_ARRAYS
+struct FUNC_MAIN_results { sisal_array_t r0, r1, r2; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+#endif
+
 #ifdef TEST_FEO_FFT_PARTS3
 struct FUNC_MAIN_results {
   sisal_array_t res_0;
@@ -5719,6 +5724,20 @@ static void test_array_add_dv(void) {
     free(a.data); free(b.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_ZERO_ARRAYS
+static void test_zero_arrays(void) {
+    printf("\n=== Group: zero_arrays (array literals per element type; vs C reference) ===\n");
+    // Regression for the literal-builder bug: float (and any non-int32/double)
+    // element literals were staged into a sisal_array_t[] -- miscompile.
+    struct FUNC_MAIN_results r = func_MAIN(0);
+    float rf[3] = {0, 0, 0}; double rd[3] = {0, 0, 0}; int32_t ri[3] = {0, 0, 0};
+    bool ok = r.r0.size == 3 && r.r1.size == 3 && r.r2.size == 3;
+    for (int i = 0; ok && i < 3; i++)
+      ok = ((float*)r.r0.data)[i] == rf[i] && ((double*)r.r1.data)[i] == rd[i]
+        && ((int32_t*)r.r2.data)[i] == ri[i];
+    check("real/double/int literal arrays match C reference", ok);
+}
+#endif
 #ifdef TEST_PICK_DV
 static void test_pick_dv(void) {
     printf("\n=== Group: pick_dv (if/elseif with array_dv results; vs C reference) ===\n");
@@ -6035,6 +6054,9 @@ main (void)
 #ifdef TEST_PICK_DV
   test_pick_dv ();
 #endif
+#ifdef TEST_ZERO_ARRAYS
+  test_zero_arrays ();
+#endif
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
 #endif
@@ -6258,6 +6280,7 @@ main (void)
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
     && !defined(TEST_SMOOTH_DV) && !defined(TEST_DFT_DV)                      \
     && !defined(TEST_RECORD_OPS_DV) && !defined(TEST_ARRAY_ADD_DV)\
+    && !defined(TEST_ZERO_ARRAYS)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
