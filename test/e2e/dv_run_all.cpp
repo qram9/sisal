@@ -5856,7 +5856,7 @@ static void q_enum(int n, int col, int *rows) {
 }
 static void test_8queens_dv(void) {
     printf("\n=== Group: 8queens_dv (rank-2 solution slab, COMPRESS + catenate; vs C reference) ===\n");
-    for (int n = 4; n <= 6; n++) {
+    for (int n = 4; n <= 8; n++) {
         q_nref = 0; int rows[8];
         q_enum(n, 0, rows);
         sisal_array_t s = func_MAIN(n);
