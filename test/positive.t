@@ -133,7 +133,7 @@ DV array variants - array_dv OF with correct array_dv return types:
   $ sisal e2e/loop2_inner_dv.sis
   $ sisal e2e/dv_matmul.sis
 
-  $ sisal unit/nested_init_merge_dv.sis
+  $ sisal e2e/nested_init_merge_dv.sis
 
 
 Sorting algorithms:
@@ -261,7 +261,7 @@ Aggregate array_dv operations (basic.sis / sisal_tests_by_section.sis style):
 DV variants of scientific benchmarks:
   $ sisal unit/gaussj_perm_dv.sis
   $ sisal unit/cfft_dv.sis
-  $ sisal unit/feo_fft_dv.sis
+  $ sisal e2e/feo_fft_dv.sis
   $ sisal unit/gaussj_dv.sis
   $ sisal unit/hilbert_dv.sis
   $ sisal unit/inverse_dv.sis
@@ -284,8 +284,8 @@ DV variants of scientific benchmarks:
   $ sisal e2e/xfa_b4_reduce.sis
   $ sisal e2e/xfa_c4_dep2.sis
   $ sisal e2e/xfa_c5_dep3.sis
-  $ sisal unit/lu_npiv_dv.sis
-  $ sisal unit/lu_piv_dv.sis
+  $ sisal e2e/lu_npiv_dv.sis
+  $ sisal e2e/lu_piv_dv.sis
   $ sisal unit/newgauss_dv.sis
   $ sisal unit/newgaussj_dv.sis
   $ sisal unit/ricard_dv.sis
@@ -457,17 +457,17 @@ Scientific benchmarks:
   $ sisal unit/array_ex.sis
   $ sisal unit/bad.sis
   $ sisal unit/for_all_argmax.sis
-  $ sisal unit/test_if_array_dv.sis
-  $ sisal unit/test_if_multi_array_dv.sis
+  $ sisal e2e/test_if_array_dv.sis
+  $ sisal e2e/test_if_multi_array_dv.sis
   $ sisal e2e/test_mix_array_dv_if.sis
   $ sisal e2e/forall_gpu.sis
   $ sisal e2e/8queens_dv.sis
-  $ sisal unit/test_mix_scalar_array_dv.sis
-  $ sisal unit/test_multi_array_if_dv.sis
-  $ sisal unit/test_union_array_if_dv.sis
-  $ sisal unit/sub_r3_perm.sis
-  $ sisal unit/sub_r4_perm.sis
-  $ sisal unit/sub_r5_perm.sis
+  $ sisal e2e/test_mix_scalar_array_dv.sis
+  $ sisal e2e/test_multi_array_if_dv.sis
+  $ sisal e2e/test_union_array_if_dv.sis
+  $ sisal e2e/sub_r3_perm.sis
+  $ sisal e2e/sub_r4_perm.sis
+  $ sisal e2e/sub_r5_perm.sis
   $ sisal unit/reset_ast.sis
   $ sisal unit/rest_ast.sis
   $ sisal e2e/cross_dv_demo.sis

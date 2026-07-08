@@ -229,6 +229,31 @@ extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
 #ifdef TEST_QUEENS_DV
 extern "C" sisal_array_t func_MAIN(int32_t level);
 #endif
+
+#if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
+extern "C" int32_t func_MAIN(int32_t n);
+#endif
+
+#ifdef TEST_IF_ARRAY_DV
+extern "C" sisal_array_t func_MAIN(bool flag);
+#endif
+
+#ifdef TEST_MIX_SCALAR_ARRAY_DV
+// res_2 is FLOAT: the Sisal literal 3.14 is REAL even though the function
+// declares double_real (frontend typing quirk).
+struct FUNC_MAIN_results { int32_t res_0; sisal_array_t res_1; float res_2; };
+extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
+#endif
+
+#ifdef TEST_IF_MULTI_ARRAY_DV
+struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
+#endif
+
+#if defined(TEST_MULTI_ARRAY_IF_DV) || defined(TEST_UNION_ARRAY_IF_DV)
+struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -5872,6 +5897,128 @@ static void test_8queens_dv(void) {
     }
 }
 #endif
+#ifdef TEST_SUB_R3_PERM
+static void test_sub_r3_perm(void) {
+    printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
+    // reference C: b[i,j,k] = i*100+j*10+k; a[1,2,3] = b[3,2,1]
+    int32_t ref = 3*100 + 2*10 + 1;
+    check("a[1,2,3] == b[3,2,1]", func_MAIN(3) == ref);
+}
+#endif
+#ifdef TEST_SUB_R4_PERM
+static void test_sub_r4_perm(void) {
+    printf("\n=== Group: sub_r4_perm (rank-4 two-source permute; vs C reference) ===\n");
+    // reference C: b[i,j,k,l]=i*1000+j*100+k*10+l; c[..]=i+j+k+l;
+    // a[1,2,1,2] = b[2,1,1,2] + c[1,2,2,1]
+    int32_t ref = (2*1000 + 1*100 + 1*10 + 2) + (1 + 2 + 2 + 1);
+    check("a[1,2,1,2] == b[2,1,1,2] + c[1,2,2,1]", func_MAIN(2) == ref);
+}
+#endif
+#ifdef TEST_SUB_R5_PERM
+static void test_sub_r5_perm(void) {
+    printf("\n=== Group: sub_r5_perm (rank-5 full index reverse; vs C reference) ===\n");
+    // reference C: b[i,j,k,l,m]=i*10000+j*1000+k*100+l*10+m; a[1,2,3,1,2]=b[2,1,3,2,1]
+    int32_t ref = 2*10000 + 1*1000 + 3*100 + 2*10 + 1;
+    check("a[1,2,3,1,2] == b[2,1,3,2,1]", func_MAIN(3) == ref);
+}
+#endif
+#ifdef TEST_IF_ARRAY_DV
+static void test_if_array_dv(void) {
+    printf("\n=== Group: test_if_array_dv (IF arms return dv literals) ===\n");
+    sisal_array_t a = func_MAIN(true), b = func_MAIN(false);
+    int32_t refa[3] = {1,2,3}, refb[3] = {4,5,6};
+    bool ok = ((int)a.size == 3 && (int)b.size == 3);
+    for (int i = 0; i < 3 && ok; i++)
+        ok = (((int32_t*)a.data)[i] == refa[i] && ((int32_t*)b.data)[i] == refb[i]);
+    check("then [1,2,3] / else [4,5,6]", ok);
+    if (a.data) free(a.data);
+    if (b.data) free(b.data);
+}
+#endif
+#ifdef TEST_MIX_SCALAR_ARRAY_DV
+static void test_mix_scalar_array_dv(void) {
+    printf("\n=== Group: test_mix_scalar_array_dv (IF returning scalar + dv + real) ===\n");
+    FUNC_MAIN_results a = func_MAIN(true), b = func_MAIN(false);
+    int32_t refa[3] = {1,2,3};
+    bool ok = (a.res_0 == 42 && (int)a.res_1.size == 3
+               && fabsf(a.res_2 - 3.14f) < 1e-6f);
+    for (int i = 0; i < 3 && ok; i++) ok = (((int32_t*)a.res_1.data)[i] == refa[i]);
+    ok = ok && b.res_0 == 0 && (int)b.res_1.size == 1
+         && ((int32_t*)b.res_1.data)[0] == 0 && b.res_2 == 0.0f;
+    check("then (42,[1,2,3],3.14) / else (0,[0],0.0)", ok);
+    if (a.res_1.data) free(a.res_1.data);
+    if (b.res_1.data) free(b.res_1.data);
+}
+#endif
+#ifdef TEST_IF_MULTI_ARRAY_DV
+static void test_if_multi_array_dv(void) {
+    printf("\n=== Group: test_if_multi_array_dv (IF returning dvi + dvd) ===\n");
+    FUNC_MAIN_results a = func_MAIN(true), b = func_MAIN(false);
+    int32_t refi[3] = {1,2,3};   double refd[3] = {1.1, 2.2, 3.3};
+    int32_t refi2[2] = {10,20};  double refd2[2] = {10.1, 20.2};
+    bool ok = ((int)a.res_0.size == 3 && (int)a.res_1.size == 3
+               && (int)b.res_0.size == 2 && (int)b.res_1.size == 2);
+    // 1e-5 tolerance: double literals are currently emitted through FLOAT
+    // precision (the C printer suffixes every literal with 'f'), so 20.2d0
+    // arrives as (double)20.2f = 20.200001.
+    for (int i = 0; i < 3 && ok; i++)
+        ok = (((int32_t*)a.res_0.data)[i] == refi[i]
+              && fabs(((double*)a.res_1.data)[i] - refd[i]) < 1e-5);
+    for (int i = 0; i < 2 && ok; i++)
+        ok = (((int32_t*)b.res_0.data)[i] == refi2[i]
+              && fabs(((double*)b.res_1.data)[i] - refd2[i]) < 1e-5);
+    check("then ([1,2,3],[1.1,2.2,3.3]) / else ([10,20],[10.1,20.2])", ok);
+    if (a.res_0.data) free(a.res_0.data);
+    if (a.res_1.data) free(a.res_1.data);
+    if (b.res_0.data) free(b.res_0.data);
+    if (b.res_1.data) free(b.res_1.data);
+}
+#endif
+#ifdef TEST_MULTI_ARRAY_IF_DV
+static void test_multi_array_if_dv(void) {
+    printf("\n=== Group: test_multi_array_if_dv (forall with IF body, dvd + dvi outputs; vs C reference) ===\n");
+    const int n = 6;
+    // reference C implementation
+    double refd[n]; int32_t refi[n];
+    for (int i = 1; i <= n; i++) {
+        refd[i-1] = (i % 2 == 0) ? i * 1.5 : i * 0.5;
+        refi[i-1] = i * i;
+    }
+    FUNC_MAIN_results r = func_MAIN(n);
+    bool ok = ((int)r.res_0.size == n && (int)r.res_1.size == n);
+    for (int i = 0; i < n && ok; i++)
+        ok = (fabs(((double*)r.res_0.data)[i] - refd[i]) < 1e-9
+              && ((int32_t*)r.res_1.data)[i] == refi[i]);
+    check("dvd = i*1.5/i*0.5 and dvi = i*i match C reference", ok);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+#ifdef TEST_UNION_ARRAY_IF_DV
+static void test_union_array_if_dv(void) {
+    printf("\n=== Group: test_union_array_if_dv (array_dv of tagged unions; vs C reference) ===\n");
+    // ABI of the emitted union_un_<N>: {int32 tag; union {int32 I; double D};}
+    // tag values: I-arm = 95, D-arm = 94 (see the emitted enum).
+    struct un { int32_t tag; union { int32_t I; double D; } val; };
+    const int n = 6;
+    FUNC_MAIN_results r = func_MAIN(n);
+    bool ok = ((int)r.res_0.size == n && (int)r.res_1.size == n
+               && r.res_1.elem_bytes == sizeof(struct un));
+    for (int i = 1; i <= n && ok; i++) {
+        // reference C: even i -> 1.5*i and union[i: i]; odd -> 0.5*i and union[d: i]
+        double refd = (i % 2 == 0) ? i * 1.5 : i * 0.5;
+        ok = fabs(((double*)r.res_0.data)[i-1] - refd) < 1e-9;
+        struct un u = ((struct un*)r.res_1.data)[i-1];
+        if (ok) {
+            if (i % 2 == 0) ok = (u.tag == 95 && u.val.I == i);
+            else            ok = (u.tag == 94 && fabs(u.val.D - (double)i) < 1e-9);
+        }
+    }
+    check("dvd values + union tags/payloads match C reference", ok);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 #ifdef TEST_CPXFUNCS_DV
 static void test_cpxfuncs_dv(void) {
     printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
@@ -6251,6 +6398,30 @@ main (void)
 #ifdef TEST_QUEENS_DV
   test_8queens_dv ();
 #endif
+#ifdef TEST_SUB_R3_PERM
+  test_sub_r3_perm ();
+#endif
+#ifdef TEST_SUB_R4_PERM
+  test_sub_r4_perm ();
+#endif
+#ifdef TEST_SUB_R5_PERM
+  test_sub_r5_perm ();
+#endif
+#ifdef TEST_IF_ARRAY_DV
+  test_if_array_dv ();
+#endif
+#ifdef TEST_MIX_SCALAR_ARRAY_DV
+  test_mix_scalar_array_dv ();
+#endif
+#ifdef TEST_IF_MULTI_ARRAY_DV
+  test_if_multi_array_dv ();
+#endif
+#ifdef TEST_MULTI_ARRAY_IF_DV
+  test_multi_array_if_dv ();
+#endif
+#ifdef TEST_UNION_ARRAY_IF_DV
+  test_union_array_if_dv ();
+#endif
 
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
@@ -6480,6 +6651,10 @@ main (void)
     && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
     && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
     && !defined(TEST_QUEENS_DV)\
+    && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
+    && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
+    && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\
+    && !defined(TEST_MULTI_ARRAY_IF_DV) && !defined(TEST_UNION_ARRAY_IF_DV)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
