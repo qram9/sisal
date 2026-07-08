@@ -1252,8 +1252,6 @@ and lower_simple env gr nid sym pin pout pr =
             C.Index (cast_ptr, idx)
     | DV_ELEMENT | DV_LOAD_LINEAR ->
         let elem_ty = get_final_ty env gid nid 0 `Out in
-        Printf.fprintf stderr "DEBUG COMPILER DV_ELEMENT: gid=%d, nid=%d, elem_ty=%s\n"
-          gid nid (string_of_c_type elem_ty);
         let idx =
           if sym = DV_LOAD_LINEAR then e2
           else

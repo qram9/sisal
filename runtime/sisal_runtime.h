@@ -423,6 +423,10 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
 }
 
 inline sisal_array_t sisal_array_catenate(sisal_array_t acc, sisal_array_t val) {
+    /* empty val is the identity: without this, addh_arr would still bump
+       dims[0] by one phantom (zero-element) row/slot, leaving dims[0]
+       inconsistent with size (zero-trip loops produce empty descriptors). */
+    if (val.data == NULL || val.size == 0) return acc;
     if (acc.data == NULL || acc.size == 0) {
         size_t esz = sisal_esz(val);
         sisal_array_t res = val;
@@ -926,15 +930,31 @@ inline sisal_array_t sisal_array_sort(sisal_array_t a) {
 }
 
 /* COMPRESS: returns elements of `data` where `mask` (bool array) is true */
+/* COMPRESS: keep the slabs of `data` whose mask flag is true.  A slab is one
+   element for rank-1 data, one axis-0 row for rank>1 (the mask indexes axis
+   0 either way).  Byte-true (esz), so it works for any element type. */
 inline sisal_array_t sisal_array_compress(sisal_array_t mask, sisal_array_t data) {
+    size_t esz = sisal_esz(data);
+    uint64_t slab = (data.rank > 1 && data.dims[0] > 0)
+                        ? data.size / (uint64_t)data.dims[0] : 1;
     uint64_t count = 0;
     bool* m = (bool*)mask.data;
     for (uint64_t i = 0; i < mask.size; i++) if (m[i]) count++;
-    sisal_array_t res = sisal_array_alloc_sized(data.rank, data.type_id, count, sisal_esz(data));
+    sisal_array_t res =
+        sisal_array_alloc_sized(data.rank, data.type_id, count * slab, esz);
     res.lower_bound[0] = 1;
-    uint64_t out = 0;
+    res.dims[0] = (int64_t)count;
+    for (int k = 1; k < (int)data.rank; k++) {
+        res.dims[k] = data.dims[k];
+        res.lower_bound[k] = data.lower_bound[k];
+    }
+    char* dst = (char*)res.data;
+    const char* src = (const char*)data.data;
     for (uint64_t i = 0; i < mask.size; i++) {
-        if (m[i]) { ((float*)res.data)[out++] = ((float*)data.data)[i]; }
+        if (m[i]) {
+            memcpy(dst, src + i * slab * esz, slab * esz);
+            dst += slab * esz;
+        }
     }
     return res;
 }

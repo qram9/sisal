@@ -225,6 +225,10 @@ extern "C" sisal_array_t func_MAIN_GPU(int32_t n);
 struct FUNC_MAIN_results { sisal_array_t r0, r1; };
 extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
 #endif
+
+#ifdef TEST_QUEENS_DV
+extern "C" sisal_array_t func_MAIN(int32_t level);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -5830,6 +5834,44 @@ static void test_mix_array_dv_if(void) {
     if (b.r1.data) free(b.r1.data);
 }
 #endif
+#ifdef TEST_QUEENS_DV
+// reference C: enumerate N-queens depth-first, columns left to right,
+// candidate rows ascending -- the same order the Sisal recursion visits,
+// so solutions compare element-for-element.
+static int q_nref = 0;
+static int q_refsol[1024][8];
+static void q_enum(int n, int col, int *rows) {
+    if (col == n) {
+        for (int c = 0; c < n; c++) q_refsol[q_nref][c] = rows[c];
+        q_nref++;
+        return;
+    }
+    for (int r = 1; r <= n; r++) {
+        bool ok = true;
+        for (int c = 0; c < col && ok; c++)
+            ok = (rows[c] != r && rows[c] + (c+1) != r + (col+1)
+                  && rows[c] - (c+1) != r - (col+1));
+        if (ok) { rows[col] = r; q_enum(n, col+1, rows); }
+    }
+}
+static void test_8queens_dv(void) {
+    printf("\n=== Group: 8queens_dv (rank-2 solution slab, COMPRESS + catenate; vs C reference) ===\n");
+    for (int n = 4; n <= 6; n++) {
+        q_nref = 0; int rows[8];
+        q_enum(n, 0, rows);
+        sisal_array_t s = func_MAIN(n);
+        bool ok = (s.rank == 2 && (int)s.dims[0] == q_nref && (int)s.dims[1] == n
+                   && (int)s.size == q_nref * n);
+        for (int k = 0; ok && k < q_nref; k++)
+            for (int c = 0; ok && c < n; c++)
+                ok = (((int32_t*)s.data)[k*n + c] == q_refsol[k][c]);
+        char label[64];
+        snprintf(label, sizeof label, "n=%d: %d solutions match C reference", n, q_nref);
+        check(label, ok);
+        if (s.data) free(s.data);
+    }
+}
+#endif
 #ifdef TEST_CPXFUNCS_DV
 static void test_cpxfuncs_dv(void) {
     printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
@@ -6206,6 +6248,9 @@ main (void)
 #ifdef TEST_MIX_ARRAY_DV_IF
   test_mix_array_dv_if ();
 #endif
+#ifdef TEST_QUEENS_DV
+  test_8queens_dv ();
+#endif
 
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
@@ -6434,6 +6479,7 @@ main (void)
     && !defined(TEST_XFA_B4_REDUCE)\
     && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
     && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
+    && !defined(TEST_QUEENS_DV)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
