@@ -4481,6 +4481,56 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
         body_stmts @ body_capture_assigns @ gather_store @ merge_backedge_copies
         @ carry_update_stmts @ test_stmts2 )
   in
+  (* FinalVal ZERO-TRIP correctness: a RETURNS consumer of a BODY output that
+     carries a MERGE backedge value must read the MERGE carry variable, not
+     the bodycap snapshot.  After any iteration the two are equal (the
+     backedge copy runs at the bottom of the body), but when the loop never
+     runs the bodycap was never assigned while the MERGE still holds the
+     INIT seed -- `value of X` must yield that seed (found via
+     find_pivot(N,N,..) in gaussj_perm_dv returning 0 -> NaN).  The BODY may
+     export the same inner value on SEVERAL boundary ports (one feeds the
+     backedge, another the RETURNS), so match by the port's INNER source,
+     not the port number.  Rebinding here is safe: every loop statement
+     (captures, backedge copies, TEST re-run) is already built. *)
+  let env_loop =
+    (* inner source of a BODY boundary out port *)
+    let inner_src p =
+      ES.fold
+        (fun ((isn, isp), (dn, dp), _) a ->
+          if dn = 0 && dp = p then Some (isn, isp) else a)
+        body_gr.eset None
+    in
+    NM.fold
+      (fun mnid mnode e ->
+        match mnode with
+        | Simple (_, MERGE, _, _, _) -> (
+            match
+              ES.fold
+                (fun ((sn, sp), (dn, dp), _) a ->
+                  if dn = mnid && dp = 2 && sn = body_nid then Some sp else a)
+                loop_gr.eset None
+            with
+            | Some sp_backedge -> (
+                match inner_src sp_backedge with
+                | Some src ->
+                    let merge_expr = get_expr e sub_gid mnid 0 `Out in
+                    ES.fold
+                      (fun ((isn, isp), (dn, dp), _) e' ->
+                        if dn = 0 && (isn, isp) = src then
+                          {
+                            e' with
+                            var_map =
+                              FullPortMap.add
+                                (sub_gid, body_nid, dp, `Out)
+                                merge_expr e'.var_map;
+                          }
+                        else e')
+                      body_gr.eset e
+                | None -> e)
+            | None -> e)
+        | _ -> e)
+      loop_gr.nmap env_loop
+  in
   let ret_nid, ret_gr =
     match find_subgraph loop_gr "RETURNS" with
     | Some x -> x

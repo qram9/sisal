@@ -230,6 +230,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
 extern "C" sisal_array_t func_MAIN(int32_t level);
 #endif
 
+#ifdef TEST_GAUSSJ_PERM_DV
+extern "C" sisal_array_t func_GAUSSJ_PERM(int32_t n, sisal_array_t A, sisal_array_t B);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -5897,6 +5901,39 @@ static void test_8queens_dv(void) {
     }
 }
 #endif
+#ifdef TEST_GAUSSJ_PERM_DV
+static void test_gaussj_perm_dv(void) {
+    printf("\n=== Group: gaussj_perm_dv (Gauss-Jordan, permutation-free pivoting, float; vs C reference) ===\n");
+    // Also the regression test for the for-initial FinalVal ZERO-TRIP bug:
+    // find_pivot(N,N,..) never enters its while loop and must return the
+    // INIT seed (the MERGE carry), not a zeroed bodycap.
+    const int N = 4;
+    double Ad[N][N] = {{2,1,-1,3},{-3,-1,2,-11},{-2,1,2,-3},{1,2,3,4}};
+    double bd[N]    = {13, -34, -4, 20};
+    // reference C: Gaussian elimination, partial pivoting, back-substitution
+    double M[N][N+1];
+    for (int i=0;i<N;i++){ for(int j=0;j<N;j++) M[i][j]=Ad[i][j]; M[i][N]=bd[i]; }
+    for (int k=0;k<N;k++){
+        int p=k; for(int i=k+1;i<N;i++) if (fabs(M[i][k])>fabs(M[p][k])) p=i;
+        for(int j=0;j<=N;j++){ double t=M[k][j]; M[k][j]=M[p][j]; M[p][j]=t; }
+        for(int i=0;i<N;i++) if(i!=k){ double f=M[i][k]/M[k][k];
+            for(int j=k;j<=N;j++) M[i][j]-=f*M[k][j]; }
+    }
+    double ref[N]; for(int i=0;i<N;i++) ref[i]=M[i][N]/M[i][i];
+    // inputs are array_dv[real] = FLOAT (tid 8)
+    sisal_array_t A = sisal_array_alloc_empty(2, 8, N*N);
+    A.dims[0]=N; A.dims[1]=N; A.lower_bound[0]=1; A.lower_bound[1]=1;
+    for(int i=0;i<N;i++) for(int j=0;j<N;j++) ((float*)A.data)[i*N+j]=(float)Ad[i][j];
+    sisal_array_t B = sisal_array_alloc_empty(1, 8, N);
+    for(int i=0;i<N;i++) ((float*)B.data)[i]=(float)bd[i];
+    sisal_array_t x = func_GAUSSJ_PERM(N, A, B);
+    bool ok = (x.rank == 1 && (int)x.size == N);
+    for (int i = 0; ok && i < N; i++)
+        ok = fabs(((float*)x.data)[i] - ref[i]) < 1e-4;   // float arithmetic
+    check("4x4 solve matches C reference (1e-4)", ok);
+    free(A.data); free(B.data); if (x.data) free(x.data);
+}
+#endif
 #ifdef TEST_SUB_R3_PERM
 static void test_sub_r3_perm(void) {
     printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
@@ -6398,6 +6435,9 @@ main (void)
 #ifdef TEST_QUEENS_DV
   test_8queens_dv ();
 #endif
+#ifdef TEST_GAUSSJ_PERM_DV
+  test_gaussj_perm_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -6650,7 +6690,7 @@ main (void)
     && !defined(TEST_XFA_B4_REDUCE)\
     && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
     && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
-    && !defined(TEST_QUEENS_DV)\
+    && !defined(TEST_QUEENS_DV) && !defined(TEST_GAUSSJ_PERM_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\
