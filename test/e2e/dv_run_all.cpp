@@ -212,6 +212,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
 #ifdef TEST_XFA_B4_REDUCE
 extern "C" int32_t func_MAIN(int32_t n, int32_t m);
 #endif
+
+#if defined(TEST_XFA_C4_DEP2) || defined(TEST_XFA_C5_DEP3)
+extern "C" sisal_array_t func_MAIN(int32_t n);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -5747,6 +5751,41 @@ static void test_xfa_b4_reduce(void) {
     check("sum i*j over cross matches C reference", func_MAIN(n, m) == ref);
 }
 #endif
+#ifdef TEST_XFA_C4_DEP2
+static void test_xfa_c4_dep2(void) {
+    printf("\n=== Group: xfa_c4_dep2 (dependent cross `i in 1,n cross j in i,n`, Fortran-DO; vs C reference) ===\n");
+    const int n = 6;
+    // reference C implementation: triangular nest, row-major flat order
+    int32_t ref[64]; int cnt = 0;
+    for (int i = 1; i <= n; i++)
+        for (int j = i; j <= n; j++) ref[cnt++] = i * j;
+    sisal_array_t r = func_MAIN(n);
+    check("flat rank-1, size = n*(n+1)/2",
+          r.rank == 1 && (int)r.size == cnt && (int)r.dims[0] == cnt);
+    bool ok = true;
+    for (int k = 0; ok && k < cnt; k++) ok = (((int32_t*)r.data)[k] == ref[k]);
+    check("i*j elements match C reference", ok);
+    if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_XFA_C5_DEP3
+static void test_xfa_c5_dep3(void) {
+    printf("\n=== Group: xfa_c5_dep3 (3-deep dependent cross, Fortran-DO; vs C reference) ===\n");
+    const int n = 5;
+    // reference C implementation: tetrahedral nest, row-major flat order
+    int32_t ref[128]; int cnt = 0;
+    for (int i = 1; i <= n; i++)
+        for (int j = i; j <= n; j++)
+            for (int k = j; k <= n; k++) ref[cnt++] = i + j + k;
+    sisal_array_t r = func_MAIN(n);
+    check("flat rank-1, size = C(n+2,3)",
+          r.rank == 1 && (int)r.size == cnt && (int)r.dims[0] == cnt);
+    bool ok = true;
+    for (int k = 0; ok && k < cnt; k++) ok = (((int32_t*)r.data)[k] == ref[k]);
+    check("i+j+k elements match C reference", ok);
+    if (r.data) free(r.data);
+}
+#endif
 #ifdef TEST_CPXFUNCS_DV
 static void test_cpxfuncs_dv(void) {
     printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
@@ -6111,6 +6150,12 @@ main (void)
 #ifdef TEST_XFA_B4_REDUCE
   test_xfa_b4_reduce ();
 #endif
+#ifdef TEST_XFA_C4_DEP2
+  test_xfa_c4_dep2 ();
+#endif
+#ifdef TEST_XFA_C5_DEP3
+  test_xfa_c5_dep3 ();
+#endif
 
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
@@ -6337,6 +6382,7 @@ main (void)
     && !defined(TEST_RECORD_OPS_DV) && !defined(TEST_ARRAY_ADD_DV)\
     && !defined(TEST_ZERO_ARRAYS) && !defined(TEST_CPXFUNCS_DV)\
     && !defined(TEST_XFA_B4_REDUCE)\
+    && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \

@@ -2464,10 +2464,64 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
      inputs: declare the slot (step 2) + ASSIGN it from the parent on entry --
      `v_GEN_…_N = v_FORALL_…_N;`.  So consumers read the subgraph's own (now live)
      name; no var_map override, no dead relay decls.  Recurses through nested
-     GENERATORs (cross): the inner copy-in reads the outer's slot, already assigned.
-     These are loop-invariant, so they sit BEFORE the loops. *)
+     GENERATORs' copy-ins are emitted by lower_gen INSIDE the parent loop (a
+     nested bound may reference the enclosing axis, Fortran-DO style); only the
+     TOP generator's copy-ins are loop-invariant and sit before the loops. *)
   let gen_gid_of pg gnid =
     try GidMap.find (pg, gnid) env.gid_table with _ -> -1
+  in
+  (* Fortran-DO dependent ranges (`for i in 1,n cross j in i,n`): a nested
+     level's BOUND reads an enclosing axis, so the nest is NOT rectangular.
+     NB an axis value merely relayed through the nested boundary to the BODY
+     (every rectangular cross does that) is not dependence — only taint that
+     reaches a RANGEGEN/scatter INPUT counts.  Propagate taint forward from
+     axis outputs (through bound math and nested boundaries, in topo order);
+     `timports` = tainted boundary IN ports of the current level.  Decides
+     (a) whether nested copy-ins may be hoisted to the preheader
+     (rectangular only) and (b) how the gather allocates (extent product vs
+     a counting pre-nest, below). *)
+  let rec nest_is_dependent g timports =
+    let is_axis n =
+      match NM.find_opt n g.nmap with
+      | Some (Simple (_, (RANGEGEN | DV_SCATTER | ASCATTER), _, _, _)) -> true
+      | _ -> false
+    in
+    let src_tainted tset sn sp =
+      (sn = 0 && IntSet.mem sp timports) || IntSet.mem sn tset
+    in
+    let tainted =
+      List.fold_left
+        (fun tset n ->
+          if is_axis n then IntSet.add n tset
+          else if
+            ES.exists
+              (fun ((sn, sp), (dn, _), _) -> dn = n && src_tainted tset sn sp)
+              g.eset
+          then IntSet.add n tset
+          else tset)
+        IntSet.empty (topo_sort g)
+    in
+    ES.exists
+      (fun ((sn, sp), (dn, _), _) ->
+        is_axis dn && src_tainted tainted sn sp)
+      g.eset
+    ||
+    match find_subgraph g "GENERATOR" with
+    | Some (ign, igr) ->
+        let timports' =
+          ES.fold
+            (fun ((sn, sp), (dn, dp), _) acc ->
+              if dn = ign && src_tainted tainted sn sp then IntSet.add dp acc
+              else acc)
+            g.eset IntSet.empty
+        in
+        nest_is_dependent igr timports'
+    | None -> false
+  in
+  let dependent =
+    match _generator with
+    | Some (_, gen_gr) -> nest_is_dependent gen_gr IntSet.empty
+    | None -> false
   in
   let rec relay_copyins parent_g parent_nid parent_gid g ggid =
     let in_ports =
@@ -2493,10 +2547,17 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           | None -> acc)
         in_ports []
     in
+    (* RECTANGULAR nest: nested copy-ins are loop-invariant, hoist them here
+       too — the preheader gather alloc reads inner boundary slots via
+       collect_extents.  DEPENDENT nest: they are NOT invariant (a bound
+       reads an enclosing axis), so they exist only per-iteration, emitted
+       by lower_gen INSIDE the parent loop via ~before. *)
     let nested =
-      match find_subgraph g "GENERATOR" with
-      | Some (ign, igr) -> relay_copyins g ign ggid igr (gen_gid_of ggid ign)
-      | None -> []
+      if dependent then []
+      else
+        match find_subgraph g "GENERATOR" with
+        | Some (ign, igr) -> relay_copyins g ign ggid igr (gen_gid_of ggid ign)
+        | None -> []
     in
     here @ nested
   in
@@ -2563,10 +2624,16 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
       | Some (sn, sp) -> get_expr env_g ggid sn sp `Out
       | None -> C.LitInt 0
     in
-    (* recurse into a nested GENERATOR (cross) for the inner body *)
+    (* recurse into a nested GENERATOR (cross): its boundary copy-ins execute
+       HERE, per iteration of THIS level, before the inner loop -- a nested
+       bound may read this axis's variable (dependent range, Fortran-DO
+       semantics; nest_is_dependent in lower_forall detects that case). *)
     let inner' =
       match find_subgraph g "GENERATOR" with
-      | Some (ign, igr) -> lower_gen igr (gen_gid_of ggid ign) inner
+      | Some (ign, igr) ->
+          let igid = gen_gid_of ggid ign in
+          let cis = relay_copyins g ign ggid igr igid in
+          lower_gen ~before:cis igr igid inner
       | None -> inner
     in
     match (ranges, scatters) with
@@ -2597,7 +2664,10 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                        (C.Add, resolve_in s 0, C.BinOp (C.Sub, C.Id it, lb)) )))
             sibs
         in
-        pre @ bound_outs @ before
+        (* `before` (copy-ins for a nested level / allocs at the top) must
+           precede bound_outs: a dependent nested bound's re-export reads the
+           copied-in slot of THIS iteration, not the previous one. *)
+        pre @ before @ bound_outs
         @ [
             C.For
               ( C.Expr (C.BinOp (C.Assign, C.Id it, lb)),
@@ -2867,6 +2937,15 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           here @ rest
         in
         let extents = collect_extents gen_gr gen_gid in
+        (* DEPENDENT nest (see nest_is_dependent above): the preheader extent
+           product is meaningless — a nested extent would read the axis slot
+           before the loop has run.  Allocate FLAT instead: one extent = a
+           total computed by a counting pre-nest (same loops, bare counter
+           body) just before the real nest — rank 1, dims[0] = total. *)
+        let gtot = Printf.sprintf "__gtot_%d" sub_gid in
+        let extents =
+          if dependent then [ (C.Id gtot, C.LitInt 1) ] else extents
+        in
         let rank = max 1 (List.length extents) in
         let count =
           List.fold_left
@@ -3498,7 +3577,19 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           if any_gather then [ C.Expr (C.UnaryOp (C.PostInc, C.Id gctr)) ]
           else []
         in
-        ( bound_stmts @ lower_gen ~before gen_gr gen_gid inner @ afters,
+        (* dependent nest: run the SAME loops once with a bare counter body
+           to learn the flat element count before the gather allocations
+           (which sit in `before`, ahead of the real nest) read __gtot. *)
+        let count_nest =
+          if dependent && any_gather then
+            C.Decl (C.Basic "int64_t", gtot, Some (C.LitInt 0))
+            :: lower_gen gen_gr gen_gid
+                 [ C.Expr (C.UnaryOp (C.PostInc, C.Id gtot)) ]
+          else []
+        in
+        ( bound_stmts @ count_nest
+          @ lower_gen ~before gen_gr gen_gid inner
+          @ afters,
           decls,
           binds )
   in
