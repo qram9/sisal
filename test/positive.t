@@ -459,7 +459,8 @@ Scientific benchmarks:
   $ sisal unit/for_all_argmax.sis
   $ sisal unit/test_if_array_dv.sis
   $ sisal unit/test_if_multi_array_dv.sis
-  $ sisal unit/test_mix_array_dv_if.sis
+  $ sisal e2e/test_mix_array_dv_if.sis
+  $ sisal e2e/forall_gpu.sis
   $ sisal unit/test_mix_scalar_array_dv.sis
   $ sisal unit/test_multi_array_if_dv.sis
   $ sisal unit/test_union_array_if_dv.sis

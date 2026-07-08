@@ -216,6 +216,15 @@ extern "C" int32_t func_MAIN(int32_t n, int32_t m);
 #if defined(TEST_XFA_C4_DEP2) || defined(TEST_XFA_C5_DEP3)
 extern "C" sisal_array_t func_MAIN(int32_t n);
 #endif
+
+#ifdef TEST_FORALL_GPU_DV
+extern "C" sisal_array_t func_MAIN_GPU(int32_t n);
+#endif
+
+#ifdef TEST_MIX_ARRAY_DV_IF
+struct FUNC_MAIN_results { sisal_array_t r0, r1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -5786,6 +5795,41 @@ static void test_xfa_c5_dep3(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_FORALL_GPU_DV
+static void test_forall_gpu(void) {
+    printf("\n=== Group: forall_gpu (negate gather Main_GPU; vs C reference) ===\n");
+    const int n = 7;
+    // reference C implementation
+    float ref[n];
+    for (int i = 0; i < n; i++) ref[i] = -(float)(i + 1);
+    sisal_array_t r = func_MAIN_GPU(n);
+    check("rank 1, size n", r.rank == 1 && (int)r.size == n);
+    bool ok = true;
+    for (int i = 0; ok && i < n; i++) ok = (((float*)r.data)[i] == ref[i]);
+    check("-X elements match C reference", ok);
+    if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_MIX_ARRAY_DV_IF
+static void test_mix_array_dv_if(void) {
+    printf("\n=== Group: test_mix_array_dv_if (IF returning monolithic array + array_dv) ===\n");
+    // both IF arms return (array[integer], array_dv[integer]) literals
+    FUNC_MAIN_results a = func_MAIN(true);
+    check("then-arm: array [1,2] and dv [10,20]",
+          (int)a.r0.size == 2 && ((int32_t*)a.r0.data)[0] == 1
+          && ((int32_t*)a.r0.data)[1] == 2
+          && (int)a.r1.size == 2 && ((int32_t*)a.r1.data)[0] == 10
+          && ((int32_t*)a.r1.data)[1] == 20);
+    FUNC_MAIN_results b = func_MAIN(false);
+    check("else-arm: array [0] and dv [0]",
+          (int)b.r0.size == 1 && ((int32_t*)b.r0.data)[0] == 0
+          && (int)b.r1.size == 1 && ((int32_t*)b.r1.data)[0] == 0);
+    if (a.r0.data) free(a.r0.data);
+    if (a.r1.data) free(a.r1.data);
+    if (b.r0.data) free(b.r0.data);
+    if (b.r1.data) free(b.r1.data);
+}
+#endif
 #ifdef TEST_CPXFUNCS_DV
 static void test_cpxfuncs_dv(void) {
     printf("\n=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===\n");
@@ -6156,6 +6200,12 @@ main (void)
 #ifdef TEST_XFA_C5_DEP3
   test_xfa_c5_dep3 ();
 #endif
+#ifdef TEST_FORALL_GPU_DV
+  test_forall_gpu ();
+#endif
+#ifdef TEST_MIX_ARRAY_DV_IF
+  test_mix_array_dv_if ();
+#endif
 
 #ifdef TEST_RECORD_E2E
   test_record_e2e ();
@@ -6383,6 +6433,7 @@ main (void)
     && !defined(TEST_ZERO_ARRAYS) && !defined(TEST_CPXFUNCS_DV)\
     && !defined(TEST_XFA_B4_REDUCE)\
     && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
+    && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
     && !defined(TEST_PICK_DV)                                           \
     && !defined(TEST_RECORD_E2E)                                              \
     && !defined(TEST_TAGCASE_E2E)                                              \
