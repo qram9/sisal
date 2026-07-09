@@ -4386,6 +4386,39 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                        count and ticks once in the preheader (body_val is the
                        MERGE variable, holding the seed there). *)
                     let size = if is_carry then inc size else size in
+                    (* ALWAYS-ON size assert: the guard must at least allow
+                       the initializer to execute -- history >= 1 for a carry
+                       (its seed needs a slot), >= 0 for a body temp.  A
+                       violated assert (e.g. seed 10, while i < 8) would
+                       otherwise underflow the uint64 allocation size and
+                       crash incomprehensibly; fail with a message instead.
+                       (Distinct from the #ifdef SISAL_TRAP_ZERO_TRIP guard,
+                       which flags ANY zero-body-trip loop.) *)
+                    let size_assert =
+                      let least = if is_carry then 1 else 0 in
+                      [
+                        C.If
+                          ( C.BinOp (C.Lt, size, C.LitInt least),
+                            [
+                              C.Expr
+                                (C.Call
+                                   ( "fprintf",
+                                     [
+                                       C.Id "stderr";
+                                       C.LitString
+                                         (Printf.sprintf
+                                            "SISAL runtime error: 'for \
+                                             initial' gather in %s: sequence \
+                                             size < %d (loop guard excludes \
+                                             even the initializer)\\n"
+                                            (scope_of env.gid_name_map sub_gid)
+                                            least);
+                                     ] ));
+                              C.Expr (C.Call ("exit", [ C.LitInt 1 ]));
+                            ],
+                            [] );
+                      ]
+                    in
                     (* When the gathered element is itself an array_dv (elem_ty ==
                        sisal_array_t), FLATTEN by copying each iteration's buffer into a
                        growing rank-2 result -- NOT a boxed descriptor per iteration (which
@@ -4419,15 +4452,19 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                            C.Decl (C.Basic "int32_t", seed, Some op0);
                            (* carry holds the seed in the preheader *)
                            C.Decl (C.Basic "int32_t", bound, Some op1);
-                           C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
-                           C.Expr
-                             (C.BinOp
-                                ( C.Assign,
-                                  res_v,
-                                  alloc_array_call (C.LitInt 1) (C.LitInt tid)
-                                    (C.Cast (C.Basic "uint64_t", size))
-                                    elem_ty ));
-                         ])
+                         ]
+                         @ size_assert
+                         @ [
+                             C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                             C.Expr
+                               (C.BinOp
+                                  ( C.Assign,
+                                    res_v,
+                                    alloc_array_call (C.LitInt 1)
+                                      (C.LitInt tid)
+                                      (C.Cast (C.Basic "uint64_t", size))
+                                      elem_ty ));
+                           ])
                       (* body_0 tick: gather_pre runs after the MERGE seeds,
                          so the MERGE variable holds the seed here *)
                       @ (if is_carry then store' else [])
