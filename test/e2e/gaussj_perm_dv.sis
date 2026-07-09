@@ -21,20 +21,27 @@ type TwoD = array_dv[real];   % flat rank-2 DV, element (i,j) via A[i,j]
 
 
 % Return index pi in k..N with the largest |A[pi,k]|.
+% The k = N case is hoisted into an IF (loop rotation): the then-arm returns
+% what the initialization would say, so the loop below always runs at least
+% one body iteration and never relies on zero-trip behavior.
 function find_pivot(k, N: integer; A: TwoD returns integer)
-  for initial
-    best_i := k;
-    best_v := abs(A[k, k]);
-    i      := k
-  while i < N repeat
-    i      := old i + 1;
-    v      := abs(A[old i + 1, k]);
-    best_i, best_v :=
-      if v > old best_v then old i + 1, v
-      else old best_i, old best_v
-      end if
-  returns value of best_i
-  end for
+  if k = N then
+    k
+  else
+    for initial
+      best_i := k;
+      best_v := abs(A[k, k]);
+      i      := k
+    while i < N repeat
+      i      := old i + 1;
+      v      := abs(A[old i + 1, k]);
+      best_i, best_v :=
+        if v > old best_v then old i + 1, v
+        else old best_i, old best_v
+        end if
+    returns value of best_i
+    end for
+  end if
 end function
 
 

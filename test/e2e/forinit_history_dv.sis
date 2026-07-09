@@ -14,3 +14,16 @@ function main(n: integer returns array_dv[integer])
   returns array_dv of i
   end for
 end function
+
+% value-of zero-trip pin: the seed comes back when the body never runs
+% (this was gaussj_perm's find_pivot(N,N) case before its if-guard rewrite).
+function last_val(n: integer returns integer)
+  for initial
+    i := 42;
+    k := 1
+  while ( k <= n ) repeat
+    k := old k + 1;
+    i := old i * 2
+  returns value of i
+  end for
+end function

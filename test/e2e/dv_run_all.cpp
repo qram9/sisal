@@ -236,6 +236,7 @@ extern "C" sisal_array_t func_GAUSSJ_PERM(int32_t n, sisal_array_t A, sisal_arra
 
 #ifdef TEST_FORINIT_HISTORY_DV
 extern "C" sisal_array_t func_MAIN(int32_t n);
+extern "C" int32_t func_LAST_VAL(int32_t n);
 #endif
 
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
@@ -325,6 +326,8 @@ extern "C" int32_t func_FI_FIB (int32_t N);
 extern "C" int32_t func_FI_FIB_A (int32_t N);
 extern "C" sisal_array_t func_FI_PARAM_IDENTITY (int32_t N, sisal_array_t Ain);
 extern "C" sisal_array_t func_FI_PARAM_BUMP (int32_t N, sisal_array_t Ain);
+extern "C" sisal_array_t func_FI_GATHER_ZERO (int32_t N);
+extern "C" sisal_array_t func_FI_GATHER_BODY_TEMP (int32_t N);
 #endif
 
 #ifdef TEST_INNERPRODUCT_DV
@@ -1927,28 +1930,35 @@ test_for_initial (void)
   // single self-recurrences
   check ("fi_sum_10", func_FI_SUM (10) == 55); // 1+..+10
   check ("fi_sum_1", func_FI_SUM (1) == 1);
+  check ("fi_sum_0", func_FI_SUM (0) == 0); // zero iterations -> returns initial s (0)
   check ("fi_product_5", func_FI_PRODUCT (5) == 120); // 5!
   check ("fi_product_1", func_FI_PRODUCT (1) == 1);
+  check ("fi_product_0", func_FI_PRODUCT (0) == 1); // zero iterations -> returns initial p (1)
   check ("fi_final_i_5",
          func_FI_FINAL_I (5) == 6); // i runs 1..n, stops at n+1
   check ("fi_final_i_1", func_FI_FINAL_I (1) == 2);
+  check ("fi_final_i_0", func_FI_FINAL_I (0) == 1); // zero iterations -> returns initial i (1)
   // identity-recurrence carry (k := old k) — needs the MERGE-filter fix
   check ("fi_passthru_5", func_FI_PASSTHRU (5) == 42);
   check ("fi_passthru_1", func_FI_PASSTHRU (1) == 42);
+  check ("fi_passthru_0", func_FI_PASSTHRU (0) == 42); // zero iterations -> returns initial k (42)
   // mutual old-references — needs the get_symbol_id_old carry-in fix
   check ("fi_swap_1", func_FI_SWAP (1) == 20); // a,b exchange each iter
   check ("fi_swap_2", func_FI_SWAP (2) == 10);
   check ("fi_swap_3", func_FI_SWAP (3) == 20);
+  check ("fi_swap_0", func_FI_SWAP (0) == 10); // zero iterations -> returns initial a (10)
   check ("fi_fib_1", func_FI_FIB (1) == 1); // Fibonacci
   check ("fi_fib_5", func_FI_FIB (5) == 5);
   check ("fi_fib_7", func_FI_FIB (7) == 13);
   check ("fi_fib_10", func_FI_FIB (10) == 55);
+  check ("fi_fib_0", func_FI_FIB (0) == 0); // zero iterations -> returns initial a (0)
   // LoopA (post-test repeat..until) Fibonacci — same recurrence via the other
   // loop block
   check ("fi_fib_a_1", func_FI_FIB_A (1) == 1);
   check ("fi_fib_a_5", func_FI_FIB_A (5) == 5);
   check ("fi_fib_a_7", func_FI_FIB_A (7) == 13);
   check ("fi_fib_a_10", func_FI_FIB_A (10) == 55);
+  check ("fi_fib_a_0", func_FI_FIB_A (0) == 1); // LoopA post-test runs at least once
 
   // Regression: array-PARAMETER-seeded carry (A := Ain) — needs the to_if1
   // INIT-seed MERGE fix (a pass-through alias must still become a loop carry).
@@ -1966,6 +1976,16 @@ test_for_initial (void)
   if (s1.data)
     free (s1.data);
 
+  sisal_array_t s1_zero = make_int_arr (seed, 3);
+  sisal_array_t id_zero = func_FI_PARAM_IDENTITY (0, s1_zero); // zero iterations -> unchanged
+  check ("fi_param_identity_zero rank=1", id_zero.rank == 1);
+  check ("fi_param_identity_zero size=3", (int)id_zero.size == 3);
+  check ("fi_param_identity_zero[0]=10", ai (id_zero, 0) == 10);
+  check ("fi_param_identity_zero[1]=20", ai (id_zero, 1) == 20);
+  check ("fi_param_identity_zero[2]=30", ai (id_zero, 2) == 30);
+  if (s1_zero.data)
+    free (s1_zero.data);
+
   sisal_array_t s2 = make_int_arr (seed, 3);
   sisal_array_t bp = func_FI_PARAM_BUMP (3, s2); // +1 per elem, 3 iters
   check ("fi_param_bump size=3", (int)bp.size == 3);
@@ -1974,8 +1994,47 @@ test_for_initial (void)
   check ("fi_param_bump[2]=33", ai (bp, 2) == 33);
   if (bp.data)
     free (bp.data);
-  if (s2.data)
+  if (s2.data && s2.data != bp.data)
     free (s2.data);
+
+  sisal_array_t s2_zero = make_int_arr (seed, 3);
+  sisal_array_t bp_zero = func_FI_PARAM_BUMP (0, s2_zero); // zero iterations -> unchanged
+  check ("fi_param_bump_zero size=3", (int)bp_zero.size == 3);
+  check ("fi_param_bump_zero[0]=10", ai (bp_zero, 0) == 10);
+  check ("fi_param_bump_zero[1]=20", ai (bp_zero, 1) == 20);
+  check ("fi_param_bump_zero[2]=30", ai (bp_zero, 2) == 30);
+  if (bp_zero.data)
+    free (bp_zero.data);
+  if (s2_zero.data && s2_zero.data != bp_zero.data)
+    free (s2_zero.data);
+
+  // gather loop variable starting at 1 with zero iterations
+  sisal_array_t g_zero = func_FI_GATHER_ZERO (0);
+  check ("fi_gather_zero size=1", (int)g_zero.size == 1);
+  check ("fi_gather_zero[0]=1", ai (g_zero, 0) == 1);
+  if (g_zero.data)
+    free (g_zero.data);
+
+  sisal_array_t g_one = func_FI_GATHER_ZERO (1);
+  check ("fi_gather_one size=2", (int)g_one.size == 2);
+  check ("fi_gather_one[0]=1", ai (g_one, 0) == 1);
+  check ("fi_gather_one[1]=2", ai (g_one, 1) == 2);
+  if (g_one.data)
+    free (g_one.data);
+
+  // gather loop variable k initialized in INIT but assigned in body
+  sisal_array_t k_zero = func_FI_GATHER_BODY_TEMP (0);
+  check ("fi_gather_body_temp_zero size=1", (int)k_zero.size == 1);
+  check ("fi_gather_body_temp_zero[0]=0", ai (k_zero, 0) == 0);
+  if (k_zero.data)
+    free (k_zero.data);
+
+  sisal_array_t k_one = func_FI_GATHER_BODY_TEMP (1);
+  check ("fi_gather_body_temp_one size=2", (int)k_one.size == 2);
+  check ("fi_gather_body_temp_one[0]=0", ai (k_one, 0) == 0);
+  check ("fi_gather_body_temp_one[1]=2", ai (k_one, 1) == 2);
+  if (k_one.data)
+    free (k_one.data);
 }
 #endif
 
@@ -5960,6 +6019,16 @@ static void test_forinit_history_dv(void) {
         bool ok = ((int)r.size == 1 && ((int32_t*)r.data)[0] == 10);
         check("n=10 zero-trip: gather = [seed]", ok);
         if (r.data) free(r.data);
+    }
+    {
+        // value-of zero-trip pin (was gaussj_perm's find_pivot(N,N) case
+        // before its if-guard rewrite): reference C mirrors the history
+        // model -- the seed, then a doubling per body iteration.
+        int32_t ref0 = 42;                 // n=0: body never runs -> seed
+        int32_t ref3;
+        { int i = 42, k = 1; while (k <= 3) { k++; i *= 2; } ref3 = i; }
+        check("value-of zero-trip = seed (42)", func_LAST_VAL(0) == ref0);
+        check("value-of n=3 = last body value", func_LAST_VAL(3) == ref3);
     }
 }
 #endif
