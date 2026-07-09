@@ -4609,12 +4609,41 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
       ([], { e_ret with curr_gid = gid; curr_gr = gr })
       out_pids
   in
+  (* ZERO-TRIP GUARD (dormant): under -DSISAL_TRAP_ZERO_TRIP the generated
+     program fails fast when a `for initial` guard is false on entry, instead
+     of returning the 1.2 history values ([seed] / seed).  Default builds get
+     the 1.2 semantics (the porting baseline); the trap is the groundwork for
+     the future error-mechanism mode, where zero trips are a bug and RETURNS
+     may read both `old X` and the body's new X (not expressible in 1.2). *)
+  let zero_trip_guard =
+    [
+      C.Macro "ifdef SISAL_TRAP_ZERO_TRIP";
+      C.If
+        ( C.UnaryOp (C.LogNot, cond),
+          [
+            C.Expr
+              (C.Call
+                 ( "fprintf",
+                   [
+                     C.Id "stderr";
+                     C.LitString
+                       (Printf.sprintf
+                          "SISAL runtime error: 'for initial' loop in %s \
+                           executed 0 times (guard false on entry)\\n"
+                          (scope_of env.gid_name_map sub_gid));
+                   ] ));
+            C.Expr (C.Call ("exit", [ C.LitInt 1 ]));
+          ],
+          [] );
+      C.Macro "endif";
+    ]
+  in
   ( decl_stmts
     @ [
         C.Compound
           (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
          @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts @ merge_init_seeds @ test_stmts1
-         @ gather_pre @ [ while_loop ] @ ret_stmts @ props);
+         @ zero_trip_guard @ gather_pre @ [ while_loop ] @ ret_stmts @ props);
       ],
     final_env )
 
