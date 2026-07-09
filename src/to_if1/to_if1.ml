@@ -8122,7 +8122,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                             "LoopB MERGE[%s]: node%d  init%d:%d→port1  \
                              body%d:%d→port2  out→body:%d"
                             name mn init_cn init_k body_cn body_out_k body_inp;
-                          (fg, mn :: mns)
+                          (fg, (mn, body_out_k) :: mns)
                       | _ ->
                           to_if1_msg 3 "LoopB MERGE[%s]: no mapping, skipped"
                             name;
@@ -8225,7 +8225,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let fg = If1.add_edge body_cn body_false_port mf 2 bool_ty fg in
                 let fg =
                   List.fold_left
-                    (fun fg mn -> If1.add_edge mf 0 mn 0 bool_ty fg)
+                    (fun fg (mn, _) -> If1.add_edge mf 0 mn 0 bool_ty fg)
                     fg merge_nodes
                 in
                 to_if1_msg 3
@@ -8233,6 +8233,80 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    body%d:%d→p0+p2  driving %d MERGE port0s"
                   mf init_cn init_true_port body_cn body_false_port
                   (List.length merge_nodes);
+                (* 1.2 HISTORY SEMANTICS (observed OSC 13.0.3 behavior,
+                   matching Sisal 90 §5.5):
+                   a RETURNS input that reads a CARRY reads the MERGE (the
+                   INIT|BODY mux), not the BODY out port.  INIT and RETURNS
+                   always execute, so every RETURNS read is dominated by a
+                   MERGE write: the seed is body_0 of the value history and a
+                   zero-trip loop returns/gathers the seed instead of an
+                   undefined body port.  Body-only temporaries keep their
+                   BODY wiring (their history starts at body_1; SISAL 1.2
+                   rejects returning them at all — we stay permissive). *)
+                let fg =
+                  let ret_cn =
+                    If1.NM.fold
+                      (fun nid node acc ->
+                        match node with
+                        | If1.Compound (_, _, _, prags, _, _)
+                          when List.exists
+                                 (function
+                                   | If1.Name "RETURNS" -> true | _ -> false)
+                                 prags ->
+                            nid
+                        | _ -> acc)
+                      fg.If1.nmap (-1)
+                  in
+                  if ret_cn = -1 then fg
+                  else
+                    (* The carry is exported on SEVERAL body out ports (one
+                       for the RETURNS wiring, one for the MERGE backedge):
+                       match by the port's INNER source, not its number. *)
+                    let body_sg =
+                      match If1.NM.find_opt body_cn fg.If1.nmap with
+                      | Some (If1.Compound (_, _, _, _, sg, _)) -> sg
+                      | _ -> body_gr
+                    in
+                    let inner_src p =
+                      If1.ES.fold
+                        (fun ((isn, isp), (dn, dp), _) a ->
+                          if dn = 0 && dp = p then Some (isn, isp) else a)
+                        body_sg.If1.eset None
+                    in
+                    let merge_of_src =
+                      List.filter_map
+                        (fun (mn, bk) ->
+                          match inner_src bk with
+                          | Some s -> Some (s, mn)
+                          | None -> None)
+                        merge_nodes
+                    in
+                    If1.ES.fold
+                      (fun ((sn, sp), (dn, dp), ty) g ->
+                        if sn = body_cn && dn = ret_cn then (
+                          match inner_src sp with
+                          | Some s -> (
+                              match List.assoc_opt s merge_of_src with
+                              | Some mn ->
+                                  let g =
+                                    {
+                                      g with
+                                      If1.eset =
+                                        If1.ES.remove
+                                          ((sn, sp), (dn, dp), ty)
+                                          g.If1.eset;
+                                    }
+                                  in
+                                  to_if1_msg 3
+                                    "LoopB RETURNS rewire: body%d:%d → \
+                                     merge%d:0 → ret%d:%d"
+                                    body_cn sp mn ret_cn dp;
+                                  If1.add_edge mn 0 dn dp ty g
+                              | None -> g)
+                          | None -> g)
+                        else g)
+                      fg.If1.eset fg
+                in
                 fg
               in
               for_gr

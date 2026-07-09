@@ -1,0 +1,16 @@
+% for-initial 1.2 HISTORY semantics (cross-checked against the behavior of
+% OSC 13.0.3): the initial clause is body_0 of every returns sequence, so a
+% gather of a carry includes the SEED as element 0 and a zero-trip loop
+% (guard false on entry) yields [seed], never an empty array.  In the IF1,
+% RETURNS reads the carry's MERGE (the INIT|BODY mux), not a BODY out port:
+% INIT and RETURNS always execute, so every RETURNS read is dominated by a
+% MERGE write.
+define main
+function main(n: integer returns array_dv[integer])
+  for initial
+    i := 10;
+  while ( i < n ) repeat
+    i := old i + 1;
+  returns array_dv of i
+  end for
+end function

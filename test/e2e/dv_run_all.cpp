@@ -234,6 +234,10 @@ extern "C" sisal_array_t func_MAIN(int32_t level);
 extern "C" sisal_array_t func_GAUSSJ_PERM(int32_t n, sisal_array_t A, sisal_array_t B);
 #endif
 
+#ifdef TEST_FORINIT_HISTORY_DV
+extern "C" sisal_array_t func_MAIN(int32_t n);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -5934,6 +5938,31 @@ static void test_gaussj_perm_dv(void) {
     free(A.data); free(B.data); if (x.data) free(x.data);
 }
 #endif
+#ifdef TEST_FORINIT_HISTORY_DV
+static void test_forinit_history_dv(void) {
+    printf("\n=== Group: forinit_history_dv (1.2 history: seed = body_0 of the gather; vs C reference) ===\n");
+    // reference C mirrors the SISAL 1.2 history model: the initial clause is
+    // body_0, so the sequence is seed, then each body iteration's value.
+    {
+        const int n = 13;
+        int32_t ref[16]; int cnt = 0;
+        int i = 10;
+        ref[cnt++] = i;                    // body_0: the seed
+        while (i < n) { i = i + 1; ref[cnt++] = i; }
+        sisal_array_t r = func_MAIN(n);
+        bool ok = ((int)r.size == cnt);
+        for (int k = 0; ok && k < cnt; k++) ok = (((int32_t*)r.data)[k] == ref[k]);
+        check("n=13: gather = [10,11,12,13] (seed included)", ok);
+        if (r.data) free(r.data);
+    }
+    {
+        sisal_array_t r = func_MAIN(10);   // guard false on entry: zero body trips
+        bool ok = ((int)r.size == 1 && ((int32_t*)r.data)[0] == 10);
+        check("n=10 zero-trip: gather = [seed]", ok);
+        if (r.data) free(r.data);
+    }
+}
+#endif
 #ifdef TEST_SUB_R3_PERM
 static void test_sub_r3_perm(void) {
     printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
@@ -6438,6 +6467,9 @@ main (void)
 #ifdef TEST_GAUSSJ_PERM_DV
   test_gaussj_perm_dv ();
 #endif
+#ifdef TEST_FORINIT_HISTORY_DV
+  test_forinit_history_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -6691,6 +6723,7 @@ main (void)
     && !defined(TEST_XFA_C4_DEP2) && !defined(TEST_XFA_C5_DEP3)\
     && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
     && !defined(TEST_QUEENS_DV) && !defined(TEST_GAUSSJ_PERM_DV)\
+    && !defined(TEST_FORINIT_HISTORY_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\

@@ -4073,28 +4073,34 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let gather_pre, gather_store, gather_binds =
     List.fold_left
       (fun (pre, store, binds) (ret_out_port, ret_bin_port) ->
-        (* BODY output port feeding the RETURNS boundary input the gather reads *)
-        let body_port =
+        (* Source feeding the RETURNS boundary input the gather reads: a BODY
+           out port (body temporary — sequence starts at body_1) or, per the
+           1.2 history model, a MERGE (carry — the seed is body_0 of the
+           sequence; to_if1 wires carry returns through the MERGE mux). *)
+        let src =
           ES.fold
             (fun ((s, sp), (d, p), _) a ->
-              if d = g_ret_nid && p = ret_bin_port && s = body_nid then Some sp
+              if d = g_ret_nid && p = ret_bin_port then
+                if s = body_nid then Some (s, sp, false)
+                else
+                  match NM.find_opt s loop_gr.nmap with
+                  | Some (Simple (_, MERGE, _, _, _)) -> Some (s, sp, true)
+                  | _ -> a
               else a)
             loop_gr.eset None
         in
-        match body_port with
+        match src with
         | None -> (pre, store, binds)
-        | Some bp -> (
+        | Some (src_n, bp, is_carry) -> (
             match
-              FullPortMap.find_opt
-                (sub_gid, body_nid, bp, `Out)
-                env_loop.var_map
+              FullPortMap.find_opt (sub_gid, src_n, bp, `Out) env_loop.var_map
             with
             | None -> (pre, store, binds)
             | Some body_val ->
                 let tid =
                   ES.fold
                     (fun ((s, sp), (_, _), ty) a ->
-                      if s = body_nid && sp = bp then Some ty else a)
+                      if s = src_n && sp = bp then Some ty else a)
                     loop_gr.eset None
                   |> function
                   | Some t -> t
@@ -4375,36 +4381,17 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                             "for-initial gather: loop test is not a </<=/>/>= \
                              comparison"
                     in
+                    (* 1.2 history model: a CARRY's sequence includes body_0
+                       (the seed), so the gather is one longer than the trip
+                       count and ticks once in the preheader (body_val is the
+                       MERGE variable, holding the seed there). *)
+                    let size = if is_carry then inc size else size in
                     (* When the gathered element is itself an array_dv (elem_ty ==
                        sisal_array_t), FLATTEN by copying each iteration's buffer into a
                        growing rank-2 result -- NOT a boxed descriptor per iteration (which
                        would make a nested array_dv[array_dv[..]]).  Grows per real
                        iteration, so it also sidesteps the static bound-seed sizing.  The
                        scalar case is unchanged (static alloc + store at __gctr) for now. *)
-                    let pre' =
-                      if is_arr_elem then
-                        [
-                          C.Expr
-                            (C.BinOp
-                               ( C.Assign,
-                                 res_v,
-                                 C.Call ("sisal_array_empty", []) ));
-                        ]
-                      else
-                        [
-                          C.Decl (C.Basic "int32_t", seed, Some op0);
-                          (* carry holds the seed in the preheader *)
-                          C.Decl (C.Basic "int32_t", bound, Some op1);
-                          C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
-                          C.Expr
-                            (C.BinOp
-                               ( C.Assign,
-                                 res_v,
-                                 alloc_array_call (C.LitInt 1) (C.LitInt tid)
-                                   (C.Cast (C.Basic "uint64_t", size))
-                                   elem_ty ));
-                        ]
-                    in
                     let store' =
                       if is_arr_elem then
                         [
@@ -4417,6 +4404,33 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                      [ res_v; body_val ] ) ));
                         ]
                       else scalar_store
+                    in
+                    let pre' =
+                      (if is_arr_elem then
+                         [
+                           C.Expr
+                             (C.BinOp
+                                ( C.Assign,
+                                  res_v,
+                                  C.Call ("sisal_array_empty", []) ));
+                         ]
+                       else
+                         [
+                           C.Decl (C.Basic "int32_t", seed, Some op0);
+                           (* carry holds the seed in the preheader *)
+                           C.Decl (C.Basic "int32_t", bound, Some op1);
+                           C.Decl (C.Basic "int32_t", ctr, Some (C.LitInt 0));
+                           C.Expr
+                             (C.BinOp
+                                ( C.Assign,
+                                  res_v,
+                                  alloc_array_call (C.LitInt 1) (C.LitInt tid)
+                                    (C.Cast (C.Basic "uint64_t", size))
+                                    elem_ty ));
+                         ])
+                      (* body_0 tick: gather_pre runs after the MERGE seeds,
+                         so the MERGE variable holds the seed here *)
+                      @ (if is_carry then store' else [])
                     in
                     (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)))
       ([], [], [])
@@ -4475,11 +4489,15 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
       seen_decls = e_test2.seen_decls;
     }
   in
+  (* gather_store AFTER the backedge copies: a carry gather's value is the
+     MERGE variable (1.2 history model), which must hold THIS iteration's
+     value when stored; body-temp gathers read bodycap snapshots, which the
+     backedge copies don't touch. *)
   let while_loop =
     C.While
       ( cond,
-        body_stmts @ body_capture_assigns @ gather_store @ merge_backedge_copies
-        @ carry_update_stmts @ test_stmts2 )
+        body_stmts @ body_capture_assigns @ merge_backedge_copies
+        @ gather_store @ carry_update_stmts @ test_stmts2 )
   in
   (* FinalVal ZERO-TRIP correctness: a RETURNS consumer of a BODY output that
      carries a MERGE backedge value must read the MERGE carry variable, not

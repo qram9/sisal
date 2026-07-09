@@ -260,6 +260,7 @@ Aggregate array_dv operations (basic.sis / sisal_tests_by_section.sis style):
 
 DV variants of scientific benchmarks:
   $ sisal e2e/gaussj_perm_dv.sis
+  $ sisal e2e/forinit_history_dv.sis
   $ sisal unit/cfft_dv.sis
   $ sisal e2e/feo_fft_dv.sis
   $ sisal unit/hilbert_dv.sis
