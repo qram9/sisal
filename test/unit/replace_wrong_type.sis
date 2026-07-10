@@ -1,0 +1,8 @@
+% NEGATIVE: no implicit numeric coercion in SISAL -- a double_real value
+% may not replace into an array of real (OSC: "Replace element not the
+% correct type").
+define main
+type OneD = array_dv[real];
+function main(A: OneD returns OneD)
+  A[2: 1.0d0]
+end function

@@ -6338,11 +6338,53 @@ and do_simple_exp_impl in_gr in_sim_ex =
            [..]           -> value                         (replace whole array)
          No rank/shape assumption: 1-D & N-D element updates and N-D slice updates
          are all covered here. *)
+      (* TYPE CHECK (matches OSC's "Replace element not the correct type"):
+         a replace value must be the array's ELEMENT type (element write) or
+         the array/slab type itself (row write into a flat rank-2 dv; the
+         value's rank decides which at runtime).  SISAL has NO implicit
+         numeric coercion: 1.0d0 or 7 into an array of real is an error, not
+         a conversion.  Structural equality, so aliased typemap ids agree. *)
+      let ty_eq g t1 t2 =
+        t1 = t2
+        || t1 <> 0 && t2 <> 0
+           &&
+           match (If1.lookup_ty_safe t1 g, If1.lookup_ty_safe t2 g) with
+           | Some a, Some b -> If1.structurally_equal g [] a b
+           | _ -> false
+      in
+      let check_replace_value g a_ty vt =
+        if vt <> 0 && a_ty <> 0 then
+          let elem_ok =
+            match If1.lookup_ty_safe a_ty g with
+            | Some (If1.Array_ty et) | Some (If1.Array_dv et) ->
+                ty_eq g vt et
+            | _ -> false
+          in
+          if not (elem_ok || ty_eq g vt a_ty) then
+            raise
+              (If1.Sem_error
+                 (Printf.sprintf
+                    "Replace element not the correct type: array is %s, \
+                     value is %s"
+                    (If1.printable_full_type (If1.get_typemap_tm g) a_ty)
+                    (If1.printable_full_type (If1.get_typemap_tm g) vt)))
+      in
       let rec write_at values ((a_sn, a_sp, a_ty), g) = function
-        | [ Ast.Dotdot ] -> do_exp g values
+        | [ Ast.Dotdot ] ->
+            let (vn, vp, vt), g = do_exp g values in
+            if not (ty_eq g vt a_ty) then
+              raise
+                (If1.Sem_error
+                   (Printf.sprintf
+                      "Replace element not the correct type: array is %s, \
+                       value is %s"
+                      (If1.printable_full_type (If1.get_typemap_tm g) a_ty)
+                      (If1.printable_full_type (If1.get_typemap_tm g) vt)));
+            ((vn, vp, vt), g)
         | [ idx ] ->
             let aexp = match values with Ast.Exp e -> e | _ -> [] in
             let bbu, g = If1.map_exp g aexp [] do_simple_exp in
+            List.iter (fun (_, _, vt) -> check_replace_value g a_ty vt) bbu;
             let (idxn, idxp, it), g = do_simple_exp g idx in
             let is_dv = If1.is_array_dv a_ty g in
             let op = if is_dv then If1.DV_REPLACE else If1.AREPLACE in
@@ -6358,6 +6400,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             ((bb, pp, a_ty), add_edges_in_list bbu bb 2 g)
         | idx :: Ast.Dotdot :: _ ->
             let (vn, vp, vt), g = do_exp g values in
+            check_replace_value g a_ty vt;
             let (idxn, idxp, it), g = do_simple_exp g idx in
             let (bb, pp, _), g =
               If1.add_node_2
@@ -6377,8 +6420,16 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             let g = If1.add_edge a_sn a_sp rn 0 a_ty g in
             let g = If1.add_edge idxn idxp rn 1 it g in
+            (* Peeling one index steps INTO the array: for a monolithic
+               array-of-arrays the inner level is the ELEMENT type; for a
+               flat array_dv rank is a runtime property, the type stays. *)
+            let inner_ty =
+              match If1.lookup_ty_safe a_ty g with
+              | Some (If1.Array_ty et) -> et
+              | _ -> a_ty
+            in
             let (new_sn, new_sp, new_ty), g =
-              write_at values ((rn, rp, a_ty), g) rest
+              write_at values ((rn, rp, inner_ty), g) rest
             in
             let (bb, pp, _), g =
               If1.add_node_2

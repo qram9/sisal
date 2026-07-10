@@ -1,0 +1,6 @@
+% NEGATIVE: integer into an array of real is an error, not a conversion.
+define main
+type OneD = array_dv[real];
+function main(A: OneD returns OneD)
+  A[3: 7]
+end function
