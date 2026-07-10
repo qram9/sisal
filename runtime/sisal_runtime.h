@@ -1189,6 +1189,21 @@ static inline double  func__SMIN__DD__D(double a, double b)   { return a < b ? a
 /* exp(base, n): two-arg form is POWER base^n (Sisal `exp` = exponentiation). */
 static inline float   func__SEXP__FI__F(float base, int32_t n)  { return powf(base, (float)n); }
 static inline double  func__SEXP__DI__D(double base, int32_t n) { return pow(base, (double)n); }
+static inline float   func__SEXP__FF__F(float base, float p)    { return powf(base, p); }
+static inline double  func__SEXP__DD__D(double base, double p)  { return pow(base, p); }
+/* integer power: exact for the small exponents Sisal code uses (2^m FFT
+   strides, index math) -- repeated squaring, negative exponents -> 0 (integer
+   division semantics), overflow wraps like any int32 arithmetic. */
+static inline int32_t func__SEXP__II__I(int32_t base, int32_t n) {
+    if (n < 0) return (base == 1) ? 1 : (base == -1 ? (n % 2 ? -1 : 1) : 0);
+    int32_t r = 1;
+    while (n > 0) {
+        if (n & 1) r *= base;
+        base *= base;
+        n >>= 1;
+    }
+    return r;
+}
 
 /* etothe(x) = e^x (C exp).  One-arg Sisal `exp` is routed to ETOTHE by to_if1, so
    this is what one-arg exponential lowers to. */

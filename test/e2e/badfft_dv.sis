@@ -52,7 +52,7 @@ function fft(z : CVec returns CVec)
       l  := old l + old l;
       z1 :=
         for x in 0, n-1
-          k := (x / old l) * old l;
+          k := (x / l) * old l;
           j := k + old l;
           w :=
             if mod(x / old l, 2) = 0 then

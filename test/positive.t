@@ -298,7 +298,7 @@ Scientific benchmarks:
   $ sisal e2e/area.sis
   $ sisal unit/arsieve.sis
   $ sisal unit/badfft.sis
-  $ sisal unit/badfft_dv.sis
+  $ sisal e2e/badfft_dv.sis
 
   $ sisal unit/bintree.sis
   $ sisal unit/bmk11a.sis

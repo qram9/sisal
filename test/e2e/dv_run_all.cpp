@@ -264,6 +264,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n, sisal_array_t A,
 extern "C" sisal_array_t func_FIND_INVERSE(sisal_array_t A, int32_t n);
 #endif
 
+#ifdef TEST_BADFFT_DV
+extern "C" bool func_MAIN(int32_t m);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -6177,6 +6181,19 @@ static void test_inverse_dv(void) {
     free(A.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_BADFFT_DV
+static void test_badfft_dv(void) {
+    printf("\n=== Group: badfft_dv (Cooley-Tukey FFT over array_dv[complex record]; analytic reference) ===\n");
+    // The .sis main is self-checking against the ANALYTIC reference: for the
+    // signal sin(j*pi/8) of length n = 2^m, |F| at bins n/16 and n - n/16 is
+    // exactly n/2.  Verified against OSC 13.0.3 (original badfft.sis -> T).
+    for (int m = 4; m <= 7; m++) {
+        char label[64];
+        snprintf(label, sizeof label, "m=%d (n=%d): FFT peaks = n/2", m, 1 << m);
+        check(label, func_MAIN(m));
+    }
+}
+#endif
 #ifdef TEST_SUB_R3_PERM
 static void test_sub_r3_perm(void) {
     printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
@@ -6699,6 +6716,9 @@ main (void)
 #ifdef TEST_INVERSE_DV
   test_inverse_dv ();
 #endif
+#ifdef TEST_BADFFT_DV
+  test_badfft_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -6955,7 +6975,7 @@ main (void)
     && !defined(TEST_FORINIT_HISTORY_DV)\
     && !defined(TEST_MATMULT_DV) && !defined(TEST_MM_DV)\
     && !defined(TEST_TRANSPOSE_DV) && !defined(TEST_SP_DV)\
-    && !defined(TEST_INVERSE_DV)\
+    && !defined(TEST_INVERSE_DV) && !defined(TEST_BADFFT_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\

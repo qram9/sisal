@@ -70,8 +70,12 @@ let rec string_of_expr = function
   | Id s -> s
   | LitInt i -> string_of_int i
   | LitFloat f ->
+      (* string_of_float may yield exponent form ("1e+20") with no '.':
+         appending ".0f" there is invalid C -- 'f' alone suffixes an
+         exponent-form constant correctly. *)
       let s = string_of_float f in
-      if String.contains s '.' then s ^ "f" else s ^ ".0f"
+      if String.contains s '.' || String.contains s 'e' then s ^ "f"
+      else s ^ ".0f"
   | LitString s -> Printf.sprintf "\"%s\"" s
   | BinOp (op, e1, e2) ->
       Printf.sprintf "(%s %s %s)" (string_of_expr e1) (string_of_binary_op op)
