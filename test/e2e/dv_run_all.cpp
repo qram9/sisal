@@ -345,6 +345,32 @@ struct FUNC_MAIN_results {
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
 #endif
 
+#ifdef TEST_KIN16_DV
+struct kin16_edit_rec {
+  double T;
+  double YMEANM;
+  double SIGSQM;
+  double SIGM;
+  double SUM1M;
+  double YMEANM2;
+  double SIGSQM2;
+  double SIGM2;
+  double SUM1M2;
+  double DIFM;
+  double VELOCITYM;
+  double DIFM2;
+  double VELOCITYM2;
+};
+struct FUNC_MAIN_results {
+  struct kin16_edit_rec res_0;
+  struct kin16_edit_rec res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t IT, int32_t N, int32_t NSEG);
+extern "C" double func_SQRT(double x) {
+  return sqrt(x);
+}
+#endif
+
 #ifdef TEST_FOR_INITIAL
 extern "C" int32_t func_FI_SUM (int32_t N);
 extern "C" int32_t func_FI_PRODUCT (int32_t N);
@@ -3887,6 +3913,26 @@ test_feo_fft (void)
 }
 #endif
 
+#ifdef TEST_KIN16_DV
+static void
+test_kin16_dv (void)
+{
+  printf ("\n=== Group: kin16_dv (Zone Electrophoresis) ===\n");
+  struct FUNC_MAIN_results r = func_MAIN(2, 10, 5);
+  check ("r.res_0.T == 0.0", fabs(r.res_0.T - 0.0) < 1e-7);
+  check ("r.res_0.YMEANM == 0.0014", fabs(r.res_0.YMEANM - 0.0014) < 1e-7);
+  check ("r.res_0.SIGSQM == 6.12499956e-07", fabs(r.res_0.SIGSQM - 6.124999563209724528e-07) < 1e-15);
+  check ("r.res_0.SIGM == 0.0007826238", fabs(r.res_0.SIGM - 0.0007826238) < 1e-7);
+  check ("r.res_0.SUM1M == 0.00002", fabs(r.res_0.SUM1M - 0.0000200000) < 1e-7);
+
+  check ("r.res_1.T == 1.0", fabs(r.res_1.T - 1.0) < 1e-7);
+  check ("r.res_1.YMEANM == 0.0020250719", fabs(r.res_1.YMEANM - 0.0020250719) < 1e-7);
+  check ("r.res_1.SIGSQM == 9.40361175e-07", fabs(r.res_1.SIGSQM - 9.403611753681042251e-07) < 1e-15);
+  check ("r.res_1.SIGM == 0.0009697222", fabs(r.res_1.SIGM - 0.0009697222) < 1e-7);
+  check ("r.res_1.SUM1M == 2.00002450e-05", fabs(r.res_1.SUM1M - 2.000024504338194958e-05) < 1e-15);
+}
+#endif
+
 // ---- Livermore loop kernels: independent C references + checks ----
 #ifdef TEST_LOOP1_DV
 // Hydro: X[k] = Q + Y[k]*(R*Z[k+10] + T*Z[k+11])  (Sisal 1-based; Z needs
@@ -6903,6 +6949,9 @@ main (void)
 #ifdef TEST_FEO_FFT
   test_feo_fft ();
 #endif
+#ifdef TEST_KIN16_DV
+  test_kin16_dv ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -6995,7 +7044,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

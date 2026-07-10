@@ -130,3 +130,25 @@ function fi_param_bump(n : integer; Ain : array_dv[integer]
   returns value of A
   end for
 end function
+
+% gather loop variable starting at 1 with zero iterations
+function fi_gather_zero(n : integer returns array_dv[integer])
+  for initial
+    i := 1;
+  while i <= n repeat
+    i := old i + 1;
+  returns array_dv of i
+  end for
+end function
+
+% gather loop variable k initialized in INIT but assigned in body
+function fi_gather_body_temp(n : integer returns array_dv[integer])
+  for initial
+    i := 1;
+    k := 0;
+  while i <= n repeat
+    i := old i + 1;
+    k := i;
+  returns array_dv of k
+  end for
+end function

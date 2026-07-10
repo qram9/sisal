@@ -333,7 +333,7 @@ let for_initial_gather_ports ret_gr =
 (** [infer_types env gr gid] populates the type_table for the current graph
     hierarchy. *)
 let infer_types env gr gid =
-  let _, tm, _ = gr.typemap in
+  let _, _tm, _ = gr.typemap in
   let table = Hashtbl.create 256 in
   FullPortMap.iter (fun k v -> Hashtbl.replace table k v) env.type_table;
 
@@ -363,10 +363,11 @@ let infer_types env gr gid =
 
   let rec pass1 g cur_gid =
     let cs, _ps = g.symtab in
+    let tm_local = get_typemap_tm g in
     SM.iter
       (fun _ v ->
         set_ty cur_gid v.val_def v.def_port `Out
-          (c_type_of_if1_tyid tm v.val_ty))
+          (c_type_of_if1_tyid tm_local v.val_ty))
       cs;
     NM.iter
       (fun nid node ->
@@ -437,12 +438,27 @@ let infer_types env gr gid =
                   GET_DOPE_VEC;
                 ]
             in
-            let ty =
+            (* Output seeding order: op-class heuristics (known int/array
+               producers), then the OUT EDGE's IF1 type, and only then the
+               float default.  The old unconditional float default silently
+               TRUNCATED every double intermediate whose port nothing
+               re-typed later (kin16's ~1e-8 drift: IF1 was 100% DOUBLE). *)
+            let ty_of_port i =
               if is_int then C.Basic "int32_t"
               else if is_arr then C.Basic "sisal_array_t"
-              else C.Basic "float"
+              else
+                let tid =
+                  ES.fold
+                    (fun ((sn, sp), _, t) a ->
+                      if sn = nid && sp = i && t <> 0 then t else a)
+                    g.eset 0
+                in
+                if tid <> 0 then
+                  let _, gtm, _ = g.typemap in
+                  c_type_of_if1_tyid gtm tid
+                else C.Basic "float"
             in
-            Array.iteri (fun i _ -> set_ty cur_gid nid i `Out ty) outs;
+            Array.iteri (fun i _ -> set_ty cur_gid nid i `Out (ty_of_port i)) outs;
             (* RBUILD/RELEMENTS: type outputs from the OUT EDGE's IF1 type id
                -- the only way a record output gets its `struct struct_rec_N`
                C type (the default float would make assign_with_cast emit
