@@ -268,6 +268,10 @@ extern "C" sisal_array_t func_FIND_INVERSE(sisal_array_t A, int32_t n);
 extern "C" bool func_MAIN(int32_t m);
 #endif
 
+#ifdef TEST_FLOAT_SCATTER_DV
+extern "C" sisal_array_t func_F(sisal_array_t v, sisal_array_t w);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -6227,6 +6231,23 @@ static void test_inverse_dv(void) {
     free(A.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_FLOAT_SCATTER_DV
+static void test_float_scatter_dv(void) {
+    printf("\n=== Group: float_scatter_dv (element scatter over array_dv[real]; vs C reference) ===\n");
+    float vv[2] = {1.5f, 2.5f}, wv[1] = {10.0f};
+    sisal_array_t v = sisal_array_alloc_empty(1, 8, 2);
+    ((float*)v.data)[0] = vv[0]; ((float*)v.data)[1] = vv[1];
+    sisal_array_t w = sisal_array_alloc_empty(1, 8, 1);
+    ((float*)w.data)[0] = wv[0];
+    sisal_array_t r = func_F(v, w);
+    // reference C: g(x) = x + 1; r[i] = v[i] + 1 + w[1]
+    bool ok = ((int)r.size == 2);
+    for (int i = 0; i < 2 && ok; i++)
+        ok = fabsf(((float*)r.data)[i] - (vv[i] + 1.0f + wv[0])) < 1e-6f;
+    check("g(vel) + w[1] over float elements matches C reference", ok);
+    free(v.data); free(w.data); if (r.data) free(r.data);
+}
+#endif
 #ifdef TEST_BADFFT_DV
 static void test_badfft_dv(void) {
     printf("\n=== Group: badfft_dv (Cooley-Tukey FFT over array_dv[complex record]; analytic reference) ===\n");
@@ -6765,6 +6786,9 @@ main (void)
 #ifdef TEST_BADFFT_DV
   test_badfft_dv ();
 #endif
+#ifdef TEST_FLOAT_SCATTER_DV
+  test_float_scatter_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -7025,6 +7049,7 @@ main (void)
     && !defined(TEST_MATMULT_DV) && !defined(TEST_MM_DV)\
     && !defined(TEST_TRANSPOSE_DV) && !defined(TEST_SP_DV)\
     && !defined(TEST_INVERSE_DV) && !defined(TEST_BADFFT_DV)\
+    && !defined(TEST_FLOAT_SCATTER_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\

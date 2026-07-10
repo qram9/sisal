@@ -320,6 +320,40 @@ let c_type_of_if1_tyid tm tyid =
       | None -> C.Basic "float"
   )
 
+(** [c_type_of_tyid gr tyid] — the GRAPH-based resolver: the type comes from
+    If1.lookup_ty_safe on the graph's canonical typemap (the single
+    authority), never from a caller-cached TM snapshot that may be stale or
+    belong to another graph.  Prefer this over c_type_of_if1_tyid whenever a
+    graph is in hand. *)
+let c_type_of_tyid gr tyid =
+  let tyid =
+    match TM.find_opt tyid !global_alias_map with
+    | Some leader -> leader
+    | None -> tyid
+  in
+  match lookup_ty_safe tyid gr with
+  | Some (Record (_, _, name) as ty) ->
+      let sname = String.lowercase_ascii name in
+      if
+        sname = "int" || sname = "integer" || sname = "int32"
+        || sname = "double" || sname = "double_real" || sname = "float"
+        || sname = "real" || sname = "bool" || sname = "boolean"
+      then c_type_of_if1_ty (get_typemap_tm gr) ty
+      else C.Basic (Printf.sprintf "struct struct_rec_%d" tyid)
+  | Some (Union (_, _, name) as ty) ->
+      let sname = String.lowercase_ascii name in
+      if
+        sname = "int" || sname = "integer" || sname = "int32"
+        || sname = "double" || sname = "double_real" || sname = "float"
+        || sname = "real" || sname = "bool" || sname = "boolean"
+      then c_type_of_if1_ty (get_typemap_tm gr) ty
+      else C.Basic (Printf.sprintf "struct union_un_%d" tyid)
+  | Some ty -> c_type_of_if1_ty (get_typemap_tm gr) ty
+  | None -> (
+      match basic_type_of_id tyid with
+      | Some b -> c_type_of_if1_basic b
+      | None -> C.Basic "float")
+
 (** [is_struct_cty ty] — is this C type an emitted record struct? *)
 let is_struct_cty = function
   | C.Basic s -> String.length s > 7 && String.sub s 0 7 = "struct "

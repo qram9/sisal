@@ -1,0 +1,16 @@
+% Regression pin for the type-table "float = unknown" flaw: an element
+% scatter over array_dv[REAL] had its element port clobbered to
+% sisal_array_t by pass2 propagation (integer elements were immune only
+% because int32 read as "known").  Fixed by pass_edges: IF1 edge tags are
+% locked as the scalar-type authority before any heuristic pass runs.
+
+define f
+type OneD = array_dv[real];
+function g(x: real returns real)
+  x + 1.0
+end function
+function f(v, w: OneD returns OneD)
+  for vel in v
+  returns array_dv of g(vel) + w[1]
+  end for
+end function

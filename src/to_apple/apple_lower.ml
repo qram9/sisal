@@ -337,22 +337,68 @@ let infer_types env gr gid =
   let table = Hashtbl.create 256 in
   FullPortMap.iter (fun k v -> Hashtbl.replace table k v) env.type_table;
 
+  (* EDGE-TRUTH LOCKING.  The IF1 edge tags are the type AUTHORITY (the
+     frontend already type-checked the program); the symtab/opcode heuristic
+     passes and the pass2 fixpoint below are GUESSES for the ports no typed
+     edge covers.  Because this table historically used C `float` as its
+     "unknown" sentinel, a genuinely-float port was indistinguishable from
+     an untyped one and got clobbered by neighbor propagation (a float
+     scatter element stamped sisal_array_t -- basic_dv's 6 errors; integer
+     elements were immune only because int32 reads as "known").  pass_edges
+     runs first, stamping both endpoints of every typed edge via the
+     graph-based c_type_of_tyid (If1.lookup_ty on the canonical typemap)
+     and LOCKING those keys; set_ty/set_ty_c refuse to alter locked keys. *)
+  let locked = Hashtbl.create 256 in
   let set_ty g n p d ty =
     let key = (g, n, p, d) in
-    match Hashtbl.find_opt table key with
-    | Some existing when existing = C.Basic "sisal_array_t" -> ()
-    | _ -> Hashtbl.replace table key ty
+    if Hashtbl.mem locked key then ()
+    else
+      match Hashtbl.find_opt table key with
+      | Some existing when existing = C.Basic "sisal_array_t" -> ()
+      | _ -> Hashtbl.replace table key ty
   in
 
   (* Like set_ty but returns true when the value actually changed — used to drive pass2 fixpoint. *)
   let set_ty_c g n p d ty =
     let key = (g, n, p, d) in
-    match Hashtbl.find_opt table key with
-    | Some ex when ex = C.Basic "sisal_array_t" -> false
-    | Some ex when ex = ty -> false
-    | _ ->
-        Hashtbl.replace table key ty;
-        true
+    if Hashtbl.mem locked key then false
+    else
+      match Hashtbl.find_opt table key with
+      | Some ex when ex = C.Basic "sisal_array_t" -> false
+      | Some ex when ex = ty -> false
+      | _ ->
+          Hashtbl.replace table key ty;
+          true
+  in
+
+  let rec pass_edges g cur_gid =
+    ES.iter
+      (fun ((sn, sp), (dn, dp), tyid) ->
+        (* tid 5 (HALF) doubles as a placeholder tag on some to_if1 wiring
+           (e.g. gather value edges) -- do not treat it as authoritative.
+           Lock SCALAR endpoints only: that is the clobbering class being
+           cured (float ports read as "unknown"); array/record/union-tagged
+           edges include protocol markers (the gather's lo-record, dope
+           payloads) that the per-op lowering types specially. *)
+        if tyid <> 0 && tyid <> 5 then
+          match c_type_of_tyid g tyid with
+          | C.Basic ("int32_t" | "float" | "double" | "bool") as cty ->
+              Hashtbl.replace table (cur_gid, sn, sp, `Out) cty;
+              Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
+              Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
+              Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
+          | _ -> ())
+      g.eset;
+    NM.iter
+      (fun nid node ->
+        match node with
+        | Compound (_, _, _, _, sub, _) ->
+            let sub_gid =
+              try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1
+            in
+            pass_edges sub sub_gid
+        | _ -> ())
+      g.nmap
   in
 
   let get_ty g n p d =
@@ -804,6 +850,7 @@ let infer_types env gr gid =
   in
 
   pass0 gr gid;
+  pass_edges gr gid;
   pass1 gr gid;
   pass2 gr gid;
   {
