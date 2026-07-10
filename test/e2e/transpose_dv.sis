@@ -1,0 +1,13 @@
+%  $entry=transpose
+define transpose
+
+type TwoD = array_dv[ double_real ];   % flat rank-2 dv
+
+% Transpose A, an n by m matrix (flat rank-2 array_dv in and out).
+function transpose(n, m: integer; A: TwoD  returns TwoD)
+
+  for i in 1, m cross j in 1, n
+  returns array_dv of A[j, i]
+  end for
+
+end function % Transpose

@@ -197,9 +197,9 @@ Dope-vector array agreement and arithmetic (Error Monad):
 
 Matrix / linear algebra:
   $ sisal unit/matmult.sis
-  $ sisal unit/matmult_dv.sis
+  $ sisal e2e/matmult_dv.sis
   $ sisal unit/mm.sis
-  $ sisal unit/mm_dv.sis
+  $ sisal e2e/mm_dv.sis
   $ sisal unit/mmult2.sis
   $ sisal unit/mat.sis
   $ sisal unit/mat_construct.sis
@@ -215,7 +215,7 @@ Matrix / linear algebra:
   $ sisal unit/vec_ip.sis
   $ sisal unit/vectest.sis
   $ sisal unit/transpose.sis
-  $ sisal unit/transpose_dv.sis
+  $ sisal e2e/transpose_dv.sis
   $ sisal unit/reshape_1d_2d_1d.sis
   $ sisal unit/reshape_3d.sis
   $ sisal unit/reshape_matmul.sis
@@ -289,7 +289,7 @@ DV variants of scientific benchmarks:
   $ sisal unit/newgauss_dv.sis
   $ sisal unit/newgaussj_dv.sis
   $ sisal unit/ricard_dv.sis
-  $ sisal unit/sp_dv.sis
+  $ sisal e2e/sp_dv.sis
 
 Scientific benchmarks:
   $ sisal unit/ada.sis

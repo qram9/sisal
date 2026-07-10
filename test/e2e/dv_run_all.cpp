@@ -239,6 +239,27 @@ extern "C" sisal_array_t func_MAIN(int32_t n);
 extern "C" int32_t func_LAST_VAL(int32_t n);
 #endif
 
+#ifdef TEST_MATMULT_DV
+extern "C" sisal_array_t func_MULTIPLY(int32_t x, int32_t y, int32_t z,
+                                        sisal_array_t A, sisal_array_t B);
+#endif
+
+#ifdef TEST_MM_DV
+extern "C" float func_MAIN(int32_t rowsize);
+#endif
+
+#ifdef TEST_TRANSPOSE_DV
+extern "C" sisal_array_t func_TRANSPOSE(int32_t n, int32_t m, sisal_array_t A);
+#endif
+
+#ifdef TEST_SP_DV
+struct FUNC_MAIN_results { int32_t res_0; sisal_array_t res_1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n, sisal_array_t A,
+                                              sisal_array_t AJ,
+                                              sisal_array_t x0,
+                                              sisal_array_t g);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -6032,6 +6053,96 @@ static void test_forinit_history_dv(void) {
     }
 }
 #endif
+#ifdef TEST_MATMULT_DV
+static void test_matmult_dv(void) {
+    printf("\n=== Group: matmult_dv (rank-2 dv matmul across a call boundary; vs C reference) ===\n");
+    const int X=2, Y=3, Z=2;
+    double Av[X*Y] = {1,2,3, 4,5,6};
+    double Bv[Y*Z] = {7,8, 9,10, 11,12};
+    // reference C implementation
+    double ref[X*Z];
+    for (int i=0;i<X;i++) for (int j=0;j<Z;j++) {
+        double s=0; for (int k=0;k<Y;k++) s += Av[i*Y+k]*Bv[k*Z+j];
+        ref[i*Z+j]=s;
+    }
+    sisal_array_t A = sisal_array_alloc_empty(2, 4, X*Y);
+    A.dims[0]=X; A.dims[1]=Y;
+    for (int i=0;i<X*Y;i++) ((double*)A.data)[i]=Av[i];
+    sisal_array_t B = sisal_array_alloc_empty(2, 4, Y*Z);
+    B.dims[0]=Y; B.dims[1]=Z;
+    for (int i=0;i<Y*Z;i++) ((double*)B.data)[i]=Bv[i];
+    sisal_array_t r = func_MULTIPLY(X, Y, Z, A, B);
+    bool ok = ((int)r.size == X*Z);
+    for (int i=0;ok&&i<X*Z;i++) ok = fabs(((double*)r.data)[i]-ref[i])<1e-12;
+    check("2x3 * 3x2 matches C reference", ok);
+    free(A.data); free(B.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_MM_DV
+static void test_mm_dv(void) {
+    printf("\n=== Group: mm_dv (dv matmul of constant matrices; vs C reference) ===\n");
+    const int n = 5;
+    // reference C: every entry of the product is sum of n 1.1*1.1 terms (float)
+    float acc = 0; for (int i=0;i<n;i++) acc += 1.1f*1.1f;
+    check("rmc[1,1] matches C reference", fabsf(func_MAIN(n) - acc) < 1e-5f);
+}
+#endif
+#ifdef TEST_TRANSPOSE_DV
+static void test_transpose_dv(void) {
+    printf("\n=== Group: transpose_dv (rank-2 dv transpose by permuted read; vs C reference) ===\n");
+    const int N=2, M=3;
+    double Av[N*M] = {1,2,3, 4,5,6};
+    // reference C implementation
+    double ref[M*N];
+    for (int i=0;i<M;i++) for (int j=0;j<N;j++) ref[i*N+j] = Av[j*M+i];
+    sisal_array_t A = sisal_array_alloc_empty(2, 4, N*M);
+    A.dims[0]=N; A.dims[1]=M;
+    for (int i=0;i<N*M;i++) ((double*)A.data)[i]=Av[i];
+    sisal_array_t r = func_TRANSPOSE(N, M, A);
+    bool ok = (r.rank==2 && (int)r.dims[0]==M && (int)r.dims[1]==N);
+    for (int i=0;ok&&i<M*N;i++) ok = (((double*)r.data)[i]==ref[i]);
+    check("2x3 -> 3x2, elements a[i,j]=b[j,i]", ok);
+    free(A.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_SP_DV
+static void test_sp_dv(void) {
+    printf("\n=== Group: sp_dv (sparse matvec, 10 repeat-until iterations; vs C reference) ===\n");
+    const int n = 5;
+    float Av[4*n]; int32_t AJv[4*n]; float x0v[n], gv[n];
+    for (int k=0;k<4;k++) for (int i=0;i<n;i++) {
+        Av[k*n+i]  = 0.1f*(k+1) + 0.01f*i;
+        AJv[k*n+i] = (i + k) % n + 1;          // 1-based column index
+    }
+    for (int i=0;i<n;i++) { x0v[i]=1.0f+i; gv[i]=0.5f*i; }
+    // reference C: 10 iterations of x = g + sum_k A[k,i]*x[AJ[k,i]]
+    float x[n], xn[n]; for (int i=0;i<n;i++) x[i]=x0v[i];
+    for (int it=0;it<10;it++) {
+        for (int i=0;i<n;i++) {
+            float ax=0; for (int k=0;k<4;k++) ax += Av[k*n+i]*x[AJv[k*n+i]-1];
+            xn[i]=gv[i]+ax;
+        }
+        for (int i=0;i<n;i++) x[i]=xn[i];
+    }
+    sisal_array_t A = sisal_array_alloc_empty(2, 8, 4*n);
+    A.dims[0]=4; A.dims[1]=n;
+    for (int i=0;i<4*n;i++) ((float*)A.data)[i]=Av[i];
+    sisal_array_t AJ = sisal_array_alloc_empty(2, 6, 4*n);
+    AJ.dims[0]=4; AJ.dims[1]=n;
+    for (int i=0;i<4*n;i++) ((int32_t*)AJ.data)[i]=AJv[i];
+    sisal_array_t x0 = sisal_array_alloc_empty(1, 8, n);
+    for (int i=0;i<n;i++) ((float*)x0.data)[i]=x0v[i];
+    sisal_array_t g = sisal_array_alloc_empty(1, 8, n);
+    for (int i=0;i<n;i++) ((float*)g.data)[i]=gv[i];
+    FUNC_MAIN_results r = func_MAIN(n, A, AJ, x0, g);
+    bool ok = (r.res_0 == 10 && (int)r.res_1.size == n);
+    for (int i=0;ok&&i<n;i++)
+        ok = fabsf(((float*)r.res_1.data)[i]-x[i]) < 1e-3f * fabsf(x[i]);
+    check("ncount=10 and final x matches C reference (rel 1e-3, float)", ok);
+    free(A.data); free(AJ.data); free(x0.data); free(g.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 #ifdef TEST_SUB_R3_PERM
 static void test_sub_r3_perm(void) {
     printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
@@ -6539,6 +6650,18 @@ main (void)
 #ifdef TEST_FORINIT_HISTORY_DV
   test_forinit_history_dv ();
 #endif
+#ifdef TEST_MATMULT_DV
+  test_matmult_dv ();
+#endif
+#ifdef TEST_MM_DV
+  test_mm_dv ();
+#endif
+#ifdef TEST_TRANSPOSE_DV
+  test_transpose_dv ();
+#endif
+#ifdef TEST_SP_DV
+  test_sp_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -6793,6 +6916,8 @@ main (void)
     && !defined(TEST_FORALL_GPU_DV) && !defined(TEST_MIX_ARRAY_DV_IF)\
     && !defined(TEST_QUEENS_DV) && !defined(TEST_GAUSSJ_PERM_DV)\
     && !defined(TEST_FORINIT_HISTORY_DV)\
+    && !defined(TEST_MATMULT_DV) && !defined(TEST_MM_DV)\
+    && !defined(TEST_TRANSPOSE_DV) && !defined(TEST_SP_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\

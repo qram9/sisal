@@ -1,21 +1,15 @@
 % Sparse matrix-vector multiply — DV variant (based on sp.sis)
 %
-% DV changes:
-%   • OneDim  = array_dv[real]: real 1-D vectors are DV.
-%   • TwoDim  = array[OneDim]: 2-D real arrays are arrays of DV rows.
-%   • OneDimI = array[integer], TwoDimI = array[OneDimI]: integer index
-%     arrays stay as plain arrays (no element-level DV needed).
-%   • spmul: inner forall returns array_dv of scalar.
+% All arrays are flat array_dv: A is a 4 x n rank-2 dv of reals, AJ a 4 x n
+% rank-2 dv of integer column indices, x0/g rank-1 dv vectors.  main returns
+% BOTH the iteration count and the final vector so the computation is
+% value-checkable end to end.
 
 define main
 
-%type double = double_real;
 type OneDim  = array_dv[real];
-type TwoDim  = array[OneDim];
-type OneDimI = array[integer];
-type TwoDimI = array[OneDimI];
-
-global sqrt(x : double returns double)
+type TwoDim  = array_dv[real];      % flat rank-2, element (i,j) via A[i,j]
+type TwoDimI = array_dv[integer];   % flat rank-2 integer indices
 
 
 function r_sqrt(x : real returns real)
@@ -44,7 +38,7 @@ end function
 
 function main(n  : integer; A     : TwoDim;
               AJ : TwoDimI; x0, g : OneDim
-              returns integer)
+              returns integer, OneDim)
   for initial
     ncount := 0;
     x      := x0
@@ -54,5 +48,6 @@ function main(n  : integer; A     : TwoDim;
     x_error := dist(n, old x, x)
   until ncount = 10 | x_error < 0.0
   returns value of ncount
+          value of x
   end for
 end function
