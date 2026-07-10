@@ -1033,6 +1033,73 @@ let alloc_array_call rank_e tid_e count_e elem_cty =
         ] )
   else C.Call ("sisal_array_alloc_empty", [ rank_e; tid_e; count_e ])
 
+(** [lower_dv_replace env gr gid nid arr_e idx_e get_in_expr] — A[lo: v1..vk]
+    as nested single-value replaces (values at ports 2..k+1 land at lo..lo+k-1).
+    The runtime helper's WIDTH comes from the ARRAY's element type (typemap of
+    the port-0/output edge), never from the value expression's type: a
+    double-typed literal stored into a REAL array must be written as one
+    4-byte float — the old value-typed selection picked replace_f64 and wrote
+    8 bytes astride (or past) the slot, silently corrupting or dropping the
+    store.  The value is SISAL_CASTed to the element type for the same reason.
+    A sisal_array_t value is a row/slab of a flat rank-2 dv → slab replace at
+    the leading index regardless of element type. *)
+let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
+  let arr_tyid =
+    ES.fold
+      (fun ((sn, sp), (dn, dp), ty) acc ->
+        if dn = nid && dp = 0 && ty <> 0 then ty
+        else if sn = nid && sp = 0 && ty <> 0 && acc = 0 then ty
+        else acc)
+      gr.eset 0
+  in
+  let elem_cty =
+    match TM.find_opt arr_tyid env.tm with
+    | Some (Array_dv e) | Some (Array_ty e) ->
+        Some (c_type_of_if1_tyid env.tm e)
+    | _ -> None
+  in
+  let replace_fn p =
+    let val_ty = get_final_ty env gid nid p `In in
+    if val_ty = C.Basic "sisal_array_t" then ("sisal_dv_replace_slice", None)
+    else
+      match elem_cty with
+      | Some (C.Basic "int32_t") | Some (C.Basic "bool") ->
+          ("sisal_array_replace_i32", elem_cty)
+      | Some (C.Basic "double") -> ("sisal_array_replace_f64", elem_cty)
+      | Some (C.Basic "float") -> ("sisal_array_replace_f32", elem_cty)
+      | _ -> (
+          (* element type unresolvable: fall back to the value's type *)
+          match val_ty with
+          | C.Basic "int32_t" | C.Basic "bool" ->
+              ("sisal_array_replace_i32", None)
+          | C.Basic "double" -> ("sisal_array_replace_f64", None)
+          | _ -> ("sisal_array_replace_f32", None))
+  in
+  let val_ports =
+    ES.fold
+      (fun (_, (dn, dp), _) acc ->
+        if dn = nid && dp >= 2 then dp :: acc else acc)
+      gr.eset []
+    |> List.sort_uniq compare
+  in
+  let lo = C.Cast (C.Basic "int64_t", e2) in
+  List.fold_left
+    (fun arr_expr p ->
+      let off = p - 2 in
+      let idx = if off = 0 then lo else C.BinOp (C.Add, lo, C.LitInt off) in
+      let fn, cast_ty = replace_fn p in
+      let v = get_in_expr p in
+      let v =
+        match cast_ty with
+        | Some ct ->
+            C.Call
+              ( "SISAL_CAST",
+                [ C.Id (Ir.C_ast_print.string_of_c_type ct); v ] )
+        | None -> v
+      in
+      C.Call (fn, [ arr_expr; idx; v ]))
+    e1 val_ports
+
 (** [lower_graph env parent_gr compound_nid gr gid] translates an IF1 graph into
     a list of C statements. *)
 let rec lower_graph env parent_gr compound_nid gr gid =
@@ -1493,55 +1560,8 @@ and lower_simple env gr nid sym pin pout pr =
           (* A[lo: v1,..,vk] -- values are at ports 2..k+1, placed at consecutive indices
          lo, lo+1, ..., lo+k-1.  Nest single-value replaces (each copies the array),
          so value at port p lands at lo+(p-2).  k=1 is the plain single replace. *)
-          let replace_fn p =
-            match get_final_ty env gid nid p `In with
-            | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_replace_i32"
-            | C.Basic "double" -> "sisal_array_replace_f64"
-            (* an array value = a row/slab of a flat 2-D array_dv -> slab replace at the
-           leading index (NOT a boxed element; nested array_dv is disallowed) *)
-            | C.Basic "sisal_array_t" -> "sisal_dv_replace_slice"
-            | _ -> "sisal_array_replace_f32"
-          in
-          let val_ports =
-            ES.fold
-              (fun (_, (dn, dp), _) acc ->
-                if dn = nid && dp >= 2 then dp :: acc else acc)
-              gr.eset []
-            |> List.sort_uniq compare
-          in
-          let lo = C.Cast (C.Basic "int64_t", e2) in
-          List.fold_left
-            (fun arr_expr p ->
-              let off = p - 2 in
-              let idx =
-                if off = 0 then lo else C.BinOp (C.Add, lo, C.LitInt off)
-              in
-              C.Call (replace_fn p, [ arr_expr; idx; get_in_expr p ]))
-            e1 val_ports
-    | DV_REPLACE ->
-        let replace_fn p =
-          match get_final_ty env gid nid p `In with
-          | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_replace_i32"
-          | C.Basic "double" -> "sisal_array_replace_f64"
-          | C.Basic "sisal_array_t" -> "sisal_dv_replace_slice"
-          | _ -> "sisal_array_replace_f32"
-        in
-        let val_ports =
-          ES.fold
-            (fun (_, (dn, dp), _) acc ->
-              if dn = nid && dp >= 2 then dp :: acc else acc)
-            gr.eset []
-          |> List.sort_uniq compare
-        in
-        let lo = C.Cast (C.Basic "int64_t", e2) in
-        List.fold_left
-          (fun arr_expr p ->
-            let off = p - 2 in
-            let idx =
-              if off = 0 then lo else C.BinOp (C.Add, lo, C.LitInt off)
-            in
-            C.Call (replace_fn p, [ arr_expr; idx; get_in_expr p ]))
-          e1 val_ports
+          lower_dv_replace env gr gid nid e1 e2 get_in_expr
+    | DV_REPLACE -> lower_dv_replace env gr gid nid e1 e2 get_in_expr
     | DVAADDH | AADDH ->
         (* append e2 at the high end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in

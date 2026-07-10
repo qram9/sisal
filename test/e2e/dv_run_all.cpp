@@ -260,6 +260,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n, sisal_array_t A,
                                               sisal_array_t g);
 #endif
 
+#ifdef TEST_INVERSE_DV
+extern "C" sisal_array_t func_FIND_INVERSE(sisal_array_t A, int32_t n);
+#endif
+
 #if defined(TEST_SUB_R3_PERM) || defined(TEST_SUB_R4_PERM) || defined(TEST_SUB_R5_PERM)
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
@@ -6143,6 +6147,36 @@ static void test_sp_dv(void) {
     if (r.res_1.data) free(r.res_1.data);
 }
 #endif
+#ifdef TEST_INVERSE_DV
+static void test_inverse_dv(void) {
+    printf("\n=== Group: inverse_dv (Gauss-Jordan matrix inverse, full pivoting, rank-2 dv; vs C reference) ===\n");
+    const int N = 4;
+    double Ad[N][N] = {{4,2,1,3},{2,5,2,1},{1,2,6,2},{3,1,2,7}};
+    // reference C: Gauss-Jordan inverse with partial pivoting, in double
+    double M[N][2*N];
+    for (int i=0;i<N;i++) { for (int j=0;j<N;j++) M[i][j]=Ad[i][j];
+        for (int j=0;j<N;j++) M[i][N+j] = (i==j) ? 1.0 : 0.0; }
+    for (int k=0;k<N;k++) {
+        int p=k; for (int i=k+1;i<N;i++) if (fabs(M[i][k])>fabs(M[p][k])) p=i;
+        for (int j=0;j<2*N;j++) { double t=M[k][j]; M[k][j]=M[p][j]; M[p][j]=t; }
+        double d = M[k][k];
+        for (int j=0;j<2*N;j++) M[k][j] /= d;
+        for (int i=0;i<N;i++) if (i!=k) {
+            double f=M[i][k];
+            for (int j=0;j<2*N;j++) M[i][j] -= f*M[k][j];
+        }
+    }
+    sisal_array_t A = sisal_array_alloc_empty(2, 8, N*N);
+    A.dims[0]=N; A.dims[1]=N; A.lower_bound[0]=1; A.lower_bound[1]=1;
+    for (int i=0;i<N;i++) for (int j=0;j<N;j++) ((float*)A.data)[i*N+j]=(float)Ad[i][j];
+    sisal_array_t r = func_FIND_INVERSE(A, N);
+    bool ok = (r.rank == 2 && (int)r.size == N*N);
+    for (int i=0;i<N && ok;i++) for (int j=0;j<N && ok;j++)
+        ok = fabs(((float*)r.data)[i*N+j] - M[i][N+j]) < 1e-4;
+    check("4x4 inverse matches C reference (1e-4, float)", ok);
+    free(A.data); if (r.data) free(r.data);
+}
+#endif
 #ifdef TEST_SUB_R3_PERM
 static void test_sub_r3_perm(void) {
     printf("\n=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===\n");
@@ -6662,6 +6696,9 @@ main (void)
 #ifdef TEST_SP_DV
   test_sp_dv ();
 #endif
+#ifdef TEST_INVERSE_DV
+  test_inverse_dv ();
+#endif
 #ifdef TEST_SUB_R3_PERM
   test_sub_r3_perm ();
 #endif
@@ -6918,6 +6955,7 @@ main (void)
     && !defined(TEST_FORINIT_HISTORY_DV)\
     && !defined(TEST_MATMULT_DV) && !defined(TEST_MM_DV)\
     && !defined(TEST_TRANSPOSE_DV) && !defined(TEST_SP_DV)\
+    && !defined(TEST_INVERSE_DV)\
     && !defined(TEST_SUB_R3_PERM) && !defined(TEST_SUB_R4_PERM)\
     && !defined(TEST_SUB_R5_PERM) && !defined(TEST_IF_ARRAY_DV)\
     && !defined(TEST_MIX_SCALAR_ARRAY_DV) && !defined(TEST_IF_MULTI_ARRAY_DV)\
