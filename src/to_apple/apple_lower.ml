@@ -373,9 +373,14 @@ let infer_types env gr gid =
         match node with
         | Boundary _ -> ()
         | Literal (_, code, _, _) ->
+            (* Respect the literal's IF1 width: REAL is a 4-byte float, not a
+               double.  Coarsening REAL -> double here poisoned every consumer
+               that trusts the type table (the replace-width bug fixed in
+               lower_dv_replace was first caused by this). *)
             let ty =
               match code with
-              | REAL | DOUBLE -> C.Basic "double"
+              | REAL -> C.Basic "float"
+              | DOUBLE -> C.Basic "double"
               | BOOLEAN -> C.Basic "bool"
               | _ -> C.Basic "int32_t"
             in
