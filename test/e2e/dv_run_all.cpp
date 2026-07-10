@@ -4176,6 +4176,37 @@ test_kin16_dv (void)
 }
 #endif
 
+#ifdef TEST_CFFT_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t LOG2N);
+
+static void
+test_cfft_dv (void)
+{
+  printf ("\n=== Group: cfft_dv (Cray-2 FFT) ===\n");
+  struct FUNC_MAIN_results r = func_MAIN(4);
+  check ("r.res_0 size == 16", r.res_0.size == 16);
+  check ("r.res_1 size == 16", r.res_1.size == 16);
+
+  float ref_real[16] = {24, -8, -8, -8, 24, -8, -8, -8, 24, -8, -8, -8, 24, -8, -8, -8};
+  float ref_imag[16] = {0, -8, 0, 8, 0, -8, 0, 8, 0, -8, 0, 8, 0, -8, 0, 8};
+
+  for (int i = 0; i < 16; i++) {
+    char name0[64], name1[64];
+    sprintf(name0, "r.res_0[%d] == %f", i, ref_real[i]);
+    sprintf(name1, "r.res_1[%d] == %f", i, ref_imag[i]);
+    check (name0, fabs(((float*)r.res_0.data)[i] - ref_real[i]) < 1e-4);
+    check (name1, fabs(((float*)r.res_1.data)[i] - ref_imag[i]) < 1e-4);
+  }
+
+  if (r.res_0.data) free(r.res_0.data);
+  if (r.res_1.data) free(r.res_1.data);
+}
+#endif
+
 // ---- Livermore loop kernels: independent C references + checks ----
 #ifdef TEST_LOOP1_DV
 // Hydro: X[k] = Q + Y[k]*(R*Z[k+10] + T*Z[k+11])  (Sisal 1-based; Z needs
@@ -7218,6 +7249,9 @@ main (void)
 #ifdef TEST_KIN16_DV
   test_kin16_dv ();
 #endif
+#ifdef TEST_CFFT_DV
+  test_cfft_dv ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -7311,7 +7345,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

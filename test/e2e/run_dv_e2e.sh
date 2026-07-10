@@ -240,6 +240,7 @@ run_group LU_PIV_DV         lu_piv_dv            ""
 run_group FEO_FFT_DV        feo_fft_dv           ""
 run_group FEO_FFT           feo_fft              ""
 run_group KIN16_DV          kin16_dv             ""
+run_group CFFT_DV           cfft_dv              ""
 
 echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"

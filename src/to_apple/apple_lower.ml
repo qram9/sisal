@@ -917,8 +917,16 @@ let assign_with_cast env gid nid pid dir src_expr =
           get_c_name env.proc_map env.gid_name_map gid nid pid dir g
     in
     let v_res = C.Id name in
+    let is_brace_init =
+      match src_expr with
+      | C.Id n -> String.length n >= 2 && String.get n 0 = '{' && String.get n (String.length n - 1) = '}'
+      | _ -> false
+    in
     let cast_expr =
-      C.Call ("SISAL_CAST", [ C.Id (string_of_c_type dst_ty); src_expr ])
+      if is_struct_cty dst_ty || is_brace_init then
+        src_expr
+      else
+        C.Call ("SISAL_CAST", [ C.Id (string_of_c_type dst_ty); src_expr ])
     in
     if StringSet.mem name env.seen_decls then
       ([ C.Expr (C.BinOp (C.Assign, v_res, cast_expr)) ], env)
@@ -1314,9 +1322,13 @@ and lower_simple env gr nid sym pin pout pr =
     match producers with
     | Some (sn, sp) ->
         let ty = get_final_ty env gid nid p `In in
-        C.Call
-          ( "SISAL_CAST",
-            [ C.Id (string_of_c_type ty); get_expr env gid sn sp `Out ] )
+        let expr = get_expr env gid sn sp `Out in
+        if is_struct_cty ty then
+          expr
+        else
+          C.Call
+            ( "SISAL_CAST",
+              [ C.Id (string_of_c_type ty); expr ] )
     | None -> C.LitInt 0
   in
   let e1 = get_in_expr 0 in
@@ -1340,7 +1352,10 @@ and lower_simple env gr nid sym pin pout pr =
     | NOT_EQUAL -> C.BinOp (C.Ne, e1, e2)
     | NOT -> C.UnaryOp (C.LogNot, e1)
     | NEGATE -> C.UnaryOp (C.Negate, e1)
-    | ERROR_NODE -> C.LitFloat 0.0
+    | ERROR_NODE -> (
+        match default_init_for t_res with
+        | Some e -> e
+        | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)
     | AND -> C.BinOp (C.LogAnd, e1, e2)
     | SHL -> C.BinOp (C.Shl, e1, e2)
