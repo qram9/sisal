@@ -82,6 +82,7 @@ run_group FORALL_CPU        forall_cpu
 run_group NEGATE_DV         negate_dv
 run_group FORALL_REDUCE_DV  dv_forall_reduce
 run_group BULK_BASIC        dv_bulk_basic
+run_group BASIC_DV          basic_dv
 run_group INNERPRODUCT_DV   dv_innerproduct
 run_group MATMUL_OP_DV      dv_matmul            ""
 run_group MATMUL_DV         matmul_dv            ""

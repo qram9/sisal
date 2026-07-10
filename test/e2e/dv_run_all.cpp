@@ -1981,6 +1981,245 @@ test_forall_reduce_dv (void)
 }
 #endif
 
+#ifdef TEST_BASIC_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+  sisal_array_t res_3;
+  sisal_array_t res_4;
+  sisal_array_t res_5;
+  sisal_array_t res_6;
+  sisal_array_t res_7;
+  sisal_array_t res_8;
+  sisal_array_t res_9;
+  sisal_array_t res_10;
+  sisal_array_t res_11;
+  sisal_array_t res_12;
+  sisal_array_t res_13;
+  sisal_array_t res_14;
+  sisal_array_t res_15;
+  sisal_array_t res_16;
+  sisal_array_t res_17;
+  sisal_array_t res_18;
+  sisal_array_t res_19;
+  sisal_array_t res_20;
+  sisal_array_t res_21;
+  sisal_array_t res_22;
+  sisal_array_t res_23;
+  sisal_array_t res_24;
+  sisal_array_t res_25;
+  sisal_array_t res_26;
+  sisal_array_t res_27;
+  sisal_array_t res_28;
+  sisal_array_t res_29;
+  sisal_array_t res_30;
+  sisal_array_t res_31;
+  sisal_array_t res_32;
+  sisal_array_t res_33;
+  sisal_array_t res_34;
+  sisal_array_t res_35;
+  sisal_array_t res_36;
+  sisal_array_t res_37;
+  sisal_array_t res_38;
+  sisal_array_t res_39;
+  sisal_array_t res_40;
+  sisal_array_t res_41;
+  sisal_array_t res_42;
+  sisal_array_t res_43;
+  sisal_array_t res_44;
+  sisal_array_t res_45;
+  sisal_array_t res_46;
+  sisal_array_t res_47;
+  sisal_array_t res_48;
+  int32_t res_49;
+  sisal_array_t res_50;
+  sisal_array_t res_51;
+  int32_t res_52;
+  int32_t res_53;
+  int32_t res_54;
+  sisal_array_t res_55;
+  sisal_array_t res_56;
+  sisal_array_t res_57;
+  sisal_array_t res_58;
+  sisal_array_t res_59;
+  sisal_array_t res_60;
+  sisal_array_t res_61;
+  sisal_array_t res_62;
+  sisal_array_t res_63;
+  sisal_array_t res_64;
+  sisal_array_t res_65;
+  sisal_array_t res_66;
+  int32_t res_67;
+};
+
+extern "C" struct FUNC_MAIN_results func_MAIN(
+  sisal_array_t A, sisal_array_t B, sisal_array_t C, sisal_array_t D, 
+  sisal_array_t E, sisal_array_t F, sisal_array_t H, sisal_array_t I, 
+  sisal_array_t M, sisal_array_t N, sisal_array_t V, sisal_array_t W, 
+  sisal_array_t X, int32_t PASS
+);
+
+static void
+test_basic_dv (void)
+{
+  printf ("\n=== Group: basic_dv ===\n");
+
+  bool a_data[] = { true, false, true, false };
+  bool b_data[] = { true, true, false, false };
+  sisal_array_t a = make_bool_arr(a_data, 4);
+  sisal_array_t b = make_bool_arr(b_data, 4);
+
+  int32_t c_data[] = { 10, -20, 30, 40 };
+  int32_t d_data[] = { 3, 4, -5, 6 };
+  sisal_array_t c = make_int_arr(c_data, 4);
+  sisal_array_t d = make_int_arr(d_data, 4);
+
+  float e_data[] = { 1.5f, -2.5f, 3.5f, 4.5f };
+  float f_data[] = { 0.5f, 2.0f, -1.0f, 1.5f };
+  sisal_array_t e = make_float_arr(e_data, 4);
+  sisal_array_t f = make_float_arr(f_data, 4);
+
+  double h_data[] = { 1.5, -2.5, 3.5, 4.5 };
+  double i_data[] = { 0.5, 2.0, -1.0, 1.5 };
+  sisal_array_t h = make_double_arr(h_data, 4);
+  sisal_array_t i = make_double_arr(i_data, 4);
+
+  int32_t m_data[] = { 100, 200, 300 };
+  int32_t n_data[] = { 400, 500 };
+  sisal_array_t m = make_int_arr(m_data, 3);
+  sisal_array_t n = make_int_arr(n_data, 2);
+
+  float v_data[] = { 1.2f, -2.7f, 3.5f };
+  sisal_array_t v = make_float_arr(v_data, 3);
+
+  double w_data[] = { 1.2, -2.7, 3.5 };
+  sisal_array_t w = make_double_arr(w_data, 3);
+
+  int32_t x_data[] = { 10, -20, 30 };
+  sisal_array_t x = make_int_arr(x_data, 3);
+
+  struct FUNC_MAIN_results res = func_MAIN(a, b, c, d, e, f, h, i, m, n, v, w, x, 777);
+
+  if (a.data) free(a.data); if (b.data) free(b.data);
+  if (c.data) free(c.data); if (d.data) free(d.data);
+  if (e.data) free(e.data); if (f.data) free(f.data);
+  if (h.data) free(h.data); if (i.data) free(i.data);
+  if (m.data) free(m.data); if (n.data) free(n.data);
+  if (v.data) free(v.data); if (w.data) free(w.data);
+  if (x.data) free(x.data);
+
+  check("basic_dv_res_0_size", res.res_0.size == 4);
+  check("basic_dv_res_0", ab(res.res_0, 0) == true && ab(res.res_0, 1) == false && ab(res.res_0, 2) == false && ab(res.res_0, 3) == false);
+  check("basic_dv_res_1", ab(res.res_1, 0) == true && ab(res.res_1, 1) == true && ab(res.res_1, 2) == true && ab(res.res_1, 3) == false);
+  check("basic_dv_res_2", ab(res.res_2, 0) == false && ab(res.res_2, 1) == true && ab(res.res_2, 2) == false && ab(res.res_2, 3) == true);
+  check("basic_dv_res_3", ab(res.res_3, 0) == true && ab(res.res_3, 1) == false && ab(res.res_3, 2) == false && ab(res.res_3, 3) == true);
+  check("basic_dv_res_4", ab(res.res_4, 0) == false && ab(res.res_4, 1) == true && ab(res.res_4, 2) == true && ab(res.res_4, 3) == false);
+
+  check("basic_dv_res_5", ai(res.res_5, 0) == 13 && ai(res.res_5, 1) == -16 && ai(res.res_5, 2) == 25 && ai(res.res_5, 3) == 46);
+  check("basic_dv_res_6", ai(res.res_6, 0) == 7 && ai(res.res_6, 1) == -24 && ai(res.res_6, 2) == 35 && ai(res.res_6, 3) == 34);
+  check("basic_dv_res_7", ai(res.res_7, 0) == 30 && ai(res.res_7, 1) == -80 && ai(res.res_7, 2) == -150 && ai(res.res_7, 3) == 240);
+  check("basic_dv_res_8", ai(res.res_8, 0) == 3 && ai(res.res_8, 1) == -5 && ai(res.res_8, 2) == -6 && ai(res.res_8, 3) == 6);
+  check("basic_dv_res_9", ai(res.res_9, 0) == 1 && ai(res.res_9, 1) == 0 && ai(res.res_9, 2) == 0 && ai(res.res_9, 3) == 4);
+  check("basic_dv_res_10", ai(res.res_10, 0) == -10 && ai(res.res_10, 1) == 20 && ai(res.res_10, 2) == -30 && ai(res.res_10, 3) == -40);
+  check("basic_dv_res_11", ai(res.res_11, 0) == 10 && ai(res.res_11, 1) == 20 && ai(res.res_11, 2) == 30 && ai(res.res_11, 3) == 40);
+  check("basic_dv_res_12", ai(res.res_12, 0) == 10 && ai(res.res_12, 1) == 4 && ai(res.res_12, 2) == 30 && ai(res.res_12, 3) == 40);
+  check("basic_dv_res_13", ai(res.res_13, 0) == 3 && ai(res.res_13, 1) == -20 && ai(res.res_13, 2) == -5 && ai(res.res_13, 3) == 6);
+  check("basic_dv_res_14", ab(res.res_14, 0) == false && ab(res.res_14, 1) == false && ab(res.res_14, 2) == false && ab(res.res_14, 3) == false);
+  check("basic_dv_res_15", ab(res.res_15, 0) == true && ab(res.res_15, 1) == true && ab(res.res_15, 2) == true && ab(res.res_15, 3) == true);
+  check("basic_dv_res_16", ab(res.res_16, 0) == true && ab(res.res_16, 1) == false && ab(res.res_16, 2) == true && ab(res.res_16, 3) == true);
+  check("basic_dv_res_17", ab(res.res_17, 0) == false && ab(res.res_17, 1) == true && ab(res.res_17, 2) == false && ab(res.res_17, 3) == false);
+  check("basic_dv_res_18", ab(res.res_18, 0) == true && ab(res.res_18, 1) == false && ab(res.res_18, 2) == true && ab(res.res_18, 3) == true);
+  check("basic_dv_res_19", ab(res.res_19, 0) == false && ab(res.res_19, 1) == true && ab(res.res_19, 2) == false && ab(res.res_19, 3) == false);
+
+  check("basic_dv_res_20", near_f(af(res.res_20, 0), 2.0f) && near_f(af(res.res_20, 1), -0.5f) && near_f(af(res.res_20, 2), 2.5f) && near_f(af(res.res_20, 3), 6.0f));
+  check("basic_dv_res_21", near_f(af(res.res_21, 0), 1.0f) && near_f(af(res.res_21, 1), -4.5f) && near_f(af(res.res_21, 2), 4.5f) && near_f(af(res.res_21, 3), 3.0f));
+  check("basic_dv_res_22", near_f(af(res.res_22, 0), 0.75f) && near_f(af(res.res_22, 1), -5.0f) && near_f(af(res.res_22, 2), -3.5f) && near_f(af(res.res_22, 3), 6.75f));
+  check("basic_dv_res_23", near_f(af(res.res_23, 0), 3.0f) && near_f(af(res.res_23, 1), -1.25f) && near_f(af(res.res_23, 2), -3.5f) && near_f(af(res.res_23, 3), 3.0f));
+  check("basic_dv_res_24", near_f(af(res.res_24, 0), -1.5f) && near_f(af(res.res_24, 1), 2.5f) && near_f(af(res.res_24, 2), -3.5f) && near_f(af(res.res_24, 3), -4.5f));
+  check("basic_dv_res_25", near_f(af(res.res_25, 0), 1.5f) && near_f(af(res.res_25, 1), 2.5f) && near_f(af(res.res_25, 2), 3.5f) && near_f(af(res.res_25, 3), 4.5f));
+  check("basic_dv_res_26", near_f(af(res.res_26, 0), 1.5f) && near_f(af(res.res_26, 1), 2.0f) && near_f(af(res.res_26, 2), 3.5f) && near_f(af(res.res_26, 3), 4.5f));
+  check("basic_dv_res_27", near_f(af(res.res_27, 0), 0.5f) && near_f(af(res.res_27, 1), -2.5f) && near_f(af(res.res_27, 2), -1.0f) && near_f(af(res.res_27, 3), 1.5f));
+  check("basic_dv_res_28", ab(res.res_28, 0) == false && ab(res.res_28, 1) == false && ab(res.res_28, 2) == false && ab(res.res_28, 3) == false);
+  check("basic_dv_res_29", ab(res.res_29, 0) == true && ab(res.res_29, 1) == true && ab(res.res_29, 2) == true && ab(res.res_29, 3) == true);
+  check("basic_dv_res_30", ab(res.res_30, 0) == true && ab(res.res_30, 1) == false && ab(res.res_30, 2) == true && ab(res.res_30, 3) == true);
+  check("basic_dv_res_31", ab(res.res_31, 0) == false && ab(res.res_31, 1) == true && ab(res.res_31, 2) == false && ab(res.res_31, 3) == false);
+  check("basic_dv_res_32", ab(res.res_32, 0) == true && ab(res.res_32, 1) == false && ab(res.res_32, 2) == true && ab(res.res_32, 3) == true);
+  check("basic_dv_res_33", ab(res.res_33, 0) == false && ab(res.res_33, 1) == true && ab(res.res_33, 2) == false && ab(res.res_33, 3) == false);
+
+  check("basic_dv_res_34", near_d(ad(res.res_34, 0), 2.0) && near_d(ad(res.res_34, 1), -0.5) && near_d(ad(res.res_34, 2), 2.5) && near_d(ad(res.res_34, 3), 6.0));
+  check("basic_dv_res_35", near_d(ad(res.res_35, 0), 1.0) && near_d(ad(res.res_35, 1), -4.5) && near_d(ad(res.res_35, 2), 4.5) && near_d(ad(res.res_35, 3), 3.0));
+  check("basic_dv_res_36", near_d(ad(res.res_36, 0), 0.75) && near_d(ad(res.res_36, 1), -5.0) && near_d(ad(res.res_36, 2), -3.5) && near_d(ad(res.res_36, 3), 6.75));
+  check("basic_dv_res_37", near_d(ad(res.res_37, 0), 3.0) && near_d(ad(res.res_37, 1), -1.25) && near_d(ad(res.res_37, 2), -3.5) && near_d(ad(res.res_37, 3), 3.0));
+  check("basic_dv_res_38", near_d(ad(res.res_38, 0), -1.5) && near_d(ad(res.res_38, 1), 2.5) && near_d(ad(res.res_38, 2), -3.5) && near_d(ad(res.res_38, 3), -4.5));
+  check("basic_dv_res_39", near_d(ad(res.res_39, 0), 1.5) && near_d(ad(res.res_39, 1), 2.5) && near_d(ad(res.res_39, 2), 3.5) && near_d(ad(res.res_39, 3), 4.5));
+  check("basic_dv_res_40", near_d(ad(res.res_40, 0), 1.5) && near_d(ad(res.res_40, 1), 2.0) && near_d(ad(res.res_40, 2), 3.5) && near_d(ad(res.res_40, 3), 4.5));
+  check("basic_dv_res_41", near_d(ad(res.res_41, 0), 0.5) && near_d(ad(res.res_41, 1), -2.5) && near_d(ad(res.res_41, 2), -1.0) && near_d(ad(res.res_41, 3), 1.5));
+  check("basic_dv_res_42", ab(res.res_42, 0) == false && ab(res.res_42, 1) == false && ab(res.res_42, 2) == false && ab(res.res_42, 3) == false);
+  check("basic_dv_res_43", ab(res.res_43, 0) == true && ab(res.res_43, 1) == true && ab(res.res_43, 2) == true && ab(res.res_43, 3) == true);
+  check("basic_dv_res_44", ab(res.res_44, 0) == true && ab(res.res_44, 1) == false && ab(res.res_44, 2) == true && ab(res.res_44, 3) == true);
+  check("basic_dv_res_45", ab(res.res_45, 0) == false && ab(res.res_45, 1) == true && ab(res.res_45, 2) == false && ab(res.res_45, 3) == false);
+  check("basic_dv_res_46", ab(res.res_46, 0) == true && ab(res.res_46, 1) == false && ab(res.res_46, 2) == true && ab(res.res_46, 3) == true);
+  check("basic_dv_res_47", ab(res.res_47, 0) == false && ab(res.res_47, 1) == true && ab(res.res_47, 2) == false && ab(res.res_47, 3) == false);
+
+  check("basic_dv_res_48", res.res_48.size == 3 && ai(res.res_48, 0) == 0 && ai(res.res_48, 1) == 0 && ai(res.res_48, 2) == 0);
+  check("basic_dv_res_49", res.res_49 == 100);
+  check("basic_dv_res_50", res.res_50.size == 3 && ai(res.res_50, 0) == 999 && ai(res.res_50, 1) == 200 && ai(res.res_50, 2) == 300);
+  check("basic_dv_res_51", res.res_51.size == 5 && ai(res.res_51, 0) == 100 && ai(res.res_51, 1) == 200 && ai(res.res_51, 2) == 300 && ai(res.res_51, 3) == 400 && ai(res.res_51, 4) == 500);
+  check("basic_dv_res_52", res.res_52 == 3);
+  check("basic_dv_res_53", res.res_53 == 1);
+  check("basic_dv_res_54", res.res_54 == 3);
+  check("basic_dv_res_55", res.res_55.size == 4 && ai(res.res_55, 0) == 100 && ai(res.res_55, 1) == 200 && ai(res.res_55, 2) == 300 && ai(res.res_55, 3) == 42);
+  check("basic_dv_res_56", res.res_56.size == 4 && ai(res.res_56, 0) == 42 && ai(res.res_56, 1) == 100 && ai(res.res_56, 2) == 200 && ai(res.res_56, 3) == 300);
+  check("basic_dv_res_57", res.res_57.size == 2 && ai(res.res_57, 0) == 100 && ai(res.res_57, 1) == 200);
+  check("basic_dv_res_58", res.res_58.size == 2 && ai(res.res_58, 0) == 200 && ai(res.res_58, 1) == 300);
+
+  check("basic_dv_res_59", res.res_59.size == 3 && ai(res.res_59, 0) == 1 && ai(res.res_59, 1) == -3 && ai(res.res_59, 2) == 3);
+  check("basic_dv_res_60", res.res_60.size == 3 && ai(res.res_60, 0) == 1 && ai(res.res_60, 1) == -2 && ai(res.res_60, 2) == 3);
+  check("basic_dv_res_61", res.res_61.size == 3 && ai(res.res_61, 0) == 1 && ai(res.res_61, 1) == -2 && ai(res.res_61, 2) == 3);
+  check("basic_dv_res_62", res.res_62.size == 3 && ai(res.res_62, 0) == 1 && ai(res.res_62, 1) == -3 && ai(res.res_62, 2) == 3);
+  check("basic_dv_res_63", res.res_63.size == 3 && ai(res.res_63, 0) == 1 && ai(res.res_63, 1) == -2 && ai(res.res_63, 2) == 3);
+  check("basic_dv_res_64", res.res_64.size == 3 && ai(res.res_64, 0) == 1 && ai(res.res_64, 1) == -2 && ai(res.res_64, 2) == 3);
+  check("basic_dv_res_65", res.res_65.size == 3 && near_f(af(res.res_65, 0), 10.0f) && near_f(af(res.res_65, 1), -20.0f) && near_f(af(res.res_65, 2), 30.0f));
+  check("basic_dv_res_66", res.res_66.size == 3 && near_d(ad(res.res_66, 0), 10.0) && near_d(ad(res.res_66, 1), -20.0) && near_d(ad(res.res_66, 2), 30.0));
+
+  check("basic_dv_res_67", res.res_67 == 777);
+
+  if (res.res_0.data) free(res.res_0.data); if (res.res_1.data) free(res.res_1.data);
+  if (res.res_2.data) free(res.res_2.data); if (res.res_3.data) free(res.res_3.data);
+  if (res.res_4.data) free(res.res_4.data); if (res.res_5.data) free(res.res_5.data);
+  if (res.res_6.data) free(res.res_6.data); if (res.res_7.data) free(res.res_7.data);
+  if (res.res_8.data) free(res.res_8.data); if (res.res_9.data) free(res.res_9.data);
+  if (res.res_10.data) free(res.res_10.data); if (res.res_11.data) free(res.res_11.data);
+  if (res.res_12.data) free(res.res_12.data); if (res.res_13.data) free(res.res_13.data);
+  if (res.res_14.data) free(res.res_14.data); if (res.res_15.data) free(res.res_15.data);
+  if (res.res_16.data) free(res.res_16.data); if (res.res_17.data) free(res.res_17.data);
+  if (res.res_18.data) free(res.res_18.data); if (res.res_19.data) free(res.res_19.data);
+  if (res.res_20.data) free(res.res_20.data); if (res.res_21.data) free(res.res_21.data);
+  if (res.res_22.data) free(res.res_22.data); if (res.res_23.data) free(res.res_23.data);
+  if (res.res_24.data) free(res.res_24.data); if (res.res_25.data) free(res.res_25.data);
+  if (res.res_26.data) free(res.res_26.data); if (res.res_27.data) free(res.res_27.data);
+  if (res.res_28.data) free(res.res_28.data); if (res.res_29.data) free(res.res_29.data);
+  if (res.res_30.data) free(res.res_30.data); if (res.res_31.data) free(res.res_31.data);
+  if (res.res_32.data) free(res.res_32.data); if (res.res_33.data) free(res.res_33.data);
+  if (res.res_34.data) free(res.res_34.data); if (res.res_35.data) free(res.res_35.data);
+  if (res.res_36.data) free(res.res_36.data); if (res.res_37.data) free(res.res_37.data);
+  if (res.res_38.data) free(res.res_38.data); if (res.res_39.data) free(res.res_39.data);
+  if (res.res_40.data) free(res.res_40.data); if (res.res_41.data) free(res.res_41.data);
+  if (res.res_42.data) free(res.res_42.data); if (res.res_43.data) free(res.res_43.data);
+  if (res.res_44.data) free(res.res_44.data); if (res.res_45.data) free(res.res_45.data);
+  if (res.res_46.data) free(res.res_46.data); if (res.res_47.data) free(res.res_47.data);
+  if (res.res_48.data) free(res.res_48.data);
+  if (res.res_50.data) free(res.res_50.data); if (res.res_51.data) free(res.res_51.data);
+  if (res.res_55.data) free(res.res_55.data); if (res.res_56.data) free(res.res_56.data);
+  if (res.res_57.data) free(res.res_57.data); if (res.res_58.data) free(res.res_58.data);
+  if (res.res_59.data) free(res.res_59.data); if (res.res_60.data) free(res.res_60.data);
+  if (res.res_61.data) free(res.res_61.data); if (res.res_62.data) free(res.res_62.data);
+  if (res.res_63.data) free(res.res_63.data); if (res.res_64.data) free(res.res_64.data);
+  if (res.res_65.data) free(res.res_65.data); if (res.res_66.data) free(res.res_66.data);
+}
+#endif
+
 #ifdef TEST_FOR_INITIAL
 static void
 test_for_initial (void)
@@ -6497,6 +6736,9 @@ main (void)
 #ifdef TEST_BULK_BASIC
   test_bulk_basic ();
 #endif
+#ifdef TEST_BASIC_DV
+  test_basic_dv ();
+#endif
 #ifdef TEST_INNERPRODUCT_DV
   test_innerproduct_dv ();
 #endif
@@ -7069,7 +7311,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

@@ -1,0 +1,319 @@
+% basic_dv.sis — aggregate array_dv tests, modelled on basic.sis /
+%               sisal_tests_by_section.sis.
+%
+% Each section mirrors the corresponding section in basic.sis but
+% uses array_dv[T] inputs/outputs and 'returns array_dv of' in every
+% for-loop body.  Section 5.7 covers DV-specific aggregate operations
+% that have no direct analogue in basic.sis (fill, concat, element
+% update, bounds, size, scatter iteration).
+%
+% Helper functions are identical to basic.sis (scalar × scalar → scalar)
+% so that the same numeric coverage is obtained; only the loop wrappers
+% and types change.
+
+define basic_dv,
+
+% ---- Section 5.3 : boolean -------------------------------------------------
+bband, bbor, bnot, bequal, bnotequal,
+
+% ---- Section 5.4 : integer -------------------------------------------------
+iadd, isub, imul, idiv, imod, ineg, iabs, imax, imin,
+iequal, inotequal, igreater, iless, igreateq, ilesseq,
+
+% ---- Section 5.5 : real and double_real ------------------------------------
+radd, rsub, rmul, rdiv, rneg, rabs, rmax, rmin,
+requal, rnotequal, rgreater, rless, rgreateq, rlesseq,
+
+dadd, dsub, dmul, ddiv, dneg, dabs, dmax, dmin,
+dequal, dnotequal, dgreater, dless, dgreateq, dlesseq,
+
+% ---- Section 5.7 : DV aggregate operations ---------------------------------
+dvfill,
+dvselect, dvrepl,
+dvconc, dvhigh, dvlow, dvsize,
+dvaddh, dvaddl, dvremh, dvreml,
+
+% ---- Section 5.11 : coercions ----------------------------------------------
+rfloor, dfloor, rinteger, dinteger, rtrunc, dtrunc,
+ireal, idouble, dreal, rdouble
+
+type dvi = array_dv[integer]
+type dvr = array_dv[real]
+type dvd = array_dv[double_real]
+type dvb = array_dv[boolean]
+
+% ============================================================
+% Scalar helpers — identical to basic.sis
+% ============================================================
+
+%---- Section 5.3
+function bband   (a, b : boolean returns boolean)  a & b    end function
+function bbor    (a, b : boolean returns boolean)  a | b    end function
+function bnot    (a    : boolean returns boolean)  ~a       end function
+function bequal  (a, b : boolean returns boolean)  a = b   end function
+function bnotequal(a, b : boolean returns boolean) a ~= b  end function
+
+%---- Section 5.4
+function iadd    (a, b : integer returns integer)  a + b    end function
+function isub    (a, b : integer returns integer)  a - b    end function
+function imul    (a, b : integer returns integer)  a * b    end function
+function idiv    (a, b : integer returns integer)  a / b    end function
+function imod    (a, b : integer returns integer)  mod(a, b) end function
+function ineg    (a    : integer returns integer)  -a       end function
+function iabs    (a    : integer returns integer)  abs(a)   end function
+function imax    (a, b : integer returns integer)  max(a, b) end function
+function imin    (a, b : integer returns integer)  min(a, b) end function
+function iequal  (a, b : integer returns boolean)  a = b    end function
+function inotequal(a,b : integer returns boolean)  a ~= b   end function
+function igreater(a, b : integer returns boolean)  a > b    end function
+function iless   (a, b : integer returns boolean)  a < b    end function
+function igreateq(a, b : integer returns boolean)  a >= b   end function
+function ilesseq (a, b : integer returns boolean)  a <= b   end function
+
+%---- Section 5.5 — real
+function radd    (a, b : real returns real)    a + b        end function
+function rsub    (a, b : real returns real)    a - b        end function
+function rmul    (a, b : real returns real)    a * b        end function
+function rdiv    (a, b : real returns real)    a / b        end function
+function rneg    (a    : real returns real)    -a           end function
+function rabs    (a    : real returns real)    abs(a)       end function
+function rmax    (a, b : real returns real)    max(a, b)    end function
+function rmin    (a, b : real returns real)    min(a, b)    end function
+function requal  (a, b : real returns boolean) a = b        end function
+function rnotequal(a,b : real returns boolean) a ~= b       end function
+function rgreater(a, b : real returns boolean) a > b        end function
+function rless   (a, b : real returns boolean) a < b        end function
+function rgreateq(a, b : real returns boolean) a >= b       end function
+function rlesseq (a, b : real returns boolean) a <= b       end function
+
+%---- Section 5.5 — double_real
+function dadd    (a, b : double_real returns double_real)   a + b     end function
+function dsub    (a, b : double_real returns double_real)   a - b     end function
+function dmul    (a, b : double_real returns double_real)   a * b     end function
+function ddiv    (a, b : double_real returns double_real)   a / b     end function
+function dneg    (a    : double_real returns double_real)   -a        end function
+function dabs    (a    : double_real returns double_real)   abs(a)    end function
+function dmax    (a, b : double_real returns double_real)   max(a, b) end function
+function dmin    (a, b : double_real returns double_real)   min(a, b) end function
+function dequal  (a, b : double_real returns boolean)       a = b     end function
+function dnotequal(a,b : double_real returns boolean)       a ~= b    end function
+function dgreater(a, b : double_real returns boolean)       a > b     end function
+function dless   (a, b : double_real returns boolean)       a < b     end function
+function dgreateq(a, b : double_real returns boolean)       a >= b    end function
+function dlesseq (a, b : double_real returns boolean)       a <= b    end function
+
+%---- Section 5.7 — DV aggregate helpers
+% fill: for i in lo..hi returns array_dv of v
+function dvfill  (lo, hi, v : integer returns dvi)
+  for i in lo, hi returns array_dv of v end for
+end function
+
+% element select and update
+function dvselect(a : dvi; j   : integer returns integer)  a[j]      end function
+function dvrepl  (a : dvi; j, v : integer returns dvi)     a[j : v]  end function
+
+% concatenation and bounds
+function dvconc  (a, b : dvi returns dvi)     a || b             end function
+function dvhigh  (a    : dvi returns integer) array_limh(a)      end function
+function dvlow   (a    : dvi returns integer) array_liml(a)      end function
+function dvsize  (a    : dvi returns integer) array_size(a)      end function
+
+% add/remove at high end
+function dvaddh  (a : dvi; v : integer returns dvi)
+  let hi := array_limh(a)
+  in a || (for dummy in hi+1, hi+1 returns array_dv of v end for)
+  end let
+end function
+
+% add/remove at low end
+function dvaddl  (a : dvi; v : integer returns dvi)
+  let lo := array_liml(a)
+  in (for dummy in lo-1, lo-1 returns array_dv of v end for) || a
+  end let
+end function
+
+% remove last element
+function dvremh  (a : dvi returns dvi)
+  for i in array_liml(a), array_limh(a) - 1
+  returns array_dv of a[i]
+  end for
+end function
+
+% remove first element
+function dvreml  (a : dvi returns dvi)
+  for i in array_liml(a) + 1, array_limh(a)
+  returns array_dv of a[i]
+  end for
+end function
+
+%---- Section 5.11 — coercions
+function rfloor  (x : real        returns integer)     floor(x)         end function
+function dfloor  (x : double_real returns integer)     integer(floor(x))end function
+function rinteger(x : real        returns integer)     integer(x)       end function
+function dinteger(x : double_real returns integer)     integer(x)       end function
+function rtrunc  (x : real        returns integer)     trunc(x)         end function
+function dtrunc  (x : double_real returns integer)     integer(trunc(x))end function
+function ireal   (x : integer     returns real)        real(x)          end function
+function idouble (x : integer     returns double_real) double_real(x)   end function
+function dreal   (x : double_real returns real)        real(x)          end function
+function rdouble (x : real        returns double_real) double_real(x)   end function
+
+
+% ============================================================
+% main — applies every helper element-wise over DV inputs,
+%        plus the DV-specific aggregate operations.
+% ============================================================
+
+function main(
+  %% Section 5.3
+  a, b : dvb;
+
+  %% Section 5.4
+  c, d : dvi;
+
+  %% Section 5.5
+  e, f : dvr;
+  h, i : dvd;
+
+  %% Section 5.7
+  m, n : dvi;
+
+  %% Section 5.11
+  v : dvr;
+  w : dvd;
+  x : dvi;
+
+  %% pass-through
+  pass : integer
+
+returns
+  %% Section 5.3 [1]
+  dvb, dvb, dvb, dvb, dvb,
+
+  %% Section 5.4 [6]
+  dvi, dvi, dvi, dvi,
+  dvi, dvi, dvi,
+  dvi, dvi,
+  dvb, dvb, dvb, dvb, dvb, dvb,
+
+  %% Section 5.5 real [22]
+  dvr, dvr, dvr, dvr,
+  dvr, dvr, dvr, dvr,
+  dvb, dvb, dvb, dvb, dvb, dvb,
+
+  %% Section 5.5 double [36]
+  dvd, dvd, dvd, dvd,
+  dvd, dvd, dvd, dvd,
+  dvb, dvb, dvb, dvb, dvb, dvb,
+
+  %% Section 5.7 [50]
+  dvi,
+  integer, dvi,
+  dvi, integer, integer, integer,
+  dvi, dvi, dvi, dvi,
+
+  %% Section 5.11 [61]
+  array_dv[integer], array_dv[integer],
+  array_dv[integer], array_dv[integer],
+  array_dv[integer], array_dv[integer],
+  dvr, dvd,
+
+  %% pass-through
+  integer
+)
+
+%% Section 5.3
+for ael in a dot bel in b
+returns
+  array_dv of bband(ael, bel)
+  array_dv of bbor(ael, bel)
+  array_dv of bnot(ael)
+  array_dv of bequal(ael, bel)
+  array_dv of bnotequal(ael, bel)
+end for,
+
+%% Section 5.4
+for cel in c dot del in d
+returns
+  array_dv of iadd(cel, del)
+  array_dv of isub(cel, del)
+  array_dv of imul(cel, del)
+  array_dv of if del = 0 then 0 else idiv(cel, del) end if
+  array_dv of if del = 0 then 0 else imod(cel, del) end if
+  array_dv of ineg(cel)
+  array_dv of iabs(cel)
+  array_dv of imax(cel, del)
+  array_dv of imin(cel, del)
+  array_dv of iequal(cel, del)
+  array_dv of inotequal(cel, del)
+  array_dv of igreater(cel, del)
+  array_dv of iless(cel, del)
+  array_dv of igreateq(cel, del)
+  array_dv of ilesseq(cel, del)
+end for,
+
+%% Section 5.5 — real
+for eel in e dot fel in f
+returns
+  array_dv of radd(eel, fel)
+  array_dv of rsub(eel, fel)
+  array_dv of rmul(eel, fel)
+  array_dv of if fel = 0.0 then 0.0 else rdiv(eel, fel) end if
+  array_dv of rneg(eel)
+  array_dv of rabs(eel)
+  array_dv of rmax(eel, fel)
+  array_dv of rmin(eel, fel)
+  array_dv of requal(eel, fel)
+  array_dv of rnotequal(eel, fel)
+  array_dv of rgreater(eel, fel)
+  array_dv of rless(eel, fel)
+  array_dv of rgreateq(eel, fel)
+  array_dv of rlesseq(eel, fel)
+end for,
+
+%% Section 5.5 — double_real
+for hel in h dot iel in i
+returns
+  array_dv of dadd(hel, iel)
+  array_dv of dsub(hel, iel)
+  array_dv of dmul(hel, iel)
+  array_dv of if iel = double_real(0) then double_real(0) else ddiv(hel, iel) end if
+  array_dv of dneg(hel)
+  array_dv of dabs(hel)
+  array_dv of dmax(hel, iel)
+  array_dv of dmin(hel, iel)
+  array_dv of dequal(hel, iel)
+  array_dv of dnotequal(hel, iel)
+  array_dv of dgreater(hel, iel)
+  array_dv of dless(hel, iel)
+  array_dv of dgreateq(hel, iel)
+  array_dv of dlesseq(hel, iel)
+end for,
+
+%% Section 5.7 — DV aggregate operations
+dvfill(array_liml(m), array_limh(m), 0),
+dvselect(m, array_liml(m)),
+dvrepl(m, array_liml(m), 999),
+dvconc(m, n),
+dvhigh(m),
+dvlow(m),
+dvsize(m),
+dvaddh(m, 42),
+dvaddl(m, 42),
+dvremh(m),
+dvreml(m),
+
+%% Section 5.11 — coercions applied element-wise via for loops
+for vel in v returns array_dv of rfloor(vel)   end for,
+for vel in v returns array_dv of rinteger(vel) end for,
+for vel in v returns array_dv of rtrunc(vel)   end for,
+for wel in w returns array_dv of dfloor(wel)   end for,
+for wel in w returns array_dv of dinteger(wel) end for,
+for wel in w returns array_dv of dtrunc(wel)   end for,
+for xel in x returns array_dv of ireal(xel)   end for,
+for xel in x returns array_dv of idouble(xel) end for,
+
+%% pass-through
+pass
+
+end function
