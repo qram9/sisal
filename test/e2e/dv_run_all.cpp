@@ -4226,6 +4226,43 @@ test_cfft_dv (void)
 }
 #endif
 
+#ifdef TEST_HILBERT_DV
+extern "C" double func_MAIN(sisal_array_t HILBERT, sisal_array_t B);
+
+static void
+test_hilbert_dv (void)
+{
+  printf ("\n=== Group: hilbert_dv ===\n");
+  int n = 4;
+  // Allocate flat 2D array of rank 2 (element size = sizeof(double) = 8, type ID = 4, size = n * n elements)
+  sisal_array_t hilbert = sisal_array_alloc_sized(2, 4, n * n, sizeof(double));
+  hilbert.dims[0] = n;
+  hilbert.dims[1] = n;
+  hilbert.lower_bound[0] = 1;
+  hilbert.lower_bound[1] = 1;
+  
+  double* data = (double*)hilbert.data;
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < n; j++) {
+      data[i * n + j] = 1.0 / (double)(i + 1 + j + 1 - 1);
+    }
+  }
+  
+  // Allocate B vector (array of double)
+  sisal_array_t b = sisal_array_alloc_empty(1, 4, n);
+  double* b_data = (double*)b.data;
+  for (int i = 0; i < n; i++) {
+    b_data[i] = 1.0;
+  }
+  
+  double resid = func_MAIN(hilbert, b);
+  check("Residual is small", resid > 0.0 && resid < 1e-12);
+  
+  if (hilbert.data) free(hilbert.data);
+  if (b.data) free(b.data);
+}
+#endif
+
 // ---- Livermore loop kernels: independent C references + checks ----
 #ifdef TEST_LOOP1_DV
 // Hydro: X[k] = Q + Y[k]*(R*Z[k+10] + T*Z[k+11])  (Sisal 1-based; Z needs
@@ -7396,6 +7433,9 @@ main (void)
 #ifdef TEST_CFFT_DV
   test_cfft_dv ();
 #endif
+#ifdef TEST_HILBERT_DV
+  test_hilbert_dv ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -7490,7 +7530,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
