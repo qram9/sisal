@@ -1,24 +1,22 @@
 % HILBERT MATRIX RESIDUAL — DV variant (based on hilbert.sis)
 %
-% DV changes:
-%   • vector = array_dv[double_real]: all real 1-D arrays are DV.
-%   • matrix = array[vector]: matrix is an array of DV rows; element access
-%     a[i,j] and row access a[i] work unchanged on this hybrid type.
-%   • ivector = array[integer]: integer index arrays stay as plain arrays.
-%   • transpose: for-elmt-at-i,j replaced by explicit cross-range forall
-%     (for i in 1,n cross j in 1,n returns array_dv of a[j,i] ... no,
-%      actually row-by-row: outer for i in 1,n, inner for j returns array_dv).
-%   • sscal, saxpy: inner returns array of → returns array_dv of; || unchanged.
-%   • calc_z1, calc_newzy2: partial foralls returns array of → returns array_dv of.
+% DV changes (all arrays are array_dv — no array-of-arrays):
+%   • vector = array_dv[double_real]; ivector = array_dv[integer].
+%   • matrix = flat rank-2 array_dv[double_real]: element access a[i,j],
+%     row i read by the rank-reducing slice a[i, ..] (a bare a[i] on a flat
+%     rank-2 is a scalar load), row replaced by a[i: row] (the replace
+%     value's rank decides element vs row).
+%   • transpose takes n explicitly (array_size on a flat rank-2 dv is
+%     ambiguous); rows built rank-1 and stacked by a rank-2 gather.
+%   • sscal, saxpy, partial foralls: returns array_dv of; || unchanged.
 %   • array_fill → for j in 1,n returns array_dv of v end for.
-%   • sgesl: for i in t2,n returns array of → returns array_dv of;
-%     unused dummy variable removed.
+%   • main derives n from the rank-1 b vector.
 
 define main
 
 type vector  = array_dv[double_real];
-type ivector = array[integer];
-type matrix  = array[vector];
+type ivector = array_dv[integer];
+type matrix  = array_dv[double_real];   % flat rank-2, element (i,j) via a[i,j]
 
 global sin ( a: double_real returns double_real )
 global sqrt( a: double_real returns double_real )
@@ -29,14 +27,12 @@ function sign( a, b: double_real returns double_real )
 end function
 
 
-% Transpose using explicit index-range loops.
-function transpose( a: matrix returns matrix )
-  let n := array_size(a) in
-    for i in 1, n
-      row := for j in 1, n returns array_dv of a[j, i] end for
-    returns array of row
-    end for
-  end let
+% Transpose using explicit index-range loops; n passed explicitly.
+function transpose( a: matrix; n: integer returns matrix )
+  for i in 1, n
+    row := for j in 1, n returns array_dv of a[j, i] end for
+  returns array_dv of row
+  end for
 end function
 
 
@@ -102,7 +98,7 @@ function calc_z3( a: matrix; z_in: vector; ipvt: ivector; n: integer
     k  := n + 1 - old kb;
     z2 := if k < n then
             old z[k: old z[k] + sdot(k+1, n-k,
-                                      let trans_a := transpose(a) in trans_a[k] end let,
+                                      let trans_a := transpose(a, n) in trans_a[k, ..] end let,
                                       old z)]
           else
             old z
@@ -222,9 +218,9 @@ function calc_newzy1( n: integer; ipvt: ivector; a: matrix; z: vector
     k       := old k + 1;
     z2      := old new_z[ipvt[old k]: old new_z[old k];
                          old k: old new_z[ipvt[old k]]];
-    trans_a := transpose(a);
+    trans_a := transpose(a, n);
     z3      := if old k < n then
-                 saxpy(old k + 1, n - old k, z2[old k], trans_a[old k], z2)
+                 saxpy(old k + 1, n - old k, z2[old k], trans_a[old k, ..], z2)
                else
                  z2
                end if;
@@ -271,7 +267,7 @@ function calc_newzy2( n: integer; a: matrix; z: vector; ynorm: double_real
       let
         t  := -ztemp2[k];
         z3 := saxpy(1, k-1, t,
-                    let trans_a := transpose(a) in trans_a[k] end let,
+                    let trans_a := transpose(a, n) in trans_a[k, ..] end let,
                     ztemp2);
         z4 := for i in k, n returns array_dv of ztemp2[i] end for
       in
@@ -298,12 +294,12 @@ function sgefa( a: matrix; lda, n: integer
       for initial
         k    := 1;
         info := 0;
-        ipvt := array_fill(1, n, 0);
+        ipvt := for j in 1, n returns array_dv of 0 end for;
         lu   := a
       while k <= n - 1 repeat
         k := old k + 1;
         l := isamax(old k, n - old k + 1,
-                    let trans_a := transpose(old lu) in trans_a[old k] end let)
+                    let trans_a := transpose(old lu, n) in trans_a[old k, ..] end let)
              + old k - 1;
 
         ipvt := old ipvt[old k: l];
@@ -323,14 +319,14 @@ function sgefa( a: matrix; lda, n: integer
 
               tmp2lu :=
                 let
-                  t2_tran := transpose(tmp1lu);
-                  mr      := sscal(old k + 1, n - old k, t2_tran[old k], t);
+                  t2_tran := transpose(tmp1lu, n);
+                  mr      := sscal(old k + 1, n - old k, t2_tran[old k, ..], t);
                   tmp3lu  := t2_tran[old k: mr]
                 in
-                  transpose(tmp3lu)
+                  transpose(tmp3lu, n)
                 end let;
 
-              t4_tran := transpose(tmp2lu);
+              t4_tran := transpose(tmp2lu, n);
 
               endlu :=
                 for initial
@@ -341,7 +337,7 @@ function sgefa( a: matrix; lda, n: integer
                   nmat := if l = old k then
                             let
                               nrow := saxpy(old k+1, n - old k, t,
-                                            old nmat[old k], old nmat[old j])
+                                            old nmat[old k, ..], old nmat[old j, ..])
                             in
                               old nmat[old j: nrow]
                             end let
@@ -350,7 +346,7 @@ function sgefa( a: matrix; lda, n: integer
                               dummat := old nmat[old j, l: old nmat[old j, old k];
                                                  old j, old k: old nmat[old j, l]];
                               dumrow := saxpy(old k+1, n - old k, t,
-                                             dummat[old k], dummat[old j])
+                                             dummat[old k, ..], dummat[old j, ..])
                             in
                               dummat[old j: dumrow]
                             end let
@@ -359,7 +355,7 @@ function sgefa( a: matrix; lda, n: integer
                 returns value of nmat
                 end for
             in
-              old info, transpose(endlu)
+              old info, transpose(endlu, n)
             end let
           end if
       returns value of info
@@ -381,7 +377,7 @@ function sgeco( a: matrix; lda, n: integer
       let
         anorm := for j in 1, n
                  returns value of greatest
-                   sasum(n, let x := transpose(a) in x[j] end let)
+                   sasum(n, let x := transpose(a, n) in x[j, ..] end let)
                  end for;
 
         a1, ipvt1, info := sgefa(a, lda, n);
@@ -426,8 +422,8 @@ function sgesl( a: matrix; n: integer; ipvt: ivector; b: vector
           tempb := if l ~= old k then old newb[l: old newb[old k]; old k: t]
                    else old newb
                    end if;
-          trans_a := transpose(a);
-          newb  := saxpy(old k + 1, n - old k, t, trans_a[old k], tempb);
+          trans_a := transpose(a, n);
+          newb  := saxpy(old k + 1, n - old k, t, trans_a[old k, ..], tempb);
           k     := old k + 1
         returns value of newb
         end for
@@ -442,8 +438,8 @@ function sgesl( a: matrix; n: integer; ipvt: ivector; b: vector
       t2      := n + 1 - old k2;
       tbother := old bother[t2: old bother[t2] / a[t2, t2]];
       t3      := -tbother[t2];
-      trans_a := transpose(a);
-      front   := saxpy(1, t2 - 1, t3, trans_a[t2], tbother);
+      trans_a := transpose(a, n);
+      front   := saxpy(1, t2 - 1, t3, trans_a[t2, ..], tbother);
       rear    := for i in t2, n returns array_dv of tbother[i] end for;
       k2      := old k2 + 1;
       bother  := front || rear
@@ -480,7 +476,8 @@ end function
 
 
 function main( hilbert: matrix; b: vector returns double_real )
-  let n := array_size(hilbert) in
+  % n from the rank-1 b vector (array_size on a flat rank-2 dv is ambiguous)
+  let n := array_size(b) in
     calc_resid(hilbert, n, n, b)
   end let
 end function
