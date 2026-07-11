@@ -1206,7 +1206,8 @@ let rec lower_graph env parent_gr compound_nid gr gid =
         | Some (Literal (_, code, value, _)) ->
             let lit =
               match code with
-              | REAL | DOUBLE -> C.LitFloat (float_of_string value)
+              | REAL -> C.LitFloat (float_of_string value)
+              | DOUBLE -> C.LitDouble (float_of_string value)
               | BOOLEAN -> C.Id (String.lowercase_ascii value)
               | _ -> (
                   try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
@@ -2346,7 +2347,8 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
               | Some (Literal (_, code, value, _)) ->
                   let lit =
                     match code with
-                    | REAL | DOUBLE -> C.LitFloat (float_of_string value)
+                    | REAL -> C.LitFloat (float_of_string value)
+                    | DOUBLE -> C.LitDouble (float_of_string value)
                     | BOOLEAN -> C.Id (String.lowercase_ascii value)
                     | _ -> try C.LitInt (int_of_string value) with _ -> C.LitInt 0
                   in
@@ -4894,7 +4896,6 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
           all_b_ins
       in
       (* Seed param names so pre_declare sees them and can detect conflicts *)
-      List.iter (fun (ty, name) -> Printf.fprintf stderr "DEBUG PARAM: name=%s, ty=%s\n" name (string_of_c_type ty)) params;
       let env_param_seeded =
         List.fold_left2
           (fun e pid (_, name) ->
@@ -5149,7 +5150,6 @@ let rec collect_typemaps g acc =
     (topologically), then lower every procedure; returns the complete C
     compilation unit. *)
 let lower_to_c tm gr filename =
-  TM.iter (fun id ty -> Printf.fprintf stderr "DEBUG ROOT TYPEMAP: id=%d\n" id) tm;
   let procedures_info =
     NM.fold
       (fun nid node acc ->

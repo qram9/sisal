@@ -1,25 +1,22 @@
 % RICARD CHROMATOGRAPHY — DV variant (based on ricard.sis)
 %
-% DV changes:
-%   • Oned = array_dv[Double]: all real 1-D vectors are DV.
-%   • Twod = array[Oned]: 2-D arrays are arrays of DV rows.
-%   • singleton(v) helper prepends/appends a single element.
-%   • array_addl(X, v) → singleton(v) || X
-%     array_addh(X, v) → X || singleton(v)
-%   • Inner foralls: returns array of scalar → returns array_dv of scalar.
-%   • Cross-foralls producing Twod: for A cross B returns array of scalar
-%     converted to nested form: for A returns array of (for B returns array_dv of scalar).
-%   • array_fill(a,b,v) → for J in 1,b-a+1 returns array_dv of v end for
-%     combined with singleton prepend where an offset base was required.
+% All arrays are flat array_dv (no array-of-arrays):
+%   • Oned = array_dv[Double]; Twod = flat rank-2 array_dv[Double],
+%     element (m,j) via LN[m,j]; rows built rank-1 and stacked by rank-2
+%     gathers (row-valued IF gather where 5 distinct rows are stacked).
+%   • ROW CONVENTION: every Twod row spans positions 1..N with position 1 a
+%     ghost 0 (FILLUP's convention applied uniformly).  The original relies
+%     on SISAL 1.2 absolute bounds (addl/addh making rows span [2..N]); dv
+%     concatenation is positional with lower_bound 1, so rows are
+%     normalized instead — reads LN[m, J] for J in 2..N stay correct.
+%   • array literals (XI, AXDIS_1, GZERO) are dv literals (array Oned [..]).
 
 define Main
 
 %type Double = double_real;
 
 type Oned = array_dv[Double];
-type Twod = array[Oned];
-type Onei = array[integer];
-type Twoi = array[Onei];
+type Twod = array_dv[Double];   % flat rank-2, element (m,j) via LN[m,j]
 
 
 function singleton( v: Double returns Oned )
@@ -90,7 +87,16 @@ function RUNKUT( COF1,COF2,COF3,COF4,COF5,COF6,RATIO: Double;
               array_dv of v5
       end for
   in
-    array [1: r1, r2, r3, r4, r5]
+    for r in 1, 5
+    returns array_dv of
+      (singleton(0.0D0) ||
+       (if r = 1 then r1
+        elseif r = 2 then r2
+        elseif r = 3 then r3
+        elseif r = 4 then r4
+        else r5
+        end if))
+    end for
   end let
 end function
 
@@ -107,13 +113,13 @@ function RENUM( NP: integer; LN: Twod; N, I, IELUTE: integer; VSEG: Double;
                        4, K: LN[4, N];
                        5, K: LN[5, N]];
 
-    % Shift each row left by one: drop col 2, prepend 0 at col 2.
-    % array_addl(LN_rc, 0.0D0) → singleton(0.0D0) || LN_rc
+    % Shift each row left by one: cols 1 (ghost) and 2 zero, col J = LN[M, J-1].
     LN_1 := for M in 1, 5
                LN_rc := for J in 3, N
                         returns array_dv of LN[M, J-1]
                         end for
-             returns array of (singleton(0.0D0) || LN_rc)
+             returns array_dv of
+               (singleton(0.0D0) || singleton(0.0D0) || LN_rc)
              end for
   in
     LN_1, CELUTE_1, VOL
@@ -156,10 +162,10 @@ function OUT( LN: Twod; N: integer; VOL: Double; KELUTE: integer;
 
           STOR, JSTOR :=
             for initial
-              STOR  := CTL[915];
-              JSTOR := 915;
-              J     := 915;
-            while J <= 1190 repeat
+              STOR  := CTL[220];
+              JSTOR := 220;
+              J     := 220;
+            while J <= 290 repeat
               J := old J + 1;
               STOR, JSTOR :=
                 if old STOR < CTL[old J] then old STOR, old JSTOR
@@ -189,7 +195,6 @@ function FILLUP( N: integer; DX: Double; KELUTE: integer; VSEG: Double;
                  NSEG: integer; GZERO: Oned returns Oned, Twod, Twod, Oned )
   let
     % X_c indexed 2..N, prepend 0 for position 1.
-    % array_addl(X_c, 0.0D0) → singleton(0.0D0) || X_c
     X_c := for J in 2, N returns array_dv of double_real(J-1)*DX end for;
     X   := singleton(0.0D0) || X_c;
 
@@ -200,11 +205,11 @@ function FILLUP( N: integer; DX: Double; KELUTE: integer; VSEG: Double;
            Cr := singleton(0.0D0) ||
                  for J in 2,   NSEG returns array_dv of GZERO[M]  end for ||
                  for J in NSEG+1, N returns array_dv of 0.0D0     end for
-         returns array of Cr
+         returns array_dv of Cr
          end for;
 
     CELUTE := for I in 1, 5
-              returns array of
+              returns array_dv of
                 (for J in 1, KELUTE returns array_dv of 0.0D0 end for)
               end for
   in
@@ -217,20 +222,26 @@ function Main( returns Double, Oned, Oned, Double, Double,
                        Double, Double, Double, Double,
                        Double, integer, Double, Double, Double )
   let
-    NV     := 200;
-    N      := 1315;
+    % Scaled from the original (N=1315, ~40000 steps) so elution actually
+    % occurs within an e2e-sized run: material moves ~0.074 cells/step
+    % (RENUM shift 1/IELUTE + advection), so the peaks reach the outlet at
+    % N=315 around step 4000; the CTL elution profile is two-peaked (K~210
+    % and K~280 with a valley near K~250), so OUT's 220..290 scan window
+    % finds an interior minimum, like the original's 915..1190 window.
+    NV     := 6000;
+    N      := 315;
     NP     := N - 1;
     NSEG   := 46;
-    KELUTE := 2000;
+    KELUTE := 350;
     IELUTE := 20;
     DX     := 0.02D0;
 
-    XI := array[1: 0.8D0, 0.54D0, 0.54D0, 0.54D0, 0.54D0];
+    XI := array Oned [1: 0.8D0, 0.54D0, 0.54D0, 0.54D0, 0.54D0];
 
     RATIO := XI[2] / XI[1];
     DV    := XI[1] * DX / double_real(IELUTE);
 
-    AXDIS_1 := array[1: 2.0D-02, 6.0D-02, 6.0D-02, 6.0D-02, 6.0D-02];
+    AXDIS_1 := array Oned [1: 2.0D-02, 6.0D-02, 6.0D-02, 6.0D-02, 6.0D-02];
 
     VEL, LAMBDA :=
       for M in 1, 5
@@ -260,8 +271,8 @@ function Main( returns Double, Oned, Oned, Double, Double,
     COF5    :=  RFISOM * DV / F;
     COF6    := -RRISOM * DV / F;
 
-    GZERO := array[1: 0.4038637706D-05, 0.7454342552D-05, 0.6623185565D-05,
-                      0.0070055980D-05,  0.1401119600D-05];
+    GZERO := array Oned [1: 0.4038637706D-05, 0.7454342552D-05, 0.6623185565D-05,
+                            0.0070055980D-05,  0.1401119600D-05];
 
     VOL, CELUTE, LN :=
       for initial
@@ -283,11 +294,10 @@ function Main( returns Double, Oned, Oned, Double, Double,
                             (old LN[M,3] - old LN[M,2]) - VEL[M]*old LN[M,2];
                   LN_N  := old LN[M,N] + LAMBDA[M]*(old LN[M,N-1] - old LN[M,N]);
 
-                  % Reconstruct shifted row: [LN_c2] ++ LN_rc ++ [LN_N]
-                  % array_addl(array_addh(LN_rc, LN_N), LN_c2)
-                  %   → singleton(LN_c2) || LN_rc || singleton(LN_N)
-                  LN_r := singleton(LN_c2) || LN_rc || singleton(LN_N)
-                returns array of LN_r
+                  % Row 1..N: ghost 0, then col 2, cols 3..NP, col N.
+                  LN_r := singleton(0.0D0) || singleton(LN_c2) ||
+                          LN_rc || singleton(LN_N)
+                returns array_dv of LN_r
                 end for;
 
         LN_2 := RUNKUT(COF1, COF2, COF3, COF4, COF5, COF6, RATIO, LN_1, N);

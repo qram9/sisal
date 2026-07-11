@@ -854,6 +854,25 @@ extern "C" sisal_array_t func_MAIN(int32_t M, int32_t Cycles);  // convolution Y
 #ifdef TEST_LAPLACE_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Cols);  // Laplace relaxation -> flat 2-D grid
 #endif
+#ifdef TEST_RICARD_DV
+struct FUNC_MAIN_results {   // ricard chromatography: VOL, CTM, CTL, 7 totals, JSTOR, STOR, PERCENT, HL
+  double res_0;
+  sisal_array_t res_1;
+  sisal_array_t res_2;
+  double res_3;
+  double res_4;
+  double res_5;
+  double res_6;
+  double res_7;
+  double res_8;
+  double res_9;
+  int32_t res_10;
+  double res_11;
+  double res_12;
+  double res_13;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN();
+#endif
 #if defined(TEST_BCAST3D_DV) || defined(TEST_BCAST31_DV)
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);  // rank-poly A + B
 // build a rank-1/2/3 double array_dv with explicit dims (numpy-style row-major)
@@ -4164,15 +4183,15 @@ test_kin16_dv (void)
   struct FUNC_MAIN_results r = func_MAIN(2, 10, 5);
   check ("r.res_0.T == 0.0", fabs(r.res_0.T - 0.0) < 1e-7);
   check ("r.res_0.YMEANM == 0.0014", fabs(r.res_0.YMEANM - 0.0014) < 1e-7);
-  check ("r.res_0.SIGSQM == 6.12499956e-07", fabs(r.res_0.SIGSQM - 6.124999563209724528e-07) < 1e-15);
+  check ("r.res_0.SIGSQM == 6.125e-07", fabs(r.res_0.SIGSQM - 6.125000000000004884e-07) < 1e-15);
   check ("r.res_0.SIGM == 0.0007826238", fabs(r.res_0.SIGM - 0.0007826238) < 1e-7);
   check ("r.res_0.SUM1M == 0.00002", fabs(r.res_0.SUM1M - 0.0000200000) < 1e-7);
 
   check ("r.res_1.T == 1.0", fabs(r.res_1.T - 1.0) < 1e-7);
   check ("r.res_1.YMEANM == 0.0020250719", fabs(r.res_1.YMEANM - 0.0020250719) < 1e-7);
-  check ("r.res_1.SIGSQM == 9.40361175e-07", fabs(r.res_1.SIGSQM - 9.403611753681042251e-07) < 1e-15);
+  check ("r.res_1.SIGSQM == 9.40361229e-07", fabs(r.res_1.SIGSQM - 9.403612285497708558e-07) < 1e-15);
   check ("r.res_1.SIGM == 0.0009697222", fabs(r.res_1.SIGM - 0.0009697222) < 1e-7);
-  check ("r.res_1.SUM1M == 2.00002450e-05", fabs(r.res_1.SUM1M - 2.000024504338194958e-05) < 1e-15);
+  check ("r.res_1.SUM1M == 2.00002455e-05", fabs(r.res_1.SUM1M - 2.000024554863243377e-05) < 1e-15);
 }
 #endif
 
@@ -5477,7 +5496,7 @@ test_loop23s_dv (void)
                       + M23 (ZAt, j - 1, k) * M23 (ZB, j, k)
                       + M23 (ZAt, j, k + 1) * M23 (ZU, j, k)
                       + ZA * M23 (ZV, j, k) + M23 (ZZ, j, k);
-          ZA = M23 (ZAt, j, k) + (double)0.175f * (QA - M23 (ZAt, j, k));
+          ZA = M23 (ZAt, j, k) + 0.175 * (QA - M23 (ZAt, j, k));
           ZArc[k - 2] = ZA;
         }
 
@@ -6019,6 +6038,128 @@ static void test_laplace_dv(void) {
     for (int k = 0; ok && k < 16; k++) ok = ok && (fabs(((double*)r.data)[k] - ex[k]) < 1e-9);
     check("laplace_dv(1,2,2) == relaxed 4x4 grid (vs python)", ok);
     if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_RICARD_DV
+// Reference C mirror of the ricard chromatography simulation (scaled config:
+// N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
+static void test_ricard_dv(void) {
+    printf("\n=== Group: ricard_dv (chromatography benchmark, flat 2-D array_dv) ===\n");
+    enum { NV=6000, Nc=315, NSEG=46, KEL=350, IEL=20 };
+    static double LNr[6][Nc+2], LT[6][Nc+2], L2[6][Nc+2], CEL[6][KEL+1];
+    const double DX=0.02, XI[6]={0,0.8,0.54,0.54,0.54,0.54};
+    const double AX1[6]={0,2.0e-2,6.0e-2,6.0e-2,6.0e-2,6.0e-2};
+    const double GZ[6]={0,0.4038637706e-05,0.7454342552e-05,0.6623185565e-05,
+                          0.0070055980e-05,0.1401119600e-05};
+    const double RATIO=XI[2]/XI[1], DVc=XI[1]*DX/(double)IEL;
+    double VEL[6], LAM[6];
+    for (int m=1;m<=5;m++) {
+        double v1=(1.0/XI[m])-(1.0/XI[1]);
+        double ax=AX1[m]-0.5*v1*DX;
+        VEL[m]=DVc*v1/DX; LAM[m]=DVc*ax/pow(DX,2.0);
+    }
+    const double VSEG=XI[1]*DX, F=20.6/3600.0;
+    const double EK0=1.1e05, RDML=0.5, RAML=2.0*EK0*RDML, EKISOM=20.0;
+    const double EKAPP=0.5*EK0/(1.0+EKISOM), RDML2=1.0, RAML2=EKAPP*RDML2;
+    const double RRISOM=1.0e-03, RFISOM=EKISOM*RRISOM;
+    const double C1=-RAML*DVc/F, C2=RDML*DVc/F, C3=RAML2*DVc/F,
+                 C4=-RDML2*DVc/F, C5=RFISOM*DVc/F, C6=-RRISOM*DVc/F;
+    for (int m=1;m<=5;m++) {                                     // FILLUP
+        LNr[m][1]=0.0;
+        for (int j=2;j<=NSEG;j++) LNr[m][j]=GZ[m];
+        for (int j=NSEG+1;j<=Nc;j++) LNr[m][j]=0.0;
+        for (int k=1;k<=KEL;k++) CEL[m][k]=0.0;
+    }
+    double VOL=0.0;
+    for (int I=1;I<=NV;I++) {
+        for (int m=1;m<=5;m++) {                                 // diffusion step -> LT
+            LT[m][1]=0.0;
+            LT[m][2]=LNr[m][2]+LAM[m]*(LNr[m][3]-LNr[m][2])-VEL[m]*LNr[m][2];
+            for (int j=3;j<=Nc-1;j++)
+                LT[m][j]=LNr[m][j]+LAM[m]*(LNr[m][j+1]-LNr[m][j]-LNr[m][j]+LNr[m][j-1])
+                        -VEL[m]*(LNr[m][j]-LNr[m][j-1]);
+            LT[m][Nc]=LNr[m][Nc]+LAM[m]*(LNr[m][Nc-1]-LNr[m][Nc]);
+        }
+        for (int m=1;m<=5;m++) L2[m][1]=0.0;                     // RUNKUT (RK4) -> L2
+        for (int j=2;j<=Nc;j++) {
+            double CLI=LT[1][j], CMI=LT[2][j], CMLI=LT[3][j], CML2I=LT[4][j], CISO=LT[5][j];
+            double RKK1=C1*CMI*CLI+C2*CMLI;
+            double RKL1=-(RKK1+C3*CMLI*CLI+C4*CML2I);
+            double RKP1=RATIO*(RKK1+RKK1+RKL1);
+            double RKM1=C5*CML2I+C6*CISO;
+            double U=CLI+0.5*RKP1, W=CML2I+0.5*(-(RKK1+RKL1+RKM1)), XX=CMLI+0.5*RKL1;
+            double RKK2=C1*(CMI+0.5*RKK1)*U+C2*XX;
+            double RKL2=-(RKK2+C3*XX*U+C4*W);
+            double RKP2=RATIO*(RKK2+RKK2+RKL2);
+            double RKM2=C5*W+C6*(CISO+0.5*RKM1);
+            double VV=CLI+0.5*RKP2, Y=CMLI+0.5*RKL2, Z=CML2I+0.5*(-(RKK2+RKL2+RKM2));
+            double RKK3=C1*(CMI+0.5*RKK2)*VV+C2*Y;
+            double RKL3=-(RKK3+C3*Y*VV+C4*Z);
+            double RKP3=RATIO*(RKK3+RKK3+RKL3);
+            double RKM3=C5*Z+C6*(CISO+0.5*RKM2);
+            double Rr=CLI+RKP3, S=CMLI+RKL3, T=CML2I+(-(RKK3+RKL3+RKM3));
+            double RKK4=C1*(CMI+RKK3)*Rr+C2*S;
+            double RKL4=-(RKK4+C3*S*Rr+C4*T);
+            double RKM4=C5*T+C6*(CISO+RKM3);
+            double DELK=(RKK1+RKK2+RKK2+RKK3+RKK3+RKK4)/6.0;
+            double DELL=(RKL1+RKL2+RKL2+RKL3+RKL3+RKL4)/6.0;
+            double DELM=(RKM1+RKM2+RKM2+RKM3+RKM3+RKM4)/6.0;
+            L2[1][j]=CLI+RATIO*(DELK+DELK+DELL);
+            L2[2][j]=CMI+DELK;
+            L2[3][j]=CMLI+DELL;
+            L2[4][j]=CML2I-(DELK+DELL+DELM);
+            L2[5][j]=CISO+DELM;
+        }
+        if ((I/IEL)*IEL == I) {                                  // RENUM
+            int K=I/IEL; VOL=(double)K*VSEG;
+            for (int m=1;m<=5;m++) CEL[m][K]=L2[m][Nc];
+            for (int m=1;m<=5;m++) {
+                LNr[m][1]=0.0; LNr[m][2]=0.0;
+                for (int j=3;j<=Nc;j++) LNr[m][j]=L2[m][j-1];
+            }
+        } else {
+            for (int m=1;m<=5;m++) for (int j=1;j<=Nc;j++) LNr[m][j]=L2[m][j];
+        }
+    }
+    static double CTL[KEL+1], CTM[KEL+1];                        // OUT
+    double TOTM=0, TOTML=0, TOTML2=0, TOTML2I=0;
+    for (int j=1;j<=KEL;j++) {
+        CTL[j]=CEL[1][j]+CEL[3][j]+2.0*CEL[4][j]+2.0*CEL[5][j];
+        CTM[j]=CEL[2][j]+CEL[3][j]+CEL[4][j]+CEL[5][j];
+        TOTM+=CEL[2][j]; TOTML+=CEL[3][j]; TOTML2+=CEL[4][j]; TOTML2I+=CEL[5][j];
+    }
+    double TOT=TOTM+TOTML+TOTML2+TOTML2I;
+    double TOTMA=1.554870369e-05*0.486;
+    double PERML=0, STOR=0, PERCENT=0, HL=0; int JSTOR=0;
+    if (TOT != 0.0) {
+        PERML=100.0*(TOTML+TOTML2+TOTML2I)/TOT;
+        STOR=CTL[220]; JSTOR=220;
+        for (int j=220;j<=290;j++)               // min-scan, keep-last on ties
+            if (!(STOR < CTL[j])) { STOR=CTL[j]; JSTOR=j; }
+        double T1=0,T2=0;
+        for (int j=1;j<=KEL;j++) T1+=CTL[j];
+        for (int j=1;j<=JSTOR;j++) T2+=CTL[j];
+        PERCENT=100.0*T2/T1;
+        HL=-log(2.0)*(double)JSTOR*0.016/(F*log(PERCENT/18.02233));
+    }
+    struct FUNC_MAIN_results r = func_MAIN();
+    bool ok = true;
+    auto eq=[&](double g,double ref){
+        double m=fmax(fabs(g),fabs(ref));
+        return m==0.0 || fabs(g-ref) <= 1e-9*m;
+    };
+    ok = ok && eq(r.res_0,VOL) && eq(r.res_3,TOTM) && eq(r.res_4,TOTML)
+            && eq(r.res_5,TOTML2) && eq(r.res_6,TOTML2I) && eq(r.res_7,TOT)
+            && eq(r.res_8,PERML) && eq(r.res_9,TOTMA) && (r.res_10==JSTOR)
+            && eq(r.res_11,STOR) && eq(r.res_12,PERCENT) && eq(r.res_13,HL)
+            && TOT != 0.0;                       // guard: run must not be degenerate
+    check("ricard_dv scalars (VOL, totals, PERML, JSTOR, STOR, PERCENT, HL) == reference C", ok);
+    bool okv = ((int)r.res_1.size==KEL) && ((int)r.res_2.size==KEL);
+    for (int j=1; okv && j<=KEL; j++)
+        okv = eq(((double*)r.res_1.data)[j-1],CTM[j]) && eq(((double*)r.res_2.data)[j-1],CTL[j]);
+    check("ricard_dv CTM/CTL elution curves (350 pts) == reference C", okv);
+    if (r.res_1.data) free(r.res_1.data);
+    if (r.res_2.data) free(r.res_2.data);
 }
 #endif
 #ifdef TEST_SHAPED_GATHER_DV
@@ -6978,6 +7119,9 @@ main (void)
 #ifdef TEST_LAPLACE_DV
   test_laplace_dv ();
 #endif
+#ifdef TEST_RICARD_DV
+  test_ricard_dv ();
+#endif
 #ifdef TEST_SHAPED_GATHER_DV
   test_shaped_gather_dv ();
 #endif
@@ -7311,6 +7455,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
+    && !defined(TEST_RICARD_DV)                                               \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

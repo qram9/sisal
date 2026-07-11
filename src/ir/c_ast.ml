@@ -52,6 +52,10 @@ type expr =
   | Id of string
   | LitInt of int
   | LitFloat of float
+  | LitDouble of float
+      (** a DOUBLE-precision constant: printed WITHOUT the 'f' suffix and at
+          round-trip precision — a Sisal 0.8D0 must not materialize as the C
+          float constant 0.8f *)
   | LitString of string
   | BinOp of binary_op * expr * expr
   | UnaryOp of unary_op * expr

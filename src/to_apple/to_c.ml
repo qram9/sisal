@@ -141,7 +141,8 @@ and lower_node env _gr nid node =
       let lit =
         try
           match code with
-          | REAL | DOUBLE -> C.LitFloat (float_of_string value)
+          | REAL -> C.LitFloat (float_of_string value)
+          | DOUBLE -> C.LitDouble (float_of_string value)
           | _ -> C.LitInt (int_of_string value)
         with _ -> C.LitInt 0
       in

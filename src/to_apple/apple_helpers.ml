@@ -114,7 +114,8 @@ let get_expr env gid nid pid dir =
       match NM.find_opt nid env.curr_gr.nmap with
       | Some (Literal (_, code, value, _)) ->
           (match code with
-           | REAL | DOUBLE -> C.LitFloat (float_of_string value)
+           | REAL -> C.LitFloat (float_of_string value)
+           | DOUBLE -> C.LitDouble (float_of_string value)
            | BOOLEAN -> C.Id (String.lowercase_ascii value)
            | _ -> try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
       | _ ->

@@ -76,6 +76,15 @@ let rec string_of_expr = function
       let s = string_of_float f in
       if String.contains s '.' || String.contains s 'e' then s ^ "f"
       else s ^ ".0f"
+  | LitDouble f ->
+      (* Round-trip precision, no suffix: pick the shortest %g that parses
+         back to the same double (string_of_float is only 12 significant
+         digits -- not enough for a full-precision double constant). *)
+      let s =
+        let s12 = string_of_float f in
+        if float_of_string s12 = f then s12 else Printf.sprintf "%.17g" f
+      in
+      if String.contains s '.' || String.contains s 'e' then s else s ^ ".0"
   | LitString s -> Printf.sprintf "\"%s\"" s
   | BinOp (op, e1, e2) ->
       Printf.sprintf "(%s %s %s)" (string_of_expr e1) (string_of_binary_op op)

@@ -1164,7 +1164,7 @@ static inline double func__STANH__D__D(double x)  { return tanh(x); }
 static inline float  func__SLOG__F__F(float x)    { return logf(x); }
 static inline double func__SLOG__D__D(double x)   { return log(x); }
 static inline float  func__SLOG10__F__F(float x)  { return log10f(x); }
-static inline double func__SLOG10__D__D(double x) { return log(x); }
+static inline double func__SLOG10__D__D(double x) { return log10(x); }
 static inline float  func__SEXP__F__F(float x)    { return expf(x); }
 static inline double func__SEXP__D__D(double x)   { return exp(x); }
 static inline int32_t func__SFLOOR__F__I(float x)  { return (int32_t)floorf(x); }
