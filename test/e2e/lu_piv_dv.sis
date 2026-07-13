@@ -1,26 +1,27 @@
 % LU DECOMPOSITION WITH PIVOTING — DV variant (based on lu.piv.sis)
 %
-% DV changes:
+% DV changes (all arrays are array_dv — no array-of-arrays):
 %   • OneI = array_dv[integer], OneD = array_dv[double]: all 1-D vectors DV.
-%   • TwoD = array[OneD]: matrix is an array of DV rows.
-%   • Inner foralls  returns array of scalar  →  returns array_dv of scalar.
+%   • TwoD = flat rank-2 array_dv[double], element (i,j) via A[i,j]; rows
+%     read by the rank-reducing slice A[i, ..], swapped by row-valued
+%     multi-entry replace (value rank decides element vs row), stacked by
+%     a rank-2 array_dv gather.
+%   • Row iteration (for row in A / for x in row at j) becomes index loops
+%     over 1..n reading A[i, j]; helpers take n explicitly.
 %   • array_fill(1,n,0) → for j in 1,n returns array_dv of 0 end for.
-%   • for-in element iterators (for x in row, for row in A at i) work
-%     unchanged: the outer array is a regular array of DV rows; the inner
-%     iteration over a DV row is supported by the element-iterator form.
 
 define Main
 
 %type double = double_real;
 type OneI = array_dv[integer];
 type OneD = array_dv[double];
-type TwoD = array[OneD];
+type TwoD = array_dv[double];   % flat rank-2, element (i,j) via A[i,j]
 
 
-function FindMax( A: TwoD returns double, OneD )
-  for row in A
-    max := for x in row
-           returns value of greatest abs(x)
+function FindMax( A: TwoD; n: integer returns double, OneD )
+  for i in 1, n
+    max := for j in 1, n
+           returns value of greatest abs(A[i, j])
            end for
   returns value of greatest max
           array_dv of max
@@ -28,14 +29,14 @@ function FindMax( A: TwoD returns double, OneD )
 end function
 
 
-function Index_of_Max( max: double; maxs: OneD; A: TwoD
+function Index_of_Max( max: double; maxs: OneD; A: TwoD; n: integer
                         returns integer, integer )
   let
     row := for x in maxs at i
            returns value of least i when x = max
            end for;
-    col := for x in A[row] at j
-           returns value of least j when abs(x) = max
+    col := for j in 1, n
+           returns value of least j when abs(A[row, j]) = max
            end for
   in
     row, col
@@ -44,32 +45,32 @@ end function
 
 
 function Reduce_and_Max( A: TwoD; pivot: integer;
-                          PIVR: OneI; B: OneD
+                          PIVR: OneI; B: OneD; n: integer
                           returns TwoD, OneD, double, OneD )
-  for row in A at i
+  for i in 1, n
     mult          := A[i, pivot] / A[pivot, pivot];
     rrow, max, rB :=
       if i = pivot then
-        for x in row
-        returns array_dv of x / A[pivot, pivot]
+        for j in 1, n
+        returns array_dv of A[i, j] / A[pivot, pivot]
                 value of 0.0d0
         end for,
         B[i] / A[pivot, pivot]
       elseif PIVR[i] = 1 then
-        for x in row at j
-        returns array_dv of x - mult * A[pivot, j]
+        for j in 1, n
+        returns array_dv of A[i, j] - mult * A[pivot, j]
                 value of 0.0d0
         end for,
         B[i] - mult * B[pivot]
       else
-        for x in row at j
-          rx := x - mult * A[pivot, j]
+        for j in 1, n
+          rx := A[i, j] - mult * A[pivot, j]
         returns array_dv of rx
                 value of greatest abs(rx)
         end for,
         B[i] - mult * B[pivot]
       end if
-  returns array of rrow
+  returns array_dv of rrow
           array_dv of rB
           value of greatest max
           array_dv of max
@@ -83,16 +84,16 @@ function Main( n: integer; Ain: TwoD; Bin: OneD returns OneD )
     A, B := Ain, Bin;
     PIVR := for j in 1, n returns array_dv of 0 end for;
 
-    max, maxs := FindMax( A );
-    row, col  := Index_of_Max( max, maxs, A )
+    max, maxs := FindMax( A, n );
+    row, col  := Index_of_Max( max, maxs, A, n )
   while i < n repeat
     i      := old i + 1;
-    A1, B1 := old A[old col: old A[old row]; old row: old A[old col]],
+    A1, B1 := old A[old col: old A[old row, ..]; old row: old A[old col, ..]],
                old B[old col: old B[old row]; old row: old B[old col]];
     PIVR   := old PIVR[old col: 1];
 
-    A, B, max, maxs := Reduce_and_Max( A1, old col, PIVR, B1 );
-    row, col        := Index_of_Max( max, maxs, A )
+    A, B, max, maxs := Reduce_and_Max( A1, old col, PIVR, B1, n );
+    row, col        := Index_of_Max( max, maxs, A, n )
   returns value of B
   end for
 end function

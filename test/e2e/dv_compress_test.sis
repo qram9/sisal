@@ -8,8 +8,8 @@ define dv_compress_test,
   compress_dv_input,
   compress_chain
 
-type ai  = array[integer]
-type ab  = array[boolean]
+type ai  = array_dv[integer]
+type ab  = array_dv[boolean]
 type adv = array_dv[integer]
 
 % COMPRESS on a plain monolithic array → array_dv[integer]

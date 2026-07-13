@@ -1,0 +1,25 @@
+% multibind_dv — regression pin for the let-statement multi-bind bug.
+%
+% `a, b := e1, e2` (a LIST of single-valued expressions, not one
+% multi-result expression) must bind each name to its own expression.
+% pop_or_push_to_exp_stack2 used to lower e1 for `a` without consuming it
+% from the rhs list, so `b` re-lowered e1 and became a structural duplicate
+% of `a` in the IF1 (both catenates read x1/x2).  Multi-result RHS forms
+% (calls, ifs, multi-return foralls) take the MULTIARITY path and never hit
+% this; only comma-separated expression lists did.
+
+define Main
+
+type OneD = array_dv[real];
+
+function Main( n : integer returns OneD, OneD )
+  let
+    x1 := for i in 1, n returns array_dv of real(i) end for;
+    x2 := for i in 1, n returns array_dv of real(i)+0.5 end for;
+    y1 := for i in 1, n returns array_dv of real(i)*10.0 end for;
+    y2 := for i in 1, n returns array_dv of real(i)*10.0+0.5 end for;
+    a, b := x1 || x2, y1 || y2
+  in
+    a, b
+  end let
+end function

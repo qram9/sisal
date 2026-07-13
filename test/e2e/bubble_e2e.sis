@@ -1,7 +1,7 @@
 %$entry=Bubble
 define Bubble
 
-type onedim = array[ integer ]
+type onedim = array_dv[ integer ]
 
 %  Bubblesort A
 %

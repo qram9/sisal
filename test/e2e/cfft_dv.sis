@@ -1,8 +1,14 @@
 % CFFT — Cray-2 FFT, DV variant (based on cfft.sis)
 %
-% DV changes from cfft.sis:
+% DV changes from cfft.sis (all arrays are array_dv — no array-of-arrays):
 %   • OneD = array_dv[real]: every real vector — signal and workspace alike —
 %     is a contiguous dope-vector array.  The OneD / OneDV split is gone.
+%   • The weight table (was ThreeD = array[array[array_dv]], doubly ragged:
+%     level ll's 3 twiddle vectors have 4^(ll-1) entries, plus an appended
+%     1-vector entry holding the full wr/wi) is now a flat rank-3
+%     array_dv[real] indexed [level, vec, k], zero-padded to the longest
+%     level; the appended full wr/wi live in their own Work fields, and
+%     sfft4BT/sfft4B read wtab[l/2+1-sw, v, k+1] directly (they take sw).
 %   • array_addl(arr, v)  →  singleton(v) || arr
 %     array_addh(arr, v)  →  arr || singleton(v)
 %     where singleton(v) = for dummy in 1,1 returns array_dv of v end for
@@ -14,10 +20,10 @@
 define main
 
 type OneD   = array_dv[real];        % every real vector: signal + workspace
-type TwoD   = array[OneD];           % weight-table row  (3 twiddle vectors)
-type ThreeD = array[TwoD];           % weight-table      (indexed by level)
+type Wtab   = array_dv[real];        % flat rank-3 twiddle table [level, vec, k]
 
-type Work   = record [wrs, wis : ThreeD; log2n, n, mult2, sw, odd : integer];
+type Work   = record [wtr, wti : Wtab; wr, wi : OneD;
+                      log2n, n, mult2, sw, odd : integer];
 
 global sqrt(x : real returns real)
 global atan(x : real returns real)
@@ -79,37 +85,42 @@ function initsfft(log2n : integer returns Work)
 
     wr, wi := wr1 || wr2, wi1 || wi2;
 
-    wrs1,
-    wis1 := for ll in sw+1, log2n/2
-               l    := ll * 2 - 1;
-               i2l  := exp(2, l);
-               i2l1 := 2 * i2l;
-               n2l1 := n / i2l1;
+    % Flat rank-3 twiddle table [level, vec, k].  Level ll (rows 1..mult2-sw,
+    % positional) holds the 3 stride-gathered vectors for l = ll*2-1; level
+    % ll's vectors have i2l/2 = 4^(ll-1) live entries (the strides w1/w2/w3
+    % are wr[v*n2l1*k + 1] for v = 1,2,3), zero-padded to the longest
+    % level's length so the table is rectangular.
+    maxlen := exp(2, 2*mult2 - 2);
+    wtr,
+    wti := for ll in sw+1, log2n/2
+             l    := ll * 2 - 1;
+             i2l  := exp(2, l);
+             i2l1 := 2 * i2l;
+             n2l1 := n / i2l1;
 
-               w1r, w1i,
-               w2r, w2i,
-               w3r, w3i := for kk in 1, i2l/2
-                              k    := kk - 1;
-                              wkr  := wr[k*n2l1+1];   wki  := wi[k*n2l1+1];
-                              w2kr := wr[2*n2l1*k+1]; w2ki := wi[2*n2l1*k+1];
-                              w3kr := wr[3*n2l1*k+1]; w3ki := wi[3*n2l1*k+1];
-                            returns array_dv of wkr  array_dv of wki
-                                    array_dv of w2kr array_dv of w2ki
-                                    array_dv of w3kr array_dv of w3ki
-                            end for;
-             returns array of array[1: w1r, w2r, w3r]
-                     array of array[1: w1i, w2i, w3i]
-             end for;
-
-    % array_addh(wrs1, array[1: wr]) / array_addh(wis1, array[1: wi])
-    wrs := wrs1 || array[1: array[1: wr]];
-    wis := wis1 || array[1: array[1: wi]]
+             lvl_r, lvl_i :=
+               for v in 1, 3
+                 row_r, row_i :=
+                   for kk in 1, maxlen
+                     vr := if kk <= i2l/2 then wr[v*n2l1*(kk-1) + 1]
+                           else 0.0 end if;
+                     vi := if kk <= i2l/2 then wi[v*n2l1*(kk-1) + 1]
+                           else 0.0 end if
+                   returns array_dv of vr
+                           array_dv of vi
+                   end for
+               returns array_dv of row_r
+                       array_dv of row_i
+               end for
+           returns array_dv of lvl_r
+                   array_dv of lvl_i
+           end for
   in
     if log2n < 2 then
       error[Work]
     else
-      record Work [wrs : wrs; wis : wis; log2n : log2n; n : n;
-                   mult2 : mult2; sw : sw; odd : odd]
+      record Work [wtr : wtr; wti : wti; wr : wr; wi : wi;
+                   log2n : log2n; n : n; mult2 : mult2; sw : sw; odd : odd]
     end if
   end let
 end function
@@ -321,15 +332,14 @@ function sfft4AT(fr, fi, wr, wi : OneD; l, n : integer returns OneD, OneD)
 end function
 
 
-function sfft4BT(fr, fi : OneD; wrs, wis : ThreeD; l, n : integer
+function sfft4BT(fr, fi : OneD; wrs, wis : Wtab; l, n, sw : integer
                  returns OneD, OneD)
   let
     i2l  := exp(2, l);
     i2l1 := 2 * i2l;
     n2l1 := n / i2l1;
 
-    wr1 := wrs[l/2+1, 1]; wr2 := wrs[l/2+1, 2]; wr3 := wrs[l/2+1, 3];
-    wi1 := wis[l/2+1, 1]; wi2 := wis[l/2+1, 2]; wi3 := wis[l/2+1, 3];
+    lvl  := l/2 + 1 - sw;   % table row (levels stored positionally from sw+1)
 
     next := i2l / 2;
     pair := n / exp(2, l);
@@ -341,9 +351,9 @@ function sfft4BT(fr, fi : OneD; wrs, wis : ThreeD; l, n : integer
                 iQ1, iQ2, iQ3, iQ4 := for k in 0, i2l/2-1
                                          pad1 := pair*2*k + k;
                                          pad2 := pad1 + pair/2;
-                                         wkr  := wr1[k+1]; wki  := wi1[k+1];
-                                         w2kr := wr2[k+1]; w2ki := wi2[k+1];
-                                         w3kr := wr3[k+1]; w3ki := wi3[k+1];
+                                         wkr  := wrs[lvl, 1, k+1]; wki  := wis[lvl, 1, k+1];
+                                         w2kr := wrs[lvl, 2, k+1]; w2ki := wis[lvl, 2, k+1];
+                                         w3kr := wrs[lvl, 3, k+1]; w3ki := wis[lvl, 3, k+1];
                                          Ar := fr[off1 + pad1];        Ai := fi[off1 + pad1];
                                          Ir := fr[off1 + pair + pad1]; Ii := fi[off1 + pair + pad1];
                                          Er := fr[off1 + pad2];        Ei := fi[off1 + pad2];
@@ -367,15 +377,14 @@ function sfft4BT(fr, fi : OneD; wrs, wis : ThreeD; l, n : integer
 end function
 
 
-function sfft4B(fr, fi : OneD; wrs, wis : ThreeD; l, n : integer
+function sfft4B(fr, fi : OneD; wrs, wis : Wtab; l, n, sw : integer
                 returns OneD, OneD)
   let
     i2l  := exp(2, l);
     i2l1 := 2 * i2l;
     n2l1 := n / i2l1;
 
-    wr1 := wrs[l/2+1, 1]; wr2 := wrs[l/2+1, 2]; wr3 := wrs[l/2+1, 3];
-    wi1 := wis[l/2+1, 1]; wi2 := wis[l/2+1, 2]; wi3 := wis[l/2+1, 3];
+    lvl  := l/2 + 1 - sw;   % table row (levels stored positionally from sw+1)
 
     pair := n / 2;
     next := i2l / 2;
@@ -386,9 +395,9 @@ function sfft4B(fr, fi : OneD; wrs, wis : ThreeD; l, n : integer
 
                 rQ1, rQ2, rQ3, rQ4,
                 iQ1, iQ2, iQ3, iQ4 := for k in 0, i2l/2-1
-                                         wkr  := wr1[k+1]; wki  := wi1[k+1];
-                                         w2kr := wr2[k+1]; w2ki := wi2[k+1];
-                                         w3kr := wr3[k+1]; w3ki := wi3[k+1];
+                                         wkr  := wrs[lvl, 1, k+1]; wki  := wis[lvl, 1, k+1];
+                                         w2kr := wrs[lvl, 2, k+1]; w2ki := wis[lvl, 2, k+1];
+                                         w3kr := wrs[lvl, 3, k+1]; w3ki := wis[lvl, 3, k+1];
                                          Ar := fr[off1 + k];        Ai := fi[off1 + k];
                                          Ir := fr[off1 + pair + k]; Ii := fi[off1 + pair + k];
                                          Er := fr[off2 + k];        Ei := fi[off2 + k];
@@ -442,10 +451,10 @@ function sfft(frin, fiin : OneD; work : Work returns OneD, OneD)
     sw    := work.sw;
     odd   := work.odd;
 
-    wrs := work.wrs;
-    wis := work.wis;
-    wr  := work.wrs[log2n/2 + 1, 1];
-    wi  := work.wis[log2n/2 + 1, 1];
+    wrs := work.wtr;
+    wis := work.wti;
+    wr  := work.wr;
+    wi  := work.wi;
 
     fr0, fi0 := sfft4A0(frin, fiin, n)
   in
@@ -474,9 +483,9 @@ function sfft(frin, fiin : OneD; work : Work returns OneD, OneD)
           elseif old l1 = sw then
             sfft4AT(old fr, old fi, wr, wi, l, n)
           elseif old l1 = sw + 1 then
-            sfft4BT(old fr, old fi, wrs, wis, l, n)
+            sfft4BT(old fr, old fi, wrs, wis, l, n, sw)
           elseif old l1 <= mult2 then
-            sfft4B( old fr, old fi, wrs, wis, l, n)
+            sfft4B( old fr, old fi, wrs, wis, l, n, sw)
           else
             sfft2B( old fr, old fi, wr, wi, log2n - 1, n)
           end if
