@@ -40,11 +40,11 @@ let sanitize name =
 
 (** [fresh_name env base] -> a readable, unique C identifier from [base].
     Sanitizes [base]; if it is already taken (env.seen_decls), it finds a
-    trailing number and increments it (e.g. "lb" -> "lb1" -> "lb2", "x3" -> "x4")
-    until there is no collision; otherwise it appends a number. The returned env
-    records the chosen name so later calls stay unique. (Same idea LLVM uses to
-    uniquify value names.) Hand every minted temp through this so no name can
-    shadow a parameter, a user variable, or another temp. *)
+    trailing number and increments it (e.g. "lb" -> "lb1" -> "lb2", "x3" ->
+    "x4") until there is no collision; otherwise it appends a number. The
+    returned env records the chosen name so later calls stay unique. (Same idea
+    LLVM uses to uniquify value names.) Hand every minted temp through this so
+    no name can shadow a parameter, a user variable, or another temp. *)
 let fresh_name env base =
   let s = match sanitize base with "" -> "_t" | s -> s in
   if not (StringSet.mem s env.seen_decls) then
@@ -53,10 +53,13 @@ let fresh_name env base =
     (* split off any trailing digits: "lb" -> ("lb", 1); "x3" -> ("x", 4) *)
     let n = String.length s in
     let i = ref n in
-    while !i > 0 && s.[!i - 1] >= '0' && s.[!i - 1] <= '9' do decr i done;
+    while !i > 0 && s.[!i - 1] >= '0' && s.[!i - 1] <= '9' do
+      decr i
+    done;
     let stem = String.sub s 0 !i in
     let start =
-      if !i < n then (try int_of_string (String.sub s !i (n - !i)) + 1 with _ -> 1)
+      if !i < n then
+        try int_of_string (String.sub s !i (n - !i)) + 1 with _ -> 1
       else 1
     in
     let rec pick k =
@@ -70,25 +73,37 @@ let fresh_name env base =
 (** [get_port_name env gr nid pid dir] finds a descriptive name for a port. *)
 let get_port_name _env gr nid pid dir =
   let cs, _ps = gr.symtab in
-  SM.fold (fun raw_name v acc ->
-    if acc <> None then acc
-    else if v.val_def = nid && v.def_port = pid then
-      if nid = 0 && dir <> `Out then acc (* Boundary inputs (In) don't get these names *)
-      else Some (sanitize v.val_name)
-    else acc) cs None
+  if nid = 0 && pid = 2 then (
+    Printf.eprintf "GET_PORT_NAME nid=0 pid=2 cs contents:\n";
+    SM.iter
+      (fun name v ->
+        Printf.eprintf "  %s -> val_def=%d, def_port=%d\n" name v.val_def
+          v.def_port)
+      cs);
+  SM.fold
+    (fun raw_name v acc ->
+      if acc <> None then acc
+      else if v.val_def = nid && v.def_port = pid then
+        if nid = 0 && dir <> `Out then acc
+          (* Boundary inputs (In) don't get these names *)
+        else Some (sanitize v.val_name)
+      else acc)
+    cs None
 
-(** [get_port_name_from_cs gr nid pid dir] looks up a port's name in the graph's symtab. *)
+(** [get_port_name_from_cs gr nid pid dir] looks up a port's name in the graph's
+    symtab. *)
 let get_port_name_from_cs gr nid pid dir = get_port_name () gr nid pid dir
 
-(** [scope_of gid_name_map gid] returns a unique scope prefix for a GID.
-    The GID is always appended to guarantee uniqueness when multiple scopes
-    share the same human-readable name (e.g. two PREDICATE sub-graphs). *)
+(** [scope_of gid_name_map gid] returns a unique scope prefix for a GID. The GID
+    is always appended to guarantee uniqueness when multiple scopes share the
+    same human-readable name (e.g. two PREDICATE sub-graphs). *)
 let scope_of gid_name_map gid =
   match IntMap.find_opt gid gid_name_map with
   | Some name -> Printf.sprintf "%s_%d" name gid
   | None -> "g" ^ string_of_int gid
 
-(** [var_name gid_name_map gid nid pid dir] generates a unique C variable name for an IF1 port. *)
+(** [var_name gid_name_map gid nid pid dir] generates a unique C variable name
+    for an IF1 port. *)
 let var_name gid_name_map gid nid pid dir =
   let d_str = match dir with `In -> "i" | `Out -> "o" in
   Printf.sprintf "v_%s_n__%d_p%d_%s" (scope_of gid_name_map gid) nid pid d_str
@@ -98,29 +113,86 @@ let var_name gid_name_map gid nid pid dir =
     (v_<scope>_n__<nid>_<name>) when the port is named, else the positional
     v_<scope>_n__<nid>_p<pid>_<dir> form. *)
 let get_c_name proc_map gid_name_map gid nid pid dir gr =
-  if gid = 0 && IntMap.mem nid proc_map then
-    IntMap.find nid proc_map
+  if gid = 0 && IntMap.mem nid proc_map then IntMap.find nid proc_map
   else
     match get_port_name_from_cs gr nid pid dir with
-    | Some name -> Printf.sprintf "v_%s_n__%d_%s" (scope_of gid_name_map gid) nid (sanitize name)
+    | Some name ->
+        Printf.sprintf "v_%s_n__%d_%s"
+          (scope_of gid_name_map gid)
+          nid (sanitize name)
     | None -> var_name gid_name_map gid nid pid dir
 
-(** [get_expr env gid nid pid dir] resolves a port to its C identifier. *)
+(** [get_graph_by_gid env target_gid] searches the graph hierarchy. *)
+let get_graph_by_gid env target_gid =
+  match IntMap.find_opt target_gid env.procedures_info with
+  | Some g -> g
+  | None -> (
+      let rec find_in_gr g cur_gid =
+        if cur_gid = target_gid then Some g
+        else
+          NM.fold
+            (fun nid node acc ->
+              if acc <> None then acc
+              else
+                match node with
+                | Compound (_, _, _, _, sub_gr, _) ->
+                    let sub_gid =
+                      try GidMap.find (cur_gid, nid) env.gid_table
+                      with _ -> -1
+                    in
+                    find_in_gr sub_gr sub_gid
+                | _ -> None)
+            g.nmap None
+      in
+      let rec get_root e =
+        match e.parent_env with
+        | Some pe -> get_root pe
+        | None -> (e.curr_gr, e.curr_gid)
+      in
+      let root_gr, root_gid = get_root env in
+      match find_in_gr root_gr root_gid with Some g -> g | None -> env.curr_gr)
+
 let get_expr env gid nid pid dir =
   match FullPortMap.find_opt (gid, nid, pid, dir) env.var_map with
   | Some expr -> expr
-  | None ->
+  | None -> (
+      let target_gr = get_graph_by_gid env gid in
       (* Literals are never in var_map but can be resolved directly *)
-      match NM.find_opt nid env.curr_gr.nmap with
-      | Some (Literal (_, code, value, _)) ->
-          (match code with
-           | REAL -> C.LitFloat (float_of_string value)
-           | DOUBLE -> C.LitDouble (float_of_string value)
-           | BOOLEAN -> C.Id (String.lowercase_ascii value)
-           | _ -> try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
+      match NM.find_opt nid target_gr.nmap with
+      | Some (Literal (_, code, value, _)) -> (
+          match code with
+          | REAL -> C.LitFloat (float_of_string value)
+          | DOUBLE -> C.LitDouble (float_of_string value)
+          | BOOLEAN -> C.Id (String.lowercase_ascii value)
+          | _ -> ( try C.LitInt (int_of_string value) with _ -> C.LitInt 0))
       | _ ->
-          let name = get_c_name env.proc_map env.gid_name_map gid nid pid dir env.curr_gr in
-          C.Id name
+          let is_tagcase_arm g_gid =
+            match IntMap.find_opt g_gid env.parent_map with
+            | Some (parent_gid, cnid) -> (
+                let parent_gr = get_graph_by_gid env parent_gid in
+                match NM.find_opt cnid parent_gr.nmap with
+                | Some (Compound (_, _, _, prag, _, _)) ->
+                    let c_of =
+                      List.find_map
+                        (function Compound_of c -> Some c | _ -> None)
+                        prag
+                      |> Option.value ~default:If1_Unknown
+                    in
+                    c_of = If1_tagcase
+                | _ -> false)
+            | None -> false
+          in
+          if nid = 0 && dir = `Out && is_tagcase_arm gid then
+            failwith
+              (Printf.sprintf
+                 "Assert failed: tagcase arm boundary input port %d of gid %d \
+                  was not pre-declared/resolved"
+                 pid gid)
+          else
+            let name =
+              get_c_name env.proc_map env.gid_name_map gid nid pid dir target_gr
+            in
+            C.Id name)
 
 (** [c_type_of_if1_basic b] maps a basic IF1 scalar type to a C type string. *)
 let c_type_of_if1_basic = function
@@ -135,50 +207,67 @@ let c_type_of_if1_basic = function
   | NULL -> C.Basic "void*"
   | _ -> C.Basic "float"
 
-(** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type. *)
+(** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type.
+*)
 let c_type_of_if1_ty tm ty =
   match ty with
   | Basic b -> c_type_of_if1_basic b
   | Array_dv _ | Array_ty _ -> C.Basic "sisal_array_t"
   | Record (id, _, name) ->
       let sname = String.lowercase_ascii name in
-      if sname = "int" || sname = "integer" || sname = "int32" then C.Basic "int32_t"
+      if sname = "int" || sname = "integer" || sname = "int32" then
+        C.Basic "int32_t"
       else if sname = "double" || sname = "double_real" then C.Basic "double"
       else if sname = "float" || sname = "real" then C.Basic "float"
       else if sname = "bool" || sname = "boolean" then C.Basic "bool"
-      else if id <= 12 then (
+      else if id <= 12 then
         match id with
-        | 1 -> C.Basic "bool" | 3 -> C.Basic "char" | 4 | 5 -> C.Basic "double"
-        | 6 -> C.Basic "int32_t" | 7 -> C.Basic "int64_t" | 8 -> C.Basic "float"
-        | 12 -> C.Basic "uint32_t" | _ -> C.Basic "sisal_array_t"
-      ) else C.Basic (Printf.sprintf "struct struct_rec_%d" id)
+        | 1 -> C.Basic "bool"
+        | 3 -> C.Basic "char"
+        | 4 | 5 -> C.Basic "double"
+        | 6 -> C.Basic "int32_t"
+        | 7 -> C.Basic "int64_t"
+        | 8 -> C.Basic "float"
+        | 12 -> C.Basic "uint32_t"
+        | _ -> C.Basic "sisal_array_t"
+      else C.Basic (Printf.sprintf "struct struct_rec_%d" id)
   | Union (id, _, name) ->
       let sname = String.lowercase_ascii name in
-      if sname = "int" || sname = "integer" || sname = "int32" then C.Basic "int32_t"
+      if sname = "int" || sname = "integer" || sname = "int32" then
+        C.Basic "int32_t"
       else if sname = "double" || sname = "double_real" then C.Basic "double"
       else if sname = "float" || sname = "real" then C.Basic "float"
       else if sname = "bool" || sname = "boolean" then C.Basic "bool"
-      else if id <= 12 then (
+      else if id <= 12 then
         match id with
-        | 1 -> C.Basic "bool" | 3 -> C.Basic "char" | 4 | 5 -> C.Basic "double"
-        | 6 -> C.Basic "int32_t" | 7 -> C.Basic "int64_t" | 8 -> C.Basic "float"
-        | 12 -> C.Basic "uint32_t" | _ -> C.Basic "sisal_array_t"
-      ) else C.Basic (Printf.sprintf "struct union_un_%d" id)
+        | 1 -> C.Basic "bool"
+        | 3 -> C.Basic "char"
+        | 4 | 5 -> C.Basic "double"
+        | 6 -> C.Basic "int32_t"
+        | 7 -> C.Basic "int64_t"
+        | 8 -> C.Basic "float"
+        | 12 -> C.Basic "uint32_t"
+        | _ -> C.Basic "sisal_array_t"
+      else C.Basic (Printf.sprintf "struct union_un_%d" id)
   (* Error-flow ports carry an error sentinel, not a value; the carried datum is a
      type number, so an int holds it fine. *)
   | Typed_error _ | ERROR _ -> C.Basic "int32_t"
   | _ ->
       failwith
         ("c_type_of_if1_ty: don't know how to map this IF1 type to a C type: "
-         ^ string_of_if1_ty ty)
+       ^ string_of_if1_ty ty)
 
-(** [get_compound_type pragma_list] identifies the specific compound node variant. *)
+(** [get_compound_type pragma_list] identifies the specific compound node
+    variant. *)
 let get_compound_type pr =
-  List.find_map (function Compound_of c -> Some c | _ -> None) pr |> Option.value ~default:If1_Unknown
+  List.find_map (function Compound_of c -> Some c | _ -> None) pr
+  |> Option.value ~default:If1_Unknown
 
-(** [find_subgraph gr role_name] searches for a specific subgraph within a compound node. *)
+(** [find_subgraph gr role_name] searches for a specific subgraph within a
+    compound node. *)
 let find_subgraph gr target =
-  let role_target = match target with
+  let role_target =
+    match target with
     | "PREDICATE" -> Some If1_predicate
     | "THEN" -> Some If1_then
     | "ELSE" -> Some If1_else
@@ -187,48 +276,60 @@ let find_subgraph gr target =
     | "RETURNS" | "RETURN" -> Some If1_results
     | "INIT" -> Some If1_loop_initial
     | "TEST" -> Some If1_loop_test
-    | _ -> None in
-  let res = NM.choose_opt (NM.filter (fun _ n -> 
-    match n with 
-    | Compound (_, _, _, pr, _, _) -> 
-        let has_role = match role_target with
-         | Some r -> get_compound_type pr = r
-         | None -> false in
-        has_role
-    | _ -> false) gr.nmap) in 
-  res |> Option.map (fun (id, n) -> match n with Compound (_, _, _, _, g, _) -> (id, g) | _ -> assert false)
-
-(** [get_graph_by_gid env target_gid] searches the graph hierarchy. *)
-let get_graph_by_gid env target_gid =
-  match IntMap.find_opt target_gid env.procedures_info with
-  | Some g -> g
-  | None ->
-      let rec find_in_gr g cur_gid =
-        if cur_gid = target_gid then Some g
-        else NM.fold (fun nid node acc ->
-          if acc <> None then acc
-          else match node with
-            | Compound (_, _, _, _, sub_gr, _) ->
-                let sub_gid = try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1 in
-                find_in_gr sub_gr sub_gid
-            | _ -> None
-          ) g.nmap None in
-      match find_in_gr env.curr_gr env.curr_gid with
-      | Some g -> g
-      | None -> env.curr_gr
+    | _ -> None
+  in
+  let res =
+    NM.choose_opt
+      (NM.filter
+         (fun _ n ->
+           match n with
+           | Compound (_, _, _, pr, _, _) ->
+               let has_role =
+                 match role_target with
+                 | Some r -> get_compound_type pr = r
+                 | None -> false
+               in
+               has_role
+           | _ -> false)
+         gr.nmap)
+  in
+  res
+  |> Option.map (fun (id, n) ->
+      match n with Compound (_, _, _, _, g, _) -> (id, g) | _ -> assert false)
 
 (** [topo_sort gr] returns a list of node IDs in dependency order. *)
 let topo_sort gr =
-  let nodes = NM.bindings gr.nmap |> List.map fst |> List.filter (fun id -> id <> 0) in
+  let nodes =
+    NM.bindings gr.nmap |> List.map fst |> List.filter (fun id -> id <> 0)
+  in
   let rec visit visited stack id =
     if IntSet.mem id visited then (visited, stack)
     else
-      let deps = ES.fold (fun ((sn, _), (dn, _), _) acc -> if dn = id && sn <> 0 then IntSet.add sn acc else acc) gr.eset IntSet.empty in
-      let visited, stack = IntSet.fold (fun dep (v, s) -> visit v s dep) deps (IntSet.add id visited, stack) in
-      (visited, id :: stack) in
-  let _, sorted = List.fold_left (fun (v, s) id -> visit v s id) (IntSet.empty, []) nodes in
+      let deps =
+        ES.fold
+          (fun ((sn, _), (dn, _), _) acc ->
+            if dn = id && sn <> 0 then IntSet.add sn acc else acc)
+          gr.eset IntSet.empty
+      in
+      let visited, stack =
+        IntSet.fold
+          (fun dep (v, s) -> visit v s dep)
+          deps
+          (IntSet.add id visited, stack)
+      in
+      (visited, id :: stack)
+  in
+  let _, sorted =
+    List.fold_left (fun (v, s) id -> visit v s id) (IntSet.empty, []) nodes
+  in
   let sorted = List.rev sorted in
-  let num_nodes = List.length nodes in if List.length sorted < num_nodes then let sorted_set = List.fold_left (fun s id -> IntSet.add id s) IntSet.empty sorted in sorted @ List.filter (fun id -> not (IntSet.mem id sorted_set)) nodes else sorted
+  let num_nodes = List.length nodes in
+  if List.length sorted < num_nodes then
+    let sorted_set =
+      List.fold_left (fun s id -> IntSet.add id s) IntSet.empty sorted
+    in
+    sorted @ List.filter (fun id -> not (IntSet.mem id sorted_set)) nodes
+  else sorted
 
 (** [topo_sort_edges gr] returns the graph's edges in data-dependence order.
     Node 0 (the boundary = graph inputs) comes first, then the nodes in
@@ -237,10 +338,14 @@ let topo_sort gr =
     walk yields every edge after the edges that feed its tail. *)
 let topo_sort_edges gr =
   let node_order = 0 :: topo_sort gr in
-  List.concat_map (fun nid ->
-    ES.fold (fun e acc -> let ((sn, _), _, _) = e in if sn = nid then e :: acc else acc)
-      gr.eset []
-    |> List.sort compare)
+  List.concat_map
+    (fun nid ->
+      ES.fold
+        (fun e acc ->
+          let (sn, _), _, _ = e in
+          if sn = nid then e :: acc else acc)
+        gr.eset []
+      |> List.sort compare)
     node_order
 
 (** [get_function_param_types tm ty_id] — the parameter type ids of a
@@ -250,19 +355,31 @@ let get_function_param_types tm ty_id =
   | Some (Function_ty (ins, _, _)) ->
       let rec flatten label =
         if label = 0 then []
-        else match TM.find_opt label tm with
+        else
+          match TM.find_opt label tm with
           | Some (Tuple_ty (curr, next)) -> curr :: flatten next
-          | _ -> [label] in
+          | _ -> [ label ]
+      in
       flatten ins
   | _ -> []
 
-(** [get_elem_type env gr nid] — the IF1 ELEMENT type of the array value
-    flowing out of [nid] (port 0), via the out-edge's type id; Unknown_ty
-    when it isn't an array. *)
+(** [get_elem_type env gr nid] — the IF1 ELEMENT type of the array value flowing
+    out of [nid] (port 0), via the out-edge's type id; Unknown_ty when it isn't
+    an array. *)
 let get_elem_type env gr nid =
-  let ty_id = ES.fold (fun ((sn, sp), _, t) acc -> if sn = nid && sp = 0 && t <> 0 then Some t else acc) gr.eset None |> Option.value ~default:0 in
+  let ty_id =
+    ES.fold
+      (fun ((sn, sp), _, t) acc ->
+        if sn = nid && sp = 0 && t <> 0 then Some t else acc)
+      gr.eset None
+    |> Option.value ~default:0
+  in
   let tm = get_typemap_tm gr in
-  try match TM.find ty_id tm with | Array_dv et_id | Array_ty et_id -> TM.find et_id tm | _ -> Unknown_ty with _ -> Unknown_ty
+  try
+    match TM.find ty_id tm with
+    | Array_dv et_id | Array_ty et_id -> TM.find et_id tm
+    | _ -> Unknown_ty
+  with _ -> Unknown_ty
 
 (** [c_type_of_if1_tyid tm tyid] — like c_type_of_if1_ty but takes the type ID,
     which is required to name record types correctly: a record value's C type is
@@ -271,9 +388,9 @@ let get_elem_type env gr nid =
     value-based mapper can see. *)
 let global_alias_map = ref TM.empty
 
-(** [basic_type_of_id id] — the PRELOADED scalar typemap ids (the fixed
-    low-id table every graph starts from) mapped back to their basic type;
-    None for program-allocated ids. *)
+(** [basic_type_of_id id] — the PRELOADED scalar typemap ids (the fixed low-id
+    table every graph starts from) mapped back to their basic type; None for
+    program-allocated ids. *)
 let basic_type_of_id = function
   | 1 -> Some BOOLEAN
   | 2 -> Some BYTE
@@ -318,14 +435,13 @@ let c_type_of_if1_tyid tm tyid =
   | None -> (
       match basic_type_of_id tyid with
       | Some b -> c_type_of_if1_basic b
-      | None -> C.Basic "float"
-  )
+      | None -> C.Basic "float")
 
 (** [c_type_of_tyid gr tyid] — the GRAPH-based resolver: the type comes from
-    If1.lookup_ty_safe on the graph's canonical typemap (the single
-    authority), never from a caller-cached TM snapshot that may be stale or
-    belong to another graph.  Prefer this over c_type_of_if1_tyid whenever a
-    graph is in hand. *)
+    If1.lookup_ty_safe on the graph's canonical typemap (the single authority),
+    never from a caller-cached TM snapshot that may be stale or belong to
+    another graph. Prefer this over c_type_of_if1_tyid whenever a graph is in
+    hand. *)
 let c_type_of_tyid gr tyid =
   let tyid =
     match TM.find_opt tyid !global_alias_map with
@@ -368,10 +484,10 @@ let default_init_for ty =
   else if is_struct_cty ty then Some (C.Id "{}")
   else Some (C.LitInt 0)
 
-(** [collect_record_fields tm label] — (field name, C type) list for the
-    Record chain starting at [label]; chain HEADERS (Record (0, next, ""))
-    contribute no field.  Field order = chain order = source order = struct
-    emission order (load-bearing for RBUILD's positional aggregate init). *)
+(** [collect_record_fields tm label] — (field name, C type) list for the Record
+    chain starting at [label]; chain HEADERS (Record (0, next, "")) contribute
+    no field. Field order = chain order = source order = struct emission order
+    (load-bearing for RBUILD's positional aggregate init). *)
 let rec collect_record_fields tm label =
   match TM.find_opt label tm with
   | Some (Record (0, next_label, "")) ->
@@ -383,20 +499,19 @@ let rec collect_record_fields tm label =
   | _ -> []
 
 (** [collect_union_tags tm label] — (tag name, payload C type) list for the
-    Union chain starting at [label]; headers contribute nothing.  Union
-    mirror of collect_record_fields. *)
+    Union chain starting at [label]; headers contribute nothing. Union mirror of
+    collect_record_fields. *)
 let rec collect_union_tags tm label =
   match TM.find_opt label tm with
-  | Some (Union (0, next_label, "")) ->
-      collect_union_tags tm next_label
+  | Some (Union (0, next_label, "")) -> collect_union_tags tm next_label
   | Some (Union (field_ty_id, next_label, name)) ->
       let tags = [ (name, c_type_of_if1_tyid tm field_ty_id) ] in
       tags @ collect_union_tags tm next_label
   | _ -> []
 
-(** [collect_union_tags_with_ids tm label] — like collect_union_tags but
-    each entry also carries the tag's own typemap id (the id TAGCASE arms and
-    UBUILD reference). *)
+(** [collect_union_tags_with_ids tm label] — like collect_union_tags but each
+    entry also carries the tag's own typemap id (the id TAGCASE arms and UBUILD
+    reference). *)
 let rec collect_union_tags_with_ids tm label =
   match TM.find_opt label tm with
   | Some (Union (0, next_label, "")) ->
@@ -407,5 +522,12 @@ let rec collect_union_tags_with_ids tm label =
   | _ -> []
 
 (** Boundary port counts (node 0's in/out lists). *)
-let boundary_in_port_count gr = match NM.find_opt 0 gr.nmap with | Some (Boundary (ins, _, _, _)) -> List.length ins | _ -> 0
-let boundary_out_port_count gr = match NM.find_opt 0 gr.nmap with | Some (Boundary (_, outs, _, _)) -> List.length outs | _ -> 0
+let boundary_in_port_count gr =
+  match NM.find_opt 0 gr.nmap with
+  | Some (Boundary (ins, _, _, _)) -> List.length ins
+  | _ -> 0
+
+let boundary_out_port_count gr =
+  match NM.find_opt 0 gr.nmap with
+  | Some (Boundary (_, outs, _, _)) -> List.length outs
+  | _ -> 0

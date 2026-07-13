@@ -1652,11 +1652,10 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
              ret_gr registered.  Inheriting body_gr's assignments first means
              ret_gr's counter starts past them, so no two sibling subgraphs ever
              claim the same ID for different structural types. *)
-          let base = If1.get_a_new_graph gen_gr in
           {
-            base with
+            in_gr with
             If1.typemap =
-              If1.merge_typeblobs base.If1.typemap body_gr.If1.typemap;
+              If1.merge_typeblobs in_gr.If1.typemap body_gr.If1.typemap;
           }
         in
         (* Recursive RETURNS: for an N-axis cross at this (base) axis, the
@@ -1712,7 +1711,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
         (* No get_ports_unified: the generator's outputs are bound directly to
            the generator compound (below); body/returns import the names they
            reference lazily via get_symbol_id. *)
-        let forall_gr = If1.inherit_parent_syms gen_gr forall_gr in
+        let forall_gr = forall_gr in
 
         (* Install the GENERATOR compound + re-bind its outputs to gn (shared). *)
         let gn, gen_gr, forall_gr = add_generator_to gen_gr forall_gr in
@@ -1778,7 +1777,8 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                                 If1.val_name = name;
                                 If1.val_ty = ty;
                                 If1.val_def = bx;
-                                If1.def_port = (List.length ret_tuple_list) + mask_idx;
+                                If1.def_port =
+                                  List.length ret_tuple_list + mask_idx;
                               }
                               cs,
                             ps );
@@ -1823,8 +1823,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                 let lbl = "__ext_" ^ string_of_int k in
                 let q, fg = If1.add_to_boundary_inputs ~namen:lbl en ep fg in
                 (k + 1, qs @ [ (q, et) ], hops @ [ (en, ep, et, q) ], fg))
-              (0, [], [], forall_gr)
-              (List.concat ext_srcs)
+              (0, [], [], forall_gr) (List.concat ext_srcs)
           in
           (qs, hops, fg)
         in
@@ -1910,7 +1909,9 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                 srcs
               in
               let imports =
-                (match placement_name with Some nm -> [ `Name nm ] | None -> [])
+                (match placement_name with
+                  | Some nm -> [ `Name nm ]
+                  | None -> [])
                 @ List.mapi
                     (fun k _ -> `Name ("__forall_body_" ^ string_of_int k))
                     ret_tuple_list
@@ -1919,11 +1920,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                     (fun k (dp, ty) ->
                       (* per-iteration placement, from the BODY compound *)
                       `Src
-                        ( bx,
-                          dp,
-                          ty,
-                          "__plc_" ^ string_of_int k,
-                          1 + nbodies + k ))
+                        (bx, dp, ty, "__plc_" ^ string_of_int k, 1 + nbodies + k))
                     plc_ports
                 @ List.mapi
                     (fun k (q, ty) ->
@@ -1951,8 +1948,10 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                               If1.add_to_boundary_inputs ~namen:nm dd dp rn_gr
                             in
                             if is_body nm then
-                              (rn_gr, (if cnt = 0 then p else base), cnt + 1,
-                               redges)
+                              ( rn_gr,
+                                (if cnt = 0 then p else base),
+                                cnt + 1,
+                                redges )
                             else (rn_gr, base, cnt, redges)
                         | None -> (rn_gr, base, cnt, redges))
                     | `Src (sn, sp, ty, lbl, expect) ->
@@ -2044,7 +2043,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
              is what gives the outer loop var a for-all-level identity so the
              nested inner loop captures it through its boundary rather than
              aliasing the inner generator's reused RANGEGEN id. *)
-          let forall_gr = If1.get_a_new_graph gen_gr in
+          let forall_gr = in_gr in
           let gn, gen_gr, forall_gr = add_generator_to gen_gr forall_gr in
 
           (* Recurse on the remaining (inner) axes. The inner loop is itself a
@@ -2061,7 +2060,8 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                 inner_dv_infos,
                 inner_ext_hops ) =
             build_forloop gen_exp_tl bodyexp retexp
-              (If1.get_a_new_graph forall_gr)
+              (If1.inherit_parent_syms forall_gr
+                 (If1.get_a_new_graph forall_gr))
           in
           (* Scatter/shaped extents are consumed by the FLAT base case only;
              a spelling that routes them through the recursive nest is not
@@ -2152,9 +2152,12 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
 
   (* ---- OUTER ASSEMBLY: drive build_forloop and finish the FORALL node. ---- *)
   (* Flatten the generator into the axis list, then build the whole loop nest. *)
+  let forall_gr_init =
+    If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
+  in
   let acrossl = get_cross_exp_lis inexp [] in
   let _, return_action_list, _, forall_gr, subgr_ids, dv_infos, ext_hops =
-    build_forloop acrossl bodyexp retexp in_gr
+    build_forloop acrossl bodyexp retexp forall_gr_init
   in
   (* build_forloop assembles forall_gr in its OWN typemap branch and returns only
      forall_gr (not an updated in_gr), so in_gr's type counter is stale -- it never
@@ -2218,8 +2221,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
     let tgt_gr =
       List.fold_left
         (fun g (en, ep, et, q) ->
-          to_if1_msg 3 "forall ext hop A: (%d,%d) -> compound(%d):%d" en ep fx
-            q;
+          to_if1_msg 3 "forall ext hop A: (%d,%d) -> compound(%d):%d" en ep fx q;
           If1.add_edge en ep fx q et g)
         tgt_gr ext_hops
     in
@@ -2521,187 +2523,16 @@ and extract_types_from_decl_list dl =
     [] dl
 
 and do_decldef in_gr delc =
-  let rec check_decl_type atyp expty in_gr =
-    match atyp with
-    | Some atype ->
-        let (_, _, typenum), in_gr = If1.add_sisal_type in_gr atype in
-        if typenum <> expty then
-          (* Allow numeric widening/narrowing coercions *)
-          let is_numeric_compat =
-            match (numeric_rank expty in_gr, numeric_rank typenum in_gr) with
-            | Some _, Some _ -> true
-            | _ -> false
-          in
-          if is_numeric_compat then in_gr
-          else
-            raise
-              (print_string " Inferred type: ";
-               print_int expty;
-               print_string " (";
-               print_string (If1.p_f_t in_gr expty);
-               print_string ") Expected type: ";
-               print_int typenum;
-               print_string " (";
-               print_string (If1.p_f_t in_gr typenum);
-               print_string ")";
-               print_endline "";
-               print_endline (Ast.str_sisal_type atype);
-               If1.Sem_error " Incorrect expression type bound to declaration")
-        else in_gr
-    | None -> in_gr
-  (* let check_decl_type *)
-  and do_each_decl lhs_decl_names rhs_exps expl in_gr =
-    match lhs_decl_names with
-    | Ast.Decl_with_type (decls, atype) :: decllist_tail ->
-        let expl, rhs_exps, in_gr =
-          bind_exp_to_decl expl rhs_exps decls (Some atype) in_gr
-        in
-        do_each_decl decllist_tail rhs_exps expl in_gr
-    | Decl_no_type decls :: decllist_tail ->
-        let expl, rhs_exps, in_gr =
-          bind_exp_to_decl expl rhs_exps decls None in_gr
-        in
-        do_each_decl decllist_tail rhs_exps expl in_gr
-    | Decl_tuple_no_type decl_names :: decllist_tail ->
-        let expl, rhs_exps, in_gr =
-          bind_exp_to_decl expl rhs_exps decl_names None in_gr
-        in
-        do_each_decl decllist_tail rhs_exps expl in_gr
-    | Decl_tuple_with_type (decl_names, type_list) :: decllist_tail ->
-        let expl, rhs_exps, in_gr =
-          if List.length decl_names = List.length type_list then
-            List.fold_left2
-              (fun (expl, rhs, igr) dn typ ->
-                bind_exp_to_decl expl rhs [ dn ] (Some typ) igr)
-              (expl, rhs_exps, in_gr) decl_names type_list
-          else bind_exp_to_decl expl rhs_exps decl_names None in_gr
-        in
-        do_each_decl decllist_tail rhs_exps expl in_gr
-    | [] -> in_gr
-  and pop_or_push_to_exp_stack expl rhs_exps in_gr =
-    match expl with
-    | head_expl :: tl_expl -> (head_expl, rhs_exps, tl_expl, in_gr)
-    | [] ->
-        assert (List.length rhs_exps <> 0);
-        let exphhd = List.hd rhs_exps in
-        let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
-        let expty =
-          match If1.get_node expnum in_gr with
-          | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-              first_incoming_type_to_multiarity expnum in_gr
-          | _ -> expty
-        in
-        let expl =
-          match If1.get_node expnum in_gr with
-          | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-              let port_type_map =
-                If1.all_types_ending_at_no_err_ty expnum in_gr If1.IntMap.empty
-              in
-              let port_type_map =
-                If1.IntMap.filter
-                  (fun _ tid -> not (If1.is_error_port tid in_gr))
-                  port_type_map
-              in
-              If1.IntMap.fold
-                (fun ke va retl ->
-                  (* Resolve through the MULTIARITY to the actual producer so that
-                     if this name is later returned as a boundary output,
-                     point_edges_to_boundary sees the real node — not the MULTIARITY —
-                     and does not incorrectly unravel all ports. *)
-                  let actual =
-                    If1.find_incoming_regular_node (expnum, ke, va) in_gr
-                  in
-                  actual :: retl)
-                port_type_map expl
-          | _ -> (expnum, expport, expty) :: expl
-        in
-        let expl = List.rev expl in
-        let expl_hd =
-          match expl with hd_expl :: _ -> hd_expl | [] -> (0, 0, 0)
-        in
-        let expl_tl = match expl with _ :: tl_expl -> tl_expl | [] -> [] in
-        let xom =
-          match rhs_exps with
-          | _ :: exp_tl -> (expl_hd, exp_tl, expl_tl, in_gr)
-          | [] -> (expl_hd, [], expl_tl, in_gr)
-        in
-        xom
-  and bind_exp_to_decl expl rhs_exps decls atyp in_gr =
-    match decls with
-    | current_name :: remaining_names ->
-        (* ending let (expnum, expport, ...) *)
-        let expl, rhs_exps, in_gr =
-          match current_name with
-          | Ast.Decl_name current_name ->
-              let (expnum, expport, expty), rhs_exps, expl, in_gr =
-                pop_or_push_to_exp_stack expl rhs_exps in_gr
-              in
-              let in_gr = check_decl_type atyp expty in_gr in
-              let in_gr = If1.add_name_pragma expnum current_name in_gr in
-              let localsyms, globsyms = in_gr.If1.symtab in
-              ( expl,
-                rhs_exps,
-                {
-                  in_gr with
-                  If1.symtab =
-                    ( If1.SM.add current_name
-                        {
-                          If1.val_name = current_name;
-                          If1.val_ty = expty;
-                          If1.val_def = expnum;
-                          If1.def_port = expport;
-                        }
-                        localsyms,
-                      globsyms );
-                } )
-          | Decl_func current_name ->
-              let (_, _, _), in_gr_ =
-                do_function_header (If1.get_a_new_graph in_gr) current_name
-              in
-              let fn =
-                match current_name with
-                | Ast.Function_header (Ast.Function_name fn_path, _, _) ->
-                    String.concat "." fn_path
-                | Ast.Function_header_nodec (Ast.Function_name fn_path, _) ->
-                    String.concat "." fn_path
-              in
-              let (_, _, expty), rhs_exps, expl, in_gr_ =
-                pop_or_push_to_exp_stack expl rhs_exps in_gr_
-              in
-              let in_gr_ = check_decl_type atyp expty in_gr_ in
-              let in_gr_ = If1.graph_clean_multiarity in_gr_ in
-              let (cn, _, _), in_gr =
-                If1.add_node_2
-                  (`Compound
-                     ( in_gr_,
-                       If1.INTERNAL,
-                       0,
-                       [ If1.Name fn; If1.Compound_of If1.If1_procedure ],
-                       [] ))
-                  in_gr
-              in
-              let in_gr_, in_gr = wire_all_syms_to_compound cn in_gr_ in_gr in
-              verify_compound_inputs cn in_gr_ in_gr;
-              (expl, rhs_exps, in_gr)
-        in
-        bind_exp_to_decl expl rhs_exps remaining_names atyp in_gr
-    | [] -> (expl, rhs_exps, in_gr)
-  in
+  (* Loop-body `:=` statements ride the same parallel-copy binder as let
+     statements (do_each_decl2): whole rhs lowered once via add_exp against
+     the pre-binding environment, flattened names zipped 1-1 against the
+     values.  `old` continues to name the previous iteration's carry. *)
   match delc with
   | Ast.Decldef (lhs_decl_names, Ast.Exp rhs_exps) ->
-      (* Ast.Decldef:
-       First component in a Ast.Decldef is a list of
-       lists of declids. Each list is either a
-       Ast.Decl_with_type type-spec or Decl_no_type.
-
-       Second component in a Ast.Decldef is
-       an exp-list. There is no one-one
-       correspondance between each decl
-       and each exp. Only after an exp is
-       lowered do we have one-one connectivity. *)
       (* Grammar produces declids_typed groups in reverse source order; reverse. *)
       let lhs_decl_names = List.rev lhs_decl_names in
-      ((0, 0, 0), do_each_decl lhs_decl_names rhs_exps [] in_gr)
+      let _, _, in_gr = do_each_decl2 lhs_decl_names rhs_exps [] [] [] in_gr in
+      ((0, 0, 0), in_gr)
   | _ -> raise (If1.Sem_error "Internal compiler error")
 
 and check_decl_type atyp expty in_gr =
@@ -2736,174 +2567,183 @@ and check_decl_type atyp expty in_gr =
 
 and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
     in_gr =
-  match lhs_decldef_names with
-  | Ast.Decl_with_type (decl_names, atype) :: decllist_tail ->
-      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
-        (* Take the first LHS item and get the rhs expression lowered.
-         * There can be more than one name. So each group may
-         * expect the expression to have as many results as
-         * names in the group. In this decl, the expected type
-         * of each name is also given in the source. *)
-        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names
-          (Some atype) in_gr
+  (* PARALLEL-COPY lowering of one `:=` statement.
+     1: every rhs expression is lowered once, in list order, against the
+        pre-binding environment (no name of this statement is in scope for
+        any of its own rhs expressions);
+     2: the LHS groups are flattened to a list of binding ITEMS — a plain
+        name (a type-group `a, b : integer` is only an annotation
+        distributor and dissolves here) or a tuple-destructure group
+        #(a, b), which is ONE item;
+     3: each lowered expression yields its values: a plain result collector
+        (MULTIARITY) contributes one value per port (error ports filtered),
+        a TUPLE_VAL multiarity is ONE value (a packed tuple), anything else
+        is one value.  Items zip 1-1 against values — STRICT arity, no
+        implicit packing: `a, b := x, y, z` is an error;
+     4: a plain item binds its name to the value's real producer
+        (node, port); a tuple item unpacks its packed-tuple value through
+        the tuple's in-edges (which also serves `#(a, b) := z` when z names
+        a tuple, since z's def IS the tuple's collector).
+     Local function definitions (Decl_func) are rejected: a function's rhs
+     is a body lowered into its own procedure graph, not a value here. *)
+  let items_opt =
+    let name_of it =
+      match it with Ast.Decl_name n -> Some n | Ast.Decl_func _ -> None
+    in
+    let names_with ds atyp =
+      List.fold_left
+        (fun acc it ->
+          match (acc, name_of it) with
+          | None, _ | _, None -> None
+          | Some l, Some n -> Some ((n, atyp) :: l))
+        (Some []) ds
+      |> Option.map List.rev
+    in
+    let names_zipped ds tys =
+      List.fold_left2
+        (fun acc it ty ->
+          match (acc, name_of it) with
+          | None, _ | _, None -> None
+          | Some l, Some n -> Some ((n, Some ty) :: l))
+        (Some []) ds tys
+      |> Option.map List.rev
+    in
+    let group acc g =
+      match (acc, g) with
+      | None, _ -> None
+      | Some items, Ast.Decl_with_type (ds, aty) -> (
+          match names_with ds (Some aty) with
+          | Some ns ->
+              Some (List.rev_append (List.map (fun p -> `Plain p) ns) items)
+          | None -> None)
+      | Some items, Ast.Decl_no_type ds -> (
+          match names_with ds None with
+          | Some ns ->
+              Some (List.rev_append (List.map (fun p -> `Plain p) ns) items)
+          | None -> None)
+      | Some items, Ast.Decl_tuple_no_type ds -> (
+          match names_with ds None with
+          | Some ns -> Some (`Tuple ns :: items)
+          | None -> None)
+      | Some items, Ast.Decl_tuple_with_type (ds, tys)
+        when List.length ds = List.length tys -> (
+          (* #(a, b) : #(t1, t2) := e — destructure with elementwise types *)
+          match names_zipped ds tys with
+          | Some ns -> Some (`Tuple ns :: items)
+          | None -> None)
+      | Some items, Ast.Decl_tuple_with_type (ds, _) -> (
+          (* Z : #(t1, t2) := e — plain name(s) annotated with a TUPLE TYPE
+             (the grammar reuses Decl_tuple_with_type for this form); the
+             value stays packed.  The whole-tuple annotation is not checked
+             yet (only the split element list reaches here). *)
+          match names_with ds None with
+          | Some ns ->
+              Some (List.rev_append (List.map (fun p -> `Plain p) ns) items)
+          | None -> None)
+    in
+    match List.fold_left group (Some []) lhs_decldef_names with
+    | Some rev_items -> Some (List.rev rev_items)
+    | None -> None
+  in
+  ignore expl;
+  match items_opt with
+  | None ->
+      raise
+        (If1.Sem_error
+           "Local function definitions are not supported in a let binding; \
+            define the function separately")
+  | Some items ->
+      let is_tuple_val prags =
+        List.exists (function If1.Name "TUPLE_VAL" -> true | _ -> false) prags
       in
-      (* Now go on to the next decl in the LHS. *)
-      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
-  | Decl_no_type decl_names :: decllist_tail ->
-      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
-        (* Same as above, but no types are attached to the LHS names *)
-        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None
-          in_gr
+      (* in-edges of a collector, by dest port, error ports dropped: the
+         edge SET is the value list (adjacency lists are debug aids) *)
+      let ports_of n g =
+        If1.ES.elements (If1.all_edges_ending_at n g)
+        |> List.sort (fun ((_, _), (_, p1), _) ((_, _), (_, p2), _) ->
+            compare p1 p2)
+        |> List.filter_map (fun ((sn, sp), (_, _), ty) ->
+            if If1.is_error_port ty g then None else Some (sn, sp, ty))
       in
-      (* Now go on to the next decl in the LHS. *)
-      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
-  | Decl_tuple_no_type decl_names :: decllist_tail ->
-      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
-        do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names None
-          in_gr
+      (* 1: lower every rhs expression, in order, pre-binding environment *)
+      let rev_raw, in_gr =
+        List.fold_left
+          (fun (acc, g) e ->
+            let v, g = do_simple_exp g e in
+            (v :: acc, g))
+          ([], in_gr) rhs_decldef_exps
       in
-      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
-  | Decl_tuple_with_type (decl_names, type_list) :: decllist_tail ->
-      let expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr =
-        if List.length decl_names = List.length type_list then
-          List.fold_left2
-            (fun (expl, xrev, drev, rhs, igr) dn typ ->
-              do_exp_for_decl expl xrev drev rhs [ dn ] (Some typ) igr)
-            (expl, expl_rev, decl_rev, rhs_decldef_exps, in_gr)
-            decl_names type_list
-        else
-          do_exp_for_decl expl expl_rev decl_rev rhs_decldef_exps decl_names
-            None in_gr
+      (* 3: per-expression values, decl policy: plain collectors unpack,
+         packed tuples stay whole *)
+      let values =
+        List.concat_map
+          (fun (n, p, t) ->
+            match If1.NM.find_opt n in_gr.If1.nmap with
+            | Some (If1.Simple (_, If1.MULTIARITY, _, _, prags))
+              when not (is_tuple_val prags) ->
+                ports_of n in_gr
+            | _ -> [ (n, p, t) ])
+          (List.rev rev_raw)
       in
-      do_each_decl2 decllist_tail rhs_decldef_exps expl expl_rev decl_rev in_gr
-  | [] -> (expl_rev, decl_rev, in_gr)
-
-and do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps lhs_names atyp in_gr =
-  match lhs_names with
-  | current_name :: remaining_names ->
-      (* ending let (expnum, expport, ...) *)
-      let exp_stack, expl_rev, decl_rev, rhs_exps, in_gr =
-        match current_name with
-        | Ast.Decl_name current_name ->
-            (* current_name are each of the names that are on the LHS *)
-            let (expnum, expport, expty), rhs_exps, exp_stack, in_gr, expl_rev =
-              pop_or_push_to_exp_stack2 exp_stack expl_rev rhs_exps in_gr
-            in
-            (* if atyp is set, it needs to be the same as the lowered
-             * expression's type *)
-            let in_gr = check_decl_type atyp expty in_gr in
-            let in_gr = If1.add_name_pragma expnum current_name in_gr in
-            let localsyms, globsyms = in_gr.If1.symtab in
-            let localsyms =
-              If1.SM.add current_name
+      if List.length items <> List.length values then
+        raise
+          (If1.Sem_error
+             (Printf.sprintf
+                "Definition binds %d name(s) but its right-hand side produces \
+                 %d value(s); names and values must correspond one-to-one"
+                (List.length items) (List.length values)));
+      let bind_one g nm atyp (vn, vp, vt) =
+        let g = check_decl_type atyp vt g in
+        let g = If1.add_name_pragma vn nm g in
+        let localsyms, globsyms = g.If1.symtab in
+        {
+          g with
+          If1.symtab =
+            ( If1.SM.add nm
                 {
-                  If1.val_name = current_name;
-                  If1.val_ty = expty;
-                  If1.val_def = expnum;
-                  If1.def_port = expport;
+                  If1.val_name = nm;
+                  If1.val_ty = vt;
+                  If1.val_def = vn;
+                  If1.def_port = vp;
                 }
-                localsyms
-            in
-            let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
-            (exp_stack, expl_rev, current_name :: decl_rev, rhs_exps, in_gr)
-        | Decl_func current_name ->
-            let fn, _ =
-              match current_name with
-              | Ast.Function_header (Ast.Function_name fn_path, decls, _) ->
-                  (String.concat "." fn_path, decls)
-              | Ast.Function_header_nodec (Ast.Function_name fn_path, _) ->
-                  (String.concat "." fn_path, [])
-            in
-            let (_, funport, funty), in_gr_ =
-              do_function_header
-                (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
-                current_name
-            in
-            let (_, _, expty), rhs_exps, exp_stack, in_gr_, expl_rev =
-              pop_or_push_to_exp_stack2 exp_stack expl_rev rhs_exps in_gr_
-            in
-            let in_gr_ = check_decl_type atyp expty in_gr_ in
-            let in_gr_ = If1.graph_clean_multiarity in_gr_ in
-            let (expnum, _, _), in_gr =
-              If1.add_node_2
-                (`Compound
-                   ( in_gr_,
-                     If1.INTERNAL,
-                     0,
-                     [ If1.Name fn; If1.Compound_of If1.If1_procedure ],
-                     [] ))
-                in_gr
-            in
-            let in_gr_, in_gr = wire_all_syms_to_compound expnum in_gr_ in_gr in
-            verify_compound_inputs expnum in_gr_ in_gr;
-            let localsyms, globsyms = in_gr.If1.symtab in
-            let localsyms =
-              If1.SM.add fn
-                {
-                  If1.val_name = fn;
-                  If1.val_ty = funty;
-                  If1.val_def = expnum;
-                  If1.def_port = funport;
-                }
-                localsyms
-            in
-            let in_gr = { in_gr with If1.symtab = (localsyms, globsyms) } in
-            ( exp_stack,
-              (expnum, funport, funty) :: expl_rev,
-              fn :: decl_rev,
-              rhs_exps,
-              in_gr )
+                localsyms,
+              globsyms );
+        }
       in
-      do_exp_for_decl exp_stack expl_rev decl_rev rhs_exps remaining_names atyp
-        in_gr
-  | [] -> (exp_stack, expl_rev, decl_rev, rhs_exps, in_gr)
-
-and pop_or_push_to_exp_stack2 exp_stack expl_in_rev rhs_exps in_gr =
-  (* Check if there is an item in the first list;
-   * else we need to look in the rhs_exps.
-   * Put the head of the list in a return
-   * list in reverse. *)
-  match exp_stack with
-  | hd_exp_stack :: tl_exp_stack ->
-      (hd_exp_stack, rhs_exps, tl_exp_stack, in_gr, hd_exp_stack :: expl_in_rev)
-  | [] ->
-      assert (List.length rhs_exps > 0);
-      let exphhd = List.hd rhs_exps in
-      let (expnum, expport, expty), in_gr = do_simple_exp in_gr exphhd in
-      let expty =
-        match If1.get_node expnum in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            first_incoming_type_to_multiarity expnum in_gr
-        | _ -> expty
+      (* 4: zip items against values *)
+      let in_gr, rev_bound, rev_names =
+        List.fold_left2
+          (fun (g, rb, rn) itm (vn, vp, vt) ->
+            match itm with
+            | `Plain (nm, atyp) ->
+                (bind_one g nm atyp (vn, vp, vt), (vn, vp, vt) :: rb, nm :: rn)
+            | `Tuple ns -> (
+                (* destructure: the value must be a packed tuple; its
+                   in-edges by port are the elements *)
+                match If1.NM.find_opt vn g.If1.nmap with
+                | Some (If1.Simple (_, If1.MULTIARITY, _, _, _)) ->
+                    let elems = ports_of vn g in
+                    if List.length ns <> List.length elems then
+                      raise
+                        (If1.Sem_error
+                           (Printf.sprintf
+                              "Tuple pattern binds %d name(s) but the tuple \
+                               has %d element(s)"
+                              (List.length ns) (List.length elems)))
+                    else
+                      List.fold_left2
+                        (fun (g, rb, rn) (nm, atyp) ev ->
+                          (bind_one g nm atyp ev, ev :: rb, nm :: rn))
+                        (g, rb, rn) ns elems
+                | _ ->
+                    raise
+                      (If1.Sem_error
+                         "Tuple pattern requires a tuple value built in the \
+                          same scope (a packed tuple cannot cross a \
+                          let/compound boundary)")))
+          (in_gr, [], []) items values
       in
-      let exp_stack =
-        match If1.get_node expnum in_gr with
-        | If1.Simple (_, If1.MULTIARITY, _, _, _) ->
-            let port_type_map =
-              If1.all_types_ending_at_no_err_ty expnum in_gr If1.IntMap.empty
-            in
-            let port_type_map =
-              If1.IntMap.filter
-                (fun _ tid -> not (If1.is_error_port tid in_gr))
-                port_type_map
-            in
-            If1.IntMap.fold
-              (fun ke va retl -> (expnum, ke, va) :: retl)
-              port_type_map exp_stack
-        | _ -> (expnum, expport, expty) :: exp_stack
-      in
-      let exp_stack = List.rev exp_stack in
-      let res =
-        match exp_stack with
-        | hd_exp_stack :: tl_exp_stack ->
-            ( hd_exp_stack,
-              rhs_exps,
-              tl_exp_stack,
-              in_gr,
-              hd_exp_stack :: expl_in_rev )
-        | [] -> failwith "This time we need to see a non empty exp_stack"
-      in
-      res
+      (rev_bound @ expl_rev, rev_names @ decl_rev, in_gr)
 
 and do_decldef2 in_gr delc expl_rev decl_rev =
   match delc with
@@ -3076,19 +2916,21 @@ and find_matching_union_str eee tm =
     tm If1.Emp
 
 and get_new_tagcase_graph in_gr vntt e =
+  let cs_parent, ps = in_gr.If1.symtab in
+  let ins_parent = If1.get_boundary_inputs in_gr in
   let tagcase_gr_n = If1.get_a_new_graph in_gr in
-  let cs, ps = tagcase_gr_n.If1.symtab in
-  let ps =
-    If1.SM.filter
-      (fun _ entry -> not (entry.If1.val_def = 0 && entry.If1.def_port = 0))
-      ps
+  let tagcase_gr_n =
+    match If1.get_boundary_node tagcase_gr_n with
+    | If1.Boundary (_, outs, errs, p) ->
+        {
+          tagcase_gr_n with
+          nmap =
+            If1.NM.add 0
+              (If1.Boundary (ins_parent, outs, errs, p))
+              tagcase_gr_n.nmap;
+        }
+    | _ -> tagcase_gr_n
   in
-  let tagcase_gr_n = { tagcase_gr_n with If1.symtab = (cs, ps) } in
-  (* We can only add the tagcase If1.Name
-      to matched variants. Otherwise
-      cannot have access to the union's
-      contents at all. So do not add
-      the value name to Otherwise. *)
   let in_gr_ =
     match vntt with
     | `AnyTag (vn_n, uniontt, _) ->
@@ -3102,10 +2944,10 @@ and get_new_tagcase_graph in_gr vntt e =
                   If1.val_def = 0;
                   If1.def_port = 0;
                 }
-                cs,
+                cs_parent,
               ps );
         }
-    | `OtherwiseTag -> tagcase_gr_n
+    | `OtherwiseTag -> { tagcase_gr_n with If1.symtab = (cs_parent, ps) }
   in
   (* There may be an expression list
       returning multiple values in the
@@ -3234,16 +3076,18 @@ and if_type_fail in_gr jj prev =
         print_endline k;
         k))
 
-and new_graph_for_tag_case vn_n t1 in_gr =
+and new_graph_for_tag_case vn_n t1 u_name in_gr =
   (* Put local symbols of the incoming graph
       into the parent If1.symtab to initialize
       a new graph. *)
+  let parent_cs = If1.get_local_symtab in_gr in
   let tagcase_gr_ = If1.get_symtab_for_new_scope in_gr in
 
   let cs, ps = tagcase_gr_.symtab in
   let tmm = tagcase_gr_.typemap in
 
   let a_new_gr = If1.get_a_new_graph tagcase_gr_ in
+  let _, a_new_gr = If1.add_to_boundary_inputs ~namen:vn_n 0 0 a_new_gr in
   (* add the tagcase's variable name, for example:
       tagcase "P", add P *)
   (* need a new graph here in a compound node *)
@@ -3256,6 +3100,22 @@ and new_graph_for_tag_case vn_n t1 in_gr =
         If1.def_port = 0;
       }
       cs
+  in
+  let a_new_gr, cs, _ =
+    If1.SM.fold
+      (fun name entry (gr, cs_acc, next_port) ->
+        if name = vn_n then (gr, cs_acc, next_port)
+        else
+          let _, gr =
+            If1.add_to_boundary_inputs ~namen:name entry.If1.val_def
+              entry.If1.def_port gr
+          in
+          let entry' =
+            { entry with If1.val_def = 0; If1.def_port = next_port }
+          in
+          let cs_acc = If1.SM.add name entry' cs_acc in
+          (gr, cs_acc, next_port + 1))
+      parent_cs (a_new_gr, cs, 1)
   in
   { a_new_gr with If1.symtab = (cs, ps); If1.typemap = tmm }
 
@@ -3316,13 +3176,13 @@ and check_tag_types vn_n jj prev in_gr =
          ("Output types do not match for:" ^ name_it_jj ^ ", " ^ vn_n ^ ", "
         ^ name_it_prev))
 
-and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
+and tag_builder t1 in_gr tagcase_g ex vn_n u_name prev_out_types tag_gr_map =
   (* A recursive visitor that builds subgraphs for each variant
       in the match. *)
   match ex with
   | [] -> (prev_out_types, tagcase_g, tag_gr_map)
   | hde :: tl ->
-      let tagcase_gr_ = new_graph_for_tag_case vn_n t1 in_gr in
+      let tagcase_gr_ = new_graph_for_tag_case vn_n t1 u_name in_gr in
       let jj, prags, tagcase_gr_i, nums =
         match hde with
         | Ast.Tag_list (Tagnames tns, e) ->
@@ -3368,7 +3228,7 @@ and tag_builder t1 in_gr tagcase_g ex vn_n prev_out_types tag_gr_map =
       let tag_gr_map =
         List.fold_right (fun c mm -> If1.IntMap.add c ii mm) nums tag_gr_map
       in
-      tag_builder t1 in_gr tagcase_g tl vn_n jj tag_gr_map
+      tag_builder t1 in_gr tagcase_g tl vn_n u_name jj tag_gr_map
 
 and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
   (* Propagate outputs of inner compound nodes to the
@@ -3668,9 +3528,7 @@ and bin_exp a b in_gr node_tag =
 
 and organize_ret_info return_action_list mask_ty_list =
   let return_action_list =
-    List.mapi
-      (fun idx (y, x, tt) -> (y, tt, 1 + idx))
-      return_action_list
+    List.mapi (fun idx (y, x, tt) -> (y, tt, 1 + idx)) return_action_list
   in
   let nbodies = List.length return_action_list in
   let _, mask_ty_list =
@@ -3697,8 +3555,8 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
 
 and add_ret_for_initial ?(ext_srcs = []) decl_gr for_gr body_gr
     return_action_list ret_tuple_list mask_ty_list prag =
-  add_return_gr_for_initial ~ext_srcs decl_gr for_gr body_gr
-    return_action_list ret_tuple_list mask_ty_list prag
+  add_return_gr_for_initial ~ext_srcs decl_gr for_gr body_gr return_action_list
+    ret_tuple_list mask_ty_list prag
 
 and point_edges_to_boundary frm elp elt in_gr =
   (* all edges ending at frm now to end at Boundary *)
@@ -5112,9 +4970,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let (n, _, _), in_gr =
             let in_port_00 = [| ""; "" |] in
             let out_port_00 = [| "" |] in
-            If1.add_node_2
-              (`Simple (op, in_port_00, out_port_00, []))
-              in_gr
+            If1.add_node_2 (`Simple (op, in_port_00, out_port_00, [])) in_gr
           in
           let in_gr = If1.add_edge l m n 0 tt in_gr in
           let in_gr = If1.add_edge ii jj n 1 pp in_gr in
@@ -5310,10 +5166,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
           ((n, 0, array_type_id), in_gr)
       | "ARRAY_FILL" ->
           let is_dv =
-            If1.TM.exists (fun _ desc ->
-              match desc with
-              | If1.Array_dv _ -> true
-              | _ -> false)
+            If1.TM.exists
+              (fun _ desc ->
+                match desc with If1.Array_dv _ -> true | _ -> false)
               (If1.get_typemap_tm in_gr)
           in
           let opcode = if is_dv then If1.DVAFILL else If1.AFILL in
@@ -5402,12 +5257,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 | _ -> (0, in_gr))
           in
           ((n, 0, If1.lookup_tyid INTEGRAL), in_gr)
-      | "INNERPRODUCT" | "MATMUL" as up_fn ->
+      | ("INNERPRODUCT" | "MATMUL") as up_fn ->
           let fn_lower = String.lowercase_ascii up_fn in
           let args =
             match arg with
             | Ast.Arg (Ast.Exp exps) -> exps
-            | _ -> raise (If1.Sem_error (fn_lower ^ "() requires two arguments"))
+            | _ ->
+                raise (If1.Sem_error (fn_lower ^ "() requires two arguments"))
           in
           if List.length args <> 2 then
             raise
@@ -6152,26 +6008,41 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* Slicing case with at least one '..' *)
             let num_ports = 1 + (2 * List.length ex_lis) in
             let (n, _, _), in_gr =
-              If1.add_node_2 (`Simple (If1.DV_RANK_REDUCE, Array.make num_ports "", [| "" |], [])) in_gr
+              If1.add_node_2
+                (`Simple
+                   (If1.DV_RANK_REDUCE, Array.make num_ports "", [| "" |], []))
+                in_gr
             in
             let in_gr = If1.add_edge arr_node arr_port n 0 att in_gr in
-            
+
             let rec wire_specs g idx = function
               | [] -> g
               | sub :: rest ->
-                  let is_dotdot = (sub = Ast.Dotdot) in
+                  let is_dotdot = sub = Ast.Dotdot in
                   let (flag_n, _, _), g =
-                    If1.add_node_2 (`Literal (If1.INTEGRAL, (if is_dotdot then "0" else "1"), [| "" |])) g
+                    If1.add_node_2
+                      (`Literal
+                         ( If1.INTEGRAL,
+                           (if is_dotdot then "0" else "1"),
+                           [| "" |] ))
+                      g
                   in
                   let (val_n, val_p, val_ty), g =
                     if is_dotdot then
-                      let (vn, vp, vt), g = If1.add_node_2 (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |])) g in
+                      let (vn, vp, vt), g =
+                        If1.add_node_2
+                          (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |]))
+                          g
+                      in
                       ((vn, vp, vt), g)
-                    else
-                      do_simple_exp g sub
+                    else do_simple_exp g sub
                   in
                   let base = 1 + (2 * idx) in
-                  let g = If1.add_edge flag_n 0 n base (If1.lookup_tyid If1.INTEGRAL) g in
+                  let g =
+                    If1.add_edge flag_n 0 n base
+                      (If1.lookup_tyid If1.INTEGRAL)
+                      g
+                  in
                   let g = If1.add_edge val_n val_p n (base + 1) val_ty g in
                   wire_specs g (idx + 1) rest
             in
@@ -6356,16 +6227,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
         if vt <> 0 && a_ty <> 0 then
           let elem_ok =
             match If1.lookup_ty_safe a_ty g with
-            | Some (If1.Array_ty et) | Some (If1.Array_dv et) ->
-                ty_eq g vt et
+            | Some (If1.Array_ty et) | Some (If1.Array_dv et) -> ty_eq g vt et
             | _ -> false
           in
           if not (elem_ok || ty_eq g vt a_ty) then
             raise
               (If1.Sem_error
                  (Printf.sprintf
-                    "Replace element not the correct type: array is %s, \
-                     value is %s"
+                    "Replace element not the correct type: array is %s, value \
+                     is %s"
                     (If1.printable_full_type (If1.get_typemap_tm g) a_ty)
                     (If1.printable_full_type (If1.get_typemap_tm g) vt)))
       in
@@ -6588,8 +6458,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           If1.add_edge ain apn bb 1 tt0 (If1.add_edge aim apm bb 0 tt1 in_gr) )
   | Ast.Record_generator_primary (e, fdle)
     when List.exists
-           (function
-             | Ast.Field_exp (Ast.Field fl, _) -> List.length fl > 1)
+           (function Ast.Field_exp (Ast.Field fl, _) -> List.length fl > 1)
            fdle ->
       (* NESTED-field replace chains desugar to read-modify-write at the AST:
            p replace [f.g: v]  ==  p replace [f: (p.f replace [g: v])]
@@ -6695,17 +6564,31 @@ and do_simple_exp_impl in_gr in_sim_ex =
        Finally, will need to add the above symbol name to the
        boundaries of a new graph and set the type from the
        tag name. *)
-      let (an, po, aunion_type), in_gr, vn_n =
+      let (an, po, aunion_type), in_gr, vn_n, u_name =
         match ae with
         | Assign (vn, e) ->
             let vn_n =
               match vn with Ast.Value_name vnn -> String.concat "." vnn
             in
+            let u_name =
+              match e with
+              | Ast.Pos (_, Ast.Val (Ast.Value_name vnn))
+              | Ast.Val (Ast.Value_name vnn) ->
+                  String.concat "." vnn
+              | _ -> "__tagcase_union_val__"
+            in
             let (an, po, tyy), in_gr = do_simple_exp in_gr e in
-            ((an, po, tyy), in_gr, vn_n)
+            ((an, po, tyy), in_gr, vn_n, u_name)
         | Tagcase_exp e ->
+            let u_name =
+              match e with
+              | Ast.Pos (_, Ast.Val (Ast.Value_name vnn))
+              | Ast.Val (Ast.Value_name vnn) ->
+                  String.concat "." vnn
+              | _ -> "__tagcase_union_val__"
+            in
             let (an, po, tyy), in_gr = do_simple_exp in_gr e in
-            ((an, po, tyy), in_gr, "__tagcase_expr__")
+            ((an, po, tyy), in_gr, "__tagcase_expr__", u_name)
       in
       (* Walk over If1.typemap lists and collect
         the union's tag#s *)
@@ -6720,12 +6603,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
         subgraphs is tag_builder. It adds the subgraphs
         to the newly setup graph: tagcase_gr_.*)
       let output_type_list, tagcase_gr_, tag_map =
-        let tagcase_gr_ = new_graph_for_tag_case vn_n aunion_type in_gr in
-        let _, tagcase_gr_ =
-          If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" an po tagcase_gr_
+        let tagcase_gr_ =
+          new_graph_for_tag_case vn_n aunion_type u_name in_gr
         in
-        tag_builder aunion_type in_gr tagcase_gr_ tc vn_n If1.IntMap.empty
-          If1.IntMap.empty
+        let _, tagcase_gr_ =
+          If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" an po
+            tagcase_gr_
+        in
+        tag_builder aunion_type in_gr tagcase_gr_ tc vn_n u_name
+          If1.IntMap.empty If1.IntMap.empty
       in
       match o with
       | Otherwise e ->
@@ -7101,6 +6987,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
   | For_initial (d, i, r) as finit ->
       to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
       let ext_srcs, in_gr = lower_shaped_extents in_gr r in
+      let for_gr_init =
+        If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
+      in
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
@@ -7250,11 +7139,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
         on
       in
 
-      let loopAOrB i in_gr =
+      let loopAOrB i for_gr in_gr =
         match i with
         | Ast.Iterator_termination (ii, t) ->
             to_if1_msg 3 "LoopA: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
+            let (_, _, _), decl_gr = add_decls for_gr d in
             to_if1_msg 3 "LoopA: building BODY iterator: %s"
               (Ast.str_iterator ii);
             let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
@@ -7265,7 +7154,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             let (_, _, _), test_gr = add_terminator body_gr t in
             to_if1_msg 3 "LoopA: building RETURNS (%d clauses)"
               (List.length return_action_list);
-            let for_gr = If1.get_a_new_graph in_gr in
+            let for_gr = for_gr in
             let for_gr =
               add_comp_node body_gr "BODY"
                 ~prag:
@@ -7274,8 +7163,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list, ext_hops =
-              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr return_action_list
-                ret_tuple_list mask_ty_list
+              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr
+                return_action_list ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
             let for_gr =
@@ -7764,7 +7653,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             ((mul_n, mul_p, mul_t), outl, in_gr)
         | Termination_iterator (t, ii) ->
             to_if1_msg 3 "LoopB: building INIT decls";
-            let (_, _, _), decl_gr = add_decls in_gr d in
+            let (_, _, _), decl_gr = add_decls for_gr d in
             to_if1_msg 3 "LoopB: building TEST termination: %s"
               (Ast.str_termination t);
             let (_, _, _), test_gr = add_terminator decl_gr t in
@@ -7775,7 +7664,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             in
             to_if1_msg 3 "LoopB: building RETURNS (%d clauses)"
               (List.length return_action_list);
-            let for_gr = If1.get_a_new_graph in_gr in
+            let for_gr = for_gr in
             let for_gr =
               add_comp_node body_gr "BODY"
                 ~prag:
@@ -7784,8 +7673,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr
             in
             let (ret_cn, _, _), for_gr, return_action_list, ext_hops =
-              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr return_action_list
-                ret_tuple_list mask_ty_list
+              add_ret_for_initial ~ext_srcs decl_gr for_gr body_gr
+                return_action_list ret_tuple_list mask_ty_list
                 (String.concat "\n" (List.map Ast.str_return_clause r))
             in
             (* Wire each RETURNS compound output port to for_gr's boundary,
@@ -8334,7 +8223,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     in
                     If1.ES.fold
                       (fun ((sn, sp), (dn, dp), ty) g ->
-                        if sn = body_cn && dn = ret_cn then (
+                        if sn = body_cn && dn = ret_cn then
                           match inner_src sp with
                           | Some s -> (
                               match List.assoc_opt s merge_of_src with
@@ -8354,7 +8243,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                     body_cn sp mn ret_cn dp;
                                   If1.add_edge mn 0 dn dp ty g
                               | None -> g)
-                          | None -> g)
+                          | None -> g
                         else g)
                       fg.If1.eset fg
                 in
@@ -8416,7 +8305,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
               mul_n;
             ((mul_n, mul_p, mul_t), outl, in_gr)
       in
-      let (mul_n, mul_p, _), ret_actions, in_gr = loopAOrB i in_gr in
+      let (mul_n, mul_p, _), ret_actions, in_gr =
+        loopAOrB i for_gr_init in_gr
+      in
       let ty =
         match ret_actions with (_, arr_ty, _, _) :: _ -> arr_ty | _ -> 0
       in
@@ -10206,21 +10097,18 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
       (function `Dv_array_of (_, _, p), _, _ -> p <> [] | _ -> false)
       return_action_list
   in
-  (if has_scatter then (
-     if List.exists (function Some _ -> true | None -> false) mask_ty_list then
-       failwith
-         "scatter returns cannot be masked (Sisal 2.0 bans masks with \
-          at/size descriptors)";
-     let aas = List.map (fun (_, _, aa) -> aa) return_action_list in
-     if List.length (List.sort_uniq compare aas) <> n_clauses then
-       failwith
-         "forall scatter with duplicated return sources not supported yet"));
+  if has_scatter then (
+    if List.exists (function Some _ -> true | None -> false) mask_ty_list then
+      failwith
+        "scatter returns cannot be masked (Sisal 2.0 bans masks with at/size \
+         descriptors)";
+    let aas = List.map (fun (_, _, aa) -> aa) return_action_list in
+    if List.length (List.sort_uniq compare aas) <> n_clauses then
+      failwith "forall scatter with duplicated return sources not supported yet");
   let total_plcs =
     List.fold_left
       (fun a (act, _, _) ->
-        match act with
-        | `Dv_array_of (_, _, p) -> a + List.length p
-        | _ -> a)
+        match act with `Dv_array_of (_, _, p) -> a + List.length p | _ -> a)
       0 return_action_list
   in
   let return_action_list =
@@ -10418,15 +10306,13 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                       | If1.Array_dv _ ->
                           let (nr, _, _), out_gr =
                             If1.add_node_2
-                              (`Simple
-                                 (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
+                              (`Simple (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
                               out_gr
                           in
                           let out_gr = If1.add_edge 0 aa nr 0 tt out_gr in
                           let (kl, _, _), out_gr =
                             If1.add_node_2
-                              (`Literal
-                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              (`Literal (If1.INTEGRAL, string_of_int k, [| "" |]))
                               out_gr
                           in
                           let (ad, _, _), out_gr =
@@ -10440,8 +10326,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                       | _ ->
                           let (kl, _, _), out_gr =
                             If1.add_node_2
-                              (`Literal
-                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              (`Literal (If1.INTEGRAL, string_of_int k, [| "" |]))
                               out_gr
                           in
                           ((kl, 0), out_gr)
@@ -10841,8 +10726,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                     If1.add_to_boundary_inputs ~namen:nm body_cn dp rg
                   in
                   to_if1_msg 3
-                    "add_return_gr_for_initial: clause#%d placement#%d \
-                     (%d,%d) -> body_cn:%d -> ret in-port %d"
+                    "add_return_gr_for_initial: clause#%d placement#%d (%d,%d) \
+                     -> body_cn:%d -> ret in-port %d"
                     idx j pn pp dp bp;
                   ( l @ [ (0, bp, pt) ],
                     rg,
@@ -10872,8 +10757,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
             let nm = Printf.sprintf "__ret_%d" idx in
             let bp, rg = If1.add_to_boundary_inputs ~namen:nm body_cn dp rg in
             to_if1_msg 3
-              "add_return_gr_for_initial: clause#%d (node=%d,port=%d) -> body_cn:%d \
-               -> ret in-port %d"
+              "add_return_gr_for_initial: clause#%d (node=%d,port=%d) -> \
+               body_cn:%d -> ret in-port %d"
               idx tn tp dp bp;
             ( ( acc @ [ (action, node_t, bp) ],
                 rg,
@@ -10883,8 +10768,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
               idx + 1 )
         | None ->
             to_if1_msg 3
-              "add_return_gr_for_initial: clause#%d no body output for (%d,%d)" idx tn
-              tp;
+              "add_return_gr_for_initial: clause#%d no body output for (%d,%d)"
+              idx tn tp;
             ((acc @ [ (action, node_t, 0) ], rg, fg, edges, hops), idx + 1))
       (([], ret_gr, in_gr, [], []), 0)
       (List.combine return_action_list ret_tuple_list)
@@ -11033,15 +10918,13 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                       | If1.Array_dv _ ->
                           let (nr, _, _), out_gr =
                             If1.add_node_2
-                              (`Simple
-                                 (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
+                              (`Simple (If1.DV_NUM_RANK, [| "" |], [| "" |], []))
                               out_gr
                           in
                           let out_gr = If1.add_edge 0 aa nr 0 tt out_gr in
                           let (kl, _, _), out_gr =
                             If1.add_node_2
-                              (`Literal
-                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              (`Literal (If1.INTEGRAL, string_of_int k, [| "" |]))
                               out_gr
                           in
                           let (ad, _, _), out_gr =
@@ -11055,8 +10938,7 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                       | _ ->
                           let (kl, _, _), out_gr =
                             If1.add_node_2
-                              (`Literal
-                                 (If1.INTEGRAL, string_of_int k, [| "" |]))
+                              (`Literal (If1.INTEGRAL, string_of_int k, [| "" |]))
                               out_gr
                           in
                           ((kl, 0), out_gr)
@@ -11093,7 +10975,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                 (in_count + 3 + List.length plcs)
                 (out_count + 1)
                 (out_lis
-                @ [ (`Dv_array_of (rank + 1, exts, plcs), what_ty, out_count) ])
+                @ [ (`Dv_array_of (rank + 1, exts, plcs), what_ty, out_count) ]
+                )
                 tl_return_action_list tl_mask_ty_list
           | `FinalVal, tt, aa ->
               let out_gr =
@@ -11187,8 +11070,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
   let in_gr =
     List.fold_left
       (fun g (b_cn, dp, bp, ty) ->
-        to_if1_msg 3 "add_return_gr_for_initial: EDGE body_cn:%d -> ret_cn(%d):%d" dp
-          cn bp;
+        to_if1_msg 3
+          "add_return_gr_for_initial: EDGE body_cn:%d -> ret_cn(%d):%d" dp cn bp;
         If1.add_edge b_cn dp cn bp ty g)
       in_gr mat_edges
   in
