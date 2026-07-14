@@ -5674,15 +5674,29 @@ let lower_to_c tm gr filename =
               List.map
                 (fun (tag_id, name, fty) ->
                   let fty_str = Ir.C_ast_print.string_of_c_type fty in
-                  C.Raw
-                    (Printf.sprintf
-                       "inline struct union_un_%d make_union_%d_%s(%s val) {\n\
-                       \  struct union_un_%d tmp = {};\n\
-                       \  tmp.tag = %d;\n\
-                       \  tmp.val.%s = val;\n\
-                       \  return tmp;\n\
-                        }"
-                       id id name fty_str id tag_id name))
+                  if fty_str = "void*" then
+                    (* NULL-payload tag (e.g. Hydrogen: null): nothing to
+                       store — take the lowered nil (an int) and ignore it *)
+                    C.Raw
+                      (Printf.sprintf
+                         "inline struct union_un_%d make_union_%d_%s(int32_t \
+                          val) {\n\
+                         \  (void)val;\n\
+                         \  struct union_un_%d tmp = {};\n\
+                         \  tmp.tag = %d;\n\
+                         \  return tmp;\n\
+                          }"
+                         id id name id tag_id)
+                  else
+                    C.Raw
+                      (Printf.sprintf
+                         "inline struct union_un_%d make_union_%d_%s(%s val) {\n\
+                         \  struct union_un_%d tmp = {};\n\
+                         \  tmp.tag = %d;\n\
+                         \  tmp.val.%s = val;\n\
+                         \  return tmp;\n\
+                          }"
+                         id id name fty_str id tag_id name))
                 tags
             in
             (acc @ [ enum_decl; struct_decl ] @ constructors, s)

@@ -2937,6 +2937,14 @@ and get_new_tagcase_graph in_gr vntt e =
        symtab entry, no port — an entry without an RHS is forbidden *)
     | `AnyTag (None, _, _, _) | `OtherwiseTag ->
         ({ tagcase_gr_n with If1.symtab = (cs_parent, ps) }, None)
+    | `AnyTag (Some _, tag_ty, _, _)
+      when (match If1.TM.find_opt tag_ty (If1.get_typemap_tm tagcase_gr_n) with
+           | Some (If1.Basic If1.NULL) -> true
+           | _ -> false) ->
+        (* a NULL-payload tag (e.g. Hydrogen: null) has no value to bind:
+           no port, no cast node, no entry — the name is simply absent in
+           this arm (referencing it there is meaningless) *)
+        ({ tagcase_gr_n with If1.symtab = (cs_parent, ps) }, None)
     | `AnyTag (Some vn_n, tag_ty, tns, union_ty) ->
         (* the payload gets an explicit PRODUCER: the union arrives on an
            ordinary fed boundary port and a VARIANT_CAST node projects the
