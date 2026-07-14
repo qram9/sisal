@@ -877,6 +877,9 @@ let rec resolve_real_port env target_gid n p =
   if n <> 0 then (target_gid, n, p)
   else
     let is_tagcase_arm g_gid =
+      (* true only for arms of a BOUND tagcase (payload slot at port 0);
+         TAGCASE_BARE compounds have no payload slot — their arm port 0,
+         if any, is an ordinary input *)
       match IntMap.find_opt g_gid env.parent_map with
       | Some (parent_gid, _) -> (
           match IntMap.find_opt parent_gid env.parent_map with
@@ -884,8 +887,12 @@ let rec resolve_real_port env target_gid n p =
               let grandparent_gr = get_graph_by_gid env grandparent_gid in
               match NM.find_opt cnid grandparent_gr.nmap with
               | Some (Compound (_, _, _, prag, _, _)) ->
-                  let c_of = get_compound_type prag in
-                  c_of = If1_tagcase
+                  get_compound_type prag = If1_tagcase
+                  && not
+                       (List.exists
+                          (function
+                            | Name "TAGCASE_BARE" -> true | _ -> false)
+                          prag)
               | _ -> false)
           | None -> false)
       | None -> false
@@ -2548,9 +2555,13 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         failwith (Printf.sprintf "TAGCASE at nid=%d: union input not found" nid)
   in
   let tags = Apple_helpers.collect_union_tags_with_ids tm union_tyid in
-  let assoc_lis =
+  let assoc_lis, is_bare =
     match node with
-    | Compound (_, _, _, _, _, assoc_lis) -> assoc_lis
+    | Compound (_, _, _, prags, _, assoc_lis) ->
+        ( assoc_lis,
+          List.exists
+            (function Name "TAGCASE_BARE" -> true | _ -> false)
+            prags )
     | _ -> assert false
   in
   let tag_mappings =
@@ -2600,7 +2611,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
           pre_declare_graph_locals env_child arm_gr sub_gid
         in
         let payload_init_stmt, env_child =
-          if is_otherwise then ([], env_child)
+          if is_otherwise || is_bare then ([], env_child)
           else
             let _, tag_id, tname, tty = List.hd cases in
             let p_type = tty in
@@ -2632,19 +2643,24 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
             else init_boundary_ports env_child loop_gr dest_nid arm_gr sub_gid
           in
           let stmts, e = init_ports_res in
+          (* with a payload slot, port 0's init is replaced by the payload
+             binding above; a bare tagcase has no slot — port 0 (if any) is
+             an ordinary input whose init must be kept *)
           let filtered_stmts =
-            List.filter
-              (fun stmt ->
-                let p_var =
-                  Printf.sprintf "v_%s_n__0_p0_i"
-                    (scope_of env.gid_name_map sub_gid)
-                in
-                match stmt with
-                | C.Decl (_, var_name, _) -> var_name <> p_var
-                | C.Expr (C.BinOp (C.Assign, C.Id var_name, _)) ->
-                    var_name <> p_var
-                | _ -> true)
-              stmts
+            if is_bare then stmts
+            else
+              List.filter
+                (fun stmt ->
+                  let p_var =
+                    Printf.sprintf "v_%s_n__0_p0_i"
+                      (scope_of env.gid_name_map sub_gid)
+                  in
+                  match stmt with
+                  | C.Decl (_, var_name, _) -> var_name <> p_var
+                  | C.Expr (C.BinOp (C.Assign, C.Id var_name, _)) ->
+                      var_name <> p_var
+                  | _ -> true)
+                stmts
           in
           (filtered_stmts, e)
         in
