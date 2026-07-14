@@ -3511,7 +3511,11 @@ and bin_exp a b in_gr node_tag =
     | _ ->
         (* Scalar logic (widening) *)
         let (c, pi1, qq1), (d, pi2, qq2), common_ty, in_gr =
-          if qq1 = qq2 then ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
+          (* tyid equality first; else STRUCTURAL equivalence — recursive
+             union/record types mint distinct ids per reference, so number
+             equality is too strong (interning cannot unify them yet) *)
+          if qq1 = qq2 || If1.resolve_and_compare in_gr [] qq1 qq2 then
+            ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
           else
             match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
             | Some r1, Some r2 ->
@@ -6695,8 +6699,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    0,
                    (* no bound/bare marker needed: the payload has an
                       explicit producer (VARIANT_CAST) inside bound arms;
-                      bare arms simply contain none *)
-                   [ If1.Name "If1.TAGCASE"; If1.Compound_of If1.If1_tagcase ],
+                      bare arms simply contain none.  UNION_PORT pins WHICH
+                      in-edge carries the dispatch value — selecting it "by
+                      union type" is ambiguous once nesting imports other
+                      union-typed values into the compound. *)
+                   [
+                     If1.Name "If1.TAGCASE";
+                     If1.Name ("UNION_PORT_" ^ string_of_int union_port);
+                     If1.Compound_of If1.If1_tagcase;
+                   ],
                    assoc_lis ))
               in_gr
           in

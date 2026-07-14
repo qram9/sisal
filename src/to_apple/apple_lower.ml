@@ -2521,11 +2521,33 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
     { env with parent_map = IntMap.add loop_gid (gid, nid) env.parent_map }
   in
   let decl_stmts, env = declare_outputs env parent_gr gid nid node in
+  let union_port_opt =
+    match node with
+    | Compound (_, _, _, prags, _, _) ->
+        List.fold_left
+          (fun acc p ->
+            match (acc, p) with
+            | None, Name s
+              when String.length s > 11
+                   && String.sub s 0 11 = "UNION_PORT_" ->
+                int_of_string_opt (String.sub s 11 (String.length s - 11))
+            | _ -> acc)
+          None prags
+    | _ -> None
+  in
   let union_expr, union_tyid =
     match
       ES.fold
         (fun (src, dst, ty) acc ->
-          if fst dst = nid then
+          if
+            fst dst = nid
+            (* the UNION_PORT pragma pins the dispatch edge; by-type
+               fallback is ambiguous when several union-typed values
+               enter the compound (nested tagcases) *)
+            && (match union_port_opt with
+               | Some p -> snd dst = p
+               | None -> true)
+          then
             let ty =
               match TM.find_opt ty !Apple_helpers.global_alias_map with
               | Some leader -> leader

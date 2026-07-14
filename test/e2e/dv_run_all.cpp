@@ -861,6 +861,15 @@ struct FUNC_MAIN_results {
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
 #endif
+#ifdef TEST_MEMBER_DV
+struct FUNC_MAIN_results {   // Paraffins: dot-mask, seq-mask, IsMember hit, IsMember miss
+  int32_t res_0;
+  int32_t res_1;
+  bool res_2;
+  bool res_3;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(void);
+#endif
 #ifdef TEST_RICARD_DV
 struct FUNC_MAIN_results {   // ricard chromatography: VOL, CTM, CTL, 7 totals, JSTOR, STOR, PERCENT, HL
   double res_0;
@@ -6119,6 +6128,22 @@ static void test_multibind_dv(void) {
     if (r.res_1.data) free(r.res_1.data);
 }
 #endif
+#ifdef TEST_MEMBER_DV
+// Paraffins structural equality/membership over recursive unions
+// (Radical = Hydrogen | Carbon: array_dv[Radical]).  Ground truth by
+// construction: P1=HHHH, P2=P2b=C(HHH)HHH, P3=HHC(HHH)H.
+// dot/seq masks: bit8 P1==P1 (T), bit4 P1==P2 (F), bit2 P2==P2b (T,
+// deep equality of separately built values), bit1 P2==P3 (F) -> 10.
+// IsMember({P1,P2}, P2b) = true; IsMember({P1,P2}, P3) = false.
+static void test_member_dv(void) {
+    printf("\n=== Group: member_dv (Paraffins recursive unions, tagcase) ===\n");
+    struct FUNC_MAIN_results r = func_MAIN();
+    check("member_dv dot-forall equality mask == 10", r.res_0 == 10);
+    check("member_dv sequential equality mask == 10", r.res_1 == 10);
+    check("member_dv IsMember(set, deep-equal copy) == true", r.res_2);
+    check("member_dv IsMember(set, different paraffin) == false", !r.res_3);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7201,6 +7226,9 @@ main (void)
 #ifdef TEST_MULTIBIND_DV
   test_multibind_dv ();
 #endif
+#ifdef TEST_MEMBER_DV
+  test_member_dv ();
+#endif
 #ifdef TEST_RICARD_DV
   test_ricard_dv ();
 #endif
@@ -7540,7 +7568,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
-    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV)                \
+    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

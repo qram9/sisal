@@ -73,13 +73,6 @@ let fresh_name env base =
 (** [get_port_name env gr nid pid dir] finds a descriptive name for a port. *)
 let get_port_name _env gr nid pid dir =
   let cs, _ps = gr.symtab in
-  if nid = 0 && pid = 2 then (
-    Printf.eprintf "GET_PORT_NAME nid=0 pid=2 cs contents:\n";
-    SM.iter
-      (fun name v ->
-        Printf.eprintf "  %s -> val_def=%d, def_port=%d\n" name v.val_def
-          v.def_port)
-      cs);
   SM.fold
     (fun raw_name v acc ->
       if acc <> None then acc

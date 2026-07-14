@@ -3132,15 +3132,23 @@ and structurally_equal in_gr seen t1 t2 =
   | _, _ -> false
 
 and resolve_and_compare in_gr seen id1 id2 =
-  (* If we've already compared these two labels in this recursion branch,
-     we've hit a cycle (like a recursive Record). Assume they match. *)
-  if List.exists (fun (l1, l2) -> l1 = id1 && l2 = id2) seen then true
+  (* REFLEXIVITY FIRST: an id is always the same type as itself — this
+     must not depend on resolvability.  Recursive types (union Radical =
+     ...Carbon: array_dv[Radical]) currently leave an unresolved
+     placeholder id (-2) where the knot should be tied; two references to
+     the same chain share that id, and the old missing-missing arm
+     (which accepted only 0, the chain terminator) declared the type
+     UNEQUAL TO ITSELF. *)
+  if id1 = id2 then true
+    (* If we've already compared these two labels in this recursion branch,
+       we've hit a cycle (like a recursive Record). Assume they match. *)
+  else if List.exists (fun (l1, l2) -> l1 = id1 && l2 = id2) seen then true
   else
     let tm = get_typemap_tm in_gr in
     match (TM.find_opt id1 tm, TM.find_opt id2 tm) with
     | Some ty1, Some ty2 ->
         structurally_equal in_gr ((id1, id2) :: seen) ty1 ty2
-    | None, None -> id1 = 0 && id2 = 0 (* null terminator at end of chain *)
+    | None, None -> id1 = id2 (* both dangling: equal only if same id *)
     | _ -> false
 
 and lookup_ty ij in_gr =

@@ -1,0 +1,112 @@
+% member_dv — Paraffins structural equality + membership (memberi/memberii
+% merged, all arrays array_dv).  Exercises the union/tagcase stack end to
+% end: recursive union (Carbon: array_dv[Radical]), null-payload tags
+% (Hydrogen: nil), dv gathers of union values, dot- and index-iteration
+% over union elements, recursive tagcase dispatch, and a flat rank-2
+% array_dv[Radical] "class" with rank-reducing row slices.
+define Main
+
+type Radical  = union[ Hydrogen: null; Carbon: array_dv[ Radical ] ]
+type Paraffin = array_dv[ Radical ]
+type Class    = array_dv[ Radical ]   % flat rank-2: one Paraffin per row
+
+function MkH( returns Radical )
+  union Radical[ Hydrogen: nil ]
+end function
+
+function MkC3( returns Radical )   % a carbon holding three hydrogens
+  union Radical[ Carbon: for i in 1, 3 returns array_dv of MkH() end for ]
+end function
+
+% ALL paraffins come from this one constructor so every value carries the
+% same declared type id (independent gathers of the recursive union type
+% mint distinct ids the type table cannot yet unify).
+function MkP( c_at: integer returns Paraffin )
+  for i in 1, 4
+  returns array_dv of (if i = c_at then MkC3() else MkH() end if)
+  end for
+end function
+
+% memberi's variant: dot iteration + product reduction
+function AreEqualDot( A, B: Paraffin returns Boolean )
+  for RadicalA in A dot RadicalB in B
+    Equiv :=
+      tagcase L := RadicalA
+      tag Hydrogen:
+        % is Hydrogen(RadicalB) — spelled as a bare tagcase: the `is`
+        % construct has no working C lowering yet
+        tagcase RadicalB
+        tag Hydrogen: true
+        tag Carbon: false
+        end tagcase
+      tag Carbon:
+        tagcase R := RadicalB
+        tag Hydrogen: false
+        tag Carbon: AreEqualDot( L, R )
+        end tagcase
+      end tagcase
+  returns value of product Equiv
+  end for
+end function
+
+% memberii's variant: sequential for-initial walk
+function AreEqualSeq( A, B: Paraffin returns Boolean )
+  for initial
+    i := 1;
+    Agreement := true;
+  while Agreement & i <= array_size( A ) repeat
+    RadicalA := A[ old i ];
+    RadicalB := B[ old i ];
+    Agreement :=
+      tagcase L := RadicalA
+      tag Hydrogen:
+        tagcase RadicalB
+        tag Hydrogen: true
+        tag Carbon: false
+        end tagcase
+      tag Carbon:
+        tagcase R := RadicalB
+        tag Hydrogen: false
+        tag Carbon: AreEqualSeq( L, R )
+        end tagcase
+      end tagcase;
+    i := old i + 1
+  returns value of Agreement
+  end for
+end function
+
+function IsMember( Set: Class; nrows: integer; Candidate: Paraffin
+                   returns Boolean )
+  for initial
+    i := 1;
+    Membership := AreEqualDot( Set[ 1, .. ], Candidate )
+  while i < nrows & ~Membership repeat
+    i := old i + 1;
+    Membership := AreEqualDot( Set[ i, .. ], Candidate )
+  returns value of Membership
+  end for
+end function
+
+function Main( returns integer, integer, Boolean, Boolean )
+  let
+    P1 := MkP( 0 );
+    P2 := MkP( 1 );
+    P2b := MkP( 1 );
+    P3 := MkP( 3 );
+
+    dotmask := (if AreEqualDot( P1, P1 )  then 8 else 0 end if) +
+               (if AreEqualDot( P1, P2 )  then 4 else 0 end if) +
+               (if AreEqualDot( P2, P2b ) then 2 else 0 end if) +
+               (if AreEqualDot( P2, P3 )  then 1 else 0 end if);
+    seqmask := (if AreEqualSeq( P1, P1 )  then 8 else 0 end if) +
+               (if AreEqualSeq( P1, P2 )  then 4 else 0 end if) +
+               (if AreEqualSeq( P2, P2b ) then 2 else 0 end if) +
+               (if AreEqualSeq( P2, P3 )  then 1 else 0 end if);
+
+    Set := for i in 1, 2
+           returns array_dv of (if i = 1 then P1 else P2 end if)
+           end for
+  in
+    dotmask, seqmask, IsMember( Set, 2, P2b ), IsMember( Set, 2, P3 )
+  end let
+end function
