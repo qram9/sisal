@@ -1,0 +1,12 @@
+% Local function definitions inside a let are rejected: the parallel-copy
+% binding lowers all right-hand sides as values into the let graph, and a
+% function body is not a value. Define functions separately.
+define Main
+
+function Main( n : integer returns integer )
+  let
+    f( x : integer returns integer ) := x + 1
+  in
+    n
+  end let
+end function

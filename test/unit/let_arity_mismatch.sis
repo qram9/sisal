@@ -1,0 +1,11 @@
+% Multi-bind arity is strict: each name binds exactly one value, positionally.
+% No implicit packing -- 2 names cannot absorb 3 values.
+define Main
+
+function Main( n : integer returns integer, integer )
+  let
+    a, b := n + 1, n * 2, n - 3
+  in
+    a, b
+  end let
+end function

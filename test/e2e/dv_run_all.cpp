@@ -854,6 +854,13 @@ extern "C" sisal_array_t func_MAIN(int32_t M, int32_t Cycles);  // convolution Y
 #ifdef TEST_LAPLACE_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Cols);  // Laplace relaxation -> flat 2-D grid
 #endif
+#ifdef TEST_MULTIBIND_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0;
+  sisal_array_t res_1;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+#endif
 #ifdef TEST_RICARD_DV
 struct FUNC_MAIN_results {   // ricard chromatography: VOL, CTM, CTL, 7 totals, JSTOR, STOR, PERCENT, HL
   double res_0;
@@ -2852,10 +2859,6 @@ test_lu_npiv_dv (void)
   sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
   sisal_array_t Bin = make_double_arr (flat_B, 3);
   sisal_array_t r = func_MAIN (3, Ain, Bin);
-  printf("DEBUG LU_NPIV: size = %lld, data = %p\n", (long long)r.size, r.data);
-  if (r.data && r.size >= 3) {
-    printf("DEBUG LU_NPIV: x = [%f, %f, %f]\n", ((double*)r.data)[0], ((double*)r.data)[1], ((double*)r.data)[2]);
-  }
   check ("lu_npiv_dv result size == 3", r.size == 3);
   check ("lu_npiv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
   check ("lu_npiv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
@@ -2879,10 +2882,6 @@ test_lu_piv_dv (void)
   sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
   sisal_array_t Bin = make_double_arr (flat_B, 3);
   sisal_array_t r = func_MAIN (3, Ain, Bin);
-  printf("DEBUG LU_PIV: size = %lld, data = %p\n", (long long)r.size, r.data);
-  if (r.data && r.size >= 3) {
-    printf("DEBUG LU_PIV: x = [%f, %f, %f]\n", ((double*)r.data)[0], ((double*)r.data)[1], ((double*)r.data)[2]);
-  }
   check ("lu_piv_dv result size == 3", r.size == 3);
   check ("lu_piv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
   check ("lu_piv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
@@ -4206,23 +4205,42 @@ static void
 test_cfft_dv (void)
 {
   printf ("\n=== Group: cfft_dv (Cray-2 FFT) ===\n");
-  struct FUNC_MAIN_results r = func_MAIN(4);
-  check ("r.res_0 size == 16", r.res_0.size == 16);
-  check ("r.res_1 size == 16", r.res_1.size == 16);
+  // Reference: naive DFT in this FFT's convention (initsfft builds
+  // wr = cos, wi = +sin, so X[k] = sum_j x[j] * e^{+2*pi*i*j*k/n}); the
+  // Cray FFT leaves the spectrum in scrambled (digit-reversed) order, so
+  // the check is permutation-invariant: every DFT bin must appear exactly
+  // once in the output (greedy matching).
+  // NB the previous hardcoded expected values were snapshots of a compiler
+  // bug (let-multi-bind duplicated wr into wi, so the sin table was the
+  // cos table); see multibind_dv.
+  for (int lg = 2; lg <= 4; lg++) {
+    int n = 1 << lg;
+    struct FUNC_MAIN_results r = func_MAIN(lg);
+    char nm[80];
+    sprintf(nm, "cfft(%d) output sizes == %d", lg, n);
+    check (nm, (int)r.res_0.size == n && (int)r.res_1.size == n);
 
-  float ref_real[16] = {24, -8, -8, -8, 24, -8, -8, -8, 24, -8, -8, -8, 24, -8, -8, -8};
-  float ref_imag[16] = {0, -8, 0, 8, 0, -8, 0, 8, 0, -8, 0, 8, 0, -8, 0, 8};
-
-  for (int i = 0; i < 16; i++) {
-    char name0[64], name1[64];
-    sprintf(name0, "r.res_0[%d] == %f", i, ref_real[i]);
-    sprintf(name1, "r.res_1[%d] == %f", i, ref_imag[i]);
-    check (name0, fabs(((float*)r.res_0.data)[i] - ref_real[i]) < 1e-4);
-    check (name1, fabs(((float*)r.res_1.data)[i] - ref_imag[i]) < 1e-4);
+    float *gr = (float*)r.res_0.data, *gi = (float*)r.res_1.data;
+    bool *used = (bool*)calloc(n, sizeof(bool));
+    int unmatched = 0;
+    for (int k = 0; k < n; k++) {
+      double Xr = 0, Xi = 0;
+      for (int j = 0; j < n; j++) {
+        double th = 2.0*M_PI*j*k/n;
+        Xr += j*cos(th); Xi += j*sin(th);
+      }
+      double m = fmax(1.0, fmax(fabs(Xr), fabs(Xi)));
+      int hit = -1;
+      for (int t = 0; t < n && hit < 0; t++)
+        if (!used[t] && fabs(gr[t]-Xr) < 5e-3*m && fabs(gi[t]-Xi) < 5e-3*m) hit = t;
+      if (hit >= 0) used[hit] = true; else unmatched++;
+    }
+    sprintf(nm, "cfft(%d) output is a permutation of the DFT spectrum", lg);
+    check (nm, unmatched == 0);
+    free(used);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
   }
-
-  if (r.res_0.data) free(r.res_0.data);
-  if (r.res_1.data) free(r.res_1.data);
 }
 #endif
 
@@ -6077,6 +6095,30 @@ static void test_laplace_dv(void) {
     if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_MULTIBIND_DV
+// Regression pin: let-statement multi-bind `a, b := e1, e2` with a LIST of
+// single-valued rhs expressions.  The frontend used to re-lower e1 for b,
+// making b a structural duplicate of a (to_if1 pop_or_push_to_exp_stack2
+// did not consume the rhs head).  a = [1..n, 1.5..], b = 10*a pattern.
+static void test_multibind_dv(void) {
+    printf("\n=== Group: multibind_dv (let multi-bind of separate exprs) ===\n");
+    const int n = 3;
+    struct FUNC_MAIN_results r = func_MAIN(n);
+    // reference: a = x1 || x2, b = y1 || y2 with x=i, x2=i+0.5, y=10i, y2=10i+0.5
+    float ea[6], eb[6];
+    for (int i = 1; i <= n; i++) {
+        ea[i-1] = (float)i;        ea[n+i-1] = (float)i + 0.5f;
+        eb[i-1] = (float)i*10.0f;  eb[n+i-1] = (float)i*10.0f + 0.5f;
+    }
+    bool ok = ((int)r.res_0.size == 2*n) && ((int)r.res_1.size == 2*n);
+    for (int k = 0; ok && k < 2*n; k++)
+        ok = fabs(((float*)r.res_0.data)[k] - ea[k]) < 1e-6
+          && fabs(((float*)r.res_1.data)[k] - eb[k]) < 1e-6;
+    check("multibind a,b := x1||x2, y1||y2 binds each name to its own expr", ok);
+    if (r.res_0.data) free(r.res_0.data);
+    if (r.res_1.data) free(r.res_1.data);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7156,6 +7198,9 @@ main (void)
 #ifdef TEST_LAPLACE_DV
   test_laplace_dv ();
 #endif
+#ifdef TEST_MULTIBIND_DV
+  test_multibind_dv ();
+#endif
 #ifdef TEST_RICARD_DV
   test_ricard_dv ();
 #endif
@@ -7495,7 +7540,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
-    && !defined(TEST_RICARD_DV)                                               \
+    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

@@ -35,3 +35,15 @@ Replace value type must match the array element type (integer into array of real
   Replace element not the correct type: array is array_dv[REAL], value is INTEGRAL near "" in file: unit/replace_wrong_type_int.sis (line 7: char 0..0)
   there was an error: Ir.If1.Sem_error("Replace element not the correct type: array is array_dv[REAL], value is INTEGRAL")
   [1]
+
+Local function definition in a let binding (parallel-copy binding takes values only):
+  $ sisal unit/let_local_fn.sis 2>&1
+  Local function definitions are not supported in a let binding; define the function separately near "" in file: unit/let_local_fn.sis (line 13: char 0..0)
+  there was an error: Ir.If1.Sem_error("Local function definitions are not supported in a let binding; define the function separately")
+  [1]
+
+Multi-bind arity is strict - 2 names cannot absorb 3 values (no implicit packing):
+  $ sisal unit/let_arity_mismatch.sis 2>&1
+  Definition binds 2 name(s) but its right-hand side produces 3 value(s); names and values must correspond one-to-one near "" in file: unit/let_arity_mismatch.sis (line 12: char 0..0)
+  there was an error: Ir.If1.Sem_error("Definition binds 2 name(s) but its right-hand side produces 3 value(s); names and values must correspond one-to-one")
+  [1]
