@@ -2933,6 +2933,11 @@ and get_new_tagcase_graph in_gr vntt e =
   in
   let in_gr_ =
     match vntt with
+    (* bare form (tagcase <expr>): there IS no payload name — adding the
+       __tagcase_expr__ pseudo-binding at (0,0) leaks into nested compound
+       wiring (verify_compound_inputs fails on nested bare tagcases) *)
+    | `AnyTag (vn_n, _, _) when vn_n = "__tagcase_expr__" ->
+        { tagcase_gr_n with If1.symtab = (cs_parent, ps) }
     | `AnyTag (vn_n, uniontt, _) ->
         {
           tagcase_gr_n with
@@ -3089,17 +3094,19 @@ and new_graph_for_tag_case vn_n t1 u_name in_gr =
   let a_new_gr = If1.get_a_new_graph tagcase_gr_ in
   let _, a_new_gr = If1.add_to_boundary_inputs ~namen:vn_n 0 0 a_new_gr in
   (* add the tagcase's variable name, for example:
-      tagcase "P", add P *)
-  (* need a new graph here in a compound node *)
+      tagcase "P", add P — but NOT for the bare form's __tagcase_expr__
+      pseudo-name (no payload binding exists; see get_new_tagcase_graph) *)
   let cs =
-    If1.SM.add vn_n
-      {
-        If1.val_name = vn_n;
-        If1.val_ty = t1;
-        If1.val_def = 0;
-        If1.def_port = 0;
-      }
-      cs
+    if vn_n = "__tagcase_expr__" then cs
+    else
+      If1.SM.add vn_n
+        {
+          If1.val_name = vn_n;
+          If1.val_ty = t1;
+          If1.val_def = 0;
+          If1.def_port = 0;
+        }
+        cs
   in
   let a_new_gr, cs, _ =
     If1.SM.fold
