@@ -230,6 +230,11 @@ type node_sym =
     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
   | DV_RANK_REDUCE
     (* DV_RANK_REDUCE(A, i) → zero-copy view with rank-1 less; fixes dimension 0 at index i *)
+  | VARIANT_CAST
+    (* VARIANT_CAST(u) → the payload of union value u viewed as one tag's
+       type; the tag name rides a Name pragma.  Placed inside a tagcase arm
+       it is the payload's PRODUCER — the value the dispatch protocol used
+       to deliver invisibly at arm port 0 now has an explicit node. *)
   | DV_RANK_REPLACE
     (* DV_RANK_REPLACE(A, i, slice) → new A with the rank-(N-1) slice at leading index i copied from `slice` *)
   | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
@@ -3673,6 +3678,7 @@ and node_sym_to_num = function
   | DV_COMPRESS -> 86
   | DV_OUTERPRODUCT -> 87
   | DV_RANK_REDUCE -> 130
+  | VARIANT_CAST -> 133
   | DV_RANK_REPLACE -> 132
   | DV_GRADE_UP -> 88
   | DV_GRADE_DOWN -> 89
@@ -3864,6 +3870,7 @@ and string_of_node_sym = function
   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
   | DV_RANK_REDUCE -> "DV_RANK_REDUCE"
+  | VARIANT_CAST -> "VARIANT_CAST"
   | DV_RANK_REPLACE -> "DV_RANK_REPLACE"
   | CONV_H -> "CONV_H"
   | CONV_V -> "CONV_V"

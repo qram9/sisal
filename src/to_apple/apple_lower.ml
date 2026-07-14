@@ -876,33 +876,12 @@ let infer_types env gr gid =
 let rec resolve_real_port env target_gid n p =
   if n <> 0 then (target_gid, n, p)
   else
-    let is_tagcase_arm g_gid =
-      (* true only for arms of a BOUND tagcase (payload slot at port 0);
-         TAGCASE_BARE compounds have no payload slot — their arm port 0,
-         if any, is an ordinary input *)
-      match IntMap.find_opt g_gid env.parent_map with
-      | Some (parent_gid, _) -> (
-          match IntMap.find_opt parent_gid env.parent_map with
-          | Some (grandparent_gid, cnid) -> (
-              let grandparent_gr = get_graph_by_gid env grandparent_gid in
-              match NM.find_opt cnid grandparent_gr.nmap with
-              | Some (Compound (_, _, _, prag, _, _)) ->
-                  get_compound_type prag = If1_tagcase
-                  && not
-                       (List.exists
-                          (function
-                            | Name "TAGCASE_BARE" -> true | _ -> false)
-                          prag)
-              | _ -> false)
-          | None -> false)
-      | None -> false
-    in
-    (* Try to find edge in parent graph first *)
+    (* Try to find edge in parent graph first.  (The tagcase payload needs
+       no special case anymore: it has an explicit producer — a
+       VARIANT_CAST node inside the arm — so boundary references here are
+       ordinary fed ports.) *)
     let edge_src_opt =
-      let is_tagcase_payload = is_tagcase_arm target_gid && p = 0 in
-      if is_tagcase_payload then None
-      else
-        match IntMap.find_opt target_gid env.parent_map with
+      match IntMap.find_opt target_gid env.parent_map with
         | Some (parent_gid, cnid) -> (
             let parent_gr = get_graph_by_gid env parent_gid in
             let matching_edge =
@@ -948,7 +927,6 @@ let rec resolve_real_port env target_gid n p =
                     | _ -> false)
                 | None -> false
               in
-              let is_tagcase = is_tagcase_arm g_gid in
               match SM.find_opt name g_cs with
               | Some v -> (
                   if v.val_def <> 0 then (g_gid, v.val_def, v.def_port)
@@ -1021,8 +999,6 @@ let rec resolve_real_port env target_gid n p =
                       match IntMap.find_opt g_gid env.parent_map with
                       | Some (parent_gid, _) -> walk parent_gid
                       | None -> (g_gid, 0, v.def_port)
-                  else if is_tagcase && v.def_port = 0 then
-                    (g_gid, 0, v.def_port)
                   else
                     match IntMap.find_opt g_gid env.parent_map with
                     | Some (parent_gid, _) -> walk parent_gid
@@ -1133,7 +1109,6 @@ let rec resolve_real_port env target_gid n p =
                       | None -> None
                     in
                     match bp_opt with
-                    | Some bp when is_tagcase && bp = 0 -> (g_gid, 0, bp)
                     | _ -> (
                         match IntMap.find_opt g_gid env.parent_map with
                         | Some (parent_gid, _) -> walk parent_gid
@@ -1637,6 +1612,19 @@ and lower_simple env gr nid sym pin pout pr =
     | NOT_EQUAL -> C.BinOp (C.Ne, e1, e2)
     | NOT -> C.UnaryOp (C.LogNot, e1)
     | NEGATE -> C.UnaryOp (C.Negate, e1)
+    | VARIANT_CAST ->
+        (* the tagcase payload's explicit producer: union value on port 0,
+           tag member name riding the node's Name pragma *)
+        let member =
+          match List.find_opt (function Name _ -> true | _ -> false) pr with
+          | Some (Name t) -> t
+          | _ ->
+              failwith
+                (Printf.sprintf
+                   "VARIANT_CAST without a tag-name pragma at gid=%d nid=%d"
+                   gid nid)
+        in
+        C.Member (e1, "val." ^ member)
     | ERROR_NODE -> (
         match default_init_for t_res with Some e -> e | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)
@@ -2555,13 +2543,9 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         failwith (Printf.sprintf "TAGCASE at nid=%d: union input not found" nid)
   in
   let tags = Apple_helpers.collect_union_tags_with_ids tm union_tyid in
-  let assoc_lis, is_bare =
+  let assoc_lis =
     match node with
-    | Compound (_, _, _, prags, _, assoc_lis) ->
-        ( assoc_lis,
-          List.exists
-            (function Name "TAGCASE_BARE" -> true | _ -> false)
-            prags )
+    | Compound (_, _, _, _, _, assoc_lis) -> assoc_lis
     | _ -> assert false
   in
   let tag_mappings =
@@ -2610,30 +2594,12 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         let pre_decl, env_child =
           pre_declare_graph_locals env_child arm_gr sub_gid
         in
-        let payload_init_stmt, env_child =
-          if is_otherwise || is_bare then ([], env_child)
-          else
-            let _, tag_id, tname, tty = List.hd cases in
-            let p_type = tty in
-            let p_var =
-              Printf.sprintf "v_%s_n__0_p0_i"
-                (scope_of env.gid_name_map sub_gid)
-            in
-            let p_expr = C.Member (union_expr, "val." ^ tname) in
-            let stmt = C.Decl (p_type, p_var, Some p_expr) in
-            let env_child =
-              {
-                env_child with
-                var_map =
-                  FullPortMap.add (sub_gid, 0, 0, `Out) (C.Id p_var)
-                    env_child.var_map;
-                type_table =
-                  FullPortMap.add (sub_gid, 0, 0, `Out) p_type
-                    env_child.type_table;
-              }
-            in
-            ([ stmt ], env_child)
-        in
+        (* No payload synthesis here anymore: the payload's producer is a
+           VARIANT_CAST node inside the arm graph, lowered like any node;
+           the union value reaches the arm through an ordinary fed port. *)
+        let payload_init_stmt, env_child = ([], env_child) in
+        ignore is_otherwise;
+        ignore cases;
         let other_in_stmts, env_child =
           let init_ports_res =
             if
@@ -2642,27 +2608,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
             then ([], env_child)
             else init_boundary_ports env_child loop_gr dest_nid arm_gr sub_gid
           in
-          let stmts, e = init_ports_res in
-          (* with a payload slot, port 0's init is replaced by the payload
-             binding above; a bare tagcase has no slot — port 0 (if any) is
-             an ordinary input whose init must be kept *)
-          let filtered_stmts =
-            if is_bare then stmts
-            else
-              List.filter
-                (fun stmt ->
-                  let p_var =
-                    Printf.sprintf "v_%s_n__0_p0_i"
-                      (scope_of env.gid_name_map sub_gid)
-                  in
-                  match stmt with
-                  | C.Decl (_, var_name, _) -> var_name <> p_var
-                  | C.Expr (C.BinOp (C.Assign, C.Id var_name, _)) ->
-                      var_name <> p_var
-                  | _ -> true)
-                stmts
-          in
-          (filtered_stmts, e)
+          init_ports_res
         in
         let body_stmts, env_child =
           let sorted = topo_sort arm_gr in

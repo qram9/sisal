@@ -2931,27 +2931,49 @@ and get_new_tagcase_graph in_gr vntt e =
         }
     | _ -> tagcase_gr_n
   in
-  let in_gr_ =
+  let in_gr_, union_port_opt =
     match vntt with
-    (* bare form (tagcase <expr>): no payload name exists, so no symtab
-       entry is made — an entry without an RHS would leak into nested
-       compound wiring (verify_compound_inputs on nested bare tagcases) *)
-    | `AnyTag (None, _, _) | `OtherwiseTag ->
-        { tagcase_gr_n with If1.symtab = (cs_parent, ps) }
-    | `AnyTag (Some vn_n, uniontt, _) ->
-        {
-          tagcase_gr_n with
-          If1.symtab =
-            ( If1.SM.add vn_n
-                {
-                  If1.val_name = vn_n;
-                  If1.val_ty = uniontt;
-                  If1.val_def = 0;
-                  If1.def_port = 0;
-                }
-                cs_parent,
-              ps );
-        }
+    (* bare form (tagcase <expr>) and otherwise arms bind nothing: no
+       symtab entry, no port — an entry without an RHS is forbidden *)
+    | `AnyTag (None, _, _, _) | `OtherwiseTag ->
+        ({ tagcase_gr_n with If1.symtab = (cs_parent, ps) }, None)
+    | `AnyTag (Some vn_n, tag_ty, tns, union_ty) ->
+        (* the payload gets an explicit PRODUCER: the union arrives on an
+           ordinary fed boundary port and a VARIANT_CAST node projects the
+           tag's payload from it; vn_n binds to the cast node — a real RHS
+           replacing the old invisible arm-port-0 delivery protocol *)
+        let uport_local, tagcase_gr_n =
+          If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" 0 0
+            tagcase_gr_n
+        in
+        let member =
+          match tns with
+          | t :: _ -> t
+          | [] -> raise (If1.Sem_error "tagcase arm without tag names")
+        in
+        let (cast_n, cast_p, _), tagcase_gr_n =
+          If1.add_node_2
+            (`Simple
+               (If1.VARIANT_CAST, [| "" |], [| "" |], [ If1.Name member ]))
+            tagcase_gr_n
+        in
+        let tagcase_gr_n =
+          If1.add_edge 0 uport_local cast_n 0 union_ty tagcase_gr_n
+        in
+        ( {
+            tagcase_gr_n with
+            If1.symtab =
+              ( If1.SM.add vn_n
+                  {
+                    If1.val_name = vn_n;
+                    If1.val_ty = tag_ty;
+                    If1.val_def = cast_n;
+                    If1.def_port = cast_p;
+                  }
+                  cs_parent,
+                ps );
+          },
+          Some uport_local )
   in
   (* There may be an expression list
       returning multiple values in the
@@ -2967,7 +2989,7 @@ and get_new_tagcase_graph in_gr vntt e =
       liked to have here -- *)
   let prags_sth =
     match vntt with
-    | `AnyTag (_, _, bii) ->
+    | `AnyTag (_, _, bii, _) ->
         [
           If1.Name (List.fold_right (fun x y -> If1.cate_nicer x y ",") bii "");
           If1.Compound_of If1.If1_tagcase_arm;
@@ -2976,8 +2998,9 @@ and get_new_tagcase_graph in_gr vntt e =
         [ If1.Name "Otherwise"; If1.Compound_of If1.If1_tagcase_arm ]
   in
   (* return the output types in jj,
-      pragmas and updated graph likewise *)
-  (outs_, prags_sth, in_gr_)
+      pragmas, updated graph, and the arm-local port carrying the union
+      (Some only for bound arms — tag_builder wires the compound edge) *)
+  (outs_, prags_sth, in_gr_, union_port_opt)
 
 (* Helper to strip Monad/Error edges from the comparison map *)
 and filter_data_types in_gr ty_map =
@@ -3091,28 +3114,11 @@ and new_graph_for_tag_case vn_opt t1 in_gr =
   let tmm = tagcase_gr_.typemap in
 
   let a_new_gr = If1.get_a_new_graph tagcase_gr_ in
-  (* the payload slot (boundary port 0 + symtab entry) exists only for the
-     BOUND form `tagcase X := e`; the bare form binds nothing, so nothing
-     is reserved — no entry without an RHS *)
-  let a_new_gr, cs, first_port =
-    match vn_opt with
-    | Some vn_n ->
-        let _, a_new_gr =
-          If1.add_to_boundary_inputs ~namen:vn_n 0 0 a_new_gr
-        in
-        let cs =
-          If1.SM.add vn_n
-            {
-              If1.val_name = vn_n;
-              If1.val_ty = t1;
-              If1.val_def = 0;
-              If1.def_port = 0;
-            }
-            cs
-        in
-        (a_new_gr, cs, 1)
-    | None -> (a_new_gr, cs, 0)
-  in
+  (* No payload slot is reserved for either form: the bound form's payload
+     now has a real producer (a VARIANT_CAST node) inside each arm, and the
+     bare form binds nothing.  A name that shadows the payload name is
+     still skipped from the eager import (the arms rebind it). *)
+  ignore t1;
   let a_new_gr, cs, _ =
     If1.SM.fold
       (fun name entry (gr, cs_acc, next_port) ->
@@ -3127,7 +3133,7 @@ and new_graph_for_tag_case vn_opt t1 in_gr =
           in
           let cs_acc = If1.SM.add name entry' cs_acc in
           (gr, cs_acc, next_port + 1))
-      parent_cs (a_new_gr, cs, first_port)
+      parent_cs (a_new_gr, cs, 0)
   in
   { a_new_gr with If1.symtab = (cs, ps); If1.typemap = tmm }
 
@@ -3188,14 +3194,15 @@ and check_tag_types vn_n jj prev in_gr =
          ("Output types do not match for:" ^ name_it_jj ^ ", " ^ vn_n ^ ", "
         ^ name_it_prev))
 
-and tag_builder t1 in_gr tagcase_g ex vn_opt prev_out_types tag_gr_map =
+and tag_builder t1 wrapper_uport in_gr tagcase_g ex vn_opt prev_out_types
+    tag_gr_map =
   (* A recursive visitor that builds subgraphs for each variant
       in the match. *)
   match ex with
   | [] -> (prev_out_types, tagcase_g, tag_gr_map)
   | hde :: tl ->
       let tagcase_gr_ = new_graph_for_tag_case vn_opt t1 in_gr in
-      let jj, prags, tagcase_gr_i, nums =
+      let jj, prags, tagcase_gr_i, nums, arm_uport =
         match hde with
         | Ast.Tag_list (Tagnames tns, e) ->
             let tm = If1.get_typemap_tm tagcase_g in
@@ -3210,13 +3217,13 @@ and tag_builder t1 in_gr tagcase_g ex vn_opt prev_out_types tag_gr_map =
             (* the output types from each variant is put
             in jj below ---
             all tags need to output the same types--- *)
-            let outlis, prags, in_gt_ =
+            let outlis, prags, in_gt_, arm_uport =
               get_new_tagcase_graph tagcase_gr_
-                (`AnyTag (vn_opt, a_tag_ty, tns))
+                (`AnyTag (vn_opt, a_tag_ty, tns, t1))
                 e
             in
             let jj, in_gt_ = extr_types in_gt_ (outlis, If1.IntMap.empty) in
-            (jj, prags, in_gt_, nums)
+            (jj, prags, in_gt_, nums, arm_uport)
       in
       (* There can be a bunch of exps from each tag,
         get the types and compare
@@ -3238,12 +3245,20 @@ and tag_builder t1 in_gr tagcase_g ex vn_opt prev_out_types tag_gr_map =
         wire_all_syms_to_compound ii tagcase_gr_i tagcase_g
       in
       verify_compound_inputs ii tagcase_gr_i tagcase_g;
+      (* bound arm: feed the union value (wrapper boundary port
+         wrapper_uport) into the arm compound at the arm's own union port —
+         the VARIANT_CAST inside the arm consumes it *)
+      let tagcase_g =
+        match arm_uport with
+        | Some k -> If1.add_edge 0 wrapper_uport ii k t1 tagcase_g
+        | None -> tagcase_g
+      in
       (* map each tagnum to its subgraph,
         this will become the association list *)
       let tag_gr_map =
         List.fold_right (fun c mm -> If1.IntMap.add c ii mm) nums tag_gr_map
       in
-      tag_builder t1 in_gr tagcase_g tl vn_opt jj tag_gr_map
+      tag_builder t1 wrapper_uport in_gr tagcase_g tl vn_opt jj tag_gr_map
 
 and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
   (* Propagate outputs of inner compound nodes to the
@@ -6616,8 +6631,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
             tagcase_gr_
         in
         let output_type_list, tagcase_gr_, tag_map =
-          tag_builder aunion_type in_gr tagcase_gr_ tc vn_opt If1.IntMap.empty
-            If1.IntMap.empty
+          tag_builder aunion_type uport in_gr tagcase_gr_ tc vn_opt
+            If1.IntMap.empty If1.IntMap.empty
         in
         (output_type_list, tagcase_gr_, tag_map, uport)
       in
@@ -6627,7 +6642,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
             match e with
             | Ast.Empty -> tagcase_gr_
             | _ ->
-                let outlis, _, gr_o =
+                let outlis, _, gr_o, _ =
                   get_new_tagcase_graph tagcase_gr_ `OtherwiseTag e
                 in
                 let jj, gr_o = extr_types gr_o (outlis, If1.IntMap.empty) in
@@ -6670,21 +6685,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                  ( tagcase_gr,
                    If1.TAGCASE,
                    0,
-                   (* TAGCASE_BARE tells the backend there is NO payload
-                      slot: arm port 0 is an ordinary input, not the
-                      payload (apple_lower keys its p=0 protocol on this) *)
-                   (match vn_opt with
-                   | None ->
-                       [
-                         If1.Name "If1.TAGCASE";
-                         If1.Name "TAGCASE_BARE";
-                         If1.Compound_of If1.If1_tagcase;
-                       ]
-                   | Some _ ->
-                       [
-                         If1.Name "If1.TAGCASE";
-                         If1.Compound_of If1.If1_tagcase;
-                       ]),
+                   (* no bound/bare marker needed: the payload has an
+                      explicit producer (VARIANT_CAST) inside bound arms;
+                      bare arms simply contain none *)
+                   [ If1.Name "If1.TAGCASE"; If1.Compound_of If1.If1_tagcase ],
                    assoc_lis ))
               in_gr
           in
