@@ -229,6 +229,7 @@ Records and unions (extended):
   $ sisal unit/tagcase_ii.sis
   $ sisal unit/tagcase_bare.sis
   $ sisal unit/tagcase_bare_nested.sis
+  $ sisal unit/tagcase_bare_mixed.sis
   $ sisal unit/union0.sis
   $ sisal unit/union1.sis
   $ sisal unit/test_record1.sis
