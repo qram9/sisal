@@ -1612,6 +1612,32 @@ and lower_simple env gr nid sym pin pout pr =
     | NOT_EQUAL -> C.BinOp (C.Ne, e1, e2)
     | NOT -> C.UnaryOp (C.LogNot, e1)
     | NEGATE -> C.UnaryOp (C.Negate, e1)
+    | IS_TAG ->
+        (* u.tag == union_<tyid>_<TAG>; the union tyid comes from the input
+           edge (alias-resolved), the tag name from the Name pragma *)
+        let tag =
+          match List.find_opt (function Name _ -> true | _ -> false) pr with
+          | Some (Name t) -> t
+          | _ ->
+              failwith
+                (Printf.sprintf "IS_TAG without a tag-name pragma at gid=%d nid=%d"
+                   gid nid)
+        in
+        let un_tyid =
+          ES.fold
+            (fun ((_, _), (dn, dp), ty) acc ->
+              if dn = nid && dp = 0 && ty <> 0 then ty else acc)
+            gr.eset 0
+        in
+        let un_tyid =
+          match TM.find_opt un_tyid !Apple_helpers.global_alias_map with
+          | Some leader -> leader
+          | None -> un_tyid
+        in
+        C.BinOp
+          ( C.Eq,
+            C.Member (e1, "tag"),
+            C.Id (Printf.sprintf "union_%d_%s" un_tyid tag) )
     | VARIANT_CAST ->
         (* the tagcase payload's explicit producer: union value on port 0,
            tag member name riding the node's Name pragma *)
@@ -2521,33 +2547,41 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
     { env with parent_map = IntMap.add loop_gid (gid, nid) env.parent_map }
   in
   let decl_stmts, env = declare_outputs env parent_gr gid nid node in
-  let union_port_opt =
-    match node with
-    | Compound (_, _, _, prags, _, _) ->
-        List.fold_left
-          (fun acc p ->
-            match (acc, p) with
-            | None, Name s
-              when String.length s > 11
-                   && String.sub s 0 11 = "UNION_PORT_" ->
-                int_of_string_opt (String.sub s 11 (String.length s - 11))
-            | _ -> acc)
-          None prags
-    | _ -> None
+  (* The scrutinee is EXPLICIT dataflow: the IS_TAG dispatch nodes inside
+     the wrapper all read one boundary port; the parent edge feeding that
+     compound port is the dispatch value.  (By-type scan retained only as
+     a fallback for graphs without a dispatch chain.) *)
+  let scrutinee_port =
+    NM.fold
+      (fun tg_nid tg_node acc ->
+        match (acc, tg_node) with
+        | Some _, _ -> acc
+        | None, Simple (_, IS_TAG, _, _, _) ->
+            ES.fold
+              (fun ((sn, sp), (dn, dp), _) a ->
+                if dn = tg_nid && dp = 0 && sn = 0 then Some sp else a)
+              loop_gr.eset None
+        | None, _ -> acc)
+      loop_gr.nmap None
   in
   let union_expr, union_tyid =
-    match
+    let resolve_edge_at p =
       ES.fold
         (fun (src, dst, ty) acc ->
-          if
-            fst dst = nid
-            (* the UNION_PORT pragma pins the dispatch edge; by-type
-               fallback is ambiguous when several union-typed values
-               enter the compound (nested tagcases) *)
-            && (match union_port_opt with
-               | Some p -> snd dst = p
-               | None -> true)
-          then
+          if dst = (nid, p) then
+            let ty =
+              match TM.find_opt ty !Apple_helpers.global_alias_map with
+              | Some leader -> leader
+              | None -> ty
+            in
+            Some (get_expr env gid (fst src) (snd src) `Out, ty)
+          else acc)
+        parent_gr.eset None
+    in
+    let by_type () =
+      ES.fold
+        (fun (src, dst, ty) acc ->
+          if fst dst = nid then
             let ty =
               match TM.find_opt ty !Apple_helpers.global_alias_map with
               | Some leader -> leader
@@ -2559,35 +2593,42 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
             | _ -> acc
           else acc)
         parent_gr.eset None
-    with
+    in
+    let found =
+      match scrutinee_port with
+      | Some p -> ( match resolve_edge_at p with Some r -> Some r | None -> by_type ())
+      | None -> by_type ()
+    in
+    match found with
     | Some (expr, ty) -> (expr, ty)
     | None ->
         failwith (Printf.sprintf "TAGCASE at nid=%d: union input not found" nid)
   in
-  let tags = Apple_helpers.collect_union_tags_with_ids tm union_tyid in
-  let assoc_lis =
-    match node with
-    | Compound (_, _, _, _, _, assoc_lis) -> assoc_lis
-    | _ -> assert false
-  in
-  let tag_mappings =
-    List.mapi
-      (fun idx (tag_id, tname, tty) ->
-        let dest_nid = List.nth assoc_lis idx in
-        (idx, tag_id, tname, tty, dest_nid))
-      tags
-  in
+  (* Arms enumerate from the wrapper graph itself; each arm carries ITS
+     OWN case labels in its tag-name pragma ("A" or "A,B"); the compound's
+     assoc list is a debug item and plays no role in dispatch. *)
   let unique_arms =
-    List.fold_left
-      (fun acc (idx, tag_id, tname, tty, dest_nid) ->
-        let existing = try List.assoc dest_nid acc with Not_found -> [] in
-        (dest_nid, (idx, tag_id, tname, tty) :: existing)
-        :: List.remove_assoc dest_nid acc)
-      [] tag_mappings
+    NM.fold
+      (fun arm_nid arm_node acc ->
+        match arm_node with
+        | Compound (_, _, _, pr, _, _)
+          when Apple_helpers.get_compound_type pr = If1_tagcase_arm ->
+            let labels =
+              List.fold_left
+                (fun l p ->
+                  match (l, p) with
+                  | [], Name s when s <> "Otherwise" && s <> "OTHERWISE" ->
+                      String.split_on_char ',' s
+                  | _ -> l)
+                [] pr
+            in
+            (arm_nid, labels) :: acc
+        | _ -> acc)
+      loop_gr.nmap []
   in
   let switch_cases =
     List.map
-      (fun (dest_nid, cases) ->
+      (fun (dest_nid, labels) ->
         let arm_node =
           match NM.find_opt dest_nid loop_gr.nmap with
           | Some (Compound (cid, _, _, pr, arm_gr, _)) -> (cid, arm_gr, pr)
@@ -2600,7 +2641,9 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
           try GidMap.find (loop_gid, dest_nid) env.gid_table with _ -> -1
         in
         let is_otherwise =
-          List.exists (function Name "Otherwise" -> true | _ -> false) pr
+          List.exists
+            (function Name ("Otherwise" | "OTHERWISE") -> true | _ -> false)
+            pr
         in
         let env_child =
           {
@@ -2621,7 +2664,6 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
            the union value reaches the arm through an ordinary fed port. *)
         let payload_init_stmt, env_child = ([], env_child) in
         ignore is_otherwise;
-        ignore cases;
         let other_in_stmts, env_child =
           let init_ports_res =
             if
@@ -2703,9 +2745,8 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
           if is_otherwise then "default"
           else
             List.map
-              (fun (_, tag_id, name, _) ->
-                Printf.sprintf "case union_%d_%s" union_tyid name)
-              cases
+              (fun name -> Printf.sprintf "case union_%d_%s" union_tyid name)
+              labels
             |> String.concat ":\n"
         in
         let arm_str =

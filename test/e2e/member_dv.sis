@@ -33,12 +33,7 @@ function AreEqualDot( A, B: Paraffin returns Boolean )
     Equiv :=
       tagcase L := RadicalA
       tag Hydrogen:
-        % is Hydrogen(RadicalB) — spelled as a bare tagcase: the `is`
-        % construct has no working C lowering yet
-        tagcase RadicalB
-        tag Hydrogen: true
-        tag Carbon: false
-        end tagcase
+        is Hydrogen( RadicalB )
       tag Carbon:
         tagcase R := RadicalB
         tag Hydrogen: false
@@ -60,10 +55,7 @@ function AreEqualSeq( A, B: Paraffin returns Boolean )
     Agreement :=
       tagcase L := RadicalA
       tag Hydrogen:
-        tagcase RadicalB
-        tag Hydrogen: true
-        tag Carbon: false
-        end tagcase
+        is Hydrogen( RadicalB )
       tag Carbon:
         tagcase R := RadicalB
         tag Hydrogen: false

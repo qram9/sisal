@@ -235,6 +235,11 @@ type node_sym =
        type; the tag name rides a Name pragma.  Placed inside a tagcase arm
        it is the payload's PRODUCER — the value the dispatch protocol used
        to deliver invisibly at arm port 0 now has an explicit node. *)
+  | IS_TAG
+    (* IS_TAG(u) → boolean: does union value u currently carry the tag
+       named by the Name pragma?  Lowers to `u.tag == union_<tyid>_<TAG>`.
+       The test primitive for the `is Tag(e)` construct and for explicit
+       tagcase dispatch chains. *)
   | DV_RANK_REPLACE
     (* DV_RANK_REPLACE(A, i, slice) → new A with the rank-(N-1) slice at leading index i copied from `slice` *)
   | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
@@ -3687,6 +3692,7 @@ and node_sym_to_num = function
   | DV_OUTERPRODUCT -> 87
   | DV_RANK_REDUCE -> 130
   | VARIANT_CAST -> 133
+  | IS_TAG -> 134
   | DV_RANK_REPLACE -> 132
   | DV_GRADE_UP -> 88
   | DV_GRADE_DOWN -> 89
@@ -3879,6 +3885,7 @@ and string_of_node_sym = function
   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
   | DV_RANK_REDUCE -> "DV_RANK_REDUCE"
   | VARIANT_CAST -> "VARIANT_CAST"
+  | IS_TAG -> "IS_TAG"
   | DV_RANK_REPLACE -> "DV_RANK_REPLACE"
   | CONV_H -> "CONV_H"
   | CONV_V -> "CONV_V"

@@ -3203,14 +3203,15 @@ and check_tag_types vn_n jj prev in_gr =
         ^ name_it_prev))
 
 and tag_builder t1 wrapper_uport in_gr tagcase_g ex vn_opt prev_out_types
-    tag_gr_map =
+    tag_gr_map arms_acc =
   (* A recursive visitor that builds subgraphs for each variant
-      in the match. *)
+      in the match.  arms_acc collects (arm_nid, tag_names) in source
+      order for the explicit dispatch chain. *)
   match ex with
-  | [] -> (prev_out_types, tagcase_g, tag_gr_map)
+  | [] -> (prev_out_types, tagcase_g, tag_gr_map, List.rev arms_acc)
   | hde :: tl ->
       let tagcase_gr_ = new_graph_for_tag_case vn_opt t1 in_gr in
-      let jj, prags, tagcase_gr_i, nums, arm_uport =
+      let jj, prags, tagcase_gr_i, nums, arm_uport, arm_tns =
         match hde with
         | Ast.Tag_list (Tagnames tns, e) ->
             let tm = If1.get_typemap_tm tagcase_g in
@@ -3231,7 +3232,7 @@ and tag_builder t1 wrapper_uport in_gr tagcase_g ex vn_opt prev_out_types
                 e
             in
             let jj, in_gt_ = extr_types in_gt_ (outlis, If1.IntMap.empty) in
-            (jj, prags, in_gt_, nums, arm_uport)
+            (jj, prags, in_gt_, nums, arm_uport, tns)
       in
       (* There can be a bunch of exps from each tag,
         get the types and compare
@@ -3267,6 +3268,7 @@ and tag_builder t1 wrapper_uport in_gr tagcase_g ex vn_opt prev_out_types
         List.fold_right (fun c mm -> If1.IntMap.add c ii mm) nums tag_gr_map
       in
       tag_builder t1 wrapper_uport in_gr tagcase_g tl vn_opt jj tag_gr_map
+        ((ii, arm_tns) :: arms_acc)
 
 and add_edges_from_inner_to_outer ty_map outer_gr comp_node namen =
   (* Propagate outputs of inner compound nodes to the
@@ -6634,7 +6636,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         down below. The function that generates the
         subgraphs is tag_builder. It adds the subgraphs
         to the newly setup graph: tagcase_gr_.*)
-      let output_type_list, tagcase_gr_, tag_map, union_port =
+      let output_type_list, tagcase_gr_, tag_map, source_arms, union_port =
         let tagcase_gr_ =
           new_graph_for_tag_case vn_opt aunion_type in_gr
         in
@@ -6642,17 +6644,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
           If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" an po
             tagcase_gr_
         in
-        let output_type_list, tagcase_gr_, tag_map =
+        let output_type_list, tagcase_gr_, tag_map, arms =
           tag_builder aunion_type uport in_gr tagcase_gr_ tc vn_opt
-            If1.IntMap.empty If1.IntMap.empty
+            If1.IntMap.empty If1.IntMap.empty []
         in
-        (output_type_list, tagcase_gr_, tag_map, uport)
+        (output_type_list, tagcase_gr_, tag_map, arms, uport)
       in
       match o with
       | Otherwise e ->
-          let gr_o =
+          (* the OTHERWISE arm exists only when written — an absent
+             otherwise must not wrap the whole wrapper as a bogus arm *)
+          let aa_opt, tagcase_gr =
             match e with
-            | Ast.Empty -> tagcase_gr_
+            | Ast.Empty -> (None, tagcase_gr_)
             | _ ->
                 let outlis, _, gr_o, _ =
                   get_new_tagcase_graph tagcase_gr_ `OtherwiseTag e
@@ -6665,31 +6669,151 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     | None -> "<tagcase expression>")
                     jj output_type_list tagcase_gr_
                 in
-                gr_o
+                let (aa, _, _), tagcase_gr =
+                  If1.add_node_2
+                    (`Compound
+                       ( gr_o,
+                         If1.INTERNAL,
+                         0,
+                         [
+                           If1.Name "OTHERWISE";
+                           If1.Compound_of If1.If1_tagcase_arm;
+                         ],
+                         [] ))
+                    tagcase_gr_
+                in
+                let gr_o, tagcase_gr =
+                  wire_all_syms_to_compound aa gr_o tagcase_gr
+                in
+                verify_compound_inputs aa gr_o tagcase_gr;
+                (Some aa, tagcase_gr)
           in
-          let (aa, _, _), tagcase_gr =
-            If1.add_node_2
-              (`Compound
-                 ( gr_o,
-                   If1.INTERNAL,
-                   0,
-                   [ If1.Name "OTHERWISE"; If1.Compound_of If1.If1_tagcase_arm ],
-                   [] ))
-              tagcase_gr_
+          (* assoc list: DEBUG ONLY (dispatch is the explicit chain);
+             uncovered tags map to the otherwise arm or the last arm *)
+          let assoc_fallback =
+            match (aa_opt, List.rev source_arms) with
+            | Some aa, _ -> aa
+            | None, (last, _) :: _ -> last
+            | None, [] -> 0
           in
-          let gr_o, tagcase_gr = wire_all_syms_to_compound aa gr_o tagcase_gr in
-          verify_compound_inputs aa gr_o tagcase_gr;
-          (* Build assoc_list: tag_builder would have
-           a key-value for the listed variants
-           and remaining would be
-           using the Otherwise subgraph.*)
           let assoc_lis =
             List.fold_right
               (fun x outl ->
                 match If1.IntMap.mem x tag_map with
                 | true -> If1.IntMap.find x tag_map :: outl
-                | false -> aa :: outl)
+                | false -> assoc_fallback :: outl)
               tag_nums []
+          in
+          (* ---- EXPLICIT DISPATCH: IS_TAG predicates + flat select chain.
+             The scrutinee (wrapper boundary port union_port) feeds one
+             IS_TAG per matched tag; arms stay a flat sibling list; per
+             output j a chain SELECT(pred_k, arm_k:j, next) walks the arms
+             in source order, terminal = the otherwise arm (or the last
+             arm when no otherwise is written).  The backend collapses the
+             chain into `switch (u.tag)`; the assoc list on the compound
+             is a DEBUG item only. *)
+          let bool_ty = If1.lookup_tyid If1.BOOLEAN in
+          let tagcase_gr =
+            match source_arms with
+            | [] -> tagcase_gr
+            | _ ->
+                let terminal_nid, chain_arms =
+                  match aa_opt with
+                  | Some aa -> (aa, source_arms)
+                  | None ->
+                      let rev = List.rev source_arms in
+                      (fst (List.hd rev), List.rev (List.tl rev))
+                in
+                (* one predicate per chained arm: IS_TAG per tag, OR-folded *)
+                let preds, tagcase_gr =
+                  List.fold_left
+                    (fun (acc, gr) (arm_nid, tns) ->
+                      let p_opt, gr =
+                        List.fold_left
+                          (fun (p_opt, gr) tn ->
+                            let (tg_n, tg_p, _), gr =
+                              If1.add_node_2
+                                (`Simple
+                                   ( If1.IS_TAG,
+                                     [| "" |],
+                                     [| "" |],
+                                     [ If1.Name tn ] ))
+                                gr
+                            in
+                            let gr =
+                              If1.add_edge 0 union_port tg_n 0 aunion_type gr
+                            in
+                            match p_opt with
+                            | None -> (Some (tg_n, tg_p), gr)
+                            | Some (pn, pp) ->
+                                let (on, op_, _), gr =
+                                  If1.add_node_2
+                                    (`Simple
+                                       (If1.OR, [| ""; "" |], [| "" |], []))
+                                    gr
+                                in
+                                let gr = If1.add_edge pn pp on 0 bool_ty gr in
+                                let gr =
+                                  If1.add_edge tg_n tg_p on 1 bool_ty gr
+                                in
+                                (Some (on, op_), gr))
+                          (None, gr) tns
+                      in
+                      match p_opt with
+                      | Some p -> (acc @ [ (arm_nid, p) ], gr)
+                      | None -> (acc, gr))
+                    ([], tagcase_gr) chain_arms
+                in
+                (* per output j: select chain over arms in source order *)
+                let out_ports =
+                  If1.IntMap.bindings output_type_list
+                  |> List.sort (fun (a, _) (b, _) -> compare a b)
+                in
+                let heads, tagcase_gr =
+                  List.fold_left
+                    (fun (hds, gr) (j, ty_j) ->
+                      let (hn, hp), gr =
+                        List.fold_left
+                          (fun ((nn, np), gr) (arm_nid, (pn, pp)) ->
+                            let (sel_n, _, _), gr =
+                              If1.add_node_2
+                                (`Simple
+                                   ( If1.SELECT,
+                                     [| ""; ""; "" |],
+                                     [| "" |],
+                                     [
+                                       If1.Name
+                                         (Printf.sprintf "TAGSEL_%d" j);
+                                     ] ))
+                                gr
+                            in
+                            let gr = If1.add_edge pn pp sel_n 0 bool_ty gr in
+                            let gr =
+                              If1.add_edge arm_nid j sel_n 1 ty_j gr
+                            in
+                            let gr = If1.add_edge nn np sel_n 2 ty_j gr in
+                            ((sel_n, 0), gr))
+                          ((terminal_nid, j), gr)
+                          (List.rev preds)
+                      in
+                      (hds @ [ (hn, hp, ty_j) ], gr))
+                    ([], tagcase_gr) out_ports
+                in
+                (* collect chain heads and export to the wrapper boundary *)
+                let (ma_n, _, _), tagcase_gr =
+                  build_multiarity (List.length heads) tagcase_gr
+                    ~nam:"TAGCASE_SEL_MA"
+                in
+                let tagcase_gr, _ =
+                  List.fold_left
+                    (fun (gr, k) (hn, hp, ty_j) ->
+                      (If1.add_edge hn hp ma_n k ty_j gr, k + 1))
+                    (tagcase_gr, 0) heads
+                in
+                (match heads with
+                | (_, _, ty0) :: _ ->
+                    point_edges_to_boundary ma_n 0 ty0 tagcase_gr
+                | [] -> tagcase_gr)
           in
           let (fin_node, fin_por, fin_tyy), out_gr =
             If1.add_node_2
@@ -6699,15 +6823,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    0,
                    (* no bound/bare marker needed: the payload has an
                       explicit producer (VARIANT_CAST) inside bound arms;
-                      bare arms simply contain none.  UNION_PORT pins WHICH
-                      in-edge carries the dispatch value — selecting it "by
-                      union type" is ambiguous once nesting imports other
-                      union-typed values into the compound. *)
-                   [
-                     If1.Name "If1.TAGCASE";
-                     If1.Name ("UNION_PORT_" ^ string_of_int union_port);
-                     If1.Compound_of If1.If1_tagcase;
-                   ],
+                      bare arms simply contain none *)
+                   [ If1.Name "If1.TAGCASE"; If1.Compound_of If1.If1_tagcase ],
                    assoc_lis ))
               in_gr
           in
@@ -6741,32 +6858,17 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let un_num, un_po, un_ty =
         If1.find_incoming_regular_node (un_num, un_po, un_ty) in_gr
       in
-      let tag_nums = enumerate_union_tags un_ty in_gr in
-      let tag_nums = List.map (fun c -> if c = tn_ty then 1 else 0) tag_nums in
-      let test_graph = If1.get_a_new_graph in_gr in
-      let false_lit, test_graph =
-        If1.add_node_2 (`Literal (If1.BOOLEAN, "False", out_port_1)) test_graph
-      in
-      let true_lit, test_graph =
-        If1.add_node_2 (`Literal (If1.BOOLEAN, "True", out_port_1)) test_graph
-      in
-      let test_graph =
-        If1.output_to_boundary [ false_lit; true_lit ] test_graph
-      in
+      ignore tn_ty;
+      (* IS_TAG(u) with the tag name on a pragma: an ordinary boolean-valued
+         node — `u.tag == union_<tyid>_<TAG>` in C.  (Replaces the old
+         IS_SUBGRAPH compound whose true/false literals were selected by an
+         implicit assoc-order protocol; it had no working C lowering.) *)
       let (co_num, co_po, _), in_gr =
         If1.add_node_2
-          (`Compound
-             ( test_graph,
-               If1.INTERNAL,
-               0,
-               [
-                 If1.Name ("IS_SUBGRAPH" ^ string_of_int un_ty);
-                 If1.Compound_of If1.If1_Unknown;
-               ],
-               tag_nums ))
+          (`Simple (If1.IS_TAG, [| "" |], [| "" |], [ If1.Name tag_nam ]))
           in_gr
       in
-      let in_gr = If1.add_edge un_num un_po co_num co_po un_ty in_gr in
+      let in_gr = If1.add_edge un_num un_po co_num 0 un_ty in_gr in
       ((co_num, co_po, If1.lookup_tyid If1.BOOLEAN), in_gr)
   | Prefix_operation (pn, e) ->
       let (typecast_arg_node, typecast_arg_out_port, typecast_arg_type), in_gr =

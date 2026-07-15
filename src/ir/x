@@ -1,0 +1,53 @@
+diff --git a/src/ir/if1.ml b/src/ir/if1.ml
+index 13a43d5..20d44aa 100755
+--- a/src/ir/if1.ml
++++ b/src/ir/if1.ml
+@@ -111,6 +111,7 @@ type node_sym =
+   | MATVECMUL
+   | VECMATMUL
+   | DOT
++  | MERGE
+   | MULTIARITY
+   | NEGATE
+   | NOT
+@@ -204,6 +205,8 @@ type node_sym =
+   | DV_OFFSET_AT
+     (* DV_OFFSET_AT(A, i, common_shape) → byte offset for linear index i *)
+   | DV_LOAD_LINEAR (* DV_LOAD_LINEAR(A, offset) → element value *)
++  | DV_RANK_REDUCE
++    (* DV_RANK_REDUCE(A, i) → zero-copy view with rank-1 less; fixes dimension 0 at index i *)
+   | DV_RESHAPE_BY_SHAPE
+     (* DV_RESHAPE_BY_SHAPE(A, shape_arr) → multi-rank Array_dv *)
+   | CONV_H  (** Apple Silicon: Horizontal Convolution *)
+@@ -3614,6 +3617,7 @@ and node_sym_to_num = function
+   | SHL -> 75
+   | SHR -> 76
+   | ASHR -> 77
++  | MERGE -> 131
+   | DV_CREATE -> 78
+   | DV_ELEMENT -> 79
+   | DV_REPLACE -> 80
+@@ -3665,6 +3669,7 @@ and node_sym_to_num = function
+   | DV_OFFSET_AT -> 124
+   | DV_LOAD_LINEAR -> 125
+   | DV_RESHAPE_BY_SHAPE -> 126
++  | DV_RANK_REDUCE -> 130
+   | CONV_H -> 127
+   | CONV_V -> 128
+   | CONV_2D -> 129
+@@ -3696,6 +3701,7 @@ and string_of_node_sym = function
+   | SHL -> "SHL"
+   | SHR -> "SHR"
+   | ASHR -> "ASHR"
++  | MERGE -> "MERGE"
+   | BOUNDARY -> "BOUNDARY"
+   | CONSTANT -> "CONSTANT"
+   | EQUAL -> "EQUAL"
+@@ -3799,6 +3805,7 @@ and string_of_node_sym = function
+   | DV_OFFSET_AT -> "DV_OFFSET_AT"
+   | DV_LOAD_LINEAR -> "DV_LOAD_LINEAR"
+   | DV_RESHAPE_BY_SHAPE -> "DV_RESHAPE_BY_SHAPE"
++  | DV_RANK_REDUCE -> "DV_RANK_REDUCE"
+   | CONV_H -> "CONV_H"
+   | CONV_V -> "CONV_V"
+   | CONV_2D -> "CONV_2D"

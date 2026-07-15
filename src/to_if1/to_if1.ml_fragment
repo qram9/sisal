@@ -1,0 +1,232 @@
+
+IMPORTANT: The file content has been truncated.
+Status: Showing lines 5670-6200 of 8381 total lines.
+Action: To read more of the file, you can use the 'start_line' and 'end_line' parameters in a subsequent 'read_file' call. For example, to read the next section of the file, use start_line: 6201.
+
+--- FILE CONTENT (truncated) ---
+      to_if1_msg 2 "For_initial: %s" (Ast.str_simple_exp finit);
+      
+      (* --- Rumbaugh/Dennis LoopB Framework ---
+         To ensure deterministic and correct data flow for 'for initial' loops:
+         1. INIT Graph: Explicitly exports all local declarations (Current and OLD pairs) 
+            to deterministic boundary output ports (0, 1, 2...).
+         2. BODY Graph: Pre-injected with MERGE nodes for each carry variable. These 
+            nodes act as PHI functions, selecting between Initial values (from INIT) 
+            and Feedback values (from previous iterations).
+         3. Wiring: Point-to-point connections bypass the lazy auto-import mechanism 
+            to ensure that OLD and Current variables are correctly shadowed and carried.
+      *)
+
+      let add_decls in_gr dp =
+        to_if1_msg 3 "For_initial: lowering INIT";
+        let build_init_graph in_gr =
+          let init_gr =
+            get_ports_unified (If1.get_a_new_graph in_gr) in_gr in_gr
+          in
+          init_gr
+        in
+        let xyz, out_gr = do_decldef_part (build_init_graph in_gr) dp in
+        let _, out_gr, carry_init_map =
+          let cs, ps = out_gr.If1.symtab in
+          If1.SM.fold
+            (fun nm entry (op, gr, acc) ->
+              if If1.SM.mem nm ps then (op, gr, acc)
+              else
+                let t1, dd, dp =
+                  entry.If1.val_ty, entry.If1.val_def, entry.If1.def_port
+                in
+                let gr = If1.add_edge dd dp 0 op t1 gr in
+                let gr = If1.add_edge dd dp 0 (op + 1) t1 gr in
+                let acc = (nm, op, op + 1, t1) :: acc in
+                (op + 2, gr, acc))
+            cs (0, out_gr, [])
+        in
+        let carry_init_map = List.rev carry_init_map in
+        (xyz, out_gr, carry_init_map)
+      in
+
+      let add_terminator init_gr t =
+        to_if1_msg 3 "For_initial: lowering TEST";
+        let build_term_graph init_gr =
+          let term_gr =
+            get_ports_unified (If1.get_a_new_graph init_gr) init_gr init_gr
+          in
+          If1.inherit_parent_syms init_gr term_gr
+        in
+        let (tn, tp, tt), init_gr =
+          do_termination (build_term_graph init_gr) t
+        in
+        ((tn, tp, tt), If1.output_to_boundary [ (tn, tp, tt) ] init_gr)
+      in
+
+      let add_body init_gr bi rclau =
+        to_if1_msg 3 "For_initial: lowering BODY";
+        let build_body_graph init_gr =
+          let body_gr =
+            get_ports_unified (If1.get_a_new_graph init_gr) init_gr init_gr
+          in
+          If1.inherit_parent_syms init_gr body_gr
+        in
+        let bbr = build_body_graph init_gr in
+        let (_, _, _), body_gr = do_iterator bbr bi in
+        let body_gr, return_action_list, ret_tuple_list, mask_ty_list =
+          do_returns_clause_list body_gr rclau [] [] []
+        in
+        If1.If1_View.export_debug_html "BEFORE.html" body_gr;
+        let body_gr =
+          If1.output_bound_names_for_subgraphs ret_tuple_list body_gr
+        in
+        If1.If1_View.export_debug_html "AFTER.html" body_gr;
+        (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
+      in
+
+      let add_comp_node in_gr namen ?(prag = "") to_gr =
+        let c_of = match namen with
+          | "INIT" -> If1.If1_loop_initial
+          | "TEST" -> If1.If1_loop_test
+          | "BODY" -> If1.If1_body
+          | "RETURNS" | "RETURN" -> If1.If1_results
+          | "FORALL" -> If1.If1_forall
+          | "GENERATOR" -> If1.If1_generator
+          | _ -> If1.If1_Unknown in
+        let prags =
+          if prag <> "" then [ If1.Name namen; If1.Ast_type prag; If1.Compound_of c_of ]
+          else [ If1.Name namen; If1.Compound_of c_of ]
+        in
+        let (cn, _, _), on =
+          If1.add_node_2 (`Compound (in_gr, If1.INTERNAL, 0, prags, [])) to_gr
+        in
+        let in_gr, on = wire_all_syms_to_compound cn in_gr on in
+        verify_compound_inputs cn in_gr on;
+        on
+      in
+
+      let loopAOrB i in_gr =
+        match i with
+        | Ast.Iterator_termination (ii, t) ->
+            to_if1_msg 3 "LoopA: building INIT decls";
+            let (_, decl_gr, _) = add_decls in_gr d in
+            to_if1_msg 3 "LoopA: building BODY iterator: %s"
+              (Ast.str_iterator ii);
+            let body_gr, return_action_list, _, mask_ty_list =
+              add_body decl_gr ii r
+            in
+            to_if1_msg 3 "LoopA: building TEST termination: %s"
+              (Ast.str_termination t);
+            let (_, _, _), test_gr = add_terminator body_gr t in
+            to_if1_msg 3 "LoopA: building RETURNS (%d clauses)"
+              (List.length return_action_list);
+            let (_, _, _), for_gr, return_action_list =
+              add_ret body_gr return_action_list mask_ty_list
+                (String.concat "\n" (List.map Ast.str_return_clause r))
+            in
+            let for_gr =
+              add_comp_node body_gr "BODY"
+                ~prag:
+                  (Ast.str_decldef_part (`Loop_type d)
+                  ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node test_gr "TEST"
+                ~prag:(Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
+                for_gr
+            in
+            let for_gr =
+              add_comp_node decl_gr "INIT"
+                ~prag:(Ast.str_decldef_part (`Loop_type d))
+                for_gr
+            in
+            let for_gr = get_ports_unified for_gr body_gr decl_gr in
+            let (fx, _, _), in_gr =
+              If1.add_node_2
+                (`Compound
+                   ( for_gr,
+                     If1.INTERNAL,
+                     0,
+                     [
+                       If1.Name "LoopA";
+                       If1.Compound_of If1.If1_loop_initial;
+                       If1.Ast_type (Ast.str_simple_exp finit);
+                     ],
+                     let lis = get_assoc_list_loopAOrB for_gr in
+                     List.length lis :: lis ))
+                in_gr
+            in
+            let for_gr, in_gr = wire_all_syms_to_compound fx for_gr in_gr in
+            verify_compound_inputs fx for_gr in_gr;
+            let (mul_n, mul_p, mul_t), in_gr =
+              build_multiarity
+                (List.length return_action_list)
+                in_gr ~nam:"FOR_INITIAL_LOOP_A"
+            in
+            let _, outl, in_gr =
+              List.fold_left
+                (fun (cc, outl, iigr) (wh, tt, aa) ->
+                  ( cc + 1,
+                    outl @ [ (wh, tt, fx, cc) ],
+                    If1.add_edge2 fx aa mul_n cc tt iigr ))
+                (0, [], in_gr) return_action_list
+            in
+            ((mul_n, mul_p, mul_t), outl, in_gr)
+        | Termination_iterator (t, ii) ->
+            to_if1_msg 3 "LoopB: building INIT decls";
+            let (_, decl_gr, carry_init_map) = add_decls in_gr d in
+
+            to_if1_msg 3 "LoopB: building TEST termination: %s"
+              (Ast.str_termination t);
+            let (_, _, _), test_gr = add_terminator decl_gr t in
+
+            to_if1_msg 3 "LoopB: building BODY iterator: %s"
+              (Ast.str_iterator ii);
+            
+            let body_gr = If1.get_a_new_graph in_gr in
+            let ctrl_port, body_gr = 
+              If1.add_to_boundary_inputs ~namen:"LOOP_CTRL" 0 0 body_gr in
+
+            let body_gr, carry_body_in_map = 
+              List.fold_left (fun (gr, acc) (nm, init_cp, init_op, ty) ->
+                let p_init_c, gr = If1.add_to_boundary_inputs ~namen:nm 0 0 gr in
+                let p_feed_c, gr = If1.add_to_boundary_inputs ~namen:(nm ^ "_FEED") 0 0 gr in
+                let p_init_o, gr = If1.add_to_boundary_inputs ~namen:("OLD_" ^ nm) 0 0 gr in
+                let p_feed_o, gr = If1.add_to_boundary_inputs ~namen:("OLD_" ^ nm ^ "_FEED") 0 0 gr in
+
+                let (mn_c, mp_c, _), gr = 
+                  If1.add_node_2 (`Simple (If1.MERGE, [|"" ;"" ;""|], [|""|], [])) gr in
+                let (mn_o, mp_o, _), gr = 
+                  If1.add_node_2 (`Simple (If1.MERGE, [|"" ;"" ;""|], [|""|], [])) gr in
+
+                let gr = If1.add_edge 0 ctrl_port mn_c 0 (If1.lookup_tyid If1.BOOLEAN) gr in
+                let gr = If1.add_edge 0 p_init_c mn_c 1 ty gr in
+                let gr = If1.add_edge 0 p_feed_c mn_c 2 ty gr in
+
+                let gr = If1.add_edge 0 ctrl_port mn_o 0 (If1.lookup_tyid If1.BOOLEAN) gr in
+                let gr = If1.add_edge 0 p_init_o mn_o 1 ty gr in
+                let gr = If1.add_edge 0 p_feed_o mn_o 2 ty gr in
+
+                let gr = If1.bind_name nm (mn_c, mp_c, ty) gr in
+                let gr = If1.bind_name ("OLD " ^ nm) (mn_o, mp_o, ty) gr in
+
+                (gr, (nm, p_init_c, p_feed_c, p_init_o, p_feed_o, mn_c, mp_c, ty) :: acc)
+              ) (body_gr, []) carry_init_map
+            in
+            let carry_body_in_map = List.rev carry_body_in_map in
+
+            let body_gr, return_action_list, _, mask_ty_list =
+              add_body body_gr ii r
+            in
+
+            (* DEBUG DUMP *)
+            Printf.printf "\n=== DEBUG: INIT CARRY OUT MAP ===\n";
+            List.iter (fun (nm, cp, op, ty) -> 
+              Printf.printf "Variable: %s | Cur Out: %d | OLD Out: %d | Type: %d\n" nm cp op ty
+            ) carry_init_map;
+
+            Printf.printf "\n=== DEBUG: BODY CARRY IN MAP ===\n";
+            List.iter (fun (nm, pi_c, pf_c, pi_o, pf_f, mn, mp, ty) ->
+              Printf.printf "Variable: %s | Init-In: %d | Feed-In: %d | Init-Old-In: %d | Feed-Old-In: %d | MergeNode: %d | Type: %d\n"
+                nm pi_c pf_c pi_o pf_f mn ty
+            ) carry_body_in_map;
+
+            failwith "STOP_FOR_CHECK_CARRY_MAPS"
+      in
