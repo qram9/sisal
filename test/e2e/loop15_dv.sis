@@ -90,7 +90,7 @@ let
                      array_dv of VYr
              end for;
 in
-  VS, array_addh( VYc, array_fill( 2,n,0.0d0 ) )
+  VS, array_addh( VYc, array_dv_fill( 2,n,0.0d0 ) )
 end let
 end function
 

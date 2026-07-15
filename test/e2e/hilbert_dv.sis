@@ -9,7 +9,7 @@
 %   • transpose takes n explicitly (array_size on a flat rank-2 dv is
 %     ambiguous); rows built rank-1 and stacked by a rank-2 gather.
 %   • sscal, saxpy, partial foralls: returns array_dv of; || unchanged.
-%   • array_fill → for j in 1,n returns array_dv of v end for.
+%   • array_dv_fill → for j in 1,n returns array_dv of v end for.
 %   • main derives n from the rank-1 b vector.
 
 define main

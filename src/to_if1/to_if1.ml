@@ -5208,13 +5208,13 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (If1.add_edge2 array_node_id array_port n 0 array_type_id in_gr)
           in
           ((n, 0, array_type_id), in_gr)
-      | "ARRAY_FILL" ->
-          let is_dv =
-            If1.TM.exists
-              (fun _ desc ->
-                match desc with If1.Array_dv _ -> true | _ -> false)
-              (If1.get_typemap_tm in_gr)
-          in
+      | "ARRAY_FILL" | "ARRAY_DV_FILL" ->
+          (* two EXPLICIT intrinsics: array_fill -> plain array (AFILL,
+             absolute bounds), array_dv_fill -> dope vector (DVAFILL).
+             (Previously one intrinsic guessed via "does any array_dv type
+             exist anywhere in the typemap" — a whole-program sniff that
+             mistyped plain fills in mixed programs.) *)
+          let is_dv = deref_fn = "ARRAY_DV_FILL" in
           let opcode = if is_dv then If1.DVAFILL else If1.AFILL in
           let in_ports = [| ""; ""; "" |] in
           let out_ports = [| "" |] in

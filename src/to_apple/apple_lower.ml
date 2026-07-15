@@ -1988,8 +1988,12 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> "sisal_array_addl_f32"
         in
         C.Call (fn, [ e1; e2 ])
-    | DVAFILL ->
-        (* array_fill(lo, hi, val) -> new array [lo..hi], every element = val *)
+    | DVAFILL | AFILL ->
+        (* array_fill / array_dv_fill (lo, hi, val) -> new array [lo..hi],
+           every element = val.  One lowering serves both: the runtime
+           helpers take ABSOLUTE lo/hi and set lower_bound = lo, which is
+           plain-array semantics, and the dv descriptor carries the same
+           field. *)
         let e3 = get_in_expr 2 in
         let val_ty = get_final_ty env gid nid 2 `In in
         if is_struct_cty val_ty then

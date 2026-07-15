@@ -33,7 +33,7 @@ function Main(input_sel : integer; input_val : real; input_size : integer; retur
       elseif input_sel = 2 then
         union UN [ B: input_val ]
       else
-        union UN [ D: array_fill(1, input_size, input_val) ]
+        union UN [ D: array_dv_fill(1, input_size, input_val) ]
       end if
   in
     ProcessUnion(u_val)

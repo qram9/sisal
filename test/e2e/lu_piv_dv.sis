@@ -8,7 +8,7 @@
 %     a rank-2 array_dv gather.
 %   • Row iteration (for row in A / for x in row at j) becomes index loops
 %     over 1..n reading A[i, j]; helpers take n explicitly.
-%   • array_fill(1,n,0) → for j in 1,n returns array_dv of 0 end for.
+%   • array_dv_fill(1,n,0) → for j in 1,n returns array_dv of 0 end for.
 
 define Main
 

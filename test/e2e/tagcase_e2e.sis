@@ -15,7 +15,7 @@ function Main(sel : integer; val : real; returns real, real)
   let
     u_a := union UN [ A: 42 ];
     u_b := union UN [ B: val ];
-    u_d := union UN [ D: array_fill(1, 3, 10) ]
+    u_d := union UN [ D: array_dv_fill(1, 3, 10) ]
   in
     if sel = 1 then
       TestUnion(u_a)

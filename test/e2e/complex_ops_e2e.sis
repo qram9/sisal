@@ -33,7 +33,7 @@ function Main(re1, im1, re2, im2 : real; returns real, real, real, real, real, r
     C := ComplexAdd(A, B);
     D := ComplexMul(A, B);
     
-    arr := array_fill(1, 4, A);
+    arr := array_dv_fill(1, 4, A);
     sum_res := ComplexSum(arr)
   in
     C.re, C.im, D.re, D.im, sum_res.re, sum_res.im

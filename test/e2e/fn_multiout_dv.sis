@@ -2,7 +2,7 @@
 define main
 type IOneD = array_dv[integer];
 function pair( n: integer returns integer, IOneD )
-  n * 2, array_fill( 1, n, n )
+  n * 2, array_dv_fill( 1, n, n )
 end function
 function main( returns integer, IOneD )
   pair( 3 )

@@ -1,7 +1,7 @@
 define main
 % Matrix multiplication - DV variant
 % realmatrix is a flat rank-2 array_dv; built by a cross forall (was
-% nested array_fill of an array-of-arrays).
+% nested array_dv_fill of an array-of-arrays).
 
 type realmatrix = array_dv[real];
 
