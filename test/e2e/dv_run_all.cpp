@@ -870,6 +870,15 @@ struct FUNC_MAIN_results {   // Paraffins: dot-mask, seq-mask, IsMember hit, IsM
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(void);
 #endif
+#ifdef TEST_TAG_DISPATCH_DV
+struct FUNC_MAIN_results {   // Pick(ua,ub), Pick(ua,ua), Pick(ub,ua), Pick(ub,ub)
+  int32_t res_0;
+  int32_t res_1;
+  int32_t res_2;
+  int32_t res_3;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t S);
+#endif
 #ifdef TEST_RICARD_DV
 struct FUNC_MAIN_results {   // ricard chromatography: VOL, CTM, CTL, 7 totals, JSTOR, STOR, PERCENT, HL
   double res_0;
@@ -6144,6 +6153,22 @@ static void test_member_dv(void) {
     check("member_dv IsMember(set, different paraffin) == false", !r.res_3);
 }
 #endif
+#ifdef TEST_TAG_DISPATCH_DV
+// Regression pin: a nested tagcase must dispatch on ITS OWN scrutinee.
+// The dispatch value used to be found "by union type" over the compound's
+// in-edges — ambiguous once another same-typed union is imported (eager
+// boundary propagation), so both levels dispatched on whichever edge won
+// the fold: (A,B) gave 40 and (B,A) gave 10, while same-tag pairs passed
+// by luck.  UNION_PORT_<k> on the compound pins the edge.
+static void test_tag_dispatch_dv(void) {
+    printf("\n=== Group: tag_dispatch_dv (nested tagcase scrutinee pinning) ===\n");
+    struct FUNC_MAIN_results r = func_MAIN(7);
+    check("Pick(A,B): outer A arm, inner B arm == 20", r.res_0 == 20);
+    check("Pick(A,A): outer A arm, inner A arm == 10", r.res_1 == 10);
+    check("Pick(B,A): outer B arm, inner A arm == 30", r.res_2 == 30);
+    check("Pick(B,B): outer B arm, inner B arm == 40", r.res_3 == 40);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7229,6 +7254,9 @@ main (void)
 #ifdef TEST_MEMBER_DV
   test_member_dv ();
 #endif
+#ifdef TEST_TAG_DISPATCH_DV
+  test_tag_dispatch_dv ();
+#endif
 #ifdef TEST_RICARD_DV
   test_ricard_dv ();
 #endif
@@ -7568,7 +7596,7 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
-    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV)                \
+    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_TAG_DISPATCH_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

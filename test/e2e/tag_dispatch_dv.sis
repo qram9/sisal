@@ -1,0 +1,40 @@
+% tag_dispatch_dv — regression pin: a NESTED tagcase must dispatch on ITS
+% OWN scrutinee, not the enclosing one.  The inner compound receives TWO
+% union-typed inputs of the same type (its scrutinee V plus the outer's U
+% imported by eager boundary propagation); selecting the dispatch value
+% "by union type" over the in-edges is ambiguous and used to pick the
+% OUTER union, sending the inner dispatch down the wrong arm.  The
+% frontend stamps UNION_PORT_<k> on each TAGCASE compound and the backend
+% pins the dispatch edge to that port.
+%
+% U has tag A, V has tag B: the outer must take arm A, the inner must
+% take arm B (value 20).  Mis-dispatch on U yields 10.  The mirrored
+% case (swap) must give 99 outer... exercised via Main's second result.
+define Main
+
+type UN = union[ A: integer; B: real ]
+
+function Pick( u, v: UN returns integer )
+  tagcase x := u
+  tag A:
+    tagcase y := v
+    tag A: 10
+    tag B: 20
+    end tagcase
+  tag B:
+    tagcase z := v
+    tag A: 30
+    tag B: 40
+    end tagcase
+  end tagcase
+end function
+
+function Main( s: integer returns integer, integer, integer, integer )
+  let
+    ua := union UN[ A: s ];
+    ub := union UN[ B: 2.5 ]
+  in
+    % want: (A,B)->20  (A,A)->10  (B,A)->30  (B,B)->40
+    Pick( ua, ub ), Pick( ua, ua ), Pick( ub, ua ), Pick( ub, ub )
+  end let
+end function
