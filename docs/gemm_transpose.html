@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GEMM with Transpose — notes</title>
+<script>
+MathJax = {
+  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         max-width: 820px; margin: 2.5rem auto; padding: 0 1.2rem; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-size: 1.7rem; border-bottom: 2px solid #ddd; padding-bottom: .3rem; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; color: #0b5; }
+  code { background: #f4f4f4; padding: .1em .35em; border-radius: 4px; font-size: .92em; }
+  pre  { background: #f4f4f4; padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; margin: 1rem 0; width: 100%; }
+  th, td { border: 1px solid #ccc; padding: .45rem .7rem; text-align: left; }
+  th { background: #f0f0f0; }
+  .key { background: #fff8e1; border-left: 4px solid #f5b301; padding: .8rem 1rem; border-radius: 4px; margin: 1.2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>GEMM with Transpose</h1>
+
+<h2>The equation</h2>
+<p>BLAS GEMM (general matrix–matrix multiply) computes:</p>
+$$ C \;\leftarrow\; \alpha\,\operatorname{op}(A)\,\operatorname{op}(B) \;+\; \beta\,C $$
+
+<p>where each operand can independently be transposed:</p>
+$$ \operatorname{op}(X) = \begin{cases} X & \text{NoTrans} \\ X^{\mathsf T} & \text{Trans} \\ X^{\mathsf H} & \text{ConjTrans} \end{cases} $$
+
+<p>Element-wise:</p>
+$$ C_{ij} \;\leftarrow\; \alpha \sum_{k=1}^{K} \operatorname{op}(A)_{ik}\,\operatorname{op}(B)_{kj} \;+\; \beta\,C_{ij} $$
+
+<p>with the shape contract:
+<strong>$\operatorname{op}(A)$ is $M\times K$, &nbsp; $\operatorname{op}(B)$ is $K\times N$, &nbsp; $C$ is $M\times N$.</strong></p>
+
+<p>The CBLAS call:</p>
+<pre>cblas_dgemm(order, transA, transB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc);</pre>
+
+<h2>For $C = A\cdot A^{\mathsf T}$ &nbsp;(A is $n\times m$)</h2>
+<p>We want $C$ ($n\times n$) with $\operatorname{op}(A)=A$, $\operatorname{op}(B)=A^{\mathsf T}$, and <strong>B is the same buffer as A</strong>:</p>
+
+<table>
+<tr><th>param</th><th>value</th><th>why</th></tr>
+<tr><td>transA</td><td><code>NoTrans</code></td><td>$\operatorname{op}(A)=A$, must be $M\times K = n\times m$</td></tr>
+<tr><td>transB</td><td><code>Trans</code></td><td>$\operatorname{op}(B)=A^{\mathsf T}$, must be $K\times N = m\times n$ (and $A^{\mathsf T}$ is $m\times n$ ✓)</td></tr>
+<tr><td>M, N, K</td><td>n, n, m</td><td>rows of A, rows of A, shared cols</td></tr>
+<tr><td>A, lda</td><td>A, m</td><td>A stored $n\times m$ row-major, row stride $m$</td></tr>
+<tr><td>B, ldb</td><td><strong>A</strong>, m</td><td>same buffer</td></tr>
+<tr><td>C, ldc</td><td>C, n</td><td>output $n\times n$</td></tr>
+</table>
+
+<p>giving</p>
+$$ C_{ij} = \sum_{k=1}^{m} A_{ik}\,(A^{\mathsf T})_{kj} = \sum_{k=1}^{m} A_{ik}\,A_{jk}. $$
+
+<h2>How the transpose is actually realized</h2>
+<p><code>transB = Trans</code> does <strong>not</strong> rearrange any data. It tells GEMM to
+<em>index the same buffer differently</em>:</p>
+
+$$ \operatorname{op}(B)_{kj} = \begin{cases} B[\,k\cdot ldb + j\,] & \text{NoTrans} \\[4pt] B[\,j\cdot ldb + k\,] & \text{Trans} \end{cases} $$
+
+<p>So the transpose is just <strong>swapping which index is multiplied by the leading
+dimension</strong> ($ldb$) when computing the address.</p>
+
+<div class="key">
+<strong>The key insight.</strong> The leading dimension <code>lda</code>/<code>ldb</code> <em>is a stride</em>,
+and the trans flag picks the traversal order. GEMM already lets you describe a transposed matrix as
+<code>(buffer, leading-dimension, trans-flag)</code> with <strong>zero copy</strong> — exactly the
+strided dope-vector idea in miniature.
+</div>
+
+<h2>Connection to the dope vector (<code>sisal_array_t</code>)</h2>
+<ul>
+  <li><code>lda</code>/<code>ldb</code> &nbsp;=&nbsp; the <strong>stride</strong> field we'd add to <code>sisal_array_t</code>
+      (which today carries only <code>dims[8]</code>, i.e. contiguous row-major).</li>
+  <li><code>transA</code>/<code>transB</code> &nbsp;=&nbsp; "are the strides swapped?"</li>
+  <li>If the DV carried strides, feeding <code>A.T</code> to GEMM would be automatic: map the DV's stride to
+      <code>ldb</code> and its transpose-ness to <code>transB</code>, and BLAS does the rest —
+      <strong>no materialization of</strong> $A^{\mathsf T}$.</li>
+</ul>
+
+<p style="margin-top:2rem; color:#888; font-size:.9em;">
+Sisal compiler notes — GEMM/transpose. Companion to <code>arrays_in_sisal.pdf</code> (Feo 1990) and the
+Sisal 2.0 <code>array[…] of … at […]</code> returns syntax.</p>
+
+</body>
+</html>

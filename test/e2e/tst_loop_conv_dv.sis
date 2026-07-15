@@ -1,0 +1,15 @@
+% Convolver 2D — DV variant
+Define Main
+
+type OneD = array_dv[double];
+type TwoD = array_dv[double];
+
+function Main( n, m: integer; Inp: OneD; Weights: TwoD returns OneD )
+   for K in 1, m 
+     arr_out := 
+       for J in 1, n 
+         returns value of sum Inp[J] * Weights[K,J]
+       end for
+   returns array_dv of arr_out
+   end for
+end function

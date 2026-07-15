@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src='https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js'></script>
+<script>mermaid.initialize({startOnLoad:true,theme:'default'});</script>
+</head>
+<body>
+<div class='mermaid'>
+graph TD
+  N0["BOUNDARY in:2 out:0"]
+  N1["ADD"]
+  N2(["1"])
+  N3["ADD I"]
+  N4["ADD"]
+  N5["ADD S"]
+  N0 -- "0 to 0" --> N1
+  N0 -- "1 to 1" --> N1
+  N0 -- "0 to 1" --> N4
+  N0 -- "1 to 0" --> N4
+  N1 -- "0 to 0" --> N3
+  N2 -- "0 to 1" --> N3
+  N3 -- "0 to 1" --> N5
+  N4 -- "0 to 0" --> N5
+  N5 -- "0 to 0" --> N0
+</div>
+</body>
+</html>

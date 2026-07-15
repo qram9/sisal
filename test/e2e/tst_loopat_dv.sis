@@ -1,0 +1,10 @@
+% Multi-dimensional At iteration test using array_dv.
+Define Main
+
+type ThreeD = array_dv[double];
+
+function Main( Y: ThreeD returns ThreeD )
+   for Elem in Y At I,J,K
+   returns array_dv of Y[I,J,K] * Y[J,I,K]
+   end for
+end function

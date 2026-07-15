@@ -1,0 +1,62 @@
+[DECLDEF] add_decls dp =
+  P := 0;
+  A := X;
+
+[INITGR] after inherit, BEFORE decldef: CS (3) = [MAIN; N; X]
+[INITGR] after inherit, BEFORE decldef: PS (3) = [MAIN; N; X]
+[INITGR+FOLD] CS after importing all PS names (3) = [MAIN; N; X]
+[IS-INIT] parent_syms (cs) keys = [N; X]
+[IS-INIT] parent PS keys = [MAIN]
+[OUTGR] out_gr CS (5) = [A; MAIN; N; P; X]
+[OUTGR] out_gr PS (3) = [MAIN; N; X]
+[INIT-OUT] === pass1 start op=0 (nsyms=5) ===
+[INIT-OUT] pass1 op=0 <- v="A" (dd=0 dp=2 init_bound=true)
+[INIT-OUT] pass1 op=1 <- v="MAIN" (dd=0 dp=0 init_bound=true)
+[INIT-OUT] pass1 SKIP v="N" (dd=0, not init_bound)
+[INIT-OUT] pass1 op=2 <- v="P" (dd=1 dp=0 init_bound=true)
+[INIT-OUT] pass1 SKIP v="X" (dd=0, not init_bound)
+[INIT-OUT] === pass2 start op=3 ===
+[INIT-OUT] pass2 op=3 <- "OLD A" (from v="A" dd=0)
+[INIT-OUT] pass2 op=4 <- "OLD MAIN" (from v="MAIN" dd=0)
+[INIT-OUT] pass2 op=5 <- "OLD P" (from v="P" dd=1)
+[OLD] get_symbol_id_old v="P" (old_name="OLD P"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD P" from cs
+[DECLDEF] add_decls dp =
+  K := P;
+  XT := OLD A;
+  I := 0;
+
+[INITGR] after inherit, BEFORE decldef: CS (8) = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[INITGR] after inherit, BEFORE decldef: PS (8) = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[INITGR+FOLD] CS after importing all PS names (8) = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[OLD] get_symbol_id_old v="A" (old_name="OLD A"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD A" from cs
+[IS-INIT] parent_syms (cs) keys = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[IS-INIT] parent PS keys = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[OUTGR] out_gr CS (11) = [A; I; K; MAIN; N; OLD A; OLD MAIN; OLD P; P; X; XT]
+[OUTGR] out_gr PS (8) = [A; MAIN; N; OLD A; OLD MAIN; OLD P; P; X]
+[INIT-OUT] === pass1 start op=0 (nsyms=11) ===
+[INIT-OUT] pass1 SKIP v="A" (dd=0, not init_bound)
+[INIT-OUT] pass1 op=0 <- v="I" (dd=1 dp=0 init_bound=true)
+[INIT-OUT] pass1 op=1 <- v="K" (dd=0 dp=6 init_bound=true)
+[INIT-OUT] pass1 SKIP v="MAIN" (dd=0, not init_bound)
+[INIT-OUT] pass1 SKIP v="N" (dd=0, not init_bound)
+[INIT-OUT] pass1 SKIP v="OLD A" (dd=0, not init_bound)
+[INIT-OUT] pass1 SKIP v="OLD MAIN" (dd=0, not init_bound)
+[INIT-OUT] pass1 SKIP v="OLD P" (dd=0, not init_bound)
+[INIT-OUT] pass1 op=2 <- v="P" (dd=0 dp=6 init_bound=true)
+[INIT-OUT] pass1 SKIP v="X" (dd=0, not init_bound)
+[INIT-OUT] pass1 op=3 <- v="XT" (dd=0 dp=3 init_bound=true)
+[INIT-OUT] === pass2 start op=4 ===
+[INIT-OUT] pass2 op=4 <- "OLD I" (from v="I" dd=1)
+[INIT-OUT] pass2 op=5 <- "OLD K" (from v="K" dd=0)
+[INIT-OUT] pass2 op=6 <- "OLD P" (from v="P" dd=0)
+[INIT-OUT] pass2 op=7 <- "OLD XT" (from v="XT" dd=0)
+[OLD] get_symbol_id_old v="K" (old_name="OLD K"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD K" from cs
+[OLD] get_symbol_id_old v="I" (old_name="OLD I"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD I" from cs
+[OLD] get_symbol_id_old v="XT" (old_name="OLD XT"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD XT" from cs
+[OLD] get_symbol_id_old v="XT" (old_name="OLD XT"): in_cs=true in_ps(old)=true v_in_ps=true v_in_cs=true
+[OLD]   -> branch1 REUSE "OLD XT" from cs

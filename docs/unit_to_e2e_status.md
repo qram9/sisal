@@ -43,6 +43,16 @@ returns) — STOP and discuss the rewrite instead of forcing it.
   compile-clean-need-drivers).
 - **Recheck**: newgaussj_dv now EMITS (its old "4 cc errors" were
   clang-side; retry after the recent type fixes).
+- **Sorts update (Jul 14 pm)**: heapsort/modern_heapsort/quicksort/
+  quicksort1 now EMIT after two backend fixes (recursive procedure
+  collection for NESTED function definitions + function-typed symtab
+  names skipped in pre_declare and infer_types.pass1 — they are nominal,
+  no C type).  heapsort_dv's port is PARKED on a further backend bug:
+  a two-result IF nested in Heapify's let references phantom p1 outputs
+  across compound levels (undeclared v_..._p1_o + float-sentinel casts);
+  the minimal 2-result-IF-with-nested-IF repro PASSES, so the trigger
+  needs Heapify's full let/if nesting.  Nested fns that CAPTURE enclosing
+  values remain unsupported (captures would become unfed parameters).
 
 ## Bucket B — blocked on missing backend lowerings
 

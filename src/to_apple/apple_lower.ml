@@ -427,8 +427,13 @@ let infer_types env gr gid =
     let tm_local = get_typemap_tm g in
     SM.iter
       (fun _ v ->
-        set_ty cur_gid v.val_def v.def_port `Out
-          (c_type_of_if1_tyid tm_local v.val_ty))
+        (* nested function definitions put function-typed NAMES in the
+           local symtab; they are nominal, not values — no C type exists *)
+        match TM.find_opt v.val_ty tm_local with
+        | Some (Function_ty _) -> ()
+        | _ ->
+            set_ty cur_gid v.val_def v.def_port `Out
+              (c_type_of_if1_tyid tm_local v.val_ty))
       cs;
     NM.iter
       (fun nid node ->
@@ -1253,7 +1258,18 @@ let pre_declare_graph_locals env gr gid =
   let stmts1, env1 =
     SM.fold
       (fun _ v (acc_stmts, e) ->
-        if is_proc_expr e gid v.val_def then (acc_stmts, e)
+        (* function-typed names are nominal (resolved by name at call
+           sites), not dataflow values: NESTED function definitions put
+           their names in the local symtab, and declaring a C variable for
+           one would ask the type mapper for a FUNCTION_TYPE (fatal).
+           Same doctrine as inherit_parent_syms. *)
+        let is_function_typed =
+          match TM.find_opt v.val_ty (get_typemap_tm gr) with
+          | Some (Function_ty _) -> true
+          | _ -> false
+        in
+        if is_proc_expr e gid v.val_def || is_function_typed then
+          (acc_stmts, e)
         else
           let name =
             Printf.sprintf "v_%s_n__%d_%s"
@@ -1499,7 +1515,12 @@ and lower_node env gr nid node =
   | Compound (cid, sy, _ty, pr, loop_gr, _) ->
       let sub_gid = try GidMap.find (gid, nid) env.gid_table with _ -> -1 in
       let c_of = get_compound_type pr in
-      if c_of = If1_forall then lower_forall env gr gid nid loop_gr sub_gid pr
+      if c_of = If1_procedure then
+        (* a NESTED function definition: lowered as a standalone C function
+           by lower_to_c's recursive collection — nothing to emit here *)
+        ([], env)
+      else if c_of = If1_forall then
+        lower_forall env gr gid nid loop_gr sub_gid pr
       else if c_of = If1_predicate || c_of = If1_if then
         lower_if_graph env gr nid loop_gr sub_gid
       else if c_of = If1_tagcase then lower_tagcase env gr nid loop_gr sub_gid
@@ -5542,14 +5563,23 @@ let rec collect_typemaps g acc =
     then lower every procedure; returns the complete C compilation unit. *)
 let lower_to_c tm gr filename =
   let procedures_info =
-    NM.fold
-      (fun nid node acc ->
-        match node with
-        | Compound (_, INTERNAL, _, pr, sub_gr, _)
-          when get_compound_type pr = If1_procedure ->
-            (nid, node, sub_gr) :: acc
-        | _ -> acc)
-      gr.nmap []
+    (* RECURSIVE: function definitions may be NESTED inside other functions
+       (heapsort's exchange/Heapify); collect procedure compounds from every
+       graph so nested definitions are emitted as C functions too.  (Nested
+       fns that CAPTURE enclosing values remain unsupported — captures would
+       become unfed extra parameters; first-order nested fns are fine.) *)
+    let rec collect g acc =
+      NM.fold
+        (fun nid node acc ->
+          match node with
+          | Compound (_, INTERNAL, _, pr, sub_gr, _)
+            when get_compound_type pr = If1_procedure ->
+              collect sub_gr ((nid, node, sub_gr) :: acc)
+          | Compound (_, _, _, _, sub_gr, _) -> collect sub_gr acc
+          | _ -> acc)
+        g.nmap acc
+    in
+    collect gr []
   in
   let all_tms =
     let acc = collect_typemaps gr [] in
