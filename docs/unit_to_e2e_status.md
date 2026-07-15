@@ -28,7 +28,9 @@ returns) — STOP and discuss the rewrite instead of forcing it.
   simplebatcher, mesort, insert, insertion1, insertion2, pinsert
   (+pinsertdata).  Verify against C sorts.
 - **Numeric kernels**: simpson, life2, mmult2, minmax, fft, alphabeta,
-  ada, crypto, crossovers, newqueens, parpi1, parpi2, parpi_babb.
+  ada, crypto, crossovers, parpi1, parpi2, parpi_babb.
+  (simpson/life2/minmax landed Jul 14, e97de98/393e15b; also mesort_dv +
+  insertion1_dv from the sort family.)
 - **SIMPLE-physics family (~15)**: AngMom, Energy, Freq, PassFreq,
   PassGrid, Spec, Specam, UVSpec, TStep, Linear, VSphere, SIFuncs, Sas,
   cdf, noise, gen_extent.
@@ -40,7 +42,8 @@ returns) — STOP and discuss the rewrite instead of forcing it.
 - **Type features**: tuple_add/hash/kw/mixed/mixed2/mixed3/tests,
   record1, record2, test_record1, union, union0, union1, quadtypes,
   complex_types, verify_numpy_broadcast (the last two long known as
-  compile-clean-need-drivers).
+  compile-clean-need-drivers).  (tuple_fn_val moved to the NESTED-FN
+  parked group.)
 - **Recheck**: newgaussj_dv now EMITS (its old "4 cc errors" were
   clang-side; retry after the recent type fixes).
 - **Sorts update (Jul 14 pm)**: heapsort/modern_heapsort/quicksort/
@@ -66,6 +69,29 @@ returns) — STOP and discuss the rewrite instead of forcing it.
 | DV_RESHAPE / EXPAND / EINSUM | 5 + 2 | the known APL bucket |
 | VBUILD / VSPLAT / SWIZZLE / MATSPLAT | 7 | vector-swizzle tests |
 | ARRAY_REMH | 1 | |
+
+## PARKED GROUP: NESTED-FN (function defined inside a function)
+
+Per directive (Jul 14): every test that defines a function INSIDE another
+function is parked as one family, regardless of current emit status, until
+the class is handled end to end.  Two backend fixes already landed
+(fef0be8: recursive procedure collection + function-typed symtab names
+skipped in pre_declare/pass1), which made the sort members EMIT — but the
+heapsort port then hit the phantom-p1 multi-output-IF bug, and CAPTURING
+nested functions are structurally unsupported (captures would become
+unfed parameters).  Un-park only after (a) the multi-output-IF
+cross-compound port bug is fixed and (b) a capture policy exists
+(reject-with-error at minimum).
+
+The 33 members: anneal, bad, capture, capture2, common, fem, funcarray,
+funcarray2, gurd, heapsort, lambda_typed, lambda_untyped, mashi,
+modern_heapsort, moldyn, nested, newfem, newqueens, nico, nico2, nucleic,
+outs, outs2, quadrature, queens, quicksort, quicksort1, reset_ast,
+rest_ast, scan1, scan2, tuple_fn_val, unsplit.
+
+(newqueens and tuple_fn_val are removed from Bucket A accordingly.
+Detection recipe: scan function/end-function nesting depth ignoring
+%-comments; a `function` at depth >= 1 marks the file.)
 
 ## Bucket C — out of scope by standing decisions
 
