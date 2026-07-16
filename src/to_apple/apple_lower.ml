@@ -4158,6 +4158,13 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
     and the RETURNS graph itself is lowered after the loop with gather ports
     re-bound to the filled arrays. *)
 and lower_for_initial env gr gid nid loop_gr sub_gid pr =
+  (* LoopA = post-test (repeat..until): the body runs at least once and TEST
+     reads BODY outputs, so the preheader TEST pass has no meaningful value
+     (the carries are unseeded there) — lower as do-while.  LoopB = pre-test
+     (while..repeat): the preheader TEST gates entry — plain while. *)
+  let is_post_test =
+    List.find_map (function Name n -> Some n | _ -> None) pr = Some "LoopA"
+  in
   let init_nid, init_gr =
     match find_subgraph loop_gr "INIT" with
     | Some x -> x
@@ -5063,11 +5070,13 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
      MERGE variable (1.2 history model), which must hold THIS iteration's
      value when stored; body-temp gathers read bodycap snapshots, which the
      backedge copies don't touch. *)
+  let loop_body_stmts =
+    body_stmts @ body_capture_assigns @ merge_backedge_copies @ gather_store
+    @ carry_update_stmts @ test_stmts2
+  in
   let while_loop =
-    C.While
-      ( cond,
-        body_stmts @ body_capture_assigns @ merge_backedge_copies @ gather_store
-        @ carry_update_stmts @ test_stmts2 )
+    if is_post_test then C.DoWhile (loop_body_stmts, cond)
+    else C.While (cond, loop_body_stmts)
   in
   (* FinalVal ZERO-TRIP correctness: a RETURNS consumer of a BODY output that
      carries a MERGE backedge value must read the MERGE carry variable, not
@@ -5186,6 +5195,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
      the future error-mechanism mode, where zero trips are a bug and RETURNS
      may read both `old X` and the body's new X (not expressible in 1.2). *)
   let zero_trip_guard =
+    if is_post_test then [] (* a do-while cannot zero-trip *)
+    else
     [
       C.Macro "ifdef SISAL_TRAP_ZERO_TRIP";
       C.If
