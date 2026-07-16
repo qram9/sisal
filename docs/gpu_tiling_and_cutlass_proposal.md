@@ -129,11 +129,66 @@ For general tensor contractions like `EINSUM("abkd,kdce->abce", A, B)`, the `EIN
 
 ---
 
-## 4. Code Generation & CUTLASS/SYCL APIs
+## 4. Epilogue and Operator Fusion
 
-By keeping `INNERPRODUCT_NODE` and `EINSUM_NODE` at a high level until the C++ lowering phase, the code generator can directly target library APIs, preventing the compiler from having to reconstruct matrix multiplication from low-level loop semantics.
+Performing calculations (like activation functions or bias additions) on the intermediate result of a matrix multiplication before storing it to global memory is critical to GPU efficiency. We propose an explicit **`fuse`** operator to handle this:
 
-### CUTLASS C++ Codegen Sketch
+```sisal
+C := fuse(tile(matmul(A, B), [128, 128, 8]), relu, relu_params)
+```
+
+### AST Structure
+This translates to a clean nested AST invocation with no parser changes required:
+```ocaml
+Invocation (
+  Function_name ["fuse"],
+  Arg (Exp [
+    tile_matmul_ast;          (* Target computation *)
+    Val (Value_name ["relu"]);(* Fusion Operator identifier *)
+    relu_params_ast           (* Parameters (e.g. threshold or alpha coefficient) *)
+  ])
+)
+```
+
+### Compiler Interception in `to_if1.ml`
+The compiler matches the `fuse` invocation during AST-to-IF1 lowering, lowers the parameters (like thresholds or bias tensors) as extra input ports, and attaches `fuse_` pragmas to the generated `INNERPRODUCT_NODE`:
+
+```ocaml
+| Ast.Invocation (Ast.Function_name ["fuse"], 
+                  Ast.Arg (Ast.Exp [
+                    Ast.Invocation (Ast.Function_name ["tile"], 
+                                    Ast.Arg (Ast.Exp [
+                                      (Ast.Matmul_exp (a, b) | Ast.Innerproduct_exp (a, b));
+                                      Ast.Exp tile_shape_exprs
+                                    ]));
+                    Ast.Val (Ast.Value_name [op_name]);
+                    params_expr
+                  ])) ->
+
+    let (an, ap, at), in_gr = do_simple_exp in_gr a in
+    let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
+    let (pn, pp, pt), in_gr = do_simple_exp in_gr params_expr in
+
+    let tile_prag = If1.Name ("tile_" ^ string_of_tile_shape tile_shape) in
+    let fuse_prag = If1.Name ("fuse_" ^ op_name) in
+
+    let (rn, rp, rt), in_gr =
+      If1.add_node_2
+        (`Simple (If1.INNERPRODUCT_NODE, [| ""; ""; "" |], [| "" |], [ tile_prag; fuse_prag ]))
+        in_gr
+    in
+    // ... wire inputs: A (port 0), B (port 1), and params (port 2) ...
+```
+
+---
+
+## 5. Code Generation & CUTLASS/SYCL/Vulkan APIs
+
+By keeping `INNERPRODUCT_NODE` and `EINSUM_NODE` at a high level until the C++ lowering phase, the code generator can directly target backend library APIs.
+
+### CUTLASS C++ Codegen with Epilogue Fusion
+When compiling the `INNERPRODUCT_NODE` containing the `fuse_relu` pragma, the code generator maps it to a custom CUTLASS Epilogue Operator and passes the runtime parameters from input port 2 into the arguments structure:
+
 ```cpp
 // 1. Define types and layouts derived from compile-time pragmas
 using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 8>;
@@ -141,8 +196,13 @@ using WarpShape        = cutlass::gemm::GemmShape<64, 64, 8>;
 using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
 using LayoutA = cutlass::layout::RowMajor;
-using LayoutB = cutlass::layout::ColumnMajor; // Transposed layout
+using LayoutB = cutlass::layout::ColumnMajor;
 using LayoutC = cutlass::layout::RowMajor;
+
+// Define Epilogue Operator using the parsed pragma
+using EpilogueOutputOp = cutlass::epilogue::thread::LinearCombinationBiasValRelu<
+    int32_t, InstructionShape::kN, int32_t, int32_t
+>;
 
 using Gemm = cutlass::gemm::device::Gemm<
     int32_t, LayoutA,
@@ -150,17 +210,19 @@ using Gemm = cutlass::gemm::device::Gemm<
     int32_t, LayoutC,
     ThreadblockShape,
     WarpShape,
-    InstructionShape
+    InstructionShape,
+    EpilogueOutputOp
 >;
 
-// 2. Lowering wrapper for INNERPRODUCT_NODE
-extern "C" sisal_array_t func_matmul_tiled(sisal_array_t A, sisal_array_t B) {
-    int32_t M = A.dims[0];
-    int32_t N = B.dims[1];
-    int32_t K = A.dims[1];
+// 2. Lowering wrapper
+extern "C" sisal_array_t func_matmul_fused(sisal_array_t A, sisal_array_t B, sisal_array_t params) {
+    int32_t M = A.dims[0]; int32_t N = B.dims[1]; int32_t K = A.dims[1];
     
     sisal_array_t C = sisal_array_alloc_empty(2, type_integer, M * N);
     C.dims[0] = M; C.dims[1] = N;
+
+    // Retrieve fused parameter from input port 2 (e.g. ReLU alpha)
+    float relu_alpha = *static_cast<float*>(params.data);
 
     Gemm gemm_op;
     typename Gemm::Arguments args(
@@ -169,7 +231,7 @@ extern "C" sisal_array_t func_matmul_tiled(sisal_array_t A, sisal_array_t B) {
         {(int32_t*)B.data, B.stride[0]/4},
         {(int32_t*)C.data, C.stride[0]/4},
         {(int32_t*)C.data, C.stride[0]/4},
-        {1, 0}
+        {1.0f, 0.0f, relu_alpha} // Pass fusion parameters here!
     );
 
     gemm_op(args);
@@ -179,7 +241,7 @@ extern "C" sisal_array_t func_matmul_tiled(sisal_array_t A, sisal_array_t B) {
 
 ---
 
-## 5. Memory Reuse and CPU-GPU Synchronization Hazards
+## 6. Memory Reuse and CPU-GPU Synchronization Hazards
 
 Because GPU kernel launches are asynchronous, the CPU thread returns immediately to execute subsequent Sisal instructions. 
 
@@ -211,7 +273,7 @@ To enable asynchronous execution overlap, increment the `ref_count` of the sourc
 
 ---
 
-## 6. Hardware Testing Setup (RTX 3070 Compatibility)
+## 7. Hardware Testing Setup (RTX 3070 Compatibility)
 
 The **NVIDIA GeForce RTX 3070** is an excellent target for testing these optimizations. 
 
@@ -233,3 +295,4 @@ The compiled C++ code can easily target other generations by adapting the compil
 *   **Hopper (`sm_90` / H100):** Leverages hardware TMA (Tensor Memory Accelerator) and Warp Specialization.
 *   **Turing (`sm_75` / RTX 2080):** Targets first-generation Tensor Cores.
 *   **SYCL Target (oneMKL):** The C++ backend can output `oneapi::mkl::blas::gemm` calls to target Intel GPUs (XMX) or CPU clusters (AMX).
+*   **Vulkan Target (`coopmat`):** Maps the high-level operators to `coopmat` types and `coopMatMulAdd` instructions in GLSL/SPIR-V.

@@ -581,6 +581,35 @@ inline sisal_array_t sisal_array_adjust(sisal_array_t a, int64_t lo, int64_t hi)
     return res;
 }
 
+/* REML/REMH: drop the lowest / highest slab along the leading axis.
+   Rank-aware like adjust: rank-1 drops one element; rank-k drops a trailing
+   (k-1)-D slab.  reml bumps lower_bound (classic absolute-bounds
+   semantics); remh leaves it. */
+inline sisal_array_t sisal_array_reml(sisal_array_t a) {
+    size_t esz = sisal_esz(a);
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t slice = (dim0 > 0) ? ((int64_t)a.size / dim0) : 1;
+    int64_t rows = dim0 > 0 ? dim0 - 1 : 0;
+    sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, (uint64_t)(rows * slice), esz);
+    res.lower_bound[0] = a.lower_bound[0] + 1;
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = rows;
+    memcpy(res.data, (char*)a.data + (uint64_t)slice * esz, (uint64_t)(rows * slice) * esz);
+    return res;
+}
+inline sisal_array_t sisal_array_remh(sisal_array_t a) {
+    size_t esz = sisal_esz(a);
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t slice = (dim0 > 0) ? ((int64_t)a.size / dim0) : 1;
+    int64_t rows = dim0 > 0 ? dim0 - 1 : 0;
+    sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, (uint64_t)(rows * slice), esz);
+    res.lower_bound[0] = a.lower_bound[0];
+    for (int k = 1; k < (int)a.rank; k++) { res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k]; }
+    res.dims[0] = rows;
+    memcpy(res.data, a.data, (uint64_t)(rows * slice) * esz);
+    return res;
+}
+
 inline sisal_array_t sisal_array_setl(sisal_array_t a, int64_t lb) {
     sisal_array_t res = a;
     res.lower_bound[0] = lb;

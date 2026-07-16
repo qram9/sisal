@@ -1977,7 +1977,7 @@ and lower_simple env gr nid sym pin pout pr =
         in
         C.Call (fn, [ e1; e2 ])
     | ACATENATE -> C.Call ("sisal_array_addh_arr", [ e1; e2 ])
-    | DVAADDL ->
+    | DVAADDL | AADDL ->
         (* prepend e2 at the low end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in
         let fn =
@@ -1988,6 +1988,12 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> "sisal_array_addl_f32"
         in
         C.Call (fn, [ e1; e2 ])
+    | AREML ->
+        (* drop the lowest slab; lower_bound bumps (absolute semantics) *)
+        C.Call ("sisal_array_reml", [ e1 ])
+    | AREMH ->
+        (* drop the highest slab; lower_bound unchanged *)
+        C.Call ("sisal_array_remh", [ e1 ])
     | DVAFILL | AFILL ->
         (* array_fill / array_dv_fill (lo, hi, val) -> new array [lo..hi],
            every element = val.  One lowering serves both: the runtime
@@ -2122,7 +2128,7 @@ and lower_simple env gr nid sym pin pout pr =
               elem_c_ty elems_formatted call_str
           in
           C.Id lambda_str
-    | DVAADJUST ->
+    | DVAADJUST | AADJUST ->
         (* array_adjust(A, lo, hi) -- window slice A[lo..hi].  Args wired reversed:
          port 0 = hi (e1), port 1 = lo (e2), port 2 = A. *)
         C.Call

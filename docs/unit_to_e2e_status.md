@@ -62,13 +62,13 @@ returns) — STOP and discuss the rewrite instead of forcing it.
 | Missing op | Files blocked | Note |
 |---|---|---|
 | ARRAY_FILL | 28 | biggest single lever; trivial alloc+fill |
-| ARRAY_REML / ARRAY_ADDL | 9 + 9 | absolute-bounds array family |
+| ~~ARRAY_REML / ARRAY_ADDL~~ | ~~9 + 9~~ | RESOLVED Jul 15: AADDL/AADJUST aliased onto the DV lowerings (runtime helpers were already bounds-faithful: addl decrements lower_bound, adjust re-bases to lo); AREML/AREMH got new rank-aware slab helpers (reml bumps lower_bound, remh keeps it). |
 | VECMATMUL | 6 | |
 | REDUCE | 6 | |
-| ARRAY_ADJUST | 6 | |
+| ~~ARRAY_ADJUST~~ | ~~6~~ | RESOLVED Jul 15 (see above). |
 | DV_RESHAPE / EXPAND / EINSUM | 5 + 2 | the known APL bucket |
 | VBUILD / VSPLAT / SWIZZLE / MATSPLAT | 7 | vector-swizzle tests |
-| ARRAY_REMH | 1 | |
+| ~~ARRAY_REMH~~ | ~~1~~ | RESOLVED Jul 15 (see above). |
 
 ## PARKED GROUP: NESTED-FN (function defined inside a function)
 
