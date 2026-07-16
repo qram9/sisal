@@ -964,6 +964,24 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);
 #ifdef TEST_FOR_INITIAL_SIMPLE
 extern "C" int32_t func_MAIN(int32_t N);
 #endif
+#ifdef TEST_PARPI2
+extern "C" float func_MAIN(int32_t CYCLES);
+#endif
+#ifdef TEST_PARPI_BABB
+extern "C" float func_MAIN(int32_t N);
+#endif
+#ifdef TEST_FOR_INITIAL_LOOPA
+extern "C" int32_t func_MAIN(int32_t N);
+#endif
+#ifdef TEST_LOOPAT2_DV
+extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t Y);
+#endif
+#ifdef TEST_TST_LOOP2_DV
+extern "C" double func_MAIN(sisal_array_t Y);
+#endif
+#ifdef TEST_FOR_ALL_REDUCE
+extern "C" int32_t func_MAIN(int32_t X);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6575,6 +6593,73 @@ static void test_for_initial_simple(void) {
     check("i := old i + s + 1; s := old s + old i + i (n=3..24)", ok);
 }
 #endif
+#ifdef TEST_PARPI2
+// Leibniz pi via a TWO-RESULT forall (separate + and - sums), (a-b)*4
+static void test_parpi2(void) {
+    printf("\n=== Group: parpi2 (two-sum forall pi) ===\n");
+    int cycles = 2000; double a = 0, b = 0;
+    for (int i = 1; i <= cycles / 2; i++) { a += 1.0/(4.0*i-3); b += 1.0/(4.0*i-1); }
+    check("parpi2(2000) == mirrored (a-b)*4", fabs(func_MAIN(cycles) - (float)((a-b)*4.0)) < 1e-4);
+}
+#endif
+#ifdef TEST_PARPI_BABB
+// Karp-Babb midpoint-rule pi: (4/N) * sum 1/(1+x_j^2), x_j = (j-1/2)/N
+static void test_parpi_babb(void) {
+    printf("\n=== Group: parpi_babb (midpoint-rule pi) ===\n");
+    int n = 1000; double s = 0;
+    for (int j = 1; j <= n; j++) { double x = (j - 0.5) / n; s += 1.0/(1.0 + x*x); }
+    check("parpi_babb(1000) == mirrored series", fabs(func_MAIN(n) - (float)(4.0/n*s)) < 1e-4);
+}
+#endif
+#ifdef TEST_FOR_INITIAL_LOOPA
+// POST-TEST loop (repeat ... while): body runs once, then tests i < n.
+static void test_for_initial_loopa(void) {
+    printf("\n=== Group: for_initial_loopa (repeat..while post-test) ===\n");
+    bool ok = true;
+    for (int n = 0; n <= 12 && ok; n += 3) {
+        int i = 0, s = 0;
+        do { int i1 = i + 1; s = s + i; i = i1; } while (i < n);
+        ok = (func_MAIN(n) == s);
+    }
+    check("post-test sum incl. n=0 (one mandatory trip)", ok);
+}
+#endif
+#ifdef TEST_LOOPAT2_DV
+// indexed map Y[I]*Y[I] over 1..N
+static void test_loopat2_dv(void) {
+    printf("\n=== Group: loopat2_dv (indexed square map) ===\n");
+    double v[5] = { 1.5, -2.0, 0.0, 3.0, -0.5 };
+    sisal_array_t Y = sisal_array_alloc_empty(1, 4, 5);
+    for (int i = 0; i < 5; i++) ((double*)Y.data)[i] = v[i];
+    sisal_array_t r = func_MAIN(5, Y);
+    bool ok = (int)r.size == 5;
+    for (int i = 0; ok && i < 5; i++) ok = fabs(((double*)r.data)[i] - v[i]*v[i]) < 1e-12;
+    check("Y[I]*Y[I] over 1..5", ok);
+    free(Y.data); if (r.data && r.data != Y.data) free(r.data);
+}
+#endif
+#ifdef TEST_TST_LOOP2_DV
+// scatter-sum: sum of K+K over the elements
+static void test_tst_loop2_dv(void) {
+    printf("\n=== Group: tst_loop2_dv (scatter sum of 2K) ===\n");
+    double v[4] = { 1.5, -2.0, 3.25, 10.0 }, s = 0;
+    for (int i = 0; i < 4; i++) s += v[i] + v[i];
+    sisal_array_t Y = sisal_array_alloc_empty(1, 4, 4);
+    for (int i = 0; i < 4; i++) ((double*)Y.data)[i] = v[i];
+    check("sum(K+K) over [1.5,-2,3.25,10]", fabs(func_MAIN(Y) - s) < 1e-12);
+    free(Y.data);
+}
+#endif
+#ifdef TEST_FOR_ALL_REDUCE
+// MASKED reduction: sum 100/(i-5) WHEN i > 5 == 228 (i=6..10 only).
+// The unmasked bug returned 20 (all i, with ARM64 100/0 = 0) — this value
+// pins the mask being honored.  (Body still evaluates 100/(i-5) at i=5;
+// benign on ARM64 where integer div-by-zero does not trap.)
+static void test_for_all_reduce(void) {
+    printf("\n=== Group: for_all_reduce (masked sum reduction) ===\n");
+    check("sum 100/(i-5) when i>5 == 228", func_MAIN(0) == 228);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7726,6 +7811,24 @@ main (void)
 #ifdef TEST_FOR_INITIAL_SIMPLE
   test_for_initial_simple ();
 #endif
+#ifdef TEST_PARPI2
+  test_parpi2 ();
+#endif
+#ifdef TEST_PARPI_BABB
+  test_parpi_babb ();
+#endif
+#ifdef TEST_FOR_INITIAL_LOOPA
+  test_for_initial_loopa ();
+#endif
+#ifdef TEST_LOOPAT2_DV
+  test_loopat2_dv ();
+#endif
+#ifdef TEST_TST_LOOP2_DV
+  test_tst_loop2_dv ();
+#endif
+#ifdef TEST_FOR_ALL_REDUCE
+  test_for_all_reduce ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -8073,7 +8176,8 @@ main (void)
     && !defined(TEST_FOR_ALL_ARGMAX) && !defined(TEST_TUPLE_MIXED3) && !defined(TEST_RECORD1) && !defined(TEST_UNION1) \
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
-    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE)                \
+    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
+    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

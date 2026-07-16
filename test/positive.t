@@ -156,7 +156,7 @@ Queens / backtracking:
   $ sisal unit/BackTrack.sis
 
 For-loop variants:
-  $ sisal unit/for_all_reduce.sis
+  $ sisal e2e/for_all_reduce.sis
   $ sisal unit/for_initial.sis
   $ sisal unit/loop1.sis
   $ sisal unit/loop2.sis
@@ -403,9 +403,9 @@ Scientific benchmarks:
   $ sisal unit/outs2.sis
   $ sisal unit/p16final.sis
   $ sisal unit/para.sis
-  $ sisal unit/parpi_babb.sis
+  $ sisal e2e/parpi_babb.sis
   $ sisal e2e/parpi1.sis
-  $ sisal unit/parpi2.sis
+  $ sisal e2e/parpi2.sis
   $ sisal unit/PassFreq.sis
   $ sisal unit/PassGrid.sis
   $ sisal unit/pbatcher.sis
