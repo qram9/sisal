@@ -33,7 +33,7 @@ Lambdas:
 Tuples:
   $ sisal unit/tuple_tests.sis
   $ sisal unit/tuple_add.sis
-  $ sisal unit/tuple_mixed.sis
+  $ sisal e2e/tuple_mixed.sis
 
 APL bulk operations - reductions (SUM/PRODUCT/LEAST/GREATEST, range, for-loop):
   $ sisal unit/apl/apl_reduce.sis
@@ -85,7 +85,7 @@ Records and unions:
   $ sisal e2e/record_e2e.sis
   $ sisal e2e/tagcase_e2e.sis
   $ sisal e2e/complex_features_e2e.sis
-  $ sisal unit/union.sis
+  $ sisal e2e/record_replace_e2e.sis
 
 DV array variants - array_dv OF with correct array_dv return types:
   $ sisal e2e/loop1_dv.sis
@@ -223,16 +223,16 @@ Matrix / linear algebra:
   $ sisal unit/reshape_transpose.sis
 
 Records and unions (extended):
-  $ sisal unit/record1.sis
-  $ sisal unit/record2.sis
+  $ sisal e2e/record1.sis
+  $ sisal e2e/record2.sis
   $ sisal unit/tagcase.sis
   $ sisal unit/tagcase_ii.sis
   $ sisal unit/tagcase_bare.sis
   $ sisal unit/tagcase_bare_nested.sis
   $ sisal unit/tagcase_bare_mixed.sis
-  $ sisal unit/union0.sis
-  $ sisal unit/union1.sis
-  $ sisal unit/test_record1.sis
+  $ sisal e2e/union0.sis
+  $ sisal e2e/union1.sis
+  $ sisal e2e/record1_reorder.sis
 
 Higher-order functions and closures:
   $ sisal unit/higher_order_fun.sis
@@ -249,7 +249,9 @@ Numeric / math:
   $ sisal unit/quad.sis
   $ sisal unit/quadrature.sis
   $ sisal e2e/simpson.sis
-  $ sisal unit/idiv.sis
+  $ sisal e2e/idiv.sis
+  $ sisal e2e/forall_simple_dv.sis
+  $ sisal e2e/forall_dot_dv.sis
   $ sisal unit/minmax.sis
   $ sisal unit/random.sis
   $ sisal unit/ranf.sis
@@ -401,7 +403,7 @@ Scientific benchmarks:
   $ sisal unit/p16final.sis
   $ sisal unit/para.sis
   $ sisal unit/parpi_babb.sis
-  $ sisal unit/parpi1.sis
+  $ sisal e2e/parpi1.sis
   $ sisal unit/parpi2.sis
   $ sisal unit/PassFreq.sis
   $ sisal unit/PassGrid.sis
@@ -452,8 +454,9 @@ Scientific benchmarks:
   $ sisal unit/tuple_fn_val.sis
   $ sisal unit/tuple_hash_tests.sis
   $ sisal unit/tuple_kw_tests.sis
-  $ sisal unit/tuple_mixed2.sis
-  $ sisal unit/tuple_mixed3.sis
+  $ sisal e2e/tuple_mixed2.sis
+  $ sisal e2e/tuple_mixed3.sis
+  $ sisal e2e/tuple_add_dv.sis
   $ sisal unit/types.sis
   $ sisal unit/unsplit.sis
   $ sisal unit/uprime1.sis
@@ -466,7 +469,7 @@ Scientific benchmarks:
   $ sisal unit/zbuffer2.sis
   $ sisal unit/array_ex.sis
   $ sisal unit/bad.sis
-  $ sisal unit/for_all_argmax.sis
+  $ sisal e2e/for_all_argmax.sis
   $ sisal e2e/test_if_array_dv.sis
   $ sisal e2e/test_if_multi_array_dv.sis
   $ sisal e2e/test_mix_array_dv_if.sis

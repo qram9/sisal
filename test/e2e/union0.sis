@@ -1,12 +1,12 @@
 
 define main
-type ar		= array[integer];
+type ar		= array_dv[integer];
 
 type un		= union[a : integer; b : real; d : ar];
 
 
 %type double = double_real;
-type OneD   = array[double];
+type OneD   = array_dv[double];
 
 
 %------------------------------------------------------------

@@ -897,6 +897,67 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t INPUT);
 #ifdef TEST_MESORT_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t X);
 #endif
+#ifdef TEST_FOR_ALL_ARGMAX
+extern "C" int32_t func_MAIN(int32_t X);
+#endif
+#ifdef TEST_TUPLE_MIXED3
+struct FUNC_TUPLEMIXED_results {
+  int32_t res_0;
+  float res_1;
+};
+extern "C" struct FUNC_TUPLEMIXED_results func_TUPLEMIXED(int32_t X);
+#endif
+#ifdef TEST_RECORD1
+struct struct_rec_96 { float R; };
+struct struct_rec_98 { struct struct_rec_96 L; float S; };
+extern "C" struct struct_rec_98 func_MAIN(void);
+#endif
+#ifdef TEST_UNION1
+extern "C" float func_MAIN(float X, float EPS);
+#endif
+#ifdef TEST_TUPLE_MIXED2
+struct FUNC_TUPLEMIXED_results {
+  int32_t res_0;
+  float res_1;
+};
+extern "C" struct FUNC_TUPLEMIXED_results func_TUPLEMIXED(void);
+#endif
+#ifdef TEST_UNION0
+struct FUNC_MAIN_results { bool res_0; bool res_1; bool res_2; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t X, float Y, sisal_array_t Z);
+#endif
+#ifdef TEST_TUPLE_ADD_DV
+extern "C" sisal_array_t func_TUPLE_ADD(sisal_array_t A, sisal_array_t B);
+#endif
+#ifdef TEST_IDIV
+extern "C" int32_t func_IDIV(int32_t A, int32_t B);
+#endif
+#ifdef TEST_FORALL_SIMPLE_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A);
+#endif
+#ifdef TEST_FORALL_DOT_DV
+extern "C" int32_t func_MAIN(sisal_array_t A, sisal_array_t B);
+#endif
+#ifdef TEST_TUPLE_MIXED
+struct FUNC_TUPLEMIXED_results { int32_t res_0; float res_1; };
+extern "C" struct FUNC_TUPLEMIXED_results func_TUPLEMIXED(void);
+#endif
+#ifdef TEST_RECORD2
+struct struct_rec_96 { int32_t A; int32_t B; };
+extern "C" int32_t func_TEST(struct struct_rec_96 R);
+#endif
+#ifdef TEST_RECORD1_REORDER
+struct struct_rec_95r { float R; };
+struct struct_rec_98r { float S; struct struct_rec_95r L; };
+extern "C" struct struct_rec_98r func_MAIN(void);
+#endif
+#ifdef TEST_RECORD_REPLACE_E2E
+struct cart_rec { float X; float Y; };
+extern "C" struct cart_rec func_MAIN(void);
+#endif
+#ifdef TEST_PARPI1
+extern "C" float func_MAIN(int32_t CYCLES);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6310,6 +6371,171 @@ static void test_life2_dv(void) {
     if (out.data && out.data != G.data) free(out.data);
 }
 #endif
+#ifdef TEST_FOR_ALL_ARGMAX
+// argmax reduction: val = 10 - i over i in 1..10 maximizes at i = 1.
+static void test_for_all_argmax(void) {
+    printf("\n=== Group: for_all_argmax (argmax reduction) ===\n");
+    check("argmax of (10 - i), i in 1..10 == 1", func_MAIN(0) == 1);
+}
+#endif
+#ifdef TEST_TUPLE_MIXED3
+// THE historic tuple slot-1 bug pin: #(A,B) := #(X, 3.14) mis-bound B to
+// slot 0 and returned (11, 20.0) instead of (11, 6.28).  Fixed by the
+// parallel-copy binder (tuple items unpack by port).
+static void test_tuple_mixed3(void) {
+    printf("\n=== Group: tuple_mixed3 (tuple destructure slots) ===\n");
+    struct FUNC_TUPLEMIXED_results r = func_TUPLEMIXED(10);
+    check("A + 1 == 11", r.res_0 == 11);
+    check("B * 2.0 == 6.28 (slot-1 payload, not slot-0)", fabs(r.res_1 - 6.28f) < 1e-5);
+}
+#endif
+#ifdef TEST_RECORD1
+// nested-record replace: {L:{R:0.2}, S:3.14} replace [l.r:3.2; s:1.23]
+static void test_record1(void) {
+    printf("\n=== Group: record1 (nested record replace) ===\n");
+    struct struct_rec_98 r = func_MAIN();
+    check("bb.L.R replaced to 3.2", fabs(r.L.R - 3.2f) < 1e-6);
+    check("bb.S replaced to 1.23", fabs(r.S - 1.23f) < 1e-6);
+}
+#endif
+#ifdef TEST_UNION1
+// until-loop Newton sqrt; reference mirrors the exact float iteration.
+static void test_union1(void) {
+    printf("\n=== Group: union1 (until-loop Newton sqrt + is-tests) ===\n");
+    float x = 2.0f, eps = 1e-4f;
+    float root = x / 2.0f;
+    do { root = (x / root + root) / 2.0f; } while (!((x - root * root) < eps));
+    float got = func_MAIN(x, eps);
+    check("newton-until sqrt(2) == mirrored float iteration", fabs(got - root) < 1e-6);
+}
+#endif
+#ifdef TEST_TUPLE_MIXED2
+static void test_tuple_mixed2(void) {
+    printf("\n=== Group: tuple_mixed2 (all-literal tuple destructure) ===\n");
+    struct FUNC_TUPLEMIXED_results r = func_TUPLEMIXED();
+    check("#(A,B) := #(1, 2.0) gives (1, 2.0)",
+          r.res_0 == 1 && fabs(r.res_1 - 2.0f) < 1e-6);
+}
+#endif
+#ifdef TEST_UNION0
+// is-tag tests on freshly built unions of all three payload kinds
+// (int, real, array_dv) -> all true.
+static void test_union0(void) {
+    printf("\n=== Group: union0 (is-tests over three union tags) ===\n");
+    sisal_array_t z = sisal_array_alloc_empty(1, 6, 2);
+    ((int32_t*)z.data)[0] = 4; ((int32_t*)z.data)[1] = 5;
+    struct FUNC_MAIN_results r = func_MAIN(7, 2.5f, z);
+    check("is a(union[a:x]) == true", r.res_0);
+    check("is b(union[b:y]) == true", r.res_1);
+    check("is d(union[d:z]) == true", r.res_2);
+    free(z.data);
+}
+#endif
+#ifdef TEST_TUPLE_ADD_DV
+// broadcasting elementwise add: equal sizes zip; a 1-element side splats.
+static void test_tuple_add_dv(void) {
+    printf("\n=== Group: tuple_add_dv (broadcasting elementwise add) ===\n");
+    float av[3] = { 1, 2, 3 }, bv[3] = { 10, 20, 30 }, s1[1] = { 5 };
+    sisal_array_t A = sisal_array_alloc_empty(1, 8, 3);
+    sisal_array_t B = sisal_array_alloc_empty(1, 8, 3);
+    sisal_array_t S = sisal_array_alloc_empty(1, 8, 1);
+    for (int i = 0; i < 3; i++) { ((float*)A.data)[i] = av[i]; ((float*)B.data)[i] = bv[i]; }
+    ((float*)S.data)[0] = s1[0];
+    sisal_array_t r1 = func_TUPLE_ADD(A, B);
+    sisal_array_t r2 = func_TUPLE_ADD(S, B);
+    sisal_array_t r3 = func_TUPLE_ADD(A, S);
+    bool ok1 = (int)r1.size == 3, ok2 = (int)r2.size == 3, ok3 = (int)r3.size == 3;
+    for (int i = 0; i < 3 && ok1; i++) ok1 = fabs(((float*)r1.data)[i] - (av[i] + bv[i])) < 1e-6;
+    for (int i = 0; i < 3 && ok2; i++) ok2 = fabs(((float*)r2.data)[i] - (5 + bv[i])) < 1e-6;
+    for (int i = 0; i < 3 && ok3; i++) ok3 = fabs(((float*)r3.data)[i] - (av[i] + 5)) < 1e-6;
+    check("equal sizes: [1,2,3]+[10,20,30]", ok1);
+    check("splat left: 5+[10,20,30]", ok2);
+    check("splat right: [1,2,3]+5", ok3);
+    free(A.data); free(B.data); free(S.data);
+    if (r1.data) free(r1.data); if (r2.data) free(r2.data); if (r3.data) free(r3.data);
+}
+#endif
+#ifdef TEST_IDIV
+// integer division semantics incl. negatives (truncation toward zero)
+static void test_idiv(void) {
+    printf("\n=== Group: idiv (integer division semantics) ===\n");
+    check("7/2 == 3",   func_IDIV(7, 2) == 3);
+    check("-7/2 == -3 (truncate toward zero)", func_IDIV(-7, 2) == -3);
+    check("7/-2 == -3", func_IDIV(7, -2) == -3);
+    check("-7/-2 == 3", func_IDIV(-7, -2) == 3);
+}
+#endif
+#if defined(TEST_FORALL_SIMPLE_DV) || defined(TEST_FORALL_CROSS_DV) || defined(TEST_FORALL_DOT_DV)
+static sisal_array_t mk_i32v(const int32_t* v, int n) {
+    sisal_array_t a = sisal_array_alloc_empty(1, 6, n);
+    for (int i = 0; i < n; i++) ((int32_t*)a.data)[i] = v[i];
+    return a;
+}
+#endif
+#ifdef TEST_FORALL_SIMPLE_DV
+static void test_forall_simple_dv(void) {
+    printf("\n=== Group: forall_simple_dv (scatter map x*2) ===\n");
+    int32_t v[4] = { 1, 5, -3, 7 };
+    sisal_array_t A = mk_i32v(v, 4);
+    sisal_array_t r = func_MAIN(A);
+    bool ok = (int)r.size == 4;
+    for (int i = 0; ok && i < 4; i++) ok = (((int32_t*)r.data)[i] == v[i] * 2);
+    check("map x*2 over [1,5,-3,7]", ok);
+    free(A.data); if (r.data && r.data != A.data) free(r.data);
+}
+#endif
+#ifdef TEST_FORALL_DOT_DV
+static void test_forall_dot_dv(void) {
+    printf("\n=== Group: forall_dot_dv (dot-zip inner product) ===\n");
+    int32_t av[3] = { 1, 2, 3 }, bv[3] = { 4, 5, 6 };
+    sisal_array_t A = mk_i32v(av, 3), B = mk_i32v(bv, 3);
+    check("dot([1,2,3],[4,5,6]) == 32", func_MAIN(A, B) == 32);
+    free(A.data); free(B.data);
+}
+#endif
+#ifdef TEST_TUPLE_MIXED
+static void test_tuple_mixed(void) {
+    printf("\n=== Group: tuple_mixed (tuple literal as multi-result) ===\n");
+    struct FUNC_TUPLEMIXED_results r = func_TUPLEMIXED();
+    check("#(1, 2.0) returns (1, 2.0)", r.res_0 == 1 && fabs(r.res_1 - 2.0f) < 1e-6);
+}
+#endif
+#ifdef TEST_RECORD2
+static void test_record2(void) {
+    printf("\n=== Group: record2 (record param field access) ===\n");
+    struct struct_rec_96 r; r.A = 11; r.B = 31;
+    check("Test({a:11, b:31}) == 42", func_TEST(r) == 42);
+}
+#endif
+#ifdef TEST_RECORD1_REORDER
+// record1 with field order swapped (S before nested L)
+static void test_record1_reorder(void) {
+    printf("\n=== Group: record1_reorder (field-order-swapped replace) ===\n");
+    struct struct_rec_98r r = func_MAIN();
+    check("bb.S replaced to 1.23", fabs(r.S - 1.23f) < 1e-6);
+    check("bb.L.R replaced to 3.2", fabs(r.L.R - 3.2f) < 1e-6);
+}
+#endif
+#ifdef TEST_RECORD_REPLACE_E2E
+// Cart record: field read (Origin.X * 2.0) feeding a replace [Y: XX]
+static void test_record_replace_e2e(void) {
+    printf("\n=== Group: record_replace_e2e (read-then-replace) ===\n");
+    struct cart_rec r = func_MAIN();
+    check("HOME.X == 4.2", fabs(r.X - 4.2f) < 1e-6);
+    check("HOME.Y == 8.4 (Origin.X * 2)", fabs(r.Y - 8.4f) < 1e-6);
+}
+#endif
+#ifdef TEST_PARPI1
+// forall-parallel Leibniz pi (pairwise terms); reference mirrors in double
+static void test_parpi1(void) {
+    printf("\n=== Group: parpi1 (forall Leibniz pi) ===\n");
+    int cycles = 2000;
+    double s = 0;
+    for (int i = 1; i <= cycles / 2; i++) s += 1.0/(4.0*i-3) - 1.0/(4.0*i-1);
+    float got = func_MAIN(cycles);
+    check("parpi1(2000) ~ pi (vs mirrored series)", fabs(got - (float)(s*4.0)) < 1e-4);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7410,6 +7636,51 @@ main (void)
 #ifdef TEST_MESORT_DV
   test_mesort_dv ();
 #endif
+#ifdef TEST_FOR_ALL_ARGMAX
+  test_for_all_argmax ();
+#endif
+#ifdef TEST_TUPLE_MIXED3
+  test_tuple_mixed3 ();
+#endif
+#ifdef TEST_RECORD1
+  test_record1 ();
+#endif
+#ifdef TEST_UNION1
+  test_union1 ();
+#endif
+#ifdef TEST_TUPLE_MIXED2
+  test_tuple_mixed2 ();
+#endif
+#ifdef TEST_UNION0
+  test_union0 ();
+#endif
+#ifdef TEST_TUPLE_ADD_DV
+  test_tuple_add_dv ();
+#endif
+#ifdef TEST_IDIV
+  test_idiv ();
+#endif
+#ifdef TEST_FORALL_SIMPLE_DV
+  test_forall_simple_dv ();
+#endif
+#ifdef TEST_FORALL_DOT_DV
+  test_forall_dot_dv ();
+#endif
+#ifdef TEST_TUPLE_MIXED
+  test_tuple_mixed ();
+#endif
+#ifdef TEST_RECORD2
+  test_record2 ();
+#endif
+#ifdef TEST_RECORD1_REORDER
+  test_record1_reorder ();
+#endif
+#ifdef TEST_RECORD_REPLACE_E2E
+  test_record_replace_e2e ();
+#endif
+#ifdef TEST_PARPI1
+  test_parpi1 ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -7753,7 +8024,11 @@ main (void)
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
     && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_TAG_DISPATCH_DV) \
-    && !defined(TEST_SIMPSON) && !defined(TEST_MINMAX_DV) && !defined(TEST_INSERTION1_DV) && !defined(TEST_MESORT_DV) && !defined(TEST_LIFE2_DV)                \
+    && !defined(TEST_SIMPSON) && !defined(TEST_MINMAX_DV) && !defined(TEST_INSERTION1_DV) && !defined(TEST_MESORT_DV) && !defined(TEST_LIFE2_DV) \
+    && !defined(TEST_FOR_ALL_ARGMAX) && !defined(TEST_TUPLE_MIXED3) && !defined(TEST_RECORD1) && !defined(TEST_UNION1) \
+    && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
+    && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
+    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

@@ -1,0 +1,6 @@
+define main
+function main(A: array_dv[integer] returns array_dv[integer])
+    for x in A
+    returns array_dv of x * 2
+    end for
+end function

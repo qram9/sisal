@@ -1,0 +1,19 @@
+
+define Main
+
+type Cart = record[ X, Y: real ]
+
+% (An unused recursive IntList type was removed for the e2e port: a
+% recursive union embedded BY VALUE in a record emits incomplete C until
+% variants are boxed — records roadmap phase 2.  IF1-level compile
+% coverage of such declarations lives in positive.t via other tests.)
+
+function Main(returns Cart)
+let Origin : Cart := record[X:4.2;Y:3.1] in
+let XX : REAL := Origin.X * 2.0 in
+let HOME : Cart := Origin replace [Y:XX] in
+HOME
+end let
+end let
+end let
+end function
