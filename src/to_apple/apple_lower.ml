@@ -3424,12 +3424,19 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                       (C.BinOp (C.Add, C.BinOp (C.Sub, ub, lb), C.LitInt 1), lb);
                     ]
                 | _ ->
+                    (* array-source axis (in A / in A at I): the gather result
+                       inherits the SOURCE's lower bound so `at` indices and
+                       result indices stay aligned (an lb=0 source must not
+                       come back rebased to 1) *)
+                    let src = resolve n 0 in
                     [
                       ( C.Cast
                           ( C.Basic "int32_t",
-                            C.Index (C.Member (resolve n 0, "dims"), C.LitInt 0)
-                          ),
-                        C.LitInt 1 );
+                            C.Index (C.Member (src, "dims"), C.LitInt 0) ),
+                        C.Cast
+                          ( C.Basic "int32_t",
+                            C.Index (C.Member (src, "lower_bound"), C.LitInt 0)
+                          ) );
                     ])
             | None -> []
           in
