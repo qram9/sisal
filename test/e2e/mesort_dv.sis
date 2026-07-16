@@ -1,0 +1,74 @@
+% Batcher's parallel merge-exchange sort (Knuth Vol.3 p112) — DV variant.
+% info = array_dv[integer] (1-based positional); the algorithm's bit
+% arithmetic is 0-based, so loops iterate 1..n with i0 := i-1 driving the
+% masks while reads/writes use the 1-based dv positions (pure shift).
+define main
+
+type info = array_dv[integer];
+
+function log2(n:integer returns integer)
+  for initial i := 0 ; nn := n-1
+  while nn > 0 repeat  i := old i + 1 ; nn := old nn / 2
+  returns value of i
+  end for
+end function
+
+function bitmask(n,j:integer returns integer)
+  mod(n/exp(2,j),2)*exp(2,j)
+end function
+
+function newz(oldt, oldd, oldr :integer; oldz :info; n,lgn:integer
+ returns info )
+  for i in 1, n
+    elem :=
+      let
+        i0 := i - 1;
+        lo := (i0 <= n-1-oldd) & bitmask(i0,oldt) = oldr ;
+        hi := (i0 >= oldd) & bitmask(i0-oldd,oldt) = oldr
+      in
+        if lo then min(oldz[i],oldz[i+oldd])
+        elseif hi then max(oldz[i-oldd],oldz[i])
+        else oldz[i]
+        end if
+      end let
+  returns array_dv of elem
+  end for
+end function
+
+function mesort(x:info returns info)
+  let
+    size := array_size(x) ;
+    lgsize := log2(size)
+  in
+    for initial
+      y := x ;
+      t := lgsize - 1 ;
+      p := exp(2,t) ;
+    while t >= 0
+    repeat
+      t := old t - 1 ;
+      p := old p / 2 ;
+      y :=
+        for initial
+          z := old y ;
+          u := lgsize-1 ;
+          d := old p ;
+          r := 0 ;
+          q := exp(2, u) ;
+        while u >= old t
+        repeat
+          u := old u - 1 ;
+          q := old q / 2 ;
+          z := newz(old t, old d, old r, old z, size, lgsize) ;
+          d := old q - old p ;
+          r := old p ;
+        returns value of z
+        end for
+    returns value of y
+    end for
+  end let
+end function
+
+function main(x:info returns info)
+  mesort(x)
+end function

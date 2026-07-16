@@ -879,6 +879,27 @@ struct FUNC_MAIN_results {   // Pick(ua,ub), Pick(ua,ua), Pick(ub,ua), Pick(ub,u
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t S);
 #endif
+#ifdef TEST_SIMPSON
+extern "C" float func_SIMPSON(float A, float B, int32_t N);
+#endif
+#ifdef TEST_MINMAX_DV
+struct FUNC_MAIN_results {   // imin, iamin, imax, iamax (1-based indices)
+  int32_t res_0;
+  int32_t res_1;
+  int32_t res_2;
+  int32_t res_3;
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N, sisal_array_t X);
+#endif
+#ifdef TEST_INSERTION1_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t INPUT);
+#endif
+#ifdef TEST_MESORT_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t X);
+#endif
+#ifdef TEST_LIFE2_DV
+extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
+#endif
 #ifdef TEST_RICARD_DV
 struct FUNC_MAIN_results {   // ricard chromatography: VOL, CTM, CTL, 7 totals, JSTOR, STOR, PERCENT, HL
   double res_0;
@@ -6169,6 +6190,126 @@ static void test_tag_dispatch_dv(void) {
     check("Pick(B,B): outer B arm, inner B arm == 40", r.res_3 == 40);
 }
 #endif
+#ifdef TEST_SIMPSON
+// Simpson's 1/3 rule over sin on [a,b], n panels — reference mirrors the
+// exact summation order in double, float-tolerance compare.
+static void test_simpson(void) {
+    printf("\n=== Group: simpson (Simpson integration of sin) ===\n");
+    double a = 0.0, b = 3.141592653589793; int n = 64;
+    double delta = (b - a) / n;
+    double s_odd = 0, s_even = 0;
+    for (int i = 1; i <= (n + 1) / 2; i++) s_odd += sin(a + (2*(i-1)+1) * delta);
+    for (int i = 1; i <= n / 2; i++)       s_even += sin(a + (2*i) * delta);
+    double ref = (sin(a) + sin(b) + 4.0*s_odd + 2.0*s_even) * delta / 3.0;
+    float got = func_SIMPSON((float)a, (float)b, n);
+    check("simpson(0, pi, 64) == reference (~2.0)", fabs(got - ref) < 1e-4);
+}
+#endif
+#ifdef TEST_MINMAX_DV
+// First-occurrence argmin/argmax (plain and |.|), 1-based; C mirror.
+static void test_minmax_dv(void) {
+    printf("\n=== Group: minmax_dv (argmin/argmax first occurrence) ===\n");
+    double v[8] = { 3.0, -7.0, 2.0, 9.0, -7.0, 0.5, 9.0, -1.0 };
+    int n = 8;
+    int imin=1, iamin=1, imax=1, iamax=1;
+    for (int k = 2; k <= n; k++) {
+        if (v[k-1] < v[imin-1]) imin = k;
+        if (fabs(v[k-1]) < fabs(v[iamin-1])) iamin = k;
+        if (v[k-1] > v[imax-1]) imax = k;
+        if (fabs(v[k-1]) > fabs(v[iamax-1])) iamax = k;
+    }
+    sisal_array_t X = sisal_array_alloc_empty(1, 4, n);
+    for (int i = 0; i < n; i++) ((double*)X.data)[i] = v[i];
+    struct FUNC_MAIN_results r = func_MAIN(n, X);
+    check("minmax imin == C reference",  r.res_0 == imin);
+    check("minmax iamin == C reference", r.res_1 == iamin);
+    check("minmax imax == C reference",  r.res_2 == imax);
+    check("minmax iamax == C reference", r.res_3 == iamax);
+    free(X.data);
+}
+#endif
+#ifdef TEST_INSERTION1_DV
+// Insertion sort via multi-value replace swaps; C reference sorts a copy.
+static void test_insertion1_dv(void) {
+    printf("\n=== Group: insertion1_dv (insertion sort, dv swaps) ===\n");
+    double v[9] = { 5.5, -2.0, 9.25, 0.0, 3.5, 3.5, -8.75, 1.0, 7.0 };
+    int n = 9;
+    double ref[9];
+    for (int i = 0; i < n; i++) ref[i] = v[i];
+    for (int i = 1; i < n; i++) {           // reference insertion sort
+        double x = ref[i]; int j = i - 1;
+        while (j >= 0 && ref[j] > x) { ref[j+1] = ref[j]; j--; }
+        ref[j+1] = x;
+    }
+    sisal_array_t in = sisal_array_alloc_empty(1, 4, n);
+    for (int i = 0; i < n; i++) ((double*)in.data)[i] = v[i];
+    sisal_array_t out = func_MAIN(in);
+    bool ok = ((int)out.size == n);
+    for (int i = 0; ok && i < n; i++)
+        ok = (((double*)out.data)[i] == ref[i]);
+    check("insertion1 sorts to C-reference order", ok);
+    free(in.data);
+    if (out.data && out.data != in.data) free(out.data);
+}
+#endif
+#ifdef TEST_MESORT_DV
+// Batcher merge-exchange sort; reference = C qsort on a copy.
+static int cmp_i32(const void* a, const void* b) {
+    int32_t x = *(const int32_t*)a, y = *(const int32_t*)b;
+    return (x > y) - (x < y);
+}
+static void test_mesort_dv(void) {
+    printf("\n=== Group: mesort_dv (Batcher merge-exchange sort) ===\n");
+    int32_t v[16] = { 9, -3, 14, 0, 7, 7, -12, 5, 3, 3, 22, -1, 8, 2, 6, 1 };
+    int n = 16;   // power of two exercises every stage
+    int32_t ref[16];
+    for (int i = 0; i < n; i++) ref[i] = v[i];
+    qsort(ref, n, sizeof(int32_t), cmp_i32);
+    sisal_array_t X = sisal_array_alloc_empty(1, 6, n);
+    for (int i = 0; i < n; i++) ((int32_t*)X.data)[i] = v[i];
+    sisal_array_t out = func_MAIN(X);
+    bool ok = ((int)out.size == n);
+    for (int i = 0; ok && i < n; i++) ok = (((int32_t*)out.data)[i] == ref[i]);
+    check("mesort(16 mixed ints) == qsort reference", ok);
+    free(X.data);
+    if (out.data && out.data != X.data) free(out.data);
+}
+#endif
+#ifdef TEST_LIFE2_DV
+// life2's exact (quirky) rules mirrored in C over the same padded grid.
+static void test_life2_dv(void) {
+    printf("\n=== Group: life2_dv (game of life, flat rank-2) ===\n");
+    enum { R = 6, C = 6, NUM = 3 };
+    static int g[R+2][C+2], t[R+2][C+2];
+    // glider-ish seed in a zero border
+    memset(g, 0, sizeof g);
+    g[2][3] = 1; g[3][4] = 1; g[4][2] = 1; g[4][3] = 1; g[4][4] = 1; g[3][2] = 1;
+    sisal_array_t G = sisal_array_alloc_sized(2, 6, (R+2)*(C+2), sizeof(int32_t));
+    G.dims[0] = R+2; G.dims[1] = C+2; G.lower_bound[0] = 1; G.lower_bound[1] = 1;
+    for (int i = 0; i < R+2; i++)
+        for (int j = 0; j < C+2; j++)
+            ((int32_t*)G.data)[i*(C+2)+j] = g[i][j];
+    for (int it = 0; it < NUM; it++) {           // reference iterations
+        for (int i = 0; i < R+2; i++)
+            for (int j = 0; j < C+2; j++) {
+                if (i == 0 || j == 0 || i == R+1 || j == C+1) { t[i][j] = 0; continue; }
+                int tot = g[i+1][j-1]+g[i+1][j]+g[i+1][j+1]
+                        + g[i-1][j-1]+g[i-1][j]+g[i-1][j+1]
+                        + g[i][j-1]+g[i][j+1];
+                t[i][j] = (g[i][j] == 1 && tot > 5) ? 0 : (tot != 3 ? 1 : 0);
+            }
+        memcpy(g, t, sizeof g);
+    }
+    sisal_array_t out = func_MAIN(NUM, R, C, G);
+    bool ok = (out.rank == 2) && ((int)out.size == (R+2)*(C+2));
+    for (int i = 0; ok && i < R+2; i++)
+        for (int j = 0; ok && j < C+2; j++)
+            ok = (((int32_t*)out.data)[i*(C+2)+j] == g[i][j]);
+    check("life2(3 iterations, 6x6 core) == C reference grid", ok);
+    free(G.data);
+    if (out.data && out.data != G.data) free(out.data);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7257,6 +7398,21 @@ main (void)
 #ifdef TEST_TAG_DISPATCH_DV
   test_tag_dispatch_dv ();
 #endif
+#ifdef TEST_SIMPSON
+  test_simpson ();
+#endif
+#ifdef TEST_MINMAX_DV
+  test_minmax_dv ();
+#endif
+#ifdef TEST_INSERTION1_DV
+  test_insertion1_dv ();
+#endif
+#ifdef TEST_MESORT_DV
+  test_mesort_dv ();
+#endif
+#ifdef TEST_LIFE2_DV
+  test_life2_dv ();
+#endif
 #ifdef TEST_RICARD_DV
   test_ricard_dv ();
 #endif
@@ -7596,7 +7752,8 @@ main (void)
     && !defined(TEST_RED_OPS_DV) && !defined(TEST_RED_ARR_DV)                  \
     && !defined(TEST_BCAST3D_DV) && !defined(TEST_BCAST31_DV)                  \
     && !defined(TEST_IP_DV) && !defined(TEST_MATMUL_OP_DV) && !defined(TEST_CONV_DV) && !defined(TEST_LAPLACE_DV)                    \
-    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_TAG_DISPATCH_DV)                \
+    && !defined(TEST_RICARD_DV) && !defined(TEST_MULTIBIND_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_TAG_DISPATCH_DV) \
+    && !defined(TEST_SIMPSON) && !defined(TEST_MINMAX_DV) && !defined(TEST_INSERTION1_DV) && !defined(TEST_MESORT_DV) && !defined(TEST_LIFE2_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

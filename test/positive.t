@@ -248,7 +248,7 @@ Numeric / math:
   $ sisal e2e/pi.sis
   $ sisal unit/quad.sis
   $ sisal unit/quadrature.sis
-  $ sisal unit/simpson.sis
+  $ sisal e2e/simpson.sis
   $ sisal unit/idiv.sis
   $ sisal unit/minmax.sis
   $ sisal unit/random.sis
@@ -294,6 +294,10 @@ DV variants of scientific benchmarks:
   $ sisal e2e/multibind_dv.sis
   $ sisal e2e/member_dv.sis
   $ sisal e2e/tag_dispatch_dv.sis
+  $ sisal e2e/minmax_dv.sis
+  $ sisal e2e/insertion1_dv.sis
+  $ sisal e2e/mesort_dv.sis
+  $ sisal e2e/life2_dv.sis
   $ sisal e2e/sp_dv.sis
 
 Scientific benchmarks:
