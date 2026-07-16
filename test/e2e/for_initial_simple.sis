@@ -1,0 +1,14 @@
+% Sequential loop-body semantics pin (ruling: `;` = let-in nesting).
+% Statement 1 reads plain s = the CARRY (s not yet redefined); statement 2
+% reads old i = the CARRY and plain i = statement 1's NEW value — three
+% generations visible at once: s' = s0 + i0 + i1.
+function Main(n : integer returns integer)
+  for initial
+    i := 1;
+    s := 0
+  while i <= n repeat
+    i := old i + s + 1;
+    s := old s + old i + i
+  returns value of s
+  end for
+end function

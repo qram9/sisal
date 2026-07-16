@@ -1,0 +1,11 @@
+% Element-scatter CROSS over dv values — outer product, flat rank-2.
+% Regression pin: the forall's dot-conformance diamond used to zip the
+% INDEPENDENT cross axes into one DV_CONFORM; different sizes (3 x 2)
+% took the error arm and returned an empty array.  Conformance is a
+% same-axis (dot) property only.
+define main
+function main(A, B: array_dv[integer] returns array_dv[integer])
+    for x in A cross y in B
+    returns array_dv of x * y
+    end for
+end function

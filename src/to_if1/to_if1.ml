@@ -1134,7 +1134,11 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
       let ((x, y, z), in_gr), dv_infos2 =
         nest_sub_generator ~level in_gr (rebuild_cross (List.tl axes))
       in
-      (((x, y, z), in_gr), dv_infos1 @ dv_infos2)
+      (* conformance is a same-axis (dot) property: the nested cross axes'
+         dv sources must NOT join this level's conform set — independent
+         axes legitimately differ in size *)
+      ignore dv_infos2;
+      (((x, y, z), in_gr), dv_infos1)
 
 (* [nest_sub_generator in_gr ie] builds [ie] (the inner cross axis) into a fresh
    SUB-generator graph and nests it as a child GENERATOR compound inside [in_gr]
@@ -2137,7 +2141,14 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
             mask_ty_list,
             forall_gr,
             [ gn; fx; rn ],
-            dv_infos @ inner_dv_infos,
+            (* Conformance is a SAME-AXIS (dot-zip) property: only this
+               level's dv sources feed the conform diamond.  Hoisting the
+               nested cross axes' sources up (dv_infos @ inner_dv_infos)
+               zipped INDEPENDENT axes into one DV_CONFORM — a cross over
+               dv values of different sizes then took the error arm and
+               produced an empty result.  (TODO: per-level diamonds so
+               nested dot pairs regain their runtime conform check.) *)
+            dv_infos,
             inner_ext_hops )
         in
         (* Hand this level's assembled forall back up to the caller. *)

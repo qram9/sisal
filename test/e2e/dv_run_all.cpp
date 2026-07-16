@@ -958,6 +958,12 @@ extern "C" struct cart_rec func_MAIN(void);
 #ifdef TEST_PARPI1
 extern "C" float func_MAIN(int32_t CYCLES);
 #endif
+#ifdef TEST_FORALL_CROSS_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);
+#endif
+#ifdef TEST_FOR_INITIAL_SIMPLE
+extern "C" int32_t func_MAIN(int32_t N);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6536,6 +6542,39 @@ static void test_parpi1(void) {
     check("parpi1(2000) ~ pi (vs mirrored series)", fabs(got - (float)(s*4.0)) < 1e-4);
 }
 #endif
+#ifdef TEST_FORALL_CROSS_DV
+// outer product over INDEPENDENT cross axes of different sizes (3 x 2) —
+// regression pin for the dot-conformance diamond mis-zipping cross axes.
+static void test_forall_cross_dv(void) {
+    printf("\n=== Group: forall_cross_dv (element-scatter cross, rank-2) ===\n");
+    int32_t av[3] = { 1, 2, 3 }, bv[2] = { 10, 20 };
+    sisal_array_t A = sisal_array_alloc_empty(1, 6, 3);
+    sisal_array_t B = sisal_array_alloc_empty(1, 6, 2);
+    for (int i = 0; i < 3; i++) ((int32_t*)A.data)[i] = av[i];
+    for (int i = 0; i < 2; i++) ((int32_t*)B.data)[i] = bv[i];
+    sisal_array_t r = func_MAIN(A, B);
+    bool ok = r.rank == 2 && (int)r.dims[0] == 3 && (int)r.dims[1] == 2;
+    for (int i = 0; ok && i < 3; i++)
+        for (int j = 0; ok && j < 2; j++)
+            ok = (((int32_t*)r.data)[i*2+j] == av[i] * bv[j]);
+    check("outer product [1,2,3] x [10,20] rank-2", ok);
+    free(A.data); free(B.data); if (r.data) free(r.data);
+}
+#endif
+#ifdef TEST_FOR_INITIAL_SIMPLE
+// `;` = let-in nesting: stmt1 reads carry s; stmt2 reads carry (old i)
+// AND stmt1's new i.  Reference mirrors exactly that.
+static void test_for_initial_simple(void) {
+    printf("\n=== Group: for_initial_simple (sequential body scoping) ===\n");
+    bool ok = true;
+    for (int n = 3; n <= 24 && ok; n += 7) {
+        int i = 1, s = 0;
+        while (i <= n) { int i1 = i + s + 1; s = s + i + i1; i = i1; }
+        ok = (func_MAIN(n) == s);
+    }
+    check("i := old i + s + 1; s := old s + old i + i (n=3..24)", ok);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7681,6 +7720,12 @@ main (void)
 #ifdef TEST_PARPI1
   test_parpi1 ();
 #endif
+#ifdef TEST_FORALL_CROSS_DV
+  test_forall_cross_dv ();
+#endif
+#ifdef TEST_FOR_INITIAL_SIMPLE
+  test_for_initial_simple ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -8028,7 +8073,7 @@ main (void)
     && !defined(TEST_FOR_ALL_ARGMAX) && !defined(TEST_TUPLE_MIXED3) && !defined(TEST_RECORD1) && !defined(TEST_UNION1) \
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
-    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1)                \
+    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

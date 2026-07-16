@@ -251,6 +251,7 @@ Numeric / math:
   $ sisal e2e/simpson.sis
   $ sisal e2e/idiv.sis
   $ sisal e2e/forall_simple_dv.sis
+  $ sisal e2e/forall_cross_dv.sis
   $ sisal e2e/forall_dot_dv.sis
   $ sisal unit/minmax.sis
   $ sisal unit/random.sis
