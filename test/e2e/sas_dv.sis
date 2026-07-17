@@ -1,0 +1,38 @@
+% SAS — DV variant of unit/Sas.sis (SasAlfaSphere: associated-Legendre
+% coefficient mirror for the southern hemisphere; odd-order sign flip).
+%
+% DV changes: arrDreal2 -> flat rank-2 array_dv[double_real], result rank-3
+% array_dv[real] (2, ilath, jxxmx); ARRAY of -> array_dv of; renamed Main.
+% jxxmx must equal (ir+1)*irmax2 (spectral triangle) so North and South
+% rows have equal length — required for the rectangular box-flatten.
+
+define Main
+
+type ArrDReal2 = array_dv[double_real];
+type ArrReal3 = array_dv[real];
+
+function Main(ir, irmax2, jxxmx, ilath : integer; alp : ArrDReal2
+              RETURNS ArrReal3)
+LET
+alfa := FOR hemi IN 1, 2 CROSS latlev IN 1,ilath
+        RETURNS array_dv of
+                IF hemi = 1     % North
+                THEN    FOR specindex IN 1, jxxmx
+                        RETURNS array_dv of real(alp[latlev, specindex])
+                        END FOR
+                ELSE    FOR mp IN 1, ir + 1      % South
+                        RETURNS VALUE of CATENATE
+                                FOR lp IN 1, irmax2
+                                ilm := (mp - 1) * irmax2 + lp;
+                                RETURNS array_dv of
+                                        IF lp = 1 | MOD(lp, 2) ~= 0
+                                        THEN real(alp[latlev, ilm])
+                                        ELSE real(-alp[latlev, ilm])
+                                        END IF
+                                END FOR
+                        END FOR
+                END IF
+        END FOR
+IN alfa
+END LET
+END FUNCTION

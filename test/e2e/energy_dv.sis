@@ -1,0 +1,57 @@
+% ENERGY — DV variant of unit/Energy.sis (spectral shallow-water potential/
+% kinetic energy diagnostics).  ArrCplexReal = array_dv[CplexReal];
+% Csub/Cmul/Conjg inlined from CpxFuncs.sis; function renamed Main.
+
+define Main
+
+type CplexReal = record [Repart, Impart : real];
+type ArrCplexReal = array_dv [CplexReal];
+
+function Csub(cnum1, cnum2 : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum1.Repart - cnum2.Repart;
+                    Impart : cnum1.Impart - cnum2.Impart ]
+end function
+
+function Cmul(cnum1, cnum2 : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum1.Repart * cnum2.Repart -
+                             cnum1.Impart * cnum2.Impart;
+                    Impart : cnum1.Repart * cnum2.Impart +
+                             cnum1.Impart * cnum2.Repart ]
+end function
+
+function Conjg(cnum : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum.Repart; Impart : - cnum.Impart ]
+end function
+
+function Main(jx, jxmx : integer; zmean, asq : real;
+              e, h, zm : ArrCplexReal
+              RETURNS real, real, real)
+LET
+gmass := 4.0 * (zmean - h[1].Repart) / asq;
+
+backdown := 2 + jxmx;
+ptot1, ktot1 :=
+        FOR j in 2, jxmx
+                k := backdown - j;
+                zm_R := zm[k].Repart;
+                zm_I := zm[k].Impart;
+                conjg_e := Conjg(e[k]);
+                potential := zm_R * zm_R+zm_I * zm_I;
+                kinetic := Cmul(Csub(zm[k], h[k]), conjg_e).Repart;
+        RETURNS VALUE of SUM
+                        if k > jx then 2.0 * potential
+                                else potential
+                        end if
+                VALUE of SUM
+                        if k > jx then 2.0 * kinetic
+                                else kinetic
+                        end if
+        end FOR;
+
+ptot := ptot1/gmass;
+ktot := (ktot1 + e[1].Repart * 1.4142136 * (zmean - h[1].Repart)) / gmass;
+total := ptot + ktot;
+
+IN ptot, ktot, total
+end LET
+end function

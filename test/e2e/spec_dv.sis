@@ -1,0 +1,61 @@
+% SPEC — DV variant of unit/Spec.sis (SpecToFreqSphere: inverse Legendre
+% transform, spectral -> per-latitude Fourier coefficients).
+%
+% DV changes: ArrReal3 -> flat rank-3 array_dv[real] (alp[hemi,latlev,jmx]
+% already 3-index), ArrInt1/ArrReal1 -> array_dv, ARRAY of -> array_dv of;
+% renamed Main.  Inner same-name rebinds (pg, zg := ...) pin the let-in
+% body-scoping ruling inside a 3-deep forall nest.
+
+define Main
+
+type ArrInt1 = array_dv[integer];
+type ArrReal1 = array_dv[real];
+type ArrReal3 = array_dv[real];
+
+function Main
+               (jx, mx, jxx, ilath, ixh : integer; kmjx, kmjxx : ArrInt1;
+                alp : ArrReal3; pri, zri, uri, vri : ArrReal1
+                RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+LET
+pg, zg, ug, vg :=
+        FOR hemi IN 1, 2 CROSS latlev IN 1, ilath
+        pg, zg, ug, vg:=
+                FOR mrmi in 1, mx * 2
+                m := (mrmi + 1) / 2;
+                pg, zg :=
+                    FOR j IN 1, jx
+                    jm := kmjx[m] + j;
+                    jmx := kmjxx[m] + j;
+                    jmrjmi := jm * 2 - mod(mrmi, 2);
+                    pgj, zgj := IF ~(m = 1 & j = 1)
+                                THEN alp[hemi, latlev, jmx] * pri[jmrjmi],
+                                     alp[hemi, latlev, jmx] * zri[jmrjmi]
+                                ELSE 0.0, 0.0
+                                END IF;
+                    RETURNS VALUE of SUM pgj
+                            VALUE of SUM zgj
+                    END FOR;
+
+                ug, vg :=
+                    FOR j IN 1, jxx
+                    jmx := kmjxx[m] + j;
+                    jmrjmi := jmx * 2 - mod(mrmi, 2)
+                    RETURNS VALUE of SUM alp[hemi, latlev, jmx] * uri[jmrjmi]
+                            VALUE of SUM alp[hemi, latlev, jmx] * vri[jmrjmi]
+                    END FOR;
+
+                RETURNS array_dv of pg
+                        array_dv of zg
+                        array_dv of ug
+                        array_dv of vg
+                END FOR;
+
+        RETURNS array_dv of pg
+                array_dv of zg
+                array_dv of ug
+                array_dv of vg
+        END FOR;
+
+IN pg, zg, ug, vg
+end LET
+end function

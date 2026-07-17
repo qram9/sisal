@@ -1,0 +1,15 @@
+% TST_LOOPX — DV variant of unit/tst_loopX.sis (hydro fragment).
+% ThreeD -> flat rank-3 array_dv[double_real]; pins a PERMUTED 3-index read
+% (w[K,J,I] — transposed access) and a non-1 lower bound on the outer gather
+% axis (I in 4,n -> result lb (4,1,1)).
+
+Define  Main
+
+type ThreeD   = array_dv[double_real];
+
+function Main( n,m:integer; Y,W,U:ThreeD returns ThreeD, ThreeD )
+   for I in 4,n cross J in 1,m cross K in 1,n
+   returns array_dv of Y[I,J,K]*w[K,J,I]
+           array_dv of Y[I,J,K] - u[I,J,K]
+   end for
+end function

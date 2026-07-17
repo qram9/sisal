@@ -1,0 +1,53 @@
+% NOISE — DV variant of unit/noise.sis (binary-image noise removal: a 5x5
+% neighborhood stencil that clears isolated 1-pixels).
+%
+% DV changes: Matrix (array[array[integer]]) -> flat rank-2
+% array_dv[integer] with M[I,Y] reads unchanged; per the lu_piv_dv
+% precedent, Rows/Cols arrive as explicit params (a subscripted row M[I]
+% types as element statically, so array_liml(M[I]) is unavailable under
+% the dv backend); bounds are 1-based.  Gathers ARRAY of -> array_dv of.
+
+define Main
+
+type Matrix = array_dv[ integer ];
+
+function Main( M : Matrix; Rows, Cols : integer returns Matrix )
+   for I in 3, Rows - 2
+      V1 := for Y in 3, Cols - 2
+               nos1 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I-1,Y+1]) = 1 ) then
+                             if ( M[I+1,Y-1] + M[I-2,Y+2] >= 1 ) then false
+	                     else true end if
+                          elseif ( (M[I+1,Y-1] + M[I+2,Y-2]) = 2 ) then false
+	                  else true end if
+	               else false end if;
+
+               nos2 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I+1,Y+1]) = 1 ) then
+                             if ( M[I-1,Y-1] + M[I+2,Y+2] >= 1 ) then false
+	                     else true end if
+                          elseif ( (M[I-1,Y-1] + M[I-2,Y-2]) = 2 ) then false
+		          else true
+		          end if
+                       else false end if;
+
+               nos3 := if ( M[I,Y] = 1 ) then
+                          if ( (M[I+1,Y-1]     + M[I+2,Y] +
+		                M[I+1,Y ]      + M[I+1,Y+1]) = 4 ) then false
+                          elseif ( (M[I-1,Y-1] + M[I-2,Y] +
+			            M[I-1,Y ]  + M[I-1,Y+1]) = 4 ) then false
+                          elseif ( (M[I,Y+1]   + M[I,Y+2] +
+			            M[I-1,Y+1] + M[I+1,Y+1]) = 4 ) then false
+                          elseif ( (M[I-1,Y-1] + M[I+1,Y-1] +
+			            M[I,Y-1 ]  + M[I,Y-2]) = 4 )   then false
+                          elseif ( (M[I+1,Y]   + M[I-1,Y] +
+			            M[I,Y+1 ]  + M[I,Y-1]) = 4 )   then false
+		          else true end if
+                       else false end if;
+         
+               V2 := if ( nos1 & nos2 & nos3 ) then 0 else M[I,Y] end if;
+            returns array_dv of V2
+            end for
+   returns array_dv of V1
+   end for
+end function

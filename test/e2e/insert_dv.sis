@@ -1,0 +1,36 @@
+% INSERT — DV variant of unit/insert.sis (classic shift-and-insert insertion
+% sort: save Y := A[K], shift the sorted prefix up while Y < X[I], insert Y
+% once at the hole).  OneDim -> array_dv[double_real]; the original declared
+% `OneDime` but used `OneDim` (it only compiled via the sp.sis include) —
+% the declaration here matches the use.  Pins array-valued `value of`
+% (FinalValue of an ARRAY carry) alongside a mixed (array, integer) pair
+% from the inner loop.
+
+define Main
+
+type OneDim = array_dv[ double_real ];
+
+function Main( N : integer; Input: OneDim returns OneDim )
+  for initial
+    K := 2;
+    A := Input;
+  while K <= N repeat
+    Y := old A[old K];
+    X, I := for initial
+              I := old K - 1;
+              X := old A;
+              Found := FALSE;
+            while ( I >= 1 & ~Found ) repeat
+              X, I, Found := if ( Y < old X[old I] ) then
+                               old X[old I + 1: old X[old I]], old I - 1, FALSE
+                             else
+                               old X, old I, TRUE
+                             end if;
+            returns value of X
+                    value of I
+            end for;
+    A := X[I + 1: Y ];
+    K := old K + 1;
+  returns value of A
+  end for
+end function

@@ -1,0 +1,14 @@
+% TST_LOOPX2 — DV variant of unit/tst_loopX2.sis (hydro fragment, rank 2).
+% TwoD -> flat rank-2 array_dv[double_real]; inner axis starts at 2
+% (result lb (1,2)).
+
+Define  Main
+
+type TwoD   = array_dv[double_real];
+
+function Main( n,m:integer; Y:TwoD returns TwoD, TwoD )
+   for K in 1,n cross J in 2,m
+   returns array_dv of Y[K,J]*Y[K,J]
+           array_dv of Y[K,J] - Y[K,J]
+   end for
+end function

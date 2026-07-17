@@ -1,0 +1,94 @@
+% UVSPEC — DV variant of unit/UVSpec.sis (U/V wind components from
+% vorticity/divergence spectra).  All arrays array_dv; Cadd/Csub/Cmul/Crmul
+% inlined from CpxFuncs.sis; renamed Main.  Pins a 4-way IF/ELSEIF ladder
+% with a 9-value multibind of records and per-m CATENATE gathers.
+
+define Main
+
+type ArrReal1 = array_dv[real];
+type CplexReal = record [Repart, Impart : real];
+type ArrCplexReal = array_dv [CplexReal];
+
+function Cadd(cnum1, cnum2 : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum1.Repart + cnum2.Repart;
+                    Impart : cnum1.Impart + cnum2.Impart ]
+end function
+
+function Csub(cnum1, cnum2 : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum1.Repart - cnum2.Repart;
+                    Impart : cnum1.Impart - cnum2.Impart ]
+end function
+
+function Cmul(cnum1, cnum2 : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cnum1.Repart * cnum2.Repart -
+                             cnum1.Impart * cnum2.Impart;
+                    Impart : cnum1.Repart * cnum2.Impart +
+                             cnum1.Impart * cnum2.Repart ]
+end function
+
+function Crmul(cons : real; cnum : CplexReal returns CplexReal)
+  record CplexReal[ Repart : cons * cnum.Repart; Impart : cons * cnum.Impart ]
+end function
+
+FUNCTION bcplx( r,i:real returns CplexReal )
+  record CplexReal [ Repart:r; Impart:i ]
+END FUNCTION
+
+FUNCTION Main(  mx,jx,jxx: integer; epsi: ArrReal1; 
+			p, c: ArrCplexReal
+			RETURNS  ArrCplexReal, ArrCplexReal)
+LET
+iz := record CplexReal[Repart : 0.0; Impart : 1.0];
+zero := record CplexReal[Repart : 0.0; Impart : 0.0];
+u, v := FOR m IN 1, mx		% size of jxxmx=272
+	realm := real(m - 1);
+	u1, v1 :=
+
+	    FOR j IN 1, jxx
+	    nreal := j + m - 2;
+	    realn := real(nreal);
+	    realn1 := realn + 1.0;
+	    jm := (m - 1) * jx + j;
+	    jmx := (m - 1) * jxx + j;
+
+	    coeffd,  coeffc,  coeffu,  pd,  pc,  pu,  cd,  cc,  cu := 
+	    IF j = 1 
+	       THEN zero, 
+		    IF nreal = 0 THEN zero
+			ELSE bcplx( 0.0, realm / realn / realn1 )
+			END IF, 
+		    bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		    zero,  p[jm],  p[jm + 1],  zero,  c[jm],  c[jm + 1]
+	    
+	    ELSEIF j = jx 
+	       THEN bcplx( epsi[jmx] / realn, 0.0 ),
+		    bcplx( 0.0, realm / realn / realn1),
+		    bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		    p[jm - 1],  p[jm],  zero,  c[jm - 1],  c[jm],  zero
+
+	    ELSEIF j = jxx 
+	    THEN bcplx( epsi[jmx] / realn, 0.0 ),
+		 zero,  zero,  p[jm - 1],  zero,  zero,  c[jm - 1],  zero,  zero
+
+	    ELSE bcplx( epsi[jmx] / realn, 0.0 ),
+		 bcplx( 0.0, realm / realn / realn1),
+		 bcplx( epsi[jmx + 1] / realn1, 0.0 ),
+		 p[jm - 1],  p[jm],  p[jm + 1],  c[jm - 1],  c[jm],  c[jm + 1]
+
+	    end IF;
+
+	    ujm :=  Cadd(Crmul( - 1.0, Cmul(coeffd, pd)), 
+		    Csub(Cmul(coeffu, pu), Cmul(coeffc, cc))); 
+	    vjm :=  Csub(Csub(Cmul(coeffd, cd), Cmul(coeffu, cu)), 
+		    Cmul(coeffc, pc)); 
+
+	    RETURNS array_dv of ujm
+		    array_dv of vjm
+	    END FOR
+
+	RETURNS VALUE of CATENATE u1
+		VALUE of CATENATE v1
+	END FOR
+In u, v
+END LET
+END function
