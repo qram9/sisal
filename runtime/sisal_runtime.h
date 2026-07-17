@@ -1234,6 +1234,14 @@ static inline int32_t func__SEXP__II__I(int32_t base, int32_t n) {
     return r;
 }
 
+/* bitwise intrinsics: registered in intrinsic_lib, so a Sisal
+   `global BITWISE_AND(a,b: integer returns integer)` declaration resolves to
+   these mangled names (batcher-family sorts drive their exchange masks off
+   BITWISE_AND). */
+static inline int32_t func__SBITWISE_AND__II__I(int32_t a, int32_t b) { return a & b; }
+static inline int32_t func__SBITWISE_OR__II__I(int32_t a, int32_t b)  { return a | b; }
+static inline int32_t func__SBITWISE_XOR__II__I(int32_t a, int32_t b) { return a ^ b; }
+
 /* etothe(x) = e^x (C exp).  One-arg Sisal `exp` is routed to ETOTHE by to_if1, so
    this is what one-arg exponential lowers to. */
 static inline float   func__SETOTHE__F__F(float x)  { return expf(x); }
