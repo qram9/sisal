@@ -1172,6 +1172,10 @@ static inline float  func__SABS__F__F(float x)    { return fabsf(x); }
 static inline double func__SABS__D__D(double x)   { return fabs(x); }
 static inline float  func__SSQRT__F__F(float x)   { return sqrtf(x); }
 static inline double func__SSQRT__D__D(double x)  { return sqrt(x); }
+/* SQRTR: Fortran-style alias of sqrt — registered in intrinsic_lib (the
+   physics corpus declares `global SQRTR(num: real returns real)`). */
+static inline float  func__SSQRTR__F__F(float x)  { return sqrtf(x); }
+static inline double func__SSQRTR__D__D(double x) { return sqrt(x); }
 static inline float  func__SSIN__F__F(float x)    { return sinf(x); }
 static inline double func__SSIN__D__D(double x)   { return sin(x); }
 static inline float  func__SCOS__F__F(float x)    { return cosf(x); }
