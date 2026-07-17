@@ -300,6 +300,7 @@ DV variants of scientific benchmarks:
   $ sisal e2e/minmax_dv.sis
   $ sisal e2e/insertion1_dv.sis
   $ sisal e2e/mesort_dv.sis
+  $ sisal e2e/simplebatcher_dv.sis
   $ sisal e2e/life2_dv.sis
   $ sisal e2e/sp_dv.sis
 

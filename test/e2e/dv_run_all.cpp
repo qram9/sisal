@@ -982,6 +982,9 @@ extern "C" double func_MAIN(sisal_array_t Y);
 #ifdef TEST_FOR_ALL_REDUCE
 extern "C" int32_t func_MAIN(int32_t X);
 #endif
+#ifdef TEST_SIMPLEBATCHER_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t K);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6660,6 +6663,35 @@ static void test_for_all_reduce(void) {
     check("sum 100/(i-5) when i>5 == 228", func_MAIN(0) == 228);
 }
 #endif
+#ifdef TEST_SIMPLEBATCHER_DV
+// Batcher merge-exchange sort.  The program rebases its input to 0-based
+// (array_setl(K,0)) and drives the exchange network off the `at` index, so
+// it pins both the LoopA (repeat..until runs at least once) do-while
+// lowering and gathers inheriting the source's lower bound.  Reference =
+// qsort.
+static int sb_cmp(const void* a, const void* b) {
+    int32_t x = *(const int32_t*)a, y = *(const int32_t*)b;
+    return (x > y) - (x < y);
+}
+static void sb_case(const char* label, const int32_t* v, int n) {
+    int32_t ref[16];
+    for (int i = 0; i < n; i++) ref[i] = v[i];
+    qsort(ref, n, sizeof(int32_t), sb_cmp);
+    sisal_array_t K = sisal_array_alloc_empty(1, 6, n);
+    for (int i = 0; i < n; i++) ((int32_t*)K.data)[i] = v[i];
+    sisal_array_t r = func_MAIN(K);
+    int ok = (int)r.size == n && (int)r.lower_bound[0] == 0;
+    for (int i = 0; ok && i < n; i++) ok = ((int32_t*)r.data)[i] == ref[i];
+    check(label, ok);
+}
+static void test_simplebatcher_dv(void) {
+    printf("\n=== Group: simplebatcher_dv (Batcher merge-exchange sort, 0-based dv) ===\n");
+    const int32_t a[8] = { 9, -3, 14, 0, 7, 7, -12, 5 };
+    const int32_t b[5] = { 5, 1, 4, 1, 3 };
+    sb_case("sort 8 (power of two, negatives+dups) == qsort", a, 8);
+    sb_case("sort 5 (non-power size, dups) == qsort", b, 5);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7829,6 +7861,9 @@ main (void)
 #ifdef TEST_FOR_ALL_REDUCE
   test_for_all_reduce ();
 #endif
+#ifdef TEST_SIMPLEBATCHER_DV
+  test_simplebatcher_dv ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -8177,7 +8212,7 @@ main (void)
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
     && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
-    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE)                \
+    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
