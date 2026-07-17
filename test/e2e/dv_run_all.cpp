@@ -985,6 +985,12 @@ extern "C" int32_t func_MAIN(int32_t X);
 #ifdef TEST_SIMPLEBATCHER_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t K);
 #endif
+#ifdef TEST_SEQBATCHER_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t K);
+#endif
+#ifdef TEST_BATCHER_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t K);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6692,6 +6698,87 @@ static void test_simplebatcher_dv(void) {
     sb_case("sort 5 (non-power size, dups) == qsort", b, 5);
 }
 #endif
+#ifdef TEST_SEQBATCHER_DV
+// DATAFLOW-MIRROR test: seqbatcher is NOT a correct sort (its skeleton skips
+// the R-subpasses — see the .sis header); the reference is a C mirror of the
+// program's exact dataflow.  Pins the cross-scope `old P` ruling (enclosing
+// loop's previous-iteration value), a repeat..until outer loop, the 3-deep
+// for-initial nest with in-place CSwap replaces, and the BITWISE_AND
+// intrinsic.
+static int sq_clog2(int n) { int l = 0, t = 1; while (t < n) { l++; t *= 2; } return l; }
+static void sq_mirror(int32_t* c, int n) {
+    int ttm1 = 1 << (sq_clog2(n) - 1);
+    int P = ttm1;
+    do {
+        int Pold = P; P = Pold / 2;
+        int Q = ttm1, R = 0, D = Pold;
+        do {
+            for (int I = 0; I + D < n; I++)
+                if ((I & Pold) == R && c[I] > c[I + D]) {
+                    int32_t t = c[I]; c[I] = c[I + D]; c[I + D] = t;
+                }
+            int Qold = Q;
+            D = Qold - Pold; Q = Qold / 2; R = Pold;
+        } while (!(Q <= Pold));
+    } while (!(P <= 0));
+}
+static void sq_case(const char* label, const int32_t* v, int n) {
+    int32_t ref[16];
+    for (int i = 0; i < n; i++) ref[i] = v[i];
+    sq_mirror(ref, n);
+    sisal_array_t K = sisal_array_alloc_empty(1, 6, n);
+    for (int i = 0; i < n; i++) ((int32_t*)K.data)[i] = v[i];
+    sisal_array_t r = func_MAIN(K);
+    int ok = (int)r.size == n;
+    for (int i = 0; ok && i < n; i++) ok = ((int32_t*)r.data)[i] == ref[i];
+    check(label, ok);
+}
+static void test_seqbatcher_dv(void) {
+    printf("\n=== Group: seqbatcher_dv (exchange network vs C dataflow mirror) ===\n");
+    const int32_t a[8]  = { 9, -3, 14, 0, 7, 7, -12, 5 };
+    const int32_t b[5]  = { 5, 1, 4, 1, 3 };
+    const int32_t c[16] = { 12, -1, 0, 99, -50, 3, 3, 7, 2, 8, -8, 41, 6, 6, -2, 17 };
+    sq_case("n=8 == mirror", a, 8);
+    sq_case("n=5 == mirror", b, 5);
+    sq_case("n=16 == mirror", c, 16);
+}
+#endif
+#ifdef TEST_BATCHER_DV
+// Batcher merge-exchange sort of RECORDS (SortRec {Val: real; Loc: integer},
+// Sort_OneDim = array_dv[SortRec]) — records as sized dope-vector elements.
+// Distinct keys (Batcher is not stable), so qsort on Val is the unique
+// expected order; Loc must carry each element's original 1-based position.
+struct bat_sortrec { float val; int32_t loc; };
+static int bat_cmp(const void* a, const void* b) {
+    float x = ((const bat_sortrec*)a)->val, y = ((const bat_sortrec*)b)->val;
+    return (x > y) - (x < y);
+}
+static void bat_case(const char* label, const float* v, int n) {
+    bat_sortrec ref[16];
+    for (int i = 0; i < n; i++) { ref[i].val = v[i]; ref[i].loc = i + 1; }
+    qsort(ref, n, sizeof(bat_sortrec), bat_cmp);
+    sisal_array_t K = sisal_array_alloc_sized(1, 96, n, sizeof(bat_sortrec));
+    K.lower_bound[0] = 1;
+    for (int i = 0; i < n; i++) {
+        ((bat_sortrec*)K.data)[i].val = v[i];
+        ((bat_sortrec*)K.data)[i].loc = i + 1;
+    }
+    sisal_array_t r = func_MAIN(K);
+    int ok = (int)r.size == n && (int)r.lower_bound[0] == 1;
+    for (int i = 0; ok && i < n; i++) {
+        bat_sortrec x = ((bat_sortrec*)r.data)[i];
+        ok = x.val == ref[i].val && x.loc == ref[i].loc;
+    }
+    check(label, ok);
+}
+static void test_batcher_dv(void) {
+    printf("\n=== Group: batcher_dv (record sort, array_dv[SortRec]) ===\n");
+    const float a[8] = { 9.5f, -3.25f, 14.0f, 0.5f, 7.75f, 6.5f, -12.0f, 5.25f };
+    const float b[5] = { 5.5f, 1.25f, 4.0f, 1.75f, 3.5f };
+    bat_case("n=8 records sorted on Val, Loc provenance", a, 8);
+    bat_case("n=5 records sorted on Val, Loc provenance", b, 5);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7864,6 +7951,12 @@ main (void)
 #ifdef TEST_SIMPLEBATCHER_DV
   test_simplebatcher_dv ();
 #endif
+#ifdef TEST_SEQBATCHER_DV
+  test_seqbatcher_dv ();
+#endif
+#ifdef TEST_BATCHER_DV
+  test_batcher_dv ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -8212,7 +8305,7 @@ main (void)
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
     && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
-    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV)                \
+    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

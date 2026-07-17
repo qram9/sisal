@@ -1,0 +1,87 @@
+% BATCHER — DV variant of unit/batcher.sis ("ripped from the Sisal Workshop",
+% Job Shop Scheduler suite).  Sorts an array of records on the .Val key with
+% .Loc carrying each element's original position.
+%
+% DV changes: SortRec/Sort_OneDim inlined from types.h with
+% Sort_OneDim = array_dv[SortRec] (records as dope-vector elements — the
+% gather allocs sized slots via sisal_array_alloc_sized), gather clause
+% `array of` -> `array_dv of`, and a Main wrapper added (the original is a
+% library function Batcher with no Main).  Unlike its p/s/seq siblings this
+% skeleton is the CORRECT merge-exchange (Q seeds at 2^T, exits at Q < P) —
+% it really sorts; reference = qsort on distinct keys.
+%
+define Main
+
+type SortRec = record [Val: real; Loc: integer];
+type Sort_OneDim = array_dv [SortRec];
+
+function CeilingOfLog2 (N: integer returns integer)
+   for initial
+      L := 0;
+      TwoToTheL := 1;
+   while (TwoToTheL < N)
+   repeat
+      L := old L + 1;
+      TwoToTheL := 2 * old TwoToTheL;
+   returns
+      value of L
+   end for
+end function
+
+function Intersect (I, P: integer returns integer)
+   if (mod(I/P, 2) = 1) then P else 0 end if
+end function
+
+function Main (K : Sort_OneDim returns Sort_OneDim)
+   let
+      N := array_size(K);
+      T := CeilingOfLog2(N);
+      Sorted :=
+         for initial
+            P := exp(2, T);
+            B := array_setl(K, 0);
+         while (P > 1)
+         repeat
+            P := old P / 2;
+            B :=
+               for initial
+                  Q := exp(2, T);
+                  R := 0;
+                  D := P;
+                  C := old B;
+               repeat
+                  C :=
+                     for Elt in old C at I
+                        NewElt :=
+                           if (Intersect(I,P) = old R) & (I + old D < N) then
+                              if (Elt.Val < old C[I + old D].Val) then
+                                 Elt
+                              else
+                                 old C[I + old D]
+                              end if
+                           elseif (Intersect(I-old D,P) = old R) & (I >= old D) then
+                              if (Elt.Val > old C[I - old D].Val) then
+                                 Elt
+                              else
+                                 old C[I - old D]
+                              end if
+                           else
+                              Elt
+                           end if;
+                     returns
+                        array_dv of NewElt
+                     end for;
+                  D := old Q - P;
+                  Q := old Q / 2;
+                  R := P;
+               until (Q < P)
+               returns
+                  value of C
+               end for;
+         returns
+            value of B
+         end for
+   in
+      array_setl(Sorted, 1)
+   end let
+end function
