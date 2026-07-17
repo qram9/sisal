@@ -5928,17 +5928,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
               let in_gr = If1.add_edge jn_ jp_ n2 1 jt_ in_gr in
               ((n2, 0, at), in_gr)
             else
-              let expl, in_gr =
-                match arg with
-                | Ast.Arg aa -> (
-                    match aa with
-                    | Ast.Exp aexps -> If1.map_exp in_gr aexps [] do_simple_exp
-                    | Empty -> ([], in_gr))
-              in
-              let expl =
-                List.map (fun x -> If1.find_incoming_regular_node x in_gr) expl
-              in
-              let arg_types = List.map (fun (_, _, t) -> t) expl in
+              (* REUSE the args already lowered for the intrinsic dispatch
+                 above (the outer expl/arg_types) — re-lowering them here
+                 left the first copies as DEAD nodes in the graph, one whole
+                 orphaned call tree per nesting level (a dead record-returning
+                 INVOCATION then broke C emission: its untyped output port
+                 defaulted to float and got a struct assigned). *)
               let cs, ps = in_gr.If1.symtab in
               let symtab_entry =
                 match If1.SM.find_opt deref_fn cs with
