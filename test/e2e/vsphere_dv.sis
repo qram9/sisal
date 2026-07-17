@@ -1,0 +1,37 @@
+% VSPHERE — DV variant of unit/VSphere.sis (vertical integrals for the
+% spectral shallow-water model: energy and momentum-flux grid products).
+%
+% DV changes: ArrReal3 (array[array[array[real]]]) -> flat rank-3
+% array_dv[real]; the 3-index subscripts were already in ug[h,l,p] form.
+% Gather clauses ARRAY of -> array_dv of (inner rank-1 rows, outer
+% hemi CROSS latlev box-flatten to rank-3).  Function renamed Main.
+
+define Main
+
+type ArrReal3 = array_dv[real];
+
+function Main
+               (longitude_END, ilath : integer;
+                pg, zg, ug, vg : ArrReal3
+                RETURNS ArrReal3, ArrReal3, ArrReal3, ArrReal3, ArrReal3)
+LET
+eg, pvg,  pug,  zvg,  zug :=
+        FOR hemi IN 1, 2 CROSS latlev IN 1, ilath
+        eg, pvg,  pug,  zvg,  zug :=
+            FOR longpt IN 1, longitude_END * 2 + 2
+            RETURNS array_dv of ug[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+                           + vg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+                    array_dv of pg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+                    array_dv of pg[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+                    array_dv of zg[hemi, latlev, longpt] * vg[hemi, latlev, longpt]
+                    array_dv of zg[hemi, latlev, longpt] * ug[hemi, latlev, longpt]
+            END FOR
+        RETURNS array_dv of eg
+                array_dv of pvg
+                array_dv of pug
+                array_dv of zvg
+                array_dv of zug
+        END FOR
+IN eg,  pug,  pvg,  zug,  zvg
+END LET
+end function

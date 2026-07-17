@@ -303,6 +303,8 @@ DV variants of scientific benchmarks:
   $ sisal e2e/simplebatcher_dv.sis
   $ sisal e2e/seqbatcher_dv.sis
   $ sisal e2e/batcher_dv.sis
+  $ sisal e2e/angmom_dv.sis
+  $ sisal e2e/vsphere_dv.sis
   $ sisal e2e/life2_dv.sis
   $ sisal e2e/sp_dv.sis
 

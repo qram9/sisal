@@ -991,6 +991,16 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t K);
 #ifdef TEST_BATCHER_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t K);
 #endif
+#ifdef TEST_ANGMOM_DV
+struct ANGMOM_results { float atot, atot_1, wtot, total, total1; };
+extern "C" ANGMOM_results func_MAIN(int32_t jx, int32_t jxmx, float zmean, float asq, float ww,
+                                    sisal_array_t u, sisal_array_t h, sisal_array_t zm, sisal_array_t z);
+#endif
+#ifdef TEST_VSPHERE_DV
+struct VSPHERE_results { sisal_array_t eg, pug, pvg, zug, zvg; };
+extern "C" VSPHERE_results func_MAIN(int32_t lon_end, int32_t ilath,
+    sisal_array_t pg, sisal_array_t zg, sisal_array_t ug, sisal_array_t vg);
+#endif
 #ifdef TEST_LIFE2_DV
 extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns, sisal_array_t G);
 #endif
@@ -6779,6 +6789,99 @@ static void test_batcher_dv(void) {
     bat_case("n=5 records sorted on Val, Loc provenance", b, 5);
 }
 #endif
+
+#ifdef TEST_ANGMOM_DV
+// Spectral shallow-water angular-momentum diagnostics over complex-record
+// arrays (CplexReal {Repart, Impart: real}, ArrCplexReal = array_dv[record]).
+// Reference = C mirror with the same float order of operations.  Pins nested
+// record-returning calls (Cmul(Csub(..), Conjg(..)).Repart) — the invocation
+// arg re-lowering bug produced dead record INVOCATIONs that broke C emission.
+struct am_cplx { float re, im; };
+static sisal_array_t am_mk(const am_cplx* v, int n) {
+    sisal_array_t a = sisal_array_alloc_sized(1, 96, n, sizeof(am_cplx));
+    a.lower_bound[0] = 1;
+    for (int i = 0; i < n; i++) ((am_cplx*)a.data)[i] = v[i];
+    return a;
+}
+static void test_angmom_dv(void) {
+    printf("\n=== Group: angmom_dv (complex-record diagnostics, array_dv[record]) ===\n");
+    const int jx = 3, jxmx = 6, N = 8;
+    const float zmean = 1.5f, asq = 2.0f, ww = 0.7f;
+    am_cplx u[N], h[N], zm[N], z[N];
+    for (int i = 0; i < N; i++) {
+        u[i]  = { 0.3f + 0.1f*i, 0.05f*i };
+        h[i]  = { 0.2f + 0.02f*i, -0.03f*i };
+        zm[i] = { 0.5f - 0.04f*i, 0.06f*i };
+        z[i]  = { 0.1f*i, 0.02f + 0.01f*i };
+    }
+    const float c2 = 0.421637f, c3 = 1.4142136f, c4 = 1e-5f;
+    float gmass = 4.0f*(zmean - h[0].re)/asq;
+    float atot1 = u[0].re * c3 * (zmean - h[0].re);
+    int backdown = 2 + jxmx;
+    float atotup = 0.0f;
+    for (int j = 2; j <= jxmx; j++) {
+        int k = backdown - j;
+        am_cplx cu = { u[k-1].re, -u[k-1].im };
+        am_cplx d  = { zm[k-1].re - h[k-1].re, zm[k-1].im - h[k-1].im };
+        float relative = d.re*cu.re - d.im*cu.im;
+        atotup += (k > jx) ? 2.0f*relative : relative;
+    }
+    float atot = (atot1 + atotup)/gmass*c4;
+    float atot_1 = atot1/gmass*c4;
+    float wtot = ww*(-c2*(z[2].re - h[2].re))/gmass*c4;
+    ANGMOM_results r = func_MAIN(jx, jxmx, zmean, asq, ww,
+                                 am_mk(u, N), am_mk(h, N), am_mk(zm, N), am_mk(z, N));
+    auto near = [](float got, float want) {
+        return fabsf(got - want) <= 1e-6f*fmaxf(1.0f, fabsf(want));
+    };
+    check("atot", near(r.atot, atot));
+    check("atot_1", near(r.atot_1, atot_1));
+    check("wtot", near(r.wtot, wtot));
+    check("total", near(r.total, atot + wtot));
+    check("total1", near(r.total1, atot_1 + wtot));
+}
+#endif
+
+#ifdef TEST_VSPHERE_DV
+// Shallow-water grid products: five rank-3 elementwise outputs from a
+// hemi CROSS latlev nest of rank-1 multi-output gathers (box-flatten to
+// rank-3 (2, ilath, 2*lon+2)).  Reference = elementwise C mirror.
+enum { VS_LON = 4, VS_ILATH = 3, VS_NP = VS_LON*2 + 2, VS_TOT = 2*VS_ILATH*VS_NP };
+static sisal_array_t vs_mk3(const float* v) {
+    sisal_array_t a = sisal_array_alloc_empty(3, 8, VS_TOT);
+    a.dims[0] = 2; a.dims[1] = VS_ILATH; a.dims[2] = VS_NP;
+    a.lower_bound[0] = a.lower_bound[1] = a.lower_bound[2] = 1;
+    for (int i = 0; i < VS_TOT; i++) ((float*)a.data)[i] = v[i];
+    return a;
+}
+static int vs_ck(sisal_array_t r, const float* want) {
+    int ok = (int)r.size == VS_TOT && r.rank == 3
+          && (int)r.dims[0] == 2 && (int)r.dims[1] == VS_ILATH && (int)r.dims[2] == VS_NP;
+    for (int i = 0; ok && i < VS_TOT; i++)
+        ok = fabsf(((float*)r.data)[i] - want[i]) <= 1e-6f*fmaxf(1.0f, fabsf(want[i]));
+    return ok;
+}
+static void test_vsphere_dv(void) {
+    printf("\n=== Group: vsphere_dv (rank-3 grid products, 5 outputs) ===\n");
+    float pg[VS_TOT], zg[VS_TOT], ug[VS_TOT], vg[VS_TOT];
+    for (int i = 0; i < VS_TOT; i++) {
+        pg[i] = 0.5f + 0.01f*i; zg[i] = 1.0f - 0.02f*i;
+        ug[i] = 0.3f + 0.03f*i; vg[i] = -0.2f + 0.02f*i;
+    }
+    float eg[VS_TOT], pvg[VS_TOT], pug[VS_TOT], zvg[VS_TOT], zug[VS_TOT];
+    for (int i = 0; i < VS_TOT; i++) {
+        eg[i] = ug[i]*ug[i] + vg[i]*vg[i];
+        pvg[i] = pg[i]*vg[i]; pug[i] = pg[i]*ug[i];
+        zvg[i] = zg[i]*vg[i]; zug[i] = zg[i]*ug[i];
+    }
+    VSPHERE_results r = func_MAIN(VS_LON, VS_ILATH, vs_mk3(pg), vs_mk3(zg), vs_mk3(ug), vs_mk3(vg));
+    check("eg  == ug^2+vg^2 (rank-3)", vs_ck(r.eg, eg));
+    check("pug == pg*ug", vs_ck(r.pug, pug));
+    check("pvg == pg*vg", vs_ck(r.pvg, pvg));
+    check("zug == zg*ug", vs_ck(r.zug, zug));
+    check("zvg == zg*vg", vs_ck(r.zvg, zvg));
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -7957,6 +8060,12 @@ main (void)
 #ifdef TEST_BATCHER_DV
   test_batcher_dv ();
 #endif
+#ifdef TEST_ANGMOM_DV
+  test_angmom_dv ();
+#endif
+#ifdef TEST_VSPHERE_DV
+  test_vsphere_dv ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -8305,7 +8414,7 @@ main (void)
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
     && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
-    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV)                \
+    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV) && !defined(TEST_ANGMOM_DV) && !defined(TEST_VSPHERE_DV)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \
