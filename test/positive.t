@@ -49,7 +49,7 @@ DV_COMPRESS — COMPRESS produces array_dv; inputs may be monolithic or dv:
   $ sisal e2e/dv_lifted_arith.sis
   $ sisal e2e/dv_broadcast_complex.sis
   $ sisal e2e/dv_broadcast_numpy.sis
-  $ sisal unit/verify_numpy_broadcast.sis
+  $ sisal e2e/verify_numpy_broadcast.sis
   $ sisal e2e/dv_compress_test.sis
 
 APL bulk operations - sort and search (SORT/GRADE_UP/GRADE_DOWN/ARGMAX/ARGMIN/NONZERO/WHERE):
@@ -316,6 +316,14 @@ DV variants of scientific benchmarks:
   $ sisal e2e/tst_loopx2_dv.sis
   $ sisal e2e/insertion2_dv.sis
   $ sisal e2e/insert_dv.sis
+  $ sisal e2e/tst_loopat1_dv.sis
+  $ sisal e2e/tuple_destructure.sis
+  $ sisal e2e/sifuncs.sis
+  $ sisal e2e/ada.sis
+  $ sisal e2e/pinsert_dv.sis
+  $ sisal e2e/alphabeta_dv.sis
+  $ sisal e2e/tstep_dv.sis
+  $ sisal e2e/freq_dv.sis
   $ sisal e2e/life2_dv.sis
   $ sisal e2e/sp_dv.sis
 
@@ -506,4 +514,4 @@ Scientific benchmarks:
   $ sisal e2e/if_two.sis
   $ sisal unit/quadtree.sis
   $ sisal unit/quadtypes.sis
-  $ sisal unit/complex_types.sis
+  $ sisal e2e/complex_types_e2e.sis

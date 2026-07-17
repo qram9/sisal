@@ -1,0 +1,42 @@
+% PINSERT — DV variant of unit/pinsert.sis (parallel insertion: each matrix
+% row sorted independently by the shift-and-insert Insertion).  TwoDim ->
+% flat rank-2 array_dv; per the lu_piv_dv precedent row iteration becomes an
+% index loop over rank-reducing slices A[i, ..] with m,n explicit.  The
+% row gather box-flattens back to rank-2.
+
+define Main
+
+type OneDim = array_dv[ double_real ];
+type TwoDim = array_dv[ double_real ];
+
+function Insertion( N : integer; Input: OneDim returns OneDim )
+  for initial
+    K := 2;
+    A := Input;
+  while K <= N repeat
+    Y := old A[old K];
+    X, I := for initial
+              I := old K - 1;
+              X := old A;
+              Found := FALSE;
+            while ( I >= 1 & ~Found ) repeat
+              X, I, Found := if ( Y < old X[old I] ) then
+                               old X[old I + 1: old X[old I]], old I - 1, FALSE
+                             else
+                               old X, old I, TRUE
+                             end if;
+            returns value of X
+                    value of I
+            end for;
+    A := X[I + 1: Y ];
+    K := old K + 1;
+  returns value of A
+  end for
+end function
+
+function Main( m, n: integer; A:TwoDim returns TwoDim )
+  for i in 1, m
+     NewRow := Insertion( n, A[i, ..] );
+  returns array_dv of NewRow
+  end for
+end function

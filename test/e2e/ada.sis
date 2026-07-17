@@ -1,0 +1,18 @@
+% ADA — unit/ada.sis, iterations trimmed (10M -> 100k per outer step keeps
+% the same shape at e2e speed).  Pins the forall keep-last FINALVALUE arm:
+% `value of local` with no reduction op over an inner counted loop returning
+% the enclosing axis value.  Ground truth by construction: [1..5].
+
+define main
+
+type answer = array_dv[integer];
+
+function main ( returns answer )
+   for I in 1, 5
+      x := for J in 1, 100000
+              local := I;
+           returns value of local
+           end for;
+   returns array_dv of x
+   end for
+end function

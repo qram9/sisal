@@ -1,0 +1,27 @@
+% TST_LOOPAT1 — DV variant of unit/tst_loopAt1.sis (hydro fragment).
+% The ORIGINAL is malformed: `for I in 2,10 dot J in 1,10` dot-joins ranges
+% of lengths 9 and 10 — under the strict-dot-lengths ruling (53c0681) the
+% conformance diamond takes the ERROR arm at runtime.  This port keeps BOTH
+% forms: Good = corrected bounds (J in 1,9), a shifted-diagonal gather
+% Y[J,I]; Bad = the original mismatch, pinned to yield the error value.
+
+Define  Main
+
+type TwoD   = array_dv[double_real];
+type OneD   = array_dv[double_real];
+
+function Good(Y:TwoD returns OneD )
+   for I in 2,10 dot J in 1,9
+   returns array_dv of Y[J,I]
+   end for
+end function
+
+function Bad(Y:TwoD returns OneD )
+   for I in 2,10 dot J in 1,10
+   returns array_dv of Y[J,I]
+   end for
+end function
+
+function Main(Y:TwoD; which: integer returns OneD )
+  if which = 0 then Good(Y) else Bad(Y) end if
+end function

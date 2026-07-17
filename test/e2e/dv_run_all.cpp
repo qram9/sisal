@@ -1032,6 +1032,68 @@ extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t Input);
 #ifdef TEST_INSERT_DV
 extern "C" sisal_array_t func_MAIN(int32_t N, sisal_array_t Input);
 #endif
+#ifdef TEST_TST_LOOPAT1_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t Y, int32_t which);
+#endif
+#ifdef TEST_ADA
+extern "C" sisal_array_t func_MAIN(void);
+#endif
+#ifdef TEST_COMPLEX_TYPES_E2E
+struct ct_cfl { float re, im; };
+struct ct_soa { sisal_array_t re, im; };
+extern "C" ct_cfl func_T_MAKE_CFLOAT(float R, float I);
+extern "C" float func_T_RE(ct_cfl C);
+extern "C" float func_T_IM(ct_cfl C);
+extern "C" ct_soa func_T_SOA_FLOAT(sisal_array_t RE, sisal_array_t IM);
+extern "C" sisal_array_t func_T_AOS_FLOAT(sisal_array_t RE, sisal_array_t IM);
+#endif
+#ifdef TEST_VERIFY_NUMPY_BROADCAST
+extern "C" sisal_array_t func_TEST_TRAILING(sisal_array_t A, sisal_array_t B);
+extern "C" sisal_array_t func_TEST_UNIT_EXPANSION(sisal_array_t A, sisal_array_t B);
+extern "C" sisal_array_t func_TEST_SCALAR_BROADCAST(double S, sisal_array_t M);
+extern "C" sisal_array_t func_TEST_MULTI_OP(sisal_array_t A, sisal_array_t B);
+#endif
+#ifdef TEST_FREQ_DV
+struct FREQ_results { sisal_array_t ctri, eri, ptri, ztri; };
+extern "C" FREQ_results func_MAIN(int32_t jx, int32_t mx, int32_t mx2, int32_t ilath, int32_t iy,
+    sisal_array_t kmjx, sisal_array_t kmjxx, sisal_array_t wocs, sisal_array_t epsi,
+    sisal_array_t alp,
+    sisal_array_t ef, sisal_array_t puf, sisal_array_t pvf, sisal_array_t zuf, sisal_array_t zvf);
+#endif
+#ifdef TEST_TSTEP_DV
+struct TSTEP_results { int32_t ifirst_r; sisal_array_t c,p,z,cm,pm,zm,ct,pt,zt; };
+extern "C" TSTEP_results func_MAIN(int32_t jx, int32_t mx, int32_t delt, int32_t izon, int32_t ifirst,
+    int32_t imp, int32_t istart,
+    float hdiff, float hdrag, float zmean, float vnu,
+    sisal_array_t kmjx, sisal_array_t kmjxx, sisal_array_t ksq, sisal_array_t p1,
+    sisal_array_t c, sisal_array_t p, sisal_array_t z,
+    sisal_array_t cm, sisal_array_t pm, sisal_array_t zm,
+    sisal_array_t ct, sisal_array_t pt, sisal_array_t zt);
+#endif
+#ifdef TEST_PINSERT_DV
+extern "C" sisal_array_t func_MAIN(int32_t m, int32_t n, sisal_array_t A);
+#endif
+#ifdef TEST_ALPHABETA_DV
+struct AB_results { sisal_array_t ab, del; };
+extern "C" AB_results func_MAIN(sisal_array_t Sorted, int32_t Q);
+#endif
+#ifdef TEST_SIFUNCS
+extern "C" float func_ASINR(float x);
+extern "C" float func_ACOSR(float x);
+extern "C" float func_SQRTR(float x);
+extern "C" float func_SINR(float x);
+extern "C" float func_COSR(float x);
+extern "C" float func_ATANR(float x);
+#endif
+#ifdef TEST_TUPLE_DESTRUCTURE
+struct TUD_pair { int32_t a, b; };
+extern "C" TUD_pair func_TUPLE_SWAP(int32_t A, int32_t B);
+extern "C" TUD_pair func_TUPLE_TYPED(int32_t A, int32_t B);
+extern "C" int32_t func_TUPLE_SUM3(int32_t A, int32_t B, int32_t C);
+extern "C" TUD_pair func_TUPLE_KW_SWAP(int32_t A, int32_t B);
+extern "C" TUD_pair func_TUPLE_KW_TYPED(int32_t A, int32_t B);
+extern "C" int32_t func_TUPLE_KW_CHAIN(int32_t A, int32_t B, int32_t C);
+#endif
 #ifdef TEST_SPEC_DV
 struct SPEC_results { sisal_array_t pg, zg, ug, vg; };
 extern "C" SPEC_results func_MAIN(int32_t jx, int32_t mx, int32_t jxx, int32_t ilath, int32_t ixh,
@@ -7435,6 +7497,454 @@ static void test_insert_dv(void) {
     ins_case("sort 5 doubles (dups) == qsort", b, 5);
 }
 #endif
+
+#ifdef TEST_TST_LOOPAT1_DV
+// Strict dot lengths (53c0681): Good = corrected shifted-diagonal gather
+// (I in 2,10 dot J in 1,9 — equal trip counts); Bad = the original
+// malformed 9-vs-10 dot, pinned to take the conformance diamond's ERROR
+// arm and yield the error value (empty result).
+static void test_tst_loopat1_dv(void) {
+    printf("\n=== Group: tst_loopat1_dv (strict dot-length diamond) ===\n");
+    enum { N = 10, TOT = N*N };
+    sisal_array_t Y = sisal_array_alloc_empty(2, 4, TOT);
+    Y.dims[0] = N; Y.dims[1] = N; Y.lower_bound[0] = Y.lower_bound[1] = 1;
+    for (int i = 0; i < TOT; i++) ((double*)Y.data)[i] = 0.25*(i + 1);
+    double* y = (double*)Y.data;
+    sisal_array_t g = func_MAIN(Y, 0);
+    int ok = (int)g.size == 9;
+    for (int k = 0; ok && k < 9; k++) {
+        int I = 2 + k, J = 1 + k;
+        ok = fabs(((double*)g.data)[k] - y[(J-1)*N + (I-1)]) < 1e-12;
+    }
+    check("equal dot: Y[J,I] shifted diagonal (9 values)", ok);
+    sisal_array_t b = func_MAIN(Y, 1);
+    check("mismatched dot (9 vs 10) yields the error value", (int)b.size == 0);
+}
+#endif
+
+#ifdef TEST_TUPLE_DESTRUCTURE
+// Parallel-copy binder Tuple items in BOTH spellings — #(x,y) := #(...)
+// and tuple(x,y) := tuple(...) — plain, typed, chained.  Ground truth by
+// construction.
+static void test_tuple_destructure(void) {
+    printf("\n=== Group: tuple_destructure (#() and tuple() binder forms) ===\n");
+    TUD_pair s = func_TUPLE_SWAP(3, 7);
+    TUD_pair t = func_TUPLE_TYPED(3, 7);
+    TUD_pair ks = func_TUPLE_KW_SWAP(3, 7);
+    TUD_pair kt = func_TUPLE_KW_TYPED(3, 7);
+    check("#() swap (3,7) -> (7,3)", s.a == 7 && s.b == 3);
+    check("#() typed (3,7) -> (4,8)", t.a == 4 && t.b == 8);
+    check("#() chained sum3(3,7,10) == 20", func_TUPLE_SUM3(3, 7, 10) == 20);
+    check("tuple() swap (3,7) -> (7,3)", ks.a == 7 && ks.b == 3);
+    check("tuple() typed (3,7) -> (4,8)", kt.a == 4 && kt.b == 8);
+    check("tuple() chained (3,7,10) == 20", func_TUPLE_KW_CHAIN(3, 7, 10) == 20);
+}
+#endif
+
+#ifdef TEST_SIFUNCS
+// The physics corpus's R-suffixed real wrappers over double intrinsics
+// (real -> double_real -> intrinsic -> real).  Reference = libm.
+static void test_sifuncs(void) {
+    printf("\n=== Group: sifuncs (R-suffixed intrinsic wrappers) ===\n");
+    float x = 0.6f;
+    auto near = [](float got, double want) {
+        return fabs((double)got - want) <= 1e-6*fmax(1.0, fabs(want));
+    };
+    check("ASINR", near(func_ASINR(x), asin((double)x)));
+    check("ACOSR", near(func_ACOSR(x), acos((double)x)));
+    check("SQRTR", near(func_SQRTR(x), sqrt((double)x)));
+    check("SINR",  near(func_SINR(x),  sin((double)x)));
+    check("COSR",  near(func_COSR(x),  cos((double)x)));
+    check("ATANR", near(func_ATANR(x), atan((double)x)));
+}
+#endif
+
+#ifdef TEST_ADA
+// Forall keep-last FINALVALUE: `value of local` (no reduction op) over an
+// inner counted loop returning the enclosing axis value.  By construction
+// the result is [1..5].
+static void test_ada(void) {
+    printf("\n=== Group: ada (forall keep-last FinalValue) ===\n");
+    sisal_array_t r = func_MAIN();
+    int ok = (int)r.size == 5;
+    for (int i = 0; ok && i < 5; i++) ok = ((int32_t*)r.data)[i] == i + 1;
+    check("value of local over 1..5 == [1..5]", ok);
+}
+#endif
+#ifdef TEST_PINSERT_DV
+// Parallel insertion: each row of a rank-2 matrix sorted independently by
+// the shift-and-insert Insertion over an A[i, ..] slice; the row gather
+// box-flattens back to rank-2.  Reference = per-row qsort.
+static int pins_cmp(const void* a, const void* b) {
+    double x = *(const double*)a, y = *(const double*)b;
+    return (x > y) - (x < y);
+}
+static void test_pinsert_dv(void) {
+    printf("\n=== Group: pinsert_dv (per-row insertion sort of a matrix) ===\n");
+    enum { M = 3, N = 6, TOT = M*N };
+    double v[TOT];
+    unsigned sd = 987;
+    for (int i = 0; i < TOT; i++) { sd = sd*1103515245u + 12345u; v[i] = (double)((sd >> 16) % 1000)/8.0 - 50.0; }
+    double ref[TOT]; for (int i = 0; i < TOT; i++) ref[i] = v[i];
+    for (int r = 0; r < M; r++) qsort(ref + r*N, N, sizeof(double), pins_cmp);
+    sisal_array_t A = sisal_array_alloc_empty(2, 4, TOT);
+    A.dims[0] = M; A.dims[1] = N; A.lower_bound[0] = A.lower_bound[1] = 1;
+    for (int i = 0; i < TOT; i++) ((double*)A.data)[i] = v[i];
+    sisal_array_t r = func_MAIN(M, N, A);
+    int ok = (int)r.size == TOT && r.rank == 2 && (int)r.dims[0] == M && (int)r.dims[1] == N;
+    for (int i = 0; ok && i < TOT; i++) ok = fabs(((double*)r.data)[i] - ref[i]) < 1e-12;
+    check("each row sorted == per-row qsort", ok);
+}
+#endif
+#ifdef TEST_ALPHABETA_DV
+// Job Shop Scheduler segment times: iterates a record dv (SRec jobs), builds
+// per-job rows of Element records — the suite's first RANK-2 RECORD result
+// (box-flatten with sized elements) — plus a parallel real gather (Del).
+// Reference = C mirror.
+struct ab_srec { float start, finish, duration; int32_t prio; };
+struct ab_elem { float alpha, beta; int32_t prio; };
+static void test_alphabeta_dv(void) {
+    printf("\n=== Group: alphabeta_dv (rank-2 record result) ===\n");
+    enum { NJ = 4, Q = 3 };
+    ab_srec jobs[NJ];
+    for (int i = 0; i < NJ; i++) jobs[i] = { 1.0f + 0.5f*i, 10.0f + 1.25f*i, 2.0f + 0.25f*i, 7 - i };
+    ab_elem wab[NJ*(Q+1)]; float wdel[NJ];
+    for (int j = 0; j < NJ; j++) {
+        float last_start = jobs[j].finish - jobs[j].duration;
+        float del = (last_start - jobs[j].start) / (float)Q;
+        wdel[j] = del;
+        for (int i = 1; i <= Q+1; i++) {
+            float alpha = jobs[j].start + (float)(i-1)*del;
+            wab[j*(Q+1) + (i-1)] = { alpha, alpha + jobs[j].duration, jobs[j].prio };
+        }
+    }
+    sisal_array_t S = sisal_array_alloc_sized(1, 96, NJ, sizeof(ab_srec)); S.lower_bound[0] = 1;
+    for (int i = 0; i < NJ; i++) ((ab_srec*)S.data)[i] = jobs[i];
+    AB_results r = func_MAIN(S, Q);
+    int ok1 = (int)r.ab.size == NJ*(Q+1) && r.ab.rank == 2
+           && (int)r.ab.dims[0] == NJ && (int)r.ab.dims[1] == Q+1;
+    for (int i = 0; ok1 && i < NJ*(Q+1); i++) {
+        ab_elem g = ((ab_elem*)r.ab.data)[i];
+        ok1 = fabsf(g.alpha - wab[i].alpha) < 1e-5f && fabsf(g.beta - wab[i].beta) < 1e-5f
+           && g.prio == wab[i].prio;
+    }
+    int ok2 = (int)r.del.size == NJ;
+    for (int i = 0; ok2 && i < NJ; i++) ok2 = fabsf(((float*)r.del.data)[i] - wdel[i]) < 1e-6f;
+    check("AB (jobs, Q+1) record matrix == mirror", ok1);
+    check("Del vector == mirror", ok2);
+}
+#endif
+
+#ifdef TEST_TSTEP_DV
+// Spectral leapfrog time step (Robert/Asselin filter): nine complex-record
+// outputs multibound through nested IF regimes (izon passthrough /
+// implicit-imp / first-step istart), nine gathers CATENATEd per m; ksq
+// indexed from 0 (lb=0 dv).  Reference = C mirror; three regime cases.
+struct ts_cplx { float re, im; };
+enum { TS_JX=3, TS_MX=2, TS_NT=TS_MX*TS_JX, TS_NK=TS_JX+TS_MX-1 };
+static ts_cplx ts_ca(ts_cplx a,ts_cplx b){return {a.re+b.re,a.im+b.im};}
+static ts_cplx ts_cs(ts_cplx a,ts_cplx b){return {a.re-b.re,a.im-b.im};}
+static ts_cplx ts_rm(float s,ts_cplx a){return {s*a.re,s*a.im};}
+static ts_cplx ts_rs(ts_cplx a,float s){return {a.re-s,a.im};}
+static ts_cplx ts_rd(ts_cplx a,float s){return {a.re/s,a.im/s};}
+struct ts_In { ts_cplx c[TS_NT],p[TS_NT],z[TS_NT],cm[TS_NT],pm[TS_NT],zm[TS_NT],ct[TS_NT],pt[TS_NT],zt[TS_NT]; };
+static void ts_mirror(const ts_In& I, int delt,int izon,int ifirst,int imp,int istart,
+                   float hdiff,float hdrag,float zmean,float vnu,
+                   const int* kmjx,const int* ksq0,const float* p1,
+                   ts_cplx out[9][TS_NT]) {
+  float deltt2 = (ifirst==0) ? (float)delt*2.0f : (float)delt;
+  float deltt = deltt2*0.5f;
+  ts_cplx zero{0,0};
+  for (int m=1;m<=TS_MX;m++) for (int j=1;j<=TS_JX;j++) {
+    int jm = kmjx[m-1]+j; int q = jm-1;
+    float kl = (float)ksq0[j+m-2];
+    float dkl = kl - 2.0f;
+    ts_cplx c_j,p_j,z_j,cm_j,pm_j,zm_j,ct_j,pt_j,zt_j;
+    if ((m==1 && izon==1) || jm==1) {
+      c_j=I.c[q]; p_j=I.p[q]; z_j=I.z[q]; cm_j=I.cm[q]; pm_j=I.pm[q];
+      zm_j=I.zm[q]; ct_j=I.ct[q]; pt_j=I.pt[q]; zt_j=I.zt[q];
+    } else {
+      ts_cplx ptjm = ts_cs(ts_cs(I.pt[q], ts_rm(dkl*hdiff, I.pm[q])), ts_rm(hdrag, ts_rs(I.pm[q], p1[q])));
+      ts_cplx ctjm = ts_cs(I.ct[q], ts_rm(hdrag + dkl*hdiff, I.cm[q]));
+      ts_cplx ztjm = ts_cs(I.zt[q], ts_rm(dkl*hdiff, I.zm[q]));
+      ts_cplx ppv = ts_ca(I.pm[q], ts_rm(deltt2, I.pt[q]));
+      ts_cplx ccv, zzv;
+      if (imp==1) {
+        ccv = ts_rd(ts_ca(I.cm[q], ts_rm(deltt2, ts_ca(ctjm, ts_rm(kl, ts_ca(I.zm[q], ts_rm(deltt,
+                ts_cs(ztjm, ts_rm(0.5f*zmean, I.cm[q])))))))),
+                1.0f + deltt*deltt*kl*zmean);
+        zzv = ts_ca(I.zm[q], ts_rm(deltt2, ts_cs(ztjm, ts_rm(0.5f*zmean, ts_ca(I.cm[q], ccv)))));
+      } else {
+        ccv = ts_ca(I.cm[q], ts_rm(deltt2, ts_ca(ctjm, ts_rm(kl, I.z[q]))));
+        zzv = ts_ca(I.zm[q], ts_rm(deltt2, ts_cs(ztjm, ts_rm(zmean, I.c[q]))));
+      }
+      ts_cplx pmjm,cmjm,zmjm,pjm,cjm,zjm;
+      if (ifirst==0) {
+        pmjm = ts_ca(I.p[q], ts_rm(vnu, ts_ca(ts_cs(I.pm[q], ts_rm(2.0f, I.p[q])), ppv)));
+        cmjm = ts_ca(I.c[q], ts_rm(vnu, ts_ca(ts_cs(I.cm[q], ts_rm(2.0f, I.c[q])), ccv)));
+        zmjm = ts_ca(I.z[q], ts_rm(vnu, ts_ca(ts_cs(I.zm[q], ts_rm(2.0f, I.z[q])), zzv)));
+        pjm = ppv; cjm = ccv; zjm = zzv;
+      } else {
+        pmjm = I.pm[q]; cmjm = I.cm[q];
+        zmjm = (istart==0) ? ts_rd(ctjm, -kl) : I.zm[q];
+        pjm = ppv;
+        cjm = (istart==0) ? zero : ccv;
+        zjm = (istart==0) ? ts_rd(ctjm, -kl) : zzv;
+      }
+      c_j=cjm; p_j=pjm; z_j=zjm; cm_j=cmjm; pm_j=pmjm; zm_j=zmjm;
+      ct_j=ctjm; pt_j=ptjm; zt_j=ztjm;
+    }
+    out[0][q]=c_j; out[1][q]=p_j; out[2][q]=z_j; out[3][q]=cm_j; out[4][q]=pm_j;
+    out[5][q]=zm_j; out[6][q]=ct_j; out[7][q]=pt_j; out[8][q]=zt_j;
+  }
+}
+static sisal_array_t ts_mkc(const ts_cplx* w) {
+  sisal_array_t a = sisal_array_alloc_sized(1,96,TS_NT,sizeof(ts_cplx)); a.lower_bound[0]=1;
+  for (int i=0;i<TS_NT;i++) ((ts_cplx*)a.data)[i]=w[i];
+  return a;
+}
+static int ts_case(const char* nm, int izon,int ifirst,int imp,int istart) {
+  const int delt=2;
+  const float hdiff=0.01f, hdrag=0.02f, zmean=1.5f, vnu=0.05f;
+  int kmjx[TS_MX], kmjxx[TS_MX]; int ksq0[TS_NK];
+  for (int m=0;m<TS_MX;m++){ kmjx[m]=m*TS_JX; kmjxx[m]=m*(TS_JX+1); }
+  for (int i=0;i<TS_NK;i++) ksq0[i]=i+2;
+  float p1[TS_NT];
+  for (int i=0;i<TS_NT;i++) p1[i]=0.1f+0.02f*i;
+  ts_In I;
+  for (int i=0;i<TS_NT;i++) {
+    I.c[i]={0.2f+0.01f*i,-0.1f+0.02f*i}; I.p[i]={0.5f-0.02f*i,0.03f*i};
+    I.z[i]={0.1f*i,0.4f-0.03f*i}; I.cm[i]={0.15f+0.02f*i,-0.05f*i};
+    I.pm[i]={0.45f-0.01f*i,0.02f+0.01f*i}; I.zm[i]={0.05f*i,0.3f-0.02f*i};
+    I.ct[i]={0.12f+0.03f*i,0.07f-0.01f*i}; I.pt[i]={0.33f-0.02f*i,0.04f*i};
+    I.zt[i]={0.08f*i,0.22f+0.02f*i};
+  }
+  ts_cplx want[9][TS_NT];
+  ts_mirror(I,delt,izon,ifirst,imp,istart,hdiff,hdrag,zmean,vnu,kmjx,ksq0,p1,want);
+  sisal_array_t K1=sisal_array_alloc_empty(1,6,TS_MX), K2=sisal_array_alloc_empty(1,6,TS_MX), K3=sisal_array_alloc_empty(1,6,TS_NK);
+  K1.lower_bound[0]=K2.lower_bound[0]=1; K3.lower_bound[0]=0;
+  for (int i=0;i<TS_MX;i++){ ((int32_t*)K1.data)[i]=kmjx[i]; ((int32_t*)K2.data)[i]=kmjxx[i]; }
+  for (int i=0;i<TS_NK;i++) ((int32_t*)K3.data)[i]=ksq0[i];
+  sisal_array_t P1=sisal_array_alloc_empty(1,8,TS_NT); P1.lower_bound[0]=1;
+  for (int i=0;i<TS_NT;i++) ((float*)P1.data)[i]=p1[i];
+  TSTEP_results r = func_MAIN(TS_JX,TS_MX,delt,izon,ifirst,imp,istart,hdiff,hdrag,zmean,vnu,
+                    K1,K2,K3,P1,
+                    ts_mkc(I.c),ts_mkc(I.p),ts_mkc(I.z),ts_mkc(I.cm),ts_mkc(I.pm),ts_mkc(I.zm),
+                    ts_mkc(I.ct),ts_mkc(I.pt),ts_mkc(I.zt));
+  sisal_array_t got[9] = { r.c,r.p,r.z,r.cm,r.pm,r.zm,r.ct,r.pt,r.zt };
+  int ok = r.ifirst_r==0;
+  for (int a=0;a<9 && ok;a++) {
+    ok = (int)got[a].size==TS_NT;
+    for (int i=0;ok&&i<TS_NT;i++) {
+      ts_cplx g=((ts_cplx*)got[a].data)[i];
+      ok = fabsf(g.re-want[a][i].re)<=2e-5f*fmaxf(1.0f,fabsf(want[a][i].re))
+        && fabsf(g.im-want[a][i].im)<=2e-5f*fmaxf(1.0f,fabsf(want[a][i].im));
+    }
+  }
+  check(nm, ok);
+  return ok;
+}
+
+static void test_tstep_dv(void) {
+    printf("\n=== Group: tstep_dv (9-output leapfrog step, 3 regimes) ===\n");
+    ts_case("leapfrog (ifirst=0, imp=1)", 1, 0, 1, 0);
+    ts_case("first step istart=0 (imp=0)", 0, 1, 0, 0);
+    ts_case("first step istart=1 (imp=1)", 0, 1, 1, 1);
+}
+#endif
+
+#ifdef TEST_FREQ_DV
+// FreqToSpecSphere: forward Legendre transform.  Rank-3 inputs, TEN rank-2
+// symmetric/antisymmetric intermediates from one cross gather, a parity
+// IF-ladder over 2-index reads, four sum reductions, per-m CATENATEs.
+// Reference = C mirror.
+enum { FQ_JX=3, FQ_MX=2, FQ_MX2=2*FQ_MX, FQ_ILATH=2, FQ_IY=2,
+       FQ_NA=FQ_MX*(FQ_JX+1), FQ_F3=2*FQ_ILATH*FQ_MX2, FQ_OT=FQ_MX*FQ_JX*2 };
+static float FQ_EF[FQ_F3],FQ_PUF[FQ_F3],FQ_PVF[FQ_F3],FQ_ZUF[FQ_F3],FQ_ZVF[FQ_F3];
+static float FQ_ALP[FQ_ILATH*FQ_NA], FQ_WOCS[FQ_ILATH], FQ_EPSI[FQ_NA];
+static int FQ_KMJX[FQ_MX], FQ_KMJXX[FQ_MX];
+static float fq_f3(const float* p,int h,int l,int m){ return p[((h-1)*FQ_ILATH+(l-1))*FQ_MX2+(m-1)]; }
+static void fq_mirror(float* octri,float* oeri,float* optri,float* oztri) {
+  float eP[FQ_ILATH*FQ_MX2],puP[FQ_ILATH*FQ_MX2],pvP[FQ_ILATH*FQ_MX2],zuP[FQ_ILATH*FQ_MX2],zvP[FQ_ILATH*FQ_MX2];
+  float eM[FQ_ILATH*FQ_MX2],puM[FQ_ILATH*FQ_MX2],pvM[FQ_ILATH*FQ_MX2],zuM[FQ_ILATH*FQ_MX2],zvM[FQ_ILATH*FQ_MX2];
+  for (int l=1;l<=FQ_ILATH;l++) for (int m=1;m<=FQ_MX2;m++) {
+    int q=(l-1)*FQ_MX2+(m-1);
+    eP[q]=fq_f3(FQ_EF,1,l,m)+fq_f3(FQ_EF,2,l,m);   eM[q]=fq_f3(FQ_EF,1,l,m)-fq_f3(FQ_EF,2,l,m);
+    puP[q]=fq_f3(FQ_PUF,1,l,m)+fq_f3(FQ_PUF,2,l,m); puM[q]=fq_f3(FQ_PUF,1,l,m)-fq_f3(FQ_PUF,2,l,m);
+    pvP[q]=fq_f3(FQ_PVF,1,l,m)+fq_f3(FQ_PVF,2,l,m); pvM[q]=fq_f3(FQ_PVF,1,l,m)-fq_f3(FQ_PVF,2,l,m);
+    zuP[q]=fq_f3(FQ_ZUF,1,l,m)+fq_f3(FQ_ZUF,2,l,m); zuM[q]=fq_f3(FQ_ZUF,1,l,m)-fq_f3(FQ_ZUF,2,l,m);
+    zvP[q]=fq_f3(FQ_ZVF,1,l,m)+fq_f3(FQ_ZVF,2,l,m); zvM[q]=fq_f3(FQ_ZVF,1,l,m)-fq_f3(FQ_ZVF,2,l,m);
+  }
+  auto R2=[&](float* p,int l,int m){ return p[(l-1)*FQ_MX2+(m-1)]; };
+  int o=0;
+  for (int m=1;m<=FQ_MX;m++) {
+    int mi=m*2, mr=mi-1, realm=m-1;
+    for (int jj=1;jj<=FQ_JX*2;jj++,o++) {
+      int j=(jj+1)/2;
+      int jm=FQ_KMJX[m-1]+j;
+      int jmrjmi=jm*2-(jj%2);
+      int jmx=FQ_KMJXX[m-1]+j;
+      float realn=(float)(j+m-2);
+      float sc=0,se=0,sp=0,sz=0;
+      for (int l=1;l<=FQ_ILATH;l++) {
+        int ihem=FQ_IY+1-l;
+        float gwplm=FQ_ALP[(l-1)*FQ_NA+(jmx-1)]*FQ_WOCS[ihem-1];
+        float b=(float)realm*gwplm;
+        float alpm=(j!=1)?FQ_ALP[(l-1)*FQ_NA+(jmx-2)]:0.0f;
+        float alpp=FQ_ALP[(l-1)*FQ_NA+(jmx)];
+        float a=((realn+1.0f)*FQ_EPSI[jmx-1]*alpm - realn*FQ_EPSI[jmx]*alpp)*FQ_WOCS[ihem-1];
+        float c_,e_,p_,z_;
+        if (!(j==1 && m==1)) {
+          if (jm%2==0) {
+            if (jmrjmi%2==0) {
+              c_=a*R2(puP,l,mi)+b*R2(pvM,l,mr); e_=gwplm*R2(eM,l,mi);
+              p_=a*R2(pvP,l,mi)-b*R2(puM,l,mr); z_=a*R2(zvP,l,mi)-b*R2(zuM,l,mr);
+            } else {
+              c_=a*R2(puP,l,mr)-b*R2(pvM,l,mi); e_=gwplm*R2(eM,l,mr);
+              p_=a*R2(pvP,l,mr)+b*R2(puM,l,mi); z_=a*R2(zvP,l,mr)+b*R2(zuM,l,mi);
+            }
+          } else if (jmrjmi%2==0) {
+            c_=a*R2(puM,l,mi)+b*R2(pvP,l,mr); e_=gwplm*R2(eP,l,mi);
+            p_=a*R2(pvM,l,mi)-b*R2(puP,l,mr); z_=a*R2(zvM,l,mi)-b*R2(zuP,l,mr);
+          } else {
+            c_=a*R2(puM,l,mr)-b*R2(pvP,l,mi); e_=gwplm*R2(eP,l,mr);
+            p_=a*R2(pvM,l,mr)+b*R2(puP,l,mi); z_=a*R2(zvM,l,mr)+b*R2(zuP,l,mi);
+          }
+        } else {
+          c_=0.0f; p_=0.0f; z_=0.0f;
+          e_=(jj==1)?R2(eP,l,1)*FQ_WOCS[ihem-1]*FQ_ALP[(l-1)*FQ_NA+0]:0.0f;
+        }
+        sc+=c_; se+=e_; sp+=p_; sz+=z_;
+      }
+      octri[o]=sc; oeri[o]=se; optri[o]=sp; oztri[o]=sz;
+    }
+  }
+}
+static sisal_array_t fq_mk1f(const float* w, int n) {
+  sisal_array_t a=sisal_array_alloc_empty(1,8,n); a.lower_bound[0]=1;
+  for (int i=0;i<n;i++) ((float*)a.data)[i]=w[i];
+  return a;
+}
+static sisal_array_t fq_mk1i(const int* w, int n) {
+  sisal_array_t a=sisal_array_alloc_empty(1,6,n); a.lower_bound[0]=1;
+  for (int i=0;i<n;i++) ((int32_t*)a.data)[i]=w[i];
+  return a;
+}
+static sisal_array_t fq_mk3(const float* w) {
+  sisal_array_t a=sisal_array_alloc_empty(3,8,FQ_F3);
+  a.dims[0]=2; a.dims[1]=FQ_ILATH; a.dims[2]=FQ_MX2;
+  a.lower_bound[0]=a.lower_bound[1]=a.lower_bound[2]=1;
+  for (int i=0;i<FQ_F3;i++) ((float*)a.data)[i]=w[i];
+  return a;
+}
+
+static void test_freq_dv(void) {
+    printf("\n=== Group: freq_dv (forward Legendre transform) ===\n");
+    for (int m = 0; m < FQ_MX; m++) { FQ_KMJX[m] = m*FQ_JX; FQ_KMJXX[m] = m*(FQ_JX+1); }
+    for (int i = 0; i < FQ_ILATH; i++) FQ_WOCS[i] = 0.4f + 0.1f*i;
+    for (int i = 0; i < FQ_NA; i++) FQ_EPSI[i] = 0.15f + 0.04f*i;
+    for (int i = 0; i < FQ_ILATH*FQ_NA; i++) FQ_ALP[i] = 0.2f + 0.03f*i;
+    for (int i = 0; i < FQ_F3; i++) {
+        FQ_EF[i] = 0.1f + 0.02f*i; FQ_PUF[i] = 0.5f - 0.03f*i; FQ_PVF[i] = -0.2f + 0.04f*i;
+        FQ_ZUF[i] = 0.3f + 0.01f*i; FQ_ZVF[i] = 0.05f*i - 0.15f;
+    }
+    float wc[FQ_OT], we[FQ_OT], wp[FQ_OT], wz[FQ_OT];
+    fq_mirror(wc, we, wp, wz);
+    sisal_array_t AL = sisal_array_alloc_empty(2, 8, FQ_ILATH*FQ_NA);
+    AL.dims[0] = FQ_ILATH; AL.dims[1] = FQ_NA; AL.lower_bound[0] = AL.lower_bound[1] = 1;
+    for (int i = 0; i < FQ_ILATH*FQ_NA; i++) ((float*)AL.data)[i] = FQ_ALP[i];
+    FREQ_results r = func_MAIN(FQ_JX, FQ_MX, FQ_MX2, FQ_ILATH, FQ_IY,
+                               fq_mk1i(FQ_KMJX, FQ_MX), fq_mk1i(FQ_KMJXX, FQ_MX),
+                               fq_mk1f(FQ_WOCS, FQ_ILATH), fq_mk1f(FQ_EPSI, FQ_NA), AL,
+                               fq_mk3(FQ_EF), fq_mk3(FQ_PUF), fq_mk3(FQ_PVF),
+                               fq_mk3(FQ_ZUF), fq_mk3(FQ_ZVF));
+    auto cka = [](sisal_array_t a, const float* w) {
+        int ok = (int)a.size == FQ_OT;
+        for (int i = 0; ok && i < FQ_OT; i++)
+            ok = fabsf(((float*)a.data)[i] - w[i]) <= 2e-5f*fmaxf(1.0f, fabsf(w[i]));
+        return ok;
+    };
+    check("ctri", cka(r.ctri, wc));
+    check("eri", cka(r.eri, we));
+    check("ptri", cka(r.ptri, wp));
+    check("ztri", cka(r.ztri, wz));
+}
+#endif
+
+#ifdef TEST_COMPLEX_TYPES_E2E
+// Built-in complex types: complex_float record construction/field access,
+// BUILD_COMPLEX_SOA (record of two arrays) and BUILD_COMPLEX_AOS
+// (array_dv[complex_float] zip).  Ground truth by construction.
+static sisal_array_t ct_mkf(const float* w, int n) {
+    sisal_array_t a = sisal_array_alloc_empty(1, 8, n); a.lower_bound[0] = 1;
+    for (int i = 0; i < n; i++) ((float*)a.data)[i] = w[i];
+    return a;
+}
+static void test_complex_types_e2e(void) {
+    printf("\n=== Group: complex_types_e2e (complex records, SOA/AOS builders) ===\n");
+    enum { N = 4 };
+    ct_cfl c = func_T_MAKE_CFLOAT(2.5f, -1.25f);
+    check("make/re/im roundtrip", c.re == 2.5f && c.im == -1.25f
+          && func_T_RE(c) == 2.5f && func_T_IM(c) == -1.25f);
+    float re[N] = { 1, 2, 3, 4 }, im[N] = { -1, -2, -3, -4 };
+    ct_soa s = func_T_SOA_FLOAT(ct_mkf(re, N), ct_mkf(im, N));
+    int ok = (int)s.re.size == N && (int)s.im.size == N;
+    for (int i = 0; ok && i < N; i++)
+        ok = ((float*)s.re.data)[i] == re[i] && ((float*)s.im.data)[i] == im[i];
+    check("SOA bundle (record of arrays)", ok);
+    sisal_array_t a = func_T_AOS_FLOAT(ct_mkf(re, N), ct_mkf(im, N));
+    ok = (int)a.size == N;
+    for (int i = 0; ok && i < N; i++) {
+        ct_cfl e = ((ct_cfl*)a.data)[i];
+        ok = e.re == re[i] && e.im == im[i];
+    }
+    check("AOS zip (array_dv[complex_float])", ok);
+}
+#endif
+#ifdef TEST_VERIFY_NUMPY_BROADCAST
+// NumPy-style broadcasting over dv doubles: trailing-axis alignment
+// [2,3]+[3], unit-dimension expansion [10,1]+[1,5] -> [10,5], scalar
+// broadcast, and multi-op lifting (A+B)*2-A.  Reference = C mirrors of the
+// numpy rules.
+static sisal_array_t vnb_mk2(int r, int c, double base, double step) {
+    sisal_array_t a = sisal_array_alloc_empty(2, 4, r*c);
+    a.dims[0] = r; a.dims[1] = c; a.lower_bound[0] = a.lower_bound[1] = 1;
+    for (int i = 0; i < r*c; i++) ((double*)a.data)[i] = base + step*i;
+    return a;
+}
+static sisal_array_t vnb_mk1(int n, double base, double step) {
+    sisal_array_t a = sisal_array_alloc_empty(1, 4, n); a.lower_bound[0] = 1;
+    for (int i = 0; i < n; i++) ((double*)a.data)[i] = base + step*i;
+    return a;
+}
+static void test_verify_numpy_broadcast(void) {
+    printf("\n=== Group: verify_numpy_broadcast (dv broadcasting rules) ===\n");
+    sisal_array_t r1 = func_TEST_TRAILING(vnb_mk2(2, 3, 1.0, 0.5), vnb_mk1(3, 10.0, 1.0));
+    int ok = (int)r1.size == 6 && r1.rank == 2 && (int)r1.dims[0] == 2 && (int)r1.dims[1] == 3;
+    for (int i = 0; ok && i < 6; i++)
+        ok = fabs(((double*)r1.data)[i] - ((1.0 + 0.5*i) + (10.0 + (i % 3)))) < 1e-12;
+    check("[2,3] + [3] trailing-axis", ok);
+    sisal_array_t r2 = func_TEST_UNIT_EXPANSION(vnb_mk2(10, 1, 0.0, 1.0), vnb_mk2(1, 5, 100.0, 10.0));
+    ok = (int)r2.size == 50 && r2.rank == 2 && (int)r2.dims[0] == 10 && (int)r2.dims[1] == 5;
+    for (int i = 0; ok && i < 50; i++) {
+        int row = i/5, col = i%5;
+        ok = fabs(((double*)r2.data)[i] - ((double)row + (100.0 + 10.0*col))) < 1e-12;
+    }
+    check("[10,1] + [1,5] -> [10,5] unit expansion", ok);
+    sisal_array_t r3 = func_TEST_SCALAR_BROADCAST(7.5, vnb_mk2(3, 3, 0.5, 0.25));
+    ok = (int)r3.size == 9 && r3.rank == 2;
+    for (int i = 0; ok && i < 9; i++)
+        ok = fabs(((double*)r3.data)[i] - (7.5 + 0.5 + 0.25*i)) < 1e-12;
+    check("scalar + [3,3]", ok);
+    sisal_array_t r4 = func_TEST_MULTI_OP(vnb_mk2(2, 3, 1.0, 1.0), vnb_mk2(2, 3, 0.5, 0.5));
+    ok = (int)r4.size == 6;
+    for (int i = 0; ok && i < 6; i++) {
+        double a = 1.0 + i, b = 0.5 + 0.5*i;
+        ok = fabs(((double*)r4.data)[i] - ((a + b)*2.0 - a)) < 1e-12;
+    }
+    check("(A+B)*2 - A multi-op lift", ok);
+}
+#endif
 #ifdef TEST_RICARD_DV
 // Reference C mirror of the ricard chromatography simulation (scaled config:
 // N=315, NV=6000, KELUTE=350, IELUTE=20, OUT min-scan window 220..290).
@@ -8652,6 +9162,36 @@ main (void)
 #ifdef TEST_INSERT_DV
   test_insert_dv ();
 #endif
+#ifdef TEST_TST_LOOPAT1_DV
+  test_tst_loopat1_dv ();
+#endif
+#ifdef TEST_TUPLE_DESTRUCTURE
+  test_tuple_destructure ();
+#endif
+#ifdef TEST_SIFUNCS
+  test_sifuncs ();
+#endif
+#ifdef TEST_ADA
+  test_ada ();
+#endif
+#ifdef TEST_TSTEP_DV
+  test_tstep_dv ();
+#endif
+#ifdef TEST_FREQ_DV
+  test_freq_dv ();
+#endif
+#ifdef TEST_COMPLEX_TYPES_E2E
+  test_complex_types_e2e ();
+#endif
+#ifdef TEST_VERIFY_NUMPY_BROADCAST
+  test_verify_numpy_broadcast ();
+#endif
+#ifdef TEST_PINSERT_DV
+  test_pinsert_dv ();
+#endif
+#ifdef TEST_ALPHABETA_DV
+  test_alphabeta_dv ();
+#endif
 #ifdef TEST_LIFE2_DV
   test_life2_dv ();
 #endif
@@ -9000,7 +9540,7 @@ main (void)
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
     && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
-    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV) && !defined(TEST_ANGMOM_DV) && !defined(TEST_VSPHERE_DV) && !defined(TEST_ENERGY_DV) && !defined(TEST_SPECAM_DV) && !defined(TEST_SAS_DV) && !defined(TEST_LINEAR_DV) && !defined(TEST_UVSPEC_DV) && !defined(TEST_SPEC_DV) && !defined(TEST_NOISE_DV) && !defined(TEST_TST_LOOPX_DV) && !defined(TEST_TST_LOOPX2_DV) && !defined(TEST_INSERTION2_DV) && !defined(TEST_INSERT_DV)                \
+    && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV) && !defined(TEST_ANGMOM_DV) && !defined(TEST_VSPHERE_DV) && !defined(TEST_ENERGY_DV) && !defined(TEST_SPECAM_DV) && !defined(TEST_SAS_DV) && !defined(TEST_LINEAR_DV) && !defined(TEST_UVSPEC_DV) && !defined(TEST_SPEC_DV) && !defined(TEST_NOISE_DV) && !defined(TEST_TST_LOOPX_DV) && !defined(TEST_TST_LOOPX2_DV) && !defined(TEST_INSERTION2_DV) && !defined(TEST_INSERT_DV) && !defined(TEST_TST_LOOPAT1_DV) && !defined(TEST_TUPLE_DESTRUCTURE) && !defined(TEST_SIFUNCS) && !defined(TEST_ADA) && !defined(TEST_PINSERT_DV) && !defined(TEST_ALPHABETA_DV) && !defined(TEST_TSTEP_DV) && !defined(TEST_FREQ_DV) && !defined(TEST_COMPLEX_TYPES_E2E) && !defined(TEST_VERIFY_NUMPY_BROADCAST)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
     && !defined(TEST_TRANSPOSE_AT_DV) && !defined(TEST_FORALL_ROWSCATTER_DV)  \

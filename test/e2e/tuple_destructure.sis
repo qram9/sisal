@@ -1,0 +1,44 @@
+% TUPLE_DESTRUCTURE — unit/tuple_hash_tests.sis + tuple_kw_tests.sis merged
+% (the unit files are %$include halves of tuple_tests.sis; e2e files stay
+% self-contained).  Pins the parallel-copy binder's Tuple items in BOTH
+% spellings — #(x,y) := #(...) and tuple(x,y) := tuple(...) — plain, typed,
+% and chained.  No arrays; ground truth by construction.
+
+define tuple_swap,
+  tuple_typed,
+  tuple_sum3,
+  tuple_kw_swap,
+  tuple_kw_typed,
+  tuple_kw_chain
+
+function tuple_swap( a : integer; b : integer returns integer, integer )
+  let #(x, y) := #(b, a) in
+  x, y
+end function
+
+function tuple_typed( a : integer; b : integer returns integer, integer )
+  let #(x, y) : #(integer, integer) := #(a + 1, b + 1) in
+  x, y
+end function
+
+function tuple_sum3( a : integer; b : integer; c : integer returns integer )
+  let #(s, d) := #(a + b, a - b) in
+  let result := s + c in
+  result
+end function
+
+function tuple_kw_swap( a : integer; b : integer returns integer, integer )
+  let tuple(x, y) := tuple(b, a) in
+  x, y
+end function
+
+function tuple_kw_typed( a : integer; b : integer returns integer, integer )
+  let tuple(x, y) : tuple(integer, integer) := tuple(a + 1, b + 1) in
+  x, y
+end function
+
+function tuple_kw_chain( a : integer; b : integer; c : integer returns integer )
+  let tuple(s, d) := tuple(a + b, a - b) in
+  let result := s + c in
+  result
+end function
