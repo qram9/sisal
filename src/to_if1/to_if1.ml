@@ -999,7 +999,10 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                     ("__forall_ub_" ^ string_of_int rg ^ lvl)
                     (rg, 2, ub_ty) in_gr
                 in
-                (((rg, rp, rt), in_gr), [])
+                (* carry the bound ASTs up: if this range is dot-joined with
+                   another, the conform diamond re-lowers hi-lo in the
+                   ENCLOSING scope for the strict length-equality check *)
+                (((rg, rp, rt), in_gr), [ `Range (hd, tl) ])
             (* One sub-expression `A` -> an array scatter (element loop). *)
             | [ hd ] ->
                 (* Lower the array expression A. *)
@@ -1042,7 +1045,8 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                 let op = if is_dv then If1.DV_SCATTER else If1.ASCATTER in
                 let (scatter, _, _), in_gr = get_simple_unary 2 in_gr op in
                 let in_gr = If1.add_edge e pi scatter 0 outer_ty_num in_gr in
-                (((scatter, 0, inner_ty_num), in_gr), [ (is_dv, (e, pi, t1)) ])
+                ( ((scatter, 0, inner_ty_num), in_gr),
+                  [ (if is_dv then `Dv (e, pi, t1) else `Plain (e, pi, t1)) ] )
             | _ ->
                 raise
                   (If1.Sem_error
@@ -2187,9 +2191,15 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
   (* APL error monad: when several axes are array_dv sources, their shapes must
      conform. Collect the array_dv source ports for a runtime conformance check. *)
   let dv_sources =
-    List.filter_map
-      (fun (is_dv, src) -> if is_dv then Some src else None)
-      dv_infos
+    List.filter_map (function `Dv src -> Some src | _ -> None) dv_infos
+  in
+  (* STRICT DOT LENGTHS (user ruling, Jul 17 2026): dot-joined RANGE axes
+     must have EQUAL trip counts — a same-axis property like DV_CONFORM,
+     checked in the same diamond.  The counts (hi - lo) are re-lowered in
+     the ENCLOSING scope: generator bounds are loop-invariant expressions
+     of that scope by construction. *)
+  let range_srcs =
+    List.filter_map (function `Range r -> Some r | _ -> None) dv_infos
   in
   (* Result type = the type of the first return clause (reported for tracing). *)
   let res_ty =
@@ -2263,63 +2273,102 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
     (mul_n, mul_p, outl, tgt_gr)
   in
 
-  match dv_sources with
-  | [] | [ _ ] ->
-      (* 0 or 1 array_dv source: nothing to conform; finish the forall here. *)
-      let mul_n, mul_p, outl, in_gr = finish_forall in_gr in
-      ((mul_n, mul_p, res_ty), outl, in_gr)
-  | first :: rest ->
-      (* >=2 array_dv sources (a `dot`): guard the forall with a conformance
-          DIAMOND -- a single hand-built IF (no if_builder, no recursion):
-              PREDICATE = DV_CONFORM(first, next) [AND ...]   (true = conforms)
-              THEN      = the forall (finished inside this arm)
-              ELSE      = ERROR_NODE  (a Typed_error of the result type)
-              SELECT(pred, then, else) -> result
-          The forall lands in the THEN arm (never referenced twice). *)
-      let bool_ty = If1.lookup_tyid If1.BOOLEAN in
-      (* one type per output value (a forall may have several return clauses) *)
-      let out_types = List.map (fun (_, rt, _) -> rt) return_action_list in
-      let new_sub g = If1.inherit_parent_syms g (If1.get_a_new_graph g) in
-      (* Name the array sources in in_gr so the arms can reference them and
-          wire_all_syms_to_compound can connect them. *)
-      let in_gr, src_names =
+  let needs_dv_conform =
+    match dv_sources with _ :: _ :: _ -> true | _ -> false
+  in
+  let needs_rng_conform =
+    match range_srcs with _ :: _ :: _ -> true | _ -> false
+  in
+  if not (needs_dv_conform || needs_rng_conform) then
+    (* 0 or 1 conformable source per kind: nothing to check; finish here. *)
+    let mul_n, mul_p, outl, in_gr = finish_forall in_gr in
+    ((mul_n, mul_p, res_ty), outl, in_gr)
+  else
+    (* >=2 array_dv sources and/or >=2 dot ranges: guard the forall with a
+        conformance DIAMOND -- a single hand-built IF (no if_builder):
+            PREDICATE = DV_CONFORM(dv0, dvK) [AND ...]
+                        AND EQUAL(cnt0, cntK) [AND ...]   (true = conforms)
+            THEN      = the forall (finished inside this arm)
+            ELSE      = ERROR_NODE  (a Typed_error of the result type)
+            SELECT(pred, then, else) -> result
+        The forall lands in the THEN arm (never referenced twice).
+        NOTE mixed range-vs-dv lengths are NOT yet cross-checked (needs a
+        leading-extent accessor node); dv-dv and range-range each are. *)
+    let bool_ty = If1.lookup_tyid If1.BOOLEAN in
+    (* one type per output value (a forall may have several return clauses) *)
+    let out_types = List.map (fun (_, rt, _) -> rt) return_action_list in
+    let new_sub g = If1.inherit_parent_syms g (If1.get_a_new_graph g) in
+    (* Name the array sources in in_gr so the arms can reference them and
+        wire_all_syms_to_compound can connect them. *)
+    let in_gr, src_names =
+      if not needs_dv_conform then (in_gr, [])
+      else
         List.fold_left
           (fun (gr, names) (i, src) ->
             let nm = Printf.sprintf "__CFSRC%d" i in
             (inject_sym nm src gr, names @ [ nm ]))
           (in_gr, [])
-          (List.mapi (fun i s -> (i, s)) (first :: rest))
-      in
-      (* ---- PREDICATE arm: AND-chain of DV_CONFORM(src0, srcK) ---- *)
-      let pred_sub = new_sub in_gr in
-      let first_nm = List.hd src_names in
-      let (fan, fap, fat), pred_sub = If1.get_symbol_id first_nm pred_sub in
-      let acc_bool, pred_sub =
+          (List.mapi (fun i s -> (i, s)) dv_sources)
+    in
+    (* Lower each dot range's trip count (hi - lo) in the enclosing scope
+        and name it so the PREDICATE arm can import and compare them. *)
+    let in_gr, rng_names =
+      if not needs_rng_conform then (in_gr, [])
+      else
         List.fold_left
-          (fun (acc_opt, gr) nm ->
-            let (bn, bp, bt), gr = If1.get_symbol_id nm gr in
-            let (cn, cp, _), gr =
-              If1.add_node_2
-                (`Simple (If1.DV_CONFORM, [| ""; "" |], [| "" |], []))
-                gr
-            in
-            let gr = If1.add_edge fan fap cn 0 fat gr in
-            let gr = If1.add_edge bn bp cn 1 bt gr in
-            match acc_opt with
-            | None -> (Some (cn, cp), gr)
-            | Some (pan, pap) ->
-                let (andn, andp, _), gr =
-                  If1.add_node_2
-                    (`Simple (If1.AND, [| ""; "" |], [| "" |], []))
-                    gr
-                in
-                let gr = If1.add_edge pan pap andn 0 bool_ty gr in
-                let gr = If1.add_edge cn cp andn 1 bool_ty gr in
-                (Some (andn, andp), gr))
-          (None, pred_sub) (List.tl src_names)
-      in
-      let pcn, pcp = match acc_bool with Some x -> x | None -> (fan, fap) in
-      let pred_sub = point_edges_to_boundary pcn pcp bool_ty pred_sub in
+          (fun (gr, names) (i, (lo, hi)) ->
+            let (cn, cp, ct), gr = bin_exp hi lo gr If1.SUBTRACT in
+            let nm = Printf.sprintf "__CFRNG%d" i in
+            (inject_sym nm (cn, cp, ct) gr, names @ [ nm ]))
+          (in_gr, [])
+          (List.mapi (fun i r -> (i, r)) range_srcs)
+    in
+    (* ---- PREDICATE arm: AND-chain of DV_CONFORM(src0, srcK) over dv
+            sources and EQUAL(cnt0, cntK) over dot-range trip counts ---- *)
+    let pred_sub = new_sub in_gr in
+    let pair_checks names op (checks, gr) =
+      match names with
+      | [] | [ _ ] -> (checks, gr)
+      | first_nm :: rest_nms ->
+          let (fan, fap, fat), gr = If1.get_symbol_id first_nm gr in
+          List.fold_left
+            (fun (acc, g) nm ->
+              let (bn, bp, bt), g = If1.get_symbol_id nm g in
+              let (cn, cp, _), g =
+                If1.add_node_2 (`Simple (op, [| ""; "" |], [| "" |], [])) g
+              in
+              let g = If1.add_edge fan fap cn 0 fat g in
+              let g = If1.add_edge bn bp cn 1 bt g in
+              (acc @ [ (cn, cp) ], g))
+            (checks, gr) rest_nms
+    in
+    let checks, pred_sub =
+      ([], pred_sub)
+      |> pair_checks src_names If1.DV_CONFORM
+      |> pair_checks rng_names If1.EQUAL
+    in
+    let acc_bool, pred_sub =
+      List.fold_left
+        (fun (acc_opt, gr) (cn, cp) ->
+          match acc_opt with
+          | None -> (Some (cn, cp), gr)
+          | Some (pan, pap) ->
+              let (andn, andp, _), gr =
+                If1.add_node_2
+                  (`Simple (If1.AND, [| ""; "" |], [| "" |], []))
+                  gr
+              in
+              let gr = If1.add_edge pan pap andn 0 bool_ty gr in
+              let gr = If1.add_edge cn cp andn 1 bool_ty gr in
+              (Some (andn, andp), gr))
+        (None, pred_sub) checks
+    in
+    let pcn, pcp =
+      match acc_bool with
+      | Some x -> x
+      | None -> raise (If1.Sem_error "conform diamond built with no checks")
+    in
+    let pred_sub = point_edges_to_boundary pcn pcp bool_ty pred_sub in
       (* ---- THEN arm: the forall (its MULTIARITY's N values -> N boundary outs) ---- *)
       let then_sub = new_sub in_gr in
       let t_mul_n, t_mul_p, _outl, then_sub = finish_forall then_sub in
