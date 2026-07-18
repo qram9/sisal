@@ -122,19 +122,42 @@ let rec string_of_stmt ?(no_debug = true) indent =
   let pad = String.make (indent * 2) ' ' in
   function
   | Decl (ty, name, Some init) ->
-      let base = Printf.sprintf "%s%s %s = %s;" pad (string_of_c_type ty) name
-        (string_of_expr init) in
-      if no_debug then base else
-      let debug = Printf.sprintf "\n#ifdef SISAL_DEBUG\n%sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \\\"%s\\\" value: \" << %s << std::endl;\n#endif" pad name name in
-      base ^ debug
+      let base =
+        Printf.sprintf "%s%s %s = %s;" pad (string_of_c_type ty) name
+          (string_of_expr init)
+      in
+      if no_debug then base
+      else
+        let debug =
+          Printf.sprintf
+            "\n\
+             #ifdef SISAL_DEBUG\n\
+             %sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \
+             \\\"%s\\\" value: \" << %s << std::endl;\n\
+             #endif"
+            pad name name
+        in
+        base ^ debug
   | Decl (ty, name, None) ->
       Printf.sprintf "%s%s %s;" pad (string_of_c_type ty) name
   | Expr (BinOp (op, lhs, rhs)) when is_assign_op op ->
       let lhs_s = string_of_expr lhs in
-      let base = Printf.sprintf "%s(%s %s %s);" pad lhs_s (string_of_binary_op op) (string_of_expr rhs) in
-      if no_debug then base else
-      let debug = Printf.sprintf "\n#ifdef SISAL_DEBUG\n%sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \\\"%s\\\" value: \" << %s << std::endl;\n#endif" pad (String.escaped lhs_s) lhs_s in
-      base ^ debug
+      let base =
+        Printf.sprintf "%s(%s %s %s);" pad lhs_s (string_of_binary_op op)
+          (string_of_expr rhs)
+      in
+      if no_debug then base
+      else
+        let debug =
+          Printf.sprintf
+            "\n\
+             #ifdef SISAL_DEBUG\n\
+             %sstd::cerr << \"At line: \" << __LINE__ - 2 << \" Assign to \
+             \\\"%s\\\" value: \" << %s << std::endl;\n\
+             #endif"
+            pad (String.escaped lhs_s) lhs_s
+        in
+        base ^ debug
   | Expr e -> Printf.sprintf "%s%s;" pad (string_of_expr e)
   | For (init, cond, step, body) ->
       let init_s = String.trim (string_of_stmt ~no_debug:true 0 init) in

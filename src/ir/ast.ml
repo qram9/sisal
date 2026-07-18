@@ -210,10 +210,10 @@ and return_exp =
   | Array_of of simple_exp
   | Dv_array_of of int * simple_exp (* rank (number of ..), element expr *)
   | Dv_array_shaped of exp * simple_exp
-      (* explicit-extent gather: array_dv(e1,e2,..) of elem.
+    (* explicit-extent gather: array_dv(e1,e2,..) of elem.
          first = the extent list (an Exp), second = element expr *)
   | Dv_array_shaped_at of exp * simple_exp * exp
-      (* explicit-extent SCATTER: array_dv(e1,..,ek) of elem at [i1,..,ik].
+    (* explicit-extent SCATTER: array_dv(e1,..,ek) of elem at [i1,..,ik].
          extent list (loop-invariant, sizes the store), element expr, placement
          index list (PER-ITERATION destination; Dotdot marks the axes the
          element's own extent fills, dual of Dotdot in a load subscript). *)
@@ -933,7 +933,8 @@ and str_taglist_list ?(offset = 0) tls =
   newline_fold (List.map (str_taglist ~offset) tls)
 
 and str_tagcase_exp ?(offset = 0) = function
-  | Assign (vn, e) -> mypad1 offset ("TAGCASE " ^ str_val vn ^ " := " ^ str_simple_exp e)
+  | Assign (vn, e) ->
+      mypad1 offset ("TAGCASE " ^ str_val vn ^ " := " ^ str_simple_exp e)
   | Tagcase_exp exp -> mypad1 offset ("TAGCASE " ^ str_simple_exp exp)
 
 and str_otherwise ?(offset = 0) = function
@@ -942,6 +943,7 @@ and str_otherwise ?(offset = 0) = function
       let label = mypad1 offset "OTHERWISE:" in
       let expr_str = str_exp ~offset:(offset + 2) e in
       single_newline_cate label expr_str
+
 and str_colon_spec = function sl, s -> comma_fold sl ^ ":" ^ str_sisal_type s
 
 and str_compound_type = function

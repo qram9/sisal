@@ -1,5 +1,6 @@
 (library
  (name to_apple)
  (public_name sisal.to_apple)
- (flags (:standard -w -27))
+ (flags
+  (:standard -w -27))
  (libraries ir unix))

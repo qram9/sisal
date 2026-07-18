@@ -887,18 +887,18 @@ let rec resolve_real_port env target_gid n p =
        ordinary fed ports.) *)
     let edge_src_opt =
       match IntMap.find_opt target_gid env.parent_map with
-        | Some (parent_gid, cnid) -> (
-            let parent_gr = get_graph_by_gid env parent_gid in
-            let matching_edge =
-              ES.fold
-                (fun ((sn, sp), (dn, dp), _) acc ->
-                  if dn = cnid && dp = p then Some (sn, sp) else acc)
-                parent_gr.eset None
-            in
-            match matching_edge with
-            | Some (sn, sp) -> Some (parent_gid, sn, sp)
-            | None -> None)
-        | None -> None
+      | Some (parent_gid, cnid) -> (
+          let parent_gr = get_graph_by_gid env parent_gid in
+          let matching_edge =
+            ES.fold
+              (fun ((sn, sp), (dn, dp), _) acc ->
+                if dn = cnid && dp = p then Some (sn, sp) else acc)
+              parent_gr.eset None
+          in
+          match matching_edge with
+          | Some (sn, sp) -> Some (parent_gid, sn, sp)
+          | None -> None)
+      | None -> None
     in
     match edge_src_opt with
     | Some (parent_gid, sn, sp) -> resolve_real_port env parent_gid sn sp
@@ -1268,8 +1268,7 @@ let pre_declare_graph_locals env gr gid =
           | Some (Function_ty _) -> true
           | _ -> false
         in
-        if is_proc_expr e gid v.val_def || is_function_typed then
-          (acc_stmts, e)
+        if is_proc_expr e gid v.val_def || is_function_typed then (acc_stmts, e)
         else
           let name =
             Printf.sprintf "v_%s_n__%d_%s"
@@ -1641,8 +1640,8 @@ and lower_simple env gr nid sym pin pout pr =
           | Some (Name t) -> t
           | _ ->
               failwith
-                (Printf.sprintf "IS_TAG without a tag-name pragma at gid=%d nid=%d"
-                   gid nid)
+                (Printf.sprintf
+                   "IS_TAG without a tag-name pragma at gid=%d nid=%d" gid nid)
         in
         let un_tyid =
           ES.fold
@@ -1668,8 +1667,8 @@ and lower_simple env gr nid sym pin pout pr =
           | _ ->
               failwith
                 (Printf.sprintf
-                   "VARIANT_CAST without a tag-name pragma at gid=%d nid=%d"
-                   gid nid)
+                   "VARIANT_CAST without a tag-name pragma at gid=%d nid=%d" gid
+                   nid)
         in
         C.Member (e1, "val." ^ member)
     | ERROR_NODE -> (
@@ -2627,7 +2626,8 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
     in
     let found =
       match scrutinee_port with
-      | Some p -> ( match resolve_edge_at p with Some r -> Some r | None -> by_type ())
+      | Some p -> (
+          match resolve_edge_at p with Some r -> Some r | None -> by_type ())
       | None -> by_type ()
     in
     match found with
@@ -5197,27 +5197,27 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let zero_trip_guard =
     if is_post_test then [] (* a do-while cannot zero-trip *)
     else
-    [
-      C.Macro "ifdef SISAL_TRAP_ZERO_TRIP";
-      C.If
-        ( C.UnaryOp (C.LogNot, cond),
-          [
-            C.Expr
-              (C.Call
-                 ( "fprintf",
-                   [
-                     C.Id "stderr";
-                     C.LitString
-                       (Printf.sprintf
-                          "SISAL runtime error: 'for initial' loop in %s \
-                           executed 0 times (guard false on entry)\\n"
-                          (scope_of env.gid_name_map sub_gid));
-                   ] ));
-            C.Expr (C.Call ("exit", [ C.LitInt 1 ]));
-          ],
-          [] );
-      C.Macro "endif";
-    ]
+      [
+        C.Macro "ifdef SISAL_TRAP_ZERO_TRIP";
+        C.If
+          ( C.UnaryOp (C.LogNot, cond),
+            [
+              C.Expr
+                (C.Call
+                   ( "fprintf",
+                     [
+                       C.Id "stderr";
+                       C.LitString
+                         (Printf.sprintf
+                            "SISAL runtime error: 'for initial' loop in %s \
+                             executed 0 times (guard false on entry)\\n"
+                            (scope_of env.gid_name_map sub_gid));
+                     ] ));
+              C.Expr (C.Call ("exit", [ C.LitInt 1 ]));
+            ],
+            [] );
+        C.Macro "endif";
+      ]
   in
   ( decl_stmts
     @ [

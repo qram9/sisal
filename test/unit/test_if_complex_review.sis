@@ -1,0 +1,29 @@
+define Main
+
+type MyRec = record[ a: integer; b: double_real ];
+
+function Main(
+    selector: integer;
+    flag: boolean;
+    outer_scalar: integer;
+    outer_arr: array[integer];
+    outer_rec: MyRec
+    returns integer, array[integer], MyRec
+)
+    % Standard if-elseif-else-endif
+    if selector = 1 then
+        % Nested if-else capturing outer scope values
+        if flag then
+            % Captures outer_scalar, outer_arr, and outer_rec
+            outer_scalar + 10, outer_arr, outer_rec
+        else
+            outer_scalar + 20, outer_arr, record MyRec[ a: outer_rec.a + 1; b: outer_rec.b ]
+        end if
+    elseif selector = 2 then
+        % Captures outer_scalar and outer_arr
+        outer_scalar * 2, outer_arr, outer_rec
+    else
+        % Default else branch
+        0, array [1: 0], record MyRec[ a: 0; b: 0.0d0 ]
+    end if
+end function

@@ -1,5 +1,6 @@
 (library
  (name to_if1)
  (public_name sisal.to_if1)
- (flags (:standard -w -27))
+ (flags
+  (:standard -w -27))
  (libraries ir utils unix re))

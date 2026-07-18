@@ -148,9 +148,7 @@ let topo_sort gr =
       gr.eset (in_degree, adj_list)
   in
 
-  let worklist =
-    List.filter (fun id -> NodeMap.find id in_degree = 0) nodes
-  in
+  let worklist = List.filter (fun id -> NodeMap.find id in_degree = 0) nodes in
 
   let rec loop acc worklist in_deg =
     match worklist with
@@ -251,7 +249,8 @@ let rec lower_subgraph env gr gid =
             | Compound (_, _, _, _, sub_gr, _) ->
                 (* Compound outputs are linked to its boundary node's inputs *)
                 ES.fold
-                  (fun (_, (dn, dp), _) acc -> if dn = 0 then dp :: acc else acc)
+                  (fun (_, (dn, dp), _) acc ->
+                    if dn = 0 then dp :: acc else acc)
                   sub_gr.eset []
             | _ -> [ 0 ]
           in
@@ -260,7 +259,10 @@ let rec lower_subgraph env gr gid =
               let v = var_name gid nid pid in
               let ty = get_port_type e gr nid pid `Out in
               let e =
-                { e with var_map = PortMap.add (gid, nid, pid) (C.Id v) e.var_map }
+                {
+                  e with
+                  var_map = PortMap.add (gid, nid, pid) (C.Id v) e.var_map;
+                }
               in
               (C.Decl (ty, v, None) :: ds, e))
             (decls, env) pids
@@ -335,7 +337,10 @@ and lower_node env gr nid node =
                   C.Cast (C.Pointer (c_elem_ty, []), C.Member (arr, "data"))
                 in
                 let idx_expr =
-                  C.BinOp (C.Sub, idx, C.Index (C.Member (arr, "lower_bound"), C.LitInt 0))
+                  C.BinOp
+                    ( C.Sub,
+                      idx,
+                      C.Index (C.Member (arr, "lower_bound"), C.LitInt 0) )
                 in
                 ( [
                     C.Expr

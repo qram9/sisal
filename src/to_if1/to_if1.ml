@@ -2369,118 +2369,118 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
       | None -> raise (If1.Sem_error "conform diamond built with no checks")
     in
     let pred_sub = point_edges_to_boundary pcn pcp bool_ty pred_sub in
-      (* ---- THEN arm: the forall (its MULTIARITY's N values -> N boundary outs) ---- *)
-      let then_sub = new_sub in_gr in
-      let t_mul_n, t_mul_p, _outl, then_sub = finish_forall then_sub in
-      let then_sub = point_edges_to_boundary t_mul_n t_mul_p res_ty then_sub in
-      (* ---- ELSE arm: one ERROR_NODE per output, each a Typed_error of that out ---- *)
-      let else_sub = new_sub in_gr in
-      let else_sub =
-        List.fold_left
-          (fun gr rt ->
-            let (_, _, terr_ty), gr =
-              If1.add_type_to_typemap_dedup (If1.Typed_error rt) gr
-            in
-            let (en, ep, _), gr =
-              If1.add_node_2
-                (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
-                gr
-            in
-            point_edges_to_boundary en ep terr_ty gr)
-          else_sub out_types
-      in
-      (* ---- assemble the IF internal graph: predicate/then/else compounds + SELECTs ---- *)
-      let regar = new_sub in_gr in
-      let (pred_cn, _, _), regar =
-        If1.add_node_2
-          (`Compound
-             ( pred_sub,
-               If1.INTERNAL,
-               0,
-               [ If1.Name "PREDICATE"; If1.Compound_of If1.If1_predicate ],
-               [] ))
-          regar
-      in
-      let _, regar = wire_all_syms_to_compound pred_cn pred_sub regar in
-      let (then_cn, _, _), regar =
-        If1.add_node_2
-          (`Compound
-             ( then_sub,
-               If1.INTERNAL,
-               0,
-               [ If1.Name "THEN"; If1.Compound_of If1.If1_then ],
-               [] ))
-          regar
-      in
-      let _, regar = wire_all_syms_to_compound then_cn then_sub regar in
-      let (else_cn, _, _), regar =
-        If1.add_node_2
-          (`Compound
-             ( else_sub,
-               If1.INTERNAL,
-               0,
-               [ If1.Name "ELSE"; If1.Compound_of If1.If1_else ],
-               [] ))
-          regar
-      in
-      let _, regar = wire_all_syms_to_compound else_cn else_sub regar in
-      (* one SELECT per output value: SELECT_k(pred, then:k, else:k) *)
-      let regar, sel_nodes =
-        List.fold_left
-          (fun (gr, sels) (k, rt) ->
-            let (sel_n, _, _), gr =
-              If1.add_node_2
-                (`Simple
-                   ( If1.SELECT,
-                     [| ""; ""; "" |],
-                     [| "" |],
-                     [ If1.Name (Printf.sprintf "SELECT_%d" k) ] ))
-                gr
-            in
-            let gr = If1.add_edge pred_cn 0 sel_n 0 bool_ty gr in
-            let gr = If1.add_edge then_cn k sel_n 1 rt gr in
-            let gr = If1.add_edge else_cn k sel_n 2 rt gr in
-            (gr, sels @ [ (sel_n, rt) ]))
-          (regar, [])
-          (List.mapi (fun k rt -> (k, rt)) out_types)
-      in
-      (* collect the SELECT results into a MULTIARITY and export to the IF boundary *)
-      let (sel_ma, _, _), regar =
-        build_multiarity (List.length sel_nodes) regar ~nam:"SEL_MA"
-      in
-      let regar, _ =
-        List.fold_left
-          (fun (gr, k) (sel_n, rt) ->
-            (If1.add_edge sel_n 0 sel_ma k rt gr, k + 1))
-          (regar, 0) sel_nodes
-      in
-      let regar =
-        point_edges_to_boundary sel_ma 0 (snd (List.hd sel_nodes)) regar
-      in
-      (* ---- wrap the IF compound into in_gr, collect its N results via a MULTIARITY ---- *)
-      let (ifn, _, _), in_gr =
-        If1.add_node_2
-          (`Compound
-             ( regar,
-               If1.INTERNAL,
-               0,
-               [ If1.Name "IF_CONFORM"; If1.Compound_of If1.If1_if ],
-               [] ))
-          in_gr
-      in
-      let _, in_gr = wire_all_syms_to_compound ifn regar in_gr in
-      let (ma, mp, _), in_gr =
-        build_multiarity (List.length out_types) in_gr ~nam:"IF_RESULT"
-      in
-      let in_gr, _ =
-        List.fold_left
-          (fun (gr, k) rt -> (If1.add_edge ifn k ma k rt gr, k + 1))
-          (in_gr, 0) out_types
-      in
-      let outl_diamond =
-        List.mapi (fun cc (wh, tt, _) -> (wh, tt, ma, cc)) return_action_list
-      in
-      ((ma, mp, res_ty), outl_diamond, in_gr)
+    (* ---- THEN arm: the forall (its MULTIARITY's N values -> N boundary outs) ---- *)
+    let then_sub = new_sub in_gr in
+    let t_mul_n, t_mul_p, _outl, then_sub = finish_forall then_sub in
+    let then_sub = point_edges_to_boundary t_mul_n t_mul_p res_ty then_sub in
+    (* ---- ELSE arm: one ERROR_NODE per output, each a Typed_error of that out ---- *)
+    let else_sub = new_sub in_gr in
+    let else_sub =
+      List.fold_left
+        (fun gr rt ->
+          let (_, _, terr_ty), gr =
+            If1.add_type_to_typemap_dedup (If1.Typed_error rt) gr
+          in
+          let (en, ep, _), gr =
+            If1.add_node_2
+              (`Simple (If1.ERROR_NODE, [| "" |], [| "" |], [ If1.No_pragma ]))
+              gr
+          in
+          point_edges_to_boundary en ep terr_ty gr)
+        else_sub out_types
+    in
+    (* ---- assemble the IF internal graph: predicate/then/else compounds + SELECTs ---- *)
+    let regar = new_sub in_gr in
+    let (pred_cn, _, _), regar =
+      If1.add_node_2
+        (`Compound
+           ( pred_sub,
+             If1.INTERNAL,
+             0,
+             [ If1.Name "PREDICATE"; If1.Compound_of If1.If1_predicate ],
+             [] ))
+        regar
+    in
+    let _, regar = wire_all_syms_to_compound pred_cn pred_sub regar in
+    let (then_cn, _, _), regar =
+      If1.add_node_2
+        (`Compound
+           ( then_sub,
+             If1.INTERNAL,
+             0,
+             [ If1.Name "THEN"; If1.Compound_of If1.If1_then ],
+             [] ))
+        regar
+    in
+    let _, regar = wire_all_syms_to_compound then_cn then_sub regar in
+    let (else_cn, _, _), regar =
+      If1.add_node_2
+        (`Compound
+           ( else_sub,
+             If1.INTERNAL,
+             0,
+             [ If1.Name "ELSE"; If1.Compound_of If1.If1_else ],
+             [] ))
+        regar
+    in
+    let _, regar = wire_all_syms_to_compound else_cn else_sub regar in
+    (* one SELECT per output value: SELECT_k(pred, then:k, else:k) *)
+    let regar, sel_nodes =
+      List.fold_left
+        (fun (gr, sels) (k, rt) ->
+          let (sel_n, _, _), gr =
+            If1.add_node_2
+              (`Simple
+                 ( If1.SELECT,
+                   [| ""; ""; "" |],
+                   [| "" |],
+                   [ If1.Name (Printf.sprintf "SELECT_%d" k) ] ))
+              gr
+          in
+          let gr = If1.add_edge pred_cn 0 sel_n 0 bool_ty gr in
+          let gr = If1.add_edge then_cn k sel_n 1 rt gr in
+          let gr = If1.add_edge else_cn k sel_n 2 rt gr in
+          (gr, sels @ [ (sel_n, rt) ]))
+        (regar, [])
+        (List.mapi (fun k rt -> (k, rt)) out_types)
+    in
+    (* collect the SELECT results into a MULTIARITY and export to the IF boundary *)
+    let (sel_ma, _, _), regar =
+      build_multiarity (List.length sel_nodes) regar ~nam:"SEL_MA"
+    in
+    let regar, _ =
+      List.fold_left
+        (fun (gr, k) (sel_n, rt) ->
+          (If1.add_edge sel_n 0 sel_ma k rt gr, k + 1))
+        (regar, 0) sel_nodes
+    in
+    let regar =
+      point_edges_to_boundary sel_ma 0 (snd (List.hd sel_nodes)) regar
+    in
+    (* ---- wrap the IF compound into in_gr, collect its N results via a MULTIARITY ---- *)
+    let (ifn, _, _), in_gr =
+      If1.add_node_2
+        (`Compound
+           ( regar,
+             If1.INTERNAL,
+             0,
+             [ If1.Name "IF_CONFORM"; If1.Compound_of If1.If1_if ],
+             [] ))
+        in_gr
+    in
+    let _, in_gr = wire_all_syms_to_compound ifn regar in_gr in
+    let (ma, mp, _), in_gr =
+      build_multiarity (List.length out_types) in_gr ~nam:"IF_RESULT"
+    in
+    let in_gr, _ =
+      List.fold_left
+        (fun (gr, k) rt -> (If1.add_edge ifn k ma k rt gr, k + 1))
+        (in_gr, 0) out_types
+    in
+    let outl_diamond =
+      List.mapi (fun cc (wh, tt, _) -> (wh, tt, ma, cc)) return_action_list
+    in
+    ((ma, mp, res_ty), outl_diamond, in_gr)
 
 and do_decldef_part in_gr = function
   | Ast.Decldef_part f ->
@@ -2998,9 +2998,9 @@ and get_new_tagcase_graph in_gr vntt e =
     | `AnyTag (None, _, _, _) | `OtherwiseTag ->
         ({ tagcase_gr_n with If1.symtab = (cs_parent, ps) }, None)
     | `AnyTag (Some _, tag_ty, _, _)
-      when (match If1.TM.find_opt tag_ty (If1.get_typemap_tm tagcase_gr_n) with
+      when match If1.TM.find_opt tag_ty (If1.get_typemap_tm tagcase_gr_n) with
            | Some (If1.Basic If1.NULL) -> true
-           | _ -> false) ->
+           | _ -> false ->
         (* a NULL-payload tag (e.g. Hydrogen: null) has no value to bind:
            no port, no cast node, no entry — the name is simply absent in
            this arm (referencing it there is meaningless) *)
@@ -3021,8 +3021,7 @@ and get_new_tagcase_graph in_gr vntt e =
         in
         let (cast_n, cast_p, _), tagcase_gr_n =
           If1.add_node_2
-            (`Simple
-               (If1.VARIANT_CAST, [| "" |], [| "" |], [ If1.Name member ]))
+            (`Simple (If1.VARIANT_CAST, [| "" |], [| "" |], [ If1.Name member ]))
             tagcase_gr_n
         in
         let tagcase_gr_n =
@@ -6692,9 +6691,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         subgraphs is tag_builder. It adds the subgraphs
         to the newly setup graph: tagcase_gr_.*)
       let output_type_list, tagcase_gr_, tag_map, source_arms, union_port =
-        let tagcase_gr_ =
-          new_graph_for_tag_case vn_opt aunion_type in_gr
-        in
+        let tagcase_gr_ = new_graph_for_tag_case vn_opt aunion_type in_gr in
         let uport, tagcase_gr_ =
           If1.add_to_boundary_inputs ~namen:"__tagcase_union_val__" an po
             tagcase_gr_
@@ -6771,7 +6768,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
           let tagcase_gr =
             match source_arms with
             | [] -> tagcase_gr
-            | _ ->
+            | _ -> (
                 let terminal_nid, chain_arms =
                   match aa_opt with
                   | Some aa -> (aa, source_arms)
@@ -6803,8 +6800,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                             | Some (pn, pp) ->
                                 let (on, op_, _), gr =
                                   If1.add_node_2
-                                    (`Simple
-                                       (If1.OR, [| ""; "" |], [| "" |], []))
+                                    (`Simple (If1.OR, [| ""; "" |], [| "" |], []))
                                     gr
                                 in
                                 let gr = If1.add_edge pn pp on 0 bool_ty gr in
@@ -6836,16 +6832,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                    ( If1.SELECT,
                                      [| ""; ""; "" |],
                                      [| "" |],
-                                     [
-                                       If1.Name
-                                         (Printf.sprintf "TAGSEL_%d" j);
-                                     ] ))
+                                     [ If1.Name (Printf.sprintf "TAGSEL_%d" j) ]
+                                   ))
                                 gr
                             in
                             let gr = If1.add_edge pn pp sel_n 0 bool_ty gr in
-                            let gr =
-                              If1.add_edge arm_nid j sel_n 1 ty_j gr
-                            in
+                            let gr = If1.add_edge arm_nid j sel_n 1 ty_j gr in
                             let gr = If1.add_edge nn np sel_n 2 ty_j gr in
                             ((sel_n, 0), gr))
                           ((terminal_nid, j), gr)
@@ -6865,7 +6857,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                       (If1.add_edge hn hp ma_n k ty_j gr, k + 1))
                     (tagcase_gr, 0) heads
                 in
-                (match heads with
+                match heads with
                 | (_, _, ty0) :: _ ->
                     point_edges_to_boundary ma_n 0 ty0 tagcase_gr
                 | [] -> tagcase_gr)
@@ -7000,7 +6992,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* 1. Build predicate first to establish symbol order in boundary *)
             to_if1_msg 3 "If: lowering PREDICATE: %s" (Ast.str_exp predicate);
             let pred_out, predicate_gr =
-              let n_g = If1.get_a_new_graph in_gr_if in
+              let n_g =
+                If1.inherit_parent_syms in_gr_if (If1.get_a_new_graph in_gr_if)
+              in
               do_exp n_g predicate
             in
 
@@ -7032,7 +7026,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (* 2. Build else chain *)
             to_if1_msg 3 "If: lowering ELSE chain: %s" (Ast.str_exp predicate);
             let ty_lis_else, else_gr =
-              let grr_th = If1.get_a_new_graph in_gr_if in
+              let grr_th =
+                If1.inherit_parent_syms in_gr_if (If1.get_a_new_graph in_gr_if)
+              in
               if_builder tl grr_th els
             in
             let else_cn, else_ma, in_gr_if =
@@ -7043,7 +7039,12 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
             (* 3. Build then body *)
             to_if1_msg 3 "If: lowering BODY: %s" (Ast.str_exp body);
-            let in_outs, then_gr = do_exp (If1.get_a_new_graph in_gr_if) body in
+            let in_outs, then_gr =
+              do_exp
+                (If1.inherit_parent_syms in_gr_if
+                   (If1.get_a_new_graph in_gr_if))
+                body
+            in
             let ty_lis_then, then_gr =
               extr_types then_gr (in_outs, If1.IntMap.empty)
             in
@@ -7139,7 +7140,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
       in
       let sai, gai =
         let ty_lis, regar =
-          let regar = If1.get_a_new_graph in_gr in
+          let regar =
+            If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
+          in
           if_builder cl regar el
         in
         (* regar's boundary has N outputs = SELECT results.

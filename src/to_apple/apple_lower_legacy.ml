@@ -212,9 +212,7 @@ let topo_sort gr =
       gr.eset (in_degree, adj_list)
   in
 
-  let worklist =
-    List.filter (fun id -> NodeMap.find id in_degree = 0) nodes
-  in
+  let worklist = List.filter (fun id -> NodeMap.find id in_degree = 0) nodes in
 
   let rec loop acc worklist in_deg =
     match worklist with
@@ -262,8 +260,7 @@ let rec lower_graph env gr gid =
             let ty = get_port_type e gr 0 pid `Out in
             let local_v = var_name gid 0 pid `Out in
             let src_expr =
-              try get_expr e gid 0 pid `Out
-              with _ -> C.Id (sanitize name)
+              try get_expr e gid 0 pid `Out with _ -> C.Id (sanitize name)
             in
 
             let acc =
@@ -472,14 +469,18 @@ and lower_node env gr nid node =
         let tid = type_id_of_if1_ty env.tm elem_ty in
         match body_info with
         | Some (body_id, body_gr) ->
-            let body_gid, env_after_loop_bound = gen_gr_id env_after_loop_header in
-            
+            let body_gid, env_after_loop_bound =
+              gen_gr_id env_after_loop_header
+            in
+
             (* Correct capture: Map node 0 Out ports of body to sources in loop_gr *)
-            let var_map_body = 
+            let var_map_body =
               ES.fold
                 (fun ((sn, sp), (dn, dp), _) m ->
                   if dn = body_id then
-                    let expr = get_expr env_after_loop_bound sub_gid sn sp `Out in
+                    let expr =
+                      get_expr env_after_loop_bound sub_gid sn sp `Out
+                    in
                     FullPortMap.add (body_gid, 0, dp, `Out) expr m
                   else m)
                 loop_gr.eset env_after_loop_bound.var_map
@@ -494,7 +495,8 @@ and lower_node env gr nid node =
                     (fun m (_, pid, name, _) ->
                       let sn = sanitize name in
                       if sn = "i" || sn = "idx" || sn = "v_idx" then
-                        FullPortMap.add (body_gid, 0, pid, `Out) (C.Id index_var) m
+                        FullPortMap.add (body_gid, 0, pid, `Out)
+                          (C.Id index_var) m
                       else m)
                     var_map_body body_ins
               | _ -> var_map_body
@@ -629,9 +631,15 @@ and lower_node env gr nid node =
             let idx_cast =
               C.Cast
                 ( C.Basic "size_t",
-                  C.BinOp (C.Sub, idx, C.Index (C.Member (arr, "lower_bound"), C.LitInt 0)) )
+                  C.BinOp
+                    ( C.Sub,
+                      idx,
+                      C.Index (C.Member (arr, "lower_bound"), C.LitInt 0) ) )
             in
-            ([ C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx_cast))) ], env)
+            ( [
+                C.Expr (C.BinOp (C.Assign, v_res, C.Index (cast_ptr, idx_cast)));
+              ],
+              env )
           else if sym = ASIZE || sym = DV_DIMENSION then
             let arr = get_expr env gid nid 0 `In in
             let v_res = get_expr env gid nid 0 `Out in
@@ -662,8 +670,9 @@ and lower_node env gr nid node =
                        v_res,
                        C.Call
                          ( "sisal_array_create",
-                           [ lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size) ]
-                         ) ));
+                           [
+                             lb; C.LitInt tid; C.Cast (C.Basic "int32_t", size);
+                           ] ) ));
               ],
               env )
           else if sym = SELECT then

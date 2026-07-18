@@ -5,15 +5,19 @@
  (modules lex parse parse_errors))
 
 ; These lines tell Dune to run ocamllex and menhir
+
 (ocamllex lex)
+
 (menhir
  (modules parse)
  (flags --table --explain))
 
 ; Compile error messages file into a module
+
 (rule
  (target parse_errors.ml)
  (deps parse.messages parse.mly)
  (action
-  (with-stdout-to %{target}
+  (with-stdout-to
+   %{target}
    (run menhir --compile-errors %{deps}))))
