@@ -1,4 +1,19 @@
-# Unit → E2E Promotion Status (Jul 14, 2026)
+# Unit → E2E Promotion Status (Jul 14, 2026; CLOSED Jul 17, 2026)
+
+**BUCKET A IS COMPLETE (Jul 17 2026, suite 227/227).**  Every mechanically
+portable unit test has an e2e group with a C-reference/qsort/by-construction
+driver.  Final unported set, each with a recorded reason (commit 6003867):
+crossovers + cdf + crypto (masked gathers / nested-array elements /
+records-with-array-fields — boxed-array & records-phase-2 territory);
+PassFreq/PassGrid (missing extern prototypes for non-intrinsic globals);
+newgaussj_dv (emits+compiles, redundant with 5 solver groups);
+test_forall_* + mmult2 (redundant); fft.sis (truncated fragment);
+gen_extent (compiler-regression unit); pbatcher/sbatcher (programs
+mis-sort — skeleton pinned via the seqbatcher dataflow mirror);
+tst_loopAt1 (landed BOTH ways under the strict-dot-lengths ruling).
+Bucket B ops, the NESTED-FN parked group, and Bucket C features remain
+per project_master_sequencing (review+coverage next, then boxed arrays,
+then streams).
 
 Sweep methodology: every `test/unit/*.sis` compiled to C
 (`main.exe --c=...`), **run from inside `test/unit/`** so `%$include`
@@ -61,7 +76,7 @@ returns) — STOP and discuss the rewrite instead of forcing it.
 
 | Missing op | Files blocked | Note |
 |---|---|---|
-| ARRAY_FILL | 28 | biggest single lever; trivial alloc+fill |
+| ~~ARRAY_FILL~~ | ~~28~~ | RESOLVED Jul 15 (826e33b): explicit array_fill / array_dv_fill intrinsic split. |
 | ~~ARRAY_REML / ARRAY_ADDL~~ | ~~9 + 9~~ | RESOLVED Jul 15: AADDL/AADJUST aliased onto the DV lowerings (runtime helpers were already bounds-faithful: addl decrements lower_bound, adjust re-bases to lo); AREML/AREMH got new rank-aware slab helpers (reml bumps lower_bound, remh keeps it). |
 | VECMATMUL | 6 | |
 | REDUCE | 6 | |
