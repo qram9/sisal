@@ -1,4 +1,6 @@
 (library
  (name utils)
  (public_name sisal.utils)
+ (instrumentation
+  (backend bisect_ppx))
  (libraries fe unix))

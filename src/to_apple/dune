@@ -1,6 +1,8 @@
 (library
  (name to_apple)
  (public_name sisal.to_apple)
+ (instrumentation
+  (backend bisect_ppx))
  (flags
   (:standard -w -27))
  (libraries ir unix))

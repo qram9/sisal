@@ -1,6 +1,8 @@
 (library
  (name ir)
  (public_name sisal.ir)
+ (instrumentation
+  (backend bisect_ppx))
  (modules :standard c_ast c_ast_print)
  (flags
   (:standard -w -27-50))

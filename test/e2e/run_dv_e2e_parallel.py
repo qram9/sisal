@@ -70,12 +70,18 @@ def run_single_test(args):
 
 def main():
     print("=== Building compiler ===")
-    res = subprocess.run(["dune", "build"], cwd=REPO)
+    dune_cmd = ["dune", "build"]
+    dune_install_cmd = ["dune", "build", "@install"]
+    if os.environ.get("BISECT_COVERAGE") == "1":
+        dune_cmd.append("--instrument-with=bisect_ppx")
+        dune_install_cmd.append("--instrument-with=bisect_ppx")
+
+    res = subprocess.run(dune_cmd, cwd=REPO)
     if res.returncode != 0:
         print("Compiler build failed!")
         sys.exit(1)
-    
-    res = subprocess.run(["dune", "build", "@install"], cwd=REPO)
+
+    res = subprocess.run(dune_install_cmd, cwd=REPO)
     if res.returncode != 0:
         print("Compiler install build failed!")
         sys.exit(1)

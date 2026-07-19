@@ -1,6 +1,8 @@
 (library
  (name to_if1)
  (public_name sisal.to_if1)
+ (instrumentation
+  (backend bisect_ppx))
  (flags
   (:standard -w -27))
  (libraries ir utils unix re))

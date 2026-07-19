@@ -1,6 +1,8 @@
 (library
  (name fe)
  (public_name sisal.fe)
+ (instrumentation
+  (backend bisect_ppx))
  (libraries unix ir menhirLib)
  (modules lex parse parse_errors))
 
