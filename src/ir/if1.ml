@@ -5423,16 +5423,16 @@ module If1_View = struct
       \          if (n.id === 0) {\n\
       \            let details = [];\n\
       \            if (n.in_ports && n.in_ports.length > 0) {\n\
-      \              details.push(\"In: [\" + n.in_ports.join(\"; \") + \"]);\n\
+      \              details.push('In: [' + n.in_ports.join('; ') + ']');\n\
       \            }\n\
       \            if (n.out_ports && n.out_ports.length > 0) {\n\
-      \              details.push(\"Out: [\" + n.out_ports.join(\"; \") + \"]);\n\
+      \              details.push('Out: [' + n.out_ports.join('; ') + ']');\n\
       \            }\n\
       \            if (details.length > 0) {\n\
-      \              nodeText += \" \" + details.join(\", \");\n\
+      \              nodeText += ' ' + details.join(', ');\n\
       \            }\n\
-      \          } else if (n.value && n.value !== n.label && n.value !== \
-       labelPart) {\n\
+      \          } else if (n.value && n.value !== n.label && n.value !== \n\
+      \           labelPart) {\n\
       \            nodeText += ` (${n.value})`;\n\
       \          }\n\
       \          if (n.subgraph) {\n\
