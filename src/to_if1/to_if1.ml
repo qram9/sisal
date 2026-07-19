@@ -1979,6 +1979,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                         (rn_gr, base, cnt, redges @ [ (sn, sp, p, ty) ]))
                   (rn_gr, -1, 0, []) imports
               in
+              let rn_gr = If1.inherit_parent_syms forall_gr rn_gr in
               (* Record which RETURNS input ports carry body results, so the
                  range is identifiable downstream. *)
               let pl =
@@ -10348,8 +10349,38 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     in
     acts
   in
+  let create_subgraph_symtab_filtered in_gr other_gr =
+    let cs, ps = If1.get_symtab in_gr in
+    let other_cs, other_ps = If1.get_symtab other_gr in
+    let is_valid_loop_var k =
+      if String.length k >= 2 && String.sub k 0 2 = "__" then
+        let is_prefix p =
+          String.length k >= String.length p
+          && String.sub k 0 (String.length p) = p
+        in
+        is_prefix "__forall_body_" || is_prefix "__forall_mask_"
+        || is_prefix "__plc_" || is_prefix "__ext_"
+      else true
+    in
+    let new_cs, other_gr =
+      If1.SM.fold
+        (fun k entry (acc_cs, acc_gr) ->
+          if If1.SM.mem k other_ps = false && is_valid_loop_var k then
+            let port, acc_gr =
+              If1.add_to_boundary_inputs ~namen:entry.If1.val_name
+                entry.If1.val_def entry.If1.def_port acc_gr
+            in
+            ( If1.SM.add k
+                { entry with If1.val_def = 0; If1.def_port = port }
+                acc_cs,
+              acc_gr )
+          else (acc_cs, acc_gr))
+        cs (other_cs, other_gr)
+    in
+    { other_gr with If1.symtab = (new_cs, other_ps) }
+  in
   let ret_gr =
-    try If1.create_subgraph_symtab in_gr (If1.get_a_new_graph body_gr)
+    try create_subgraph_symtab_filtered in_gr (If1.get_a_new_graph body_gr)
     with e ->
       Printf.eprintf "create_subgraph_symtab failed: %s\n"
         (Printexc.to_string e);
@@ -10864,7 +10895,7 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
      collapsed all pass-through carries onto the first val_def=0 name.  Carry names
      are now materialized directly onto ret_gr's boundary below, sourced from the
      BODY compound's output ports.) *)
-  let ret_gr = If1.get_a_new_graph in_gr in
+  let ret_gr = If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr) in
   (* Per-clause resolution by (node_n, node_p) -- the (node, port) that do_exp produced
      for `value of <exp>`.  Find the BODY boundary-output port carrying exactly that
      (node, port), materialize a ret_gr boundary input sourced from (body_cn, that
