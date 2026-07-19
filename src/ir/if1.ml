@@ -5046,16 +5046,19 @@ module If1_View = struct
         let esc_comma_sep list =
           String.concat ", " (List.map (fun s -> esc s) list)
         in
+        let sorted_ins =
+          List.sort (fun (_, _, _, p1) (_, _, _, p2) -> compare p1 p2) ins
+        in
         let ins_str =
-          List.mapi
-            (fun i (sn, sp, name, ty) ->
-              Printf.sprintf "[%d] %d:%d -> %s (ty:%d)" i sn sp name ty)
-            ins
+          List.map
+            (fun (sn, sp, name, port_num) ->
+              Printf.sprintf "[%d] %d:%d -> %s" port_num sn sp name)
+            sorted_ins
         in
         let outs_str =
           List.mapi
             (fun i (dn, dp) -> Printf.sprintf "[%d] -> %d:%d" i dn dp)
-            outs
+            (List.rev outs)
         in
         let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
         sprintf
