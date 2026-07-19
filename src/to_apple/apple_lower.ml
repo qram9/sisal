@@ -893,48 +893,14 @@ let rec resolve_real_port env target_gid n p =
                     let has_merge =
                       let normalize s =
                         let s = String.lowercase_ascii s in
-                        let s =
-                          if String.length s >= 6 && String.sub s 0 6 = "merge_"
-                          then String.sub s 6 (String.length s - 6)
-                          else s
-                        in
-                        let s =
-                          if String.length s >= 4 && String.sub s 0 4 = "old_"
-                          then String.sub s 4 (String.length s - 4)
-                          else if
-                            String.length s >= 4 && String.sub s 0 4 = "old "
-                          then String.sub s 4 (String.length s - 4)
-                          else s
-                        in
-                        let s =
-                          let len = String.length s in
-                          if len >= 5 && String.sub s (len - 5) 5 = "_feed" then
-                            String.sub s 0 (len - 5)
-                          else if len >= 5 && String.sub s (len - 5) 5 = " feed"
-                          then String.sub s 0 (len - 5)
-                          else s
-                        in
-                        String.map (fun c -> if c = '_' then ' ' else c) s
+                        if String.length s >= 4 && String.sub s 0 4 = "old_"
+                        then String.sub s 4 (String.length s - 4)
+                        else if
+                          String.length s >= 4 && String.sub s 0 4 = "old "
+                        then String.sub s 4 (String.length s - 4)
+                        else s
                       in
-                      let matches r n =
-                        let r = String.trim r in
-                        let n = String.trim n in
-                        if r = n then true
-                        else
-                          let len_r = String.length r in
-                          let len_n = String.length n in
-                          if
-                            len_r > 0 && len_r <= len_n
-                            && String.sub n 0 len_r = r
-                            && len_n - len_r <= 3
-                          then true
-                          else if
-                            len_n > 0 && len_n <= len_r
-                            && String.sub r 0 len_n = n
-                            && len_r - len_n <= 3
-                          then true
-                          else false
-                      in
+                      let matches r n = String.trim r = String.trim n in
                       NM.fold
                         (fun mnid mnode acc ->
                           if acc then true
@@ -981,51 +947,14 @@ let rec resolve_real_port env target_gid n p =
                     | None -> (
                         let normalize s =
                           let s = String.lowercase_ascii s in
-                          let s =
-                            if
-                              String.length s >= 6
-                              && String.sub s 0 6 = "merge_"
-                            then String.sub s 6 (String.length s - 6)
-                            else s
-                          in
-                          let s =
-                            if String.length s >= 4 && String.sub s 0 4 = "old_"
-                            then String.sub s 4 (String.length s - 4)
-                            else if
-                              String.length s >= 4 && String.sub s 0 4 = "old "
-                            then String.sub s 4 (String.length s - 4)
-                            else s
-                          in
-                          let s =
-                            let len = String.length s in
-                            if len >= 5 && String.sub s (len - 5) 5 = "_feed"
-                            then String.sub s 0 (len - 5)
-                            else if
-                              len >= 5 && String.sub s (len - 5) 5 = " feed"
-                            then String.sub s 0 (len - 5)
-                            else s
-                          in
-                          String.map (fun c -> if c = '_' then ' ' else c) s
+                          if String.length s >= 4 && String.sub s 0 4 = "old_"
+                          then String.sub s 4 (String.length s - 4)
+                          else if
+                            String.length s >= 4 && String.sub s 0 4 = "old "
+                          then String.sub s 4 (String.length s - 4)
+                          else s
                         in
-                        let matches r n =
-                          let r = String.trim r in
-                          let n = String.trim n in
-                          if r = n then true
-                          else
-                            let len_r = String.length r in
-                            let len_n = String.length n in
-                            if
-                              len_r > 0 && len_r <= len_n
-                              && String.sub n 0 len_r = r
-                              && len_n - len_r <= 3
-                            then true
-                            else if
-                              len_n > 0 && len_n <= len_r
-                              && String.sub r 0 len_n = n
-                              && len_r - len_n <= 3
-                            then true
-                            else false
-                        in
+                        let matches r n = String.trim r = String.trim n in
                         let merge_nid_opt =
                           NM.fold
                             (fun mnid mnode acc ->

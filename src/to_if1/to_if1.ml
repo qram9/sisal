@@ -8268,7 +8268,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                  ( If1.MERGE,
                                    [| ""; ""; "" |],
                                    [| "" |],
-                                   [ If1.Name ("MERGE_" ^ name) ] ))
+                                   [ If1.Name name ] ))
                               fg
                           in
                           let fg = If1.add_edge init_cn init_k mn 1 ty fg in
