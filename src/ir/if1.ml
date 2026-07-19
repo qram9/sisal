@@ -5042,12 +5042,26 @@ module If1_View = struct
           "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \
            \"Literal\" }"
           id (esc value)
-    | Boundary (_, _, _, prag) ->
+    | Boundary (ins, outs, _, prag) ->
+        let esc_comma_sep list =
+          String.concat ", " (List.map (fun s -> esc s) list)
+        in
+        let ins_str =
+          List.mapi
+            (fun i (sn, sp, name, ty) ->
+              Printf.sprintf "[%d] %d:%d -> %s (ty:%d)" i sn sp name ty)
+            ins
+        in
+        let outs_str =
+          List.mapi
+            (fun i (dn, dp) -> Printf.sprintf "[%d] -> %d:%d" i dn dp)
+            outs
+        in
         let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
         sprintf
-          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \"\" \
-           }"
-          (esc label)
+          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \
+           \"\", \"in_ports\": [%s], \"out_ports\": [%s] }"
+          (esc label) (esc_comma_sep ins_str) (esc_comma_sep outs_str)
     | _ ->
         "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \
          \"Unknown\" }"
@@ -5330,8 +5344,18 @@ module If1_View = struct
       \          (graph.nodes || []).forEach(n => {\n\
       \            const uid = prefix + n.id;\n\
       \            if (n.id === 0) {\n\
-      \              lines.push(`  N${uid}_IN{{\"${prefix}Boundary IN\"}}`);\n\
-      \              lines.push(`  N${uid}_OUT{{\"${prefix}Boundary OUT\"}}`);\n\
+      \              let inLabel = \"Boundary IN\";\n\
+      \              if (n.in_ports && n.in_ports.length > 0) {\n\
+      \                inLabel += \"\\n\" + n.in_ports.join(\"\\n\");\n\
+      \              }\n\
+      \              let outLabel = \"Boundary OUT\";\n\
+      \              if (n.out_ports && n.out_ports.length > 0) {\n\
+      \                outLabel += \"\\n\" + n.out_ports.join(\"\\n\");\n\
+      \              }\n\
+      \              inLabel = inLabel.split('\"').join('\\\\\"');\n\
+      \              outLabel = outLabel.split('\"').join('\\\\\"');\n\
+      \              lines.push(`  N${uid}_IN{{\"${inLabel}\"}}`);\n\
+      \              lines.push(`  N${uid}_OUT{{\"${outLabel}\"}}`);\n\
       \              lines.push(`  style N${uid}_IN \
        fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8`);\n\
       \              lines.push(`  style N${uid}_OUT \
