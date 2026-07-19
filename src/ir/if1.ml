@@ -1336,6 +1336,35 @@ and add_to_boundary_inputs ?(namen = "") n p in_gr =
             } ))
   | _ -> (0, in_gr)
 
+and update_boundary_input_src name sn sp in_gr =
+  match get_boundary_node in_gr with
+  | Boundary (in_port_list, out_port_list, err_ports, boundary_p) ->
+      let updated_in_port_list =
+        List.map
+          (fun (x, y, nm, p) ->
+            if nm = name then (sn, sp, nm, p) else (x, y, nm, p))
+          in_port_list
+      in
+      {
+        in_gr with
+        nmap =
+          NM.add 0
+            (Boundary
+               (updated_in_port_list, out_port_list, err_ports, boundary_p))
+            in_gr.nmap;
+      }
+  | _ -> in_gr
+
+and update_compound_subgraph cn new_sub_gr in_gr =
+  match NM.find_opt cn in_gr.nmap with
+  | Some (Compound (id, sym, ty, prag, _, assoc)) ->
+      {
+        in_gr with
+        nmap =
+          NM.add cn (Compound (id, sym, ty, prag, new_sub_gr, assoc)) in_gr.nmap;
+      }
+  | _ -> in_gr
+
 and boundary_in_port_count in_gr =
   match get_boundary_node in_gr with
   | Boundary (in_port_list, _, _, _) -> List.length in_port_list
@@ -5011,7 +5040,8 @@ module If1_View = struct
       (fun acc p -> match p with Name s -> s | _ -> acc)
       "" pragmas
 
-  let rec render_node_to_json node =
+  let rec render_node_to_json ?(parent_connections = NM.empty) ?enclosing_eset
+      node =
     match node with
     | Simple (id, sym, pin, pout, prag) ->
         let label =
@@ -5020,7 +5050,7 @@ module If1_View = struct
         in
         let name = extract_name prag in
         sprintf
-          "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"value\": %s, \
+          "{ \"id\": %d, \"type\": \"Simple\", \"label\": %s, \"value\": %s, \n\
            \"ports\": { \"in\": %s, \"out\": %s } }"
           id (esc label) (esc name)
           (esc (string_of_ports pin))
@@ -5032,14 +5062,23 @@ module If1_View = struct
         in
         let ast = extract_ast prag in
         let name = extract_name prag in
+        let parent_conns =
+          match enclosing_eset with
+          | Some eset ->
+              ES.fold
+                (fun ((n1, p1), (n2, p2), _) acc ->
+                  if n2 = id then NM.add p2 (n1, p1) acc else acc)
+                eset NM.empty
+          | None -> NM.empty
+        in
         sprintf
-          "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \"value\": %s, \
+          "{ \"id\": %d, \"type\": \"Compound\", \"label\": %s, \"value\": %s, \n\
            \"inner_type\": %d, \"subgraph\": %s }"
           id (esc label) (esc name) ty
-          (render_graph_to_json ~ast sub_gr)
+          (render_graph_to_json ~ast ~parent_connections:parent_conns sub_gr)
     | Literal (id, _, value, _) ->
         sprintf
-          "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \
+          "{ \"id\": %d, \"type\": \"Literal\", \"value\": %s, \"label\": \n\
            \"Literal\" }"
           id (esc value)
     | Boundary (ins, outs, _, prag) ->
@@ -5052,7 +5091,12 @@ module If1_View = struct
         let ins_str =
           List.map
             (fun (sn, sp, name, port_num) ->
-              Printf.sprintf "[%d] %d:%d -> %s" port_num sn sp name)
+              let real_sn, real_sp =
+                match NM.find_opt port_num parent_connections with
+                | Some (s_n, s_p) -> (s_n, s_p)
+                | None -> (sn, sp)
+              in
+              Printf.sprintf "[%d] %d:%d -> %s" port_num real_sn real_sp name)
             sorted_ins
         in
         let outs_str =
@@ -5062,17 +5106,18 @@ module If1_View = struct
         in
         let label = sprintf "BOUNDARY [%s]" (string_of_pragmas_no_ast prag) in
         sprintf
-          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \
+          "{ \"id\": 0, \"type\": \"Boundary\", \"label\": %s, \"value\": \n\
            \"\", \"in_ports\": [%s], \"out_ports\": [%s] }"
           (esc label) (esc_comma_sep ins_str) (esc_comma_sep outs_str)
     | _ ->
-        "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \
+        "{ \"id\": -1, \"type\": \"Unknown\", \"value\": \"\", \"label\": \n\
          \"Unknown\" }"
 
-  and render_graph_to_json ?(ast = "") in_gr =
+  and render_graph_to_json ?(ast = "") ?(parent_connections = NM.empty) in_gr =
     let nodes =
       NM.to_seq in_gr.nmap
-      |> Seq.map (fun (_, v) -> render_node_to_json v)
+      |> Seq.map (fun (_, v) ->
+          render_node_to_json ~parent_connections ~enclosing_eset:in_gr.eset v)
       |> List.of_seq
     in
     let e_list = ES.elements in_gr.eset in

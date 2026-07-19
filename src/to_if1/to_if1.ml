@@ -308,38 +308,43 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
      Reversing it gives the order they were added, which corresponds to local
      port IDs 0, 1, 2... *)
   let ordered_inputs = List.rev (If1.get_named_input_ports sub_gr) in
-  let _, outer_gr =
+  let sub_gr, outer_gr =
     List.fold_left
-      (fun (local_pid, outer_gr) (src_n_in_boundary, src_p_in_boundary, xn, _)
-         ->
+      (fun (sub_gr, outer_gr)
+           (src_n_in_boundary, src_p_in_boundary, xn, local_pid) ->
         let res_opt =
           try Some (If1.get_symbol_id xn outer_gr) with _ -> None
         in
         match res_opt with
         | Some ((sn, sp, t), outer_gr) ->
-            let outer_gr =
+            let sn_reg, sp_reg, _ =
               if sn <> 0 || If1.NM.mem 0 outer_gr.If1.nmap then
-                let sn, sp, _ =
-                  If1.find_incoming_regular_node (sn, sp, t) outer_gr
-                in
-                if
-                  If1.ES.exists
-                    (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
-                      sn_e = sn && sp_e = sp && dn_e = cn && dp_e = local_pid)
-                    outer_gr.If1.eset
-                then outer_gr
-                else (
-                  to_if1_msg 3
-                    "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
-                     compound %d port %d"
-                    xn sn sp cn local_pid;
-                  If1.add_edge sn sp cn local_pid t outer_gr)
-              else outer_gr
+                If1.find_incoming_regular_node (sn, sp, t) outer_gr
+              else (sn, sp, t)
             in
-            (local_pid + 1, outer_gr)
-        | None -> (local_pid + 1, outer_gr))
-      (0, outer_gr) ordered_inputs
+            let sub_gr =
+              If1.update_boundary_input_src xn sn_reg sp_reg sub_gr
+            in
+            let outer_gr =
+              if
+                If1.ES.exists
+                  (fun ((sn_e, sp_e), (dn_e, dp_e), _) ->
+                    sn_e = sn_reg && sp_e = sp_reg && dn_e = cn
+                    && dp_e = local_pid)
+                  outer_gr.If1.eset
+              then outer_gr
+              else (
+                to_if1_msg 3
+                  "wire_all_syms_to_compound: Wired %s (node %d, port %d) to \
+                   compound %d port %d"
+                  xn sn_reg sp_reg cn local_pid;
+                If1.add_edge sn_reg sp_reg cn local_pid t outer_gr)
+            in
+            (sub_gr, outer_gr)
+        | None -> (sub_gr, outer_gr))
+      (sub_gr, outer_gr) ordered_inputs
   in
+  let outer_gr = If1.update_compound_subgraph cn sub_gr outer_gr in
   (sub_gr, outer_gr)
 
 and verify_compound_inputs cn sub_gr outer_gr =
