@@ -10376,44 +10376,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
      positional port shifts. We filter imports to copy only legitimate return payload
      variables (__forall_body_, __forall_mask_, __plc_, __ext_), leaving the low ports
      undisturbed. Enclosing scope parent variables are eagerly inherited later. *)
-  let create_subgraph_symtab_filtered in_gr other_gr =
-    let cs, ps = If1.get_symtab in_gr in
-    let other_cs, other_ps = If1.get_symtab other_gr in
-    let is_valid_loop_var k =
-      if String.length k >= 2 && String.sub k 0 2 = "__" then
-        let is_prefix p =
-          String.length k >= String.length p
-          && String.sub k 0 (String.length p) = p
-        in
-        is_prefix "__forall_body_" || is_prefix "__forall_mask_"
-        || is_prefix "__plc_" || is_prefix "__ext_"
-      else true
-    in
-    let new_cs, other_gr =
-      If1.SM.fold
-        (fun k entry (acc_cs, acc_gr) ->
-          if If1.SM.mem k other_ps = false && is_valid_loop_var k then
-            let port, acc_gr =
-              If1.add_to_boundary_inputs ~namen:entry.If1.val_name
-                entry.If1.val_def entry.If1.def_port acc_gr
-            in
-            ( If1.SM.add k
-                { entry with If1.val_def = 0; If1.def_port = port }
-                acc_cs,
-              acc_gr )
-          else (acc_cs, acc_gr))
-        cs (other_cs, other_gr)
-    in
-    { other_gr with If1.symtab = (new_cs, other_ps) }
-  in
-  let ret_gr =
-    try create_subgraph_symtab_filtered in_gr (If1.get_a_new_graph body_gr)
-    with e ->
-      Printf.eprintf "create_subgraph_symtab failed: %s\n"
-        (Printexc.to_string e);
-      Printexc.print_backtrace stderr;
-      failwith "create subgraph symtab"
-  in
+  let ret_gr = If1.get_a_new_graph body_gr in
   (* No get_ports_unified: the gathers reference the boundary ports they need
      directly (add_edge 0 ..); the eager republish of body_gr's inputs was
      redundant. Names the returns needs are imported by name later
