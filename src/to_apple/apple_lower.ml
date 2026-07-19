@@ -130,23 +130,9 @@ let forall_reduce_ports loop_gr =
   match find_subgraph loop_gr "RETURNS" with
   | None -> []
   | Some (_, ret_gr) ->
-      let pfx = "__forall_body_" in
-      let plen = String.length pfx in
-      let bin_to_body =
+      let ins =
         match NM.find_opt 0 ret_gr.nmap with
-        | Some (Boundary (ins, _, _, _)) ->
-            List.filter_map
-              (fun (_, _, name, bp) ->
-                if String.length name > plen && String.sub name 0 plen = pfx
-                then
-                  try
-                    Some
-                      ( bp,
-                        int_of_string
-                          (String.sub name plen (String.length name - plen)) )
-                  with _ -> None
-                else None)
-              ins
+        | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
       ES.fold
@@ -169,8 +155,10 @@ let forall_reduce_ports loop_gr =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
                       if d = sn && p = 1 && s = 0 then
-                        match List.assoc_opt sp bin_to_body with
-                        | Some b -> Some b
+                        match
+                          List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
+                        with
+                        | Some (_, source_port, _, _) -> Some source_port
                         | None -> a
                       else a)
                     ret_gr.eset None
@@ -185,26 +173,14 @@ let forall_reduce_ports loop_gr =
 
 (** [forall_reduce_filter_of loop_gr out_port] — for a forall RETURNS reduction
     at [out_port], the BODY output port carrying its `when` mask (the boolean
-    filter), or None when the reduction is unmasked. Resolved through the
-    __forall_body_<k> boundary-name convention. *)
+    filter), or None when the reduction is unmasked. *)
 let forall_reduce_filter_of loop_gr out_port =
   match find_subgraph loop_gr "RETURNS" with
-  | None -> (* Ram says assert here *) None
+  | None -> None
   | Some (_, ret_gr) ->
-      let bin_to_body =
+      let ins =
         match NM.find_opt 0 ret_gr.nmap with
-        | Some (Boundary (ins, _, _, _)) ->
-            List.filter_map
-              (fun (_, sp, name, bp) ->
-                (* Ram says this kind of hackery  we do not want to have *)
-                if
-                  String.length name >= 14
-                  && String.sub name 0 14 = "__forall_mask_"
-                  || String.length name >= 15
-                     && String.sub name 0 15 = "__forall_body_"
-                then Some (bp, sp)
-                else None)
-              ins
+        | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
       ES.fold
@@ -216,8 +192,10 @@ let forall_reduce_filter_of loop_gr out_port =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
                       if d = sn && p = 2 && s = 0 then
-                        match List.assoc_opt sp bin_to_body with
-                        | Some b -> Some b
+                        match
+                          List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
+                        with
+                        | Some (_, source_port, _, _) -> Some source_port
                         | None -> a
                       else a)
                     ret_gr.eset None
@@ -235,23 +213,9 @@ let forall_gather_ports loop_gr =
   match find_subgraph loop_gr "RETURNS" with
   | None -> []
   | Some (_, ret_gr) ->
-      let pfx = "__forall_body_" in
-      let plen = String.length pfx in
-      let bin_to_body =
+      let ins =
         match NM.find_opt 0 ret_gr.nmap with
-        | Some (Boundary (ins, _, _, _)) ->
-            List.filter_map
-              (fun (_, _, name, bp) ->
-                if String.length name > plen && String.sub name 0 plen = pfx
-                then
-                  try
-                    Some
-                      ( bp,
-                        int_of_string
-                          (String.sub name plen (String.length name - plen)) )
-                  with _ -> None
-                else None)
-              ins
+        | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
       ES.fold
@@ -264,8 +228,10 @@ let forall_gather_ports loop_gr =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
                       if d = sn && p = 1 && s = 0 then
-                        match List.assoc_opt sp bin_to_body with
-                        | Some b -> Some b
+                        match
+                          List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
+                        with
+                        | Some (_, source_port, _, _) -> Some source_port
                         | None -> a
                       else a)
                     ret_gr.eset None
@@ -283,23 +249,9 @@ let forall_finalvalue_ports loop_gr =
   match find_subgraph loop_gr "RETURNS" with
   | None -> []
   | Some (_, ret_gr) ->
-      let pfx = "__forall_body_" in
-      let plen = String.length pfx in
-      let bin_to_body =
+      let ins =
         match NM.find_opt 0 ret_gr.nmap with
-        | Some (Boundary (ins, _, _, _)) ->
-            List.filter_map
-              (fun (_, _, name, bp) ->
-                if String.length name > plen && String.sub name 0 plen = pfx
-                then
-                  try
-                    Some
-                      ( bp,
-                        int_of_string
-                          (String.sub name plen (String.length name - plen)) )
-                  with _ -> None
-                else None)
-              ins
+        | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
       ES.fold
@@ -311,8 +263,10 @@ let forall_finalvalue_ports loop_gr =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
                       if d = sn && p = 0 && s = 0 then
-                        match List.assoc_opt sp bin_to_body with
-                        | Some b -> Some b
+                        match
+                          List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
+                        with
+                        | Some (_, source_port, _, _) -> Some source_port
                         | None -> a
                       else a)
                     ret_gr.eset None
