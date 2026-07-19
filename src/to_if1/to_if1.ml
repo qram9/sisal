@@ -1979,6 +1979,20 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                         (rn_gr, base, cnt, redges @ [ (sn, sp, p, ty) ]))
                   (rn_gr, -1, 0, []) imports
               in
+              (* EAGER SCOPE INHERITANCE IN RETURNS:
+                 To ensure that any parent/enclosing scope variables (like "scale")
+                 can be captured inside loop returns expressions (e.g. array bounds,
+                 when/unless filters), we eagerly inherit all parent scope symbols.
+                 
+                 Why it is delayed:
+                 Sisal loop RETURNS blocks require a rigid positional port contract
+                 on their Node 0 boundary inputs (axis, body outputs, masks, placements,
+                 extents, and bounds). Eagerly calling inherit_parent_syms too early
+                 would register parent scope symbols at low ports, shifting these
+                 positional variables and crashing the codegen. By performing eager
+                 inheritance here, AFTER the imports fold has completed and frozen
+                 the positional ports, parent scope variables are appended strictly to the
+                 end of the boundary inputs list, keeping positional indices correct. *)
               let rn_gr = If1.inherit_parent_syms forall_gr rn_gr in
               (* Record which RETURNS input ports carry body results, so the
                  range is identifiable downstream. *)
@@ -10349,6 +10363,14 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     in
     acts
   in
+  (* FILTERED SYMTAB INITIALIZATION FOR RETURNS:
+     Standard create_subgraph_symtab blindly copies every local symbol from
+     the parent loop graph to the returns subgraph. In an eager scope inheritance
+     model, this would copy parent symbols and loop bounds (like __forall_lb_3_0)
+     to the returns boundary before the returns payload is even bound, causing
+     positional port shifts. We filter imports to copy only legitimate return payload
+     variables (__forall_body_, __forall_mask_, __plc_, __ext_), leaving the low ports
+     undisturbed. Enclosing scope parent variables are eagerly inherited later. *)
   let create_subgraph_symtab_filtered in_gr other_gr =
     let cs, ps = If1.get_symtab in_gr in
     let other_cs, other_ps = If1.get_symtab other_gr in
