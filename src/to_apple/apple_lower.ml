@@ -893,10 +893,7 @@ let rec resolve_real_port env target_gid n p =
                     let has_merge =
                       let normalize s =
                         let s = String.lowercase_ascii s in
-                        if String.length s >= 4 && String.sub s 0 4 = "old_"
-                        then String.sub s 4 (String.length s - 4)
-                        else if
-                          String.length s >= 4 && String.sub s 0 4 = "old "
+                        if String.length s >= 4 && String.sub s 0 4 = "old "
                         then String.sub s 4 (String.length s - 4)
                         else s
                       in
@@ -947,10 +944,7 @@ let rec resolve_real_port env target_gid n p =
                     | None -> (
                         let normalize s =
                           let s = String.lowercase_ascii s in
-                          if String.length s >= 4 && String.sub s 0 4 = "old_"
-                          then String.sub s 4 (String.length s - 4)
-                          else if
-                            String.length s >= 4 && String.sub s 0 4 = "old "
+                          if String.length s >= 4 && String.sub s 0 4 = "old "
                           then String.sub s 4 (String.length s - 4)
                           else s
                         in

@@ -25,8 +25,6 @@ let sanitize name =
   let s =
     if String.starts_with ~prefix:"OLD " name then
       String.sub name 4 (String.length name - 4)
-    else if String.starts_with ~prefix:"OLD_" name then
-      String.sub name 4 (String.length name - 4)
     else name
   in
   let s = String.map (fun c -> if c = ' ' then '_' else c) s in
