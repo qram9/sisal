@@ -1036,12 +1036,7 @@ let scan_fanout gr gid env =
 (** [assign_with_cast env gid nid pid dir src_expr] emits an assignment with an
     optional declaration if the variable is seen for the first time. *)
 let assign_with_cast env gid nid pid dir src_expr =
-  let is_proc =
-    match src_expr with
-    | C.Id n -> String.length n >= 5 && String.sub n 0 5 = "func_"
-    | _ -> false
-  in
-  if is_proc || is_proc_expr env gid nid then
+  if is_proc_expr env gid nid then
     ( [
         C.Comment
           ("Skipped function-as-value assignment: "
