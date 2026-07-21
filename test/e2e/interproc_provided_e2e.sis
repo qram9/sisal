@@ -1,0 +1,21 @@
+define Main
+
+type IntArray = array[integer]
+
+function Helper(N : integer returns IntArray)
+    for j in 1, N
+        val := j * 2
+    returns array of val
+    end for
+end function
+
+function Main(N, Steps : integer returns IntArray)
+    for initial
+        i := 1;
+        Res := Helper(N)
+    while i <= Steps repeat
+        i := old i + 1;
+        Res := Helper(N)
+    returns value of Res
+    end for
+end function

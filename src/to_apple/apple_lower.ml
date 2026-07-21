@@ -5408,16 +5408,42 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
         let cast_ret =
           C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); C.Id ret_name ])
         in
-        {
-          C.return_ty = ty;
-          name = func_name;
-          params;
-          body =
-            pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body
-            @ ret_assign_stmts
-            @ [ C.Return (Some cast_ret) ];
-          extern_c = true;
-        }
+        if ty = C.Basic "sisal_array_t" then
+          let prov_param_name = "prov_res" in
+          let prov_params = params @ [ (C.Pointer (C.Basic "sisal_array_t", []), prov_param_name) ] in
+          let provided_func = {
+            C.return_ty = ty;
+            name = func_name ^ "_provided";
+            params = prov_params;
+            body =
+              pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body
+              @ ret_assign_stmts
+              @ [ C.Expr (C.BinOp (C.Assign, C.UnaryOp (C.Deref, C.Id prov_param_name), cast_ret));
+                  C.Return (Some cast_ret) ];
+            extern_c = true;
+          } in
+          let wrapper_args = List.map (fun (_, p) -> C.Id p) params in
+          let wrapper_alloc = C.Expr (C.BinOp (C.Assign, C.Id "prov_res_local", C.Call ("sisal_array_empty", []))) in
+          let wrapper_call = C.Call (func_name ^ "_provided", wrapper_args @ [ C.UnaryOp (C.AddrOf, C.Id "prov_res_local") ]) in
+          let wrapper_func = {
+            C.return_ty = ty;
+            name = func_name;
+            params;
+            body = [ C.Decl (ty, "prov_res_local", None); wrapper_alloc; C.Return (Some wrapper_call) ];
+            extern_c = true;
+          } in
+          [ provided_func; wrapper_func ]
+        else
+          [ {
+            C.return_ty = ty;
+            name = func_name;
+            params;
+            body =
+              pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body
+              @ ret_assign_stmts
+              @ [ C.Return (Some cast_ret) ];
+            extern_c = true;
+          } ]
       else
         let res_obj_name = "__res_obj" in
         let assignments =
@@ -5437,7 +5463,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
                          [ C.Id (string_of_c_type ty); C.Id ret_name ] ) )))
             out_pids
         in
-        {
+        [ {
           C.return_ty = C.Basic ("struct " ^ res_struct_name);
           name = func_name;
           params;
@@ -5451,7 +5477,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
             @ assignments
             @ [ C.Return (Some (C.Id res_obj_name)) ];
           extern_c = true;
-        }
+        } ]
   | _ -> failwith "not compound"
 
 (** [build_global_gid_table root_nid gr starting_gid] — assign a globally unique
@@ -5582,7 +5608,7 @@ let lower_to_c tm gr filename =
   in
 
   let procedures =
-    List.map
+    List.concat_map
       (fun (nid, node, sub_gr) ->
         lower_procedure tm global_table gid_name_map proc_map
           procedures_info_map nid node gr)
