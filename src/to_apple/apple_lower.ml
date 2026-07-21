@@ -2116,7 +2116,36 @@ and lower_simple env gr nid sym pin pout pr =
               if pid < start_port then None else Some (get_in_expr pid))
             in_ports
         in
-        C.Call (fname, args)
+        let out_var_name =
+          get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr
+        in
+        let dst_ty = get_final_ty env gid nid 0 `Out in
+        let is_user_proc =
+          String.starts_with ~prefix:"func_" fname &&
+          not (String.starts_with ~prefix:"func__" fname) &&
+          not (List.mem fname [ "func_ABS"; "func_SIGN"; "func_SQRT"; "func_EXP"; "func_LOG"; "func_SIN"; "func_COS"; "func_ATAN"; "func_SDOT"; "func_SASUM"; "func_DASUM"; "func_SNRM2"; "func_DNRM2" ])
+        in
+        let callee_arity =
+          IntMap.fold
+            (fun pnid pname acc ->
+              if pname = fname then
+                match IntMap.find_opt pnid env.procedures_info with
+                | Some sub ->
+                    ES.fold
+                      (fun (_, (dn, dp), ty) a ->
+                        if dn = 0 && not (is_error_port ty sub) then
+                          IntSet.add dp a
+                        else a)
+                      sub.eset IntSet.empty
+                    |> IntSet.cardinal
+                | None -> acc
+              else acc)
+            env.proc_map 0
+        in
+        if env.parent_env <> None && dst_ty = C.Basic "sisal_array_t" && is_user_proc && callee_arity = 1 then
+          C.Call (fname ^ "_provided", args @ [ C.UnaryOp (C.AddrOf, C.Id out_var_name) ])
+        else
+          C.Call (fname, args)
     | FINALVALUE -> e1
     (* DV_GATHER inside a for-initial RETURNS is realized specially by
      lower_for_initial (alloc-before-loop + per-iteration store); this generic
