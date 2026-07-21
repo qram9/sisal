@@ -1,0 +1,18 @@
+define Main
+
+type OneD = array[real]
+
+function BuildRow(row_idx, Cols: integer returns OneD)
+  for j in 1, Cols
+    val := real(row_idx * 10 + j)
+  returns array of val
+  end for
+end function
+
+function Main(Rows, Cols: integer returns OneD)
+  for i in 1, Rows
+    row := BuildRow(i, Cols);
+    s := for r in row returns value of sum r end for
+  returns array of s
+  end for
+end function

@@ -301,6 +301,9 @@ run_group KIN16_DV          kin16_dv             ""
 run_group CFFT_DV           cfft_dv              ""
 run_group HILBERT_DV        hilbert_dv           ""
 run_group ARRAY_SWAP_E2E     array_swap_e2e       ""
+run_group INTERPROC_PROVIDED_E2E interproc_provided_e2e ""
+run_group FORALL_INTERPROC_E2E forall_interproc_e2e ""
+run_group FORALL_2D_INTERPROC_E2E forall_2d_interproc_e2e ""
 
 
 echo "========================================"

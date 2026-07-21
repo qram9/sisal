@@ -1,0 +1,19 @@
+define Main
+
+type OneD = array[double]
+
+function AllocateTransform(val: double; N: integer returns OneD)
+  for j in 1, N
+    res := val * double_real(j)
+  returns array of res
+  end for
+end function
+
+function Main(N: integer returns OneD)
+  for i in 1, N
+    v := double_real(i);
+    arr := AllocateTransform(v, N);
+    sum_val := for elem in arr returns value of sum elem end for
+  returns array of sum_val
+  end for
+end function

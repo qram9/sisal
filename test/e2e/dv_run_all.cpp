@@ -301,6 +301,9 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
 struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
 extern "C" struct FUNC_MAIN_results func_MAIN(sisal_array_t A, sisal_array_t B);
 #endif
+#ifdef TEST_INTERPROC_PROVIDED_E2E
+extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -8799,6 +8802,70 @@ static void test_array_swap_e2e() {
   }
 }
 #endif
+#ifdef TEST_INTERPROC_PROVIDED_E2E
+// DPS / provided-variant guard: an array-returning helper called every loop
+// iteration as the carry, each step's output depending on the WHOLE previous
+// array (Step(A)[i] = A[i] + sum(A)).  Value semantics are load-bearing — an
+// in-place reuse of the carry buffer that overwrites while reading corrupts
+// the compounding recurrence.  Reference = C mirror.
+static void test_interproc_provided_e2e() {
+  printf("\n=== Group: interproc_provided_e2e (DPS provided-variant recurrence) ===\n");
+  auto run = [](int N, int Steps) {
+    long V[64]; for (int i = 0; i < N; i++) V[i] = i + 1;
+    for (int s = 0; s < Steps; s++) {
+      long t = 0; for (int i = 0; i < N; i++) t += V[i];
+      for (int i = 0; i < N; i++) V[i] += t;
+    }
+    sisal_array_t r = func_MAIN(N, Steps);
+    int ok = (int)r.size == N;
+    for (int i = 0; ok && i < N; i++) ok = ((int32_t*)r.data)[i] == (int32_t)V[i];
+    return ok;
+  };
+  check("N=4 Steps=3 recurrence", run(4, 3));
+  check("N=1 Steps=5 (single element)", run(1, 5));
+  check("N=6 Steps=0 (seed only, INIT provided path)", run(6, 0));
+  check("N=5 Steps=4 (compounded)", run(5, 4));
+}
+#endif
+
+#ifdef TEST_FORALL_INTERPROC_E2E
+extern "C" sisal_array_t func_MAIN(int32_t N);
+static void test_forall_interproc_e2e() {
+  printf("\n=== Group: forall_interproc_e2e (Forall interprocedural DPS provided-variant) ===\n");
+  auto run = [](int N) {
+    sisal_array_t r = func_MAIN(N);
+    int ok = (int)r.size == N;
+    for (int i = 0; ok && i < N; i++) {
+      double expected = (double)(i + 1) * (double)(N * (N + 1) / 2);
+      double actual = ((double*)r.data)[i];
+      ok = fabs(actual - expected) < 1e-6;
+    }
+    return ok;
+  };
+  check("N=4 forall interprocedural provided", run(4));
+  check("N=10 forall interprocedural provided", run(10));
+}
+#endif
+
+#ifdef TEST_FORALL_2D_INTERPROC_E2E
+extern "C" sisal_array_t func_MAIN(int32_t Rows, int32_t Cols);
+static void test_forall_2d_interproc_e2e() {
+  printf("\n=== Group: forall_2d_interproc_e2e (2D Forall stencil row-builder provided-variant) ===\n");
+  auto run = [](int Rows, int Cols) {
+    sisal_array_t r = func_MAIN(Rows, Cols);
+    int ok = (int)r.size == Rows;
+    for (int i = 0; ok && i < Rows; i++) {
+      float row_sum = 0.0f;
+      for (int j = 1; j <= Cols; j++) row_sum += (float)((i + 1) * 10 + j);
+      float actual = ((float*)r.data)[i];
+      ok = fabsf(actual - row_sum) < 1e-5f;
+    }
+    return ok;
+  };
+  check("Rows=3 Cols=4 forall 2D provided", run(3, 4));
+  check("Rows=5 Cols=5 forall 2D provided", run(5, 5));
+}
+#endif
 
 // ============================================================
 // main — dispatches to the single active test group
@@ -9516,6 +9583,15 @@ main (void)
 #ifdef TEST_ARRAY_SWAP_E2E
   test_array_swap_e2e ();
 #endif
+#ifdef TEST_INTERPROC_PROVIDED_E2E
+  test_interproc_provided_e2e ();
+#endif
+#ifdef TEST_FORALL_INTERPROC_E2E
+  test_forall_interproc_e2e ();
+#endif
+#ifdef TEST_FORALL_2D_INTERPROC_E2E
+  test_forall_2d_interproc_e2e ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -9616,7 +9692,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
