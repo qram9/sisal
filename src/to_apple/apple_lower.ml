@@ -5426,6 +5426,53 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
           out_pids
       in
 
+      let is_candidate_callee =
+        if List.length out_pids <> 1 then false
+        else
+          let pid = List.hd out_pids in
+          let ty = get_final_ty env_after nid 0 pid `In in
+          if ty <> C.Basic "sisal_array_t" then false
+          else
+            let size_sources = ref [] in
+            NM.iter
+              (fun n_id n_node ->
+                match n_node with
+                | Compound (_, _, _, pr, _, _) ->
+                    let ckind = get_compound_type pr in
+                    if ckind = If1_forall || ckind = If1_loop_initial then
+                      ES.iter
+                        (fun (src, (dn, _), _) ->
+                          if dn = n_id then size_sources := src :: !size_sources)
+                        sub_gr.eset
+                | Simple (_, AGATHER, _, _, _) ->
+                    ES.iter
+                      (fun (src, (dn, _), _) ->
+                        if dn = n_id then size_sources := src :: !size_sources)
+                      sub_gr.eset
+                | _ -> ())
+              sub_gr.nmap;
+            if !size_sources = [] then false
+            else
+              let rec is_invariant_node (sn, sp) visited =
+                if sn = 0 then true
+                else if IntSet.mem sn visited then false
+                else
+                  let visited' = IntSet.add sn visited in
+                  match NM.find_opt sn sub_gr.nmap with
+                  | Some (Simple (_, _, _, _, _)) ->
+                      let in_edges =
+                        ES.fold
+                          (fun (src, (dn, _), _) acc ->
+                            if dn = sn then src :: acc else acc)
+                          sub_gr.eset []
+                      in
+                      in_edges <> []
+                      && List.for_all (fun src -> is_invariant_node src visited') in_edges
+                  | _ -> false
+              in
+              List.for_all (fun src -> is_invariant_node src IntSet.empty) !size_sources
+      in
+
       let res_struct_name = String.uppercase_ascii func_name ^ "_results" in
       if List.length out_pids = 1 then
         let pid = List.hd out_pids in
@@ -5437,7 +5484,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
         let cast_ret =
           C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); C.Id ret_name ])
         in
-        if ty = C.Basic "sisal_array_t" then
+        if ty = C.Basic "sisal_array_t" && is_candidate_callee then
           let prov_param_name = "prov_res" in
           let prov_params = params @ [ (C.Pointer (C.Basic "sisal_array_t", []), prov_param_name) ] in
           let provided_func = {
