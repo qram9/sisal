@@ -296,6 +296,11 @@ extern "C" struct FUNC_MAIN_results func_MAIN(bool flag);
 struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
 #endif
+
+#ifdef TEST_ARRAY_SWAP_E2E
+struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(sisal_array_t A, sisal_array_t B);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -8762,6 +8767,39 @@ static void test_pick_dv(void) {
 }
 #endif
 
+#ifdef TEST_ARRAY_SWAP_E2E
+static void test_array_swap_e2e() {
+  printf("\n=== Group: array_swap_e2e (synthetic array swap test) ===\n");
+  int32_t dataA[] = {10, 20, 30};
+  int32_t dataB[] = {100, 200};
+  sisal_array_t A = sisal_array_alloc_empty(1, 6, 3);
+  for (int i = 0; i < 3; i++) ((int32_t*)A.data)[i] = dataA[i];
+
+  sisal_array_t B = sisal_array_alloc_empty(1, 6, 2);
+  for (int i = 0; i < 2; i++) ((int32_t*)B.data)[i] = dataB[i];
+
+  struct FUNC_MAIN_results res = func_MAIN(A, B);
+
+  int size0 = (int)res.res_0.size;
+  int size1 = (int)res.res_1.size;
+
+  int32_t* ptr0 = (int32_t*)res.res_0.data;
+  int32_t* ptr1 = (int32_t*)res.res_1.data;
+
+  printf("Array 0 size=%d: [%d, %d]\n", size0, ptr0[0], ptr0[1]);
+  printf("Array 1 size=%d: [%d, %d, %d]\n", size1, ptr1[0], ptr1[1], ptr1[2]);
+
+  if (size0 == 2 && size1 == 3 &&
+      ptr0[0] == 100 && ptr0[1] == 200 &&
+      ptr1[0] == 10 && ptr1[1] == 20 && ptr1[2] == 30) {
+    printf("ARRAY_SWAP_E2E: SUCCESS\n");
+  } else {
+    printf("ARRAY_SWAP_E2E: FAILED\n");
+    exit(1);
+  }
+}
+#endif
+
 // ============================================================
 // main — dispatches to the single active test group
 // ============================================================
@@ -9475,6 +9513,9 @@ main (void)
 #ifdef TEST_HILBERT_DV
   test_hilbert_dv ();
 #endif
+#ifdef TEST_ARRAY_SWAP_E2E
+  test_array_swap_e2e ();
+#endif
 
 
 #if !defined(TEST_ABS_DEMO) && !defined(TEST_AGREEMENT)                       \
@@ -9575,7 +9616,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

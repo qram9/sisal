@@ -300,6 +300,8 @@ run_group FEO_FFT           feo_fft              ""
 run_group KIN16_DV          kin16_dv             ""
 run_group CFFT_DV           cfft_dv              ""
 run_group HILBERT_DV        hilbert_dv           ""
+run_group ARRAY_SWAP_E2E     array_swap_e2e       ""
+
 
 echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"

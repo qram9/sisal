@@ -1,0 +1,13 @@
+define Main
+
+type IntArray = array[integer]
+
+function Main(A, B : IntArray returns IntArray, IntArray)
+    let
+        Temp := A;
+        A_swapped := B;
+        B_swapped := Temp
+    in
+        A_swapped, B_swapped
+    end let
+end function
