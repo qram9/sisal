@@ -1,0 +1,1839 @@
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=2
+  INPUT_VAL -> val_def=0, def_port=1
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=2
+  INPUT_VAL -> val_def=0, def_port=1
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=2
+  INPUT_VAL -> val_def=0, def_port=1
+GET_FINAL_TY: gid=2 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=10001 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10001 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10001 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=10001 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=1
+  INPUT_VAL -> val_def=0, def_port=2
+  U_VAL -> val_def=1, def_port=0
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=10001 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+GET_FINAL_TY: gid=10001 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+GET_FINAL_TY: gid=10001 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=10002 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+GET_FINAL_TY: gid=10002 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+GET_FINAL_TY: gid=10002 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=1
+  INPUT_VAL -> val_def=0, def_port=2
+GET_FINAL_TY: gid=10003 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10003 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (1,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=10003 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10003 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (1,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10003 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10003 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10003 nid=2 pid=1 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10003 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=10003 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=10008 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10008 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (4,0)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+GET_FINAL_TY: gid=10008 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10008 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (4,0)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10008 nid=1 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10008 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10008 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=10004 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10004 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (2,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+GET_FINAL_TY: gid=10004 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10004 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (2,1)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+GET_FINAL_TY: gid=10004 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  INPUT_SEL -> val_def=0, def_port=0
+  INPUT_SIZE -> val_def=0, def_port=1
+  INPUT_VAL -> val_def=0, def_port=2
+GET_FINAL_TY: gid=10005 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10005 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,0) -> (1,0)
+RESOLVE: target_gid=10004 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (2,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10004 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (2,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=10005 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10005 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,0) -> (1,0)
+RESOLVE: target_gid=10004 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,0) -> (2,0)
+RESOLVE: target_gid=10002 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,0) -> (1,0)
+RESOLVE: target_gid=10001 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,0) -> (1,0)
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=2 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SEL
+    walk: g_gid=2 name=INPUT_SEL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (2,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10005 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10005 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10005 nid=2 pid=1 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10005 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=10005 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=10007 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10007 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,2) -> (4,0)
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+GET_FINAL_TY: gid=10007 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10007 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,2) -> (4,0)
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=10007 nid=1 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=10007 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10007 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10006 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10006 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,1) -> (2,0)
+RESOLVE: target_gid=10004 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (2,1)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10006 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10006 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,2) -> (2,1)
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=10004 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (2,1)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+GET_FINAL_TY: gid=10006 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=10006 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,1) -> (2,0)
+RESOLVE: target_gid=10004 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,1) -> (2,1)
+RESOLVE: target_gid=10002 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,1) -> (1,1)
+RESOLVE: target_gid=10001 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,2) -> (1,1)
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+GET_FINAL_TY: gid=2 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=2 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_SIZE
+    walk: g_gid=2 name=INPUT_SIZE is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=2
+  Resolved to: (2,0,2)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+GET_FINAL_TY: gid=10006 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=10006 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 10004: (0,2) -> (2,1)
+RESOLVE: target_gid=10004 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10002: (0,2) -> (2,2)
+RESOLVE: target_gid=10002 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 10001: (0,2) -> (1,2)
+RESOLVE: target_gid=10001 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 2: (0,1) -> (1,2)
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+GET_FINAL_TY: gid=2 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=2 n=0 p=1
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=INPUT_VAL
+    walk: g_gid=2 name=INPUT_VAL is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=1
+  Resolved to: (2,0,1)
+  Stopping recursive lookup, type = Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=10006 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10006 nid=1 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10006 nid=1 pid=1 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=10006 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic sisal_array_t
+GET_FINAL_TY: gid=10006 nid=1 pid=2 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=10006 nid=1 pid=2 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=10006 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic sisal_array_t
+GET_FINAL_TY: gid=10006 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic sisal_array_t
+GET_FINAL_TY: gid=10006 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10006 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=10001 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic struct union_un_98
+GET_FINAL_TY: gid=10001 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=2 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=2 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=1 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=1 name=UNION_INPUT is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (1,0,0)
+  Stopping recursive lookup, type = Basic struct union_un_98
+GET_FINAL_TY: gid=1 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=1 n=0 p=0
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=1 name=UNION_INPUT is_loop=false is_tagcase=false
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (1,0,0)
+  Stopping recursive lookup, type = Basic struct union_un_98
+GET_FINAL_TY: gid=1 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11017 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+  Stopping recursive lookup, type = Basic sisal_array_t
+GET_FINAL_TY: gid=11017 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+  Stopping recursive lookup, type = Basic sisal_array_t
+RESOLVE: target_gid=1 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=None
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  UNION_INPUT -> val_def=0, def_port=0
+GET_FINAL_TY: gid=11017 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+  Stopping recursive lookup, type = Basic sisal_array_t
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  ARRAY_ELEM -> val_def=2, def_port=0
+  PAYLOAD -> val_def=0, def_port=1
+  UNION_INPUT -> val_def=0, def_port=2
+  __forall_body_0 -> val_def=3, def_port=0
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  ARRAY_ELEM -> val_def=0, def_port=0
+  PAYLOAD -> val_def=0, def_port=1
+  UNION_INPUT -> val_def=0, def_port=2
+GET_FINAL_TY: gid=11021 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11021 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11018: (2,0) -> (3,0)
+RESOLVE: target_gid=11018 n=2 p=0
+  Resolved to: (11018,2,0)
+GET_FINAL_TY: gid=11018 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=11018 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11017: (0,0) -> (1,1)
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11021 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11021 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11018: (0,1) -> (3,1)
+RESOLVE: target_gid=11018 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11017: (0,0) -> (1,1)
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+GET_FINAL_TY: gid=11017 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+  Stopping recursive lookup, type = Basic sisal_array_t
+  Recursive lookup returned: Basic sisal_array_t
+RESOLVE: target_gid=11018 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11017: (0,0) -> (1,2)
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11021 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11021 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11018: (0,2) -> (3,2)
+RESOLVE: target_gid=11018 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11017: (0,0) -> (1,2)
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+GET_FINAL_TY: gid=11017 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11017 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11017 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11017,0,0)
+  Stopping recursive lookup, type = Basic sisal_array_t
+  Recursive lookup returned: Basic sisal_array_t
+GET_FINAL_TY: gid=1 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11016 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11016 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=None
+  Resolved to: (11016,0,0)
+  Stopping recursive lookup, type = Basic float
+GET_FINAL_TY: gid=11016 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11016 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11016 nid=2 pid=1 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11016 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11016 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+RESOLVE: target_gid=1 n=0 p=2
+  is_tagcase_payload=false
+    No parent map entry
+  Lexical fallback name_opt=None
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  UNION_INPUT -> val_def=0, def_port=0
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+GET_FINAL_TY: gid=11010 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11011 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11011 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11015 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11015 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (4,0)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11015 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11015 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (4,1)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11015 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11015 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (4,0)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11015 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11015 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (4,1)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11015 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11015 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11014 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11014 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (5,0) -> (3,0)
+RESOLVE: target_gid=11011 n=5 p=0
+  Resolved to: (11011,5,0)
+GET_FINAL_TY: gid=11011 nid=5 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11014 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (6,0) -> (3,1)
+RESOLVE: target_gid=11011 n=6 p=0
+  Resolved to: (11011,6,0)
+GET_FINAL_TY: gid=11011 nid=6 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11014 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (3,2)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=3 dir=Out
+RESOLVE: target_gid=11014 n=0 p=3
+  is_tagcase_payload=false
+    Found edge in parent 11011: (8,0) -> (3,3)
+RESOLVE: target_gid=11011 n=8 p=0
+  Resolved to: (11011,8,0)
+GET_FINAL_TY: gid=11011 nid=8 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=4 dir=Out
+RESOLVE: target_gid=11014 n=0 p=4
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (3,4)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=0 pid=5 dir=Out
+RESOLVE: target_gid=11014 n=0 p=5
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (3,5)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11014 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (5,0) -> (3,0)
+RESOLVE: target_gid=11011 n=5 p=0
+  Resolved to: (11011,5,0)
+GET_FINAL_TY: gid=11011 nid=5 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11014 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (6,0) -> (3,1)
+RESOLVE: target_gid=11011 n=6 p=0
+  Resolved to: (11011,6,0)
+GET_FINAL_TY: gid=11011 nid=6 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11014 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (3,2)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=3 dir=Out
+RESOLVE: target_gid=11014 n=0 p=3
+  is_tagcase_payload=false
+    Found edge in parent 11011: (8,0) -> (3,3)
+RESOLVE: target_gid=11011 n=8 p=0
+  Resolved to: (11011,8,0)
+GET_FINAL_TY: gid=11011 nid=8 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11014 nid=0 pid=4 dir=Out
+RESOLVE: target_gid=11014 n=0 p=4
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (3,4)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11014 nid=0 pid=5 dir=Out
+RESOLVE: target_gid=11014 n=0 p=5
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (3,5)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=In
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=1 dir=In
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11012 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11012 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (1,2)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=3 dir=Out
+RESOLVE: target_gid=11012 n=0 p=3
+  is_tagcase_payload=false
+    Found edge in parent 11011: (8,0) -> (1,3)
+RESOLVE: target_gid=11011 n=8 p=0
+  Resolved to: (11011,8,0)
+GET_FINAL_TY: gid=11011 nid=8 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=4 dir=Out
+RESOLVE: target_gid=11012 n=0 p=4
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (1,4)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11012 nid=0 pid=5 dir=Out
+RESOLVE: target_gid=11012 n=0 p=5
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (1,5)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_PORT_NAME nid=0 pid=2 cs contents:
+  LOOP_ACC -> val_def=3, def_port=0
+  LOOP_I -> val_def=2, def_port=0
+  OLD LOOP_ACC -> val_def=0, def_port=2
+  OLD LOOP_I -> val_def=0, def_port=3
+  PAYLOAD -> val_def=0, def_port=4
+  UNION_INPUT -> val_def=0, def_port=5
+GET_FINAL_TY: gid=11012 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11012 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (5,0) -> (1,0)
+RESOLVE: target_gid=11011 n=5 p=0
+  Resolved to: (11011,5,0)
+GET_FINAL_TY: gid=11011 nid=5 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11012 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (6,0) -> (1,1)
+RESOLVE: target_gid=11011 n=6 p=0
+  Resolved to: (11011,6,0)
+GET_FINAL_TY: gid=11011 nid=6 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11012 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (1,2)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=0 pid=3 dir=Out
+RESOLVE: target_gid=11012 n=0 p=3
+  is_tagcase_payload=false
+    Found edge in parent 11011: (8,0) -> (1,3)
+RESOLVE: target_gid=11011 n=8 p=0
+  Resolved to: (11011,8,0)
+GET_FINAL_TY: gid=11011 nid=8 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11012 nid=0 pid=4 dir=Out
+RESOLVE: target_gid=11012 n=0 p=4
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (1,4)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11012 nid=0 pid=5 dir=Out
+RESOLVE: target_gid=11012 n=0 p=5
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (1,5)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11012 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=2 pid=1 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=3 pid=1 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11012 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11012 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+warning: lower_for_initial: BODY boundary out port 4 duplicates source (2,0) at gid=11011; reusing memoized capture
+GET_FINAL_TY: gid=11012 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+warning: lower_for_initial: BODY boundary out port 1 duplicates source (3,0) at gid=11011; reusing memoized capture
+warning: lower_for_initial: BODY boundary out port 3 duplicates source (3,0) at gid=11011; reusing memoized capture
+GET_FINAL_TY: gid=11012 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11014 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11014 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (5,0) -> (3,0)
+RESOLVE: target_gid=11011 n=5 p=0
+  Resolved to: (11011,5,0)
+GET_FINAL_TY: gid=11011 nid=5 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=1 dir=Out
+RESOLVE: target_gid=11014 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11011: (6,0) -> (3,1)
+RESOLVE: target_gid=11011 n=6 p=0
+  Resolved to: (11011,6,0)
+GET_FINAL_TY: gid=11011 nid=6 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=2 dir=Out
+RESOLVE: target_gid=11014 n=0 p=2
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (3,2)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=0 pid=3 dir=Out
+RESOLVE: target_gid=11014 n=0 p=3
+  is_tagcase_payload=false
+    Found edge in parent 11011: (8,0) -> (3,3)
+RESOLVE: target_gid=11011 n=8 p=0
+  Resolved to: (11011,8,0)
+GET_FINAL_TY: gid=11011 nid=8 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11014 nid=0 pid=4 dir=Out
+RESOLVE: target_gid=11014 n=0 p=4
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,0) -> (3,4)
+RESOLVE: target_gid=11011 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,0)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+GET_FINAL_TY: gid=11014 nid=0 pid=5 dir=Out
+RESOLVE: target_gid=11014 n=0 p=5
+  is_tagcase_payload=false
+    Found edge in parent 11011: (0,1) -> (3,5)
+RESOLVE: target_gid=11011 n=0 p=1
+  is_tagcase_payload=false
+    Found edge in parent 11010: (0,0) -> (1,1)
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+GET_FINAL_TY: gid=11010 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11010 n=0 p=0
+  is_tagcase_payload=true
+  Lexical fallback name_opt=UNION_INPUT
+    walk: g_gid=11010 name=UNION_INPUT is_loop=false is_tagcase=true
+      found in symtab: val_def=0 def_port=0
+  Resolved to: (11010,0,0)
+  Stopping recursive lookup, type = Basic int32_t
+  Recursive lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=In
+  Non-boundary lookup returned: Basic int32_t
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=2 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=3 pid=0 dir=Out
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=In
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=1 dir=In
+  Non-boundary lookup returned: Basic double
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11014 nid=4 pid=0 dir=Out
+  Non-boundary lookup returned: Basic bool
+GET_FINAL_TY: gid=11013 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11013 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (2,0)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11013 nid=0 pid=0 dir=Out
+RESOLVE: target_gid=11013 n=0 p=0
+  is_tagcase_payload=false
+    Found edge in parent 11011: (7,0) -> (2,0)
+RESOLVE: target_gid=11011 n=7 p=0
+  Resolved to: (11011,7,0)
+GET_FINAL_TY: gid=11011 nid=7 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+  Recursive lookup returned: Basic float
+GET_FINAL_TY: gid=11013 nid=1 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11013 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11013 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=11010 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=1 pid=0 dir=Out
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float
+GET_FINAL_TY: gid=1 nid=0 pid=0 dir=In
+  Non-boundary lookup returned: Basic float

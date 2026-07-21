@@ -1,0 +1,292 @@
+<html><head><style>
+      :root { --sidebar-width: 550px; --ast-height: 300px; }
+      body { 
+        font-family: 'Menlo', monospace; font-size: 11px; background: #1e1e1e; color: #d4d4d4; 
+        margin: 0; display: grid; grid-template-columns: 1fr 5px var(--sidebar-width); height: 100vh; 
+        overflow: hidden; 
+      }
+
+.mermaid .edgeLabel rect {
+    fill: #2d2d2d !important;      /* Dark Gray/Black box */
+    stroke: #9370db !important;    /* Purple border to make it pop */
+    stroke-width: 1.5px !important;
+    rx: 2px;                       /* Very slight rounding for sharpness */
+    opacity: 0.71 !important;         /* 100% solid, no softness */
+}
+
+.mermaid .edgeLabel {
+    color: #8b0000 !important;      /* Pure white text */
+    font-weight: 900 !important;   /* Extra Bold */
+    font-size: 13px !important;    /* Large enough to read easily */
+    font-family: 'Menlo', monospace;
+    text-shadow: none !important;  /* Remove all "dreamy" shadows */
+}
+
+/* 3. The Edges: Darker Green for better text overlay */
+.mermaid path.edgePath {
+    stroke: #2d8a39 !important;    /* Solid Forest Green */
+    stroke-width: 2.5px !important;
+}
+      #left-pane { overflow: auto; padding: 20px; border-right: 1px solid #333; }
+      #resizer { cursor: col-resize; background: #333; transition: background 0.2s; }
+      #resizer:hover { background: #569cd6; }
+      #right-pane { display: grid; grid-template-rows: 1fr 5px var(--ast-height); background: #252526; height: 100vh; overflow: hidden; }
+      #top-right { overflow-y: auto; display: flex; flex-direction: column; }
+      #h-resizer { cursor: row-resize; background: #333; transition: background 0.2s; z-index: 10; }
+      #h-resizer:hover { background: #569cd6; }
+      #ast-pane { overflow: auto; background: #1a1a1a; position: relative; border-top: 1px solid #111; }
+      .tabs { position: sticky; top: 0; display: flex; background: #2d2d2d; border-bottom: 1px solid #3e3e3e; z-index: 5; }
+      .tab { padding: 8px 15px; cursor: pointer; border-right: 1px solid #3e3e3e; color: #888; }
+      .tab.active { background: #252526; color: #fff; border-bottom: 2px solid #569cd6; }
+.ast-body { 
+    color: #9cdcfe; 
+    white-space: pre-wrap; /* This preserves 
+ and wraps long lines */
+    font-family: 'Menlo', 'Monaco', monospace; 
+    font-size: 11px; 
+    padding: 15px; 
+    display: inline-block;
+    min-width: 100%;       /* Ensures background covers the width */
+}
+            .ast-header { position: sticky; top: 0; left: 0; background: #111; color: #569cd6; font-weight: bold; padding: 8px 15px; font-size: 10px; z-index: 4; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+      .pin-btn { cursor: pointer; padding: 2px 8px; border: 1px solid #444; border-radius: 3px; background: #2d2d2d; color: #888; }
+      .pin-btn.active { background: #569cd6; color: #fff; border-color: #fff; }
+      .graph-box { border-left: 1px solid #444; margin-left: 15px; padding-left: 10px; }
+      summary { cursor: pointer; color: #569cd6; font-weight: bold; padding: 2px; }
+      .node-item { color: #ce9178; margin: 1px 0; }
+      mark.highlight { background-color: #f0f000; color: #000; font-weight: bold; }
+      #dag-modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); }
+      #dag-content { background: #1e1e1e; margin: 5% auto; padding: 20px; width: 90%; height: 80%; overflow: auto; border-radius: 8px; border: 1px solid #444; }
+      #dag-toolbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 101; background: #2d2d2d; border: 1px solid #555; border-radius: 6px; padding: 6px 12px; display: flex; align-items: center; gap: 8px; color: #d4d4d4; }
+      #dag-toolbar button { background: #3e3e3e; color: #b5cea8; border: 1px solid #555; border-radius: 3px; cursor: pointer; padding: 0 8px; font-size: 13px; }
+      #dag-zoom { width: 220px; }
+      #dag-content svg { transform-origin: top left; max-width: none !important; height: auto !important; }
+      .render-btn { font-size: 9px; cursor: pointer; background: #3e3e3e; color: #b5cea8; border: 1px solid #555; border-radius: 3px; margin-left: 10px; padding: 1px 4px; }
+      .render-btn:hover { background: #569cd6; color: #fff; }
+    </style></head><body>
+    <div id='left-pane'><h3>IF1 Hierarchy</h3><div id='root'></div></div>
+    <div id='resizer'></div>
+    <div id='right-pane'>
+      <div id='top-right'>
+        <div class='tabs'><div id='tab-sym' class='tab active' onclick='switchTab("sym")'>Symbols</div><div id='tab-tm' class='tab' onclick='switchTab("tm")'>TypeMap</div></div>
+        <div id='pane-content'>Select a Graph to see symbols</div>
+      </div>
+      <div id='h-resizer'></div>
+      <div id='ast-pane'>
+        <div class='ast-header'><span>AST ORIGIN</span><button id='pin-ast' class='pin-btn' onclick='togglePin()'>Pin 📌</button></div>
+        <div id='ast-content' class='ast-body'>Select a Graph to view AST origin...</div>
+      </div>
+    </div>
+    <div id='dag-modal' onclick='this.style.display="none"'>
+      <div id='dag-toolbar' onclick='event.stopPropagation()'>
+        <span>Zoom</span>
+        <button onclick='zoomStep(-0.1)'>-</button>
+        <input type='range' id='dag-zoom' min='20' max='400' value='100' oninput='applyZoom()'>
+        <button onclick='zoomStep(0.1)'>+</button>
+        <span id='dag-zoom-label'>100%</span>
+        <button onclick='resetZoom()'>Reset</button>
+      </div>
+      <div id='dag-content' onclick='event.stopPropagation()'></div>
+    </div>
+    <script src='https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js'></script>
+    <script>const data = { "nodes": [{ "id": 0, "type": "Boundary", "label": "BOUNDARY []", "value": "" }, { "id": 1, "type": "Literal", "value": "1", "label": "Literal" }, { "id": 2, "type": "Simple", "label": "ADD [SrcLine(125,38) ,SrcLine(125,24) ,SrcLine(125,38) ,SrcLine(125,24)]", "value": "T", "ports": { "in": "[|0,1|]", "out": "[|3,4,5|]" } }, { "id": 3, "type": "Simple", "label": "ARRAY_ELEMENT [SrcLine(125,27)]", "value": "", "ports": { "in": "[|0,2|]", "out": "[||]" } }, { "id": 4, "type": "Simple", "label": "ARRAY_ELEMENT [SrcLine(125,27)]", "value": "", "ports": { "in": "[|0,2|]", "out": "[|5|]" } }, { "id": 5, "type": "Simple", "label": "INVOCATION [SrcLine(126,33) ,SrcLine(125,13)]", "value": "MERGE_TRI", "ports": { "in": "[|2,4,0|]", "out": "[||]" } }], "data_edges": ["__0:8 -> __2:0 [ID:6 INTEGRAL]", "__0:1 -> __3:0 [ID:297 array[array[array[REAL]]]]", "__0:1 -> __4:0 [ID:297 array[array[array[REAL]]]]", "__0:9 -> __5:2 [ID:152 array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]]", "__1:0 -> __2:1 [ID:6 INTEGRAL]", "__2:0 -> __3:1 [ID:6 INTEGRAL]", "__2:0 -> __4:1 [ID:6 INTEGRAL]", "__2:0 -> __5:0 [ID:6 INTEGRAL]", "__4:0 -> __5:1 [ID:97 array[array[REAL]]]"], "error_edges": [], "symtab": ["array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]; ZBUFF; (__5 : 0)", "INTEGRAL; Y_PIXELS; (__0 : 17)", "INTEGRAL; X_PIXELS; (__0 : 16)", "array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}]; WORLD_TRIANGLES; (__0 : 15)", "INTEGRAL; T; (__2 : 0)", "array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}]; SURFACES; (__0 : 13)", "array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}]; SCREEN_TRIANGLES; (__0 : 12)", "array[array[REAL]]; SCREEN_TO_WORLD; (__0 : 11)", "array[record{XP: REAL; YP: REAL; ZP: REAL}]; SCREEN_PTS; (__0 : 10)", "array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]; OLD ZBUFF; (__0 : 9)", "INTEGRAL; OLD T; (__0 : 8)", "array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]; LIGHTS; (__0 : 7)", "record{XP: REAL; YP: REAL; ZP: REAL}; EYE; (__0 : 6)", "record{TRI: INTEGRAL; DEPTH: REAL}; EMPTY; (__0 : 5)", "array[record{R: REAL; G: REAL; B: REAL}]; COLORS; (__0 : 4)", "INTEGRAL; BACKGROUND; (__0 : 3)", "INTEGRAL; AMBIENT; (__0 : 2)", "array[array[array[REAL]]]; ALL_DEPTHS; (__0 : 1)", "array[array[REAL]]; A; (__0 : 0)"], "typemap": [{ "id": 1, "desc": "BOOLEAN" }, { "id": 2, "desc": "BYTE" }, { "id": 3, "desc": "CHARACTER" }, { "id": 4, "desc": "DOUBLE" }, { "id": 5, "desc": "HALF" }, { "id": 6, "desc": "INTEGRAL" }, { "id": 7, "desc": "LONG" }, { "id": 8, "desc": "REAL" }, { "id": 9, "desc": "SHORT" }, { "id": 10, "desc": "UBYTE" }, { "id": 11, "desc": "UCHAR" }, { "id": 12, "desc": "UINT" }, { "id": 13, "desc": "ULONG" }, { "id": 14, "desc": "USHORT" }, { "id": 15, "desc": "BYTE2" }, { "id": 16, "desc": "CHAR2" }, { "id": 17, "desc": "DOUBLE2" }, { "id": 18, "desc": "HALF2" }, { "id": 19, "desc": "INT2" }, { "id": 20, "desc": "LONG2" }, { "id": 21, "desc": "FLOAT2" }, { "id": 22, "desc": "SHORT2" }, { "id": 23, "desc": "UBYTE2" }, { "id": 24, "desc": "UCHAR2" }, { "id": 25, "desc": "UINT2" }, { "id": 26, "desc": "ULONG2" }, { "id": 27, "desc": "USHORT2" }, { "id": 28, "desc": "BYTE3" }, { "id": 29, "desc": "CHAR3" }, { "id": 30, "desc": "DOUBLE3" }, { "id": 31, "desc": "HALF3" }, { "id": 32, "desc": "INT3" }, { "id": 33, "desc": "LONG3" }, { "id": 34, "desc": "FLOAT3" }, { "id": 35, "desc": "SHORT3" }, { "id": 36, "desc": "UBYTE3" }, { "id": 37, "desc": "UCHAR3" }, { "id": 38, "desc": "UINT3" }, { "id": 39, "desc": "ULONG3" }, { "id": 40, "desc": "USHORT3" }, { "id": 41, "desc": "BYTE4" }, { "id": 42, "desc": "CHAR4" }, { "id": 43, "desc": "DOUBLE4" }, { "id": 44, "desc": "HALF4" }, { "id": 45, "desc": "INT4" }, { "id": 46, "desc": "LONG4" }, { "id": 47, "desc": "FLOAT4" }, { "id": 48, "desc": "SHORT4" }, { "id": 49, "desc": "UBYTE4" }, { "id": 50, "desc": "UCHAR4" }, { "id": 51, "desc": "UINT4" }, { "id": 52, "desc": "ULONG4" }, { "id": 53, "desc": "USHORT4" }, { "id": 54, "desc": "BYTE8" }, { "id": 55, "desc": "CHAR8" }, { "id": 56, "desc": "DOUBLE8" }, { "id": 57, "desc": "HALF8" }, { "id": 58, "desc": "INT8" }, { "id": 59, "desc": "LONG8" }, { "id": 60, "desc": "FLOAT8" }, { "id": 61, "desc": "SHORT8" }, { "id": 62, "desc": "UBYTE8" }, { "id": 63, "desc": "UCHAR8" }, { "id": 64, "desc": "UINT8" }, { "id": 65, "desc": "ULONG8" }, { "id": 66, "desc": "USHORT8" }, { "id": 67, "desc": "BYTE16" }, { "id": 68, "desc": "CHAR16" }, { "id": 69, "desc": "DOUBLE16" }, { "id": 70, "desc": "HALF16" }, { "id": 71, "desc": "INT16" }, { "id": 72, "desc": "LONG16" }, { "id": 73, "desc": "FLOAT16" }, { "id": 74, "desc": "SHORT16" }, { "id": 75, "desc": "UBYTE16" }, { "id": 76, "desc": "UCHAR16" }, { "id": 77, "desc": "UINT16" }, { "id": 78, "desc": "ULONG16" }, { "id": 79, "desc": "USHORT16" }, { "id": 80, "desc": "MAT2" }, { "id": 81, "desc": "MAT3" }, { "id": 82, "desc": "MAT4" }, { "id": 83, "desc": "NULL" }, { "id": 88, "desc": "IM record{IM: HALF}" }, { "id": 89, "desc": "RE record{RE: HALF}" }, { "id": 90, "desc": "IM record{IM: REAL}" }, { "id": 91, "desc": "RE record{RE: REAL}" }, { "id": 92, "desc": "IM record{IM: DOUBLE}" }, { "id": 93, "desc": "RE record{RE: DOUBLE}" }, { "id": 94, "desc": "array[INTEGRAL]" }, { "id": 95, "desc": "array[array[INTEGRAL]]" }, { "id": 96, "desc": "array[REAL]" }, { "id": 97, "desc": "array[array[REAL]]" }, { "id": 98, "desc": "SPEC_N record{SPEC_N: REAL}" }, { "id": 99, "desc": "SPEC_REFL record{SPEC_REFL: REAL}" }, { "id": 100, "desc": "COLOR record{COLOR: INTEGRAL}" }, { "id": 101, "desc": "record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}" }, { "id": 102, "desc": "array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}]" }, { "id": 103, "desc": "ZP record{ZP: REAL}" }, { "id": 104, "desc": "YP record{YP: REAL}" }, { "id": 105, "desc": "XP record{XP: REAL}" }, { "id": 106, "desc": "record{XP: REAL; YP: REAL; ZP: REAL}" }, { "id": 107, "desc": "POS record{POS: record{XP: REAL; YP: REAL; ZP: REAL}}" }, { "id": 108, "desc": "COLOR record{COLOR: INTEGRAL}" }, { "id": 109, "desc": "record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}" }, { "id": 110, "desc": "array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]" }, { "id": 111, "desc": "array[record{XP: REAL; YP: REAL; ZP: REAL}]" }, { "id": 112, "desc": "D record{D: REAL}" }, { "id": 113, "desc": "C record{C: REAL}" }, { "id": 114, "desc": "B record{B: REAL}" }, { "id": 115, "desc": "A record{A: REAL}" }, { "id": 116, "desc": "record{A: REAL; B: REAL; C: REAL; D: REAL}" }, { "id": 117, "desc": "V3 record{V3: INTEGRAL}" }, { "id": 118, "desc": "V2 record{V2: INTEGRAL}" }, { "id": 119, "desc": "V1 record{V1: INTEGRAL}" }, { "id": 120, "desc": "SURF record{SURF: INTEGRAL}" }, { "id": 121, "desc": "record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}" }, { "id": 122, "desc": "array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}]" }, { "id": 123, "desc": "SCREEN_PLN_EQN record{SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}" }, { "id": 124, "desc": "WORLD_PLN_EQN record{WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}" }, { "id": 125, "desc": "DXDY_MH record{DXDY_MH: REAL}" }, { "id": 126, "desc": "DXDY_LM record{DXDY_LM: REAL}" }, { "id": 127, "desc": "DXDY_LH record{DXDY_LH: REAL}" }, { "id": 128, "desc": "LAST_SCAN_LINE record{LAST_SCAN_LINE: INTEGRAL}" }, { "id": 129, "desc": "MID_SCAN_LINE record{MID_SCAN_LINE: INTEGRAL}" }, { "id": 130, "desc": "VLO record{VLO: INTEGRAL}" }, { "id": 131, "desc": "VMID record{VMID: INTEGRAL}" }, { "id": 132, "desc": "VHI record{VHI: INTEGRAL}" }, { "id": 133, "desc": "record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}" }, { "id": 134, "desc": "array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}]" }, { "id": 135, "desc": "B record{B: REAL}" }, { "id": 136, "desc": "G record{G: REAL}" }, { "id": 137, "desc": "R record{R: REAL}" }, { "id": 138, "desc": "record{R: REAL; G: REAL; B: REAL}" }, { "id": 139, "desc": "array[record{R: REAL; G: REAL; B: REAL}]" }, { "id": 140, "desc": "array[array[record{R: REAL; G: REAL; B: REAL}]]" }, { "id": 141, "desc": "LEFT_EDGE record{LEFT_EDGE: BOOLEAN}" }, { "id": 142, "desc": "EDGE_NUM record{EDGE_NUM: INTEGRAL}" }, { "id": 143, "desc": "TRI record{TRI: INTEGRAL}" }, { "id": 144, "desc": "X record{X: REAL}" }, { "id": 145, "desc": "record{X: REAL; TRI: INTEGRAL; EDGE_NUM: INTEGRAL; LEFT_EDGE: BOOLEAN}" }, { "id": 146, "desc": "array[record{X: REAL; TRI: INTEGRAL; EDGE_NUM: INTEGRAL; LEFT_EDGE: BOOLEAN}]" }, { "id": 147, "desc": "array[array[record{X: REAL; TRI: INTEGRAL; EDGE_NUM: INTEGRAL; LEFT_EDGE: BOOLEAN}]]" }, { "id": 148, "desc": "DEPTH record{DEPTH: REAL}" }, { "id": 149, "desc": "TRI record{TRI: INTEGRAL}" }, { "id": 150, "desc": "record{TRI: INTEGRAL; DEPTH: REAL}" }, { "id": 151, "desc": "array[record{TRI: INTEGRAL; DEPTH: REAL}]" }, { "id": 152, "desc": "array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]" }, { "id": 153, "desc": "(REAL)" }, { "id": 154, "desc": "(REAL)" }, { "id": 155, "desc": "FUNCTION SQR (REAL) RETURNS (REAL)" }, { "id": 156, "desc": "(REAL)" }, { "id": 157, "desc": "(REAL)" }, { "id": 158, "desc": "(array[array[REAL]])" }, { "id": 159, "desc": "(array[array[REAL]])" }, { "id": 160, "desc": "FUNCTION FIND_INVERSE (array[array[REAL]]) RETURNS (array[array[REAL]])" }, { "id": 161, "desc": "(INTEGRAL)" }, { "id": 162, "desc": "(REAL * (INTEGRAL))" }, { "id": 163, "desc": "(array[INTEGRAL])" }, { "id": 164, "desc": "(array[REAL] * (array[INTEGRAL]))" }, { "id": 165, "desc": "(INTEGRAL * (array[REAL] * (array[INTEGRAL])))" }, { "id": 166, "desc": "FUNCTION LARGEST (INTEGRAL, array[REAL], array[INTEGRAL]) RETURNS (REAL, INTEGRAL)" }, { "id": 167, "desc": "(INTEGRAL)" }, { "id": 168, "desc": "(INTEGRAL * (INTEGRAL))" }, { "id": 169, "desc": "(array[INTEGRAL])" }, { "id": 170, "desc": "(array[array[REAL]] * (array[INTEGRAL]))" }, { "id": 171, "desc": "(INTEGRAL * (array[array[REAL]] * (array[INTEGRAL])))" }, { "id": 172, "desc": "FUNCTION GETPIVOT (INTEGRAL, array[array[REAL]], array[INTEGRAL]) RETURNS (INTEGRAL, INTEGRAL)" }, { "id": 173, "desc": "(array[array[REAL]])" }, { "id": 174, "desc": "(array[array[REAL]])" }, { "id": 175, "desc": "(INTEGRAL * (array[array[REAL]]))" }, { "id": 176, "desc": "(INTEGRAL * (INTEGRAL * (array[array[REAL]])))" }, { "id": 177, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[REAL]]))))" }, { "id": 178, "desc": "FUNCTION COMPUTE (INTEGRAL, INTEGRAL, INTEGRAL, array[array[REAL]]) RETURNS (array[array[REAL]])" }, { "id": 179, "desc": "(array[array[REAL]])" }, { "id": 180, "desc": "(array[array[REAL]])" }, { "id": 181, "desc": "(array[array[REAL]])" }, { "id": 182, "desc": "(array[array[REAL]])" }, { "id": 183, "desc": "(array[array[REAL]] * (array[array[REAL]]))" }, { "id": 184, "desc": "FUNCTION MAT_MULT (array[array[REAL]], array[array[REAL]]) RETURNS (array[array[REAL]])" }, { "id": 185, "desc": "(array[array[REAL]])" }, { "id": 186, "desc": "(array[array[REAL]])" }, { "id": 187, "desc": "(REAL * (array[array[REAL]]))" }, { "id": 188, "desc": "(REAL * (REAL * (array[array[REAL]])))" }, { "id": 189, "desc": "(REAL * (REAL * (REAL * (array[array[REAL]]))))" }, { "id": 190, "desc": "(REAL * (REAL * (REAL * (REAL * (array[array[REAL]])))))" }, { "id": 191, "desc": "(INTEGRAL * (REAL * (REAL * (REAL * (REAL * (array[array[REAL]]))))))" }, { "id": 192, "desc": "(INTEGRAL * (INTEGRAL * (REAL * (REAL * (REAL * (REAL * (array[array[REAL]])))))))" }, { "id": 193, "desc": "FUNCTION BUILD_WORLD_TO_SCREEN (INTEGRAL, INTEGRAL, REAL, REAL, REAL, REAL, array[array[REAL]]) RETURNS (array[array[REAL]])" }, { "id": 194, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 195, "desc": "(array[array[REAL]])" }, { "id": 196, "desc": "FUNCTION FIND_EYE (array[array[REAL]]) RETURNS (record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 197, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 198, "desc": "(array[array[REAL]])" }, { "id": 199, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]]))" }, { "id": 200, "desc": "FUNCTION TRANSFORM_PT (record{XP: REAL; YP: REAL; ZP: REAL}, array[array[REAL]]) RETURNS (record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 201, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 202, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 203, "desc": "(array[array[REAL]] * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))" }, { "id": 204, "desc": "FUNCTION BUILD_SCREEN_PTS (array[array[REAL]], array[record{XP: REAL; YP: REAL; ZP: REAL}]) RETURNS (array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 205, "desc": "(record{A: REAL; B: REAL; C: REAL; D: REAL})" }, { "id": 206, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 207, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (record{XP: REAL; YP: REAL; ZP: REAL}))" }, { "id": 208, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (record{XP: REAL; YP: REAL; ZP: REAL} * (record{XP: REAL; YP: REAL; ZP: REAL})))" }, { "id": 209, "desc": "FUNCTION FIND_PLN_EQN (record{XP: REAL; YP: REAL; ZP: REAL}, record{XP: REAL; YP: REAL; ZP: REAL}, record{XP: REAL; YP: REAL; ZP: REAL}) RETURNS (record{A: REAL; B: REAL; C: REAL; D: REAL})" }, { "id": 210, "desc": "(INTEGRAL)" }, { "id": 211, "desc": "(INTEGRAL * (INTEGRAL))" }, { "id": 212, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL)))" }, { "id": 213, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 214, "desc": "(INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))" }, { "id": 215, "desc": "(INTEGRAL * (INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}])))" }, { "id": 216, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))))" }, { "id": 217, "desc": "FUNCTION ORDER_PTS (INTEGRAL, INTEGRAL, INTEGRAL, array[record{XP: REAL; YP: REAL; ZP: REAL}]) RETURNS (INTEGRAL, INTEGRAL, INTEGRAL)" }, { "id": 218, "desc": "(INTEGRAL)" }, { "id": 219, "desc": "(INTEGRAL * (INTEGRAL))" }, { "id": 220, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 221, "desc": "(INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))" }, { "id": 222, "desc": "(INTEGRAL * (INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}])))" }, { "id": 223, "desc": "FUNCTION ORDER2 (INTEGRAL, INTEGRAL, array[record{XP: REAL; YP: REAL; ZP: REAL}]) RETURNS (INTEGRAL, INTEGRAL)" }, { "id": 224, "desc": "(INTEGRAL)" }, { "id": 225, "desc": "(REAL)" }, { "id": 226, "desc": "FUNCTION UP (REAL) RETURNS (INTEGRAL)" }, { "id": 227, "desc": "(INTEGRAL)" }, { "id": 228, "desc": "(REAL)" }, { "id": 229, "desc": "(array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}])" }, { "id": 230, "desc": "(array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}])" }, { "id": 231, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}]))" }, { "id": 232, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}])))" }, { "id": 233, "desc": "FUNCTION BUILD_SCREEN_TRIANGLES (array[record{XP: REAL; YP: REAL; ZP: REAL}], array[record{XP: REAL; YP: REAL; ZP: REAL}], array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}]) RETURNS (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}])" }, { "id": 234, "desc": "(REAL)" }, { "id": 235, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 236, "desc": "(INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))" }, { "id": 237, "desc": "(INTEGRAL * (INTEGRAL * (array[record{XP: REAL; YP: REAL; ZP: REAL}])))" }, { "id": 238, "desc": "FUNCTION DXDY (INTEGRAL, INTEGRAL, array[record{XP: REAL; YP: REAL; ZP: REAL}]) RETURNS (REAL)" }, { "id": 239, "desc": "(array[array[REAL]])" }, { "id": 240, "desc": "(INTEGRAL)" }, { "id": 241, "desc": "FUNCTION AALIAS_WEIGHT (INTEGRAL) RETURNS (array[array[REAL]])" }, { "id": 242, "desc": "(array[array[REAL]])" }, { "id": 243, "desc": "(INTEGRAL)" }, { "id": 244, "desc": "(array[array[INTEGRAL]])" }, { "id": 245, "desc": "(array[array[record{R: REAL; G: REAL; B: REAL}]])" }, { "id": 246, "desc": "(INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]]))" }, { "id": 247, "desc": "(INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]])))" }, { "id": 248, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]]))))" }, { "id": 249, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]])))))" }, { "id": 250, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]]))))))" }, { "id": 251, "desc": "FUNCTION AALIAS_AND_DITHER (INTEGRAL, INTEGRAL, INTEGRAL, INTEGRAL, INTEGRAL, array[array[record{R: REAL; G: REAL; B: REAL}]]) RETURNS (array[array[INTEGRAL]])" }, { "id": 252, "desc": "(array[array[INTEGRAL]])" }, { "id": 253, "desc": "(array[array[record{R: REAL; G: REAL; B: REAL}]])" }, { "id": 254, "desc": "(INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]]))" }, { "id": 255, "desc": "(INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]])))" }, { "id": 256, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]]))))" }, { "id": 257, "desc": "(INTEGRAL * (INTEGRAL * (INTEGRAL * (INTEGRAL * (array[array[record{R: REAL; G: REAL; B: REAL}]])))))" }, { "id": 258, "desc": "FUNCTION DITHER (INTEGRAL, INTEGRAL, INTEGRAL, INTEGRAL, array[array[record{R: REAL; G: REAL; B: REAL}]]) RETURNS (array[array[INTEGRAL]])" }, { "id": 259, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 260, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 261, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (record{XP: REAL; YP: REAL; ZP: REAL}))" }, { "id": 262, "desc": "FUNCTION FIND_DIR (record{XP: REAL; YP: REAL; ZP: REAL}, record{XP: REAL; YP: REAL; ZP: REAL}) RETURNS (record{XP: REAL; YP: REAL; ZP: REAL})" }, { "id": 263, "desc": "(record{R: REAL; G: REAL; B: REAL})" }, { "id": 264, "desc": "(INTEGRAL)" }, { "id": 265, "desc": "(array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL))" }, { "id": 266, "desc": "(array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}] * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL)))" }, { "id": 267, "desc": "(record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL} * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}] * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL))))" }, { "id": 268, "desc": "(record{A: REAL; B: REAL; C: REAL; D: REAL} * (record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL} * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}] * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL)))))" }, { "id": 269, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (record{A: REAL; B: REAL; C: REAL; D: REAL} * (record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL} * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}] * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL))))))" }, { "id": 270, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (record{XP: REAL; YP: REAL; ZP: REAL} * (record{A: REAL; B: REAL; C: REAL; D: REAL} * (record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL} * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}] * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL)))))))" }, { "id": 271, "desc": "FUNCTION COMPUTE_COLOR (record{XP: REAL; YP: REAL; ZP: REAL}, record{XP: REAL; YP: REAL; ZP: REAL}, record{A: REAL; B: REAL; C: REAL; D: REAL}, record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}, array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}], array[record{R: REAL; G: REAL; B: REAL}], INTEGRAL) RETURNS (record{R: REAL; G: REAL; B: REAL})" }, { "id": 272, "desc": "(INTEGRAL)" }, { "id": 273, "desc": "(REAL)" }, { "id": 274, "desc": "(array[array[REAL]])" }, { "id": 275, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}])" }, { "id": 276, "desc": "(record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}} * (array[record{XP: REAL; YP: REAL; ZP: REAL}]))" }, { "id": 277, "desc": "FUNCTION BUILD_TRIANGLE_DEPTHS (record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}, array[record{XP: REAL; YP: REAL; ZP: REAL}]) RETURNS (array[array[REAL]])" }, { "id": 278, "desc": "(array[array[record{TRI: INTEGRAL; DEPTH: REAL}]])" }, { "id": 279, "desc": "(array[array[record{TRI: INTEGRAL; DEPTH: REAL}]])" }, { "id": 280, "desc": "(array[array[REAL]] * (array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]))" }, { "id": 281, "desc": "(INTEGRAL * (array[array[REAL]] * (array[array[record{TRI: INTEGRAL; DEPTH: REAL}]])))" }, { "id": 282, "desc": "FUNCTION MERGE_TRI (INTEGRAL, array[array[REAL]], array[array[record{TRI: INTEGRAL; DEPTH: REAL}]]) RETURNS (array[array[record{TRI: INTEGRAL; DEPTH: REAL}]])" }, { "id": 283, "desc": "(array[array[record{R: REAL; G: REAL; B: REAL}]])" }, { "id": 284, "desc": "(array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])" }, { "id": 285, "desc": "(array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))" }, { "id": 286, "desc": "(record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])))" }, { "id": 287, "desc": "(array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))))" }, { "id": 288, "desc": "(array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])))))" }, { "id": 289, "desc": "(array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))))))" }, { "id": 290, "desc": "(array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])))))))" }, { "id": 291, "desc": "(INTEGRAL * (array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))))))))" }, { "id": 292, "desc": "(INTEGRAL * (INTEGRAL * (array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])))))))))" }, { "id": 293, "desc": "(array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL * (INTEGRAL * (array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))))))))))" }, { "id": 294, "desc": "(INTEGRAL * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL * (INTEGRAL * (array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}])))))))))))" }, { "id": 295, "desc": "(INTEGRAL * (INTEGRAL * (array[record{R: REAL; G: REAL; B: REAL}] * (INTEGRAL * (INTEGRAL * (array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}] * (array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}] * (array[record{XP: REAL; YP: REAL; ZP: REAL}] * (array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}] * (record{XP: REAL; YP: REAL; ZP: REAL} * (array[array[REAL]] * (array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]))))))))))))" }, { "id": 296, "desc": "FUNCTION ZBUFFER (INTEGRAL, INTEGRAL, array[record{R: REAL; G: REAL; B: REAL}], INTEGRAL, INTEGRAL, array[record{COLOR: INTEGRAL; SPEC_REFL: REAL; SPEC_N: REAL}], array[record{SURF: INTEGRAL; V1: INTEGRAL; V2: INTEGRAL; V3: INTEGRAL}], array[record{XP: REAL; YP: REAL; ZP: REAL}], array[record{VHI: INTEGRAL; VMID: INTEGRAL; VLO: INTEGRAL; MID_SCAN_LINE: INTEGRAL; LAST_SCAN_LINE: INTEGRAL; DXDY_LH: REAL; DXDY_LM: REAL; DXDY_MH: REAL; WORLD_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}; SCREEN_PLN_EQN: record{A: REAL; B: REAL; C: REAL; D: REAL}}], record{XP: REAL; YP: REAL; ZP: REAL}, array[array[REAL]], array[record{COLOR: INTEGRAL; POS: record{XP: REAL; YP: REAL; ZP: REAL}}]) RETURNS (array[array[record{R: REAL; G: REAL; B: REAL}]])" }, { "id": 297, "desc": "array[array[array[REAL]]]" }], "ast": "" };
+      let currentGraph = data;
+      let activeTab = 'sym';
+      let isPinned = false;
+
+      function togglePin() {
+        isPinned = !isPinned;
+        const btn = document.getElementById('pin-ast');
+        btn.classList.toggle('active', isPinned);
+        btn.textContent = isPinned ? 'Pinned 📍' : 'Pin 📌';
+      }
+
+      function switchTab(tab) {
+        activeTab = tab;
+        document.getElementById('tab-sym').classList.toggle('active', tab === 'sym');
+        document.getElementById('tab-tm').classList.toggle('active', tab === 'tm');
+        updateRightPane();
+      }
+
+      function updateRightPane() {
+        if (!isPinned) document.getElementById('ast-content').textContent = currentGraph.ast || 'No AST Pragma attached.';
+        const container = document.getElementById('pane-content');
+        container.innerHTML = '';
+        if (activeTab === 'sym') {
+          (currentGraph.symtab || []).forEach(s => {
+            const div = document.createElement('div'); div.textContent = s; container.appendChild(div);
+          });
+        } else {
+          data.typemap.forEach(t => {
+            const div = document.createElement('div'); div.innerHTML = `<span style='color:#4ec9b0'>[${t.id}]</span> ${t.desc}`; container.appendChild(div);
+          });
+        }
+      }
+      async function renderDAG(graph) {
+        const modal = document.getElementById('dag-modal');
+        const content = document.getElementById('dag-content');
+  
+         // 1. Show modal and WIPE the old content entirely
+        modal.style.display = 'block';
+        content.innerHTML = ''; 
+        // 2. Create a fresh PRE element
+        const pre = document.createElement('pre');
+        pre.className = 'mermaid';
+        pre.textContent = generateMermaidCode(graph);
+        content.appendChild(pre);
+      
+        // 3. The Secret Sauce: Wait 10ms
+        // This ensures the DOM has actually rendered the text 
+        // before the Mermaid parser starts its work.
+        await new Promise(r => setTimeout(r, 10));
+        try {
+          // 4. Run specifically on the NEW element
+          await mermaid.run({
+            nodes: [pre]
+          });
+          applyZoom();
+        } catch (err) {
+          console.error("Mermaid Error:", err);
+          // If it fails, show the code so you can debug the syntax
+          content.innerHTML += `<div style="color:red;font-size:10px;">
+                                  ${err.message}<br>
+                                  <pre>${pre.textContent}</pre>
+                                </div>`;
+        }
+      }
+      function applyZoom() {
+        const slider = document.getElementById('dag-zoom');
+        if (!slider) return;
+        const z = slider.value / 100;
+        document.getElementById('dag-zoom-label').textContent = Math.round(z*100) + '%';
+        const svg = document.querySelector('#dag-content svg');
+        if (svg) { svg.style.transformOrigin = 'top left'; svg.style.transform = 'scale(' + z + ')'; }
+      }
+      function zoomStep(d) {
+        const s = document.getElementById('dag-zoom');
+        s.value = Math.max(20, Math.min(400, parseInt(s.value) + d*100));
+        applyZoom();
+      }
+      function resetZoom() { document.getElementById('dag-zoom').value = 100; applyZoom(); }
+      function generateMermaidCode(rootGraph) {
+        let lines = ["---\nconfig:\nlayout: tidy-tree\n---\ngraph TD"];
+        let edgeCount = 0;
+        function traverse(graph, prefix) {
+          (graph.nodes || []).forEach(n => {
+            const uid = prefix + n.id;
+            if (n.id === 0) {
+              lines.push(`  N${uid}_IN{{"${prefix}Boundary IN"}}`);
+              lines.push(`  N${uid}_OUT{{"${prefix}Boundary OUT"}}`);
+              lines.push(`  style N${uid}_IN fill:#1e2a1e,stroke:#b5cea8,stroke-width:2px,color:#b5cea8`);
+              lines.push(`  style N${uid}_OUT fill:#2a1e1e,stroke:#ce9178,stroke-width:2px,color:#ce9178`);
+            } else {
+              let labelPart = (n.label || "").trim();
+              if (labelPart === "" || labelPart === "[]") labelPart = n.type;
+              let text = labelPart.replace(/[\[\]"{}]/g, "");
+              if (n.value && n.value !== n.label && n.value !== labelPart) {
+                text += " (" + n.value.replace(/[\[\]"{}]/g, "") + ")";
+              }
+              lines.push(`  N${uid}(("${n.id}: ${text}"))`);
+              // Do NOT recurse into subgraphs here -- each subgraph has its
+              // own 'Render DAG' button in the tree.  Just mark compounds
+              // (dashed) so you know to drill in.  Keeps each view one level.
+              if (n.subgraph) lines.push(`  style N${uid} stroke-dasharray: 6 4,stroke-width:2px`);
+            }
+          });
+          (graph.data_edges || []).forEach(e => {
+            const m = e.match(/(\d+):(\d+)\s*->\s*(\d+):(\d+)\s*(.*)/);
+            if (m) {
+              const s = m[1] === "0" ? `N${prefix}0_IN` : `N${prefix}${m[1]}`;
+              const d = m[3] === "0" ? `N${prefix}0_OUT` : `N${prefix}${m[3]}`;
+              lines.push(`  ${s} -- "p${m[2]}→p${m[4]}\n${m[5]}" --> ${d}`);
+              lines.push(`  linkStyle ${edgeCount++} stroke:#4ec9b0,stroke-width:2px`);
+            }
+          });
+        }
+        traverse(rootGraph, "");
+        return lines.join("\n");
+      }
+      function buildTree(container, graph, isRoot = false) {
+        const details = document.createElement('details');
+        details.open = isRoot;
+        const summary = document.createElement('summary');
+        summary.textContent = `Graph {${graph.nodes.length} nodes}`;
+        summary.onclick = (e) => { e.stopPropagation(); currentGraph = graph; updateRightPane(); };
+        details.appendChild(summary);
+
+        const box = document.createElement('div'); 
+        box.className = 'graph-box';
+        
+        graph.nodes.forEach(n => {
+          const d = document.createElement('div');
+          let labelPart = (n.label || "").trim();
+          if (labelPart === "" || labelPart === "[]") {
+            labelPart = n.type;
+          }
+          let nodeText = `Node ${n.id}: ${labelPart}`;
+          if (n.value && n.value !== n.label && n.value !== labelPart) {
+            nodeText += ` (${n.value})`;
+          }
+          if (n.subgraph) {
+            d.innerHTML = `<b>${nodeText}</b>`;
+            buildTree(d, n.subgraph, false);
+          } else {
+            d.className = 'node-item';
+            d.textContent = nodeText;
+          }
+          box.appendChild(d);
+        });
+        // Data Edges with DAG Button
+        const de = document.createElement('details'); de.open = true;
+        const deSum = document.createElement('summary');
+        deSum.style.color = '#b5cea8';
+        deSum.textContent = `Data Edges (${graph.data_edges.length})`;
+        
+        const btn = document.createElement('button');
+        btn.className = 'render-btn';
+        btn.textContent = 'Render DAG 🎨';
+        btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); renderDAG(graph); };
+        
+        deSum.appendChild(btn);
+        de.appendChild(deSum);
+        graph.data_edges.forEach(e => { 
+          const d = document.createElement('div'); d.style.color='#b5cea8'; d.textContent='  ' + e; de.appendChild(d); 
+        });
+        box.appendChild(de);
+
+        // Error Edges
+        const ee = document.createElement('details');
+        ee.innerHTML = `<summary style='color:#c62828'>Error Edges (${graph.error_edges.length})</summary>`;
+        graph.error_edges.forEach(e => { 
+          const d = document.createElement('div'); d.style.color='#ff6b6b'; d.textContent='  ' + e; ee.appendChild(d); 
+        });
+        box.appendChild(ee);
+
+        details.appendChild(box); 
+        container.appendChild(details);
+      }
+      
+      // Resizer Logic (Vertical)
+      const vResizer = document.getElementById('resizer');
+      let isVResizing = false;
+      vResizer.onmousedown = () => { isVResizing = true; document.body.style.userSelect = 'none'; };
+
+      // Resizer Logic (Horizontal)
+      const hResizer = document.getElementById('h-resizer');
+      let isHResizing = false;
+      hResizer.onmousedown = () => { isHResizing = true; document.body.style.userSelect = 'none'; };
+
+      document.onmousemove = (e) => {
+        if (isVResizing) {
+          const width = window.innerWidth - e.clientX;
+          if (width > 150) document.body.style.setProperty('--sidebar-width', width + 'px');
+        }
+        if (isHResizing) {
+          const height = window.innerHeight - e.clientY;
+          if (height > 50) document.body.style.setProperty('--ast-height', height + 'px');
+        }
+      };
+      document.onmouseup = () => { isVResizing = isHResizing = false; document.body.style.userSelect = 'auto'; };
+
+      buildTree(document.getElementById('root'), data, true);
+    </script></body></html>

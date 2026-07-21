@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>forall_lowering_algorithm</title>
+  <style>
+
+html {
+color: #1a1a1a;
+background-color: #fdfdfd;
+}
+body {
+margin: 0 auto;
+max-width: 36em;
+padding-left: 50px;
+padding-right: 50px;
+padding-top: 50px;
+padding-bottom: 50px;
+hyphens: auto;
+overflow-wrap: break-word;
+text-rendering: optimizeLegibility;
+font-kerning: normal;
+}
+@media (max-width: 600px) {
+body {
+font-size: 0.9em;
+padding: 12px;
+}
+h1 {
+font-size: 1.8em;
+}
+}
+@media print {
+html {
+background-color: white;
+}
+body {
+background-color: transparent;
+color: black;
+font-size: 12pt;
+}
+p, h2, h3 {
+orphans: 3;
+widows: 3;
+}
+h2, h3, h4 {
+page-break-after: avoid;
+}
+}
+p {
+margin: 1em 0;
+}
+a {
+color: #1a1a1a;
+}
+a:visited {
+color: #1a1a1a;
+}
+img {
+max-width: 100%;
+}
+svg {
+height: auto;
+max-width: 100%;
+}
+h1, h2, h3, h4, h5, h6 {
+margin-top: 1.4em;
+}
+h5, h6 {
+font-size: 1em;
+font-style: italic;
+}
+h6 {
+font-weight: normal;
+}
+ol, ul {
+padding-left: 1.7em;
+margin-top: 1em;
+}
+li > ol, li > ul {
+margin-top: 0;
+}
+blockquote {
+margin: 1em 0 1em 1.7em;
+padding-left: 1em;
+border-left: 2px solid #e6e6e6;
+color: #606060;
+}
+code {
+white-space: pre-wrap;
+font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+font-size: 85%;
+margin: 0;
+hyphens: manual;
+}
+pre {
+margin: 1em 0;
+overflow: auto;
+}
+pre code {
+padding: 0;
+overflow: visible;
+overflow-wrap: normal;
+}
+.sourceCode {
+background-color: transparent;
+overflow: visible;
+}
+hr {
+border: none;
+border-top: 1px solid #1a1a1a;
+height: 1px;
+margin: 1em 0;
+}
+table {
+margin: 1em 0;
+border-collapse: collapse;
+width: 100%;
+overflow-x: auto;
+display: block;
+font-variant-numeric: lining-nums tabular-nums;
+}
+table caption {
+margin-bottom: 0.75em;
+}
+tbody {
+margin-top: 0.5em;
+border-top: 1px solid #1a1a1a;
+border-bottom: 1px solid #1a1a1a;
+}
+th {
+border-top: 1px solid #1a1a1a;
+padding: 0.25em 0.5em 0.25em 0.5em;
+}
+td {
+padding: 0.125em 0.5em 0.25em 0.5em;
+}
+header {
+margin-bottom: 4em;
+text-align: center;
+}
+#TOC li {
+list-style: none;
+}
+#TOC ul {
+padding-left: 1.3em;
+}
+#TOC > ul {
+padding-left: 0;
+}
+#TOC a:not(:hover) {
+text-decoration: none;
+}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+</head>
+<body>
+<h1 id="if1-forall-lowering-algorithm">IF1 Forall Lowering
+Algorithm</h1>
+<p>The lowering of Sisal <code>for-all</code> loops to the IF1
+intermediate representation follows a structured approach that decouples
+the iteration space (<strong>Generator</strong>) from the computation
+(<strong>Body</strong>) and the result aggregation
+(<strong>Returns</strong>). This design, aligned with Sisal 2.0, ensures
+that multidimensional loops and array placements are handled
+orthogonally.</p>
+<h3 id="the-forall-compound-structure">1. The <code>FORALL</code>
+Compound Structure</h3>
+<p>A Sisal <code>forall</code> expression is represented by a single
+<code>FORALL</code> compound node containing three primary subgraphs: 1.
+<strong>GENERATOR</strong>: Enumerates the index space and produces loop
+variables (indices and elements). 2. <strong>BODY</strong>: Computes the
+per-iteration values. It is “flat” and executes once per iteration point
+defined by the generator. 3. <strong>RETURNS</strong>: Gathers the
+values produced by the body into the final results (arrays, streams, or
+scalars).</p>
+<h3 id="lowering-algorithm">2. Lowering Algorithm</h3>
+<h4 id="step-1-generator-analysis-and-axis-flattening">Step 1: Generator
+Analysis and Axis Flattening</h4>
+<ul>
+<li><strong>Flattening</strong>: Analyze the <code>in</code>
+expressions. <code>dot</code> (zip) axes are grouped into a single
+iteration level, while <code>cross</code> (Cartesian product) axes
+define a nested iteration space.</li>
+<li><strong>Axis Classification</strong>:
+<ul>
+<li><strong>Range Axes</strong> (<code>i in lo..hi</code>): Lowered to
+<code>RANGEGEN</code> nodes. These produce the induction variable, lower
+bound, and upper bound.</li>
+<li><strong>Scatter Axes</strong> (<code>x in A</code>): Lowered to
+<code>DV_SCATTER</code> (or <code>ASCATTER</code>) nodes. These produce
+the array elements and optional <code>at</code> indices.</li>
+</ul></li>
+</ul>
+<h4 id="step-2-construct-the-generator-subgraph">Step 2: Construct the
+<code>GENERATOR</code> Subgraph</h4>
+<ul>
+<li>For each axis (or group of <code>dot</code> axes):
+<ul>
+<li>Emit the corresponding generator nodes (<code>RANGEGEN</code>,
+<code>DV_SCATTER</code>).</li>
+<li><strong>Recursive Nesting</strong>: For <code>cross</code> loops,
+the generator subgraphs are nested. The outermost axis forms the
+top-level generator; inner axes are contained within nested
+<code>FORALL</code> generators or sub-generator structures.</li>
+</ul></li>
+<li><strong>Exporting Symbols</strong>: Every loop variable (index
+<code>i</code>, element <code>x</code>) and range bound
+(<code>lb</code>, <code>ub</code>) is added to the generator’s
+<strong>boundary outputs</strong>. These values are “published” to the
+parent <code>FORALL</code> scope.</li>
+</ul>
+<h4 id="step-3-construct-the-body-subgraph">Step 3: Construct the
+<code>BODY</code> Subgraph</h4>
+<ul>
+<li><strong>Lazy Import</strong>: The body subgraph imports only the
+names it references (outer scope variables or generator-produced loop
+variables) by creating <strong>boundary inputs</strong>.</li>
+<li><strong>Lowering</strong>: The Sisal body expressions are lowered to
+standard IF1 nodes (arithmetic, function calls, etc.).</li>
+<li><strong>Handoff</strong>: Each expression destined for a
+<code>returns</code> clause is wired to a <strong>boundary
+output</strong> of the body subgraph.</li>
+</ul>
+<h4 id="step-4-construct-the-returns-subgraph">Step 4: Construct the
+<code>RETURNS</code> Subgraph</h4>
+<ul>
+<li><strong>Gathering</strong>: For each result in the
+<code>returns</code> clause, a gather node is emitted:
+<ul>
+<li><code>array of</code>: <code>DV_GATHER</code> (or
+<code>AGATHER</code>).</li>
+<li><code>stream of</code>: <code>SGATHER</code>.</li>
+<li>Reductions: <code>REDUCE</code> (e.g., <code>SUM</code>,
+<code>PRODUCT</code>).</li>
+</ul></li>
+<li><strong>Decoupled Placement (<code>at</code>)</strong>:
+<ul>
+<li>The <code>index</code> port of the gather node is wired to the
+iteration coordinate. If an explicit <code>at</code> clause is present,
+the placement expression is used instead.</li>
+<li>The <code>value</code> port is wired to the corresponding body
+output.</li>
+</ul></li>
+<li><strong>Multidimensional Results</strong>: If a <code>cross</code>
+loop builds a multidimensional array, the <code>RETURNS</code> subgraph
+mirrors the generator’s nesting. Each level of the nested gather
+assembly handles one dimension of the result.</li>
+</ul>
+<h4 id="step-5-final-wiring-and-normalization">Step 5: Final Wiring and
+Normalization</h4>
+<ul>
+<li><strong>Compound Wiring</strong>: Connect the <code>FORALL</code>
+compound inputs to the required outer-scope symbols.</li>
+<li><strong>Lower Bound Adjustment</strong>: If the result is a 1-D
+array from a range loop, an <code>ASETL</code> node is appended to the
+<code>FORALL</code> output to ensure the array’s lower bound matches the
+loop’s specification (defaulting to 1).</li>
+<li><strong>Type Consistency</strong>: Ensure the <code>FORALL</code>
+node’s output ports match the types and counts of the
+<code>RETURNS</code> subgraph’s results.</li>
+</ul>
+<h3 id="summary-of-if1-nodes">3. Summary of IF1 Nodes</h3>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr>
+<th style="text-align: left;">Node</th>
+<th style="text-align: left;">Function</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>FORALL</code></td>
+<td style="text-align: left;">Compound node encapsulating the loop
+logic.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>RANGEGEN</code></td>
+<td style="text-align: left;">Produces induction variables and bounds
+for range loops.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>DV_SCATTER</code></td>
+<td style="text-align: left;">Scatters a flat array (Dope Vector) into
+elements.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>DV_GATHER</code></td>
+<td style="text-align: left;">Assembles elements into a flat array (Dope
+Vector).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>REDUCE</code></td>
+<td style="text-align: left;">Performs associative reductions (Sum, Max,
+etc.).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ASETL</code></td>
+<td style="text-align: left;">Sets the lower limit of an array
+result.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="muchnick-style-pseudo-pascal-implementation">4. Muchnick-style
+Pseudo-Pascal Implementation</h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode pascal"><code class="sourceCode pascal"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">procedure</span> LowerForAll(ForExp: AstNode)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    input:  ForExp - a Sisal AST node representing &quot;for ... <span class="kw">in</span> ... returns ... <span class="kw">end</span> for&quot;</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    output: ForAllNode - an IF1 FORALL compound node</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">var</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>        GenGraph, BodyGraph, RetGraph: Graph;</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>        Axes: list <span class="kw">of</span> Axis;</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        OutPorts: list <span class="kw">of</span> Port;</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">begin</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 1: Analyze the iteration space }</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        Axes := FlattenAxes(ForExp.InExp); <span class="co">{ Separate Dot from Cross }</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 2: Construct the recursive Generator }</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        GenGraph := CreateNewGraph(ParentScope);</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        foreach Axis <span class="kw">in</span> Axes <span class="kw">do</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>            <span class="kw">if</span> Axis.IsRange <span class="kw">then</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>                AddNode(GenGraph, RANGEGEN, Axis.Lo, Axis.Hi);</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>            <span class="kw">else</span> <span class="kw">if</span> Axis.IsScatter <span class="kw">then</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>                AddNode(GenGraph, DV_SCATTER, Axis.SourceArray);</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>            <span class="kw">end</span> <span class="kw">if</span>;</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>            RegisterLoopVariables(GenGraph.SymTab, Axis);</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>        <span class="kw">end</span> foreach;</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>        PublishGeneratorOutputs(GenGraph);</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 3: Construct the Body (Decoupled and Flat) }</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>        BodyGraph := CreateNewGraph(GenGraph);</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>        LowerExpression(BodyGraph, ForExp.BodyExp);</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>        foreach ReturnClause <span class="kw">in</span> ForExp.Returns <span class="kw">do</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>            BodyPort := ExportToBoundary(BodyGraph, ReturnClause.Value);</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>            Add(OutPorts, BodyPort);</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>        <span class="kw">end</span> foreach;</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 4: Construct the Returns Graph (Gathering) }</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>        RetGraph := CreateNewGraph(GenGraph);</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>        <span class="kw">if</span> IsMultidimensional(Axes) <span class="kw">then</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>            ConstructNestedGathers(RetGraph, Axes, ForExp.Returns);</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>        <span class="kw">else</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>            foreach ReturnClause <span class="kw">in</span> ForExp.Returns <span class="kw">do</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>                GatherNode := CreateGatherNode(RetGraph, ReturnClause.Kind);</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>                WireIndex(GatherNode, GetPlacement(ReturnClause));</span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>                WireValue(GatherNode, ImportFromBody(ReturnClause));</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>            <span class="kw">end</span> foreach;</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>        <span class="kw">end</span> <span class="kw">if</span>;</span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 5: Assemble the FORALL Compound }</span></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>        ForAllNode := CreateCompound(If1_FORALL);</span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>        InstallSubgraph(ForAllNode, GenGraph, &quot;GENERATOR&quot;);</span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>        InstallSubgraph(ForAllNode, BodyGraph, &quot;BODY&quot;);</span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>        InstallSubgraph(ForAllNode, RetGraph, &quot;RETURNS&quot;);</span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>        <span class="co">{ Step 6: Finalize Wiring and Normalization }</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>        WireOuterInputs(ForAllNode);</span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>        foreach Port <span class="kw">in</span> ForAllNode.Outputs <span class="kw">do</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>            <span class="kw">if</span> NeedsLowerBoundAdjustment(Port) <span class="kw">then</span></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>                InsertASETL(Port, GetLowerBound(Axes));</span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>            <span class="kw">end</span> <span class="kw">if</span>;</span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>        <span class="kw">end</span> foreach;</span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a>        return ForAllNode;</span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>    <span class="kw">end</span> <span class="kw">procedure</span></span></code></pre></div>
+<h4 id="key-procedural-components">Key Procedural Components:</h4>
+<ul>
+<li><strong><code>FlattenAxes</code></strong>: Decomposes the Sisal
+<code>in</code> expression into a list of axes, distinguishing between
+<code>dot</code> (combined into one level) and <code>cross</code>
+(forming a hierarchy).</li>
+<li><strong><code>PublishGeneratorOutputs</code></strong>: Scans the
+generator’s local symbol table and creates boundary outputs for
+induction variables, elements, and range bounds so they are visible to
+the <code>BODY</code> and <code>RETURNS</code> subgraphs.</li>
+<li><strong><code>ConstructNestedGathers</code></strong>: A recursive
+procedure that builds the <code>RETURNS</code> nest. For a rank-<span class="math inline"><em>N</em></span> result, it nests <span class="math inline"><em>N</em></span> gather nodes, where each level
+handles one dimension of the <code>cross</code> product.</li>
+<li><strong><code>ImportFromBody</code></strong>: Connects a
+<code>RETURNS</code> input to a named <code>BODY</code> output via a
+dataflow edge in the <code>FORALL</code> compound scope.</li>
+<li><strong><code>InsertASETL</code></strong>: Ensures that the
+resulting <code>array_dv</code> has the correct starting index (lower
+bound) by appending an <code>ASETL</code> node to the
+<code>FORALL</code> output.</li>
+</ul>
+<h3 id="detailed-component-descriptions">5. Detailed Component
+Descriptions</h3>
+<p>The following procedures implement the core logic of the lowering
+phase, ensuring that the decoupling of scatter and gather is maintained
+while preserving dataflow integrity.</p>
+<h4 id="iteration-space-analysis">5.1 Iteration Space Analysis</h4>
+<ul>
+<li><strong><code>FlattenAxes(InExp)</code></strong>: Performs a
+structural analysis of the Sisal <code>in</code> expression. It
+deconstructs nested <code>dot</code> and <code>cross</code> AST nodes
+into a canonical list of axis descriptors.
+<ul>
+<li><strong>Dot Axes</strong>: Grouped together; they operate in
+lockstep at the same nesting level.</li>
+<li><strong>Cross Axes</strong>: Ordered outermost-to-innermost,
+defining the recursive depth of the generator.</li>
+</ul></li>
+<li><strong><code>GetLowerBound(Axes)</code></strong>: Determines the
+starting index for the result array. For range loops, it evaluates the
+expression provided in the <code>lo</code> part of the triplet. For
+element loops, it queries the dope vector of the source array at
+runtime.</li>
+</ul>
+<h4 id="symbol-management-and-graph-construction">5.2 Symbol Management
+and Graph Construction</h4>
+<ul>
+<li><strong><code>CreateNewGraph(Scope)</code></strong>: Instantiates a
+new IF1 subgraph. It initializes a local symbol table that inherits from
+the <code>Scope</code>’s parent table, establishing the lexical scoping
+rules required for loop-invariant access.</li>
+<li><strong><code>RegisterLoopVariables(SymTab, Axis)</code></strong>:
+Inserts the names produced by the generator (e.g., indices, elements)
+into the local symbol table. Each entry is tagged with the node and port
+index of the <code>RANGEGEN</code> or <code>DV_SCATTER</code> node that
+defines it.</li>
+<li><strong><code>PublishGeneratorOutputs(GenGraph)</code></strong>:
+Scans the generator’s local symbol table for newly defined names. For
+each such name, it:
+<ol type="1">
+<li>Allocates a unique <strong>Boundary Output</strong> port on the
+<code>GenGraph</code>.</li>
+<li>Lays a dataflow edge from the internal defining node to this new
+boundary port. This makes the loop variables available to the
+<code>BODY</code> and <code>RETURNS</code> subgraphs via the parent
+<code>FORALL</code> compound.</li>
+</ol></li>
+</ul>
+<h4 id="body-and-dataflow-integration">5.3 Body and Dataflow
+Integration</h4>
+<ul>
+<li><strong><code>LowerExpression(BodyGraph, Expr)</code></strong>:
+Recursively lowers the body of the loop. It treats the body as a “black
+box” computation that consumes loop variables (imported via boundary
+inputs) and produces values for the returns clause.</li>
+<li><strong><code>ExportToBoundary(Graph, Value)</code></strong>:
+Identifies the terminal node in a computation and wires its output to a
+boundary port. This creates a “handle” that sibling subgraphs can
+reference.</li>
+<li><strong><code>ImportFromBody(ReturnClause)</code></strong>: Resolves
+a name reference in the <code>RETURNS</code> subgraph by searching the
+parent <code>FORALL</code> symbol table. It identifies the corresponding
+output port on the <code>BODY</code> compound and wires it to a boundary
+input of the <code>RETURNS</code> subgraph.</li>
+</ul>
+<h4 id="gather-and-result-assembly">5.4 Gather and Result Assembly</h4>
+<ul>
+<li><strong><code>ConstructNestedGathers(RetGraph, Axes, Returns)</code></strong>:
+The recursive heart of multidimensional array building.
+<ul>
+<li>For a rank-<span class="math inline"><em>N</em></span> result, it
+generates <span class="math inline"><em>N</em></span> levels of nested
+gathers.</li>
+<li>Each level consumes one axis’s bounds (to size the dimension) and
+one axis’s induction variable (to determine placement).</li>
+<li>The innermost level consumes the body’s value.</li>
+</ul></li>
+<li><strong><code>CreateGatherNode(RetGraph, Kind)</code></strong>:
+Emits the specific IF1 gather primitive:
+<ul>
+<li><code>DV_GATHER</code>: For flat, dope-vector arrays.</li>
+<li><code>SGATHER</code>: For stream production.</li>
+<li><code>REDUCE</code>: For scalar aggregations (e.g.,
+<code>SUM</code>).</li>
+</ul></li>
+<li><strong><code>WireIndex(GatherNode, Placement)</code></strong>:
+Connects the <code>index</code> port of a gather node. This is where the
+Sisal 2.0 <code>at</code> expression lands, allowing for arbitrary
+permutations and non-contiguous writes.</li>
+</ul>
+<h4 id="normalization">5.5 Normalization</h4>
+<ul>
+<li><strong><code>InsertASETL(Port, LowerBound)</code></strong>: A
+post-processing step for array results. Since IF1 gather nodes typically
+produce arrays starting at index 0 or 1 by default, <code>ASETL</code>
+(Array Set Lower Limit) is used to stamp the user-specified lower bound
+onto the final result before it leaves the <code>FORALL</code>
+compound.</li>
+</ul>
+</body>
+</html>

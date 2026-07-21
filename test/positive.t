@@ -50,6 +50,7 @@ DV_COMPRESS — COMPRESS produces array_dv; inputs may be monolithic or dv:
   $ sisal e2e/dv_broadcast_complex.sis
   $ sisal e2e/dv_broadcast_numpy.sis
   $ sisal e2e/verify_numpy_broadcast.sis
+  $ sisal e2e/interproc_provided_e2e.sis
   $ sisal e2e/dv_compress_test.sis
 
 APL bulk operations - sort and search (SORT/GRADE_UP/GRADE_DOWN/ARGMAX/ARGMIN/NONZERO/WHERE):

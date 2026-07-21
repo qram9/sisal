@@ -1,21 +1,46 @@
+% interproc_provided_e2e — DPS / provided-variant correctness stress.
+%
+% An array-returning helper is called every iteration of a for-initial loop
+% and its result is the loop carry, so the interprocedural provided-variant
+% path (func_STEP_provided(old V, &V)) runs each step.  Unlike a helper that
+% ignores the carry, each step's output depends on the ENTIRE previous array:
+%   Step(A)[i] = A[i] + sum(A)
+% Every output element reads the whole input, so value semantics are
+% load-bearing — any in-place reuse of the carry buffer that overwrites
+% elements still being read (the sum, or a later element) corrupts the
+% answer, and because the recurrence compounds over several steps a one-off
+% coincidence cannot mask it.  The old carry is dead after each update (only
+% the new value is carried forward), which is exactly the buffer a DPS reuse
+% would target.  The seed is ALSO an interprocedural array call, exercising
+% the INIT provided-variant path.  Reference = a C mirror of the recurrence.
+
 define Main
 
-type IntArray = array[integer]
+type IntArray = array_dv[integer]
 
-function Helper(N : integer returns IntArray)
+function Seed(N : integer returns IntArray)
     for j in 1, N
-        val := j * 2
-    returns array of val
+    returns array_dv of j
     end for
+end function
+
+function Step(A : IntArray returns IntArray)
+    let
+        total := for x in A returns value of sum x end for
+    in
+        for x in A
+        returns array_dv of x + total
+        end for
+    end let
 end function
 
 function Main(N, Steps : integer returns IntArray)
     for initial
-        i := 1;
-        Res := Helper(N)
-    while i <= Steps repeat
+        i := 0;
+        V := Seed(N)
+    while i < Steps repeat
         i := old i + 1;
-        Res := Helper(N)
-    returns value of Res
+        V := Step(old V)
+    returns value of V
     end for
 end function

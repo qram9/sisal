@@ -171,6 +171,18 @@ inline sisal_array_t sisal_array_alloc_empty(int32_t rank, int32_t type_id, uint
   return sisal_array_alloc_sized(rank, type_id, size, sisal_elem_size(type_id));
 }
 
+inline sisal_array_t sisal_array_dup(sisal_array_t a) {
+  if (!a.data || a.size == 0) return a;
+  sisal_array_t res = a;
+  size_t esz = sisal_esz(a);
+  size_t bytes = (size_t)a.size * esz;
+  res.data = malloc(bytes);
+  if (res.data && a.data) {
+    memcpy(res.data, a.data, bytes);
+  }
+  return res;
+}
+
 /* Zeroed descriptor (data NULL, size 0) -- the "no element yet" seed for an
    array-valued forall reduction accumulator. */
 inline sisal_array_t sisal_array_empty(void) { sisal_array_t a = {}; return a; }

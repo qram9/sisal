@@ -1033,6 +1033,71 @@ let scan_fanout gr gid env =
   in
   { env with fanout_map }
 
+let check_is_candidate_callee sub_gr =
+  let out_pids =
+    ES.fold
+      (fun (_, (dn, dp), ty) acc ->
+        if dn = 0 && not (is_error_port ty sub_gr) then
+          IntSet.add dp acc
+        else acc)
+      sub_gr.eset IntSet.empty
+    |> IntSet.elements
+  in
+  if List.length out_pids <> 1 then false
+  else
+    let pid = List.hd out_pids in
+    let _, tm, _ = sub_gr.typemap in
+    let is_array_out =
+      ES.fold
+        (fun (_, dst, ty_id) acc ->
+          if dst = (0, pid) then
+            match TM.find_opt ty_id tm with
+            | Some (Array_dv _) | Some (Array_ty _) -> true
+            | _ -> false
+          else acc)
+        sub_gr.eset false
+    in
+    if not is_array_out then false
+    else
+      let size_sources = ref [] in
+    NM.iter
+      (fun n_id n_node ->
+        match n_node with
+        | Compound (_, _, _, pr, _, _) ->
+            let ckind = get_compound_type pr in
+            if ckind = If1_forall || ckind = If1_loop_initial then
+              ES.iter
+                (fun (src, (dn, _), _) ->
+                  if dn = n_id then size_sources := src :: !size_sources)
+                sub_gr.eset
+        | Simple (_, AGATHER, _, _, _) ->
+            ES.iter
+              (fun (src, (dn, _), _) ->
+                if dn = n_id then size_sources := src :: !size_sources)
+              sub_gr.eset
+        | _ -> ())
+      sub_gr.nmap;
+    if !size_sources = [] then false
+    else
+      let rec is_invariant_node (sn, sp) visited =
+        if sn = 0 then true
+        else if IntSet.mem sn visited then false
+        else
+          let visited' = IntSet.add sn visited in
+          match NM.find_opt sn sub_gr.nmap with
+          | Some (Simple (_, _, _, _, _)) ->
+              let in_edges =
+                ES.fold
+                  (fun (src, (dn, _), _) acc ->
+                    if dn = sn then src :: acc else acc)
+                  sub_gr.eset []
+              in
+              in_edges <> []
+              && List.for_all (fun src -> is_invariant_node src visited') in_edges
+          | _ -> false
+      in
+      List.for_all (fun src -> is_invariant_node src IntSet.empty) !size_sources
+
 module PortMap = Map.Make(struct
   type t = int * int
   let compare = compare
@@ -2119,30 +2184,17 @@ and lower_simple env gr nid sym pin pout pr =
         let out_var_name =
           get_c_name env.proc_map env.gid_name_map gid nid 0 `Out gr
         in
-        let dst_ty = get_final_ty env gid nid 0 `Out in
-        let is_user_proc =
-          String.starts_with ~prefix:"func_" fname &&
-          not (String.starts_with ~prefix:"func__" fname) &&
-          not (List.mem fname [ "func_ABS"; "func_SIGN"; "func_SQRT"; "func_EXP"; "func_LOG"; "func_SIN"; "func_COS"; "func_ATAN"; "func_SDOT"; "func_SASUM"; "func_DASUM"; "func_SNRM2"; "func_DNRM2" ])
-        in
-        let callee_arity =
+        let is_candidate =
           IntMap.fold
             (fun pnid pname acc ->
               if pname = fname then
                 match IntMap.find_opt pnid env.procedures_info with
-                | Some sub ->
-                    ES.fold
-                      (fun (_, (dn, dp), ty) a ->
-                        if dn = 0 && not (is_error_port ty sub) then
-                          IntSet.add dp a
-                        else a)
-                      sub.eset IntSet.empty
-                    |> IntSet.cardinal
+                | Some sub -> check_is_candidate_callee sub
                 | None -> acc
               else acc)
-            env.proc_map 0
+            env.proc_map false
         in
-        if env.parent_env <> None && dst_ty = C.Basic "sisal_array_t" && is_user_proc && callee_arity = 1 then
+        if env.parent_env <> None && is_candidate then
           C.Call (fname ^ "_provided", args @ [ C.UnaryOp (C.AddrOf, C.Id out_var_name) ])
         else
           C.Call (fname, args)
@@ -5426,52 +5478,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
           out_pids
       in
 
-      let is_candidate_callee =
-        if List.length out_pids <> 1 then false
-        else
-          let pid = List.hd out_pids in
-          let ty = get_final_ty env_after nid 0 pid `In in
-          if ty <> C.Basic "sisal_array_t" then false
-          else
-            let size_sources = ref [] in
-            NM.iter
-              (fun n_id n_node ->
-                match n_node with
-                | Compound (_, _, _, pr, _, _) ->
-                    let ckind = get_compound_type pr in
-                    if ckind = If1_forall || ckind = If1_loop_initial then
-                      ES.iter
-                        (fun (src, (dn, _), _) ->
-                          if dn = n_id then size_sources := src :: !size_sources)
-                        sub_gr.eset
-                | Simple (_, AGATHER, _, _, _) ->
-                    ES.iter
-                      (fun (src, (dn, _), _) ->
-                        if dn = n_id then size_sources := src :: !size_sources)
-                      sub_gr.eset
-                | _ -> ())
-              sub_gr.nmap;
-            if !size_sources = [] then false
-            else
-              let rec is_invariant_node (sn, sp) visited =
-                if sn = 0 then true
-                else if IntSet.mem sn visited then false
-                else
-                  let visited' = IntSet.add sn visited in
-                  match NM.find_opt sn sub_gr.nmap with
-                  | Some (Simple (_, _, _, _, _)) ->
-                      let in_edges =
-                        ES.fold
-                          (fun (src, (dn, _), _) acc ->
-                            if dn = sn then src :: acc else acc)
-                          sub_gr.eset []
-                      in
-                      in_edges <> []
-                      && List.for_all (fun src -> is_invariant_node src visited') in_edges
-                  | _ -> false
-              in
-              List.for_all (fun src -> is_invariant_node src IntSet.empty) !size_sources
-      in
+      let is_candidate_callee = check_is_candidate_callee sub_gr in
 
       let res_struct_name = String.uppercase_ascii func_name ^ "_results" in
       if List.length out_pids = 1 then
