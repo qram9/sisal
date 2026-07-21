@@ -1033,6 +1033,51 @@ let scan_fanout gr gid env =
   in
   { env with fanout_map }
 
+module PortMap = Map.Make(struct
+  type t = int * int
+  let compare = compare
+end)
+
+(** [scan_edge_liveness gr gid env] computes topological node order and fanout
+    counts to mark each dataflow edge with the set of input ports it FREES upon
+    reaching its last topological consumer. *)
+let scan_edge_liveness gr gid env =
+  let sorted_nodes = topo_sort gr in
+  let topo_pos =
+    let map = ref IntMap.empty in
+    List.iteri (fun idx nid -> map := IntMap.add nid idx !map) (0 :: sorted_nodes);
+    !map
+  in
+  let src_consumers = ref PortMap.empty in
+  ES.iter
+    (fun ((sn, sp), (dn, dp), ty) ->
+      let key = (sn, sp) in
+      let prev = match PortMap.find_opt key !src_consumers with Some l -> l | None -> [] in
+      src_consumers := PortMap.add key (((sn, sp), (dn, dp), ty) :: prev) !src_consumers)
+    gr.eset;
+
+  let edge_free_map =
+    PortMap.fold
+      (fun (sn, sp) consumers emap ->
+        let sorted_consumers =
+          List.sort
+            (fun ((_, _), (dn1, _), _) ((_, _), (dn2, _), _) ->
+              let p1 = match IntMap.find_opt dn1 topo_pos with Some p -> p | None -> -1 in
+              let p2 = match IntMap.find_opt dn2 topo_pos with Some p -> p | None -> -1 in
+              compare p1 p2)
+            consumers
+        in
+        match List.rev sorted_consumers with
+        | ((sn, sp), (dn, dp), _) :: _ ->
+            let ekey = (gid, sn, sp, dn, dp) in
+            let freed_input = (gid, sn, sp) in
+            let cur_freed = match EdgeFreeMap.find_opt ekey emap with Some l -> l | None -> [] in
+            EdgeFreeMap.add ekey (freed_input :: cur_freed) emap
+        | [] -> emap)
+      !src_consumers env.edge_free_map
+  in
+  { env with edge_free_map }
+
 (** [assign_with_cast env gid nid pid dir src_expr] emits an assignment with an
     optional declaration if the variable is seen for the first time. *)
 let assign_with_cast env gid nid pid dir src_expr =
@@ -1333,6 +1378,7 @@ let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
 let rec lower_graph env parent_gr compound_nid gr gid =
   let env = { env with curr_gid = gid; curr_gr = gr } in
   let env = scan_fanout gr gid env in
+  let env = scan_edge_liveness gr gid env in
   let pre_decl_stmts, env = pre_declare_graph_locals env gr gid in
   let b_in_stmts, env =
     if env.parent_env = None || IntMap.mem gid env.proc_map then ([], env)
@@ -5115,6 +5161,7 @@ let dummy_env tm sub_gr =
     compound_nid_in_parent = 0;
     seen_decls = StringSet.empty;
     fanout_map = PortFanout.empty;
+    edge_free_map = EdgeFreeMap.empty;
     mandatory_ports = PortSet.empty;
     gid_table = GidMap.empty;
     parent_map = IntMap.empty;

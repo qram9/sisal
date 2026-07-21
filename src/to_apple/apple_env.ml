@@ -41,6 +41,13 @@ end)
 
 module C = Ir.C_ast
 
+module EdgeKey = struct
+  type t = int * int * int * int * int (* (gid, sn, sp, dn, dp) *)
+  let compare = compare
+end
+
+module EdgeFreeMap = Map.Make(EdgeKey)
+
 type env = {
   tm : Ir.If1.if1_ty TM.t;
   var_map : C.expr FullPortMap.t;
@@ -52,6 +59,7 @@ type env = {
   compound_nid_in_parent : int;
   seen_decls : StringSet.t;
   fanout_map : int PortFanout.t;
+  edge_free_map : (int * int * int) list EdgeFreeMap.t;
   mandatory_ports : PortSet.t;
   gid_table : int GidMap.t;
   parent_map : (int * int) IntMap.t;
