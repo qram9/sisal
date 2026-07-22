@@ -3623,9 +3623,11 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                                    value;
                                    C.Cast (C.Basic "int64_t", count);
                                    C.Id gctr;
+                                   C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
                                  ] ) ))
                     in
                     ( [
+                        C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
                         C.Expr
                           (C.BinOp
                              (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
@@ -3932,186 +3934,92 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         (res_name, C.Basic "sisal_array_t"),
                         (port, res_v) )
                   | None ->
-                      let alloc =
-                        C.Expr
-                          (C.BinOp
-                             ( C.Assign,
-                               res_v,
-                               alloc_array_call (C.LitInt rank) (C.LitInt tid)
-                                 (C.Cast (C.Basic "uint64_t", count))
-                                 out_ty ))
-                        :: List.concat
-                             (List.mapi
-                                (fun k (e, lb) ->
-                                  [
-                                    C.Expr
-                                      (C.BinOp
-                                         ( C.Assign,
-                                           C.Index
-                                             ( C.Member (res_v, "dims"),
-                                               C.LitInt k ),
-                                           e ));
-                                    C.Expr
-                                      (C.BinOp
-                                         ( C.Assign,
-                                           C.Index
-                                             ( C.Member (res_v, "lower_bound"),
-                                               C.LitInt k ),
-                                           lb ));
-                                  ])
-                                extents)
-                      in
-                      let store =
-                        [
+                      let sat = C.Basic "sisal_array_t" in
+                      if out_ty = sat then (
+                        (* Optimize array-valued gather: pre-allocate flat multi-dimensional block *)
+                        let alloc =
+                          [
+                            C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
+                            C.Expr
+                              (C.BinOp
+                                 (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                          ]
+                        in
+                        let store =
+                          [
+                            C.Expr
+                              (C.BinOp
+                                 ( C.Assign,
+                                   res_v,
+                                   C.Call
+                                     ( "sisal_array_gather_store",
+                                       [
+                                         res_v;
+                                         cast;
+                                         C.LitInt tid;
+                                         C.LitInt rank;
+                                         C.BraceInit ("(const int32_t[])", List.map fst extents);
+                                         C.BraceInit ("(const int64_t[])", List.map snd extents);
+                                         C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
+                                         C.Id gctr;
+                                       ] ) ));
+                          ]
+                        in
+                        ( alloc,
+                          store,
+                          [],
+                          (res_name, sat),
+                          (port, res_v) )
+                      ) else (
+                        (* Standard scalar-valued gather *)
+                        let alloc =
                           C.Expr
                             (C.BinOp
                                ( C.Assign,
-                                 C.Index
-                                   ( C.Cast
-                                       ( C.Pointer (out_ty, []),
-                                         C.Member (res_v, "data") ),
-                                     C.Id gctr ),
-                                 cast ));
-                        ]
-                      in
-                      (* BOX-then-FLATTEN: when the gathered body value is itself an array
-                     (out_ty = sisal_array_t), the loop boxed row DESCRIPTORS into
-                     res_v (rank = outer axes).  After the loop, re-pack into a flat
-                     rank-(outer + elem.rank) array_dv: read the element shape ONCE off
-                     the first boxed row (rectangular), memcpy each row's bytes. *)
-                      let sat = C.Basic "sisal_array_t" in
-                      let after =
-                        if out_ty <> sat then []
-                        else
-                          let e0 = C.Id ("__e0_" ^ res_name)
-                          and fl = C.Id ("__flat_" ^ res_name) in
-                          let esz = C.Call ("sisal_esz", [ e0 ]) in
-                          let ecount = C.Member (e0, "size") in
-                          let bytes = C.BinOp (C.Mul, ecount, esz) in
-                          let boxed i =
-                            C.Index
-                              ( C.Cast
-                                  (C.Pointer (sat, []), C.Member (res_v, "data")),
-                                i )
-                          in
-                          let decl_e0 =
-                            C.Decl
-                              ( sat,
-                                "__e0_" ^ res_name,
-                                Some (boxed (C.LitInt 0)) )
-                          in
-                          let decl_fl =
-                            C.Decl
-                              ( sat,
-                                "__flat_" ^ res_name,
-                                Some
-                                  (C.Call
-                                     ( "sisal_array_alloc_sized",
-                                       [
-                                         C.BinOp
-                                           ( C.Add,
-                                             C.LitInt rank,
-                                             C.Member (e0, "rank") );
-                                         C.Member (e0, "type_id");
-                                         C.Cast
-                                           ( C.Basic "uint64_t",
-                                             C.BinOp
-                                               ( C.Mul,
-                                                 C.Cast
-                                                   (C.Basic "uint64_t", count),
-                                                 ecount ) );
-                                         esz;
-                                       ] )) )
-                          in
-                          let outer_dims =
-                            List.concat
-                              (List.mapi
-                                 (fun k (e, lb) ->
-                                   [
-                                     C.Expr
-                                       (C.BinOp
-                                          ( C.Assign,
-                                            C.Index
-                                              (C.Member (fl, "dims"), C.LitInt k),
-                                            e ));
-                                     C.Expr
-                                       (C.BinOp
-                                          ( C.Assign,
-                                            C.Index
-                                              ( C.Member (fl, "lower_bound"),
-                                                C.LitInt k ),
-                                            lb ));
-                                   ])
-                                 extents)
-                          in
-                          let kk = "__fk_" ^ res_name in
-                          let inner_dims =
-                            C.For
-                              ( C.Decl (C.Basic "int32_t", kk, Some (C.LitInt 0)),
-                                C.BinOp (C.Lt, C.Id kk, C.Member (e0, "rank")),
-                                C.UnaryOp (C.PostInc, C.Id kk),
-                                [
-                                  C.Expr
-                                    (C.BinOp
-                                       ( C.Assign,
-                                         C.Index
-                                           ( C.Member (fl, "dims"),
-                                             C.BinOp
-                                               (C.Add, C.LitInt rank, C.Id kk)
-                                           ),
-                                         C.Index (C.Member (e0, "dims"), C.Id kk)
-                                       ));
-                                  C.Expr
-                                    (C.BinOp
-                                       ( C.Assign,
-                                         C.Index
-                                           ( C.Member (fl, "lower_bound"),
-                                             C.BinOp
-                                               (C.Add, C.LitInt rank, C.Id kk)
-                                           ),
-                                         C.Index
-                                           ( C.Member (e0, "lower_bound"),
-                                             C.Id kk ) ));
-                                ] )
-                          in
-                          let ii = "__fi_" ^ res_name in
-                          let copy =
-                            C.For
-                              ( C.Decl (C.Basic "int32_t", ii, Some (C.LitInt 0)),
-                                C.BinOp
-                                  ( C.Lt,
-                                    C.Id ii,
-                                    C.Cast (C.Basic "int32_t", count) ),
-                                C.UnaryOp (C.PostInc, C.Id ii),
-                                [
-                                  C.Expr
-                                    (C.Call
-                                       ( "memcpy",
-                                         [
-                                           C.BinOp
-                                             ( C.Add,
-                                               C.Cast
-                                                 ( C.Pointer (C.Basic "char", []),
-                                                   C.Member (fl, "data") ),
-                                               C.BinOp
-                                                 ( C.Mul,
-                                                   C.Cast
-                                                     ( C.Basic "uint64_t",
-                                                       C.Id ii ),
-                                                   bytes ) );
-                                           C.Member (boxed (C.Id ii), "data");
-                                           bytes;
-                                         ] ));
-                                ] )
-                          in
-                          [ decl_e0; decl_fl ] @ outer_dims
-                          @ [
-                              inner_dims;
-                              copy;
-                              C.Expr (C.BinOp (C.Assign, res_v, fl));
-                            ]
-                      in
-                      (alloc, store, after, (res_name, sat), (port, res_v))))
+                                 res_v,
+                                 alloc_array_call (C.LitInt rank) (C.LitInt tid)
+                                   (C.Cast (C.Basic "uint64_t", count))
+                                   out_ty ))
+                          :: List.concat
+                               (List.mapi
+                                  (fun k (e, lb) ->
+                                    [
+                                      C.Expr
+                                        (C.BinOp
+                                           ( C.Assign,
+                                             C.Index
+                                               ( C.Member (res_v, "dims"),
+                                                 C.LitInt k ),
+                                             e ));
+                                      C.Expr
+                                        (C.BinOp
+                                           ( C.Assign,
+                                             C.Index
+                                               ( C.Member (res_v, "lower_bound"),
+                                                 C.LitInt k ),
+                                             lb ));
+                                    ])
+                                  extents)
+                        in
+                        let store =
+                          [
+                            C.Expr
+                              (C.BinOp
+                                 ( C.Assign,
+                                   C.Index
+                                     ( C.Cast
+                                         ( C.Pointer (out_ty, []),
+                                           C.Member (res_v, "data") ),
+                                       C.Id gctr ),
+                                   cast ));
+                          ]
+                        in
+                        ( alloc,
+                          store,
+                          [],
+                          (res_name, sat),
+                          (port, res_v) )
+                      )))
             (* Only the CLAUSE outputs: the BODY also exports scatter
                placements (ports past the RETURNS output count), which are
                operands of the scatter stores, not forall outputs. *)
