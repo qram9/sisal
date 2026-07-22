@@ -3552,8 +3552,14 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         (C.BinOp
                            ( C.Assign,
                              res_v,
-                             C.Call ("sisal_array_catenate", [ res_v; value ])
-                           ))
+                             C.Call
+                               ( "sisal_array_catenate_store",
+                                 [
+                                   res_v;
+                                   value;
+                                   C.Cast (C.Basic "int64_t", count);
+                                   C.Id gctr;
+                                 ] ) ))
                     in
                     ( [
                         C.Expr
@@ -4082,7 +4088,9 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         let binds = List.map (fun (_, _, _, _, b) -> b) per_filtered in
         let any_gather =
           List.exists
-            (fun (p, _, _) -> reduce_op_of p = None && not (is_final p))
+            (fun (p, _, _) ->
+              (reduce_op_of p = None && not (is_final p))
+              || reduce_op_of p = Some R_catenate)
             body_outs
         in
         let before =

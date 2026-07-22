@@ -449,6 +449,41 @@ inline sisal_array_t sisal_array_catenate(sisal_array_t acc, sisal_array_t val) 
     return sisal_array_addh_arr(acc, val);
 }
 
+inline sisal_array_t sisal_array_catenate_store(sisal_array_t acc, sisal_array_t val,
+                                                int64_t ext, int64_t idx) {
+    if (val.data == NULL || val.size == 0) return acc;
+    size_t esz = sisal_esz(val);
+    if (acc.data == NULL) {
+        uint64_t total = (uint64_t)(ext > 0 ? ext : 0) * val.size;
+        acc = sisal_array_alloc_sized(val.rank, val.type_id, total, esz);
+        acc.dims[0] = (val.rank > 0 && val.dims[0] > 0) ? val.dims[0] : 1;
+        for (int k = 1; k < (int)val.rank && k < 7; k++) {
+            acc.dims[k] = val.dims[k];
+            acc.lower_bound[k] = val.lower_bound[k];
+        }
+        acc.lower_bound[0] = val.lower_bound[0];
+        acc.lower_bound[7] = (int64_t)val.size;
+        if (val.size) memcpy(acc.data, val.data, (size_t)val.size * esz);
+        acc.size = val.size;
+        return acc;
+    }
+    uint64_t first_size = (uint64_t)acc.lower_bound[7];
+    if (val.size == first_size && acc.size == (uint64_t)idx * first_size) {
+        if (val.size) {
+            memcpy((char*)acc.data + (size_t)idx * (size_t)first_size * esz,
+                   val.data, (size_t)first_size * esz);
+        }
+        acc.size = (uint64_t)(idx + 1) * first_size;
+        int64_t val_dim0 = (val.rank > 0 && val.dims[0] > 0) ? val.dims[0] : 1;
+        acc.dims[0] = (idx + 1) * val_dim0;
+        return acc;
+    } else {
+        sisal_array_t grown = sisal_array_addh_arr(acc, val);
+        grown.lower_bound[7] = (int64_t)first_size;
+        return grown;
+    }
+}
+
 inline sisal_array_t sisal_array_build_double(int64_t lb, int count, const double* elems) {
     sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)count);
     res.lower_bound[0] = lb;
