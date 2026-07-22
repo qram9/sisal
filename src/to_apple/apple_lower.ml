@@ -3936,40 +3936,173 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   | None ->
                       let sat = C.Basic "sisal_array_t" in
                       if out_ty = sat then (
-                        (* Optimize array-valued gather: pre-allocate flat multi-dimensional block *)
-                        let alloc =
-                          [
-                            C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
-                            C.Expr
-                              (C.BinOp
-                                 (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                          ]
+                        let r_sub = find_subgraph loop_gr "RETURNS" in
+                        let gnid =
+                          match r_sub with
+                          | Some (rn_nid, r_gr) ->
+                              ES.fold
+                                (fun ((sn, _), (dn, dp), _) a ->
+                                  if dn = 0 && dp = port then Some sn else a)
+                                r_gr.eset None
+                          | None -> None
                         in
-                        let store =
-                          [
-                            C.Expr
-                              (C.BinOp
-                                 ( C.Assign,
-                                   res_v,
-                                   C.Call
-                                     ( "sisal_array_gather_store",
+                        let shaped_exts =
+                          match r_sub, gnid with
+                          | Some (rn_nid, r_gr), Some g_nid -> (
+                              let dope_src =
+                                ES.fold
+                                  (fun ((sn, _), (dn, dp), _) a ->
+                                    if dn = g_nid && dp = 2 then Some sn else a)
+                                  r_gr.eset None
+                              in
+                              match dope_src with
+                              | Some mnid -> (
+                                  match NM.find_opt mnid r_gr.nmap with
+                                  | Some (Simple (_, DV_MAKE_DOPE, _, _, _)) ->
+                                      let ext_ports =
+                                        ES.fold
+                                          (fun ((sn, sp), (dn, dp), _) acc ->
+                                            if dn = mnid && dp >= 2 && sn = 0 then
+                                              (dp, sp) :: acc
+                                            else acc)
+                                          r_gr.eset []
+                                        |> List.sort compare
+                                      in
+                                      Some
+                                        (List.map
+                                           (fun (_, extp) ->
+                                             let e =
+                                               match
+                                                 ES.fold
+                                                   (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                                     if dn2 = rn_nid && dp2 = extp then
+                                                       Some (sn2, sp2)
+                                                     else a)
+                                                   loop_gr.eset None
+                                               with
+                                               | Some (sn2, sp2) ->
+                                                   get_expr env_loop sub_gid sn2 sp2 `Out
+                                               | None -> C.LitInt 0
+                                             in
+                                             (e, C.LitInt 1))
+                                           ext_ports)
+                                  | _ -> None)
+                              | None -> None)
+                          | _ -> None
+                        in
+                        match shaped_exts with
+                        | Some inner_extents ->
+                            let elem_tid =
+                              match TM.find_opt tid env.tm with
+                              | Some (Array_dv e) | Some (Array_ty e) -> e
+                              | _ -> failwith "gather of non-array type"
+                            in
+                            let elem_cty = c_type_of_if1_tyid env.tm elem_tid in
+                            let all_extents = extents @ inner_extents in
+                            let total_rank = List.length all_extents in
+                            let total_count =
+                              List.fold_left
+                                (fun acc (e, _) -> C.BinOp (C.Mul, acc, e))
+                                (C.LitInt 1) all_extents
+                            in
+                            let alloc =
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     res_v,
+                                     alloc_array_call (C.LitInt total_rank) (C.LitInt tid)
+                                       (C.Cast (C.Basic "uint64_t", total_count))
+                                       elem_cty ))
+                              :: List.concat
+                                   (List.mapi
+                                      (fun j (e, lb) ->
+                                        [
+                                          C.Expr
+                                            (C.BinOp
+                                               ( C.Assign,
+                                                 C.Index (C.Member (res_v, "dims"), C.LitInt j),
+                                                 e ));
+                                          C.Expr
+                                            (C.BinOp
+                                               ( C.Assign,
+                                                 C.Index (C.Member (res_v, "lower_bound"), C.LitInt j),
+                                                 lb ));
+                                        ])
+                                      all_extents)
+                            in
+                            let inner_count =
+                              List.fold_left
+                                (fun acc (e, _) -> C.BinOp (C.Mul, acc, e))
+                                (C.LitInt 1) inner_extents
+                            in
+                            let bytes =
+                              C.BinOp
+                                ( C.Mul,
+                                  C.Cast (C.Basic "uint64_t", inner_count),
+                                  C.Call ("sizeof", [ C.Id (string_of_c_type elem_cty) ]) )
+                            in
+                            let store =
+                              [
+                                C.Expr
+                                  (C.Call
+                                     ( "memcpy",
                                        [
-                                         res_v;
-                                         cast;
-                                         C.LitInt tid;
-                                         C.LitInt rank;
-                                         C.BraceInit ("(const int32_t[])", List.map fst extents);
-                                         C.BraceInit ("(const int64_t[])", List.map snd extents);
-                                         C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
-                                         C.Id gctr;
-                                       ] ) ));
-                          ]
-                        in
-                        ( alloc,
-                          store,
-                          [],
-                          (res_name, sat),
-                          (port, res_v) )
+                                         C.BinOp
+                                           ( C.Add,
+                                             C.Cast
+                                               ( C.Pointer (C.Basic "char", []),
+                                                 C.Member (res_v, "data") ),
+                                             C.BinOp
+                                               ( C.Mul,
+                                                 C.Cast (C.Basic "uint64_t", C.Id gctr),
+                                                 bytes ) );
+                                         C.Member (cast, "data");
+                                         C.BinOp
+                                           ( C.Mul,
+                                             C.Cast (C.Basic "uint64_t", C.Member (cast, "size")),
+                                             C.Call ("sizeof", [ C.Id (string_of_c_type elem_cty) ]) );
+                                       ] ));
+                              ]
+                            in
+                            ( alloc,
+                              store,
+                              [],
+                              (res_name, sat),
+                              (port, res_v) )
+                        | None ->
+                            let alloc =
+                              [
+                                C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
+                                C.Expr
+                                  (C.BinOp
+                                     (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                              ]
+                            in
+                            let store =
+                              [
+                                C.Expr
+                                  (C.BinOp
+                                     ( C.Assign,
+                                       res_v,
+                                       C.Call
+                                         ( "sisal_array_gather_store",
+                                           [
+                                             res_v;
+                                             cast;
+                                             C.LitInt tid;
+                                             C.LitInt rank;
+                                             C.BraceInit ("(const int32_t[])", List.map fst extents);
+                                             C.BraceInit ("(const int64_t[])", List.map snd extents);
+                                             C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
+                                             C.Id gctr;
+                                           ] ) ));
+                              ]
+                            in
+                            ( alloc,
+                              store,
+                              [],
+                              (res_name, sat),
+                              (port, res_v) )
                       ) else (
                         (* Standard scalar-valued gather *)
                         let alloc =

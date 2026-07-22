@@ -1,0 +1,13 @@
+define Main
+
+type ArrReal1 = array_dv[real];
+type ArrReal2 = array_dv[real];
+
+function Main(n, m : integer RETURNS ArrReal2)
+    FOR i IN 1, n
+        row := FOR j IN 1, m
+               RETURNS array_dv of real(i * 10 + j)
+               END FOR
+    RETURNS array_dv(m) of row
+    END FOR
+end function

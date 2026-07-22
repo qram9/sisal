@@ -969,6 +969,9 @@ extern "C" float func_MAIN(int32_t CYCLES);
 #ifdef TEST_FORALL_CROSS_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t A, sisal_array_t B);
 #endif
+#ifdef TEST_FORALL_SHAPED_GATHER_DV
+extern "C" sisal_array_t func_MAIN(int32_t n, int32_t m);
+#endif
 #ifdef TEST_FOR_INITIAL_SIMPLE
 extern "C" int32_t func_MAIN(int32_t N);
 #endif
@@ -6718,6 +6721,27 @@ static void test_forall_cross_dv(void) {
     free(A.data); free(B.data); if (r.data) free(r.data);
 }
 #endif
+#ifdef TEST_FORALL_SHAPED_GATHER_DV
+static void test_forall_shaped_gather_dv(void) {
+    printf("\n=== Group: forall_shaped_gather_dv (pre-allocated nested gather) ===\n");
+    int32_t n = 4, m = 3;
+    sisal_array_t r = func_MAIN(n, m);
+    bool ok = r.rank == 2 && (int)r.dims[0] == 4 && (int)r.dims[1] == 3;
+    if (ok) {
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 3; j++) {
+                float got = ((float*)r.data)[i*3+j];
+                float expected = (float)((i+1) * 10 + (j+1));
+                if (fabs(got - expected) > 1e-5) {
+                    ok = false;
+                }
+            }
+        }
+    }
+    check("forall shaped gather pre-allocated flat rank-2", ok);
+    if (r.data) free(r.data);
+}
+#endif
 #ifdef TEST_FOR_INITIAL_SIMPLE
 // `;` = let-in nesting: stmt1 reads carry s; stmt2 reads carry (old i)
 // AND stmt1's new i.  Reference mirrors exactly that.
@@ -9198,6 +9222,9 @@ main (void)
 #ifdef TEST_FORALL_CROSS_DV
   test_forall_cross_dv ();
 #endif
+#ifdef TEST_FORALL_SHAPED_GATHER_DV
+  test_forall_shaped_gather_dv ();
+#endif
 #ifdef TEST_FOR_INITIAL_SIMPLE
   test_for_initial_simple ();
 #endif
@@ -9656,7 +9683,7 @@ main (void)
     && !defined(TEST_FOR_ALL_ARGMAX) && !defined(TEST_TUPLE_MIXED3) && !defined(TEST_RECORD1) && !defined(TEST_UNION1) \
     && !defined(TEST_TUPLE_MIXED2) && !defined(TEST_UNION0) && !defined(TEST_TUPLE_ADD_DV) && !defined(TEST_IDIV) \
     && !defined(TEST_FORALL_SIMPLE_DV) && !defined(TEST_FORALL_DOT_DV) \
-    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
+    && !defined(TEST_TUPLE_MIXED) && !defined(TEST_RECORD2) && !defined(TEST_RECORD1_REORDER) && !defined(TEST_RECORD_REPLACE_E2E) && !defined(TEST_PARPI1) && !defined(TEST_FORALL_CROSS_DV) && !defined(TEST_FORALL_SHAPED_GATHER_DV) && !defined(TEST_FOR_INITIAL_SIMPLE) \
     && !defined(TEST_PARPI2) && !defined(TEST_PARPI_BABB) && !defined(TEST_FOR_INITIAL_LOOPA) && !defined(TEST_LOOPAT2_DV) && !defined(TEST_TST_LOOP2_DV) && !defined(TEST_FOR_ALL_REDUCE) && !defined(TEST_SIMPLEBATCHER_DV) && !defined(TEST_SEQBATCHER_DV) && !defined(TEST_BATCHER_DV) && !defined(TEST_ANGMOM_DV) && !defined(TEST_VSPHERE_DV) && !defined(TEST_ENERGY_DV) && !defined(TEST_SPECAM_DV) && !defined(TEST_SAS_DV) && !defined(TEST_LINEAR_DV) && !defined(TEST_UVSPEC_DV) && !defined(TEST_SPEC_DV) && !defined(TEST_NOISE_DV) && !defined(TEST_TST_LOOPX_DV) && !defined(TEST_TST_LOOPX2_DV) && !defined(TEST_INSERTION2_DV) && !defined(TEST_INSERT_DV) && !defined(TEST_TST_LOOPAT1_DV) && !defined(TEST_TUPLE_DESTRUCTURE) && !defined(TEST_SIFUNCS) && !defined(TEST_ADA) && !defined(TEST_PINSERT_DV) && !defined(TEST_ALPHABETA_DV) && !defined(TEST_TSTEP_DV) && !defined(TEST_FREQ_DV) && !defined(TEST_COMPLEX_TYPES_E2E) && !defined(TEST_VERIFY_NUMPY_BROADCAST)                \
     && !defined(TEST_SHAPED_GATHER_DV) && !defined(TEST_FORINIT_MAT_GATHER_DV) \
     && !defined(TEST_SCATTER_AT_DV) && !defined(TEST_GROW_NEST_DV)            \
