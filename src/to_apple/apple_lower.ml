@@ -1098,6 +1098,53 @@ let check_is_candidate_callee sub_gr =
       in
       List.for_all (fun src -> is_invariant_node src IntSet.empty) !size_sources
 
+let rec collect_catenate_chain gr nid =
+  match NM.find_opt nid gr.nmap with
+  | Some (Simple (_, ACATENATE, _, _, _)) ->
+      let e1_opt, e2_opt =
+        ES.fold
+          (fun (src, dst, _) (e1, e2) ->
+            if dst = (nid, 0) then (Some src, e2)
+            else if dst = (nid, 1) then (e1, Some src)
+            else (e1, e2))
+          gr.eset (None, None)
+      in
+      (match (e1_opt, e2_opt) with
+      | Some (src1_node, src1_port), Some (src2_node, src2_port) ->
+          let left_chain = collect_catenate_chain gr src1_node in
+          if left_chain <> [] then
+            left_chain @ [(src2_node, src2_port)]
+          else
+            [(src1_node, src1_port); (src2_node, src2_port)]
+      | _ -> [])
+  | _ -> []
+
+let rec find_chain_end gr nid =
+  match
+    ES.fold
+      (fun (src, dst, _) acc ->
+        if src = (nid, 0) then Some dst else acc)
+      gr.eset None
+  with
+  | Some (dn, 0) -> (
+      match NM.find_opt dn gr.nmap with
+      | Some (Simple (_, ACATENATE, _, _, _)) -> find_chain_end gr dn
+      | _ -> nid)
+  | _ -> nid
+
+let is_consumed_by_catenate gr nid =
+  let chain_end = find_chain_end gr nid in
+  let chain_len = List.length (collect_catenate_chain gr chain_end) in
+  chain_len >= 3 &&
+  ES.exists
+    (fun ((sn, sp), (dn, _), _) ->
+      if sn = nid && sp = 0 then
+        match NM.find_opt dn gr.nmap with
+        | Some (Simple (_, ACATENATE, _, _, _)) -> true
+        | _ -> false
+      else false)
+    gr.eset
+
 module PortMap = Map.Make(struct
   type t = int * int
   let compare = compare
@@ -1958,7 +2005,24 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> "sisal_array_addh_f32"
         in
         C.Call (fn, [ e1; e2 ])
-    | ACATENATE -> C.Call ("sisal_array_addh_arr", [ e1; e2 ])
+    | ACATENATE ->
+        if is_consumed_by_catenate gr nid then
+          e1
+        else (
+          match collect_catenate_chain gr nid with
+          | ops when List.length ops >= 3 ->
+              let exprs =
+                List.map (fun (n, p) -> get_expr env gid n p `Out) ops
+              in
+              let count = List.length ops in
+              C.Call
+                ( "sisal_array_catenate_multi",
+                  [
+                    C.LitInt count;
+                    C.BraceInit ("(const sisal_array_t[])", exprs);
+                  ] )
+          | _ -> C.Call ("sisal_array_addh_arr", [ e1; e2 ])
+        )
     | DVAADDL | AADDL ->
         (* prepend e2 at the low end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in

@@ -484,6 +484,40 @@ inline sisal_array_t sisal_array_catenate_store(sisal_array_t acc, sisal_array_t
     }
 }
 
+inline sisal_array_t sisal_array_catenate_multi(int32_t count, const sisal_array_t* arrays) {
+    if (count <= 0) return sisal_array_empty();
+    if (count == 1) return arrays[0];
+    
+    size_t esz = sisal_esz(arrays[0]);
+    uint64_t total = 0;
+    int32_t leading_dim_growth = (int32_t)arrays[0].dims[0];
+    
+    for (int32_t i = 0; i < count; i++) {
+        total += arrays[i].size;
+        if (i > 0 && arrays[i].data != NULL && arrays[i].size > 0) {
+            leading_dim_growth += (arrays[i].rank == arrays[0].rank) ? (arrays[i].dims[0] > 0 ? (int32_t)arrays[i].dims[0] : 1) : 1;
+        }
+    }
+    
+    sisal_array_t res = sisal_array_alloc_sized(arrays[0].rank, arrays[0].type_id, total, esz);
+    res.lower_bound[0] = arrays[0].lower_bound[0];
+    for (int k = 1; k < (int)arrays[0].rank; k++) {
+        res.dims[k] = arrays[0].dims[k];
+        res.lower_bound[k] = arrays[0].lower_bound[k];
+    }
+    res.dims[0] = leading_dim_growth;
+    
+    uint64_t offset = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (arrays[i].size) {
+            memcpy((char*)res.data + offset, arrays[i].data, arrays[i].size * esz);
+            offset += arrays[i].size * esz;
+        }
+    }
+    return res;
+}
+
+
 inline sisal_array_t sisal_array_build_double(int64_t lb, int count, const double* elems) {
     sisal_array_t res = sisal_array_alloc_empty(1, 4, (uint64_t)count);
     res.lower_bound[0] = lb;
