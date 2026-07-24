@@ -1,0 +1,24 @@
+% stream_integers_dv — for-initial `returns stream of I` over a while loop.
+%
+% Exercises the Sisal `for initial` stream-gather semantics documented in
+% docs/loop_behavior_comparison.md:
+%   Rule 1: the `initial` seed is ALWAYS gathered (even on a zero-trip loop).
+%   Rule 2: the final out-of-bounds I (computed by the body, then failing the
+%           guard) IS gathered.
+% So for Limit L the stream is 3,5,7,... stepping by 2 while I<L-1, PLUS the
+% first out-of-bounds value.  E.g. L=30 -> 3 5 7 9 11 13 15 17 19 21 23 25 27 29.
+%
+% This is the Integers() building block of the Sieve of Eratosthenes.
+
+define main
+
+type StrmInt = stream[ integer ];
+
+function main( Limit: integer returns StrmInt )
+   for initial
+      I := 3;
+   while I < Limit - 1 repeat
+      I := old I + 2;
+   returns stream of I
+   end for
+end function

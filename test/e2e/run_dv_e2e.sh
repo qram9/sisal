@@ -12,7 +12,7 @@ HARNESS="${REPO}/test/e2e/dv_run_all.cpp"
 GENDIR="$(mktemp -d /tmp/sisal_e2e.XXXXXX)"
 trap 'rm -rf "$GENDIR"' EXIT
 
-CXX_BASE="clang++ -std=c++17 -I${RUNTIME} -framework Accelerate -DACCELERATE_NEW_LAPACK"
+CXX_BASE="clang++ -std=c++20 -O3 -ffast-math -I${RUNTIME} -framework Accelerate -DACCELERATE_NEW_LAPACK"
 
 echo "=== Building compiler ==="
 (cd "${REPO}" && dune build)
@@ -305,6 +305,10 @@ run_group ARRAY_SWAP_E2E     array_swap_e2e       ""
 run_group INTERPROC_PROVIDED_E2E interproc_provided_e2e ""
 run_group FORALL_INTERPROC_E2E forall_interproc_e2e ""
 run_group FORALL_2D_INTERPROC_E2E forall_2d_interproc_e2e ""
+run_group STREAM_SIMPLE_DV   stream_simple_dv     ""
+run_group STREAM_LOOP_DV     stream_loop_dv       ""
+run_group STREAM_SIEVE_DV    stream_sieve_dv      ""
+run_group STREAM_INTEGERS_DV stream_integers_dv   ""
 
 
 echo "========================================"

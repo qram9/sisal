@@ -16,7 +16,7 @@ NUMPY_VERIFY = os.path.join(REPO, "test/e2e/numpy_verify.cpp")
 E2E_SH = os.path.join(REPO, "test/e2e/run_dv_e2e.sh")
 
 CXX_BASE = [
-    "clang++", "-std=c++17", f"-I{RUNTIME}",
+    "clang++", "-std=c++20", "-O3", "-ffast-math", f"-I{RUNTIME}",
     "-framework", "Accelerate", "-DACCELERATE_NEW_LAPACK"
 ]
 

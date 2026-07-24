@@ -1,0 +1,51 @@
+
+% Uses the Sieve of Erotosthenes to compute the prime
+% numbers <= Limit
+%
+
+define Main
+
+type StrmInt = stream[ integer ];
+
+global sqrt( a : double_real returns double_real )
+
+
+function Filter( S: StrmInt; M: integer returns StrmInt )
+
+   for I in S returns
+       stream of I unless mod( I, M ) = 0
+   end for
+
+end function % Filter
+
+
+function Integers( Limit: integer returns StrmInt )
+
+   for initial 
+      I := 3;
+   while I < Limit - 1 repeat
+      I := old I + 2;
+   returns stream of I
+   end for
+
+end function % Integers
+
+     
+function main( Limit: integer returns StrmInt )
+
+  for initial 
+     T    := 2;
+     S    := Integers( Limit );
+     Maxt := integer( sqrt( double_real( Limit ) ) )
+  repeat
+     T := stream_first( old S );
+     S := if T <= Maxt then
+             Filter( stream_rest( old S ), T )
+          else 
+             stream_rest( old S )
+          end if
+  until stream_empty( S )
+  returns stream of T
+  end for
+
+end function % Main

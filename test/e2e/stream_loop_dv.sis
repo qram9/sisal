@@ -1,0 +1,7 @@
+define Main
+
+function Main(N: integer returns stream[integer])
+  for i in 1, N
+  returns stream of i
+  end for
+end function

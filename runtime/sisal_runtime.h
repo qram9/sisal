@@ -13,6 +13,12 @@
 #else
 #  include <cblas.h>
 #endif
+#include <mutex>
+#include <condition_variable>
+#include <memory>
+#include <coroutine>
+#include <vector>
+#include <cstddef>
 
 typedef struct {
     void* data;
@@ -37,8 +43,241 @@ typedef struct {
     int64_t stride[8];
 } sisal_array_t;
 
+typedef struct {
+    void* data;
+    uint64_t size;
+    int32_t head;
+    int32_t tail;
+    int32_t capacity;
+    int32_t type_id;
+    int32_t ref_count;
+    uint32_t elem_bytes;
+    std::shared_ptr<std::mutex> mtx;
+    std::shared_ptr<std::condition_variable> cv_not_full;
+    std::shared_ptr<std::condition_variable> cv_not_empty;
+    bool producer_done;
+} sisal_stream_t;
+
+// C++20 Cooperative Coroutine Stream Generator
+template<typename T>
+struct sisal_generator {
+    struct promise_type {
+        T current_value;
+        std::exception_ptr exception;
+
+        sisal_generator get_return_object() {
+            return sisal_generator(std::coroutine_handle<promise_type>::from_promise(*this));
+        }
+        std::suspend_always initial_suspend() { return {}; }
+        std::suspend_always final_suspend() noexcept { return {}; }
+        void unhandled_exception() { exception = std::current_exception(); }
+        std::suspend_always yield_value(T value) {
+            current_value = value;
+            return {};
+        }
+        void return_void() {}
+    };
+
+    struct State {
+        std::coroutine_handle<promise_type> h;
+        bool initiated = false;
+        bool is_empty = false;
+        std::vector<T> buffer;
+        ~State() { if (h) h.destroy(); }
+    };
+
+    std::shared_ptr<State> state;
+    size_t index = 0;
+
+    struct SizeHelper {
+        operator int32_t() const { return (int32_t)get_gen()->get_size(); }
+        operator uint64_t() const { return get_gen()->get_size(); }
+        operator int64_t() const { return (int64_t)get_gen()->get_size(); }
+        
+        bool operator==(int other) const { return (int)get_gen()->get_size() == other; }
+        bool operator==(uint32_t other) const { return (uint32_t)get_gen()->get_size() == other; }
+        bool operator==(int64_t other) const { return (int64_t)get_gen()->get_size() == other; }
+        bool operator==(uint64_t other) const { return get_gen()->get_size() == other; }
+
+    private:
+        const sisal_generator* get_gen() const {
+            return (const sisal_generator*)((const char*)this - offsetof(sisal_generator, size));
+        }
+    };
+    SizeHelper size;
+
+    sisal_generator() : state(std::make_shared<State>()), index(0) {
+        state->initiated = true;
+        state->is_empty = true;
+    }
+    sisal_generator(std::coroutine_handle<promise_type> h) : state(std::make_shared<State>()), index(0) {
+        state->h = h;
+        state->initiated = false;
+        state->is_empty = false;
+    }
+
+    sisal_generator(const sisal_generator&) = default;
+    sisal_generator& operator=(const sisal_generator&) = default;
+    sisal_generator(sisal_generator&&) noexcept = default;
+    sisal_generator& operator=(sisal_generator&&) noexcept = default;
+
+    bool ensure_initiated() const {
+        if (!state->initiated) {
+            state->initiated = true;
+            if (state->h) {
+                state->h.resume();
+                state->is_empty = state->h.done();
+                if (!state->is_empty) {
+                    state->buffer.push_back(state->h.promise().current_value);
+                }
+            } else {
+                state->is_empty = true;
+            }
+        }
+        return index < state->buffer.size() || !state->is_empty;
+    }
+
+    void advance() const {
+        const_cast<sisal_generator*>(this)->index++;
+        ensure_initiated();
+        while (state->buffer.size() <= index && state->h && !state->h.done()) {
+            state->h.resume();
+            state->is_empty = state->h.done();
+            if (!state->is_empty) {
+                state->buffer.push_back(state->h.promise().current_value);
+            }
+        }
+    }
+
+    bool is_empty_pred() const {
+        ensure_initiated();
+        while (state->buffer.size() <= index && state->h && !state->h.done()) {
+            state->h.resume();
+            state->is_empty = state->h.done();
+            if (!state->is_empty) {
+                state->buffer.push_back(state->h.promise().current_value);
+            }
+        }
+        return index >= state->buffer.size();
+    }
+
+    T current() const {
+        ensure_initiated();
+        while (state->buffer.size() <= index && state->h && !state->h.done()) {
+            state->h.resume();
+            state->is_empty = state->h.done();
+            if (!state->is_empty) {
+                state->buffer.push_back(state->h.promise().current_value);
+            }
+        }
+        if (index < state->buffer.size()) {
+            return state->buffer[index];
+        }
+        return {};
+    }
+
+    // Returns stream size by running the coroutine to completion and buffering all elements
+    uint64_t get_size() const {
+        ensure_initiated();
+        while (state->h && !state->h.done()) {
+            state->h.resume();
+            state->is_empty = state->h.done();
+            if (!state->is_empty) {
+                state->buffer.push_back(state->h.promise().current_value);
+            }
+        }
+        return state->buffer.size();
+    }
+};
+
+// Stream API Adapters for sisal_generator
+template <typename T>
+inline T sisal_stream_first(const sisal_generator<T>& g) {
+    return g.current();
+}
+
+template <typename T>
+inline sisal_generator<T> sisal_stream_rest(const sisal_generator<T>& g) {
+    sisal_generator<T> next = g;
+    next.advance();
+    return next;
+}
+
+template <typename T>
+inline bool sisal_stream_empty_pred(const sisal_generator<T>& g) {
+    return g.is_empty_pred();
+}
+
+template <typename T>
+inline T sisal_stream_get(const sisal_generator<T>& g, int32_t k) {
+    g.ensure_initiated();
+    size_t target_idx = g.index + k;
+    while (g.state->buffer.size() <= target_idx && g.state->h && !g.state->h.done()) {
+        g.state->h.resume();
+        g.state->is_empty = g.state->h.done();
+        if (!g.state->is_empty) {
+            g.state->buffer.push_back(g.state->h.promise().current_value);
+        }
+    }
+    if (target_idx < g.state->buffer.size()) {
+        return g.state->buffer[target_idx];
+    }
+    return {};
+}
+
+template <typename T>
+inline sisal_generator<T> sisal_stream_empty() {
+    return sisal_generator<T>();
+}
+
+template <typename T>
+sisal_generator<T> sisal_stream_addh_coro(sisal_generator<T> g, T val) {
+    while (!g.is_empty_pred()) {
+        co_yield g.current();
+        g.advance();
+    }
+    co_yield val;
+}
+
+template <typename T>
+inline sisal_generator<T> sisal_stream_addh(const sisal_generator<T>& g, T val) {
+    return sisal_stream_addh_coro(g, val);
+}
+
+template <typename T>
+sisal_generator<T> sisal_stream_addl_coro(T val, sisal_generator<T> g) {
+    co_yield val;
+    while (!g.is_empty_pred()) {
+        co_yield g.current();
+        g.advance();
+    }
+}
+
+template <typename T>
+inline sisal_generator<T> sisal_stream_addl(const sisal_generator<T>& g, T val) {
+    return sisal_stream_addl_coro(val, g);
+}
+
+// Traits and Overloads for SISAL_CAST with sisal_generator
+template <typename>
+struct is_sisal_generator : std::false_type {};
+
+template <typename U>
+struct is_sisal_generator<sisal_generator<U>> : std::true_type {};
+
+template <typename T, typename S>
+inline typename std::enable_if<is_sisal_generator<T>::value, T>::type
+sisal_cast_dispatch(S&& s) {
+    if constexpr (std::is_same_v<std::decay_t<S>, T>) {
+        return std::forward<S>(s);
+    } else {
+        return {};
+    }
+}
+
 template<typename T, typename S>
-inline T sisal_cast_dispatch(S s) { 
+inline typename std::enable_if<!is_sisal_generator<T>::value, T>::type
+sisal_cast_dispatch(S s) { 
   return (T)s; 
 }
 
@@ -68,6 +307,15 @@ template<> inline sisal_array_t sisal_cast_dispatch<sisal_array_t, int32_t>(int3
     a.rank = 1; a.ref_count = 1;
     a.dims[0] = (int64_t)s; return a;
 }
+
+// Scalar-to-stream hack — the for-initial `returns stream of X` RETURNS
+// subgraph lowers its STREAM gather node as a passthrough that then gets cast
+// to sisal_stream_t; that assignment is DEAD (the real stream is built by the
+// gather realization and rebound over this port), but it must still compile.
+// Mirrors the scalar-to-array hack above.
+template<> inline sisal_stream_t sisal_cast_dispatch<sisal_stream_t, int32_t>(int32_t) { sisal_stream_t s = {}; return s; }
+template<> inline sisal_stream_t sisal_cast_dispatch<sisal_stream_t, float>(float) { sisal_stream_t s = {}; return s; }
+template<> inline sisal_stream_t sisal_cast_dispatch<sisal_stream_t, double>(double) { sisal_stream_t s = {}; return s; }
 
 #define SISAL_CAST(T, val) sisal_cast_dispatch<T>(val)
 
@@ -398,14 +646,14 @@ inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal
 inline sisal_array_t sisal_array_addh_i32(sisal_array_t a, int32_t val) {
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, sisal_esz(a));
     res.lower_bound[0] = a.lower_bound[0];
-    memcpy(res.data, a.data, a.size * 8);
+    memcpy(res.data, a.data, a.size * 4);
     ((int32_t*)res.data)[a.size] = val;
     return res;
 }
 inline sisal_array_t sisal_array_addh_f32(sisal_array_t a, float val) {
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, sisal_esz(a));
     res.lower_bound[0] = a.lower_bound[0];
-    memcpy(res.data, a.data, a.size * 8);
+    memcpy(res.data, a.data, a.size * 4);
     ((float*)res.data)[a.size] = val;
     return res;
 }
@@ -665,14 +913,14 @@ inline sisal_array_t sisal_array_addl_i32(sisal_array_t a, int32_t val) {
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, sisal_esz(a));
     res.lower_bound[0] = a.lower_bound[0] - 1;
     ((int32_t*)res.data)[0] = val;
-    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    memcpy((char*)res.data + 4, a.data, a.size * 4);
     return res;
 }
 inline sisal_array_t sisal_array_addl_f32(sisal_array_t a, float val) {
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, sisal_esz(a));
     res.lower_bound[0] = a.lower_bound[0] - 1;
     ((float*)res.data)[0] = val;
-    memcpy((char*)res.data + 8, a.data, a.size * 8);
+    memcpy((char*)res.data + 4, a.data, a.size * 4);
     return res;
 }
 inline sisal_array_t sisal_array_addl_f64(sisal_array_t a, double val) {
@@ -1383,5 +1631,183 @@ static inline int32_t func__SBITWISE_XOR__II__I(int32_t a, int32_t b) { return a
    this is what one-arg exponential lowers to. */
 static inline float   func__SETOTHE__F__F(float x)  { return expf(x); }
 static inline double  func__SETOTHE__D__D(double x) { return exp(x); }
+
+/* stream intrinsics */
+inline sisal_stream_t sisal_stream_empty() {
+    sisal_stream_t s;
+    s.data = nullptr;
+    s.size = 0;
+    s.head = 0;
+    s.tail = 0;
+    s.capacity = 0;
+    s.type_id = 0;
+    s.ref_count = 1;
+    s.elem_bytes = 0;
+    s.mtx = std::make_shared<std::mutex>();
+    s.cv_not_full = std::make_shared<std::condition_variable>();
+    s.cv_not_empty = std::make_shared<std::condition_variable>();
+    s.producer_done = false;
+    return s;
+}
+
+template <typename T>
+inline sisal_stream_t sisal_stream_addl(sisal_stream_t s, T val) {
+    sisal_stream_t res = s;
+    if (res.capacity == 0) {
+        res.capacity = 8;
+        res.elem_bytes = sizeof(T);
+        res.data = malloc(res.capacity * (sizeof(T) > 8 ? sizeof(T) : 8));
+    } else if (res.size == res.capacity) {
+        int32_t old_cap = res.capacity;
+        res.capacity = old_cap * 2;
+        void* new_data = malloc(res.capacity * (res.elem_bytes > 8 ? res.elem_bytes : 8));
+        size_t esz = res.elem_bytes > 8 ? res.elem_bytes : 8;
+        for (uint64_t i = 0; i < res.size; i++) {
+            memcpy((char*)new_data + i * esz, (char*)res.data + ((res.head + i) % old_cap) * esz, esz);
+        }
+        free(res.data);
+        res.data = new_data;
+        res.head = 0;
+        res.tail = res.size;
+    }
+    size_t esz = res.elem_bytes > 8 ? res.elem_bytes : 8;
+    res.head = (res.head - 1 + res.capacity) % res.capacity;
+    memcpy((char*)res.data + res.head * esz, &val, sizeof(T));
+    res.size++;
+    return res;
+}
+
+template <typename T>
+inline sisal_stream_t sisal_stream_addh(sisal_stream_t s, T val) {
+    sisal_stream_t res = s;
+    if (res.capacity == 0) {
+        res.capacity = 8;
+        res.elem_bytes = sizeof(T);
+        res.data = malloc(res.capacity * (sizeof(T) > 8 ? sizeof(T) : 8));
+    } else if (res.size == res.capacity) {
+        int32_t old_cap = res.capacity;
+        res.capacity = old_cap * 2;
+        void* new_data = malloc(res.capacity * (res.elem_bytes > 8 ? res.elem_bytes : 8));
+        size_t esz = res.elem_bytes > 8 ? res.elem_bytes : 8;
+        for (uint64_t i = 0; i < res.size; i++) {
+            memcpy((char*)new_data + i * esz, (char*)res.data + ((res.head + i) % old_cap) * esz, esz);
+        }
+        free(res.data);
+        res.data = new_data;
+        res.head = 0;
+        res.tail = res.size;
+    }
+    size_t esz = res.elem_bytes > 8 ? res.elem_bytes : 8;
+    memcpy((char*)res.data + res.tail * esz, &val, sizeof(T));
+    res.tail = (res.tail + 1) % res.capacity;
+    res.size++;
+    return res;
+}
+
+template <typename T>
+inline T sisal_stream_first(sisal_stream_t s) {
+    size_t esz = s.elem_bytes > 8 ? s.elem_bytes : 8;
+    return *(T*)((char*)s.data + s.head * esz);
+}
+
+inline sisal_stream_t sisal_stream_rest(sisal_stream_t s) {
+    if (s.size <= 1) {
+        if (s.data) free(s.data);
+        s.data = nullptr;
+        s.size = 0;
+        s.head = 0;
+        s.tail = 0;
+        s.capacity = 0;
+        return s;
+    }
+    sisal_stream_t res = s;
+    res.head = (res.head + 1) % res.capacity;
+    res.size--;
+    return res;
+}
+
+inline bool sisal_stream_empty_pred(sisal_stream_t s) {
+    return s.size == 0;
+}
+
+template <typename T>
+inline sisal_stream_t sisal_stream_gather_store(sisal_stream_t s, T val, int32_t type_id) {
+    s.type_id = type_id;
+    return sisal_stream_addh(s, val);
+}
+
+template <typename T>
+inline T sisal_stream_get(sisal_stream_t s, uint64_t i) {
+    size_t esz = s.elem_bytes > 8 ? s.elem_bytes : 8;
+    int32_t idx = (s.head + i) % s.capacity;
+    return *(T*)((char*)s.data + idx * esz);
+}
+
+// Thread-safe blocking write (Producer V-like operation)
+template <typename T>
+inline void sisal_stream_blocking_write(sisal_stream_t& s, T val, size_t bound = 1024) {
+    if (!s.mtx) {
+        s.mtx = std::make_shared<std::mutex>();
+        s.cv_not_full = std::make_shared<std::condition_variable>();
+        s.cv_not_empty = std::make_shared<std::condition_variable>();
+    }
+    {
+        std::unique_lock<std::mutex> lock(*s.mtx);
+        while (s.size >= bound) {
+            s.cv_not_full->wait(lock);
+        }
+        s = sisal_stream_addh(s, val);
+        s.cv_not_empty->notify_one();
+    }
+}
+
+// Thread-safe blocking read first (Consumer P-like operation)
+template <typename T>
+inline T sisal_stream_blocking_read_first(sisal_stream_t& s) {
+    if (s.mtx) {
+        std::unique_lock<std::mutex> lock(*s.mtx);
+        while (s.size == 0 && !s.producer_done) {
+            s.cv_not_empty->wait(lock);
+        }
+    }
+    return sisal_stream_first<T>(s);
+}
+
+// Thread-safe blocking read rest (Consumer V-like signaling)
+inline void sisal_stream_blocking_read_rest(sisal_stream_t& s) {
+    if (s.mtx) {
+        std::unique_lock<std::mutex> lock(*s.mtx);
+        s = sisal_stream_rest(s);
+        s.cv_not_full->notify_one();
+    } else {
+        s = sisal_stream_rest(s);
+    }
+}
+
+// Atomic thread-safe blocking read (combines wait, read, pop, and signal)
+template <typename T>
+inline bool sisal_stream_blocking_read(sisal_stream_t& s, T& val) {
+    if (!s.mtx) return false;
+    std::unique_lock<std::mutex> lock(*s.mtx);
+    while (s.size == 0 && !s.producer_done) {
+        s.cv_not_empty->wait(lock);
+    }
+    if (s.size == 0 && s.producer_done) {
+        return false;
+    }
+    val = sisal_stream_first<T>(s);
+    s = sisal_stream_rest(s);
+    s.cv_not_full->notify_one();
+    return true;
+}
+
+// Thread-safe close (done signal)
+inline void sisal_stream_close(sisal_stream_t& s) {
+    if (s.mtx) {
+        std::unique_lock<std::mutex> lock(*s.mtx);
+        s.producer_done = true;
+        s.cv_not_empty->notify_all();
+    }
+}
 
 #endif

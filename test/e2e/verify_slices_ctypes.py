@@ -79,7 +79,7 @@ def test_ctypes_slicing():
     # 2. Compile C++ to shared library (.so / .dylib)
     print("2. Compiling C++ to shared library...")
     so_name = "./temp_gen.so"
-    cmd = ["clang++", "-shared", "-fPIC", "-std=c++17", "-I", "runtime", "-framework", "Accelerate", "-o", so_name, "temp_gen.cpp"]
+    cmd = ["clang++", "-shared", "-fPIC", "-std=c++20", "-O3", "-ffast-math", "-I", "runtime", "-framework", "Accelerate", "-o", so_name, "temp_gen.cpp"]
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError:

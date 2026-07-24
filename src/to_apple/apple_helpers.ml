@@ -202,10 +202,21 @@ let c_type_of_if1_basic = function
 
 (** [c_type_of_if1_ty tm ty] maps an IF1 type to its corresponding C-AST type.
 *)
-let c_type_of_if1_ty tm ty =
+let rec c_type_of_if1_ty tm ty =
   match ty with
   | Basic b -> c_type_of_if1_basic b
   | Array_dv _ | Array_ty _ -> C.Basic "sisal_array_t"
+  | Stream t ->
+      let elem_name =
+        match TM.find_opt t tm with
+        | Some elem_ty -> (
+            match c_type_of_if1_ty tm elem_ty with
+            | C.Basic s -> s
+            | C.Pointer (C.Basic s, _) -> s ^ "*"
+            | _ -> "float")
+        | None -> "float"
+      in
+      C.Basic (Printf.sprintf "sisal_generator<%s>" elem_name)
   | Record (id, _, name) ->
       let sname = String.lowercase_ascii name in
       if sname = "int" || sname = "integer" || sname = "int32" then
@@ -470,10 +481,14 @@ let is_struct_cty = function
   | C.Struct _ | C.Union _ -> true
   | _ -> false
 
+let is_generator_type = function
+  | C.Basic s -> String.length s >= 15 && String.sub s 0 15 = "sisal_generator"
+  | _ -> false
+
 (** [default_init_for ty] — the zero initializer a declaration of [ty] needs:
     aggregates take brace init, scalars take 0. *)
 let default_init_for ty =
-  if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
+  if ty = C.Basic "sisal_array_t" || is_generator_type ty then Some (C.Id "{}")
   else if is_struct_cty ty then Some (C.Id "{}")
   else Some (C.LitInt 0)
 

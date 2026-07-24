@@ -304,6 +304,18 @@ extern "C" struct FUNC_MAIN_results func_MAIN(sisal_array_t A, sisal_array_t B);
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
+#ifdef TEST_STREAM_SIMPLE_DV
+extern "C" sisal_generator<float> func_MAIN();
+#endif
+#ifdef TEST_STREAM_LOOP_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t N);
+#endif
+#ifdef TEST_STREAM_SIEVE_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
+#endif
+#ifdef TEST_STREAM_INTEGERS_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -3090,11 +3102,8 @@ static void
 test_nested_init_merge_dv (void)
 {
   printf ("\n=== Group: nested_init_merge_dv ===\n");
-  sisal_array_t X;
-  X.size = 5;
-  X.data = malloc (5 * sizeof (double));
-  double* d = (double*)X.data;
-  d[0] = 1.0; d[1] = 2.0; d[2] = 3.0; d[3] = 4.0; d[4] = 5.0;
+  double d[] = { 1.0, 2.0, 3.0, 4.0, 5.0 };
+  sisal_array_t X = make_double_arr (d, 5);
   sisal_array_t r = func_MAIN (3, X);
   check ("nested_init_merge_dv result size == 5", r.size == 5);
   free (X.data);
@@ -8851,6 +8860,82 @@ static void test_interproc_provided_e2e() {
   check("N=5 Steps=4 (compounded)", run(5, 4));
 }
 #endif
+#ifdef TEST_STREAM_SIMPLE_DV
+static void test_stream_simple_dv() {
+  printf("\n=== Group: stream_simple_dv ===\n");
+  sisal_generator<float> r = func_MAIN();
+  check("size is 2", r.size == 2);
+  float val0 = sisal_stream_first<float>(r);
+  r = sisal_stream_rest(r);
+  float val1 = sisal_stream_first<float>(r);
+  check("element 0 is 1.2", fabs(val0 - 1.2f) < 1e-5);
+  check("element 1 is 3.2", fabs(val1 - 3.2f) < 1e-5);
+}
+#endif
+#ifdef TEST_STREAM_LOOP_DV
+static void test_stream_loop_dv() {
+  printf("\n=== Group: stream_loop_dv ===\n");
+  sisal_generator<int32_t> r = func_MAIN(5);
+  check("size is 5", r.size == 5);
+  for (int i = 0; i < 5; i++) {
+    char label[64];
+    snprintf(label, sizeof(label), "element %d is %d", i, i + 1);
+    int32_t val = sisal_stream_first<int32_t>(r);
+    r = sisal_stream_rest(r);
+    check(label, val == i + 1);
+  }
+}
+#endif
+#ifdef TEST_STREAM_SIEVE_DV
+static void test_stream_sieve_dv() {
+  printf("\n=== Group: stream_sieve_dv ===\n");
+  sisal_generator<int32_t> r = func_MAIN(20);
+  int32_t act_size = (int32_t)r.size;
+  printf("Actual stream size: %d\n", act_size);
+  check("size is 8", act_size == 8);
+  int32_t expected[] = {2, 3, 5, 7, 11, 13, 17, 19};
+  for (int i = 0; i < 8; i++) {
+    char label[64];
+    snprintf(label, sizeof(label), "prime %d is %d", i, expected[i]);
+    int32_t val = sisal_stream_first<int32_t>(r);
+    printf("  Expected: %d, Actual: %d\n", expected[i], val);
+    r = sisal_stream_rest(r);
+    check(label, val == expected[i]);
+  }
+}
+#endif
+#ifdef TEST_STREAM_INTEGERS_DV
+static void test_stream_integers_dv() {
+  printf("\n=== Group: stream_integers_dv ===\n");
+  // Reference model of Sisal `for initial ... returns stream of I`
+  // (docs/loop_behavior_comparison.md): seed always gathered (Rule 1), then
+  // each body-computed I gathered incl. the final out-of-bounds one (Rule 2).
+  auto run = [](int32_t Limit) {
+    int32_t ref[256];
+    int n = 0;
+    int32_t I = 3;
+    ref[n++] = I;                 // Rule 1: initial seed
+    while (I < Limit - 1) {
+      I = I + 2;                  // body: old I + 2
+      ref[n++] = I;               // Rule 2: gather body value (incl. out-of-bounds)
+    }
+    sisal_generator<int32_t> r = func_MAIN(Limit);
+    char label[96];
+    snprintf(label, sizeof(label), "Limit=%d size is %d", Limit, n);
+    check(label, (int)r.size == n);
+    for (int i = 0; i < n; i++) {
+      int32_t val = sisal_stream_first<int32_t>(r);
+      r = sisal_stream_rest(r);
+      snprintf(label, sizeof(label), "Limit=%d element %d is %d", Limit, i,
+               ref[i]);
+      check(label, val == ref[i]);
+    }
+  };
+  run(30);  // normal: 3 5 7 ... 27 29
+  run(15);  // normal: 3 5 7 9 11 13 15
+  run(4);   // zero-trip (I:=3, 3<3 false): just the seed [3]
+}
+#endif
 
 #ifdef TEST_FORALL_INTERPROC_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N);
@@ -9613,6 +9698,18 @@ main (void)
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
+#ifdef TEST_STREAM_SIMPLE_DV
+  test_stream_simple_dv ();
+#endif
+#ifdef TEST_STREAM_LOOP_DV
+  test_stream_loop_dv ();
+#endif
+#ifdef TEST_STREAM_SIEVE_DV
+  test_stream_sieve_dv ();
+#endif
+#ifdef TEST_STREAM_INTEGERS_DV
+  test_stream_integers_dv ();
+#endif
 #ifdef TEST_FORALL_INTERPROC_E2E
   test_forall_interproc_e2e ();
 #endif
@@ -9719,7 +9816,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

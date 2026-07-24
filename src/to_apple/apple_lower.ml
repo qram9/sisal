@@ -56,6 +56,79 @@ let string_of_c_type = function
   | C.Pointer (C.Basic s, _) -> s ^ "*"
   | _ -> (* Ram says assert here for types other than int32_t *) "int32_t"
 
+let is_stream_type cty =
+  let s = string_of_c_type cty in
+  String.length s >= 15 && String.sub s 0 15 = "sisal_generator"
+
+(* Free enclosing variables referenced inside a stream (coroutine) loop body
+   MUST be passed as by-value lambda parameters, NOT captured by [=].  A lambda
+   coroutine stores its captures in the closure object, which is destroyed the
+   instant the immediately-invoked call returns (the coroutine suspends at
+   initial_suspend and hands back the generator); a later resume() would then
+   read dangling captures -- the loop appears to run zero body iterations on
+   garbage.  Coroutine PARAMETERS, by contrast, are copied into the coroutine
+   frame and live as long as the coroutine, so we forward the free vars as
+   `auto` by-value params.  All compiler-generated names are `v_`-prefixed, so
+   we collect referenced `v_` ids minus those declared inside the body (and any
+   explicit exclusions). *)
+let collect_free_coro_vars (body : C.stmt list) (exclude : string list) :
+    string list =
+  let declared = Hashtbl.create 64 in
+  let seen = Hashtbl.create 64 in
+  let ordered = ref [] in
+  List.iter (fun n -> Hashtbl.replace declared n ()) exclude;
+  let is_gen_var n = String.length n >= 2 && n.[0] = 'v' && n.[1] = '_' in
+  let add_ref n =
+    if is_gen_var n && not (Hashtbl.mem seen n) then begin
+      Hashtbl.replace seen n ();
+      ordered := n :: !ordered
+    end
+  in
+  let rec ce = function
+    | C.Id n -> add_ref n
+    | C.LitInt _ | C.LitFloat _ | C.LitDouble _ | C.LitString _ -> ()
+    | C.BinOp (_, a, b) | C.Index (a, b) ->
+        ce a;
+        ce b
+    | C.UnaryOp (_, a) | C.Member (a, _) | C.Arrow (a, _) | C.Cast (_, a) -> ce a
+    | C.Call (_, args) | C.BraceInit (_, args) -> List.iter ce args
+    | C.Cond (a, b, c) ->
+        ce a;
+        ce b;
+        ce c
+  and cs = function
+    | C.Decl (_, n, eo) ->
+        Hashtbl.replace declared n ();
+        ( match eo with Some e -> ce e | None -> ())
+    | C.Expr e -> ce e
+    | C.For (i, c, u, b) ->
+        cs i;
+        ce c;
+        ce u;
+        List.iter cs b
+    | C.While (c, b) ->
+        ce c;
+        List.iter cs b
+    | C.DoWhile (b, c) ->
+        List.iter cs b;
+        ce c
+    | C.If (c, t, e) ->
+        ce c;
+        List.iter cs t;
+        List.iter cs e
+    | C.Return eo -> ( match eo with Some e -> ce e | None -> ())
+    | C.Compound b -> List.iter cs b
+    | C.GCDApply (e, _, (_, b)) ->
+        ce e;
+        List.iter cs b
+    | C.MetalKernel { body = b; _ } -> List.iter cs b
+    | C.Break | C.Continue | C.Pragma _ | C.Macro _ | C.Comment _ | C.Raw _
+    | C.Prototype _ | C.Type _ ->
+        ()
+  in
+  List.iter cs body;
+  List.rev !ordered |> List.filter (fun n -> not (Hashtbl.mem declared n))
+
 (* A forall RETURNS reduction operator.  Previously stringly-typed (Some "sum" /
    "argmax" / …), which let an unrecognised RETURNS kind silently fall through to
    the gather path.  A closed variant makes the lowering matches exhaustive, so a
@@ -187,11 +260,17 @@ let forall_reduce_filter_of loop_gr out_port =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 && dp = out_port then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, REDUCE, _, _, _)) ->
+            | Some (Simple (_, ((REDUCE | STREAM) as op), _, _, _)) ->
+                (* A masked `when`/`unless` gather/reduction carries its boolean
+                   filter on a dedicated node port: REDUCE on port 2, STREAM on
+                   port 1 (port 0 is the value).  Resolve it to the BODY output
+                   port that computes the mask so the store/accumulate can be
+                   guarded with it. *)
+                let mask_port = if op = STREAM then 1 else 2 in
                 let fport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
-                      if d = sn && p = 2 && s = 0 then
+                      if d = sn && p = mask_port && s = 0 then
                         match
                           List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
                         with
@@ -222,7 +301,7 @@ let forall_gather_ports loop_gr =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT), _, _, _))
+            | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT | STREAM), _, _, _))
               ->
                 let bport =
                   ES.fold
@@ -287,11 +366,21 @@ let for_initial_gather_ports ret_gr =
     (fun ((sn, _), (dn, dp), _) acc ->
       if dn = 0 then
         match NM.find_opt sn ret_gr.nmap with
-        | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT), _, _, _)) -> (
+        | Some
+            (Simple
+              ( _,
+                ((DV_GATHER | AGATHER | DV_SCATTER_AT | STREAM) as op),
+                _,
+                _,
+                _ )) -> (
+            (* Value input port: a STREAM gather carries its element on input
+               port 0; the array/DV gathers carry it on port 1 (port 0 is the
+               lo/dope). *)
+            let val_port = if op = STREAM then 0 else 1 in
             let bin =
               ES.fold
                 (fun ((s, sp), (d, p), _) a ->
-                  if d = sn && p = 1 && s = 0 then Some sp else a)
+                  if d = sn && p = val_port && s = 0 then Some sp else a)
                 ret_gr.eset None
             in
             match bin with Some b -> (dp, b) :: acc | None -> acc)
@@ -318,12 +407,28 @@ let infer_types env gr gid =
      graph-based c_type_of_tyid (If1.lookup_ty on the canonical typemap)
      and LOCKING those keys; set_ty/set_ty_c refuse to alter locked keys. *)
   let locked = Hashtbl.create 256 in
+  let get_port_cty g nid port dir =
+    let tid =
+      ES.fold
+        (fun ((sn, sp), (dn, dp), t) acc ->
+          if t <> 0 then
+            match dir with
+            | `Out when sn = nid && sp = port -> t
+            | `In when dn = nid && dp = port -> t
+            | _ -> acc
+          else acc)
+        g.eset 0
+    in
+    if tid <> 0 then
+      c_type_of_if1_tyid _tm tid
+    else C.Basic "sisal_array_t"
+  in
   let set_ty g n p d ty =
     let key = (g, n, p, d) in
     if Hashtbl.mem locked key then ()
     else
       match Hashtbl.find_opt table key with
-      | Some existing when existing = C.Basic "sisal_array_t" -> ()
+      | Some existing when existing = C.Basic "sisal_array_t" && not (is_stream_type ty) -> ()
       | _ -> Hashtbl.replace table key ty
   in
 
@@ -333,7 +438,7 @@ let infer_types env gr gid =
     if Hashtbl.mem locked key then false
     else
       match Hashtbl.find_opt table key with
-      | Some ex when ex = C.Basic "sisal_array_t" -> false
+      | Some ex when ex = C.Basic "sisal_array_t" && not (is_stream_type ty) -> false
       | Some ex when ex = ty -> false
       | _ ->
           Hashtbl.replace table key ty;
@@ -350,13 +455,30 @@ let infer_types env gr gid =
            edges include protocol markers (the gather's lo-record, dope
            payloads) that the per-op lowering types specially. *)
         if tyid <> 0 && tyid <> 5 then
-          match c_type_of_tyid g tyid with
-          | C.Basic ("int32_t" | "float" | "double" | "bool") as cty ->
-              Hashtbl.replace table (cur_gid, sn, sp, `Out) cty;
-              Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
-              Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
-              Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
-          | _ -> ())
+          let is_argmax_or_argmin =
+            match NM.find_opt sn g.nmap with
+            | Some (Compound (_, _, _, pr, sub, _)) ->
+                let is_forall = get_compound_type pr = If1_forall in
+                if is_forall then
+                  let rports = forall_reduce_ports sub in
+                  List.exists (fun (rp, op, _) -> rp = sp && (op = R_argmax || op = R_argmin)) rports
+                else false
+            | _ -> false
+          in
+          if is_argmax_or_argmin then begin
+            let cty = C.Basic "int32_t" in
+            Hashtbl.replace table (cur_gid, sn, sp, `Out) cty;
+            Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
+            Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
+            Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
+          end else
+            match c_type_of_if1_tyid _tm tyid with
+            | C.Basic ("int32_t" | "float" | "double" | "bool") as cty ->
+                Hashtbl.replace table (cur_gid, sn, sp, `Out) cty;
+                Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
+                Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
+                Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
+            | _ -> ())
       g.eset;
     NM.iter
       (fun nid node ->
@@ -378,7 +500,7 @@ let infer_types env gr gid =
 
   let rec pass1 g cur_gid =
     let cs, _ps = g.symtab in
-    let tm_local = get_typemap_tm g in
+    let tm_local = _tm in
     SM.iter
       (fun _ v ->
         (* nested function definitions put function-typed NAMES in the
@@ -438,6 +560,11 @@ let infer_types env gr gid =
                   DV_GATHER;
                   DV_SCATTER_AT;
                   AGATHER;
+                  STREAM;
+                  SBUILD;
+                  SAPPEND;
+                  STRM_APPEND;
+                  STRM_REST;
                   ASCATTER;
                   ABUILD;
                   AFILL;
@@ -465,7 +592,7 @@ let infer_types env gr gid =
                re-typed later (kin16's ~1e-8 drift: IF1 was 100% DOUBLE). *)
             let ty_of_port i =
               if is_int then C.Basic "int32_t"
-              else if is_arr then C.Basic "sisal_array_t"
+              else if is_arr then get_port_cty g nid i `Out
               else
                 let tid =
                   ES.fold
@@ -474,8 +601,7 @@ let infer_types env gr gid =
                     g.eset 0
                 in
                 if tid <> 0 then
-                  let _, gtm, _ = g.typemap in
-                  c_type_of_if1_tyid gtm tid
+                  c_type_of_if1_tyid _tm tid
                 else C.Basic "float"
             in
             Array.iteri
@@ -486,11 +612,10 @@ let infer_types env gr gid =
                C type (the default float would make assign_with_cast emit
                SISAL_CAST(float, struct)). *)
             (if sym = RBUILD || sym = RELEMENTS || sym = RREPLACE then
-               let _, gtm, _ = g.typemap in
                ES.iter
                  (fun ((sn, sp), _, tyid) ->
                    if sn = nid && tyid <> 0 then
-                     set_ty cur_gid nid sp `Out (c_type_of_if1_tyid gtm tyid))
+                     set_ty cur_gid nid sp `Out (c_type_of_if1_tyid _tm tyid))
                  g.eset);
             (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
              array-producing (is_arr) yet must NOT have port 0 coerced to sisal_array_t. *)
@@ -519,7 +644,7 @@ let infer_types env gr gid =
                      DV_REPLACE;
                      DV_SETL;
                    ]
-            then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t");
+            then set_ty cur_gid nid 0 `In (get_port_cty g nid 0 `In);
             if sym = DV_RANK_REDUCE || sym = DV_PERMUTE then begin
               for i = 1 to 40 do
                 set_ty cur_gid nid i `In (C.Basic "int32_t")
@@ -549,7 +674,7 @@ let infer_types env gr gid =
             if
               (is_forall || sym = STREAM || sym = MAT)
               && (not is_fold) && (not port0_is_reduce) && not port0_is_final
-            then set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
+            then set_ty cur_gid nid 0 `Out (get_port_cty g nid 0 `Out);
             (match fold_op with
             | Some (R_argmax | R_argmin) ->
                 set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
@@ -560,7 +685,7 @@ let infer_types env gr gid =
   in
 
   let rec pass2 g cur_gid =
-    let tm2 = get_typemap_tm g in
+    let tm2 = _tm in
     let changed_edges =
       ES.fold
         (fun ((sn, sp), (dn, dp), ty_id) ch ->
@@ -737,6 +862,11 @@ let infer_types env gr gid =
                   DV_GATHER;
                   DV_SCATTER_AT;
                   AGATHER;
+                  STREAM;
+                  SBUILD;
+                  SAPPEND;
+                  STRM_APPEND;
+                  STRM_REST;
                   ASCATTER;
                   ABUILD;
                   AFILL;
@@ -758,11 +888,11 @@ let infer_types env gr gid =
             in
             if is_arr then (
               Array.iteri
-                (fun i _ -> set_ty cur_gid nid i `Out (C.Basic "sisal_array_t"))
+                (fun i _ -> set_ty cur_gid nid i `Out (get_port_cty g nid i `Out))
                 outs;
               (* AFILL's port 0 is an int bound (lo), not an array -- don't coerce it *)
               if sym <> DVAFILL && sym <> DVAADJUST then
-                set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t"));
+                set_ty cur_gid nid 0 `In (get_port_cty g nid 0 `In));
             if
               List.mem sym
                 [
@@ -787,7 +917,7 @@ let infer_types env gr gid =
                   DV_REPLACE;
                   DV_SETL;
                 ]
-            then set_ty cur_gid nid 0 `In (C.Basic "sisal_array_t")
+            then set_ty cur_gid nid 0 `In (get_port_cty g nid 0 `In)
         | Compound (_, sym, _, pr, sub, _) ->
             let sub_gid =
               try GidMap.find (cur_gid, nid) env.gid_table with _ -> -1
@@ -812,7 +942,7 @@ let infer_types env gr gid =
             if
               (is_forall || sym = STREAM || sym = MAT)
               && (not is_fold) && (not port0_is_reduce) && not port0_is_final
-            then set_ty cur_gid nid 0 `Out (C.Basic "sisal_array_t");
+            then set_ty cur_gid nid 0 `Out (get_port_cty g nid 0 `Out);
             (match fold_op with
             | Some (R_argmax | R_argmin) ->
                 set_ty cur_gid nid 0 `Out (C.Basic "int32_t")
@@ -1994,6 +2124,19 @@ and lower_simple env gr nid sym pin pout pr =
          so value at port p lands at lo+(p-2).  k=1 is the plain single replace. *)
           lower_dv_replace env gr gid nid e1 e2 get_in_expr
     | DV_REPLACE -> lower_dv_replace env gr gid nid e1 e2 get_in_expr
+    | SBUILD ->
+        C.Call ("sisal_stream_empty", [])
+    | SAPPEND ->
+        C.Call ("sisal_stream_addl", [ e2; e1 ])
+    | STRM_APPEND ->
+        C.Call ("sisal_stream_addh", [ e1; e2 ])
+    | STRM_FIRST ->
+        let elem_ty = get_final_ty env gid nid 0 `Out in
+        C.Call ("sisal_stream_first<" ^ string_of_c_type elem_ty ^ ">", [ e1 ])
+    | STRM_REST ->
+        C.Call ("sisal_stream_rest", [ e1 ])
+    | STRM_EMPTY ->
+        C.Call ("sisal_stream_empty_pred", [ e1 ])
     | DVAADDH | AADDH ->
         (* append e2 at the high end of array e1 -> new array_dv of size+1 *)
         let val_ty = get_final_ty env gid nid 1 `In in
@@ -2258,10 +2401,51 @@ and lower_simple env gr nid sym pin pout pr =
               else acc)
             env.proc_map false
         in
-        if env.parent_env <> None && is_candidate then
-          C.Call (fname ^ "_provided", args @ [ C.UnaryOp (C.AddrOf, C.Id out_var_name) ])
-        else
-          C.Call (fname, args)
+        let rec is_constant_two expr =
+          match expr with
+          | C.LitInt 2 -> true
+          | C.LitFloat 2.0 -> true
+          | C.LitDouble 2.0 -> true
+          | C.Cast (_, e) -> is_constant_two e
+          | _ -> false
+        in
+        let is_base_two =
+          if List.length args >= 1 then
+            let base = List.nth args 0 in
+            is_constant_two base ||
+            (match ES.fold (fun (src, dst, _) acc -> if dst = (nid, 0) then Some src else acc) gr.eset None with
+             | Some (sn, _) -> (
+                 match NM.find_opt sn gr.nmap with
+                 | Some (Literal (_, _, val_str, _)) ->
+                     let s = String.lowercase_ascii (String.trim val_str) in
+                     s = "2" || s = "2.0" || s = "2.0d0" || s = "2.d0" || s = "2d0"
+                 | _ -> false)
+             | None -> false)
+          else false
+        in
+        let optimized_expr =
+          if String.length fname >= 10 && String.sub fname 0 10 = "func__SEXP" && List.length args = 2 then
+            let exponent = List.nth args 1 in
+            if is_base_two then
+              match fname with
+              | "func__SEXP__II__I" ->
+                  Some (C.BinOp (C.Shl, C.LitInt 1, exponent))
+              | "func__SEXP__FI__F" | "func__SEXP__FF__F" ->
+                  Some (C.Call ("ldexpf", [ C.LitFloat 1.0; C.Cast (C.Basic "int", exponent) ]))
+              | "func__SEXP__DI__D" | "func__SEXP__DD__D" ->
+                  Some (C.Call ("ldexp", [ C.LitDouble 1.0; C.Cast (C.Basic "int", exponent) ]))
+              | _ -> None
+            else None
+          else None
+        in
+        begin match optimized_expr with
+        | Some expr -> expr
+        | None ->
+            if env.parent_env <> None && is_candidate then
+              C.Call (fname ^ "_provided", args @ [ C.UnaryOp (C.AddrOf, C.Id out_var_name) ])
+            else
+              C.Call (fname, args)
+        end
     | FINALVALUE -> e1
     (* DV_GATHER inside a for-initial RETURNS is realized specially by
      lower_for_initial (alloc-before-loop + per-iteration store); this generic
@@ -2269,7 +2453,7 @@ and lower_simple env gr nid sym pin pout pr =
      re-bound to the gather array afterwards.  DV_MAKE_DOPE (the shaped
      gather's dope source) likewise: its extent operands are read structurally
      off the RETURNS graph by the gather realization, never evaluated here. *)
-    | DV_GATHER | AGATHER | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
+    | DV_GATHER | AGATHER | STREAM | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
     | RBUILD -> (
         (* Record or Union construction.
            For records: C++ aggregate init `struct_rec_N{f0, ..}`.
@@ -3259,6 +3443,9 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   rank_of_type_id env_loop.tm arr_tyid > 1
                   && ety = C.Basic "sisal_array_t"
                 then C.Call ("sisal_array_get_row", [ arr; C.Id k ])
+                else if is_stream_type (c_type_of_if1_tyid env_loop.tm arr_tyid) then
+                  let call = Printf.sprintf "sisal_stream_get<%s>" (string_of_c_type ety) in
+                  C.Call (call, [ arr; C.Id k ])
                 else
                   C.Index
                     ( C.Cast (C.Pointer (ety, []), C.Member (arr, "data")),
@@ -3453,7 +3640,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               (bstmts, outs)
           | None -> ([], [])
         in
-        let tm = get_typemap_tm loop_gr in
+        let tm = env.tm in
         (* per-dimension extents (shared by all GATHER outputs) *)
         let rec collect_extents g ggid =
           let view = { env_loop with curr_gid = ggid; curr_gr = g } in
@@ -3731,6 +3918,20 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                           FINALVALUE nor DV_GATHER -- unhandled forall returns \
                           kind"
                          port);
+                  let coll_ty = get_final_ty env gid nid port `Out in
+                  if is_stream_type coll_ty then
+                    let alloc = [] in
+                    let store =
+                      [
+                        C.Expr (C.Call ("co_yield", [ cast ]));
+                      ]
+                    in
+                    ( alloc,
+                      store,
+                      [],
+                      (res_name, coll_ty),
+                      (port, res_v) )
+                  else (
                   (* DV_SCATTER_AT: store slot comes from the PLACEMENT values
                      (node ports 3+), allocation from the DECLARED extents
                      (DV_MAKE_DOPE ports 2+) -- NOT from the generator ranges
@@ -3935,7 +4136,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                         (port, res_v) )
                   | None ->
                       let sat = C.Basic "sisal_array_t" in
-                      if out_ty = sat then (
+                      if out_ty = sat || is_stream_type out_ty then (
                         let r_sub = find_subgraph loop_gr "RETURNS" in
                         let gnid =
                           match r_sub with
@@ -4070,38 +4271,61 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                               (res_name, sat),
                               (port, res_v) )
                         | None ->
+                            let is_stream = is_stream_type out_ty in
                             let alloc =
-                              [
-                                C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
-                                C.Expr
-                                  (C.BinOp
-                                     (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                              ]
+                              if is_stream then
+                                [
+                                  C.Expr
+                                    (C.BinOp
+                                       (C.Assign, res_v, C.Call ("sisal_stream_empty", [])));
+                                ]
+                              else
+                                [
+                                  C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
+                                  C.Expr
+                                    (C.BinOp
+                                       (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                                ]
                             in
                             let store =
-                              [
-                                C.Expr
-                                  (C.BinOp
-                                     ( C.Assign,
-                                       res_v,
-                                       C.Call
-                                         ( "sisal_array_gather_store",
-                                           [
-                                             res_v;
-                                             cast;
-                                             C.LitInt tid;
-                                             C.LitInt rank;
-                                             C.BraceInit ("(const int32_t[])", List.map fst extents);
-                                             C.BraceInit ("(const int64_t[])", List.map snd extents);
-                                             C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
-                                             C.Id gctr;
-                                           ] ) ));
-                              ]
+                              if is_stream then
+                                [
+                                  C.Expr
+                                    (C.BinOp
+                                       ( C.Assign,
+                                         res_v,
+                                         C.Call
+                                           ( "sisal_stream_gather_store",
+                                             [
+                                               res_v;
+                                               cast;
+                                               C.LitInt tid;
+                                             ] ) ));
+                                ]
+                              else
+                                [
+                                  C.Expr
+                                    (C.BinOp
+                                       ( C.Assign,
+                                         res_v,
+                                         C.Call
+                                           ( "sisal_array_gather_store",
+                                             [
+                                               res_v;
+                                               cast;
+                                               C.LitInt tid;
+                                               C.LitInt rank;
+                                               C.BraceInit ("(const int32_t[])", List.map fst extents);
+                                               C.BraceInit ("(const int64_t[])", List.map snd extents);
+                                               C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
+                                               C.Id gctr;
+                                             ] ) ));
+                                ]
                             in
                             ( alloc,
                               store,
                               [],
-                              (res_name, sat),
+                              (res_name, out_ty),
                               (port, res_v) )
                       ) else (
                         (* Standard scalar-valued gather *)
@@ -4152,7 +4376,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                           [],
                           (res_name, sat),
                           (port, res_v) )
-                      )))
+                      ))))
             (* Only the CLAUSE outputs: the BODY also exports scatter
                placements (ports past the RETURNS output count), which are
                operands of the scatter stores, not forall outputs. *)
@@ -4235,7 +4459,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         if StringSet.mem n env.seen_decls then None
         else
           let iv =
-            if t = C.Basic "sisal_array_t" then C.Id "{0}" else C.LitInt 0
+            if t = C.Basic "sisal_array_t" || is_stream_type t then C.Id "{}" else C.LitInt 0
           in
           Some (C.Decl (t, n, Some iv)))
       out_decls
@@ -4258,7 +4482,33 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
       }
       out_binds
   in
-  (res_decls @ [ C.Compound (sym_decls @ relay_stmts @ loop_stmts) ], env_out)
+  let has_stream_ret =
+    List.exists
+      (fun (_, t) -> is_stream_type t)
+      out_decls
+  in
+  let final_stmts =
+    if has_stream_ret then
+      let res_name, generator_ty =
+        List.find
+          (fun (_, t) -> is_stream_type t)
+          out_decls
+      in
+      let body_stmts = sym_decls @ relay_stmts @ loop_stmts in
+      let fvs = collect_free_coro_vars body_stmts [ res_name ] in
+      let params = String.concat ", " (List.map (fun n -> "auto " ^ n) fvs) in
+      let args = String.concat ", " fvs in
+      [
+        C.Raw
+          (Printf.sprintf "%s = [](%s) -> %s {" res_name params
+             (string_of_c_type generator_ty));
+        C.Compound body_stmts;
+        C.Raw (Printf.sprintf "}(%s);" args);
+      ]
+    else
+      [ C.Compound (sym_decls @ relay_stmts @ loop_stmts) ]
+  in
+  (res_decls @ final_stmts, env_out)
 
 (** [lower_for_initial env gr gid nid loop_gr sub_gid pr] — a LoopA/LoopB
     (for-initial) compound to preheader + while. Loop-carried state lives in
@@ -4430,7 +4680,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                 | None -> C.Basic "int32_t"
               in
               let init_val =
-                if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
+                if ty = C.Basic "sisal_array_t" || is_stream_type ty then Some (C.Id "{}")
                 else Some (C.LitInt 0)
               in
               let e' =
@@ -4692,7 +4942,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                   let cap_id = C.Id cap_name in
                   let ty = get_final_ty e body_gid sn sp `Out in
                   let init_val =
-                    if ty = C.Basic "sisal_array_t" then Some (C.Id "{0}")
+                    if ty = C.Basic "sisal_array_t" || is_stream_type ty then Some (C.Id "{}")
                     else Some (C.LitInt 0)
                   in
                   Hashtbl.add memo (sn, sp) cap_id;
@@ -4726,32 +4976,80 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     | Some x -> x
     | _ -> failwith "no RET"
   in
-  let gather_pre, gather_store, gather_binds =
+  let gather_pre, gather_store, gather_top, gather_post, gather_binds =
     List.fold_left
-      (fun (pre, store, binds) (ret_out_port, ret_bin_port) ->
+      (fun (pre, store, top, post, binds) (ret_out_port, ret_bin_port) ->
         (* Source feeding the RETURNS boundary input the gather reads: a BODY
            out port (body temporary — sequence starts at body_1) or, per the
            1.2 history model, a MERGE (carry — the seed is body_0 of the
            sequence; to_if1 wires carry returns through the MERGE mux). *)
-        let src =
+        let src_from_edges =
           ES.fold
             (fun ((s, sp), (d, p), _) a ->
-              if d = g_ret_nid && p = ret_bin_port then
-                if s = body_nid then Some (s, sp, false)
-                else
-                  match NM.find_opt s loop_gr.nmap with
-                  | Some (Simple (_, MERGE, _, _, _)) -> Some (s, sp, true)
-                  | _ -> a
-              else a)
+              if d = g_ret_nid && p = ret_bin_port then Some (s, sp) else a)
             loop_gr.eset None
         in
+        let src_opt =
+          match src_from_edges with
+          | Some _ as found -> found
+          | None ->
+              let boundary_inputs = get_boundary_inputs g_ret_gr in
+              List.find_map
+                (fun (sn, sp, _, dp) ->
+                  if dp = ret_bin_port then Some (sn, sp) else None)
+                boundary_inputs
+        in
+        let src =
+          match src_opt with
+          | None -> None
+          | Some (s, sp) ->
+              if s = body_nid then
+                (* A carry must be gathered from its MERGE, never the body
+                   temp (user ruling).  A carry re-derived in the body (sieve
+                   `main`: T := stream_first(old S)) is exported on SEVERAL
+                   body boundary ports -- one to RETURNS, another to its
+                   MERGE's backedge (MERGE input port 2) -- all sharing one
+                   INNER source.  Link the RETURNS body port to that MERGE by
+                   inner source (not port number), then read the MERGE (output
+                   port 0), is_carry -- so the seed/loop-top read the carried
+                   value, not the stuck bodycap. *)
+                let inner_src_of p =
+                  ES.fold
+                    (fun ((isn, isp), (dn, dp), _) a ->
+                      if dn = 0 && dp = p then Some (isn, isp) else a)
+                    body_gr.eset None
+                in
+                let tgt_inner = inner_src_of sp in
+                let via_merge =
+                  if tgt_inner = None then None
+                  else
+                    ES.fold
+                      (fun ((bs, bsp), (bd, bp), _) acc ->
+                        if
+                          bs = body_nid && bp = 2
+                          && inner_src_of bsp = tgt_inner
+                        then
+                          match NM.find_opt bd loop_gr.nmap with
+                          | Some (Simple (_, MERGE, _, _, _)) -> Some bd
+                          | _ -> acc
+                        else acc)
+                      loop_gr.eset None
+                in
+                (match via_merge with
+                | Some merge_nid -> Some (merge_nid, 0, true)
+                | None -> Some (s, sp, false))
+              else
+                match NM.find_opt s loop_gr.nmap with
+                | Some (Simple (_, MERGE, _, _, _)) -> Some (s, sp, true)
+                | _ -> Some (s, sp, false)
+        in
         match src with
-        | None -> (pre, store, binds)
+        | None -> (pre, store, top, post, binds)
         | Some (src_n, bp, is_carry) -> (
             match
               FullPortMap.find_opt (sub_gid, src_n, bp, `Out) env_loop.var_map
             with
-            | None -> (pre, store, binds)
+            | None -> (pre, store, top, post, binds)
             | Some body_val -> (
                 let tid =
                   ES.fold
@@ -4770,6 +5068,38 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                 let res_v = C.Id res_name in
                 let ctr = Printf.sprintf "__gctr_%d_%d" sub_gid ret_out_port in
                 let is_arr_elem = elem_ty = C.Basic "sisal_array_t" in
+                let is_stream_out =
+                  is_stream_type (get_final_ty env gid nid ret_out_port `Out)
+                in
+                if is_stream_out then
+                  (* for-initial `returns stream of X`: accumulate X into a
+                     stream (empty seed in the preheader + per-iteration addh),
+                     mirroring the forall stream gather.  A carry gather also
+                     ticks the seed once (1.2 history: the INIT value is the
+                     first element).  Without this the RETURNS mis-lowered as a
+                     scalar-to-stream cast (sieve Integers / main). *)
+                  let sadd =
+                    [
+                      C.Expr
+                        (C.Call
+                           ( "co_yield",
+                             [
+                               C.Call
+                                 ( "SISAL_CAST",
+                                   [
+                                     C.Id (string_of_c_type elem_ty);
+                                     body_val;
+                                   ] );
+                             ] ));
+                    ]
+                  in
+                  ignore is_carry;
+                  ( pre @ sadd,
+                    store @ sadd,
+                    top,
+                    post,
+                    (ret_out_port, res_v) :: binds )
+                else
                 let gnid =
                   ES.fold
                     (fun ((sn, _), (dn, dp), _) a ->
@@ -4937,6 +5267,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       in
                       ( pre @ pre',
                         store @ store',
+                        top,
+                        post,
                         (ret_out_port, res_v) :: binds )
                     else
                       let k = List.length exts in
@@ -4974,6 +5306,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       in
                       ( pre @ pre',
                         store @ scalar_store,
+                        top,
+                        post,
                         (ret_out_port, res_v) :: binds )
                 | None ->
                     (* Bare gather: read the bound off the TEST compare NODE (cond
@@ -5022,7 +5356,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                     let sd = C.Id seed and bd = C.Id bound in
                     let dec a b = C.BinOp (C.Sub, a, b)
                     and inc e = C.BinOp (C.Add, e, C.LitInt 1) in
-                    let size =
+                    let trip_count =
                       match cmp_sym with
                       | LESSER_EQUAL -> inc (dec bd sd)
                       | LESSER -> dec bd sd
@@ -5033,11 +5367,17 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                             "for-initial gather: loop test is not a </<=/>/>= \
                              comparison"
                     in
+                    let trip_count =
+                      C.Cond
+                        ( C.BinOp (C.Gt, trip_count, C.LitInt 0),
+                          trip_count,
+                          C.LitInt 0 )
+                    in
                     (* 1.2 history model: a CARRY's sequence includes body_0
                        (the seed), so the gather is one longer than the trip
                        count and ticks once in the preheader (body_val is the
                        MERGE variable, holding the seed there). *)
-                    let size = if is_carry then inc size else size in
+                    let size = if is_carry then inc trip_count else trip_count in
                     (* ALWAYS-ON size assert: the guard must at least allow
                        the initializer to execute -- history >= 1 for a carry
                        (its seed needs a slot), >= 0 for a body temp.  A
@@ -5120,9 +5460,13 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                          so the MERGE variable holds the seed here *)
                       @ if is_carry then store' else []
                     in
-                    (pre @ pre', store @ store', (ret_out_port, res_v) :: binds)
+                    ( pre @ pre',
+                      store @ store',
+                      top,
+                      post,
+                      (ret_out_port, res_v) :: binds )
                 )))
-      ([], [], [])
+      ([], [], [], [], [])
       (for_initial_gather_ports g_ret_gr)
   in
   let is_gather_port p = List.mem_assoc p gather_binds in
@@ -5183,8 +5527,13 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
      value when stored; body-temp gathers read bodycap snapshots, which the
      backedge copies don't touch. *)
   let loop_body_stmts =
-    body_stmts @ body_capture_assigns @ merge_backedge_copies @ gather_store
-    @ carry_update_stmts @ test_stmts2
+    (* gather_top (carry gathers, read from MERGE) runs at the LOOP BEGINNING --
+       before the body and the backedge -- so the MERGE still holds this
+       iteration's value (like a C for-loop's induction variable read at the
+       top).  Body-temp gather_store runs after the body, per its history
+       model. *)
+    gather_top @ body_stmts @ body_capture_assigns @ merge_backedge_copies
+    @ gather_store @ carry_update_stmts @ test_stmts2
   in
   let while_loop =
     if is_post_test then C.DoWhile (loop_body_stmts, cond)
@@ -5331,14 +5680,47 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
         C.Macro "endif";
       ]
   in
-  ( decl_stmts
-    @ [
+  let has_stream_ret =
+    List.exists
+      (fun dp -> is_stream_type (get_final_ty env gid nid dp `Out))
+      out_pids
+  in
+  let stmts =
+    if has_stream_ret then
+      let stream_port =
+        List.find
+          (fun dp -> is_stream_type (get_final_ty env gid nid dp `Out))
+          out_pids
+      in
+      let res_name = get_c_name env.proc_map env.gid_name_map gid nid stream_port `Out gr in
+      let generator_ty = get_final_ty env gid nid stream_port `Out in
+      let body_stmts =
+        loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
+        @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts
+        @ merge_init_seeds @ test_stmts1 @ zero_trip_guard @ gather_pre
+        @ [ while_loop ] @ gather_post @ ret_stmts
+      in
+      let fvs = collect_free_coro_vars body_stmts [ res_name ] in
+      let params = String.concat ", " (List.map (fun n -> "auto " ^ n) fvs) in
+      let args = String.concat ", " fvs in
+      [
+        C.Raw
+          (Printf.sprintf "%s = [](%s) -> %s {" res_name params
+             (string_of_c_type generator_ty));
+        C.Compound body_stmts;
+        C.Raw (Printf.sprintf "}(%s);" args);
+      ]
+      @ props
+    else
+      [
         C.Compound
           (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
          @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts
          @ merge_init_seeds @ test_stmts1 @ zero_trip_guard @ gather_pre
-         @ [ while_loop ] @ ret_stmts @ props);
-      ],
+         @ [ while_loop ] @ gather_post @ ret_stmts @ props);
+      ]
+  in
+  ( decl_stmts @ stmts,
     final_env )
 
 (** [dummy_env tm sub_gr] — a fresh empty lowering environment; the seed
@@ -5802,6 +6184,88 @@ let lower_to_c tm gr filename =
       (fun m (nid, _, sub_gr) -> IntMap.add nid sub_gr m)
       IntMap.empty procedures_info
   in
+
+  let rec walk_graph visited path proc_map procedures_info_map g =
+    NM.iter
+      (fun nid node ->
+        match node with
+        | Compound (_, sym, _, pr, sub_gr, _) ->
+            let ckind = get_compound_type pr in
+            if ckind = If1_forall || ckind = If1_loop_initial then begin
+              let loop_name = Printf.sprintf "loop_%d" nid in
+              let path' = path @ [loop_name] in
+              Printf.printf "  [LOOP] Path: %s -> %s\n" (String.concat " -> " path) loop_name;
+              let gen_sub = find_subgraph sub_gr "GENERATOR" in
+              begin match gen_sub with
+              | Some (_, gen_gr) ->
+                  ES.iter
+                    (fun ((sn, sp), (dn, dp), _) ->
+                      if dn = 0 then
+                        Printf.printf "    -> Loop Boundary port %d fed by node %d output %d\n" dp sn sp)
+                    gen_gr.eset
+              | None -> ()
+              end;
+              walk_graph visited path' proc_map procedures_info_map sub_gr
+            end else if ckind = If1_procedure then
+              walk_graph visited path proc_map procedures_info_map sub_gr
+            else
+              walk_graph visited path proc_map procedures_info_map sub_gr
+        | Simple (_, INVOCATION, _, _, pr) ->
+            let fname_pragma = List.find_map (function Name n -> Some n | _ -> None) pr in
+            let fname =
+              match fname_pragma with
+              | Some n -> "func_" ^ String.uppercase_ascii n
+              | None -> (
+                  match
+                    ES.fold
+                      (fun (src, dst, _) acc ->
+                        if dst = (nid, 0) then Some src else acc)
+                      g.eset None
+                  with
+                  | Some (0, pn) -> (
+                      match IntMap.find_opt pn proc_map with
+                      | Some name -> name
+                      | _ -> "func_UNKNOWN")
+                  | _ -> "func_UNKNOWN")
+            in
+            Printf.printf "  [CALL] Path: %s -> calls %s (node %d)\n" (String.concat " -> " path) fname nid;
+            if not (StringSet.mem fname visited) then
+              let visited' = StringSet.add fname visited in
+              IntMap.iter
+                (fun pnid name ->
+                  if name = fname then
+                    match IntMap.find_opt pnid procedures_info_map with
+                    | Some callee_gr ->
+                        Printf.printf "    [INTERPROC] Traversing callee: %s\n" fname;
+                        walk_graph visited' [fname] proc_map procedures_info_map callee_gr
+                    | None -> ())
+                proc_map
+        | _ -> ())
+      g.nmap
+  in
+
+  Printf.printf "\n=== INTERPROCEDURAL LOOP & CALL GRAPH WALK ===\n";
+  let main_nid_opt =
+    IntMap.fold
+      (fun nid name acc ->
+        if name = "func_MAIN" then Some nid else acc)
+      proc_map None
+  in
+  begin match main_nid_opt with
+  | Some main_nid ->
+      begin match IntMap.find_opt main_nid procedures_info_map with
+      | Some main_gr ->
+          walk_graph (StringSet.singleton "func_MAIN") ["func_MAIN"] proc_map procedures_info_map main_gr
+      | None -> ()
+      end
+  | None ->
+      List.iter
+        (fun (nid, _, sub_gr) ->
+          let name = try IntMap.find nid proc_map with _ -> "unknown" in
+          walk_graph (StringSet.singleton name) [name] proc_map procedures_info_map sub_gr)
+        procedures_info
+  end;
+  Printf.printf "==============================================\n\n";
 
   let procedures =
     List.concat_map
