@@ -309,6 +309,7 @@ run_group STREAM_SIMPLE_DV   stream_simple_dv     ""
 run_group STREAM_LOOP_DV     stream_loop_dv       ""
 run_group STREAM_SIEVE_DV    stream_sieve_dv      ""
 run_group STREAM_INTEGERS_DV stream_integers_dv   ""
+run_group STREAM_SIEVE_V2_DV  stream_sieve_v2_dv   ""
 
 
 echo "========================================"

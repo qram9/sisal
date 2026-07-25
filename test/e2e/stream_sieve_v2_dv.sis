@@ -1,0 +1,52 @@
+% stream_sieve_v2_dv — Sieve of Eratosthenes, forall-range Integers variant.
+%
+% Same sieve as stream_sieve_dv, but the candidate generator `Integers` is a
+% FORALL RANGE (`for i in 0,NumOdd returns stream of 3 + 2*i`) instead of a
+% for-initial while loop.  This exercises forall-range -> stream gather with a
+% non-trivial element expression, composed inside a real algorithm alongside
+% Filter (forall-over-stream with `unless` mask) and a post-test repeat/until
+% main loop that carries a stream.
+%
+% Candidates are the odd numbers 3,5,...,maxcand where maxcand = 3+2*((L-3)/2)
+% <= L, so every generated composite has a prime factor <= sqrt(L) = Maxt and
+% the filter is exact: the output is exactly the primes in [2, maxcand].
+
+define Main
+
+type StrmInt = stream[ integer ];
+
+global sqrt( a : double_real returns double_real )
+
+function Filter( S: StrmInt; M: integer returns StrmInt )
+   for I in S returns
+       stream of I unless mod( I, M ) = 0
+   end for
+end function % Filter
+
+% forall-range generator (parallel-friendly: no loop-carried dependency)
+function Integers( Limit: integer returns StrmInt )
+   let
+      NumOdd := (Limit - 3) / 2;
+   in
+      for i in 0, NumOdd
+      returns stream of 3 + 2 * i
+      end for
+   end let
+end function % Integers
+
+function main( Limit: integer returns StrmInt )
+  for initial
+     T    := 2;
+     S    := Integers( Limit );
+     Maxt := integer( sqrt( double_real( Limit ) ) )
+  repeat
+     T := stream_first( old S );
+     S := if T <= Maxt then
+             Filter( stream_rest( old S ), T )
+          else
+             stream_rest( old S )
+          end if
+  until stream_empty( S )
+  returns stream of T
+  end for
+end function % Main

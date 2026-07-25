@@ -316,6 +316,9 @@ extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
 #ifdef TEST_STREAM_INTEGERS_DV
 extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
 #endif
+#ifdef TEST_STREAM_SIEVE_V2_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -8936,6 +8939,40 @@ static void test_stream_integers_dv() {
   run(4);   // zero-trip (I:=3, 3<3 false): just the seed [3]
 }
 #endif
+#ifdef TEST_STREAM_SIEVE_V2_DV
+static void test_stream_sieve_v2_dv() {
+  printf("\n=== Group: stream_sieve_v2_dv ===\n");
+  // Reference: the forall generator emits odd candidates 3,5,...,maxcand with
+  // maxcand = 3 + 2*((Limit-3)/2) <= Limit, plus the seed 2.  Since every
+  // composite candidate has a factor <= sqrt(Limit)=Maxt, the sieve is exact,
+  // so the output is precisely the primes in [2, maxcand] (trial division).
+  auto run = [](int32_t Limit) {
+    int32_t maxcand = 3 + 2 * ((Limit - 3) / 2);
+    int32_t ref[512];
+    int n = 0;
+    for (int32_t p = 2; p <= maxcand; p++) {
+      bool prime = true;
+      for (int32_t d = 2; (int64_t)d * d <= p; d++)
+        if (p % d == 0) { prime = false; break; }
+      if (prime) ref[n++] = p;
+    }
+    sisal_generator<int32_t> r = func_MAIN(Limit);
+    char label[96];
+    snprintf(label, sizeof(label), "Limit=%d size is %d", Limit, n);
+    check(label, (int)r.size == n);
+    for (int i = 0; i < n; i++) {
+      int32_t val = sisal_stream_first<int32_t>(r);
+      r = sisal_stream_rest(r);
+      snprintf(label, sizeof(label), "Limit=%d prime %d is %d", Limit, i,
+               ref[i]);
+      check(label, val == ref[i]);
+    }
+  };
+  run(10);  // 2 3 5 7
+  run(30);  // 2 3 5 7 11 13 17 19 23 29
+  run(50);  // 2 3 5 7 ... 43 47
+}
+#endif
 
 #ifdef TEST_FORALL_INTERPROC_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N);
@@ -9710,6 +9747,9 @@ main (void)
 #ifdef TEST_STREAM_INTEGERS_DV
   test_stream_integers_dv ();
 #endif
+#ifdef TEST_STREAM_SIEVE_V2_DV
+  test_stream_sieve_v2_dv ();
+#endif
 #ifdef TEST_FORALL_INTERPROC_E2E
   test_forall_interproc_e2e ();
 #endif
@@ -9816,7 +9856,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
