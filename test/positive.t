@@ -53,6 +53,7 @@ DV_COMPRESS — COMPRESS produces array_dv; inputs may be monolithic or dv:
   $ sisal e2e/interproc_provided_e2e.sis
   $ sisal e2e/stream_integers_dv.sis
   $ sisal e2e/stream_sieve_v2_dv.sis
+  $ sisal e2e/stream_uprime2_dv.sis
   $ sisal e2e/dv_compress_test.sis
 
 APL bulk operations - sort and search (SORT/GRADE_UP/GRADE_DOWN/ARGMAX/ARGMIN/NONZERO/WHERE):

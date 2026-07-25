@@ -1,0 +1,55 @@
+% stream_uprime2_dv — Sieve of Eratosthenes over an INFINITE stream.
+%
+% Unlike stream_sieve_dv/stream_sieve_v2_dv, Integers here is UNBOUNDED
+% (`while true repeat I := old I + 2`) -- an infinite odd stream 3,5,7,...
+% The main loop is bounded instead (`while T < Limit`), so it pulls only a
+% finite prefix.  This is the test that exercises the lean generator's
+% laziness: with the old memoizing `.size` model this program hung; the
+% one-element-at-a-time generator drives Integers only as far as main pulls.
+%
+% Output = 2 (seed), then successive primes while T < Limit, PLUS the first
+% surviving odd >= Limit (Rule 2: the body computes it before the guard fails,
+% so it is gathered).  That overshoot is whatever the sieve emits next, which
+% may be COMPOSITE: e.g. Limit=48 -> ...47 49, where 49 = 7*7 survives because
+% its smallest factor 7 exceeds Maxt = floor(sqrt(48)) = 6.  The reference must
+% therefore model the actual sieve, not primality.
+
+define Main
+
+type StrmInt = stream[ integer ];
+
+global sqrt( a : double_real returns double_real )
+
+function Filter( S: StrmInt; M: integer returns StrmInt )
+   for I IN S
+   returns stream of I unless mod( I, M ) = 0
+   end for
+end function
+
+function Integers( returns StrmInt )
+   for initial
+      I := 3;
+   while true repeat
+      I := old I + 2;
+   returns stream of I
+   end for
+end function
+
+function main( Limit: integer returns StrmInt )
+   let
+      Maxt := integer( sqrt( double_real( Limit ) ) );
+   in
+      for initial
+	 S := Integers();
+         T := 2;
+      while T < Limit repeat
+         T := stream_first( OLD S );
+         S := if T <= Maxt then
+                 Filter( stream_rest( OLD S ), T )
+              else
+		 stream_rest( OLD S )
+              end if;
+      returns stream of T
+      end for
+   end let
+end function

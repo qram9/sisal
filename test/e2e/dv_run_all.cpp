@@ -319,6 +319,9 @@ extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
 #ifdef TEST_STREAM_SIEVE_V2_DV
 extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
 #endif
+#ifdef TEST_STREAM_UPRIME2_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t LIMIT);
+#endif
 #ifdef TEST_CPXFUNCS_DV
 struct cfx { float re, im; };  // ABI-matches struct_rec_<N> {float RE; float IM;}
 extern "C" struct cfx func_CADD(struct cfx a, struct cfx b);
@@ -8974,6 +8977,46 @@ static void test_stream_sieve_v2_dv() {
   run(50);  // 2 3 5 7 ... 43 47
 }
 #endif
+#ifdef TEST_STREAM_UPRIME2_DV
+static void test_stream_uprime2_dv() {
+  printf("\n=== Group: stream_uprime2_dv ===\n");
+  // Infinite-Integers sieve.  Reference = the ACTUAL sieve, not primality:
+  // seed 2, then successive odd survivors while T < Limit, plus the first
+  // survivor >= Limit (Rule 2 overshoot).  A survivor is an odd q with no
+  // factor in [2, Maxt] below itself (Maxt = floor(sqrt(Limit))); that
+  // overshoot survivor may be COMPOSITE (e.g. Limit=48 -> ...47 49).
+  auto run = [](int32_t Limit) {
+    int32_t Maxt = (int32_t)sqrt((double)Limit);
+    int32_t ref[512];
+    int n = 0;
+    ref[n++] = 2;
+    for (int32_t q = 3;; q += 2) {
+      bool surv = true;
+      for (int32_t d = 2; d <= Maxt && d < q; d++)
+        if (q % d == 0) { surv = false; break; }
+      if (surv) {
+        ref[n++] = q;
+        if (q >= Limit) break;
+      }
+    }
+    std::vector<int32_t> got;
+    for (sisal_generator<int32_t> r = func_MAIN(Limit);
+         !sisal_stream_empty_pred(r); r = sisal_stream_rest(r))
+      got.push_back(sisal_stream_first<int32_t>(r));
+    char label[96];
+    snprintf(label, sizeof(label), "Limit=%d size is %d", Limit, n);
+    check(label, (int)got.size() == n);
+    for (int i = 0; i < n && i < (int)got.size(); i++) {
+      snprintf(label, sizeof(label), "Limit=%d element %d is %d", Limit, i,
+               ref[i]);
+      check(label, got[i] == ref[i]);
+    }
+  };
+  run(20);  // 2 3 5 7 11 13 17 19 23
+  run(30);  // 2 3 5 7 11 13 17 19 23 29 31
+  run(48);  // 2 3 5 7 ... 47 49  (49 = 7*7 is a COMPOSITE overshoot)
+}
+#endif
 
 #ifdef TEST_FORALL_INTERPROC_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N);
@@ -9751,6 +9794,9 @@ main (void)
 #ifdef TEST_STREAM_SIEVE_V2_DV
   test_stream_sieve_v2_dv ();
 #endif
+#ifdef TEST_STREAM_UPRIME2_DV
+  test_stream_uprime2_dv ();
+#endif
 #ifdef TEST_FORALL_INTERPROC_E2E
   test_forall_interproc_e2e ();
 #endif
@@ -9857,7 +9903,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
