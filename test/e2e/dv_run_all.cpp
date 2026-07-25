@@ -8866,44 +8866,43 @@ static void test_interproc_provided_e2e() {
 #ifdef TEST_STREAM_SIMPLE_DV
 static void test_stream_simple_dv() {
   printf("\n=== Group: stream_simple_dv ===\n");
-  sisal_generator<float> r = func_MAIN();
-  check("size is 2", r.size == 2);
-  float val0 = sisal_stream_first<float>(r);
-  r = sisal_stream_rest(r);
-  float val1 = sisal_stream_first<float>(r);
-  check("element 0 is 1.2", fabs(val0 - 1.2f) < 1e-5);
-  check("element 1 is 3.2", fabs(val1 - 3.2f) < 1e-5);
+  std::vector<float> got;
+  for (sisal_generator<float> r = func_MAIN(); !sisal_stream_empty_pred(r);
+       r = sisal_stream_rest(r))
+    got.push_back(sisal_stream_first<float>(r));
+  check("size is 2", got.size() == 2);
+  check("element 0 is 1.2", got.size() > 0 && fabs(got[0] - 1.2f) < 1e-5);
+  check("element 1 is 3.2", got.size() > 1 && fabs(got[1] - 3.2f) < 1e-5);
 }
 #endif
 #ifdef TEST_STREAM_LOOP_DV
 static void test_stream_loop_dv() {
   printf("\n=== Group: stream_loop_dv ===\n");
-  sisal_generator<int32_t> r = func_MAIN(5);
-  check("size is 5", r.size == 5);
-  for (int i = 0; i < 5; i++) {
+  std::vector<int32_t> got;
+  for (sisal_generator<int32_t> r = func_MAIN(5); !sisal_stream_empty_pred(r);
+       r = sisal_stream_rest(r))
+    got.push_back(sisal_stream_first<int32_t>(r));
+  check("size is 5", (int)got.size() == 5);
+  for (int i = 0; i < (int)got.size() && i < 5; i++) {
     char label[64];
     snprintf(label, sizeof(label), "element %d is %d", i, i + 1);
-    int32_t val = sisal_stream_first<int32_t>(r);
-    r = sisal_stream_rest(r);
-    check(label, val == i + 1);
+    check(label, got[i] == i + 1);
   }
 }
 #endif
 #ifdef TEST_STREAM_SIEVE_DV
 static void test_stream_sieve_dv() {
   printf("\n=== Group: stream_sieve_dv ===\n");
-  sisal_generator<int32_t> r = func_MAIN(20);
-  int32_t act_size = (int32_t)r.size;
-  printf("Actual stream size: %d\n", act_size);
-  check("size is 8", act_size == 8);
+  std::vector<int32_t> got;
+  for (sisal_generator<int32_t> r = func_MAIN(20); !sisal_stream_empty_pred(r);
+       r = sisal_stream_rest(r))
+    got.push_back(sisal_stream_first<int32_t>(r));
+  check("size is 8", (int)got.size() == 8);
   int32_t expected[] = {2, 3, 5, 7, 11, 13, 17, 19};
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < (int)got.size() && i < 8; i++) {
     char label[64];
     snprintf(label, sizeof(label), "prime %d is %d", i, expected[i]);
-    int32_t val = sisal_stream_first<int32_t>(r);
-    printf("  Expected: %d, Actual: %d\n", expected[i], val);
-    r = sisal_stream_rest(r);
-    check(label, val == expected[i]);
+    check(label, got[i] == expected[i]);
   }
 }
 #endif
@@ -8922,16 +8921,17 @@ static void test_stream_integers_dv() {
       I = I + 2;                  // body: old I + 2
       ref[n++] = I;               // Rule 2: gather body value (incl. out-of-bounds)
     }
-    sisal_generator<int32_t> r = func_MAIN(Limit);
+    std::vector<int32_t> got;
+    for (sisal_generator<int32_t> r = func_MAIN(Limit);
+         !sisal_stream_empty_pred(r); r = sisal_stream_rest(r))
+      got.push_back(sisal_stream_first<int32_t>(r));
     char label[96];
     snprintf(label, sizeof(label), "Limit=%d size is %d", Limit, n);
-    check(label, (int)r.size == n);
-    for (int i = 0; i < n; i++) {
-      int32_t val = sisal_stream_first<int32_t>(r);
-      r = sisal_stream_rest(r);
+    check(label, (int)got.size() == n);
+    for (int i = 0; i < n && i < (int)got.size(); i++) {
       snprintf(label, sizeof(label), "Limit=%d element %d is %d", Limit, i,
                ref[i]);
-      check(label, val == ref[i]);
+      check(label, got[i] == ref[i]);
     }
   };
   run(30);  // normal: 3 5 7 ... 27 29
@@ -8956,16 +8956,17 @@ static void test_stream_sieve_v2_dv() {
         if (p % d == 0) { prime = false; break; }
       if (prime) ref[n++] = p;
     }
-    sisal_generator<int32_t> r = func_MAIN(Limit);
+    std::vector<int32_t> got;
+    for (sisal_generator<int32_t> r = func_MAIN(Limit);
+         !sisal_stream_empty_pred(r); r = sisal_stream_rest(r))
+      got.push_back(sisal_stream_first<int32_t>(r));
     char label[96];
     snprintf(label, sizeof(label), "Limit=%d size is %d", Limit, n);
-    check(label, (int)r.size == n);
-    for (int i = 0; i < n; i++) {
-      int32_t val = sisal_stream_first<int32_t>(r);
-      r = sisal_stream_rest(r);
+    check(label, (int)got.size() == n);
+    for (int i = 0; i < n && i < (int)got.size(); i++) {
       snprintf(label, sizeof(label), "Limit=%d prime %d is %d", Limit, i,
                ref[i]);
-      check(label, val == ref[i]);
+      check(label, got[i] == ref[i]);
     }
   };
   run(10);  // 2 3 5 7

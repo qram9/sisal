@@ -3420,61 +3420,10 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 sib_decls @ inner' );
           ]
     | [], (pn, _) :: _ ->
-        (* element scatter (dot of scatters share one counter k over the array) *)
-        let k = Printf.sprintf "__k_%d" ggid in
+        (* element scatter: `for X in source`.  An ARRAY is indexed by a
+           counter k over [0, size); a STREAM is PULLED one element at a time
+           (first/rest/empty) -- a lazy generator has no random access. *)
         let parr = resolve_in pn 0 in
-        let assigns =
-          List.concat_map
-            (fun (s, kind) ->
-              let arr = resolve_in s 0 in
-              let ety = port_cty s 0 in
-              let arr_tyid =
-                match
-                  ES.fold
-                    (fun ((sn, sp), (dn, dp), ty) acc ->
-                      if dn = s && dp = 0 && ty <> 0 then Some ty else acc)
-                    g.eset None
-                with
-                | Some ty -> ty
-                | None -> 0
-              in
-              let elem =
-                if
-                  rank_of_type_id env_loop.tm arr_tyid > 1
-                  && ety = C.Basic "sisal_array_t"
-                then C.Call ("sisal_array_get_row", [ arr; C.Id k ])
-                else if is_stream_type (c_type_of_if1_tyid env_loop.tm arr_tyid) then
-                  let call = Printf.sprintf "sisal_stream_get<%s>" (string_of_c_type ety) in
-                  C.Call (call, [ arr; C.Id k ])
-                else
-                  C.Index
-                    ( C.Cast (C.Pointer (ety, []), C.Member (arr, "data")),
-                      C.Id k )
-              in
-              let base =
-                [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 0), elem)) ]
-              in
-              let at_used =
-                SM.exists
-                  (fun _ v -> v.val_def = s && v.def_port = 1)
-                  (fst g.symtab)
-              in
-              match kind with
-              | (`Arr | `Dv) when at_used ->
-                  (* `at` index (port 1) = lower_bound[0] + k *)
-                  let idx =
-                    C.BinOp
-                      ( C.Add,
-                        C.Cast
-                          ( C.Basic "int32_t",
-                            C.Index (C.Member (arr, "lower_bound"), C.LitInt 0)
-                          ),
-                        C.Id k )
-                  in
-                  base @ [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 1), idx)) ]
-              | _ -> base)
-            scatters
-        in
         let arr_tyid =
           match
             ES.fold
@@ -3485,19 +3434,111 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           | Some ty -> ty
           | None -> 0
         in
-        let limit_expr =
-          if rank_of_type_id env_loop.tm arr_tyid > 1 then
-            C.Index (C.Member (parr, "dims"), C.LitInt 0)
-          else C.Member (parr, "size")
-        in
-        pre @ before
-        @ [
-            C.For
-              ( C.Decl (C.Basic "int32_t", k, Some (C.LitInt 0)),
-                C.BinOp (C.Lt, C.Id k, C.Cast (C.Basic "int32_t", limit_expr)),
-                C.UnaryOp (C.PostInc, C.Id k),
-                assigns @ inner' );
-          ]
+        if is_stream_type (c_type_of_if1_tyid env_loop.tm arr_tyid) then
+          (* while (!empty S) { X := first S; <body>; S := rest S } *)
+          let reads =
+            List.map
+              (fun (s, _) ->
+                let arr = resolve_in s 0 in
+                let ety = port_cty s 0 in
+                let call =
+                  Printf.sprintf "sisal_stream_first<%s>" (string_of_c_type ety)
+                in
+                C.Expr
+                  (C.BinOp (C.Assign, C.Id (slot s 0), C.Call (call, [ arr ]))))
+              scatters
+          in
+          let advances =
+            List.map
+              (fun (s, _) ->
+                let arr = resolve_in s 0 in
+                C.Expr
+                  (C.BinOp
+                     (C.Assign, arr, C.Call ("sisal_stream_rest", [ arr ]))))
+              scatters
+          in
+          let cond =
+            match
+              List.fold_left
+                (fun acc (s, _) ->
+                  let arr = resolve_in s 0 in
+                  let e =
+                    C.UnaryOp
+                      (C.LogNot, C.Call ("sisal_stream_empty_pred", [ arr ]))
+                  in
+                  match acc with
+                  | None -> Some e
+                  | Some a -> Some (C.BinOp (C.LogAnd, a, e)))
+                None scatters
+            with
+            | Some e -> e
+            | None -> C.LitInt 1
+          in
+          pre @ before @ [ C.While (cond, reads @ inner' @ advances) ]
+        else
+          let k = Printf.sprintf "__k_%d" ggid in
+          let assigns =
+            List.concat_map
+              (fun (s, kind) ->
+                let arr = resolve_in s 0 in
+                let ety = port_cty s 0 in
+                let s_tyid =
+                  match
+                    ES.fold
+                      (fun ((sn, sp), (dn, dp), ty) acc ->
+                        if dn = s && dp = 0 && ty <> 0 then Some ty else acc)
+                      g.eset None
+                  with
+                  | Some ty -> ty
+                  | None -> 0
+                in
+                let elem =
+                  if
+                    rank_of_type_id env_loop.tm s_tyid > 1
+                    && ety = C.Basic "sisal_array_t"
+                  then C.Call ("sisal_array_get_row", [ arr; C.Id k ])
+                  else
+                    C.Index
+                      ( C.Cast (C.Pointer (ety, []), C.Member (arr, "data")),
+                        C.Id k )
+                in
+                let base =
+                  [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 0), elem)) ]
+                in
+                let at_used =
+                  SM.exists
+                    (fun _ v -> v.val_def = s && v.def_port = 1)
+                    (fst g.symtab)
+                in
+                match kind with
+                | (`Arr | `Dv) when at_used ->
+                    (* `at` index (port 1) = lower_bound[0] + k *)
+                    let idx =
+                      C.BinOp
+                        ( C.Add,
+                          C.Cast
+                            ( C.Basic "int32_t",
+                              C.Index
+                                (C.Member (arr, "lower_bound"), C.LitInt 0) ),
+                          C.Id k )
+                    in
+                    base @ [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 1), idx)) ]
+                | _ -> base)
+              scatters
+          in
+          let limit_expr =
+            if rank_of_type_id env_loop.tm arr_tyid > 1 then
+              C.Index (C.Member (parr, "dims"), C.LitInt 0)
+            else C.Member (parr, "size")
+          in
+          pre @ before
+          @ [
+              C.For
+                ( C.Decl (C.Basic "int32_t", k, Some (C.LitInt 0)),
+                  C.BinOp (C.Lt, C.Id k, C.Cast (C.Basic "int32_t", limit_expr)),
+                  C.UnaryOp (C.PostInc, C.Id k),
+                  assigns @ inner' );
+            ]
     | [], [] -> pre @ before @ inner'
     | _ :: _, _ :: _ ->
         pre @ inner' (* mixed range+scatter at one level: unsupported *)

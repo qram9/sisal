@@ -58,19 +58,31 @@ typedef struct {
     bool producer_done;
 } sisal_stream_t;
 
-// C++20 Cooperative Coroutine Stream Generator
+// C++20 Cooperative Coroutine Stream Generator.
+//
+// Lazy, ONE ELEMENT AT A TIME -- no memoization.  A generator is a producer
+// coroutine; the consumer pulls with current()/advance()/is_empty_pred():
+//   current()        = read the promised value            (stream_first)
+//   advance()        = resume the producer to its next    (stream_rest)
+//                      co_yield
+//   is_empty_pred()  = the producer has finished
+// `co_yield` in the producer is Sisal's `returns stream of`.
+//
+// Copies share one underlying coroutine (so the emitted code may pass streams
+// by value and the last copy destroys the frame).  Consumption is therefore
+// SINGLE-PASS: once advanced, the previous head is gone -- exactly ordinary
+// generator semantics.  Consumers must read a stream linearly (first, then
+// rest), which every current lowering does.
 template<typename T>
 struct sisal_generator {
     struct promise_type {
         T current_value;
-        std::exception_ptr exception;
-
         sisal_generator get_return_object() {
             return sisal_generator(std::coroutine_handle<promise_type>::from_promise(*this));
         }
         std::suspend_always initial_suspend() { return {}; }
         std::suspend_always final_suspend() noexcept { return {}; }
-        void unhandled_exception() { exception = std::current_exception(); }
+        void unhandled_exception() { std::terminate(); }
         std::suspend_always yield_value(T value) {
             current_value = value;
             return {};
@@ -80,40 +92,18 @@ struct sisal_generator {
 
     struct State {
         std::coroutine_handle<promise_type> h;
-        bool initiated = false;
-        bool is_empty = false;
-        std::vector<T> buffer;
+        bool started = false;
+        bool done = false;
         ~State() { if (h) h.destroy(); }
     };
-
     std::shared_ptr<State> state;
-    size_t index = 0;
 
-    struct SizeHelper {
-        operator int32_t() const { return (int32_t)get_gen()->get_size(); }
-        operator uint64_t() const { return get_gen()->get_size(); }
-        operator int64_t() const { return (int64_t)get_gen()->get_size(); }
-        
-        bool operator==(int other) const { return (int)get_gen()->get_size() == other; }
-        bool operator==(uint32_t other) const { return (uint32_t)get_gen()->get_size() == other; }
-        bool operator==(int64_t other) const { return (int64_t)get_gen()->get_size() == other; }
-        bool operator==(uint64_t other) const { return get_gen()->get_size() == other; }
-
-    private:
-        const sisal_generator* get_gen() const {
-            return (const sisal_generator*)((const char*)this - offsetof(sisal_generator, size));
-        }
-    };
-    SizeHelper size;
-
-    sisal_generator() : state(std::make_shared<State>()), index(0) {
-        state->initiated = true;
-        state->is_empty = true;
+    sisal_generator() : state(std::make_shared<State>()) {   // the empty stream
+        state->started = true;
+        state->done = true;
     }
-    sisal_generator(std::coroutine_handle<promise_type> h) : state(std::make_shared<State>()), index(0) {
+    sisal_generator(std::coroutine_handle<promise_type> h) : state(std::make_shared<State>()) {
         state->h = h;
-        state->initiated = false;
-        state->is_empty = false;
     }
 
     sisal_generator(const sisal_generator&) = default;
@@ -121,72 +111,39 @@ struct sisal_generator {
     sisal_generator(sisal_generator&&) noexcept = default;
     sisal_generator& operator=(sisal_generator&&) noexcept = default;
 
-    bool ensure_initiated() const {
-        if (!state->initiated) {
-            state->initiated = true;
+    // Lazy priming: run the producer to its first co_yield (or to the end).
+    // Idempotent -- every accessor calls it first.
+    void ensure_initiated() const {
+        if (!state->started) {
+            state->started = true;
             if (state->h) {
                 state->h.resume();
-                state->is_empty = state->h.done();
-                if (!state->is_empty) {
-                    state->buffer.push_back(state->h.promise().current_value);
-                }
+                state->done = state->h.done();
             } else {
-                state->is_empty = true;
+                state->done = true;
             }
         }
-        return index < state->buffer.size() || !state->is_empty;
     }
 
+    // stream_rest: go back to the producer for the next element.
     void advance() const {
-        const_cast<sisal_generator*>(this)->index++;
         ensure_initiated();
-        while (state->buffer.size() <= index && state->h && !state->h.done()) {
+        if (state->h && !state->h.done()) {
             state->h.resume();
-            state->is_empty = state->h.done();
-            if (!state->is_empty) {
-                state->buffer.push_back(state->h.promise().current_value);
-            }
+            state->done = state->h.done();
         }
     }
 
     bool is_empty_pred() const {
         ensure_initiated();
-        while (state->buffer.size() <= index && state->h && !state->h.done()) {
-            state->h.resume();
-            state->is_empty = state->h.done();
-            if (!state->is_empty) {
-                state->buffer.push_back(state->h.promise().current_value);
-            }
-        }
-        return index >= state->buffer.size();
+        return state->done;
     }
 
+    // stream_first: read the promised value.
     T current() const {
         ensure_initiated();
-        while (state->buffer.size() <= index && state->h && !state->h.done()) {
-            state->h.resume();
-            state->is_empty = state->h.done();
-            if (!state->is_empty) {
-                state->buffer.push_back(state->h.promise().current_value);
-            }
-        }
-        if (index < state->buffer.size()) {
-            return state->buffer[index];
-        }
-        return {};
-    }
-
-    // Returns stream size by running the coroutine to completion and buffering all elements
-    uint64_t get_size() const {
-        ensure_initiated();
-        while (state->h && !state->h.done()) {
-            state->h.resume();
-            state->is_empty = state->h.done();
-            if (!state->is_empty) {
-                state->buffer.push_back(state->h.promise().current_value);
-            }
-        }
-        return state->buffer.size();
+        if (state->done) return T{};
+        return state->h.promise().current_value;
     }
 };
 
@@ -206,23 +163,6 @@ inline sisal_generator<T> sisal_stream_rest(const sisal_generator<T>& g) {
 template <typename T>
 inline bool sisal_stream_empty_pred(const sisal_generator<T>& g) {
     return g.is_empty_pred();
-}
-
-template <typename T>
-inline T sisal_stream_get(const sisal_generator<T>& g, int32_t k) {
-    g.ensure_initiated();
-    size_t target_idx = g.index + k;
-    while (g.state->buffer.size() <= target_idx && g.state->h && !g.state->h.done()) {
-        g.state->h.resume();
-        g.state->is_empty = g.state->h.done();
-        if (!g.state->is_empty) {
-            g.state->buffer.push_back(g.state->h.promise().current_value);
-        }
-    }
-    if (target_idx < g.state->buffer.size()) {
-        return g.state->buffer[target_idx];
-    }
-    return {};
 }
 
 template <typename T>

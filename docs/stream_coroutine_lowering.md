@@ -37,29 +37,35 @@ Key pieces:
   first element is produced only on the first `resume()`. `yield_value` stashes
   the yielded value in `current_value`.
 
-- **Shared `State`** — holds the `std::coroutine_handle`, an `initiated` flag,
-  and a **memoizing `std::vector<T> buffer`**. `State` is held through a
-  `std::shared_ptr`, so **copies of a generator share one underlying coroutine
-  and one buffer**. The handle is `.destroy()`ed when the last copy dies.
+- **Shared `State`** — holds the `std::coroutine_handle`, a `started` flag, and
+  a `done` flag. There is **no buffer**: the generator keeps only the *current*
+  element (in the promise). `State` is held through a `std::shared_ptr`, so
+  **copies of a generator share one underlying coroutine**; the handle is
+  `.destroy()`ed when the last copy dies. This sharing is what lets the emitted
+  code pass streams around by value.
 
-- **Pull-on-demand + memoization** — `ensure_initiated`, `advance`, `current`,
-  `is_empty_pred`, `get_size`, and `sisal_stream_get` all resume the coroutine
-  as needed and push each freshly-yielded value into `buffer`. Because values
-  are buffered, re-reading an index is cheap, `rest` is just *copy + bump the
-  per-copy `index`*, and a generator can be consumed more than once.
+- **One element at a time (no memoization)** — the three accessors are the whole
+  interface: `current()` reads the promised value (`stream_first`), `advance()`
+  resumes the producer to its next `co_yield` (`stream_rest`), `is_empty_pred()`
+  reports `done`. `ensure_initiated()` is the lazy prime (the first `resume()`).
+  Nothing is ever buffered, and the producer is only ever driven as far as the
+  consumer pulls — so an **infinite producer is fine** (e.g. `Integers` written
+  `while true`): it's advanced only as far as the surrounding loop asks.
 
-- **`SizeHelper size`** — a member object exposing `.size` on a generator. On use
-  it runs the coroutine **to completion** (buffering everything) and returns the
-  count, with implicit conversions and `==` overloads so `S.size` reads like an
-  array's `.size` field. NOTE: touching `.size` (or `sisal_stream_get`) forces
-  the producer to completion, so the current lowering is **eager over any input
-  stream** it iterates. This is correct for finite streams (the sieve) but would
-  need rework to keep a genuinely infinite input lazy.
+- **Consumption is SINGLE-PASS.** Because copies share the one coroutine and
+  there is no buffer, `rest` (copy + `advance`) moves the shared cursor forward:
+  once you advance, the previous head is gone. That is ordinary generator
+  semantics. It is correct as long as each stream is read **linearly** (first,
+  then rest), which every current lowering does. (The earlier design memoized
+  every element into a `std::vector` so `rest` was non-destructive and `.size`
+  could run to completion; that was dropped as over-thorough — and it made
+  infinite inputs impossible.)
 
 - **Stream API on the generator** — `sisal_stream_first` (= `current`),
-  `sisal_stream_rest` (copy + advance index; persistent/functional, shares the
-  buffer), `sisal_stream_empty_pred`, `sisal_stream_get(g, k)` (random index),
-  `sisal_stream_empty<T>()` (an empty generator). `sisal_stream_addh`/`addl` are
+  `sisal_stream_rest` (copy + `advance`), `sisal_stream_empty_pred`,
+  `sisal_stream_empty<T>()` (an empty generator). There is **no** `.size` and
+  **no** random-access `get` — a lazy one-at-a-time generator has neither.
+  `sisal_stream_addh`/`addl` are
   **themselves coroutines** that re-`co_yield` the source then the new element
   (or vice-versa) — they build a *new lazy stream* rather than mutate a buffer.
 
@@ -95,20 +101,24 @@ value: `Integers(15) = 3 5 7 9 11 13 15`, `Integers(30) = 3 … 27 29`, zero-tri
 
 ### 3b. `for X in S returns stream of E [unless mask]` (`lower_forall`)
 
-A forall over a source (array or stream). The generator level emits a counted
-loop and reads each element through the generator accessor — **never** through
-raw `.data` indexing:
+A forall over a source. An **array** source is indexed by a counter over
+`[0, size)`. A **stream** source has no `.size` and no random access, so it is
+**pulled** one element at a time (`lower_forall`'s element-scatter arm in
+`apple_lower.ml` branches on `is_stream_type`):
 
 ```cpp
-for (int32_t __k = 0; __k < (int32_t)S.size; __k++) {
-    I = sisal_stream_get<int32_t>(S, __k);   // coroutine accessor, no stride math
+while (!sisal_stream_empty_pred(S)) {   // stream: pull, don't index
+    I = sisal_stream_first<int32_t>(S);
     ... compute mask ...
-    if (mask) co_yield(E);                    // masked stream gather
+    if (mask) co_yield(E);              // masked stream gather
+    S = sisal_stream_rest(S);           // advance
 }
 ```
 
 Example — `Filter(S,M) = for I in S returns stream of I unless mod(I,M)=0`
-drops multiples of `M`.
+drops multiples of `M`. The pull loop is what keeps an infinite input lazy:
+`Filter` over a `while true` stream produces on demand and never needs the
+input to end.
 
 ---
 
