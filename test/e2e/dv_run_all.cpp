@@ -314,6 +314,12 @@ extern "C" int32_t func_MAIN(int32_t n);
 #ifdef TEST_STREAM_GURD_DV
 extern "C" sisal_generator<int32_t> func_MAIN(int32_t N);
 #endif
+#ifdef TEST_TEST_IF_NESTED_CAPTURE_DV
+extern "C" int32_t func_MAIN(int32_t selector, bool flag, int32_t captured_val);
+#endif
+#ifdef TEST_TEST_IF_LET_CASCADE_DV
+extern "C" int32_t func_MAIN(int32_t selector, bool flag, int32_t v1, int32_t v2, int32_t v3);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -8950,6 +8956,41 @@ static void test_stream_gurd_dv() {
   run(2); run(3); run(5); run(10); run(13);
 }
 #endif
+#ifdef TEST_TEST_IF_NESTED_CAPTURE_DV
+// Nested if returning a captured outer scalar; pure scalar control flow.
+static int if_nested_capture_ref(int sel, bool flag, int cap) {
+  if (sel == 1) return flag ? cap : 42;
+  return 0;
+}
+static void test_test_if_nested_capture_dv() {
+  printf("\n=== Group: test_if_nested_capture_dv (nested if, captured scalar) ===\n");
+  int sels[] = {1, 1, 2, 0}; bool fls[] = {true, false, true, false};
+  int caps[] = {77, 77, 5, 9};
+  for (int i = 0; i < 4; i++) {
+    char tag[64]; snprintf(tag, sizeof tag, "sel=%d flag=%d cap=%d", sels[i], fls[i], caps[i]);
+    check(tag, func_MAIN(sels[i], fls[i], caps[i]) == if_nested_capture_ref(sels[i], fls[i], caps[i]));
+  }
+}
+#endif
+#ifdef TEST_TEST_IF_LET_CASCADE_DV
+// let-bound nested-if result feeding a second if; pure scalar.
+static int if_let_cascade_ref(int sel, bool flag, int v1, int v2, int v3) {
+  int fr = (sel == 1) ? (flag ? v1 : v2) : v3;
+  return (fr > 50) ? fr * 2 : fr + 100;
+}
+static void test_test_if_let_cascade_dv() {
+  printf("\n=== Group: test_if_let_cascade_dv (let-bound if cascade) ===\n");
+  struct { int sel; bool fl; int v1, v2, v3; } cs[] = {
+    {1, true, 60, 5, 9}, {1, false, 60, 5, 9}, {2, true, 60, 5, 9},
+    {1, true, 10, 5, 9}, {3, false, 99, 1, 51},
+  };
+  for (auto &c : cs) {
+    char tag[80]; snprintf(tag, sizeof tag, "sel=%d fl=%d v=%d,%d,%d", c.sel, c.fl, c.v1, c.v2, c.v3);
+    check(tag, func_MAIN(c.sel, c.fl, c.v1, c.v2, c.v3)
+              == if_let_cascade_ref(c.sel, c.fl, c.v1, c.v2, c.v3));
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -9897,6 +9938,12 @@ main (void)
 #ifdef TEST_STREAM_GURD_DV
   test_stream_gurd_dv ();
 #endif
+#ifdef TEST_TEST_IF_NESTED_CAPTURE_DV
+  test_test_if_nested_capture_dv ();
+#endif
+#ifdef TEST_TEST_IF_LET_CASCADE_DV
+  test_test_if_let_cascade_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10024,7 +10071,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

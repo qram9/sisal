@@ -1,0 +1,19 @@
+define Main
+
+function Main(
+    selector: integer;
+    flag: boolean;
+    captured_val: integer
+    returns integer
+)
+    if selector = 1 then
+        % Nested if-else returning the captured value
+        if flag then
+            captured_val
+        else
+            42
+        end if
+    else
+        0
+    end if
+end function

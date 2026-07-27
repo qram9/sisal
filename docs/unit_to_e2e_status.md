@@ -127,3 +127,45 @@ Detection recipe: scan function/end-function nesting depth ignoring
 3. Promote for_all_reduce; fix the masked-reduction bug it pins.
 4. Drivers for verify_numpy_broadcast + complex_types.
 5. ARRAY_ADDL/REML/ADJUST trio (unlocks the physics family idioms).
+
+---
+
+# REOPENED — refreshed sweep (suite 241; streams+nested-fn+masked-gather+records landed)
+
+Re-swept every `test/unit/*.sis` with no e2e/_dv/_e2e counterpart
+(case-insensitive; 207 uncovered) — compiled to C++ from inside `test/unit/`,
+then `clang++ -std=c++23 -fsyntax-only` on the output.  Tally:
+
+- **89 CPP_OK** — emit C++ that compiles (~50 with a `func_MAIN`).
+- **58 CPP_FAIL** — emit C but won't compile (backend gap).
+- **59 FRONTEND_NO_C** — no C (frontend gap, or include-fragments/non-programs).
+
+Note the coverage matcher is stem-based: stream tests (sieve, sieve_v2,
+uprime2, arsieve) ARE covered under `stream_*_dv`; `uprime1` is intentionally
+parked (fragile reference).
+
+## Genuinely-new promotable now (compile + run verified, by-construction refs)
+
+- **Union/tagcase dispatch (4):** tagcase_bare, tagcase_bare_mixed,
+  tagcase_bare_nested, tagcase_ii — purpose-built bare-tagcase regression
+  pins (member_dv / bare-tagcase work).  Integer outputs.  Verified:
+  tagcase_bare_nested(1)=tagcase_bare_nested(7)=2.
+- **If / nested-capture (3):** test_if_nested_capture, test_if_complex_review,
+  test_if_let_cascade — pure scalar.  Verified: nested_capture(1,T,77)=77,
+  (1,F,77)=42, (2,*,*)=0.
+
+## Deferred — need array→array_dv rewrite (NON-mechanical, per the standing rule)
+
+- crypto (`type string = array[character]`), cyk
+  (`array[array[array[boolean]]]` AoA / boxed-array territory).
+
+## Backend gaps blocking the 58 CPP_FAIL (grouped by first error)
+
+- `sisal_array_addh_f32` missing overload (8) — float array-append growth.
+- lambda-as-value (12): `undeclared LAMBDA` (5) + call-to-lambda-object (7)
+  — higher-order function values not lowered.
+- multi-output port wiring `v_*_n__N_p1_o` undeclared (~7) — 2nd output port
+  of a node not declared in some contexts.
+- union `incomplete type struct union_un_NNN` (3) — union boxing/fwd-decl.
+- intrinsic double-emission: `redefinition of func_ASINR`, "functions differ
+  only in return type" (4); `conflicting types for func_MAIN` (2).
