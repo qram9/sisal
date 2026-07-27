@@ -379,7 +379,7 @@ Scientific benchmarks:
   $ sisal unit/gaussjnew.sis
   $ sisal unit/genp.sis
   $ sisal unit/gtransforms.sis
-  $ sisal unit/gurd.sis
+  $ sisal e2e/stream_gurd_dv.sis
   $ sisal unit/ham.sis
   $ sisal unit/hilbert.sis
   $ sisal unit/IFg_2ETC.sis

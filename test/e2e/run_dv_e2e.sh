@@ -314,6 +314,7 @@ run_group STREAM_SIEVE_DV    stream_sieve_dv      ""
 run_group STREAM_INTEGERS_DV stream_integers_dv   ""
 run_group STREAM_SIEVE_V2_DV  stream_sieve_v2_dv   ""
 run_group STREAM_UPRIME2_DV   stream_uprime2_dv    ""
+run_group STREAM_GURD_DV      stream_gurd_dv       ""
 
 
 echo "========================================"

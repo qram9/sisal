@@ -311,6 +311,9 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t list);
 #ifdef TEST_NESTED_CAPTURE_DV
 extern "C" int32_t func_MAIN(int32_t n);
 #endif
+#ifdef TEST_STREAM_GURD_DV
+extern "C" sisal_generator<int32_t> func_MAIN(int32_t N);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -8922,6 +8925,31 @@ static void test_nested_capture_dv() {
   }
 }
 #endif
+#ifdef TEST_STREAM_GURD_DV
+// Stream sieve: StartList = 2..N*N; Filter drops multiples of each prime P<=N
+// then recurses, prepending P; once P>N the tail is passed through unfiltered.
+// Result = all primes in [2, N*N].  Exercises stream `||` catenation
+// (sisal_stream_concat) -- the op that used to leak to array addh and hang.
+static void test_stream_gurd_dv() {
+  printf("\n=== Group: stream_gurd_dv (stream sieve, stream `||`) ===\n");
+  auto run = [](int N) {
+    int hi = N * N;
+    std::vector<int32_t> ref;
+    std::vector<char> sieve(hi + 1, 1);
+    for (int p = 2; p <= hi; p++)
+      if (sieve[p]) { ref.push_back(p); for (int m = 2*p; m <= hi; m += p) sieve[m] = 0; }
+    std::vector<int32_t> got;
+    for (sisal_generator<int32_t> r = func_MAIN(N); !sisal_stream_empty_pred(r);
+         r = sisal_stream_rest(r))
+      got.push_back(sisal_stream_first<int32_t>(r));
+    int ok = got.size() == ref.size();
+    for (size_t i = 0; ok && i < ref.size(); i++) ok = got[i] == ref[i];
+    char tag[64]; snprintf(tag, sizeof tag, "primes in [2,%d] (N=%d)", hi, N);
+    check(tag, ok);
+  };
+  run(2); run(3); run(5); run(10); run(13);
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -9866,6 +9894,9 @@ main (void)
 #ifdef TEST_NESTED_CAPTURE_DV
   test_nested_capture_dv ();
 #endif
+#ifdef TEST_STREAM_GURD_DV
+  test_stream_gurd_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -9993,7 +10024,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

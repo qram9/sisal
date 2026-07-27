@@ -199,6 +199,28 @@ inline sisal_generator<T> sisal_stream_addl(const sisal_generator<T>& g, T val) 
     return sisal_stream_addl_coro(val, g);
 }
 
+// Stream catenation `a || b`: yield all of a, then all of b.  Lazy -- pulls a
+// (then b) only as far as the consumer reads, so it composes with infinite
+// producers.  a/b are single-pass (each shares one coroutine cursor), which is
+// fine: catenation reads each exactly once, left to right.
+template <typename T>
+sisal_generator<T> sisal_stream_concat_coro(sisal_generator<T> a, sisal_generator<T> b) {
+    while (!a.is_empty_pred()) {
+        co_yield a.current();
+        a.advance();
+    }
+    while (!b.is_empty_pred()) {
+        co_yield b.current();
+        b.advance();
+    }
+}
+
+template <typename T>
+inline sisal_generator<T> sisal_stream_concat(const sisal_generator<T>& a,
+                                              const sisal_generator<T>& b) {
+    return sisal_stream_concat_coro(a, b);
+}
+
 // Traits and Overloads for SISAL_CAST with sisal_generator
 template <typename>
 struct is_sisal_generator : std::false_type {};
