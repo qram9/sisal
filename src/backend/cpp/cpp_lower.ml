@@ -3,8 +3,8 @@
     nodes, optimized for Apple Silicon. *)
 
 open Ir.If1
-open Apple_env
-open Apple_helpers
+open Cpp_env
+open Cpp_helpers
 module StringMap = Map.Make (String)
 
 (** [c_op_of_node_sym sym] maps a basic IF1 node symbol to a C binary operator.
@@ -2253,7 +2253,7 @@ and lower_simple env gr nid sym pin pout pr =
             gr.eset 0
         in
         let un_tyid =
-          match TM.find_opt un_tyid !Apple_helpers.global_alias_map with
+          match TM.find_opt un_tyid !Cpp_helpers.global_alias_map with
           | Some leader -> leader
           | None -> un_tyid
         in
@@ -2925,7 +2925,7 @@ and lower_simple env gr nid sym pin pout pr =
         match out_tyid with
         | Some tid -> (
             let tid =
-              match TM.find_opt tid !Apple_helpers.global_alias_map with
+              match TM.find_opt tid !Cpp_helpers.global_alias_map with
               | Some leader -> leader
               | None -> tid
             in
@@ -3340,7 +3340,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         (fun (src, dst, ty) acc ->
           if dst = (nid, p) then
             let ty =
-              match TM.find_opt ty !Apple_helpers.global_alias_map with
+              match TM.find_opt ty !Cpp_helpers.global_alias_map with
               | Some leader -> leader
               | None -> ty
             in
@@ -3353,7 +3353,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         (fun (src, dst, ty) acc ->
           if fst dst = nid then
             let ty =
-              match TM.find_opt ty !Apple_helpers.global_alias_map with
+              match TM.find_opt ty !Cpp_helpers.global_alias_map with
               | Some leader -> leader
               | None -> ty
             in
@@ -3383,7 +3383,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
       (fun arm_nid arm_node acc ->
         match arm_node with
         | Compound (_, _, _, pr, _, _)
-          when Apple_helpers.get_compound_type pr = If1_tagcase_arm ->
+          when Cpp_helpers.get_compound_type pr = If1_tagcase_arm ->
             let labels =
               List.fold_left
                 (fun l p ->
@@ -6694,7 +6694,7 @@ let lower_to_c tm gr filename =
   let alias_map, clean_tm =
     Ir.Cleanup.build_type_equivalence_classes dummy_gr
   in
-  Apple_helpers.global_alias_map := alias_map;
+  Cpp_helpers.global_alias_map := alias_map;
   let tm = clean_tm in
 
   let global_table, gid_name_map =
@@ -6980,7 +6980,7 @@ let lower_to_c tm gr filename =
               @ [ C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields)) ],
               s )
       | Some (Union _) ->
-          let tags = Apple_helpers.collect_union_tags_with_ids clean_tm id in
+          let tags = Cpp_helpers.collect_union_tags_with_ids clean_tm id in
           if tags = [] then (acc, s)
           else
             let enum_fields_str =
@@ -7062,7 +7062,7 @@ let lower_to_c tm gr filename =
     in
     match TM.find_opt tid tm with
     | Some (Basic b) ->
-        let cty = Apple_helpers.c_type_of_if1_basic b in
+        let cty = Cpp_helpers.c_type_of_if1_basic b in
         "sizeof(" ^ Ir.C_ast_print.string_of_c_type cty ^ ")"
     | Some (Record (_, _, name) as ty) ->
         let sname = String.lowercase_ascii name in
@@ -7071,7 +7071,7 @@ let lower_to_c tm gr filename =
           || sname = "double" || sname = "double_real" || sname = "float"
           || sname = "real" || sname = "bool" || sname = "boolean"
         then
-          let cty = Apple_helpers.c_type_of_if1_ty tm ty in
+          let cty = Cpp_helpers.c_type_of_if1_ty tm ty in
           "sizeof(" ^ Ir.C_ast_print.string_of_c_type cty ^ ")"
         else "sizeof(struct struct_rec_" ^ string_of_int tid ^ ")"
     | Some (Union _) -> "sizeof(struct union_un_" ^ string_of_int tid ^ ")"

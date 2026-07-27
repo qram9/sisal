@@ -167,7 +167,7 @@ let main () =
     if !if1_dest <> Nothing then
       write_to !if1_dest (If1.string_of_graph_thin ou ^ "\n");
     if !c_dest <> Nothing then begin
-      let c_unit = To_apple.translate ou in
+      let c_unit = Cpp.translate ou in
       write_to !c_dest (Ir.C_ast_print.string_of_unit c_unit ^ "\n")
     end
   with e ->

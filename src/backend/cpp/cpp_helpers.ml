@@ -3,7 +3,7 @@
     traversal. *)
 
 open Ir.If1
-open Apple_env
+open Cpp_env
 
 (** [c_op_of_sym sym] maps an IF1 node symbol to a C binary operator. *)
 let c_op_of_sym = function

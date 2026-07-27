@@ -3,5 +3,5 @@
  (public_name sisal)
  (instrumentation
   (backend bisect_ppx))
- (libraries fe ir to_if1 to_apple unix)
+ (libraries fe ir to_if1 cpp unix)
  (modes byte exe))
