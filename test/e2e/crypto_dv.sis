@@ -1,0 +1,22 @@
+% crypto string-equality checker (from unit/crypto.sis).  The unit `main` is a
+% brute-force 26^3 cracker (array-of-array); here `main` exercises the crypto
+% equality function directly: two array_dv[character] in, boolean out.
+% crypto = (sizes equal) and (product of a=b over the dot-zip) -- i.e. all chars
+% equal elementwise.
+define main
+
+type string = array_dv[ character ];
+
+function crypto( password, trial : string returns boolean )
+  if array_size( password ) ~= array_size( trial ) then
+    false
+  else
+    for a in password dot b in trial
+    returns value of product a = b
+    end for
+  end if
+end function
+
+function main( password, trial : string returns boolean )
+  crypto( password, trial )
+end function

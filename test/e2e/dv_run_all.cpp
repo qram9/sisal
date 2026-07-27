@@ -331,6 +331,9 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t s);
 #ifdef TEST_TAGCASE_BARE_NESTED_DV
 extern "C" int32_t func_MAIN(int32_t s);
 #endif
+#ifdef TEST_CRYPTO_DV
+extern "C" bool func_MAIN(sisal_array_t password, sisal_array_t trial);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9042,6 +9045,30 @@ static void test_tagcase_bare_nested_dv() {
   }
 }
 #endif
+#ifdef TEST_CRYPTO_DV
+// crypto string-equality over array_dv[character]: sizes equal AND every char
+// equal (dot-zip + boolean `product a=b`).  Reference = strcmp.
+static sisal_array_t crypto_mkstr(const char *s) {
+  int n = (int)strlen(s);
+  sisal_array_t a = sisal_array_alloc_empty(1, 3, (uint64_t)n);  // type_id 3 = char
+  a.lower_bound[0] = 1; a.dims[0] = n;
+  for (int i = 0; i < n; i++) ((char *)a.data)[i] = s[i];
+  return a;
+}
+static void test_crypto_dv() {
+  printf("\n=== Group: crypto_dv (array_dv[char] equality: dot-zip + product) ===\n");
+  const char *pairs[][2] = {
+    {"hello", "hello"}, {"hello", "world"}, {"abc", "ab"},
+    {"a", "a"}, {"", ""}, {"abc", "abd"}, {"password", "password"},
+  };
+  for (auto &pr : pairs) {
+    bool got = func_MAIN(crypto_mkstr(pr[0]), crypto_mkstr(pr[1]));
+    bool exp = strcmp(pr[0], pr[1]) == 0;
+    char tag[80]; snprintf(tag, sizeof tag, "crypto(\"%s\",\"%s\")", pr[0], pr[1]);
+    check(tag, got == exp);
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10004,6 +10031,9 @@ main (void)
 #ifdef TEST_TAGCASE_BARE_NESTED_DV
   test_tagcase_bare_nested_dv ();
 #endif
+#ifdef TEST_CRYPTO_DV
+  test_crypto_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10131,7 +10161,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
