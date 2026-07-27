@@ -1,0 +1,21 @@
+define main
+
+global sqrt ( x:double_real returns double_real )
+
+function my_sqrt( X,Epsilon : double_real returns double_real )
+
+  for initial
+    Root := X/2.0D0
+  while abs( Root*Root - X ) > Epsilon
+  repeat
+    Root := ( X/old Root + old Root ) / 2.0D0
+  returns
+    value of Root
+  end for
+
+end function %my_sqrt
+
+function main ( X,Epsilon : double_real returns double_real, double_real )
+   my_sqrt( X, Epsilon ),
+   sqrt( X )
+end function %main
