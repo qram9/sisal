@@ -1,0 +1,24 @@
+% NESTED bare tagcases — regression pin.  The bare form used to mint a
+% __tagcase_expr__ payload pseudo-binding at (0,0) in each arm scope; a
+% nested compound then tried to wire that unreferencable name as an input
+% and verify_compound_inputs failed ("Variable __tagcase_expr__ not wired").
+% Shape from closure3.sis (tagcase A[1] containing tagcase A[2]).
+define Main
+
+type UN = union[ A: integer; B: real ]
+type AR = array_dv[ UN ]
+
+function Main( s: integer returns integer )
+  let
+    u := array_dv AR[ 1: union UN[ A: s ], union UN[ B: 3.14 ] ]
+  in
+    tagcase u[ 1 ]
+    tag A:
+      tagcase u[ 2 ]
+      tag A: 1
+      tag B: 2
+      end tagcase
+    tag B: 3
+    end tagcase
+  end let
+end function

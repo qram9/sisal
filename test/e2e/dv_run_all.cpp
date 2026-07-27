@@ -320,6 +320,17 @@ extern "C" int32_t func_MAIN(int32_t selector, bool flag, int32_t captured_val);
 #ifdef TEST_TEST_IF_LET_CASCADE_DV
 extern "C" int32_t func_MAIN(int32_t selector, bool flag, int32_t v1, int32_t v2, int32_t v3);
 #endif
+#ifdef TEST_TAGCASE_BARE_DV
+struct FUNC_MAIN_results { int32_t res_0, res_1, res_2; bool res_3; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t s);
+#endif
+#ifdef TEST_TAGCASE_BARE_MIXED_DV
+struct FUNC_MAIN_results { int32_t res_0, res_1; };
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t s);
+#endif
+#ifdef TEST_TAGCASE_BARE_NESTED_DV
+extern "C" int32_t func_MAIN(int32_t s);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -8991,6 +9002,46 @@ static void test_test_if_let_cascade_dv() {
   }
 }
 #endif
+#ifdef TEST_TAGCASE_BARE_DV
+// Bare tagcase (no payload binding) over union[A:int;B:real;C:bool].
+// Mk(s) = tag A iff s==1, else tag B (A's payload is always 42).
+static void test_tagcase_bare_dv() {
+  printf("\n=== Group: tagcase_bare_dv (bare tagcase dispatch) ===\n");
+  for (int s : {1, 2, 0, 5}) {
+    struct FUNC_MAIN_results r = func_MAIN(s);
+    int e0 = (s == 1) ? 10 : 20;      // tagcase u = Mk(s)
+    int e1 = (s == 0) ? 100 : 200;    // tagcase Mk(s+1)  (A iff s+1==1)
+    int e2 = (s == 1) ? 1 : 2;        // DispatchParam(u)
+    bool e3 = (s == 1);               // is A(u)
+    char tag[48]; snprintf(tag, sizeof tag, "s=%d", s);
+    check(tag, r.res_0 == e0 && r.res_1 == e1 && r.res_2 == e2 && r.res_3 == e3);
+  }
+}
+#endif
+#ifdef TEST_TAGCASE_BARE_MIXED_DV
+// Bare/bound tagcase nesting; classification is per-instance.  Both helpers
+// return 2 when s==1, else 3.
+static void test_tagcase_bare_mixed_dv() {
+  printf("\n=== Group: tagcase_bare_mixed_dv (mixed bare/bound nesting) ===\n");
+  for (int s : {1, 2, 0, 3}) {
+    struct FUNC_MAIN_results r = func_MAIN(s);
+    int e = (s == 1) ? 2 : 3;
+    char tag[48]; snprintf(tag, sizeof tag, "s=%d", s);
+    check(tag, r.res_0 == e && r.res_1 == e);
+  }
+}
+#endif
+#ifdef TEST_TAGCASE_BARE_NESTED_DV
+// Nested bare tagcases over an array_dv of unions.  u[1]=A(s), u[2]=B, so the
+// outer A arm -> inner B arm -> 2, for every s.
+static void test_tagcase_bare_nested_dv() {
+  printf("\n=== Group: tagcase_bare_nested_dv (nested bare tagcase, array_dv of union) ===\n");
+  for (int s : {1, 7, 0, -3}) {
+    char tag[48]; snprintf(tag, sizeof tag, "s=%d", s);
+    check(tag, func_MAIN(s) == 2);
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -9944,6 +9995,15 @@ main (void)
 #ifdef TEST_TEST_IF_LET_CASCADE_DV
   test_test_if_let_cascade_dv ();
 #endif
+#ifdef TEST_TAGCASE_BARE_DV
+  test_tagcase_bare_dv ();
+#endif
+#ifdef TEST_TAGCASE_BARE_MIXED_DV
+  test_tagcase_bare_mixed_dv ();
+#endif
+#ifdef TEST_TAGCASE_BARE_NESTED_DV
+  test_tagcase_bare_nested_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10071,7 +10131,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

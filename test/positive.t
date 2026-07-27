@@ -280,6 +280,9 @@ DV variants of scientific benchmarks:
   $ sisal e2e/nested_capture_dv.sis
   $ sisal e2e/test_if_nested_capture_dv.sis
   $ sisal e2e/test_if_let_cascade_dv.sis
+  $ sisal e2e/tagcase_bare_dv.sis
+  $ sisal e2e/tagcase_bare_mixed_dv.sis
+  $ sisal e2e/tagcase_bare_nested_dv.sis
   $ sisal e2e/inverse_dv.sis
   $ sisal unit/kin16_dv.sis
   $ sisal e2e/laplace_dv.sis
