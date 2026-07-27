@@ -10250,9 +10250,15 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
           in
           (tid, out_gr)
       in
+      let portmap =
+        If1.Portmap
+          ([ (If1.Pr_index, 0); (If1.Pr_value, 1) ]
+          @ (if is_dv then [ (If1.Pr_extent, 2) ] else [])
+          @ [ (If1.Pr_lower_bound, 3); (If1.Pr_upper_bound, 4) ])
+      in
       let (g, ge, _), out_gr =
         If1.add_node_2
-          (`Simple (opcode, Array.make nports "", [| "" |], [ If1.No_pragma ]))
+          (`Simple (opcode, Array.make nports "", [| "" |], [ portmap ]))
           out_gr
       in
       let out_gr = If1.add_edge 0 idx_port g 0 5 out_gr in
@@ -10394,9 +10400,13 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
       | `RedRight -> If1.REDUCERIGHT
       | `RedTree -> If1.REDUCETREE
     in
+    let red_portmap =
+      If1.Portmap
+        [ (If1.Pr_reduce_fn, 0); (If1.Pr_value, 1); (If1.Pr_mask, 2) ]
+    in
     let (dd, ee, _), in_gr =
       If1.add_node_2
-        (`Simple (which_ins, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
+        (`Simple (which_ins, [| ""; ""; "" |], [| "" |], [ red_portmap ]))
         in_gr
     in
     let (lx, ly, _), in_gr =
@@ -10404,7 +10414,7 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     in
     let in_gr = If1.add_edge lx ly dd 0 (If1.lookup_tyid If1.CHARACTER) in_gr in
     let in_gr = If1.add_edge 0 aa dd 1 tt in_gr in
-    (* NEW: Port 2: Conditional Mask (if present) *)
+    (* Port 2: Conditional Mask (if present) *)
     let in_gr =
       match msk_opt with
       | Some (mask_ty, mask_port) -> If1.add_edge 0 mask_port dd 2 mask_ty in_gr
@@ -10471,14 +10481,38 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
               let opcode =
                 if plcs = [] then If1.DV_GATHER else If1.DV_SCATTER_AT
               in
+              (* A `when`/`unless` mask (hd_c) applies only to a BARE gather;
+                 masks are banned with `at`/descriptor scatters (plcs <> []). *)
+              let masked =
+                plcs = [] && match hd_c with Some _ -> true | None -> false
+              in
+              (* Name the ports by ROLE so consumers never assume a fixed order:
+                 index@0, value@1, extent(dope triplet)@2, one placement
+                 coordinate per port 3.. for a scatter, and -- for a masked bare
+                 gather -- the boolean filter on port 3 (port 2 is the extent, so
+                 unlike REDUCE the mask cannot share it). *)
+              let portmap =
+                If1.Portmap
+                  ([ (If1.Pr_index, 0); (If1.Pr_value, 1); (If1.Pr_extent, 2) ]
+                  @ List.mapi (fun j _ -> (If1.Pr_placement, 3 + j)) plcs
+                  @ (if masked then [ (If1.Pr_mask, 3) ] else []))
+              in
+              let nports =
+                3 + List.length plcs + (if masked then 1 else 0)
+              in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
-                  (`Simple
-                     ( opcode,
-                       Array.make (3 + List.length plcs) "",
-                       [| "" |],
-                       [ If1.No_pragma ] ))
+                  (`Simple (opcode, Array.make nports "", [| "" |], [ portmap ]))
                   out_gr
+              in
+              (* Connect the forall mask to the gather's Pr_mask port (3). *)
+              let out_gr =
+                if masked then
+                  match hd_c with
+                  | Some (mask_ty, mask_port) ->
+                      If1.add_edge 0 mask_port dd 3 mask_ty out_gr
+                  | None -> out_gr
+                else out_gr
               in
               let what_ty, out_gr =
                 assert (tt <> 0);
@@ -11086,14 +11120,38 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
               let opcode =
                 if plcs = [] then If1.DV_GATHER else If1.DV_SCATTER_AT
               in
+              (* A `when`/`unless` mask (hd_c) applies only to a BARE gather;
+                 masks are banned with `at`/descriptor scatters (plcs <> []). *)
+              let masked =
+                plcs = [] && match hd_c with Some _ -> true | None -> false
+              in
+              (* Name the ports by ROLE so consumers never assume a fixed order:
+                 index@0, value@1, extent(dope triplet)@2, one placement
+                 coordinate per port 3.. for a scatter, and -- for a masked bare
+                 gather -- the boolean filter on port 3 (port 2 is the extent, so
+                 unlike REDUCE the mask cannot share it). *)
+              let portmap =
+                If1.Portmap
+                  ([ (If1.Pr_index, 0); (If1.Pr_value, 1); (If1.Pr_extent, 2) ]
+                  @ List.mapi (fun j _ -> (If1.Pr_placement, 3 + j)) plcs
+                  @ (if masked then [ (If1.Pr_mask, 3) ] else []))
+              in
+              let nports =
+                3 + List.length plcs + (if masked then 1 else 0)
+              in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
-                  (`Simple
-                     ( opcode,
-                       Array.make (3 + List.length plcs) "",
-                       [| "" |],
-                       [ If1.No_pragma ] ))
+                  (`Simple (opcode, Array.make nports "", [| "" |], [ portmap ]))
                   out_gr
+              in
+              (* Connect the forall mask to the gather's Pr_mask port (3). *)
+              let out_gr =
+                if masked then
+                  match hd_c with
+                  | Some (mask_ty, mask_port) ->
+                      If1.add_edge 0 mask_port dd 3 mask_ty out_gr
+                  | None -> out_gr
+                else out_gr
               in
               let what_ty, out_gr =
                 assert (tt <> 0);
@@ -11804,11 +11862,16 @@ and do_internals (names, in_gr) f =
         | Ast.Function_header_nodec (Ast.Function_name fn, _) -> fn
         | Ast.Function_header (Ast.Function_name fn, _, _) -> fn
       in
+      (* Add the DECLARED parameters to the boundary FIRST (ports 0..n-1), and
+         only THEN inherit the parent's symbols (they take the trailing ports).
+         This lets C lowering positionally treat the leading boundary ports as
+         the function's parameters; inherited symbols become captures.  Doing it
+         the other way round (inherit first) put an inherited symbol like `n` on
+         port 0, so the backend bound the first parameter to the wrong port. *)
       let (_, _, fn_ty), new_fun_gr_ =
-        do_function_header
-          (If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr))
-          header
+        do_function_header (If1.get_a_new_graph in_gr) header
       in
+      let new_fun_gr_ = If1.inherit_parent_syms in_gr new_fun_gr_ in
       let localsyms, globsyms = If1.get_symtab in_gr in
       let in_gr =
         {

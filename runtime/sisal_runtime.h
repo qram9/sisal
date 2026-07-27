@@ -19,6 +19,7 @@
 #include <coroutine>
 #include <vector>
 #include <cstddef>
+#include <exception>
 
 typedef struct {
     void* data;

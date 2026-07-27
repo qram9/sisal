@@ -60,6 +60,22 @@ let is_stream_type cty =
   let s = string_of_c_type cty in
   String.length s >= 15 && String.sub s 0 15 = "sisal_generator"
 
+(* Resolve a port by ROLE via a node's `Portmap` pragma (see if1.ml).  Port
+   order is NOT a reliable encoding of meaning -- a DV_GATHER puts its mask on a
+   different port than a REDUCE, a nested gather adds lb/ub on 3/4 that a bare
+   one omits, etc.  When a node carries a Portmap, port lookups MUST go through
+   it; callers fall back to a legacy fixed port only when no Portmap is present. *)
+let port_of_role pragmas role =
+  List.find_map (function Portmap m -> List.assoc_opt role m | _ -> None) pragmas
+
+(* The port index carrying [role] on node [nid] of graph [gr] (via that node's
+   Portmap), or [default] when the node has no Portmap entry for the role. *)
+let node_port_of_role gr nid role default =
+  match NM.find_opt nid gr.nmap with
+  | Some (Simple (_, _, _, _, pr)) -> (
+      match port_of_role pr role with Some p -> p | None -> default)
+  | _ -> default
+
 (* Free enclosing variables referenced inside a stream (coroutine) loop body
    MUST be passed as by-value lambda parameters, NOT captured by [=].  A lambda
    coroutine stores its captures in the closure object, which is destroyed the
@@ -212,11 +228,19 @@ let forall_reduce_ports loop_gr =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, REDUCE, _, _, _)) -> (
+            | Some (Simple (_, REDUCE, _, _, pr)) -> (
+                (* reduce operator and value ports come from the Portmap (legacy
+                   fixed: reduce_fn@0, value@1). *)
+                let op_port =
+                  match port_of_role pr Pr_reduce_fn with Some p -> p | None -> 0
+                in
+                let value_port =
+                  match port_of_role pr Pr_value with Some p -> p | None -> 1
+                in
                 let op =
                   ES.fold
                     (fun ((s, _), (d, p), _) a ->
-                      if d = sn && p = 0 then
+                      if d = sn && p = op_port then
                         match NM.find_opt s ret_gr.nmap with
                         | Some (Literal (_, CHARACTER, v, _)) ->
                             Some (reduce_op_of_string v)
@@ -227,7 +251,7 @@ let forall_reduce_ports loop_gr =
                 let bport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
-                      if d = sn && p = 1 && s = 0 then
+                      if d = sn && p = value_port && s = 0 then
                         match
                           List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
                         with
@@ -260,13 +284,23 @@ let forall_reduce_filter_of loop_gr out_port =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 && dp = out_port then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, ((REDUCE | STREAM) as op), _, _, _)) ->
-                (* A masked `when`/`unless` gather/reduction carries its boolean
-                   filter on a dedicated node port: REDUCE on port 2, STREAM on
-                   port 1 (port 0 is the value).  Resolve it to the BODY output
-                   port that computes the mask so the store/accumulate can be
-                   guarded with it. *)
-                let mask_port = if op = STREAM then 1 else 2 in
+            | Some
+                (Simple
+                   (_, ((REDUCE | STREAM | DV_GATHER | AGATHER) as op), _, _, pr))
+              ->
+                (* A masked `when`/`unless` reduction/stream/GATHER carries its
+                   boolean filter on a dedicated node port -- named by the
+                   Portmap pragma (Pr_mask).  For legacy REDUCE/STREAM without a
+                   Portmap, fall back to the fixed port (REDUCE 2, STREAM 1); a
+                   GATHER has NO legacy mask port, so absence of Pr_mask means
+                   unmasked (sentinel -1 matches no port -> None).  Resolve to
+                   the BODY output port computing the mask so the accumulate /
+                   store can be guarded with it. *)
+                let mask_port =
+                  match port_of_role pr Pr_mask with
+                  | Some p -> p
+                  | None -> ( match op with STREAM -> 1 | REDUCE -> 2 | _ -> -1)
+                in
                 let fport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
@@ -301,12 +335,19 @@ let forall_gather_ports loop_gr =
         (fun ((sn, _), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
-            | Some (Simple (_, (DV_GATHER | AGATHER | DV_SCATTER_AT | STREAM), _, _, _))
+            | Some
+                (Simple
+                   (_, (DV_GATHER | AGATHER | DV_SCATTER_AT | STREAM), _, _, pr))
               ->
+                (* The gathered value rides the Portmap's `value` port (legacy
+                   fixed port 1 when no Portmap is present). *)
+                let value_port =
+                  match port_of_role pr Pr_value with Some p -> p | None -> 1
+                in
                 let bport =
                   ES.fold
                     (fun ((s, sp), (d, p), _) a ->
-                      if d = sn && p = 1 && s = 0 then
+                      if d = sn && p = value_port && s = 0 then
                         match
                           List.find_opt (fun (_, _, _, bp) -> bp = sp) ins
                         with
@@ -372,11 +413,15 @@ let for_initial_gather_ports ret_gr =
                 ((DV_GATHER | AGATHER | DV_SCATTER_AT | STREAM) as op),
                 _,
                 _,
-                _ )) -> (
-            (* Value input port: a STREAM gather carries its element on input
-               port 0; the array/DV gathers carry it on port 1 (port 0 is the
-               lo/dope). *)
-            let val_port = if op = STREAM then 0 else 1 in
+                pr )) -> (
+            (* Value input port: from the Portmap when present, else the legacy
+               fixed port -- a STREAM carries its element on port 0, the array/DV
+               gathers on port 1 (port 0 is the index/lo). *)
+            let val_port =
+              match port_of_role pr Pr_value with
+              | Some p -> p
+              | None -> if op = STREAM then 0 else 1
+            in
             let bin =
               ES.fold
                 (fun ((s, sp), (d, p), _) a ->
@@ -440,7 +485,10 @@ let infer_types env gr gid =
       match Hashtbl.find_opt table key with
       | Some ex when ex = C.Basic "sisal_array_t" && not (is_stream_type ty) -> false
       | Some ex when ex = ty -> false
-      | _ ->
+      | Some ex ->
+          Hashtbl.replace table key ty;
+          true
+      | None ->
           Hashtbl.replace table key ty;
           true
   in
@@ -1150,6 +1198,31 @@ let is_proc_expr env g n =
     match IntMap.find_opt n env.proc_map with Some _ -> true | None -> false
   else false
 
+(** [dummy_env tm sub_gr] — a fresh empty lowering environment; the seed
+    lower_to_c builds the real env from. *)
+let dummy_env tm sub_gr =
+  {
+    tm;
+    var_map = FullPortMap.empty;
+    type_table = FullPortMap.empty;
+    preds = FullPortMap.empty;
+    curr_gid = 0;
+    curr_gr = sub_gr;
+    parent_env = None;
+    compound_nid_in_parent = 0;
+    seen_decls = StringSet.empty;
+    fanout_map = PortFanout.empty;
+    edge_free_map = EdgeFreeMap.empty;
+    mandatory_ports = PortSet.empty;
+    gid_table = GidMap.empty;
+    parent_map = IntMap.empty;
+    proc_map = IntMap.empty;
+    proc_param_map = FullPortMap.empty;
+    gid_name_map = IntMap.empty;
+    procedures_info = IntMap.empty;
+    force_gpu = false;
+  }
+
 (** [scan_fanout gr gid env] populates the fanout_map for the current graph. *)
 let scan_fanout gr gid env =
   let fanout_map =
@@ -1492,11 +1565,49 @@ let init_boundary_ports env parent_gr compound_nid gr gid =
     let edges_to_compound =
       ES.fold
         (fun ((sn, sp), (dn, dp), _) acc ->
-          if dn = compound_nid then IntMap.add dp (sn, sp) acc else acc)
+          (* dp < 0 is a pseudo-port (nested-function ordering edge): no value,
+             never a boundary copy-in. *)
+          if dn = compound_nid && dp >= 0 then IntMap.add dp (sn, sp) acc
+          else acc)
         parent_gr.eset IntMap.empty
+    in
+    (* A NESTED FUNCTION's formal parameters are supplied at the call site (bound
+       from the lambda's arguments), NOT captured from the enclosing scope.  The
+       leading [n_params] boundary ports are those formals.  The frontend may
+       still emit a spurious capture edge into a param port when the body
+       references a variable whose name equals a parameter (the param lexically
+       shadows the outer var); copying that in would clobber the argument with
+       the enclosing value.  Suppress every copy-in into a param port.  For
+       loops/ifs (not a procedure compound) [n_params] is 0, so behaviour is
+       unchanged. *)
+    let n_params =
+      match NM.find_opt compound_nid parent_gr.nmap with
+      | Some (Compound (_, _, _, pr, _, _))
+        when get_compound_type pr = If1_procedure -> (
+          let sym_ty name (cs, ps) =
+            match SM.find_opt name cs with
+            | Some v -> Some v.val_ty
+            | None -> (
+                match SM.find_opt name ps with
+                | Some v -> Some v.val_ty
+                | None -> None)
+          in
+          match List.find_map (function Name nm -> Some nm | _ -> None) pr with
+          | None -> 0
+          | Some raw -> (
+              match
+                match sym_ty raw parent_gr.symtab with
+                | Some t -> Some t
+                | None -> sym_ty raw gr.symtab
+              with
+              | Some t -> List.length (get_function_param_types env.tm t)
+              | None -> 0))
+      | _ -> 0
     in
     IntMap.fold
       (fun dp (psrcN, psrcP) (acc_stmts, e) ->
+        if dp < n_params then (acc_stmts, e)
+        else
         let src_opt =
           if psrcN = 0 then
             let final_gid, final_N, final_P =
@@ -1618,6 +1729,59 @@ let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
 (** [lower_graph env parent_gr compound_nid gr gid] translates an IF1 graph into
     a list of C statements. *)
 let rec lower_graph env parent_gr compound_nid gr gid =
+  let local_nested_funcs =
+    NM.fold
+      (fun nid node acc ->
+        match node with
+        | Compound (_, INTERNAL, _, pr, sub_gr, _)
+          when get_compound_type pr = If1_procedure ->
+            (match List.find_map (function Name nm -> Some (String.uppercase_ascii nm) | _ -> None) pr with
+             | Some name -> (nid, name) :: acc
+             | None -> acc)
+        | _ -> acc)
+      gr.nmap []
+  in
+  let gr =
+    if local_nested_funcs = [] then gr
+    else
+      let rec has_call_to target_names g =
+        NM.fold (fun nid node acc ->
+          if acc then true
+          else match node with
+          | Simple (_, INVOCATION, _, _, pr) ->
+              (match List.find_map (function Name nm -> Some (String.uppercase_ascii nm) | _ -> None) pr with
+               | Some name -> List.mem name target_names
+               | None -> false)
+          | Compound (_, _, _, _, sub_gr, _) ->
+              has_call_to target_names sub_gr
+          | _ -> false
+        ) g.nmap false
+      in
+      let new_eset =
+        NM.fold
+          (fun child_nid child_node acc_eset ->
+            List.fold_left
+              (fun acc_eset (fn_nid, fn_name) ->
+                if child_nid = fn_nid then acc_eset
+                else
+                  let has_call =
+                    match child_node with
+                    | Simple (_, INVOCATION, _, _, pr) ->
+                        (match List.find_map (function Name nm -> Some (String.uppercase_ascii nm) | _ -> None) pr with
+                         | Some name -> name = fn_name
+                         | None -> false)
+                    | Compound (_, _, _, _, sub_gr, _) ->
+                        has_call_to [fn_name] sub_gr
+                    | _ -> false
+                  in
+                  if has_call then begin
+                    ES.add ((fn_nid, 0), (child_nid, -1), 0) acc_eset
+                  end else acc_eset)
+              acc_eset local_nested_funcs)
+          gr.nmap gr.eset
+      in
+      { gr with eset = new_eset }
+  in
   let env = { env with curr_gid = gid; curr_gr = gr } in
   let env = scan_fanout gr gid env in
   let env = scan_edge_liveness gr gid env in
@@ -1626,7 +1790,6 @@ let rec lower_graph env parent_gr compound_nid gr gid =
     if env.parent_env = None || IntMap.mem gid env.proc_map then ([], env)
     else init_boundary_ports env parent_gr compound_nid gr gid
   in
-
   let sorted_nodes = topo_sort gr in
   (* The walk, as an explicit recursion.  NOTE on terms: topo_sort already
      yields each node exactly once, so no traversal-correctness "visited" set
@@ -1674,10 +1837,290 @@ and lower_node env gr nid node =
   | Compound (cid, sy, _ty, pr, loop_gr, _) ->
       let sub_gid = try GidMap.find (gid, nid) env.gid_table with _ -> -1 in
       let c_of = get_compound_type pr in
-      if c_of = If1_procedure then
-        (* a NESTED function definition: lowered as a standalone C function
-           by lower_to_c's recursive collection — nothing to emit here *)
-        ([], env)
+      if c_of = If1_procedure then begin
+        let func_name =
+          List.find_map (function Name nm -> Some nm | _ -> None) pr
+          |> Option.map String.uppercase_ascii
+          |> Option.map (fun n -> "func_" ^ n)
+          |> Option.value ~default:"unnamed"
+        in
+        let all_b_ins =
+          match NM.find_opt 0 loop_gr.nmap with
+          | Some (Boundary (ins, _, _, _)) ->
+              List.init (List.length ins) (fun i -> i)
+          | _ -> []
+        in
+        let env_init =
+          {
+            (dummy_env env.tm loop_gr) with
+            gid_table = env.gid_table;
+            proc_map = env.proc_map;
+            gid_name_map = env.gid_name_map;
+            procedures_info = env.procedures_info;
+            curr_gid = sub_gid;
+            parent_env = Some env;
+          }
+        in
+        let param_types = get_function_param_types env.tm _ty in
+        let env_seeded =
+          List.fold_left2
+            (fun env_acc pid tid ->
+              let ty_val = try TM.find tid env.tm with _ -> Basic REAL in
+              {
+                env_acc with
+                type_table =
+                  FullPortMap.add (sub_gid, 0, pid, `Out)
+                    (c_type_of_if1_ty env.tm ty_val)
+                    env_acc.type_table;
+              })
+            env_init
+            (List.filter (fun p -> p < List.length param_types) all_b_ins)
+            param_types
+        in
+        let env_typed = infer_types env_seeded loop_gr sub_gid in
+        (* Split the boundary inputs into PARAMETERS vs inherited CAPTURES.
+           The declared parameters are the loop's own formals: exactly the
+           n_declared leading boundary ports, because the frontend now adds
+           params to the boundary FIRST (do_params_decl) and only then inherits
+           parent symbols (which take the trailing ports).  n_declared is the
+           arity of the function's own type.  The `[=]` capture-default handles
+           the inherited (trailing) ports.  Names are read from the BOUNDARY
+           list -- the authoritative (name, port) for each input -- rather than
+           the symtab, which can alias two names to one port. *)
+        let boundary_ins =
+          match NM.find_opt 0 loop_gr.nmap with
+          | Some (Boundary (ins, _, _, _)) -> ins
+          | _ -> []
+        in
+        (* The DECLARED parameters are the first n_declared boundary ports: the
+           frontend adds the formals to the boundary BEFORE inheriting parent
+           symbols, so params occupy the leading ports and inherited symbols the
+           trailing ones (the latter handled by the `[=]` capture-default).
+           n_declared is the arity of the function's OWN type.  That type is not
+           on the compound's label (that slot is the compound's OUTPUT type) --
+           it lives in the symtab, where the function registered itself
+           (val_ty = its Function_ty) for recursion. *)
+        let n_declared =
+          let sym_ty name (cs, ps) =
+            match SM.find_opt name cs with
+            | Some v -> Some v.val_ty
+            | None -> (
+                match SM.find_opt name ps with
+                | Some v -> Some v.val_ty
+                | None -> None)
+          in
+          match List.find_map (function Name nm -> Some nm | _ -> None) pr with
+          | None -> 0
+          | Some raw -> (
+              match
+                match sym_ty raw loop_gr.symtab with
+                | Some t -> Some t
+                | None -> sym_ty raw gr.symtab
+              with
+              | Some t -> List.length (get_function_param_types env.tm t)
+              | None -> 0)
+        in
+        let name_of_pid pid =
+          match List.find_opt (fun (_, _, _, p) -> p = pid) boundary_ins with
+          | Some (_, _, nm, _) when nm <> "" -> sanitize nm
+          | _ -> Printf.sprintf "param_%d" pid
+        in
+        let param_b_ins = List.filter (fun p -> p < n_declared) all_b_ins in
+        let params =
+          List.map
+            (fun pid ->
+              (get_final_ty env_typed sub_gid 0 pid `Out, name_of_pid pid))
+            param_b_ins
+        in
+        let env_param_seeded =
+          List.fold_left2
+            (fun e pid (_, name) ->
+              {
+                e with
+                var_map =
+                  FullPortMap.add (sub_gid, 0, pid, `Out) (C.Id name) e.var_map;
+                seen_decls = StringSet.add name e.seen_decls;
+              })
+            env_typed param_b_ins params
+        in
+        let pre_stmts, env_predecl =
+          pre_declare_graph_locals env_param_seeded loop_gr sub_gid
+        in
+        let bind_stmts =
+          List.concat
+            (List.mapi
+               (fun i (ty, param_name) ->
+                 match
+                   FullPortMap.find_opt (sub_gid, 0, i, `Out) env_predecl.var_map
+                 with
+                 | Some (C.Id local_name) when local_name <> param_name ->
+                     [
+                       C.Expr
+                         (C.BinOp
+                            ( C.Assign,
+                              C.Id local_name,
+                              C.Call
+                                ( "SISAL_CAST",
+                                  [ C.Id (string_of_c_type ty); C.Id param_name ]
+                                ) ));
+                     ]
+                 | _ -> [])
+               params)
+        in
+        let alias_bind_stmts =
+          let cs, _ = loop_gr.symtab in
+          SM.fold
+            (fun _ v acc ->
+              if is_proc_expr env_predecl sub_gid v.val_def then acc
+              else
+                let specific =
+                  Printf.sprintf "v_%s_n__%d_%s"
+                    (scope_of env.gid_name_map sub_gid)
+                    v.val_def (sanitize v.val_name)
+                in
+                match
+                  FullPortMap.find_opt
+                    (sub_gid, v.val_def, v.def_port, `Out)
+                    env_predecl.var_map
+                with
+                | Some (C.Id canonical)
+                  when canonical <> specific
+                       && StringSet.mem specific env_predecl.seen_decls ->
+                    let ty =
+                      get_final_ty env_predecl sub_gid v.val_def v.def_port `Out
+                    in
+                    acc
+                    @ [
+                        C.Expr
+                          (C.BinOp
+                             ( C.Assign,
+                               C.Id specific,
+                               C.Call
+                                 ( "SISAL_CAST",
+                                   [ C.Id (string_of_c_type ty); C.Id canonical ]
+                                 ) ));
+                      ]
+                | _ -> acc)
+            cs []
+        in
+        let out_pids =
+          ES.fold
+            (fun (_, (dn, dp), ty) acc ->
+              if dn = 0 && not (is_error_port ty loop_gr) then IntSet.add dp acc
+              else acc)
+            loop_gr.eset IntSet.empty
+          |> IntSet.elements
+        in
+        let ret_decl_stmts, env_predecl =
+          List.fold_left
+            (fun (acc_stmts, e) pid ->
+              let ty = get_final_ty e sub_gid 0 pid `In in
+              let name =
+                get_c_name e.proc_map e.gid_name_map sub_gid 0 pid `In loop_gr
+              in
+              if not (StringSet.mem name e.seen_decls) then
+                let init_val = default_init_for ty in
+                ( acc_stmts @ [ C.Decl (ty, name, init_val) ],
+                  {
+                    e with
+                    seen_decls = StringSet.add name e.seen_decls;
+                    var_map =
+                      FullPortMap.add (sub_gid, 0, pid, `In) (C.Id name) e.var_map;
+                  } )
+              else (acc_stmts, e))
+            ([], env_predecl) out_pids
+        in
+        let body, env_after = lower_graph env_predecl gr nid loop_gr sub_gid in
+        let ret_assign_stmts =
+          List.filter_map
+            (fun pid ->
+              let ty = get_final_ty env_after sub_gid 0 pid `In in
+              let ret_name =
+                get_c_name env_after.proc_map env_after.gid_name_map sub_gid 0 pid `In
+                  loop_gr
+              in
+              match
+                ES.fold
+                  (fun (src, dst, _) acc ->
+                    if dst = (0, pid) then Some src else acc)
+                  loop_gr.eset None
+              with
+              | Some (sn, sp) ->
+                  let src_expr = get_expr env_after sub_gid sn sp `Out in
+                  Some
+                    (C.Expr
+                       (C.BinOp
+                          ( C.Assign,
+                            C.Id ret_name,
+                            C.Call
+                              ( "SISAL_CAST",
+                                [ C.Id (string_of_c_type ty); src_expr ] ) )))
+              | None -> None)
+            out_pids
+        in
+        let mr_struct_name = String.uppercase_ascii func_name ^ "_results" in
+        let ret_stmt, return_ty =
+          if List.length out_pids = 1 then
+            let pid = List.hd out_pids in
+            let ty = get_final_ty env_after sub_gid 0 pid `In in
+            let ret_name =
+              get_c_name env_after.proc_map env_after.gid_name_map sub_gid 0 pid
+                `In loop_gr
+            in
+            ( [
+                C.Return
+                  (Some
+                     (C.Call
+                        ( "SISAL_CAST",
+                          [ C.Id (string_of_c_type ty); C.Id ret_name ] )));
+              ],
+              string_of_c_type ty )
+          else
+            (* Multi-return: same convention as top-level functions -- return a
+               `struct <NAME>_results` with one `res_<pid>` field per output. *)
+            let res_obj = "__res_obj" in
+            let assigns =
+              List.map
+                (fun pid ->
+                  let ty = get_final_ty env_after sub_gid 0 pid `In in
+                  let ret_name =
+                    get_c_name env_after.proc_map env_after.gid_name_map sub_gid 0
+                      pid `In loop_gr
+                  in
+                  C.Expr
+                    (C.BinOp
+                       ( C.Assign,
+                         C.Member
+                           (C.Id res_obj, "res_" ^ string_of_int pid),
+                         C.Call
+                           ( "SISAL_CAST",
+                             [ C.Id (string_of_c_type ty); C.Id ret_name ] ) )))
+                out_pids
+            in
+            ( [ C.Decl (C.Basic ("struct " ^ mr_struct_name), res_obj, None) ]
+              @ assigns
+              @ [ C.Return (Some (C.Id res_obj)) ],
+              "struct " ^ mr_struct_name )
+        in
+        let body_stmts = pre_stmts @ bind_stmts @ alias_bind_stmts @ ret_decl_stmts @ body @ ret_assign_stmts @ ret_stmt in
+        let param_decls = String.concat ", " (List.map (fun (ty, name) -> string_of_c_type ty ^ " " ^ name) params) in
+        (* C++23 deducing-this recursive lambda.  The explicit object parameter
+           REUSES the function's C++ name, so inside the body `func_NAME(args)`
+           resolves to the object parameter (self) and recursion just works;
+           outside, the same call resolves to this `auto func_NAME` variable.
+           `[=]` captures any inherited (free) variables by value. *)
+        let self_and_params =
+          if param_decls = "" then Printf.sprintf "this auto&& %s" func_name
+          else Printf.sprintf "this auto&& %s, %s" func_name param_decls
+        in
+        let lambda_decl =
+          C.Raw
+            (Printf.sprintf "auto %s = [=](%s) -> %s {" func_name self_and_params
+               return_ty)
+        in
+        let lambda_close = C.Raw "};" in
+        let env = { env with seen_decls = StringSet.add func_name env.seen_decls } in
+        ([ lambda_decl; C.Compound body_stmts; lambda_close ], env) end
       else if c_of = If1_forall then
         lower_forall env gr gid nid loop_gr sub_gid pr
       else if c_of = If1_predicate || c_of = If1_if then
@@ -2600,24 +3043,70 @@ and lower_simple env gr nid sym pin pout pr =
           match rhs with C.Call (fn, _) -> Some fn | _ -> None
         in
         let callee_arity =
-          match callee_name with
-          | Some fn ->
-              IntMap.fold
-                (fun pnid pname acc ->
-                  if pname = fn then
-                    match IntMap.find_opt pnid env.procedures_info with
-                    | Some sub ->
-                        ES.fold
-                          (fun (_, (dn, dp), ty) a ->
-                            if dn = 0 && not (is_error_port ty sub) then
-                              IntSet.add dp a
-                            else a)
-                          sub.eset IntSet.empty
-                        |> IntSet.cardinal
-                    | None -> acc
-                  else acc)
-                env.proc_map 0
-          | None -> 0
+          let top =
+            match callee_name with
+            | Some fn ->
+                IntMap.fold
+                  (fun pnid pname acc ->
+                    if pname = fn then
+                      match IntMap.find_opt pnid env.procedures_info with
+                      | Some sub ->
+                          ES.fold
+                            (fun (_, (dn, dp), ty) a ->
+                              if dn = 0 && not (is_error_port ty sub) then
+                                IntSet.add dp a
+                              else a)
+                            sub.eset IntSet.empty
+                          |> IntSet.cardinal
+                      | None -> acc
+                    else acc)
+                  env.proc_map 0
+            | None -> 0
+          in
+          if top > 0 then top
+          else
+            (* NESTED callee: not in proc_map/procedures_info (root-level only).
+               Its definition is a procedure compound in THIS graph OR an
+               enclosing one (a call inside a LET/forall reaches a function
+               defined further out), so search this graph and walk up the parent
+               scopes.  Count its RETURNS output ports for the multi-return
+               arity. *)
+            match callee_name with
+            | Some fn ->
+                let count_in g =
+                  NM.fold
+                    (fun _ node acc ->
+                      match node with
+                      | Compound (_, INTERNAL, _, cpr, csub, _)
+                        when get_compound_type cpr = If1_procedure ->
+                          let cn =
+                            List.find_map
+                              (function
+                                | Name nm ->
+                                    Some ("func_" ^ String.uppercase_ascii nm)
+                                | _ -> None)
+                              cpr
+                          in
+                          if cn = Some fn then
+                            ES.fold
+                              (fun (_, (dn, dp), ty) a ->
+                                if dn = 0 && not (is_error_port ty csub) then
+                                  IntSet.add dp a
+                                else a)
+                              csub.eset IntSet.empty
+                            |> IntSet.cardinal
+                          else acc
+                      | _ -> acc)
+                    g.nmap 0
+                in
+                let rec up e =
+                  let here = count_in e.curr_gr in
+                  if here > 0 then here
+                  else match e.parent_env with Some pe -> up pe | None -> 0
+                in
+                let here = count_in gr in
+                if here > 0 then here else up env
+            | None -> 0
         in
         if callee_arity > 1 then begin
           let struct_name =
@@ -3173,7 +3662,12 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
   let sym_decls, seen2, env_loop =
     ES.fold
       (fun ((sn, sp), (dn, dp), tyid) (decls, seen, e) ->
-        if dn <> nid then (decls, seen, e)
+        (* A negative port is a PSEUDO-port: the edge from a nested function
+           definition to a scope that calls it, added only to order the lambda
+           before its use.  It carries no value and must NOT be declared (its
+           name would contain the literal "-1" and its type is bogus); the
+           function is reached by name via lexical scope. *)
+        if dn <> nid || dp < 0 then (decls, seen, e)
         else if FullPortMap.mem (sub_gid, 0, dp, `Out) e.var_map then
           (decls, seen, e)
         else
@@ -4042,7 +4536,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                                   match
                                     ES.fold
                                       (fun ((sn, _), (dn, dp), _) a ->
-                                        if dn = g && dp = 2 then Some sn else a)
+                                        if dn = g && dp = node_port_of_role r_gr g Pr_extent 2 then Some sn else a)
                                       r_gr.eset None
                                   with
                                   | Some m ->
@@ -4194,7 +4688,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                               let dope_src =
                                 ES.fold
                                   (fun ((sn, _), (dn, dp), _) a ->
-                                    if dn = g_nid && dp = 2 then Some sn else a)
+                                    if dn = g_nid && dp = node_port_of_role r_gr g_nid Pr_extent 2 then Some sn else a)
                                   r_gr.eset None
                               in
                               match dope_src with
@@ -4399,22 +4893,64 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                                     ])
                                   extents)
                         in
+                        (* A MASKED gather is a filter: the shared `gctr`
+                           advances every iteration, which would scatter the
+                           kept elements to their original indices (gaps) and
+                           leave the full extent as the size.  So compact into a
+                           PER-OUTPUT counter that advances only on a kept
+                           element (per_filtered wraps the store -- including the
+                           increment -- in `if (mask) …`), and after the loop
+                           write that count into the descriptor's dims[0]/size so
+                           `array_size` sees the filtered length. *)
+                        let masked =
+                          forall_reduce_filter_of loop_gr port <> None
+                        in
+                        let idx_ctr =
+                          if masked then "__gm_" ^ res_name else gctr
+                        in
+                        let alloc =
+                          if masked then
+                            alloc
+                            @ [
+                                C.Decl
+                                  (C.Basic "int32_t", idx_ctr, Some (C.LitInt 0));
+                              ]
+                          else alloc
+                        in
                         let store =
-                          [
-                            C.Expr
-                              (C.BinOp
-                                 ( C.Assign,
-                                   C.Index
-                                     ( C.Cast
-                                         ( C.Pointer (out_ty, []),
-                                           C.Member (res_v, "data") ),
-                                       C.Id gctr ),
-                                   cast ));
-                          ]
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 C.Index
+                                   ( C.Cast
+                                       ( C.Pointer (out_ty, []),
+                                         C.Member (res_v, "data") ),
+                                     C.Id idx_ctr ),
+                                 cast ))
+                          :: (if masked then
+                                [ C.Expr (C.UnaryOp (C.PostInc, C.Id idx_ctr)) ]
+                              else [])
+                        in
+                        let after =
+                          if masked then
+                            [
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Index
+                                       (C.Member (res_v, "dims"), C.LitInt 0),
+                                     C.Cast (C.Basic "int64_t", C.Id idx_ctr) ));
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Member (res_v, "size"),
+                                     C.Cast (C.Basic "uint64_t", C.Id idx_ctr) ));
+                            ]
+                          else []
                         in
                         ( alloc,
                           store,
-                          [],
+                          after,
                           (res_name, sat),
                           (port, res_v) )
                       ))))
@@ -5233,7 +5769,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       let dope_src =
                         ES.fold
                           (fun ((sn, _), (dn, dp), _) a ->
-                            if dn = gnid && dp = 2 then Some sn else a)
+                            if dn = gnid && dp = node_port_of_role g_ret_gr gnid Pr_extent 2 then Some sn else a)
                           g_ret_gr.eset None
                       in
                       match dope_src with
@@ -5764,31 +6300,6 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   ( decl_stmts @ stmts,
     final_env )
 
-(** [dummy_env tm sub_gr] — a fresh empty lowering environment; the seed
-    lower_to_c builds the real env from. *)
-let dummy_env tm sub_gr =
-  {
-    tm;
-    var_map = FullPortMap.empty;
-    type_table = FullPortMap.empty;
-    preds = FullPortMap.empty;
-    curr_gid = 0;
-    curr_gr = sub_gr;
-    parent_env = None;
-    compound_nid_in_parent = 0;
-    seen_decls = StringSet.empty;
-    fanout_map = PortFanout.empty;
-    edge_free_map = EdgeFreeMap.empty;
-    mandatory_ports = PortSet.empty;
-    gid_table = GidMap.empty;
-    parent_map = IntMap.empty;
-    proc_map = IntMap.empty;
-    proc_param_map = FullPortMap.empty;
-    gid_name_map = IntMap.empty;
-    procedures_info = IntMap.empty;
-    force_gpu = false;
-  }
-
 (** [lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
      node gr_module] — one top-level function compound to a C function:
     parameters from its Function_ty (boundary inputs in declared order), body
@@ -6155,23 +6666,14 @@ let rec collect_typemaps g acc =
     then lower every procedure; returns the complete C compilation unit. *)
 let lower_to_c tm gr filename =
   let procedures_info =
-    (* RECURSIVE: function definitions may be NESTED inside other functions
-       (heapsort's exchange/Heapify); collect procedure compounds from every
-       graph so nested definitions are emitted as C functions too.  (Nested
-       fns that CAPTURE enclosing values remain unsupported — captures would
-       become unfed extra parameters; first-order nested fns are fine.) *)
-    let rec collect g acc =
-      NM.fold
-        (fun nid node acc ->
-          match node with
-          | Compound (_, INTERNAL, _, pr, sub_gr, _)
-            when get_compound_type pr = If1_procedure ->
-              collect sub_gr ((nid, node, sub_gr) :: acc)
-          | Compound (_, _, _, _, sub_gr, _) -> collect sub_gr acc
-          | _ -> acc)
-        g.nmap acc
-    in
-    collect gr []
+    NM.fold
+      (fun nid node acc ->
+        match node with
+        | Compound (_, INTERNAL, _, pr, sub_gr, _)
+          when get_compound_type pr = If1_procedure ->
+            (nid, node, sub_gr) :: acc
+        | _ -> acc)
+      gr.nmap []
   in
   let all_tms =
     let acc = collect_typemaps gr [] in
@@ -6364,6 +6866,73 @@ let lower_to_c tm gr filename =
             else None
         | _ -> None)
       procedures_info
+  in
+
+  (* Multi-return NESTED functions need the same `_results` struct, but they
+     live inside another procedure's graph, so `procedures_info` (root-level
+     only) misses them.  Recurse into every procedure body and emit one struct
+     per multi-return nested procedure (field types read from the RETURNS edge
+     types, which needs no per-gid type inference). *)
+  let nested_result_struct_decls =
+    let seen = Hashtbl.create 16 in
+    let rec collect g acc =
+      NM.fold
+        (fun _ node acc ->
+          match node with
+          | Compound (_, INTERNAL, _, pr, csub, _)
+            when get_compound_type pr = If1_procedure ->
+              let func_name =
+                List.find_map (function Name nm -> Some nm | _ -> None) pr
+                |> Option.map String.uppercase_ascii
+                |> Option.map (fun n -> "func_" ^ n)
+                |> Option.value ~default:"unnamed"
+              in
+              let struct_name =
+                String.uppercase_ascii func_name ^ "_results"
+              in
+              let out_pids =
+                ES.fold
+                  (fun (_, (dn, dp), ty) s ->
+                    if dn = 0 && not (is_error_port ty csub) then
+                      IntSet.add dp s
+                    else s)
+                  csub.eset IntSet.empty
+                |> IntSet.elements
+              in
+              let acc =
+                if
+                  List.length out_pids > 1
+                  && not (Hashtbl.mem seen struct_name)
+                then begin
+                  Hashtbl.replace seen struct_name ();
+                  let results =
+                    List.map
+                      (fun pid ->
+                        let tid =
+                          ES.fold
+                            (fun (_, (dn, dp), ty) a ->
+                              if dn = 0 && dp = pid && ty <> 0 then Some ty
+                              else a)
+                            csub.eset None
+                        in
+                        ( "res_" ^ string_of_int pid,
+                          match tid with
+                          | Some t -> c_type_of_if1_tyid tm t
+                          | None -> C.Basic "int32_t" ))
+                      out_pids
+                  in
+                  C.Type (C.Struct (struct_name, results)) :: acc
+                end
+                else acc
+              in
+              collect csub acc
+          | Compound (_, _, _, _, csub, _) -> collect csub acc
+          | _ -> acc)
+        g.nmap acc
+    in
+    List.fold_left
+      (fun acc (_, _, sub_gr) -> collect sub_gr acc)
+      [] procedures_info
   in
 
   let field_record_deps clean_tm id =
@@ -6565,6 +7134,7 @@ let lower_to_c tm gr filename =
       ];
     globals =
       math_wrappers @ all_record_decls @ result_struct_decls
+      @ nested_result_struct_decls
       @ [ custom_elem_size_raw ]
       @ List.map (fun p -> C.Prototype p) procedures;
     procedures = List.rev procedures;

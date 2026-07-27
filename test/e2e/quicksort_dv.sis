@@ -1,0 +1,25 @@
+define	Main
+
+type Info = array_dv[ integer ]
+
+function Main (	Data : Info returns Info )
+
+    function Split (Data : Info  returns Info, Info, Info )
+	for E in Data
+	returns	array_dv of E when E < Data[ 1 ]
+		array_dv of E when E = Data[ 1 ]
+		array_dv of E when E > Data[ 1 ]
+	end for
+    end function
+
+    if array_size( Data ) > 1 then
+       let
+          L, Middle, R := Split( Data )
+       in
+	  Main( L ) || Middle || Main( R )
+       end let
+    else
+       Data
+    end if
+
+end function % quicksort

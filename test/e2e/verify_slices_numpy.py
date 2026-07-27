@@ -156,7 +156,7 @@ int main() {
         
     # 7. Compile the C++ program
     print("Compiling C++ test binary...")
-    cmd = ["clang++", "-std=c++20", "-O3", "-ffast-math", "-I", "runtime", "-framework", "Accelerate", "-o", "temp_run", "temp_gen.cpp", "temp_driver.cpp"]
+    cmd = ["clang++", "-std=c++23", "-O3", "-ffast-math", "-I", "runtime", "-framework", "Accelerate", "-o", "temp_run", "temp_gen.cpp", "temp_driver.cpp"]
     res_comp = subprocess.run(cmd, capture_output=True, text=True)
     if res_comp.returncode != 0:
         print("C++ compilation failed!", file=sys.stderr)

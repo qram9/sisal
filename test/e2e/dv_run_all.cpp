@@ -6,6 +6,7 @@
 //
 // See run_dv_tests.sh for the full build + run script.
 
+#include <algorithm>
 #include <cmath>
 #include <sisal_runtime.h>
 #include <stdbool.h>
@@ -300,6 +301,12 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
 #ifdef TEST_ARRAY_SWAP_E2E
 struct FUNC_MAIN_results { sisal_array_t res_0, res_1; };
 extern "C" struct FUNC_MAIN_results func_MAIN(sisal_array_t A, sisal_array_t B);
+#endif
+#ifdef TEST_QUICKSORT_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t Data);
+#endif
+#ifdef TEST_HEAPSORT_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t list);
 #endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
@@ -8841,6 +8848,57 @@ static void test_array_swap_e2e() {
   }
 }
 #endif
+#if defined(TEST_QUICKSORT_DV) || defined(TEST_HEAPSORT_DV)
+// Shared sort driver: build a 1-indexed array_dv, run func_MAIN, compare against
+// std::sort of a copy.  quicksort exercises the masked-gather Split (array_dv of
+// E when ...) + nested fn + recursion + ||; heapsort exercises nested-fn array
+// carry + recursion where the nested params SHADOW captured outer vars of the
+// same name (the capture-clobber this arc fixed).
+static void run_sort_case(const char *tag, const int32_t *v, int n) {
+  sisal_array_t a = sisal_array_alloc_empty(1, 6, (uint64_t)n);
+  a.lower_bound[0] = 1; a.dims[0] = n;          // Sisal 1-indexed
+  for (int i = 0; i < n; i++) ((int32_t*)a.data)[i] = v[i];
+  int32_t ref[64];
+  for (int i = 0; i < n; i++) ref[i] = v[i];
+  std::sort(ref, ref + n);
+  sisal_array_t r = func_MAIN(a);
+  int ok = (int)r.size == n;
+  for (int i = 0; ok && i < n; i++) ok = ((int32_t*)r.data)[i] == ref[i];
+  check(tag, ok);
+}
+#endif
+// A 40-element scramble with negatives, duplicates and a wide value range --
+// the substantive stress case; std::sort is the reference so any input is fair.
+static const int32_t sort_big40[] = {
+   37, -12,  85,   4,  85,  -7,  63,  21,  -99,  50,
+    0,  17,  63,  -1,  42,  99, -55,   8,   8,  -3,
+   71,  30, -40,  12,  60,  60,   5, -88,  33,  19,
+  -12,  77,  46,  -6,  91,  24,  24, -70,  15,  -2,
+};
+#ifdef TEST_QUICKSORT_DV
+static void test_quicksort_dv() {
+  printf("\n=== Group: quicksort_dv (masked-gather Split + recursion) ===\n");
+  run_sort_case("quicksort 40 mixed +/- dups", sort_big40, 40);
+  int32_t a[] = {5, 3, 8, 1, 9, 2, 7, 4, 6};
+  run_sort_case("quicksort 9 shuffled", a, 9);
+  int32_t b[] = {1};                    run_sort_case("quicksort singleton", b, 1);
+  int32_t c[] = {2, 1};                 run_sort_case("quicksort pair", c, 2);
+  int32_t d[] = {4, 4, 1, 4, 2, 4};     run_sort_case("quicksort duplicates", d, 6);
+  int32_t e[] = {1, 2, 3, 4, 5};        run_sort_case("quicksort already sorted", e, 5);
+  int32_t f[] = {5, 4, 3, 2, 1};        run_sort_case("quicksort reversed", f, 5);
+}
+#endif
+#ifdef TEST_HEAPSORT_DV
+static void test_heapsort_dv() {
+  printf("\n=== Group: heapsort_dv (nested-fn capture/param shadow) ===\n");
+  run_sort_case("heapsort 40 mixed +/- dups", sort_big40, 40);
+  int32_t a[] = {5, 3, 8, 1, 9, 2, 7, 4, 6};
+  run_sort_case("heapsort 9 shuffled", a, 9);
+  int32_t d[] = {4, 4, 1, 4, 2, 4};     run_sort_case("heapsort duplicates", d, 6);
+  int32_t e[] = {1, 2, 3, 4, 5, 6, 7};  run_sort_case("heapsort already sorted", e, 7);
+  int32_t f[] = {7, 6, 5, 4, 3, 2, 1};  run_sort_case("heapsort reversed", f, 7);
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -9776,6 +9834,12 @@ main (void)
 #ifdef TEST_ARRAY_SWAP_E2E
   test_array_swap_e2e ();
 #endif
+#ifdef TEST_QUICKSORT_DV
+  test_quicksort_dv ();
+#endif
+#ifdef TEST_HEAPSORT_DV
+  test_heapsort_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -9903,7 +9967,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

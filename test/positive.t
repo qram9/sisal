@@ -275,6 +275,8 @@ DV variants of scientific benchmarks:
   $ sisal unit/cfft_dv.sis
   $ sisal e2e/feo_fft_dv.sis
   $ sisal e2e/hilbert_dv.sis
+  $ sisal e2e/quicksort_dv.sis
+  $ sisal e2e/heapsort_dv.sis
   $ sisal e2e/inverse_dv.sis
   $ sisal unit/kin16_dv.sis
   $ sisal e2e/laplace_dv.sis

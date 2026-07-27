@@ -382,6 +382,23 @@ type compound_node_of =
   | If1_loop_test
   | If1_Unknown
 
+(* The SEMANTIC role a node's input/output port plays.  Port ORDER is not a
+   reliable encoding of meaning: e.g. a DV_GATHER carries its mask on a
+   different port than a REDUCE, and a nested gather adds lb/ub on ports 3/4
+   that a bare gather does not.  A `Portmap` pragma (below) names each port by
+   role so consumers can ask "which port is the mask?" instead of hard-coding an
+   index. *)
+type port_role =
+  | Pr_index (* the flat iteration counter *)
+  | Pr_value (* the value being gathered / reduced / streamed *)
+  | Pr_extent (* dope-vector / DV_DIMENSION shape triplet *)
+  | Pr_lower_bound
+  | Pr_upper_bound
+  | Pr_mask (* a `when`/`unless` boolean filter *)
+  | Pr_placement (* a scatter destination coordinate *)
+  | Pr_reduce_fn (* the reduction operator name *)
+  | Pr_other of string
+
 type pragma =
   | Bounds of int * int
   | SrcLine of int * int
@@ -397,6 +414,9 @@ type pragma =
   | Ast_type of string
   | Subscript of string (* carries einsum index string on EINSUM_NODE *)
   | Compound_of of compound_node_of
+  | Portmap of (port_role * int) list
+      (* names each significant port by role; when present, port lookups MUST
+         consult it rather than assume a fixed port order *)
 
 exception Node_not_found of string
 exception Val_is_found of int
@@ -405,6 +425,25 @@ exception Sem_error of string
 
 type ports = port array
 type pragmas = pragma list
+
+let string_of_port_role = function
+  | Pr_index -> "index"
+  | Pr_value -> "value"
+  | Pr_extent -> "extent"
+  | Pr_lower_bound -> "lb"
+  | Pr_upper_bound -> "ub"
+  | Pr_mask -> "mask"
+  | Pr_placement -> "placement"
+  | Pr_reduce_fn -> "reduce_fn"
+  | Pr_other s -> s
+
+let string_of_portmap m =
+  "Portmap["
+  ^ String.concat ";"
+      (List.map
+         (fun (r, p) -> string_of_port_role r ^ ":" ^ string_of_int p)
+         m)
+  ^ "]"
 
 module N = struct
   type t = label
@@ -769,6 +808,10 @@ and inherit_parent_syms other_gr in_gr =
   SM.fold
     (fun na e in_g ->
       if is_function_typed e then in_g
+      else if SM.mem na (fst in_g.symtab) then in_g
+        (* SHADOWED: a local name (e.g. a parameter added before this inherit
+           pass) already binds `na` in THIS scope, so the parent's `na` is not
+           visible here -- do not thread it onto the boundary. *)
       else
         let _, in_g = get_symbol_id na in_g in
         in_g)
@@ -3956,6 +3999,7 @@ and string_of_pragmas p =
         | No_pragma -> ""
         | Ast_type _ -> ""
         | Subscript s -> "Subscript(" ^ s ^ ")"
+        | Portmap m -> string_of_portmap m
         | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
       in
       cate_nicer l q " ,")
@@ -5007,6 +5051,7 @@ module If1_View = struct
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
           | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
+          | Portmap m -> string_of_portmap m
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
@@ -5030,6 +5075,7 @@ module If1_View = struct
           | No_pragma -> ""
           | Subscript s -> "einsum:" ^ s
           | Compound_of c -> "Compound_of(" ^ string_of_compound_of c ^ ")"
+          | Portmap m -> string_of_portmap m
         in
         if l = "" then q else cate_nicer l q " ,")
       p ""
