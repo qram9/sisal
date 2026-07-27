@@ -7,8 +7,8 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdarg.h>
-#include <dispatch/dispatch.h>
 #ifdef __APPLE__
+#  include <dispatch/dispatch.h>
 #  include <Accelerate/Accelerate.h>
 #else
 #  include <cblas.h>

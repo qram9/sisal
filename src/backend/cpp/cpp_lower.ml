@@ -7132,8 +7132,9 @@ let lower_to_c tm gr filename =
         "stdbool.h";
         "math.h";
         "iostream";
-        "dispatch/dispatch.h";
-        "Accelerate/Accelerate.h";
+        (* Platform BLAS/GCD headers are NOT emitted here: the generated code
+           calls neither directly.  sisal_runtime.h pulls in a portable BLAS
+           (Accelerate on Apple, <cblas.h> elsewhere) behind __APPLE__. *)
         "sisal_runtime.h";
       ];
     globals =
