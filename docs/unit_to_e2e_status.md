@@ -164,8 +164,16 @@ parked (fragile reference).
 - `sisal_array_addh_f32` missing overload (8) — float array-append growth.
 - lambda-as-value (12): `undeclared LAMBDA` (5) + call-to-lambda-object (7)
   — higher-order function values not lowered.
-- multi-output port wiring `v_*_n__N_p1_o` undeclared (~7) — 2nd output port
-  of a node not declared in some contexts.
+- multi-output masked gather on the PLAIN-`array of` path `v_*_n__N_p1_o`
+  undeclared (~7: quicksort1, mashi, bad, lu.npiv, outs/outs2, ...) — NOT an
+  independent bug.  A forall returning several masked arrays (e.g. Split's
+  L/Middle/R = `returns array of E when ... / array of E when ... / array of E
+  when ...`) only gets its FIRST output port declared on the plain-`array`
+  path; ports 1+ are referenced but never emitted.  The array_dv path wires
+  all outputs (proven: rewriting quicksort1 -> array_dv declares p0/p1/p2 and
+  compiles clean; cf. the working quicksort_dv/heapsort 3-output Split).  So
+  these are just the standard array->array_dv rewrite, per
+  project_c_lowering_array_dv_only ("C lowering = array_dv only").
 - union `incomplete type struct union_un_NNN` (3) — union boxing/fwd-decl.
 - intrinsic double-emission: `redefinition of func_ASINR`, "functions differ
   only in return type" (4); `conflicting types for func_MAIN` (2).
