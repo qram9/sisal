@@ -1,0 +1,28 @@
+define Main
+
+% Exercises nested functions capturing OUTER-SCOPE values (not their own args):
+%   AddBase  captures Main's param n            (parent capture)
+%   Inner    captures Outer's param base AND n  (parent + grandparent capture)
+% The captured values are threaded through a `let` that computes results first,
+% then the nested functions catch those results.
+function Main ( n : integer returns integer )
+
+  function AddBase ( x : integer returns integer )
+    x + n
+  end function
+
+  function Outer ( base : integer returns integer )
+    function Inner ( x : integer returns integer )
+      x + base + n
+    end function
+    Inner( base ) + Inner( 1 )
+  end function
+
+  let
+    seed := n * n;
+    a    := AddBase( seed );
+    b    := Outer( seed )
+  in
+    a + b
+  end let
+end function

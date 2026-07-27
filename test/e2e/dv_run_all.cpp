@@ -308,6 +308,9 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t Data);
 #ifdef TEST_HEAPSORT_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t list);
 #endif
+#ifdef TEST_NESTED_CAPTURE_DV
+extern "C" int32_t func_MAIN(int32_t n);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -8899,6 +8902,26 @@ static void test_heapsort_dv() {
   int32_t f[] = {7, 6, 5, 4, 3, 2, 1};  run_sort_case("heapsort reversed", f, 7);
 }
 #endif
+#ifdef TEST_NESTED_CAPTURE_DV
+// Nested functions capturing OUTER-SCOPE values (not their own args):
+//   AddBase captures Main's n (parent); Inner captures Outer's base AND Main's n
+//   (parent + grandparent).  Captured values are results computed earlier in the
+//   let.  Regression for the capture/param-shadow fix: params must NOT be
+//   clobbered, yet genuine captures (trailing boundary ports) must still flow.
+static int nested_capture_ref(int n) {
+  int seed = n * n;
+  int a = seed + n;                              // AddBase(seed)
+  int b = (seed + seed + n) + (1 + seed + n);    // Outer(seed) = Inner(seed)+Inner(1)
+  return a + b;
+}
+static void test_nested_capture_dv() {
+  printf("\n=== Group: nested_capture_dv (nested-fn outer-scope capture) ===\n");
+  for (int n : {3, 5, 0, -4, 10, 100}) {
+    char tag[64]; snprintf(tag, sizeof tag, "nested_capture n=%d", n);
+    check(tag, func_MAIN(n) == nested_capture_ref(n));
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -9840,6 +9863,9 @@ main (void)
 #ifdef TEST_HEAPSORT_DV
   test_heapsort_dv ();
 #endif
+#ifdef TEST_NESTED_CAPTURE_DV
+  test_nested_capture_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -9967,7 +9993,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
