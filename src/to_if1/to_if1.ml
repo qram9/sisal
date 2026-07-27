@@ -3499,6 +3499,15 @@ and bin_exp a b in_gr node_tag =
   let b_is_dv = is_dv_array_ty qq2 in_gr in
   let a_is_arr = is_array_ty qq1 in_gr in
   let b_is_arr = is_array_ty qq2 in_gr in
+  (* `a || b` (Catenate -> ACATENATE) on STREAM operands is a distinct node:
+     stream catenation, not array append.  Decide by operand type here, the
+     same way ABUILD/DVABUILD are picked -- rather than type-sniffing in the
+     backend. *)
+  let node_tag =
+    if node_tag = If1.ACATENATE && (is_stream_ty qq1 in_gr || is_stream_ty qq2 in_gr)
+    then If1.STRM_CATENATE
+    else node_tag
+  in
 
   let is_liftable_dv =
     match node_tag with
@@ -3801,6 +3810,12 @@ and is_dv_array_ty ty in_gr =
   match If1.lookup_ty_safe ty in_gr with
   | Some (If1.Array_dv _) -> true
   | Some (If1.If1Type_name t) -> is_dv_array_ty t in_gr
+  | _ -> false
+
+and is_stream_ty ty in_gr =
+  match If1.lookup_ty_safe ty in_gr with
+  | Some (If1.Stream _) -> true
+  | Some (If1.If1Type_name t) -> is_stream_ty t in_gr
   | _ -> false
 
 (* Extract element type id from Array_ty or Array_dv; raises on other types *)

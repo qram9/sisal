@@ -138,6 +138,7 @@ type node_sym =
   | SELECT
   | STREAM
   | STRM_APPEND
+  | STRM_CATENATE
   | STRM_EMPTY
   | STRM_FIRST
   | STRM_REST
@@ -3652,6 +3653,7 @@ and num_to_node_sym = function
   | 68 -> BITXOR
   | 69 -> STRM_APPEND
   | 70 -> STRM_EMPTY
+  | 181 -> STRM_CATENATE
   | 71 -> MATMUL
   | 72 -> MATVECMUL
   | 73 -> VECMATMUL
@@ -3746,6 +3748,7 @@ and node_sym_to_num = function
   | BITOR -> 68
   | STRM_APPEND -> 69
   | STRM_EMPTY -> 70
+  | STRM_CATENATE -> 181
   | SHL -> 75
   | SHR -> 76
   | ASHR -> 77
@@ -3898,6 +3901,7 @@ and string_of_node_sym = function
   | VSPLAT -> "VSPLAT"
   | ERROR_NODE -> "ERROR"
   | STRM_APPEND -> "STREAM_APPEND"
+  | STRM_CATENATE -> "STREAM_CATENATE"
   | STRM_EMPTY -> "STREAM_EMPTY"
   | STRM_FIRST -> "STREAM_FIRST"
   | STRM_REST -> "STREAM_REST"

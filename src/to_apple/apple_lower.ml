@@ -2591,11 +2591,9 @@ and lower_simple env gr nid sym pin pout pr =
           | _ -> "sisal_array_addh_f32"
         in
         C.Call (fn, [ e1; e2 ])
-    | ACATENATE when is_stream_type (get_final_ty env gid nid 0 `In) ->
-        (* `a || b` on STREAMS is stream catenation, not array append: yield all
-           of a then all of b (lazy).  The array-typed paths below would emit
-           sisal_array_addh_arr on sisal_generator operands (wrong + won't
-           compile).  Stream `||` never chains through the array spine fold. *)
+    | STRM_CATENATE ->
+        (* `a || b` on STREAMS -- the frontend selected this distinct node by
+           operand type (bin_exp).  Lazy concat: yield all of a then all of b. *)
         C.Call ("sisal_stream_concat", [ e1; e2 ])
     | ACATENATE ->
         if is_consumed_by_catenate gr nid then
