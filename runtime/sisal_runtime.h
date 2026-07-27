@@ -627,6 +627,21 @@ inline sisal_array_t sisal_array_addh_f64(sisal_array_t a, double val) {
     ((double*)res.data)[a.size] = val;
     return res;
 }
+/* Append a value of arbitrary element type T at the high end (size+1).  Used
+   for RECORD (struct) elements: the store is a C++ assignment so any record --
+   including one with a sisal_array_t field -- is copied by value (shallow
+   descriptor copy, correct under the always-copy/immutable array regime).  The
+   element byte size comes from the descriptor (sisal_esz), which alloc_sized
+   set to sizeof(record). */
+template <typename T>
+inline sisal_array_t sisal_array_addh_val(sisal_array_t a, T val) {
+    size_t esz = sisal_esz(a);
+    sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, esz);
+    res.lower_bound[0] = a.lower_bound[0];
+    memcpy(res.data, a.data, a.size * esz);
+    ((T*)res.data)[a.size] = val;
+    return res;
+}
 /* array_dv addh where the appended value is itself an array: rank-polymorphic
    splice along axis 0.  B is a SLAB (rank == a.rank-1, B == a's trailing dims) -> the
    leading dim grows by 1; or a STACK (rank == a.rank, trailing dims agree) -> leading

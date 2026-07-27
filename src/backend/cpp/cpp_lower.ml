@@ -2588,6 +2588,9 @@ and lower_simple env gr nid sym pin pout pr =
           | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_addh_i32"
           | C.Basic "double" -> "sisal_array_addh_f64"
           | C.Basic "sisal_array_t" -> "sisal_array_addh_arr"
+          (* RECORD element: append by value via the generic templated helper
+             (T deduced from e2), NOT the float fallback. *)
+          | ty when is_struct_cty ty -> "sisal_array_addh_val"
           | _ -> "sisal_array_addh_f32"
         in
         C.Call (fn, [ e1; e2 ])
