@@ -371,6 +371,10 @@ struct FUNC_MAIN_results {
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
 #endif
+#ifdef TEST_LEGPOLY1_DV
+extern "C" sisal_array_t func_LEGENDREPOLYOF1STKIND(int32_t IR, int32_t IRMAX2,
+    int32_t JXXMX, float COAS, float SIAS, float DELTAS);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9260,6 +9264,56 @@ static void test_vectest_dv() {
   }
 }
 #endif
+#ifdef TEST_LEGPOLY1_DV
+// Legendre polynomial (1st kind), ir=2 branch (p2 := pp): the pp for-initial
+// recurrence with an inner s1/s2 loop and array element replaces at n+1 /
+// n+irmax2, over SIN/COS/SQRT.  Faithful C mirror of the algorithm (1-indexed).
+static void legpoly1_ref(int ir, int irmax2, int jxxmx, double theta, double *out) {
+  double p[320] = {0};   // 1-indexed; jxxmx bounded well under 320
+  double sqr2 = sqrt(2.0), c1 = sqr2; p[1] = 1.0 / sqr2;
+  int irpp = ir + 2, n_old = 1;
+  while (n_old <= irpp) {
+    double fn = (double)n_old, fn2 = 2.0 * fn, fn2sq = fn2 * fn2;
+    c1 = c1 * sqrt(1.0 - 1.0 / fn2sq);
+    double c3 = c1 / sqrt(fn * (fn + 1.0));
+    int kk_old = 1; double ang = fn * theta; int n1 = n_old + 1;
+    double ss1 = 0, ss2 = 0, c4 = 1.0, c5 = fn, a = -1.0, b = 0.0;
+    while (kk_old <= n1) {
+      int kk = kk_old + 2, k = kk_old - 1;
+      double ss2n = ss2 + c5 * sin(ang) * c4;
+      double c4t = (k == n_old) ? 0.5 * c4 : c4;
+      double ss1n = ss1 + c4t * cos(ang);
+      double an = a + 2.0, bn = b + 1.0, fk = (double)k;
+      double angn = theta * (fn - fk - 2.0);
+      double c4n = (an * (fn - bn + 1.0) / (bn * (fn2 - an))) * c4t;
+      double c5n = c5 - 2.0;
+      kk_old = kk; ss1 = ss1n; ss2 = ss2n; ang = angn; c4 = c4n; c5 = c5n; a = an; b = bn;
+    }
+    double s1 = ss1, s2 = ss2;
+    if (n_old - irpp < 0) { p[n_old + 1] = s1 * c1; p[n_old + irmax2] = s2 * c3; }
+    else if (n_old - irpp == 0) { p[n_old + irmax2] = s2 * c3; }
+    n_old++;
+  }
+  for (int i = 0; i < jxxmx; i++) out[i] = p[i + 1];
+}
+static void test_legpoly1_dv() {
+  printf("\n=== Group: legpoly1_dv (Legendre 1st kind, ir=2 recurrence) ===\n");
+  struct { int irmax2, jxxmx; double ang; } cs[] = {
+    {20, 60, 0.5}, {20, 60, 1.0}, {15, 50, 0.3}, {25, 80, 0.8},
+  };
+  for (auto &c : cs) {
+    double ref[300];
+    legpoly1_ref(2, c.irmax2, c.jxxmx, c.ang, ref);
+    sisal_array_t r = func_LEGENDREPOLYOF1STKIND(2, c.irmax2, c.jxxmx,
+        (float)cos(c.ang), (float)sin(c.ang), (float)c.ang);
+    int ok = (int)r.size == c.jxxmx;
+    for (int i = 0; ok && i < c.jxxmx; i++)
+      ok = std::fabs(((double *)r.data)[i] - ref[i]) < 1e-4;
+    char tag[48]; snprintf(tag, sizeof tag, "ir=2 irmax2=%d jxxmx=%d ang=%.1f", c.irmax2, c.jxxmx, c.ang);
+    check(tag, ok);
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10249,6 +10303,9 @@ main (void)
 #ifdef TEST_VECTEST_DV
   test_vectest_dv ();
 #endif
+#ifdef TEST_LEGPOLY1_DV
+  test_legpoly1_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10376,7 +10433,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
