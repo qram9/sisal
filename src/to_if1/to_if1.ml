@@ -11835,6 +11835,39 @@ if List.length expected_ids <> List.length actual_ids then (
 
 and do_typedef in_gr = function
   | Type_def (n, t) ->
+      (* Ragged/recursive-array guard.  A type whose definition references
+         ITSELF through a DENSE array (`array`/`array_dv`) -- e.g.
+         `type Radical = union[..; Carbon: array_dv[Radical]]` -- is a ragged
+         tree of boxed dope-vectors, which the dense array_dv backend can't
+         allocate (it miscounts/hangs).  Detect it here on the AST (the interned
+         typemap loses this: union heads don't link their variants), before the
+         placeholder id is minted.  Recursion through a STREAM is allowed (that
+         IS the intended boxed representation).  Mutual recursion (A->array[B],
+         B->array[A]) is not chased here -- direct self-reference only. *)
+      let rec refs_self_via_dv in_dv (ty : Ast.sisal_type) =
+        match ty with
+        | Ast.Type_name m -> m = n && in_dv
+        (* Only array_dv (dense dope vector) recursion is the ragged case we
+           reject here.  Plain `array of` (Sisal_array) recursion is a separate,
+           pre-existing legacy matter (already unsupported at C-emit); a stream
+           IS the intended boxed representation -- neither sets in_dv. *)
+        | Ast.Compound_type (Ast.Sisal_dv e) -> refs_self_via_dv true e
+        | Ast.Compound_type (Ast.Sisal_array e | Ast.Sisal_stream e) ->
+            refs_self_via_dv false e
+        | Ast.Compound_type (Ast.Sisal_record vs | Ast.Sisal_union vs) ->
+            List.exists (fun (_, e) -> refs_self_via_dv in_dv e) vs
+        | Ast.Compound_type (Ast.Sisal_tuple es) ->
+            List.exists (refs_self_via_dv in_dv) es
+        | _ -> false
+      in
+      if refs_self_via_dv false t then
+        raise
+          (If1.Sem_error
+             (Printf.sprintf
+                "ragged array allocation detected and unsupported: type `%s` \
+                 is recursive through an array_dv (use a stream or a \
+                 boxed representation)"
+                n));
       (* 1. Placeholder binding *)
       let _, in_gr = If1.add_sisal_typename in_gr n (-2) in
 

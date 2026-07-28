@@ -4,6 +4,7 @@
   (glob_files unit/*.sis)
   (glob_files unit/apl/*.sis)
   (glob_files e2e/*.sis)
+  (glob_files wip/*.sis)
   (glob_files unit/*.h)
   (glob_files unit/*.sish)
   unit/com_defines

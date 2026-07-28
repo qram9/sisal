@@ -311,7 +311,6 @@ DV variants of scientific benchmarks:
   $ sisal unit/newgaussj_dv.sis
   $ sisal e2e/ricard_dv.sis
   $ sisal e2e/multibind_dv.sis
-  $ sisal e2e/member_dv.sis
   $ sisal e2e/tag_dispatch_dv.sis
   $ sisal e2e/minmax_dv.sis
   $ sisal e2e/insertion1_dv.sis
