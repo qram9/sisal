@@ -573,6 +573,41 @@ inline sisal_array_t sisal_array_replace_f64(sisal_array_t a, int64_t idx, doubl
         return res;
     }
 }
+/* Replace/append/prepend for an arbitrary element type T (used for RECORD
+   elements).  Same idx protocol as replace_i32 (limh+1 = grow high, liml-1 =
+   grow low, else in-range replace) but width = the descriptor's elem size and
+   the store is a C++ assignment (value copy of the record, shallow for any
+   sisal_array_t field -- correct under always-copy/immutable). */
+template <typename T>
+inline sisal_array_t sisal_array_replace_val(sisal_array_t a, int64_t idx, T val) {
+    size_t esz = sisal_esz(a);
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, esz);
+        res.lower_bound[0] = a.lower_bound[0];
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * esz);
+        ((T*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, esz);
+        res.lower_bound[0] = a.lower_bound[0] - 1;
+        res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i] = a.dims[i]; res.lower_bound[i] = a.lower_bound[i]; }
+        memcpy((char*)res.data + esz, a.data, a.size * esz);
+        ((T*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * esz);
+        memcpy(res.data, a.data, a.size * esz);
+        ((T*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
+}
 inline sisal_array_t sisal_array_replace_arr(sisal_array_t a, int64_t idx, sisal_array_t val) {
     int64_t liml = a.lower_bound[0];
     int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;

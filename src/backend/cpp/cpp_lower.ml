@@ -1688,12 +1688,16 @@ let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
   let replace_fn p =
     let val_ty = get_final_ty env gid nid p `In in
     if val_ty = C.Basic "sisal_array_t" then ("sisal_dv_replace_slice", None)
+    (* RECORD element: replace by value via the generic templated helper (T
+       deduced from the raw struct value -- pass it uncast, hence None). *)
+    else if is_struct_cty val_ty then ("sisal_array_replace_val", None)
     else
       match elem_cty with
       | Some (C.Basic "int32_t") | Some (C.Basic "bool") ->
           ("sisal_array_replace_i32", elem_cty)
       | Some (C.Basic "double") -> ("sisal_array_replace_f64", elem_cty)
       | Some (C.Basic "float") -> ("sisal_array_replace_f32", elem_cty)
+      | Some ty when is_struct_cty ty -> ("sisal_array_replace_val", None)
       | _ -> (
           (* element type unresolvable: fall back to the value's type *)
           match val_ty with
