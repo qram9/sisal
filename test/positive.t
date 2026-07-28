@@ -287,6 +287,7 @@ DV variants of scientific benchmarks:
   $ sisal e2e/sqrt_dv.sis
   $ sisal e2e/array_ex_dv.sis
   $ sisal e2e/nico_dv.sis
+  $ sisal e2e/nico2_dv.sis
   $ sisal e2e/inverse_dv.sis
   $ sisal unit/kin16_dv.sis
   $ sisal e2e/laplace_dv.sis
