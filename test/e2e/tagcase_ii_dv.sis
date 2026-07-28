@@ -1,0 +1,27 @@
+% tagcase_ii's basic tagcase, driven like tagcase_e2e: build the three union
+% variants internally, dispatch each.  UN = union[A:int; B:int; D:array_dv[int]]
+% (non-recursive).  tag D -> P[I]; tag A -> I; otherwise (B) -> 4.
+define main
+
+type AR = array_dv[ integer ];
+type UN = union[ A: integer; B: integer; D: AR ];
+
+function dispatch( X: UN; I, E: integer returns integer )
+  tagcase P := X
+  tag D: P[ I ]
+  tag A: I
+  otherwise: 4
+  end tagcase
+end function
+
+function main( I, E: integer returns integer, integer, integer )
+  let
+    u_a := union UN[ A: 42 ];
+    u_b := union UN[ B: 99 ];
+    d_arr := for k in 1, 4 returns array_dv of (k * 10) end for
+  in
+    dispatch( u_a, I, E ),
+    dispatch( u_b, I, E ),
+    dispatch( union UN[ D: d_arr ], I, E )
+  end let
+end function
