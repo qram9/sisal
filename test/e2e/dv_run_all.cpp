@@ -363,6 +363,14 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t I, int32_t E);
 #ifdef TEST_NESTED_DV
 extern "C" int32_t func_OUTER(int32_t I);   // entry is Outer (no main); Outer(I)=Inner(I)=2I
 #endif
+#ifdef TEST_VECTEST_DV
+struct FUNC_MAIN_results {
+  sisal_array_t res_0, res_1, res_2, res_3, res_4, res_5;   // Tri/Sum x D/R/I
+  int32_t res_6, res_7, res_8, res_9, res_10, res_11;        // min, amin x D/R/I
+  int32_t res_12, res_13, res_14, res_15, res_16, res_17;    // max, amax x D/R/I
+};
+extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9207,6 +9215,51 @@ static void test_nested_dv() {
   }
 }
 #endif
+#ifdef TEST_VECTEST_DV
+// 18 vector kernels over internally-built arrays (i=1..n):
+//   Tri(XIn,Z,Y): scan X=Z[k]*(Y[k]-X); Sum(YIn): partial sums; both gather the
+//   seed then each body value (N elements).  min/amin/max/amax: index of first
+//   (abs) min/max over WIn (=+-i).  D/R/I = double/float/int precision.
+template <class T> static int vt_maxi(const T *w, int n) { int x=1; for (int k=2;k<=n;k++) if (w[k]>w[x]) x=k; return x; }
+template <class T> static int vt_mini(const T *w, int n) { int x=1; for (int k=2;k<=n;k++) if (w[k]<w[x]) x=k; return x; }
+template <class T> static int vt_amaxi(const T *w, int n) { int x=1; for (int k=2;k<=n;k++) if (std::abs(w[k])>std::abs(w[x])) x=k; return x; }
+template <class T> static int vt_amini(const T *w, int n) { int x=1; for (int k=2;k<=n;k++) if (std::abs(w[k])<std::abs(w[x])) x=k; return x; }
+template <class T> static void vt_tri(const T *xin, const T *z, const T *y, int n, T *o) { T x=xin[1]; o[0]=x; for (int k=2;k<=n;k++){ x=z[k]*(y[k]-x); o[k-1]=x; } }
+template <class T> static void vt_psum(const T *yin, int n, T *o) { T x=yin[1]; o[0]=x; for (int k=2;k<=n;k++){ x=x+yin[k]; o[k-1]=x; } }
+template <class T> static bool vt_eqarr(sisal_array_t a, const T *ref, int n, double tol) {
+  if ((int)a.size != n) return false;
+  for (int i = 0; i < n; i++) if (std::abs((double)((T *)a.data)[i] - (double)ref[i]) > tol) return false;
+  return true;
+}
+static bool vectest_run(int n) {
+  double XInD[70],ZD[70],YD[70],YInD[70],WInD[70];
+  float  XInR[70],ZR[70],YR[70],YInR[70],WInR[70];
+  int    XInI[70],ZI[70],YI[70],YInI[70],WInI[70];
+  for (int i = 1; i <= n; i++) {
+    XInD[i]=1.0/i; ZD[i]=1.0/(i+1); YD[i]=1.0/(i+2); YInD[i]=1.0/i;
+    XInR[i]=1.0f/i; ZR[i]=1.0f/(i+1); YR[i]=1.0f/(i+2); YInR[i]=1.0f/i;
+    XInI[i]=1; ZI[i]=2; YI[i]=3; YInI[i]=i;
+    int w=(i%2==0)?-i:i; WInD[i]=w; WInR[i]=(float)w; WInI[i]=w;
+  }
+  double triD[70],sumD[70]; float triR[70],sumR[70]; int triI[70],sumI[70];
+  vt_tri(XInD,ZD,YD,n,triD); vt_tri(XInR,ZR,YR,n,triR); vt_tri(XInI,ZI,YI,n,triI);
+  vt_psum(YInD,n,sumD); vt_psum(YInR,n,sumR); vt_psum(YInI,n,sumI);
+  struct FUNC_MAIN_results r = func_MAIN(n);
+  return vt_eqarr(r.res_0,triD,n,1e-9) && vt_eqarr(r.res_1,triR,n,1e-4) && vt_eqarr(r.res_2,triI,n,0)
+      && vt_eqarr(r.res_3,sumD,n,1e-9) && vt_eqarr(r.res_4,sumR,n,1e-4) && vt_eqarr(r.res_5,sumI,n,0)
+      && r.res_6==vt_mini(WInD,n) && r.res_7==vt_mini(WInR,n) && r.res_8==vt_mini(WInI,n)
+      && r.res_9==vt_amini(WInD,n) && r.res_10==vt_amini(WInR,n) && r.res_11==vt_amini(WInI,n)
+      && r.res_12==vt_maxi(WInD,n) && r.res_13==vt_maxi(WInR,n) && r.res_14==vt_maxi(WInI,n)
+      && r.res_15==vt_amaxi(WInD,n) && r.res_16==vt_amaxi(WInR,n) && r.res_17==vt_amaxi(WInI,n);
+}
+static void test_vectest_dv() {
+  printf("\n=== Group: vectest_dv (18 vector kernels: Tri/Sum scans + min/max indices) ===\n");
+  for (int n : {3, 5, 8, 12, 20}) {
+    char tag[24]; snprintf(tag, sizeof tag, "n=%d (18 kernels)", n);
+    check(tag, vectest_run(n));
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10193,6 +10246,9 @@ main (void)
 #ifdef TEST_NESTED_DV
   test_nested_dv ();
 #endif
+#ifdef TEST_VECTEST_DV
+  test_vectest_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10320,7 +10376,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
