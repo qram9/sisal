@@ -5047,7 +5047,8 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         if StringSet.mem n env.seen_decls then None
         else
           let iv =
-            if t = C.Basic "sisal_array_t" || is_stream_type t then C.Id "{}" else C.LitInt 0
+            if t = C.Basic "sisal_array_t" || is_stream_type t || is_struct_cty t
+            then C.Id "{}" else C.LitInt 0
           in
           Some (C.Decl (t, n, Some iv)))
       out_decls
@@ -5268,7 +5269,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                 | None -> C.Basic "int32_t"
               in
               let init_val =
-                if ty = C.Basic "sisal_array_t" || is_stream_type ty then Some (C.Id "{}")
+                if ty = C.Basic "sisal_array_t" || is_stream_type ty
+                   || is_struct_cty ty then Some (C.Id "{}")
                 else Some (C.LitInt 0)
               in
               let e' =
@@ -5530,7 +5532,10 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                   let cap_id = C.Id cap_name in
                   let ty = get_final_ty e body_gid sn sp `Out in
                   let init_val =
-                    if ty = C.Basic "sisal_array_t" || is_stream_type ty then Some (C.Id "{}")
+                    (* struct (record) carries zero-init as {} -- `= 0` on a
+                       struct is a type error. *)
+                    if ty = C.Basic "sisal_array_t" || is_stream_type ty
+                       || is_struct_cty ty then Some (C.Id "{}")
                     else Some (C.LitInt 0)
                   in
                   Hashtbl.add memo (sn, sp) cap_id;
