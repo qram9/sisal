@@ -889,6 +889,17 @@ inline sisal_array_t sisal_array_fill_i32(int64_t lo, int64_t hi, int32_t val) {
     for (int64_t k = 0; k < n; k++) ((int32_t*)res.data)[k] = val;
     return res;
 }
+/* Boolean fill.  Booleans are stored as 1-byte C++ `bool` and read/written via
+   `bool*` (matching the forall path, which allocs type_id 1 and stores bool*).
+   The i32 fill wrote 4-byte slots, so a subsequent 1-byte bool read hit every
+   4th byte -- fill(true) looked true only at positions 1,5,9,... */
+inline sisal_array_t sisal_array_fill_bool(int64_t lo, int64_t hi, bool val) {
+    int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
+    sisal_array_t res = sisal_array_alloc_empty(1, 1, (uint64_t)n);
+    res.lower_bound[0] = lo;
+    for (int64_t k = 0; k < n; k++) ((bool*)res.data)[k] = val;
+    return res;
+}
 inline sisal_array_t sisal_array_fill_f32(int64_t lo, int64_t hi, float val) {
     int64_t n = (hi >= lo) ? (hi - lo + 1) : 0;
     sisal_array_t res = sisal_array_alloc_empty(1, 8, (uint64_t)n);

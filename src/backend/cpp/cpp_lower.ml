@@ -2664,7 +2664,8 @@ and lower_simple env gr nid sym pin pout pr =
         else
           let fn =
             match val_ty with
-            | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_fill_i32"
+            | C.Basic "bool" -> "sisal_array_fill_bool"  (* 1-byte, not i32 *)
+            | C.Basic "int32_t" -> "sisal_array_fill_i32"
             | C.Basic "double" -> "sisal_array_fill_f64"
             | C.Basic "sisal_array_t" -> "sisal_array_fill_arr"
             | _ -> "sisal_array_fill_f32"
