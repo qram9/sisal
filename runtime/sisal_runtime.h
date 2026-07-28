@@ -515,6 +515,36 @@ inline sisal_array_t sisal_array_replace_i32(sisal_array_t a, int64_t idx, int32
         return res;
     }
 }
+/* Boolean element replace: 1-byte bool store (booleans are 1-byte-packed).
+   Using replace_i32 wrote a 4-byte int32 at 4x the byte offset, so it never
+   marked the intended element (the nico2 sieve's `x[j: false]` was a no-op). */
+inline sisal_array_t sisal_array_replace_bool(sisal_array_t a, int64_t idx, bool val) {
+    size_t esz = sisal_esz(a);
+    int64_t liml = a.lower_bound[0];
+    int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;
+    int64_t limh = liml + dim0 - 1;
+    if (idx == limh + 1) {
+        sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, esz);
+        res.lower_bound[0] = a.lower_bound[0]; res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i]=a.dims[i]; res.lower_bound[i]=a.lower_bound[i]; }
+        memcpy(res.data, a.data, a.size * esz);
+        ((bool*)res.data)[a.size] = val;
+        return res;
+    } else if (idx == liml - 1) {
+        sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + 1, esz);
+        res.lower_bound[0] = a.lower_bound[0] - 1; res.dims[0] = dim0 + 1;
+        for (int i = 1; i < a.rank; i++) { res.dims[i]=a.dims[i]; res.lower_bound[i]=a.lower_bound[i]; }
+        memcpy((char*)res.data + esz, a.data, a.size * esz);
+        ((bool*)res.data)[0] = val;
+        return res;
+    } else {
+        sisal_array_t res = a;
+        res.data = malloc(a.size * esz);
+        memcpy(res.data, a.data, a.size * esz);
+        ((bool*)res.data)[idx - a.lower_bound[0]] = val;
+        return res;
+    }
+}
 inline sisal_array_t sisal_array_replace_f32(sisal_array_t a, int64_t idx, float val) {
     int64_t liml = a.lower_bound[0];
     int64_t dim0 = (a.dims[0] > 0) ? a.dims[0] : (int64_t)a.size;

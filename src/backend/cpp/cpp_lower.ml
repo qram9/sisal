@@ -1693,16 +1693,16 @@ let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
     else if is_struct_cty val_ty then ("sisal_array_replace_val", None)
     else
       match elem_cty with
-      | Some (C.Basic "int32_t") | Some (C.Basic "bool") ->
-          ("sisal_array_replace_i32", elem_cty)
+      | Some (C.Basic "bool") -> ("sisal_array_replace_bool", elem_cty) (* 1-byte *)
+      | Some (C.Basic "int32_t") -> ("sisal_array_replace_i32", elem_cty)
       | Some (C.Basic "double") -> ("sisal_array_replace_f64", elem_cty)
       | Some (C.Basic "float") -> ("sisal_array_replace_f32", elem_cty)
       | Some ty when is_struct_cty ty -> ("sisal_array_replace_val", None)
       | _ -> (
           (* element type unresolvable: fall back to the value's type *)
           match val_ty with
-          | C.Basic "int32_t" | C.Basic "bool" ->
-              ("sisal_array_replace_i32", None)
+          | C.Basic "bool" -> ("sisal_array_replace_bool", None)
+          | C.Basic "int32_t" -> ("sisal_array_replace_i32", None)
           | C.Basic "double" -> ("sisal_array_replace_f64", None)
           | _ -> ("sisal_array_replace_f32", None))
   in
