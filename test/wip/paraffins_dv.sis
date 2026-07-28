@@ -1,0 +1,44 @@
+% WIP / KNOWN-WRONG -- do NOT register as an e2e test yet.
+%
+% Reduced array_dv Paraffins: the recursive Radical union (Carbon carries an
+% array_dv[Radical] payload), the Para enumerator, and main = Para(n).  This is
+% the `main = para(n)` slice of the full Turner paraffins (test/unit/para.sis);
+% it drops Format/Quotient/Closure/Equivclass.
+%
+% STATUS: compiles to C and RUNS (past the recursive-union interning ICE that
+% blocked test/unit/para.sis from emitting C at all), but the COUNTS ARE WRONG.
+%   |Para(N)| must be A000598: 1,1,1,2,4,8,17,39
+%   actual:                    1,1,0,1,2,1,0,2
+% Diverges at Para(2) -- the first case whose sub-radical R3 comes from Para(1)
+% (a nested Carbon, not a Hydrogen).  So cross/catenate over an array_dv whose
+% ELEMENTS are deep recursive-union Carbon values drops/miscounts them.  The
+% minimal repro paraffins_hang_repro.sis (for R in Para(1) returns value of
+% catenate ...) HANGS outright.  Root: the recursive-union interning knot /
+% union-array forall+catenate at depth (see project_member_dv_wip).
+%
+% Driver: paraffins_dv_driver.cpp (checks .size against A000598).
+
+define main
+type Radical  = union[ Hydrogen: null; Carbon: array_dv[ Radical ] ]
+type Paraffin = array_dv[ Radical ]
+
+function Para( N: integer returns Paraffin )
+  if N = 0 then
+    array_dv Paraffin[ 1: union Radical[ Hydrogen: nil ] ]
+  else
+    for i in 0,(N-1)/3 cross j in i,(N-1-i)/2
+      k := N-1-i-j;
+      OneSet :=
+        for R1 in Para( i ) cross R2 in Para( j ) cross R3 in Para( k )
+          Rad := array_dv Paraffin[ 1:
+                   union Radical[ Carbon: array_dv Paraffin[ 1: R1, R2, R3 ] ] ]
+        returns value of catenate Rad
+        end for
+    returns value of catenate OneSet
+    end for
+  end if
+end function
+
+function main( n: integer returns Paraffin )
+  Para( n )
+end function
