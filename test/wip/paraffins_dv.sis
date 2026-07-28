@@ -1,4 +1,16 @@
-% WIP / KNOWN-WRONG -- do NOT register as an e2e test yet.
+% WIP / KNOWN-WRONG -- do NOT register as an e2e test.
+%
+% DECISION (2026-07): recursive types are GIVEN UP for the dense array_dv model.
+% A `Radical = union[Hydrogen: null; Carbon: array_dv[Radical]]` is a tree of
+% BOXED dope-vectors (each Carbon payload is a descriptor pointing to a separate
+% child buffer) -- i.e. ragged `array_dv[array_dv[...]]`, NOT a dense/APL/numpy
+% rectangular tensor.  The dense model only holds WITHIN one level; it does not
+% extend across the union recursion.  Reading/comparing such a value works
+% (member_dv), but CONSTRUCTING one via catenate-of-cross (this Para) forces
+% ragged sizing + shared-child-buffer copy semantics through the dense scatter/
+% catenate path -> wrong sizes + hang.  The right home for recursive types is a
+% GROWABLE APPENDED VECTOR (boxed / list-like), not array_dv -- boxed-array /
+% stream phase, not the dense-array_dv phase.  Kept here only as a witness.
 %
 % Reduced array_dv Paraffins: the recursive Radical union (Carbon carries an
 % array_dv[Radical] payload), the Para enumerator, and main = Para(n).  This is
