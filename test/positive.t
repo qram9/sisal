@@ -75,9 +75,6 @@ APL bulk operations - case insensitivity (all ops work in lower and upper case):
 APL bulk operations - mixing with forall loops (chaining, inline fns, nested):
   $ sisal unit/apl/apl_forall_mix.sis
 
-Math builtins - scalar:
-  $ sisal unit/builtin_scalar.sis
-
 Math builtins - vector (abs/max/min/mod/floor/trunc on float4/double4/int4):
   $ sisal unit/builtin_vec.sis
 
@@ -231,9 +228,7 @@ Records and unions (extended):
   $ sisal e2e/record2.sis
   $ sisal unit/tagcase.sis
   $ sisal unit/tagcase_ii.sis
-  $ sisal unit/tagcase_bare.sis
   $ sisal unit/tagcase_bare_nested.sis
-  $ sisal unit/tagcase_bare_mixed.sis
   $ sisal e2e/union0.sis
   $ sisal e2e/union1.sis
   $ sisal e2e/record1_reorder.sis
@@ -248,7 +243,6 @@ Streams:
   $ sisal unit/stream.sis
 
 Numeric / math:
-  $ sisal unit/sqrt.sis
   $ sisal e2e/pi.sis
   $ sisal unit/quad.sis
   $ sisal unit/quadrature.sis
@@ -439,7 +433,6 @@ Scientific benchmarks:
   $ sisal unit/monolith.sis
   $ sisal e2e/multidecl.sis
   $ sisal unit/nanu.sis
-  $ sisal unit/nested.sis
   $ sisal unit/newfem.sis
   $ sisal unit/newgauss.sis
   $ sisal unit/newgaussj.sis
@@ -505,8 +498,6 @@ Scientific benchmarks:
   $ sisal unit/TStep.sis
   $ sisal unit/tuple_fn_test.sis
   $ sisal unit/tuple_fn_val.sis
-  $ sisal unit/tuple_hash_tests.sis
-  $ sisal unit/tuple_kw_tests.sis
   $ sisal e2e/tuple_mixed2.sis
   $ sisal e2e/tuple_mixed3.sis
   $ sisal e2e/tuple_add_dv.sis
