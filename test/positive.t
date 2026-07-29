@@ -142,7 +142,6 @@ Sorting algorithms:
   $ sisal unit/batcher.sis
   $ sisal unit/heapsort.sis
   $ sisal unit/mesort.sis
-  $ sisal unit/modern_heapsort.sis
   $ sisal unit/quicksort.sis
   $ sisal unit/quicksort1.sis
   $ sisal unit/qs.sis
@@ -188,7 +187,6 @@ For-loop variants:
   $ sisal unit/tst_loop2.sis
   $ sisal unit/tst_loopAt.sis
   $ sisal unit/tst_loopAt1.sis
-  $ sisal unit/tst_loopAt2.sis
   $ sisal unit/tst_loopX.sis
   $ sisal unit/tst_loopX2.sis
   $ sisal unit/tst_loop_conv.sis
@@ -424,7 +422,6 @@ Scientific benchmarks:
   $ sisal unit/main.sis
   $ sisal unit/main4.sis
   $ sisal unit/mainpara5.sis
-  $ sisal unit/mashi.sis
   $ sisal unit/MdFFTFreq.sis
   $ sisal unit/MdFFTGrid.sis
   $ sisal unit/memberi.sis
