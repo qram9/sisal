@@ -393,6 +393,15 @@ extern "C" struct FUNC_TUPLE_KW_SWAP_results func_TUPLE_KW_SWAP(int32_t A, int32
 extern "C" struct FUNC_TUPLE_KW_TYPED_results func_TUPLE_KW_TYPED(int32_t A, int32_t B);
 extern "C" int32_t func_TUPLE_KW_CHAIN(int32_t A, int32_t B, int32_t C);
 #endif
+#ifdef TEST_BUILTIN_SCALAR_DV
+extern "C" int32_t func_SCALAR_ABS_INT(int32_t); extern "C" float func_SCALAR_ABS_REAL(float); extern "C" double func_SCALAR_ABS_DOUBLE(double);
+extern "C" int32_t func_SCALAR_MAX_INT(int32_t,int32_t); extern "C" float func_SCALAR_MAX_REAL(float,float);
+extern "C" int32_t func_SCALAR_MIN_INT(int32_t,int32_t); extern "C" float func_SCALAR_MIN_REAL(float,float);
+extern "C" int32_t func_SCALAR_MOD_INT(int32_t,int32_t);
+extern "C" int32_t func_SCALAR_FLOOR_REAL(float); extern "C" int64_t func_SCALAR_FLOOR_DOUBLE(double);
+extern "C" int32_t func_SCALAR_TRUNC_REAL(float); extern "C" int64_t func_SCALAR_TRUNC_DOUBLE(double);
+extern "C" float func_SCALAR_EXP_REAL(float,int32_t); extern "C" double func_SCALAR_EXP_DOUBLE(double,int32_t);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9393,6 +9402,27 @@ static void test_tuple_kw_tests_dv() {
   }
 }
 #endif
+#ifdef TEST_BUILTIN_SCALAR_DV
+// Scalar math intrinsics vs C references: abs, max, min, mod (=%), floor (->-inf),
+// trunc (->0), exp (=pow, integer exponent), across int/real/double.
+static void test_builtin_scalar_dv() {
+  printf("\n=== Group: builtin_scalar_dv (scalar math intrinsics) ===\n");
+  check("abs_int",    func_SCALAR_ABS_INT(-5)==5 && func_SCALAR_ABS_INT(7)==7);
+  check("abs_real",   std::fabs(func_SCALAR_ABS_REAL(-2.5f)-2.5f)<1e-5);
+  check("abs_double", std::fabs(func_SCALAR_ABS_DOUBLE(-3.5)-3.5)<1e-12);
+  check("max_int",    func_SCALAR_MAX_INT(3,7)==7 && func_SCALAR_MAX_INT(-2,-9)==-2);
+  check("min_int",    func_SCALAR_MIN_INT(3,7)==3 && func_SCALAR_MIN_INT(-2,-9)==-9);
+  check("max_real",   std::fabs(func_SCALAR_MAX_REAL(2.5f,1.5f)-2.5f)<1e-5);
+  check("min_real",   std::fabs(func_SCALAR_MIN_REAL(2.5f,1.5f)-1.5f)<1e-5);
+  check("mod_int",    func_SCALAR_MOD_INT(17,5)==(17%5) && func_SCALAR_MOD_INT(-17,5)==(-17%5) && func_SCALAR_MOD_INT(17,-5)==(17%-5));
+  check("floor_real", func_SCALAR_FLOOR_REAL(2.7f)==2 && func_SCALAR_FLOOR_REAL(-2.3f)==-3);
+  check("floor_double", func_SCALAR_FLOOR_DOUBLE(3.9)==3 && func_SCALAR_FLOOR_DOUBLE(-3.1)==-4);
+  check("trunc_real", func_SCALAR_TRUNC_REAL(2.7f)==2 && func_SCALAR_TRUNC_REAL(-2.7f)==-2);
+  check("trunc_double", func_SCALAR_TRUNC_DOUBLE(3.9)==3 && func_SCALAR_TRUNC_DOUBLE(-3.9)==-3);
+  check("exp_real",   std::fabs(func_SCALAR_EXP_REAL(2.0f,10)-1024.0f)<1e-2 && std::fabs(func_SCALAR_EXP_REAL(1.5f,3)-3.375f)<1e-4);
+  check("exp_double", std::fabs(func_SCALAR_EXP_DOUBLE(3.0,4)-81.0)<1e-9);
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10394,6 +10424,9 @@ main (void)
 #ifdef TEST_TUPLE_KW_TESTS_DV
   test_tuple_kw_tests_dv ();
 #endif
+#ifdef TEST_BUILTIN_SCALAR_DV
+  test_builtin_scalar_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10521,7 +10554,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
