@@ -393,6 +393,13 @@ extern "C" struct FUNC_TUPLE_KW_SWAP_results func_TUPLE_KW_SWAP(int32_t A, int32
 extern "C" struct FUNC_TUPLE_KW_TYPED_results func_TUPLE_KW_TYPED(int32_t A, int32_t B);
 extern "C" int32_t func_TUPLE_KW_CHAIN(int32_t A, int32_t B, int32_t C);
 #endif
+#ifdef TEST_CPXCONV_DV
+struct cc_rec { float REPART, IMPART; };
+struct FUNC_COMPLEXING_CT_E_PT_ZTSP_results { sisal_array_t res_0, res_1, res_2, res_3; };
+struct FUNC_DECOMPLEXING_P_ZDIFF_U_V_results { sisal_array_t res_0, res_1, res_2, res_3; };
+extern "C" struct FUNC_COMPLEXING_CT_E_PT_ZTSP_results func_COMPLEXING_CT_E_PT_ZTSP(int32_t JXMX, sisal_array_t CT, sisal_array_t E, sisal_array_t PT, sisal_array_t ZT);
+extern "C" struct FUNC_DECOMPLEXING_P_ZDIFF_U_V_results func_DECOMPLEXING_P_ZDIFF_U_V(int32_t JXMX, int32_t JXXMX, sisal_array_t P, sisal_array_t ZDIFF, sisal_array_t U, sisal_array_t V);
+#endif
 #ifdef TEST_BUILTIN_SCALAR_DV
 extern "C" int32_t func_SCALAR_ABS_INT(int32_t); extern "C" float func_SCALAR_ABS_REAL(float); extern "C" double func_SCALAR_ABS_DOUBLE(double);
 extern "C" int32_t func_SCALAR_MAX_INT(int32_t,int32_t); extern "C" float func_SCALAR_MAX_REAL(float,float);
@@ -9423,6 +9430,42 @@ static void test_builtin_scalar_dv() {
   check("exp_double", std::fabs(func_SCALAR_EXP_DOUBLE(3.0,4)-81.0)<1e-9);
 }
 #endif
+#ifdef TEST_CPXCONV_DV
+// Complex pack/unpack over array_dv of a flat record CplexReal{Repart,Impart}.
+// Complexing: reals -> records (pairs); Decomplexing: records -> reals (interleave).
+static sisal_array_t cc_mkreal(const float *v, int n) {
+  sisal_array_t a = sisal_array_alloc_empty(1, 6, n); a.lower_bound[0]=1; a.dims[0]=n;
+  for (int i = 0; i < n; i++) ((float *)a.data)[i] = v[i]; return a;
+}
+static sisal_array_t cc_mkrec(const cc_rec *v, int n) {
+  sisal_array_t a = sisal_array_alloc_sized(1, 97, n, sizeof(cc_rec)); a.lower_bound[0]=1; a.dims[0]=n;
+  for (int i = 0; i < n; i++) ((cc_rec *)a.data)[i] = v[i]; return a;
+}
+static void test_cpxconv_dv() {
+  printf("\n=== Group: cpxconv_dv (array_dv of flat record; complex pack/unpack) ===\n");
+  // Complexing jxmx=3: ct=[10..60] -> [{10,20},{30,40},{50,60}]; zt likewise.
+  float ct[]={10,20,30,40,50,60}, e[]={1,2,3,4,5,6}, pt[]={-1,-2,-3,-4,-5,-6}, zt[]={7,8,9,10,11,12};
+  struct FUNC_COMPLEXING_CT_E_PT_ZTSP_results c =
+      func_COMPLEXING_CT_E_PT_ZTSP(3, cc_mkreal(ct,6), cc_mkreal(e,6), cc_mkreal(pt,6), cc_mkreal(zt,6));
+  int cok = (int)c.res_0.size == 3;
+  for (int i = 0; cok && i < 3; i++) {
+    cc_rec r = ((cc_rec *)c.res_0.data)[i];
+    cok = std::fabs(r.REPART-ct[2*i])<1e-4 && std::fabs(r.IMPART-ct[2*i+1])<1e-4;
+  }
+  cc_rec z2 = ((cc_rec *)c.res_3.data)[2];
+  cok = cok && std::fabs(z2.REPART-zt[4])<1e-4 && std::fabs(z2.IMPART-zt[5])<1e-4;
+  check("Complexing reals->records", cok);
+  // Decomplexing jxmx=2,jxxmx=3: p=[{1,2},{3,4}]->[1,2,3,4]; u=[{7,8},{9,10},{11,12}]->[7..12]
+  cc_rec p[]={{1,2},{3,4}}, zd[]={{5,6},{7,8}}, u[]={{7,8},{9,10},{11,12}}, v[]={{20,21},{22,23},{24,25}};
+  struct FUNC_DECOMPLEXING_P_ZDIFF_U_V_results d =
+      func_DECOMPLEXING_P_ZDIFF_U_V(2, 3, cc_mkrec(p,2), cc_mkrec(zd,2), cc_mkrec(u,3), cc_mkrec(v,3));
+  float pexp[]={1,2,3,4}, uexp[]={7,8,9,10,11,12};
+  int dok = (int)d.res_0.size == 4 && (int)d.res_2.size == 6;
+  for (int i = 0; dok && i < 4; i++) dok = std::fabs(((float*)d.res_0.data)[i]-pexp[i])<1e-4;
+  for (int i = 0; dok && i < 6; i++) dok = std::fabs(((float*)d.res_2.data)[i]-uexp[i])<1e-4;
+  check("Decomplexing records->reals", dok);
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10427,6 +10470,9 @@ main (void)
 #ifdef TEST_BUILTIN_SCALAR_DV
   test_builtin_scalar_dv ();
 #endif
+#ifdef TEST_CPXCONV_DV
+  test_cpxconv_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10554,7 +10600,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
