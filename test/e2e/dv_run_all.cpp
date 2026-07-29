@@ -375,6 +375,10 @@ extern "C" struct FUNC_MAIN_results func_MAIN(int32_t n);
 extern "C" sisal_array_t func_LEGENDREPOLYOF1STKIND(int32_t IR, int32_t IRMAX2,
     int32_t JXXMX, float COAS, float SIAS, float DELTAS);
 #endif
+#ifdef TEST_INTRINSICS_TEST_DV
+struct FUNC_ALLINTRINSICS_results { sisal_array_t res_0, res_1, res_2; };
+extern "C" struct FUNC_ALLINTRINSICS_results func_ALLINTRINSICS(sisal_array_t A, sisal_array_t B, bool flag);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9314,6 +9318,34 @@ static void test_legpoly1_dv() {
   }
 }
 #endif
+#ifdef TEST_INTRINSICS_TEST_DV
+// AllIntrinsics(A,B,flag): C=A*B+(A-B)/2, D=max(A,B), E=(A==B)|flag (bool array).
+static sisal_array_t it_mkf(const float *v, int n) {
+  sisal_array_t a = sisal_array_alloc_empty(1, 6, n);
+  a.lower_bound[0] = 1; a.dims[0] = n;
+  for (int i = 0; i < n; i++) ((float *)a.data)[i] = v[i];
+  return a;
+}
+static void test_intrinsics_test_dv() {
+  printf("\n=== Group: intrinsics_test_dv (elementwise arith + select + bool array) ===\n");
+  float A[] = {1, 5, 3, 2, 9, -4}, B[] = {4, 5, 1, 8, 9, -4};
+  int n = 6;
+  for (bool flag : {false, true}) {
+    struct FUNC_ALLINTRINSICS_results r = func_ALLINTRINSICS(it_mkf(A, n), it_mkf(B, n), flag);
+    int ok = (int)r.res_0.size == n && (int)r.res_1.size == n && (int)r.res_2.size == n;
+    for (int i = 0; ok && i < n; i++) {
+      float c = A[i] * B[i] + (A[i] - B[i]) / 2.0f;
+      float d = A[i] > B[i] ? A[i] : B[i];
+      bool e = (A[i] == B[i]) || flag;
+      ok = std::fabs(((float *)r.res_0.data)[i] - c) < 1e-4f
+        && std::fabs(((float *)r.res_1.data)[i] - d) < 1e-4f
+        && (((bool *)r.res_2.data)[i] == e);
+    }
+    char tag[24]; snprintf(tag, sizeof tag, "flag=%d", flag);
+    check(tag, ok);
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10306,6 +10338,9 @@ main (void)
 #ifdef TEST_LEGPOLY1_DV
   test_legpoly1_dv ();
 #endif
+#ifdef TEST_INTRINSICS_TEST_DV
+  test_intrinsics_test_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10433,7 +10468,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
