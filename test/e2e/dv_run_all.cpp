@@ -379,6 +379,13 @@ extern "C" sisal_array_t func_LEGENDREPOLYOF1STKIND(int32_t IR, int32_t IRMAX2,
 struct FUNC_ALLINTRINSICS_results { sisal_array_t res_0, res_1, res_2; };
 extern "C" struct FUNC_ALLINTRINSICS_results func_ALLINTRINSICS(sisal_array_t A, sisal_array_t B, bool flag);
 #endif
+#ifdef TEST_TUPLE_HASH_TESTS_DV
+struct FUNC_TUPLE_SWAP_results { int32_t res_0, res_1; };
+struct FUNC_TUPLE_TYPED_results { int32_t res_0, res_1; };
+extern "C" struct FUNC_TUPLE_SWAP_results func_TUPLE_SWAP(int32_t A, int32_t B);
+extern "C" struct FUNC_TUPLE_TYPED_results func_TUPLE_TYPED(int32_t A, int32_t B);
+extern "C" int32_t func_TUPLE_SUM3(int32_t A, int32_t B, int32_t C);
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 extern "C" sisal_array_t func_MAIN(int32_t N, int32_t Steps);
 #endif
@@ -9346,6 +9353,23 @@ static void test_intrinsics_test_dv() {
   }
 }
 #endif
+#ifdef TEST_TUPLE_HASH_TESTS_DV
+// #() tuple destructuring: swap(a,b)=(b,a); typed(a,b)=(a+1,b+1);
+// sum3(a,b,c) = let #(s,d)=#(a+b,a-b) in s+c = a+b+c.
+static void test_tuple_hash_tests_dv() {
+  printf("\n=== Group: tuple_hash_tests_dv (#() tuple destructuring) ===\n");
+  int cs[][3] = {{3, 7, 2}, {10, -4, 5}, {0, 0, 0}, {-2, -8, 100}};
+  for (auto &c : cs) {
+    struct FUNC_TUPLE_SWAP_results s = func_TUPLE_SWAP(c[0], c[1]);
+    struct FUNC_TUPLE_TYPED_results t = func_TUPLE_TYPED(c[0], c[1]);
+    int u = func_TUPLE_SUM3(c[0], c[1], c[2]);
+    char tag[48]; snprintf(tag, sizeof tag, "a=%d b=%d c=%d", c[0], c[1], c[2]);
+    check(tag, s.res_0 == c[1] && s.res_1 == c[0]
+            && t.res_0 == c[0] + 1 && t.res_1 == c[1] + 1
+            && u == c[0] + c[1] + c[2]);
+  }
+}
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
 // DPS / provided-variant guard: an array-returning helper called every loop
 // iteration as the carry, each step's output depending on the WHOLE previous
@@ -10341,6 +10365,9 @@ main (void)
 #ifdef TEST_INTRINSICS_TEST_DV
   test_intrinsics_test_dv ();
 #endif
+#ifdef TEST_TUPLE_HASH_TESTS_DV
+  test_tuple_hash_tests_dv ();
+#endif
 #ifdef TEST_INTERPROC_PROVIDED_E2E
   test_interproc_provided_e2e ();
 #endif
@@ -10468,7 +10495,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
