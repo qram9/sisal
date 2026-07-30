@@ -1,0 +1,27 @@
+% array_dv OF records-holding-arrays -- the nucleic `solution = array[var]`
+% shape (var = record with array fields).  Exercises, in one program:
+%   * forall building array_dv of a record whose field is itself an array_dv
+%   * array_addh growth of that array-of-structs
+%   * `for r in arr` iterating it, reading a scalar field (r.w) AND an
+%     array-field element (r.v[2] -- the Record_array_ref rank-reduce path)
+% Rides on the fix in 62e71f6; no further compiler change needed.
+define main
+type Vec  = array_dv[integer];
+type R    = record[ w: integer; v: Vec ];
+type RArr = array_dv[R];
+
+function build(returns RArr)
+  for i in 1, 3
+  returns array_dv of record R [ w: i; v: array_dv Vec [1: i, 10*i, 100*i] ]
+  end for
+end function
+
+function main(returns integer)
+  let arr0 := build()
+  in let arr := array_addh(arr0, record R [ w: 7; v: array_dv Vec [1: 7, 70, 700] ])
+     in for r in arr
+        returns value of sum r.w + r.v[2]
+        end for       % (1+10)+(2+20)+(3+30)+(7+70) = 143
+     end let
+  end let
+end function

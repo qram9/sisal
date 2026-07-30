@@ -1,0 +1,90 @@
+% nucleic pure-math kernels: distance, atom_pos_pt, tfo_combine.
+% These are representation-neutral (scalars + 12-vec tfos), so they port
+% VERBATIM from nucleic.sis -- only the array indices shift +1 (1-based).
+% They complete the math layer the constraint builders need:
+%   pseudoknot_constraint uses atom_pos_pt (a transform given as 12 loose
+%   scalars rather than a tfo vector), and P_O3a uses tfo_combine.
+%
+% Data: nuc A's real params row (the c1_/c2_/c3_ atoms) and the rA
+% dgf_base_tfo as the `a` transform, so the numbers are the benchmark's own.
+define main
+
+type Flat   = array_dv[double];
+type OneDim = array_dv[double];
+
+% --- distance: |(x,y,z)| ---------------------------------------------------
+function distance( x, y, z: double returns double )
+  sqrt( x * x + y * y + z * z )
+end function
+
+% --- atom_pos_pt: atom i of `params` through a transform given as 12 scalars.
+% Same math as atom_pos, but the tfo arrives unpacked (that is how
+% pseudoknot_constraint calls it).  1-based params indices.
+function atom_pos_pt( params: OneDim; i: integer;
+                      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
+             returns double, double, double )
+     params[i+0] * t0 + params[i+1] * t3 + params[i+2] * t6 + t9,
+     params[i+0] * t1 + params[i+1] * t4 + params[i+2] * t7 + t10,
+     params[i+0] * t2 + params[i+1] * t5 + params[i+2] * t8 + t11
+end function
+
+% --- tfo_combine: compose the 12-vec `a` with the 12 scalars t0..t11 --------
+% (tfo2_combine is the two-transform version, already landed in
+%  nucleic_dgfbase_dv; this is the single-transform one.)  `a` is 1-based.
+function tfo_combine( a: OneDim;
+                      t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
+             returns double, double, double, double, double, double,
+                     double, double, double, double, double, double )
+   a[1]*t0 + a[2]*t3 + a[3]*t6,
+   a[1]*t1 + a[2]*t4 + a[3]*t7,
+   a[1]*t2 + a[2]*t5 + a[3]*t8,
+
+   a[4]*t0 + a[5]*t3 + a[6]*t6,
+   a[4]*t1 + a[5]*t4 + a[6]*t7,
+   a[4]*t2 + a[5]*t5 + a[6]*t8,
+
+   a[7]*t0 + a[8]*t3 + a[9]*t6,
+   a[7]*t1 + a[8]*t4 + a[9]*t7,
+   a[7]*t2 + a[8]*t5 + a[9]*t8,
+
+   a[10]*t0 + a[11]*t3 + a[12]*t6 + t9,
+   a[10]*t1 + a[11]*t4 + a[12]*t7 + t10,
+   a[10]*t2 + a[11]*t5 + a[12]*t8 + t11
+end function
+
+function main( returns double, double, double )
+  let
+    % nuc A params, the c1_ atom onward (real rA values, 1-based col 31..)
+    prm := array_dv Flat [1: 6.5400d0, 5.1200d0, -1.4190d0,     % c1_
+                             7.2763d0, 4.9681d0, -0.6297d0,     % h1_
+                             7.1940d0, 4.8830d0, -2.7770d0];    % c2_
+    % rA dgf_base_tfo as the `a` transform (real values)
+    a   := array_dv OneDim [1: -0.0018d0, -0.8207d0,  0.5714d0,
+                                0.2679d0, -0.5509d0, -0.7904d0,
+                                0.9634d0,  0.1517d0,  0.2209d0,
+                                0.0073d0,  8.4030d0,  0.6232d0];
+    % rA p_o3_275_tfo as the loose 12 scalars (real values)
+    u0 := -0.8143d0; u1 := -0.5091d0; u2  := -0.2788d0;
+    u3 := -0.0433d0; u4 := -0.4257d0; u5  :=  0.9038d0;
+    u6 := -0.5788d0; u7 :=  0.7480d0; u8  :=  0.3246d0;
+    u9 :=  1.5227d0; u10 := 6.9114d0; u11 := -7.0765d0;
+
+    % (1) distance of the c1_ atom from the origin
+    d := distance( prm[1], prm[2], prm[3] );
+
+    % (2) atom_pos_pt: atom 1 (c1_) through the loose transform
+    px, py, pz := atom_pos_pt( prm, 1, u0, u1, u2, u3, u4, u5,
+                                        u6, u7, u8, u9, u10, u11 );
+
+    % (3) tfo_combine: compose a with the loose transform, digest the 12 outputs
+    c0, c1, c2, c3, c4,  c5,
+    c6, c7, c8, c9, c10, c11 :=
+      tfo_combine( a, u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11 )
+  in
+    d,
+    px + py + pz,
+     1.d0*c0 +  2.d0*c1 +  3.d0*c2 +  4.d0*c3
+    + 5.d0*c4 +  6.d0*c5 +  7.d0*c6 +  8.d0*c7
+    + 9.d0*c8 + 10.d0*c9 + 11.d0*c10 + 12.d0*c11
+  end let
+end function

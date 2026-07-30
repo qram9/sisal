@@ -576,7 +576,7 @@ let infer_types env gr gid =
               | _ -> C.Basic "int32_t"
             in
             set_ty cur_gid nid 0 `Out ty
-        | Simple (_, sym, _, outs, _) ->
+        | Simple (_, sym, _, outs, nprags) ->
             let is_int =
               List.mem sym
                 [
@@ -665,6 +665,38 @@ let infer_types env gr gid =
                    if sn = nid && tyid <> 0 then
                      set_ty cur_gid nid sp `Out (c_type_of_if1_tyid _tm tyid))
                  g.eset);
+            (* VARIANT_CAST: a tagcase arm BINDS the payload.  When the arm never
+               uses that binding there is no out edge to infer from, and the
+               float default then collides with the real payload (bintree:
+               SISAL_CAST(float, struct_rec_N)).  Type it from the union's arm
+               instead; a BOXED arm is read through a dereference, so the bound
+               value has the POINTEE type, not the pointer. *)
+            (if sym = VARIANT_CAST then
+               let tag =
+                 List.find_map (function Name t -> Some t | _ -> None) nprags
+               in
+               let un_ty =
+                 ES.fold
+                   (fun (_, (dn, dp), t) a ->
+                     if dn = nid && dp = 0 && t <> 0 then t else a)
+                   g.eset 0
+               in
+               match tag with
+               | Some tg when un_ty <> 0 ->
+                   let un_ty =
+                     match TM.find_opt un_ty !Cpp_helpers.global_alias_map with
+                     | Some l -> l
+                     | None -> un_ty
+                   in
+                   List.iter
+                     (fun (_, nm, cty) ->
+                       if nm = tg then
+                         let v =
+                           match cty with C.Pointer (p, _) -> p | c -> c
+                         in
+                         set_ty cur_gid nid 0 `Out v)
+                     (Cpp_helpers.collect_union_tags_with_ids _tm un_ty)
+               | _ -> ());
             (* AFILL takes (lo, hi, val) -- port 0 is an int bound, NOT an array -- so it is
              array-producing (is_arr) yet must NOT have port 0 coerced to sisal_array_t. *)
             if
@@ -2277,7 +2309,33 @@ and lower_simple env gr nid sym pin pout pr =
                    "VARIANT_CAST without a tag-name pragma at gid=%d nid=%d" gid
                    nid)
         in
-        C.Member (e1, "val." ^ member)
+        (* A BOXED arm is stored as a pointer (it closes a type cycle), so the
+           payload is read through a dereference -- the ML cons-cell unpack. *)
+        let un_tyid =
+          ES.fold
+            (fun ((_, _), (dn, dp), ty) acc ->
+              if dn = nid && dp = 0 then Some ty else acc)
+            gr.eset None
+        in
+        let arm_is_boxed =
+          match un_tyid with
+          | Some ut ->
+              let tm = get_typemap_tm gr in
+              let ut =
+                match TM.find_opt ut !Cpp_helpers.global_alias_map with
+                | Some leader -> leader
+                | None -> ut
+              in
+              List.exists
+                (fun (_, nm, cty) ->
+                  nm = member
+                  && match cty with C.Pointer _ -> true | _ -> false)
+                (Cpp_helpers.collect_union_tags_with_ids tm ut)
+          | None -> false
+        in
+        if arm_is_boxed then
+          C.UnaryOp (C.Deref, C.Member (e1, "val." ^ member))
+        else C.Member (e1, "val." ^ member)
     | ERROR_NODE -> (
         match default_init_for t_res with Some e -> e | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)
@@ -2442,6 +2500,21 @@ and lower_simple env gr nid sym pin pout pr =
     | DV_CONFORM -> C.Call ("sisal_dv_conform", [ e1; e2 ])
     | DV_OFFSET_AT -> C.Call ("sisal_dv_offset_at", [ e1; e2; get_in_expr 2 ])
     | DV_RESHAPE_BY_SHAPE -> C.Call ("sisal_array_reshape_by_shape", [ e1; e2 ])
+    | DV_RESHAPE ->
+        (* reshape(A, d0..d_{r-1}): port 0 is the array, ports 1..r the dim
+           sizes.  A dope is flat, so this is a descriptor rewrite only; call
+           the rank-specialized helper (target rank = #dim ports). *)
+        let rank =
+          ES.fold
+            (fun (_, (dn, dp), _) acc -> if dn = nid then max acc dp else acc)
+            gr.eset 0
+        in
+        let dims = List.init rank (fun i -> get_in_expr (i + 1)) in
+        if rank >= 1 && rank <= 3 then
+          C.Call (Printf.sprintf "sisal_array_reshape%d" rank, e1 :: dims)
+        else
+          failwith
+            (Printf.sprintf "DV_RESHAPE: unsupported target rank %d (1..3)" rank)
     | TYPECAST -> e1
     | RELEMENTS -> (
         let fn = pin.(0) in
@@ -2502,7 +2575,26 @@ and lower_simple env gr nid sym pin pout pr =
                 | Some (sn, sp) -> get_expr env gid sn sp `Out
                 | None -> C.LitInt 0
               in
-              C.Member (recv, fn))
+              (* A BOXED field holds a pointer (it closes a type cycle): read it
+                 through a dereference, so the value semantics are unchanged. *)
+              let field_is_boxed =
+                match in_tyid with
+                | Some t ->
+                    let tm = get_typemap_tm gr in
+                    let t =
+                      match TM.find_opt t !Cpp_helpers.global_alias_map with
+                      | Some leader -> leader
+                      | None -> t
+                    in
+                    List.exists
+                      (fun (nm, cty) ->
+                        nm = fn
+                        && match cty with C.Pointer _ -> true | _ -> false)
+                      (collect_record_fields tm t)
+                | None -> false
+              in
+              if field_is_boxed then C.UnaryOp (C.Deref, C.Member (recv, fn))
+              else C.Member (recv, fn))
     | DOT | INNERPRODUCT_NODE ->
         let in_ty = get_final_ty env gid nid 0 `In in
         if in_ty = C.Basic "sisal_array_t" then
@@ -2943,10 +3035,24 @@ and lower_simple env gr nid sym pin pout pr =
                 | C.Basic nm
                   when String.length nm > 7 && String.sub nm 0 7 = "struct " ->
                     let sname = String.sub nm 7 (String.length nm - 7) in
-                    let fields = collect_record_fields tm tid in
+                    (* prefer the EMITTED layout: it is the definition these
+                       args must match (incl. which fields are boxed). *)
+                    let fields =
+                      match
+                        Hashtbl.find_opt Cpp_helpers.emitted_struct_fields sname
+                      with
+                      | Some f -> f
+                      | None -> collect_record_fields tm tid
+                    in
                     let args =
                       List.mapi
-                        (fun k (_, fty) -> C.Cast (fty, raw_in k))
+                        (fun k (_, fty) ->
+                          match fty with
+                          (* BOXED field (closes a type cycle): the struct holds
+                             a pointer, so heap-box the value instead of casting
+                             it -- the ML cons-cell. *)
+                          | C.Pointer _ -> C.Call ("sisal_box", [ raw_in k ])
+                          | _ -> C.Cast (fty, raw_in k))
                         fields
                     in
                     C.BraceInit (sname, args)
@@ -2962,7 +3068,20 @@ and lower_simple env gr nid sym pin pout pr =
                   else if Array.length pin > 0 && pin.(0) <> "" then pin.(0)
                   else "UNKNOWN_TAG"
                 in
+                (* A BOXED arm (its payload closes a type cycle) is stored as a
+                   pointer, so heap-box the payload here -- the ML cons-cell. *)
+                let arm_is_boxed =
+                  List.exists
+                    (fun (_, nm, cty) ->
+                      nm = tag_name
+                      && match cty with C.Pointer _ -> true | _ -> false)
+                    (Cpp_helpers.collect_union_tags_with_ids tm tid)
+                in
                 let val_expr = raw_in 0 in
+                let val_expr =
+                  if arm_is_boxed then C.Call ("sisal_box", [ val_expr ])
+                  else val_expr
+                in
                 C.Call
                   ( "make_union_" ^ string_of_int tid ^ "_" ^ tag_name,
                     [ val_expr ] )
@@ -3016,8 +3135,18 @@ and lower_simple env gr nid sym pin pout pr =
                 let args =
                   List.map
                     (fun (name, fty) ->
-                      if name = fn then C.Cast (fty, newv)
-                      else C.Member (recv, name))
+                      if name = fn then
+                        match fty with
+                        (* BOXED field: the struct holds a pointer, so the new
+                           value gets its own heap cell -- `{ r with f = v }`
+                           ALLOCATES, it never writes through the old pointer. *)
+                        | C.Pointer _ -> C.Call ("sisal_box", [ newv ])
+                        | _ -> C.Cast (fty, newv)
+                      else
+                        (* untouched fields are copied verbatim; for a boxed
+                           field that copies the POINTER, i.e. SHARES the
+                           substructure -- persistent path copying. *)
+                        C.Member (recv, name))
                     fields
                 in
                 C.BraceInit (sname, args)
@@ -5264,9 +5393,15 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       if sn = mnid && sp = 0 && t <> 0 then Some t else a)
                     loop_gr.eset None
                 with
-                | Some t -> (
-                    try c_type_of_if1_ty loop_tm (TM.find t loop_tm)
-                    with _ -> C.Basic "int32_t")
+                (* c_type_of_if1_tyid, NOT c_type_of_if1_ty: a record/union
+                   typemap entry is a CHAIN, and its head is `Union (0, next,
+                   "")`.  Given only the entry, the mapper sees that 0, takes
+                   the `id <= 12` scalar path and falls out at sisal_array_t --
+                   so a loop-carried union/record was declared as an array (a
+                   carried STREAM escaped this, which is why streams could be
+                   iterated in a for-initial but cons-lists could not).  Passing
+                   the ID lets it name struct union_un_<id> / struct_rec_<id>. *)
+                | Some t -> c_type_of_if1_tyid loop_tm t
                 | None -> C.Basic "int32_t"
               in
               let init_val =
@@ -6952,28 +7087,38 @@ let lower_to_c tm gr filename =
       [] procedures_info
   in
 
-  let field_record_deps clean_tm id =
+  (* Fields of a record/union chain that reference another record/union:
+     (chain-entry id, field type id).  BOXED fields are excluded from the
+     dependency edges -- a pointer needs only the forward declaration, not the
+     complete type, so a boxed edge does not constrain emission order (and is
+     precisely the edge that would otherwise make the order impossible). *)
+  let chain_fields clean_tm id =
     let rec chain lbl acc =
       match TM.find_opt lbl clean_tm with
-      | Some (Record (0, next, "")) -> chain next acc
-      | Some (Record (fty, next, _)) ->
-          let acc =
-            match TM.find_opt fty clean_tm with
-            | Some (Record _) | Some (Union _) -> fty :: acc
-            | _ -> acc
-          in
+      | Some (Record (0, next, "")) | Some (Union (0, next, "")) ->
           chain next acc
-      | Some (Union (0, next, "")) -> chain next acc
-      | Some (Union (fty, next, _)) ->
+      | Some (Record (fty, next, _)) | Some (Union (fty, next, _)) ->
           let acc =
             match TM.find_opt fty clean_tm with
-            | Some (Record _) | Some (Union _) -> fty :: acc
+            | Some (Record _) | Some (Union _) -> (lbl, fty) :: acc
             | _ -> acc
           in
           chain next acc
       | _ -> acc
     in
     chain id []
+  in
+
+  (* A type whose field graph can reach itself has no finite by-value layout, so
+     fields pointing INTO the cycle are BOXED (pointer to a heap cell) -- see
+     Cpp_helpers.type_reaches_self.  A boxed edge needs only the forward
+     declaration, so it is dropped from the emission-order dependencies (and it
+     is exactly the edge that would otherwise make the order impossible). *)
+  let field_record_deps clean_tm id =
+    List.filter_map
+      (fun (_, fty) ->
+        if Cpp_helpers.is_boxed_ty clean_tm fty then None else Some fty)
+      (chain_fields clean_tm id)
   in
 
   let rec emit_type clean_tm id (acc, s) =
@@ -6988,10 +7133,13 @@ let lower_to_c tm gr filename =
       | Some (Record _) ->
           let fields = collect_record_fields clean_tm id in
           if fields = [] then (acc, s)
-          else
+          else begin
+            Hashtbl.replace Cpp_helpers.emitted_struct_fields
+              ("struct_rec_" ^ string_of_int id) fields;
             ( acc
               @ [ C.Type (C.Struct ("struct_rec_" ^ string_of_int id, fields)) ],
               s )
+          end
       | Some (Union _) ->
           let tags = Cpp_helpers.collect_union_tags_with_ids clean_tm id in
           if tags = [] then (acc, s)
@@ -7012,6 +7160,9 @@ let lower_to_c tm gr filename =
             let union_fields =
               List.map (fun (_, name, fty) -> (name, fty)) tags
             in
+            Hashtbl.replace Cpp_helpers.emitted_struct_fields
+              ("union_un_" ^ string_of_int id)
+              union_fields;
             let struct_decl =
               C.Type
                 (C.Struct
@@ -7063,11 +7214,30 @@ let lower_to_c tm gr filename =
       clean_tm []
   in
 
+  (* Forward declarations for every record/union struct, so a BOXED field
+     (`struct union_un_N *`) is legal before its target is defined -- this is
+     what lets a cyclic type group be emitted at all. *)
+  let fwd_decls =
+    List.filter_map
+      (fun id ->
+        match TM.find_opt id clean_tm with
+        | Some (Record _) ->
+            if Cpp_helpers.collect_record_fields clean_tm id = [] then None
+            else
+              Some (C.Raw (Printf.sprintf "struct struct_rec_%d;" id))
+        | Some (Union _) ->
+            if Cpp_helpers.collect_union_tags_with_ids clean_tm id = [] then None
+            else Some (C.Raw (Printf.sprintf "struct union_un_%d;" id))
+        | _ -> None)
+      all_records
+  in
+
   let all_record_decls, _ =
     List.fold_left
       (fun st id -> emit_type clean_tm id st)
       ([], IntSet.empty) all_records
   in
+  let all_record_decls = fwd_decls @ all_record_decls in
 
   let sizeof_type_id tm tid =
     let tid =

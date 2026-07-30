@@ -1,0 +1,140 @@
+% nucleic make_t on the SoA: the reference-frame pipeline
+%   make_t = tfo_inv_ortho(tfo_align(atom_pos ×3 over ref.nuc[5]))
+% ported onto the struct-of-arrays layout.  The nuc's params ROW is recovered as
+% an `s.params[k, ..]` slice and fed to atom_pos (which keeps its original row
+% signature); tfo_align / tfo_inv_ortho / pt_phi / pt_theta are scalar-only and
+% port VERBATIM from nucleic.sis.  Data = real nuc A (rA) params, identity tfo.
+% 1-based throughout (native-0-based nucleic indices +1).  main returns a
+% position-weighted sum of the 12 frame entries; the harness replicates the
+% exact math for the o3_/c3_/c4_ atoms as reference.
+define main
+
+% sin / cos / atan2 are compiler intrinsics -- no `global` decl needed.
+
+type Flat   = array_dv[double];
+type OneDim = array_dv[double];
+type SoA    = record[ typ: OneDim; params: OneDim ];
+
+function init(returns SoA)
+  record SoA [
+    typ:    array_dv OneDim [1: 0.d0];
+    params: reshape(array_dv Flat [1:
+              2.8930d0, 8.5380d0,-3.3280d0, 1.6980d0, 7.6960d0,-3.5570d0,   %  p  o1p
+              3.2260d0, 9.5010d0,-4.4020d0, 4.1590d0, 7.6040d0,-3.0340d0,   %  o2p o5_
+              5.4550d0, 8.2120d0,-2.8810d0, 5.4546d0, 8.8508d0,-1.9978d0,   %  c5_ h5_
+              5.7588d0, 8.6625d0,-3.8259d0, 6.4970d0, 7.1480d0,-2.5980d0,   %  h5__ c4_(22)
+              7.4896d0, 7.5919d0,-2.5214d0, 6.1630d0, 6.4860d0,-1.3440d0,   %  h4_ o4_
+              6.5400d0, 5.1200d0,-1.4190d0, 7.2763d0, 4.9681d0,-0.6297d0,   %  c1_ h1_
+              7.1940d0, 4.8830d0,-2.7770d0, 6.8667d0, 3.9183d0,-3.1647d0,   %  c2_ h2__
+              8.5860d0, 5.0910d0,-2.6140d0, 8.9510d0, 4.7626d0,-1.7890d0,   %  o2_ h2_
+              6.5720d0, 6.0040d0,-3.6090d0, 5.5636d0, 5.7066d0,-3.8966d0,   %  c3_(49) h3_
+              7.3801d0, 6.3562d0,-4.7350d0, 4.7150d0, 0.4910d0,-0.1360d0,   %  o3_(55) n1
+              6.3490d0, 2.1730d0,-0.6020d0, 5.9530d0, 0.9650d0,-0.2670d0,   %  n3 c2
+              5.2900d0, 2.9790d0,-0.8260d0, 3.9720d0, 2.6390d0,-0.7330d0,   %  c4 c5
+              3.6770d0, 1.3160d0,-0.3660d0], 1, 75) ]                       %  c6
+end function
+
+% --- pure scalar kernels (verbatim from nucleic.sis) ---
+function pt_phi(x, y, z: double returns double)
+  let b := atan2(x, z)
+  in  atan2( (cos(b) * z + sin(b) * x), y )
+  end let
+end function % pt_phi
+
+function pt_theta(x, z: double returns double)
+  atan2(x, z)
+end function % pt_theta
+
+% atom_pos takes a params ROW (rank-1) + atom base i + tfo (12-vec); 1-based.
+function atom_pos(params: OneDim; i: integer; tfo: OneDim
+          returns double, double, double)
+     params[i+0] * tfo[1] + params[i+1] * tfo[4] + params[i+2] * tfo[7] + tfo[10],
+     params[i+0] * tfo[2] + params[i+1] * tfo[5] + params[i+2] * tfo[8] + tfo[11],
+     params[i+0] * tfo[3] + params[i+1] * tfo[6] + params[i+2] * tfo[9] + tfo[12]
+end function % atom_pos
+
+function tfo_align(p0, p1, p2, p3, p4, p5, p6, p7, p8: double;
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   let
+     x31 := p6 - p0;   y31 := p7 - p1;   z31 := p8 - p2;
+     rotpy0 := p3 - p0;   rotpy1 := p4 - p1;   rotpy2 := p5 - p2;
+     phi    := pt_phi(rotpy0, rotpy1, rotpy2);
+     theta  := pt_theta(rotpy0, rotpy2);
+     sinp := sin(phi);   sint := sin(theta);
+     cosp := cos(phi);   cost := cos(theta);
+     sinpsint := sinp * sint;   sinpcost := sinp * cost;
+     cospsint := cosp * sint;   cospcost := cosp * cost;
+     rotpz0 := cost * x31     - sint * z31;
+     rotpz1 := sinpsint * x31 + cosp * y31 + sinpcost * z31;
+     rotpz2 := cospsint * x31 - sinp * y31 + cospcost * z31;
+     rho  := pt_theta(rotpz0, rotpz2);
+     cosr := cos(rho);   sinr := sin(rho);
+     x := -p0 * cost     + p2 * sint;
+     y := -p0 * sinpsint - p1 * cosp - p2 * sinpcost;
+     z := -p0 * cospsint + p1 * sinp - p2 * cospcost
+   in
+     cost * cosr - cospsint * sinr,
+     sinpsint,
+     cost * sinr + cospsint * cosr,
+     sinp * sinr,
+     cosp,
+     - sinp * cosr,
+     - sint * cosr - cospcost * sinr,
+     sinpcost,
+     - sint * sinr + cospcost * cosr,
+     x * cosr - z * sinr,
+     y,
+     x * sinr + z * cosr
+   end let
+end function % tfo_align
+
+function tfo_inv_ortho(t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   t0, t3, t6,
+   t1, t4, t7,
+   t2, t5, t8,
+   -(t9 * t0 + t10 * t1 + t11 * t2),
+   -(t9 * t3 + t10 * t4 + t11 * t5),
+   -(t9 * t6 + t10 * t7 + t11 * t8)
+end function % tfo_inv_ortho
+
+% make_t's core: reference frame from the o3_/c3_/c4_ atoms of nuc k.
+% ORIGINAL:  tfo_inv_ortho(tfo_align(atom_pos(ref.nuc[5], 54/48/21, ref.tfo)))
+% SoA:       row := s.params[k, ..];  atom_pos(row, 55/49/22, tfo)   (1-based)
+function make_t(s: SoA; k: integer; tfo: OneDim
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   let
+     row := s.params[k, ..];                             % ref.nuc[5] row slice
+     % Bind each atom_pos tuple to names, then spread the names into tfo_align.
+     % The nested form tfo_align(atom_pos(..), atom_pos(..), atom_pos(..)) is
+     % NOT supported: a multi-return call cannot spread into an argument list,
+     % so this let-unpack is the required idiom (here 9 scalars -> tfo_align).
+     o0, o1, o2 := atom_pos(row, 55, tfo);               % o3_
+     c30, c31, c32 := atom_pos(row, 49, tfo);            % c3_
+     c40, c41, c42 := atom_pos(row, 22, tfo);            % c4_
+     a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 :=
+       tfo_align(o0, o1, o2, c30, c31, c32, c40, c41, c42)
+   in
+     tfo_inv_ortho(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+   end let
+end function % make_t
+
+function main(returns double)
+  let
+    s   := init();
+    tfo := array_dv OneDim [1: 1.d0, 0.d0, 0.d0,      % identity frame
+                               0.d0, 1.d0, 0.d0,
+                               0.d0, 0.d0, 1.d0,
+                               0.d0, 0.d0, 0.d0];
+    t0,  t1,  t2,  t3,  t4,  t5,
+    t6,  t7,  t8,  t9,  t10, t11 := make_t(s, 1, tfo)
+  in
+    % position-weighted sum (position-sensitive digest of the 12-entry frame)
+     1.d0*t0  +  2.d0*t1  +  3.d0*t2  +  4.d0*t3
+    + 5.d0*t4  +  6.d0*t5  +  7.d0*t6  +  8.d0*t7
+    + 9.d0*t8  + 10.d0*t9  + 11.d0*t10 + 12.d0*t11
+  end let
+end function % main

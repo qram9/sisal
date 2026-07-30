@@ -1,0 +1,54 @@
+% `r replace [f: v]` on a RECURSIVE (boxed) type -- Sisal's OCaml `{ r with f = v }`.
+% This is the one operation that must ALLOCATE rather than write: the recursive
+% field is stored as a pointer, so replacing it has to build a NEW cell, and the
+% fields left alone must copy their pointers (i.e. SHARE the substructure).
+% That is persistent "path copying": cost = the one node rebuilt, everything
+% untouched is shared, and no holder of the old value can observe the change.
+%
+% SetHead replaces the NON-boxed field  -> tail stays shared  (depth still 3)
+% SetTail replaces the BOXED    field  -> new tail           (depth 1)
+% and the ORIGINAL list must be unchanged by either (depth 3, top 3).
+define main
+type Var   = record[ label: integer; k: integer ];
+type Stack = union[ empty: null; node: record[ hd: Var; tl: Stack ] ];
+
+function Empty(returns Stack) union Stack[ empty: nil ] end function
+function Push(s: Stack; v: Var returns Stack)
+  union Stack[ node: record[ hd: v; tl: s ] ]
+end function
+function TopK(s: Stack returns integer)
+  tagcase x := s tag empty: 0 - 1 tag node: x.hd.k end tagcase
+end function
+function Depth(s: Stack returns integer)
+  tagcase x := s tag empty: 0 tag node: 1 + Depth(x.tl) end tagcase
+end function
+
+% { r with hd = v }  -- replace the NON-boxed field; tail must stay SHARED
+function SetHead(s: Stack; v: Var returns Stack)
+  tagcase x := s
+  tag empty: s
+  tag node:  union Stack[ node: x replace [ hd: v ] ]
+  end tagcase
+end function
+
+% { r with tl = t }  -- replace the BOXED (recursive) field
+function SetTail(s: Stack; t: Stack returns Stack)
+  tagcase x := s
+  tag empty: s
+  tag node:  union Stack[ node: x replace [ tl: t ] ]
+  end tagcase
+end function
+
+function main(returns integer, integer, integer, integer, integer, integer)
+  let
+    s3 := Push(Push(Push(Empty(), record Var[label:10;k:1]),
+                          record Var[label:20;k:2]),
+                          record Var[label:30;k:3]);   % [3,2,1]
+    a  := SetHead(s3, record Var[label:99;k:99]);      % new head, shared tail
+    b  := SetTail(s3, Empty())                         % new tail = empty
+  in
+    TopK(a),   Depth(a),      % 99, 3  (head changed, tail SHARED -> depth 3)
+    TopK(b),   Depth(b),      %  3, 1  (head kept, tail replaced -> depth 1)
+    TopK(s3),  Depth(s3)      %  3, 3  ORIGINAL MUST BE UNTOUCHED
+  end let
+end function

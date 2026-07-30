@@ -1,0 +1,79 @@
+% Iterating a cons-list WITHOUT recursion: a for-initial loop that CARRIES the
+% list, with `is empty` as the guard and Hd/Tl as the step -- the same shape the
+% stream sieves use (stream_first / stream_rest / stream_empty).
+%
+% This did not work before: a loop-carried union/record was declared
+% sisal_array_t, so the loop body failed on `.tag`.  A carried STREAM escaped
+% that (sisal_generator<T>), which is why streams could be iterated in a
+% for-initial but a cons-list could not -- list traversal had to be tagcase +
+% recursion, and recursion depth then bounded the list length.
+%
+% Both loops below are pre-test (`while ... repeat`) and carry the union.  With
+% no recursion anywhere, traversal is constant-stack regardless of the C
+% optimiser's tail-call handling (it survives 1e6 elements even at -O0, where
+% the recursive form overflows the stack well before that).
+define main
+
+type IList = union[ empty: null; cons: record[ hd: integer; tl: IList ] ];
+
+function Mt( returns IList )  union IList[ empty: nil ]  end function
+
+function Cons( h: integer; t: IList returns IList )
+  union IList[ cons: record[ hd: h; tl: t ] ]
+end function
+
+function Hd( l: IList returns integer )
+  tagcase x := l tag empty: 0 tag cons: x.hd end tagcase
+end function
+
+function Tl( l: IList returns IList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+% build n..1 iteratively (the carry is the LIST)
+function UptoIter( n: integer returns IList )
+  for initial
+    i   := 1;
+    acc := Mt()
+  while i <= n repeat
+    acc := Cons( old i, old acc );
+    i   := old i + 1
+  returns value of acc
+  end for
+end function
+
+% sum it iteratively -- no recursion
+function SumIter( l: IList returns integer )
+  for initial
+    cur := l;
+    acc := 0
+  while ~is empty( cur ) repeat
+    acc := old acc + Hd( old cur );
+    cur := Tl( old cur )
+  returns value of acc
+  end for
+end function
+
+% length, likewise
+function LenIter( l: IList returns integer )
+  for initial
+    cur := l;
+    n   := 0
+  while ~is empty( cur ) repeat
+    n   := old n + 1;
+    cur := Tl( old cur )
+  returns value of n
+  end for
+end function
+
+function main( returns integer, integer, integer, integer )
+  let
+    small := UptoIter( 100 );
+    big   := UptoIter( 50000 )
+  in
+    SumIter( small ),          % 5050
+    LenIter( small ),          % 100
+    SumIter( big ),            % 1250025000
+    LenIter( big )             % 50000
+  end let
+end function

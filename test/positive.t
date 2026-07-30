@@ -230,6 +230,33 @@ Records and unions (extended):
   $ sisal e2e/union0.sis
   $ sisal e2e/union1.sis
   $ sisal e2e/record1_reorder.sis
+  $ sisal e2e/rec_field_dv.sis
+  $ sisal e2e/rec_aos_dv.sis
+  $ sisal e2e/rec_soa_dv.sis
+  $ sisal e2e/reshape_dv.sis
+  $ sisal e2e/soa_init_dv.sis
+  $ sisal e2e/nucleic_soa_dv.sis
+  $ sisal e2e/nucleic_maket_dv.sis
+  $ sisal e2e/nucleic_dgfbase_dv.sis
+  $ sisal e2e/nucleic_getvar_dv.sis
+  $ sisal e2e/nucleic_search_dv.sis
+  $ sisal e2e/nucleic_kernels_dv.sis
+  $ sisal e2e/nucleic_builders_dv.sis
+  $ sisal e2e/nucleic_bases_dv.sis
+  $ sisal e2e/nucleic_dv.sis
+
+Recursive unions through array_dv (SIZABLE: the dope is a fixed-size handle, so
+size(union) = tag + max(arms) terminates -- the recursive arm never expands inline):
+  $ sisal e2e/member_dv.sis
+  $ sisal unit/sizable_dv_deep.sis
+
+Directly recursive union = the ML cons-list (tail is the list itself); the backend
+BOXES the cycle-closing field, as OCaml/Haskell represent `Cons of 'a * 'a list`:
+  $ sisal e2e/ml_list_dv.sis
+  $ sisal e2e/ml_list_replace_dv.sis
+  $ sisal e2e/bintree_dv.sis
+  $ sisal e2e/para_dearray_dv.sis
+  $ sisal e2e/list_iter_dv.sis
 
 Higher-order functions and closures:
   $ sisal unit/higher_order_fun.sis

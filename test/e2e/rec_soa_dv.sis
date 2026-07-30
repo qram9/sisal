@@ -1,0 +1,26 @@
+% Struct-of-Arrays: the nucleic `nuc` target layout.  A ragged nuc (7 rows of
+% differing length) transposes into ONE record whose fields are each a single
+% DENSE rank-2 array_dv (row-length x nucs), rectangular hence dense -- plus a
+% rank-1 field for the per-nuc typ.  Here N=2 nucs, with dgf (N x3) and params
+% (N x4) at DIFFERENT widths (each ragged row becomes its own rank-2 array).
+% Fields built by cross foralls; read via s.field[k,j] (dense multi-index on a
+% record field -- the Record_array_ref rank-reduce path, 62e71f6).
+define main
+type Row1 = array_dv[integer];
+type Row2 = array_dv[integer];
+type SoA  = record[ typ: Row1; dgf: Row2; params: Row2 ];
+
+function build(returns SoA)
+  record SoA [
+    typ:    for k in 1, 2 returns array_dv of k end for;
+    dgf:    for k in 1, 2 cross j in 1, 3 returns array_dv of 100*k + j end for;
+    params: for k in 1, 2 cross j in 1, 4 returns array_dv of 500*k + j end for ]
+end function
+
+function main(returns integer)
+  let s := build()
+  in  s.typ[1] + s.typ[2]                 % 1 + 2                 = 3
+      + s.dgf[1, 1] + s.dgf[2, 3]         % 101 + 203            = 304
+      + s.params[1, 4] + s.params[2, 1]   % 504 + 1001           = 1505
+  end let                                  % total                 = 1812
+end function

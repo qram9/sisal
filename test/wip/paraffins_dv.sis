@@ -19,6 +19,13 @@
 %
 % STATUS: compiles to C and RUNS (past the recursive-union interning ICE that
 % blocked test/unit/para.sis from emitting C at all), but the COUNTS ARE WRONG.
+%   CORRECTION (2026-07): |Para(N)| is NOT A000598.  Para builds each Carbon
+%   with a full `cross` (ordered triples), so the sequence is
+%       1,1,1,2,4,8,17,40
+%   A000598 (...,39) counts children as an unordered multiset; Turner dedups
+%   later over Paraffins (Equivclass/Quotient), not at the Radical level.
+%   The de-arrayed + cons-list rewrite in test/e2e/para_dearray_dv.sis
+%   reproduces 1,1,1,2,4,8,17,40 exactly.  Stale claim kept below for history:
 %   |Para(N)| must be A000598: 1,1,1,2,4,8,17,39
 %   actual:                    1,1,0,1,2,1,0,2
 % Diverges at Para(2) -- the first case whose sub-radical R3 comes from Para(1)

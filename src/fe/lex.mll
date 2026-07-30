@@ -12,6 +12,17 @@ let lex_error lexbuf =
 
 let include_stack : (Lexing.lexbuf * in_channel * string) list ref = ref []
 
+(* Files already pulled in by %$include, so a DIAMOND include brings a file in
+   only once -- implicit `#pragma once`.  Without this, `a.sis` and `b.sis` both
+   including `c.sis` emit c's definitions TWICE and the C++ fails to build with
+   "redefinition of ...".  (The include_stack check above only catches a CYCLE,
+   i.e. a file currently being read, not one already finished.)  Sisal includes
+   carry no macro state, so a repeat include can never mean anything but a
+   duplicate.  Keyed on the canonical path so `d/../c.sis` and `c.sis` agree. *)
+let included_files : (string, unit) Hashtbl.t = Hashtbl.create 16
+
+let canon p = try Unix.realpath p with _ -> p
+
 let return x = fun _ -> x
 let get         = Lexing.lexeme
 let getchar     = Lexing.lexeme_char
@@ -176,11 +187,15 @@ and internal_lex = parse
         if List.exists (fun (_, _, f) -> f = resolved) !include_stack then begin
           Printf.eprintf "Error: Cyclic include detected: '%s' is already being included\n" resolved;
           internal_lex lexbuf
-        end else
+        end else if Hashtbl.mem included_files (canon resolved) then
+          (* already pulled in (diamond include): skip, do not duplicate *)
+          internal_lex lexbuf
+        else
         try
           let chan = open_in resolved in
           let new_lb = Lexing.from_channel chan in
           new_lb.lex_curr_p <- { new_lb.lex_curr_p with pos_fname = resolved };
+          Hashtbl.replace included_files (canon resolved) ();
           include_stack := (new_lb, chan, resolved) :: !include_stack;
           lex_msg 5 "_include_start:";
           internal_lex new_lb

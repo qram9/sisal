@@ -1,0 +1,116 @@
+% Turner's paraffins, rewritten with the nucleic playbook.
+%
+% para.sis's own comments say what its arrays really are:
+%     Carbon: array[Radical]   "always three Radicals"
+%     Paraffin = array[Radical] "always four Radicals"
+% Those are RECORDS IN DISGUISE -- fixed arity, every index a constant -- so the
+% de-array transform turns them into records.  Both are recursive, so the
+% backend boxes the recursive fields (the bintree shape).
+%
+%     Class = array[Paraffin]   grown with array_addh, taken apart by FirstRest
+%                               (= hd/tl) and array_reml (= tail), searched
+%                               linearly by IsMember
+% That is a LIST, not an array -- so it becomes the ML cons-list.
+%
+% This file does the Radical half: the de-arrayed recursive Radical plus the
+% cons-list enumeration.
+%
+% EXPECTED COUNTS.  para.sis builds each Carbon with
+%     for R1 in Para(i) cross R2 in Para(j) cross R3 in Para(k)
+% i.e. the FULL cross product -- ordered triples.  So |Para(N)| is
+%     1, 1, 1, 2, 4, 8, 17, 40
+% NOT A000598 (1,1,1,2,4,8,17,39): A000598 counts children as an UNORDERED
+% multiset, and Turner's algorithm does not dedup at the Radical level -- it
+% dedups later, over Paraffins, via Equivclass/Quotient.  The two sequences
+% first diverge at N=7, where (i,j,k)=(0,3,3) contributes 2*2=4 ordered pairs
+% but only 3 multisets.  (The header of wip/paraffins_dv.sis claims |Para(N)|
+% must be A000598; that is the deduplicated count, not what Para computes.)
+% For reference wip/paraffins_dv.sis -- the ragged array_dv attempt -- reports
+% 1,1,0,1,2,1,0,2, which matches neither.
+define main
+
+% de-arrayed: the "always three" array is a 3-field record
+type Radical = union[ Hydrogen: null;
+                      Carbon: record[ r1, r2, r3: Radical ] ];
+
+% the growable collection is a list
+type RList = union[ empty: null;
+                    cons: record[ hd: Radical; tl: RList ] ];
+
+function H( returns Radical )      union Radical[ Hydrogen: nil ]  end function
+function Empty( returns RList )      union RList[ empty: nil ]          end function
+
+function Cons( r: Radical; t: RList returns RList )
+  union RList[ cons: record[ hd: r; tl: t ] ]
+end function
+
+function MkC( a, b, c: Radical returns Radical )
+  union Radical[ Carbon: record[ r1: a; r2: b; r3: c ] ]
+end function
+
+% append -- shares the tail, allocates only the spine it rebuilds
+function App( a, b: RList returns RList )
+  tagcase x := a
+  tag empty:  b
+  tag cons: Cons( x.hd, App( x.tl, b ) )
+  end tagcase
+end function
+
+function Len( l: RList returns integer )
+  tagcase x := l
+  tag empty: 0
+  tag cons: 1 + Len( x.tl )
+  end tagcase
+end function
+
+% the triple cross-product: every (r1,r2,r3) becomes one Carbon
+function T3( a, b: Radical; l3: RList returns RList )
+  tagcase x := l3
+  tag empty:  Empty()
+  tag cons: Cons( MkC( a, b, x.hd ), T3( a, b, x.tl ) )
+  end tagcase
+end function
+
+function T2( a: Radical; l2, l3: RList returns RList )
+  tagcase x := l2
+  tag empty:  Empty()
+  tag cons: App( T3( a, x.hd, l3 ), T2( a, x.tl, l3 ) )
+  end tagcase
+end function
+
+function T1( l1, l2, l3: RList returns RList )
+  tagcase x := l1
+  tag empty:  Empty()
+  tag cons: App( T2( x.hd, l2, l3 ), T1( x.tl, l2, l3 ) )
+  end tagcase
+end function
+
+forward function Para( n: integer returns RList )
+
+% the i / j generator loops of the original forall, as recursion over the list
+function LoopJ( n, i, j: integer returns RList )
+  if j > (n-1-i)/2 then Empty()
+  else
+    let k := n-1-i-j
+    in  App( T1( Para(i), Para(j), Para(k) ), LoopJ( n, i, j+1 ) )
+    end let
+  end if
+end function
+
+function LoopI( n, i: integer returns RList )
+  if i > (n-1)/3 then Empty()
+  else App( LoopJ( n, i, i ), LoopI( n, i+1 ) )
+  end if
+end function
+
+function Para( n: integer returns RList )
+  if n = 0 then Cons( H(), Empty() )
+  else LoopI( n, 0 )
+  end if
+end function
+
+function main( returns integer, integer, integer, integer,
+                       integer, integer, integer, integer )
+  Len(Para(0)), Len(Para(1)), Len(Para(2)), Len(Para(3)),
+  Len(Para(4)), Len(Para(5)), Len(Para(6)), Len(Para(7))
+end function

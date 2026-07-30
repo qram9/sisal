@@ -1,0 +1,71 @@
+% The ML list, written as the ML type -- a recursive union whose tail is the
+% list ITSELF (no array/handle smuggled into the source):
+%
+%   OCaml:  type 'a list = Nil | Cons of 'a * 'a list
+%   Sisal:  type Stack = union[ empty: null; node: record[ hd: Var; tl: Stack ] ]
+%
+% Such a type has no finite by-value layout, so the C backend BOXES the field
+% that closes the cycle (stores a pointer to a heap cell) -- exactly how
+% OCaml/Haskell represent a cons-cell.  The recursion stays in the type; the box
+% is only in the representation, so push/pop/walk read as ordinary values.
+%
+% This is the nucleic search-stack shape: push a candidate, walk the spine to
+% find a var by label (get_var), pop by taking the tail.
+define main
+
+type Var   = record[ label: integer; k: integer ];
+type Stack = union[ empty: null; node: record[ hd: Var; tl: Stack ] ];
+
+function Empty( returns Stack )
+  union Stack[ empty: nil ]
+end function
+
+function Push( s: Stack; v: Var returns Stack )       % Cons
+  union Stack[ node: record[ hd: v; tl: s ] ]
+end function
+
+function Pop( s: Stack returns Stack )                % tail
+  tagcase x := s
+  tag empty: s
+  tag node:  x.tl
+  end tagcase
+end function
+
+function Top( s: Stack returns integer )              % head label
+  tagcase x := s
+  tag empty: 0 - 1
+  tag node:  x.hd.label
+  end tagcase
+end function
+
+% get_var: walk the spine to the first node whose hd.label matches.
+function GetVar( s: Stack; target: integer returns Var )
+  tagcase x := s
+  tag empty: record Var[ label: 0 - 1; k: 0 - 1 ]
+  tag node:
+     if x.hd.label = target then x.hd
+     else GetVar( x.tl, target )
+     end if
+  end tagcase
+end function
+
+function Depth( s: Stack returns integer )            % spine length
+  tagcase x := s
+  tag empty: 0
+  tag node:  1 + Depth( x.tl )
+  end tagcase
+end function
+
+function main( returns integer, integer, integer, integer )
+  let
+    s1 := Push(Empty(), record Var[ label: 10; k: 1 ]);
+    s2 := Push(s1,      record Var[ label: 20; k: 2 ]);
+    s3 := Push(s2,      record Var[ label: 30; k: 3 ]);   % top = 30
+    found := GetVar(s3, 20)                               % walk past 30 -> k=2
+  in
+    found.label + 1000 * found.k,   % 20 + 2000        = 2020
+    Depth(s3),                      % 3 cons cells     = 3
+    Top(Pop(s3)),                   % pop 30 -> top 20 = 20
+    Top(Pop(Pop(Pop(s3))))          % empty -> -1      = -1
+  end let
+end function

@@ -1,0 +1,14 @@
+% NEGATIVE: the offending array_dv need not be the top of the definition.
+% Here the dv is buried two records deep inside Deep's definition, and its
+% ELEMENT (Stack) is inline-recursive hence unsizable -- so Deep is rejected.
+% This pins the guard's search for dv occurrences anywhere in the type, not just
+% at the outermost level.
+define main
+
+type Stack = union[ empty: null; node: record[ hd: integer; tl: Stack ] ];
+
+type Deep = record[ a: record[ b: array_dv[Stack]; c: integer ]; d: integer ];
+
+function main(returns integer)
+  1
+end function

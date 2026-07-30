@@ -282,6 +282,15 @@ template<> inline sisal_stream_t sisal_cast_dispatch<sisal_stream_t, double>(dou
 
 #define SISAL_CAST(T, val) sisal_cast_dispatch<T>(val)
 
+// Box a value into a heap cell.  Used for record fields / union arms whose type
+// closes a TYPE CYCLE (a recursive union such as `Stack = empty | node(hd, tl:
+// Stack)`): the struct cannot contain itself by value, so the recursive arm is
+// stored as a pointer -- exactly how OCaml/Haskell represent `Cons of 'a * 'a
+// list`.  Values are single-assignment and immutable, so a boxed cell is never
+// mutated after construction and can be shared freely.  Allocation follows the
+// same alloc-and-never-free discipline as the array runtime.
+template <class T> inline T *sisal_box(const T &v) { return new T(v); }
+
 inline int32_t sisal_dv_dimension(int32_t dim, sisal_array_t a) {
   if (dim >= 0 && dim < a.rank) return (int32_t)a.dims[dim];
   return (int32_t)a.size;
@@ -1061,6 +1070,20 @@ inline sisal_array_t sisal_array_reshape_by_shape(sisal_array_t a, sisal_array_t
     return res;
 }
 
+// reshape(A, d0, d1, ...) with the target rank statically known.  A dope
+// vector is flat, so this is a descriptor rewrite only (same data buffer, new
+// rank/dims); strides are recomputed from dims on access and lower_bound stays
+// 1 per axis (set at alloc).  Total element count is preserved by construction.
+inline sisal_array_t sisal_array_reshape1(sisal_array_t a, int32_t d0) {
+    sisal_array_t r = a; r.rank = 1; r.dims[0] = d0; return r;
+}
+inline sisal_array_t sisal_array_reshape2(sisal_array_t a, int32_t d0, int32_t d1) {
+    sisal_array_t r = a; r.rank = 2; r.dims[0] = d0; r.dims[1] = d1; return r;
+}
+inline sisal_array_t sisal_array_reshape3(sisal_array_t a, int32_t d0, int32_t d1, int32_t d2) {
+    sisal_array_t r = a; r.rank = 3; r.dims[0] = d0; r.dims[1] = d1; r.dims[2] = d2; return r;
+}
+
 inline sisal_array_t sisal_array_add(sisal_array_t a, sisal_array_t b) {
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size, sisal_esz(a));
     for (int i=0; i<a.rank; i++) res.dims[i] = a.dims[i];
@@ -1623,6 +1646,8 @@ static inline float  func__SACOS__F__F(float x)   { return acosf(x); }
 static inline double func__SACOS__D__D(double x)  { return acos(x); }
 static inline float  func__SATAN__F__F(float x)   { return atanf(x); }
 static inline double func__SATAN__D__D(double x)  { return atan(x); }
+static inline float  func__SATAN2__FF__F(float y, float x)    { return atan2f(y, x); }
+static inline double func__SATAN2__DD__D(double y, double x)  { return atan2(y, x); }
 static inline float  func__SSINH__F__F(float x)   { return sinhf(x); }
 static inline double func__SSINH__D__D(double x)  { return sinh(x); }
 static inline float  func__SCOSH__F__F(float x)   { return coshf(x); }

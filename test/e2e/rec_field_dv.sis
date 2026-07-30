@@ -1,0 +1,17 @@
+% Record holding an array_dv field.  Field-access yields the whole dope
+% vector (r.v), and subscripting that field must RANK-REDUCE to a scalar
+% (r.v[i] : double) exactly like a plain a[i].  Before the fix, the
+% Record_array_ref lowering used AELEMENT and only matched Array_ty, so an
+% array_dv field kept its full array type and never reduced.
+%
+% This is the "atom" the record-of-arrays / array-of-records path (nucleic)
+% is built on: a struct whose slot is a sisal_array_t, read + indexed.
+define main
+type Vec = array_dv[double];
+type R   = record[ v: Vec; w: double ];
+
+function main(returns double)
+  let r := record R [ v: array_dv Vec [1: 10.0d0, 20.0d0, 30.0d0]; w: 5.0d0 ]
+  in  r.v[1] + r.v[2] + r.v[3] + r.w      % 10 + 20 + 30 + 5 = 65
+  end let
+end function

@@ -492,6 +492,59 @@ let default_init_for ty =
   else if is_struct_cty ty then Some (C.Id "{}")
   else Some (C.LitInt 0)
 
+(** BOXED (pointer-stored) fields.  A record field / union arm whose type
+    participates in a TYPE CYCLE cannot be stored by value -- the struct would
+    contain itself and have no finite size ("field has incomplete type").  Such
+    a field is stored as a POINTER to a heap cell, exactly as OCaml/Haskell
+    represent [Cons of 'a * 'a list]: the recursion is in the type, the box is
+    in the representation.
+
+    [type_reaches_self tm id] — can [id]'s record/union field graph reach [id]?
+    Computed on the typemap AT HAND (ids are interned per-map, so a global table
+    keyed by id would not be portable between the emission map and a procedure's
+    map). Cheap: type graphs are tiny and the walk is memo-guarded. *)
+let type_reaches_self tm start =
+  let field_tys lbl =
+    let rec chain l acc =
+      match TM.find_opt l tm with
+      | Some (Record (0, next, "")) | Some (Union (0, next, "")) ->
+          chain next acc
+      | Some (Record (fty, next, _)) | Some (Union (fty, next, _)) ->
+          let acc =
+            match TM.find_opt fty tm with
+            | Some (Record _) | Some (Union _) -> fty :: acc
+            | _ -> acc
+          in
+          chain next acc
+      | _ -> acc
+    in
+    chain lbl []
+  in
+  let seen = Hashtbl.create 16 in
+  let rec go id =
+    if Hashtbl.mem seen id then false
+    else begin
+      Hashtbl.replace seen id ();
+      List.exists (fun fty -> fty = start || go fty) (field_tys id)
+    end
+  in
+  List.exists (fun fty -> fty = start || go fty) (field_tys start)
+
+let is_boxed_ty tm fty = type_reaches_self tm fty
+
+(** Field layout of the structs actually EMITTED, keyed by C struct name
+    ("struct_rec_99" / "union_un_102").  Construction sites consult this so the
+    arguments they build always agree with the definition -- in particular which
+    fields are boxed (pointer) -- without having to re-derive boxing from a
+    typemap whose interned ids may differ from the emission map's. *)
+let emitted_struct_fields : (string, (string * C.c_type) list) Hashtbl.t =
+  Hashtbl.create 16
+
+(** C type of a field, pointerized when the field's type closes a cycle. *)
+let field_c_type tm field_ty_id =
+  let cty = c_type_of_if1_tyid tm field_ty_id in
+  if is_boxed_ty tm field_ty_id then C.Pointer (cty, []) else cty
+
 (** [collect_record_fields tm label] — (field name, C type) list for the Record
     chain starting at [label]; chain HEADERS (Record (0, next, "")) contribute
     no field. Field order = chain order = source order = struct emission order
@@ -502,7 +555,7 @@ let rec collect_record_fields tm label =
       (* chain HEADER (Record (0, first_field, "")): no field of its own *)
       collect_record_fields tm next_label
   | Some (Record (field_ty_id, next_label, name)) ->
-      let fields = [ (name, c_type_of_if1_tyid tm field_ty_id) ] in
+      let fields = [ (name, field_c_type tm field_ty_id) ] in
       fields @ collect_record_fields tm next_label
   | _ -> []
 
@@ -525,7 +578,7 @@ let rec collect_union_tags_with_ids tm label =
   | Some (Union (0, next_label, "")) ->
       collect_union_tags_with_ids tm next_label
   | Some (Union (field_ty_id, next_label, name)) ->
-      let tags = [ (label, name, c_type_of_if1_tyid tm field_ty_id) ] in
+      let tags = [ (label, name, field_c_type tm field_ty_id) ] in
       tags @ collect_union_tags_with_ids tm next_label
   | _ -> []
 

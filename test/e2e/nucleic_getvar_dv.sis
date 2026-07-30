@@ -1,0 +1,41 @@
+% nucleic get_var / solution on array_dv-of-records.
+%   solution = array[var]  ->  array_dv[var]   (var is a NON-RECURSIVE record,
+%   hence sizable -> lives in a dope directly, like rec_aos_dv).
+%   var = record[tfo; nuc; label]; here modelled as [label; k; params] to focus
+%   on the search mechanic.  get_var backward-searches the solution for the var
+%   whose .label matches and returns that whole var.
+% New vs rec_aos_dv: array_limh(sol), sol[i] indexed to a record element
+% (sol[i].label), and `returns value of sol[i]` (return a record from a
+% for-initial while-loop).
+define main
+
+type Vec = array_dv[integer];
+type Var = record[ label: integer; k: integer; params: Vec ];
+type Solution = array_dv[Var];
+
+function build(returns Solution)
+  for i in 1, 3
+  returns array_dv of record Var [ label: 10 * i;      % labels 10, 20, 30
+                                   k:     i;            % which var (distinguisher)
+                                   params: array_dv Vec [1: 100, 200] ]
+  end for
+end function
+
+% verbatim shape of nucleic get_var: backward linear search by label
+function get_var(label: integer; sol: Solution returns Var)
+  for initial
+    i := array_limh(sol)
+  while sol[i].label ~= label repeat
+    i := old i - 1
+  returns value of sol[i]
+  end for
+end function % get_var
+
+function main(returns integer)
+  let
+    sol := build();
+    ref := get_var(20, sol)          % -> the var with label 20 (i=2)
+  in
+    ref.label + 1000 * ref.k + ref.params[1]   % 20 + 2000 + 100 = 2120
+  end let
+end function

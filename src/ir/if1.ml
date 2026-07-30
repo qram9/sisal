@@ -4848,6 +4848,11 @@ let intrinsic_lib =
            added_float_type_2_1_ids
        @ List.combine
            (List.map
+              (fun ty -> Ast.mangle_intrinsic "ATAN2" [ ty; ty ] [ ty ])
+              basic_float_list)
+           added_float_type_2_1_ids
+       @ List.combine
+           (List.map
               (fun ty -> Ast.mangle_intrinsic "ATAN" [ ty ] [ ty ])
               basic_float_list)
            added_float_type_1_1_ids

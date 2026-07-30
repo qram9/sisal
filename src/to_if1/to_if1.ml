@@ -116,6 +116,12 @@ let str_type_trace () =
   ) (List.rev !type_trace);
   Buffer.contents buf *)
 
+(* Type names whose size fold does NOT terminate: they reference themselves
+   INLINE (through a record/union/tuple field), with no array_dv/stream handle
+   on the cycle to stop the recursion.  Such a type cannot be an array_dv
+   element -- see the sizability guard in do_typedef. *)
+let unsizable_types : (string, unit) Hashtbl.t = Hashtbl.create 16
+
 let in_port_1 = [| "0"; "" |]
 let in_port_2 = [| "0"; "1" |]
 let out_port_1 = [| "1"; "" |]
@@ -6546,31 +6552,81 @@ and do_simple_exp_impl in_gr in_sim_ex =
          (like Array_ref) to handle multi-index access like rec.field[i, j]. *)
       let is_array_ty =
         match If1.lookup_ty_safe tt0 in_gr with
-        | Some (If1.Array_ty _) -> true
+        | Some (If1.Array_ty _) | Some (If1.Array_dv _) -> true
         | _ -> false
       in
       if is_array_ty then
-        let add_basic_arr_elem ((aaa, bbb, att), in_gr) arr_indx =
-          let (idxnum, idxport, tt), in_gr = do_simple_exp in_gr arr_indx in
-          let (arrnum, arrport, _), in_gr =
-            If1.add_node_2
-              (`Simple (If1.AELEMENT, [| ""; "" |], [| "" |], []))
-              in_gr
-          in
-          let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
-          let in_gr = If1.add_edge aaa bbb arrnum 0 att in_gr in
-          let inner_ty_num =
-            match If1.lookup_ty att in_gr with
-            | If1.Array_ty ij -> ij
-            | _ -> att
-          in
-          ((arrnum, arrport, inner_ty_num), in_gr)
+        (* Mirror Array_ref's lower_indices: AELEMENT for monolithic arrays,
+           DV_RANK_REDUCE (intermediate index) / DV_ELEMENT (final index) for
+           dope vectors, so rec.field[i] rank-reduces to a scalar exactly like
+           a[i].  The old path used AELEMENT unconditionally and only matched
+           Array_ty, so an array_dv field kept its full type (never reduced). *)
+        let rec red_indices ((aaa, bbb, att), in_gr) = function
+          | [] -> ((aaa, bbb, att), in_gr)
+          | arr_indx :: rest ->
+              let (idxnum, idxport, tt), in_gr = do_simple_exp in_gr arr_indx in
+              let op, next_ty =
+                match If1.lookup_ty att in_gr with
+                | If1.Array_ty ij -> (If1.AELEMENT, ij)
+                | If1.Array_dv ij ->
+                    if rest = [] then (If1.DV_ELEMENT, ij)
+                    else (If1.DV_RANK_REDUCE, att)
+                | _ -> (If1.AELEMENT, att)
+              in
+              let (arrnum, arrport, _), in_gr =
+                If1.add_node_2 (`Simple (op, [| ""; "" |], [| "" |], [])) in_gr
+              in
+              let in_gr = If1.add_edge aaa bbb arrnum 0 att in_gr in
+              let in_gr = If1.add_edge idxnum idxport arrnum 1 tt in_gr in
+              red_indices ((arrnum, arrport, next_ty), in_gr) rest
         in
         let ex_lis = match n with Ast.Exp l -> l | _ -> [] in
-        let (res_node, res_port, tt), in_gr_res =
-          List.fold_left add_basic_arr_elem ((ain, apn, tt0), in_gr) ex_lis
-        in
-        ((res_node, res_port, tt), in_gr_res)
+        let has_slice = List.exists (fun x -> x = Ast.Dotdot) ex_lis in
+        if not has_slice then red_indices ((ain, apn, tt0), in_gr) ex_lis
+        else
+          (* '..' slice on a record field.  red_indices above mirrors only the
+             non-slice lower_indices, so port the Array_ref slice branch here:
+             one DV_RANK_REDUCE with a (flag,value) port pair per subscript
+             (flag 0 = '..' keep-axis, 1 = concrete index).  Lets
+             rec.field[k, ..] row-slice directly, no local-binding needed. *)
+          let num_ports = 1 + (2 * List.length ex_lis) in
+          let (sl_n, _, _), in_gr =
+            If1.add_node_2
+              (`Simple
+                 (If1.DV_RANK_REDUCE, Array.make num_ports "", [| "" |], []))
+              in_gr
+          in
+          let in_gr = If1.add_edge ain apn sl_n 0 tt0 in_gr in
+          let rec wire_specs g idx = function
+            | [] -> g
+            | sub :: rest ->
+                let is_dotdot = sub = Ast.Dotdot in
+                let (flag_n, _, _), g =
+                  If1.add_node_2
+                    (`Literal
+                       ( If1.INTEGRAL,
+                         (if is_dotdot then "0" else "1"),
+                         [| "" |] ))
+                    g
+                in
+                let (val_n, val_p, val_ty), g =
+                  if is_dotdot then
+                    If1.add_node_2
+                      (`Literal (If1.INTEGRAL, string_of_int idx, [| "" |]))
+                      g
+                  else do_simple_exp g sub
+                in
+                let base = 1 + (2 * idx) in
+                let g =
+                  If1.add_edge flag_n 0 sl_n base
+                    (If1.lookup_tyid If1.INTEGRAL)
+                    g
+                in
+                let g = If1.add_edge val_n val_p sl_n (base + 1) val_ty g in
+                wire_specs g (idx + 1) rest
+          in
+          let in_gr = wire_specs in_gr 0 ex_lis in
+          ((sl_n, 0, tt0), in_gr)
       else
         let (aim, apm, tt1), in_gr = do_exp in_gr n in
         let elem_ty =
@@ -11835,38 +11891,66 @@ if List.length expected_ids <> List.length actual_ids then (
 
 and do_typedef in_gr = function
   | Type_def (n, t) ->
-      (* Ragged/recursive-array guard.  A type whose definition references
-         ITSELF through a DENSE array (`array`/`array_dv`) -- e.g.
-         `type Radical = union[..; Carbon: array_dv[Radical]]` -- is a ragged
-         tree of boxed dope-vectors, which the dense array_dv backend can't
-         allocate (it miscounts/hangs).  Detect it here on the AST (the interned
-         typemap loses this: union heads don't link their variants), before the
-         placeholder id is minted.  Recursion through a STREAM is allowed (that
-         IS the intended boxed representation).  Mutual recursion (A->array[B],
-         B->array[A]) is not chased here -- direct self-reference only. *)
-      let rec refs_self_via_dv in_dv (ty : Ast.sisal_type) =
+      (* SIZABILITY GUARD -- array_dv elements must have a compile-time size.
+         The size fold is: scalar = sizeof; record = sum of fields; union =
+         tag + max(arms); array_dv/stream = sizeof(HANDLE) -- a fixed-size dope
+         descriptor, which STOPS the recursion.  So:
+
+         - Recursion THROUGH an array_dv is SIZABLE, hence ALLOWED: the recursive
+           arm contributes only a handle and never expands inline.  e.g.
+           `type Radical = union[..; Carbon: array_dv[Radical]]` -- the dope IS
+           the box (member_dv/Paraffins), and `array_dv[Radical]` is fine.
+
+         - DIRECT (inline) recursion -- a record/union/tuple field of the type
+           itself, e.g. `type Stack = union[empty; node: record[hd; tl: Stack]]`
+           -- makes the size fold recurse with no base case.  Such a type is
+           UNSIZABLE, so it CANNOT be an array_dv element: `array_dv[Stack]` is
+           rejected here.  (The type itself is still accepted; representing it
+           needs the backend to box the recursive arm.) *)
+      let key m = String.uppercase_ascii m in
+      (* inline paths (record/union/tuple) expand into the size; dv/stream/array
+         are handles and stop the fold. *)
+      let rec refs_self_inline (ty : Ast.sisal_type) =
         match ty with
-        | Ast.Type_name m -> m = n && in_dv
-        (* Only array_dv (dense dope vector) recursion is the ragged case we
-           reject here.  Plain `array of` (Sisal_array) recursion is a separate,
-           pre-existing legacy matter (already unsupported at C-emit); a stream
-           IS the intended boxed representation -- neither sets in_dv. *)
-        | Ast.Compound_type (Ast.Sisal_dv e) -> refs_self_via_dv true e
-        | Ast.Compound_type (Ast.Sisal_array e | Ast.Sisal_stream e) ->
-            refs_self_via_dv false e
+        | Ast.Type_name m -> key m = key n
         | Ast.Compound_type (Ast.Sisal_record vs | Ast.Sisal_union vs) ->
-            List.exists (fun (_, e) -> refs_self_via_dv in_dv e) vs
+            List.exists (fun (_, e) -> refs_self_inline e) vs
         | Ast.Compound_type (Ast.Sisal_tuple es) ->
-            List.exists (refs_self_via_dv in_dv) es
+            List.exists refs_self_inline es
         | _ -> false
       in
-      if refs_self_via_dv false t then
+      let rec mentions_unsizable (ty : Ast.sisal_type) =
+        match ty with
+        | Ast.Type_name m -> Hashtbl.mem unsizable_types (key m)
+        | Ast.Compound_type (Ast.Sisal_record vs | Ast.Sisal_union vs) ->
+            List.exists (fun (_, e) -> mentions_unsizable e) vs
+        | Ast.Compound_type (Ast.Sisal_tuple es) ->
+            List.exists mentions_unsizable es
+        | _ -> false
+      in
+      (* Unsizable if it recurses on ITSELF inline, or embeds an already-unsizable
+         type inline (transitivity: `record[s: Stack]` is unsizable too). *)
+      if refs_self_inline t || mentions_unsizable t then
+        Hashtbl.replace unsizable_types (key n) ();
+      let rec bad_dv_elem (ty : Ast.sisal_type) =
+        match ty with
+        | Ast.Compound_type (Ast.Sisal_dv e) ->
+            mentions_unsizable e || bad_dv_elem e
+        | Ast.Compound_type (Ast.Sisal_array e | Ast.Sisal_stream e) ->
+            bad_dv_elem e
+        | Ast.Compound_type (Ast.Sisal_record vs | Ast.Sisal_union vs) ->
+            List.exists (fun (_, e) -> bad_dv_elem e) vs
+        | Ast.Compound_type (Ast.Sisal_tuple es) -> List.exists bad_dv_elem es
+        | _ -> false
+      in
+      if bad_dv_elem t then
         raise
           (If1.Sem_error
              (Printf.sprintf
-                "ragged array allocation detected and unsupported: type `%s` \
-                 is recursive through an array_dv (use a stream or a \
-                 boxed representation)"
+                "array_dv element is not sizable: type `%s` places a directly \
+                 (inline) recursive type in an array_dv, so its size fold does \
+                 not terminate (box the recursive arm, or recurse through an \
+                 array_dv/stream handle instead)"
                 n));
       (* 1. Placeholder binding *)
       let _, in_gr = If1.add_sisal_typename in_gr n (-2) in
@@ -11890,6 +11974,11 @@ and do_typedef in_gr = function
         | If1.Union (a, b, s) -> If1.Union (patch a, patch b, s)
         | If1.Function_ty (a, b, s) -> If1.Function_ty (patch a, patch b, s)
         | If1.Array_ty a -> If1.Array_ty (patch a)
+        (* Array_dv is a SEPARATE ctor from Array_ty (if1.ml:352) and was
+           missing here, so a type recursive THROUGH a dope --
+           `type Radical = union[..; Carbon: array_dv[Radical]]` -- kept a
+           dangling -2 in its typemap entry (member_dv had 26 of them). *)
+        | If1.Array_dv a -> If1.Array_dv (patch a)
         | If1.Stream a -> If1.Stream (patch a)
         | If1.Tuple_ty (a, b) -> If1.Tuple_ty (patch a, patch b)
         | If1.Field ls -> If1.Field (List.map patch ls)

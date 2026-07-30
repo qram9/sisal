@@ -1,0 +1,23 @@
+% POSITIVE counterpart to unsizable_dv_deep.sis: many levels of wrapping around a
+% type whose recursion goes THROUGH an array_dv.  The dope is a fixed-size handle,
+% so size(Radical) = tag + max(null, sizeof(handle)) terminates -- Radical is
+% sizable, and so is every wrapper around it.  Deep nesting must NOT make the
+% sizability guard reject these (it must not confuse "contains a recursive type"
+% with "has no compile-time size").
+%
+%   Radical  sizable  (cycle passes through an array_dv handle)
+%   R1..R3   sizable  (record/union wrappers of a sizable type)
+%   array_dv[R3]  -> ALLOWED
+define main
+
+type Radical = union[ Hydrogen: null; Carbon: array_dv[Radical] ];
+
+type R1 = record[ r: Radical; a: integer ];
+type R2 = union [ x: null;    y: R1 ];
+type R3 = record[ w: R2;      b: integer ];
+
+type Arr = array_dv[R3];          % sizable element -> fine
+
+function main(returns integer)
+  1
+end function

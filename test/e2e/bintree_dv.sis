@@ -1,0 +1,70 @@
+% bintree -- a DIRECTLY recursive union whose payload record has TWO recursive
+% fields (`record[L, R: BTree]`), so both are boxed.  This is the classic
+% boxed-variant shape (OCaml `type t = Leaf of int | Node of t * t`), and the
+% array_dv form of test/unit/bintree.sis.
+%
+% Main folds an array into a balanced tree, COLLAPSING a pair of equal leaves
+% into a single leaf -- so the tree shape is a real function of the data:
+%   [1,2,3,4] -> ((1 2) (3 4))   4 leaves    (all distinct, nothing collapses)
+%   [5,5]     -> 5               1 leaf      (equal pair collapses)
+%   [2,2,2,2] -> 2               1 leaf      (collapses recursively, twice)
+%   [1,1,2,2] -> (1 2)           2 leaves    (each pair collapses, 1 /= 2)
+define Main
+
+type OneDim = array_dv[ integer ];
+type BTree  = union[ Data: integer; NonData: record[ L, R: BTree ] ];
+
+function Build( A: OneDim returns BTree )
+  if array_size( A ) = 1 then
+    union BTree[ Data: A[ array_liml( A ) ] ]
+  else
+    let
+      Mid := array_liml( A ) + array_size( A ) / 2;
+      L := Build( array_adjust( A, array_liml( A ), Mid-1 ) );
+      R := Build( array_adjust( A, Mid, array_limh( A ) ) )
+    in
+      tagcase L1 := L
+      tag NonData: union BTree[ NonData: record[ L: L; R: R ] ]
+      tag Data:
+        tagcase R1 := R
+        tag NonData: union BTree[ NonData: record[ L: L; R: R ] ]
+        tag Data:
+          if L1 = R1 then L
+          else union BTree[ NonData: record[ L: L; R: R ] ]
+          end if
+        end tagcase
+      end tagcase
+    end let
+  end if
+end function
+
+% leaf count -- walks both boxed arms
+function Leaves( t: BTree returns integer )
+  tagcase x := t
+  tag Data:    1
+  tag NonData: Leaves( x.L ) + Leaves( x.R )
+  end tagcase
+end function
+
+% sum of the leaf values (checks the payloads survive the boxing)
+function LeafSum( t: BTree returns integer )
+  tagcase x := t
+  tag Data:    x
+  tag NonData: LeafSum( x.L ) + LeafSum( x.R )
+  end tagcase
+end function
+
+function Main( returns integer, integer, integer, integer, integer )
+  let
+    a := array_dv OneDim [1: 1, 2, 3, 4];
+    b := array_dv OneDim [1: 5, 5];
+    c := array_dv OneDim [1: 2, 2, 2, 2];
+    d := array_dv OneDim [1: 1, 1, 2, 2]
+  in
+    Leaves( Build(a) ),    % 4 -- nothing collapses
+    Leaves( Build(b) ),    % 1 -- the equal pair collapses
+    Leaves( Build(c) ),    % 1 -- collapses all the way up
+    Leaves( Build(d) ),    % 2 -- each pair collapses, then 1 /= 2
+    LeafSum( Build(a) )    % 1+2+3+4 = 10
+  end let
+end function

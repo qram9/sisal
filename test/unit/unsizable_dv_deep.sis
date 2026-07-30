@@ -1,0 +1,30 @@
+% NEGATIVE: unsizability propagates through MANY levels of wrapping.
+%
+% Stack recurses on itself inline (tl: Stack) with no handle on the cycle, so
+% its size fold -- union = tag + max(arms) -- never terminates.  Wrapping it in
+% record after union after record does NOT fix that: each wrapper's size is the
+% sum/max of its fields, so every level inherits the non-terminating fold.
+%
+%   Stack  unsizable  (inline self-recursion)
+%   W1     unsizable  (record containing Stack)
+%   W2     unsizable  (union arm containing W1)
+%   W3     unsizable  (record containing W2)
+%   W4     unsizable  (union arm containing W3)
+%   array_dv[W4]  -> REJECTED: no compile-time element size
+%
+% Contrast unsizable_dv_elem.sis (one level) and member_dv (recursion THROUGH an
+% array_dv, whose fixed-size dope handle stops the fold -- that IS sizable).
+define main
+
+type Stack = union[ empty: null; node: record[ hd: integer; tl: Stack ] ];
+
+type W1 = record[ s: Stack;  a: integer ];
+type W2 = union [ x: null;   y: W1 ];
+type W3 = record[ w: W2;     b: integer ];
+type W4 = union [ p: null;   q: W3 ];
+
+type Arr = array_dv[W4];
+
+function main(returns integer)
+  1
+end function

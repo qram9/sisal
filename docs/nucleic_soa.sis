@@ -1,0 +1,170 @@
+% ============================================================================
+%  nucleic  ->  Struct-of-Arrays  (illustrative rewrite of the core patterns)
+% ----------------------------------------------------------------------------
+%  This shows HOW the SoA port looks for the parts that actually touch a `nuc`.
+%  Data here is compact (2 nucs) for readability; the full, element-verified
+%  11-nuc init_A lives in  test/e2e/soa_init_dv.sis  (docs/soa_initA.sis).
+%
+%  THE LAYOUT TRANSFORM
+%  --------------------
+%    ORIGINAL (ragged AoS)                 SoA (dense rank-2 fields)
+%    type OneDim = array[double]           type NucSoA = record[
+%    type nuc    = array[OneDim]  -- 7        typ:       array_dv[double];  % (N)
+%      nuc[0] = typ     (len 1)               dgf:       array_dv[double];  % (N x 12)
+%      nuc[1] = dgf     (len 12)              p275:      array_dv[double];  % (N x 12)
+%      nuc[2] = p275    (len 12)              p180:      array_dv[double];  % (N x 12)
+%      nuc[3] = p180    (len 12)              p60:       array_dv[double];  % (N x 12)
+%      nuc[4] = p60     (len 12)              params:    array_dv[double];  % (N x 75)
+%      nuc[5] = params  (len 75)              uniontype: array_dv[double] ] % (N x 24)
+%      nuc[6] = union   (len 24)
+%    type nuc1   = array[nuc]              -- the outer array[nuc] is GONE:
+%                                            the N nucs are the rows of each field.
+%
+%  THE ACCESS REWRITES   (for nuc index k)
+%  ---------------------
+%    ref.nuc[0,0]    typ scalar      ->  s.typ[k]              (proven: [k] on rank-1)
+%    ref.nuc[5][i]   params element  ->  s.params[k, i]        (proven: [k,j] rank-reduce)
+%    ref.nuc[5]      params ROW       ->  s.params[k]           (** NEW: rank-2 -> rank-1 row slice **)
+%    ref.nuc[6]      union  ROW       ->  s.uniontype[k]        (** NEW: row slice **)
+%    n[1]            dgf    ROW       ->  s.dgf[k]              (** NEW: row slice **)
+%
+%  The "** NEW **" row-slice (one index into a rank-2 field -> a rank-1 vector
+%  that is then indexed / passed to a function) is the single capability the
+%  accessor rewrite still needs; everything else is already landed.
+% ============================================================================
+
+define main
+
+type OneDim = array_dv[double];
+type Flat   = array_dv[double];
+type NucSoA = record[ typ:    OneDim; dgf:    OneDim; p275: OneDim; p180: OneDim;
+                      p60:    OneDim; params: OneDim; uniontype: OneDim ];
+
+
+% --- init: 2 nucs (A=typ 0, C=typ 1).  Flat literal + reshape to (N x width). --
+% (real numbers, first two rows of nucleic.sis; params truncated-pattern kept
+%  full-width 75 so atom_pos indexing is realistic.)
+function init(returns NucSoA)
+  record NucSoA [
+    typ:    array_dv OneDim [1: 0.d0, 1.d0];                       % A, C
+    dgf:    reshape(array_dv Flat [1:
+              -0.0018d0,-0.8207d0, 0.5714d0, 0.2679d0,-0.5509d0,-0.7904d0,
+               0.9634d0, 0.1517d0, 0.2209d0, 0.0073d0, 8.4030d0, 0.6232d0,   % nuc A
+              -0.0359d0,-0.8071d0, 0.5894d0,-0.2669d0, 0.5761d0, 0.7726d0,
+              -0.9631d0,-0.1296d0,-0.2361d0, 0.1584d0, 8.3434d0, 0.5434d0],  % nuc C
+              2, 12);
+    p275:   reshape(array_dv Flat [1:
+              -0.8143d0,-0.5091d0,-0.2788d0,-0.0433d0,-0.4257d0, 0.9038d0,
+              -0.5788d0, 0.7480d0, 0.3246d0, 1.5227d0, 6.9114d0,-7.0765d0,
+              -0.8313d0,-0.4738d0,-0.2906d0, 0.0649d0, 0.4366d0,-0.8973d0,
+               0.5521d0,-0.7648d0,-0.3322d0, 1.6833d0, 6.8060d0,-7.0011d0], 2, 12);
+    p180:   reshape(array_dv Flat [1:
+               0.3822d0,-0.7477d0, 0.5430d0, 0.4552d0, 0.6637d0, 0.5935d0,
+              -0.8042d0, 0.0203d0, 0.5941d0,-6.9472d0,-4.1186d0,-5.9108d0,
+               0.3445d0,-0.7630d0, 0.5470d0,-0.4628d0,-0.6450d0,-0.6082d0,
+               0.8168d0,-0.0436d0,-0.5753d0,-6.8179d0,-3.9778d0,-5.9887d0], 2, 12);
+    p60:    reshape(array_dv Flat [1:
+               0.5640d0, 0.8007d0,-0.2022d0,-0.8247d0, 0.5587d0,-0.0878d0,
+               0.0426d0, 0.2162d0, 0.9754d0, 6.2694d0,-7.0540d0, 3.3316d0,
+               0.5855d0, 0.7931d0,-0.1682d0, 0.8103d0,-0.5790d0, 0.0906d0,
+              -0.0255d0,-0.1894d0,-0.9816d0, 6.1203d0,-7.1051d0, 3.1984d0], 2, 12);
+    % params: 25 atoms x (x,y,z) = 75.  atom j's coords are params[3j .. 3j+2].
+    params: reshape(array_dv Flat [1:
+              % --- nuc A params (75) ---
+               2.8930d0, 8.5380d0,-3.3280d0, 1.6980d0, 7.6960d0,-3.5570d0,
+               3.2260d0, 9.5010d0,-4.4020d0, 4.1590d0, 7.6040d0,-3.0340d0,
+               5.4550d0, 8.2120d0,-2.8810d0, 5.4546d0, 8.8508d0,-1.9978d0,
+               5.7588d0, 8.6625d0,-3.8259d0, 6.4970d0, 7.1480d0,-2.5980d0,
+               7.4896d0, 7.5919d0,-2.5214d0, 6.1630d0, 6.4860d0,-1.3440d0,
+               6.5400d0, 5.1200d0,-1.4190d0, 7.2763d0, 4.9681d0,-0.6297d0,
+               7.1940d0, 4.8830d0,-2.7770d0, 6.8667d0, 3.9183d0,-3.1647d0,
+               8.5860d0, 5.0910d0,-2.6140d0, 8.9510d0, 4.7626d0,-1.7890d0,
+               6.5720d0, 6.0040d0,-3.6090d0, 5.5636d0, 5.7066d0,-3.8966d0,
+               7.3801d0, 6.3562d0,-4.7350d0, 4.7150d0, 0.4910d0,-0.1360d0,
+               6.3490d0, 2.1730d0,-0.6020d0, 5.9530d0, 0.9650d0,-0.2670d0,
+               5.2900d0, 2.9790d0,-0.8260d0, 3.9720d0, 2.6390d0,-0.7330d0,
+               3.6770d0, 1.3160d0,-0.3660d0,
+              % --- nuc C params (75) ---
+               2.6760d0,-8.4960d0, 3.2880d0, 1.4950d0,-7.6230d0, 3.4770d0,
+               2.9490d0,-9.4640d0, 4.3740d0, 3.9730d0,-7.5950d0, 3.0340d0,
+               5.2430d0,-8.2420d0, 2.8260d0, 5.1974d0,-8.8497d0, 1.9223d0,
+               5.5548d0,-8.7348d0, 3.7469d0, 6.3140d0,-7.2060d0, 2.5510d0,
+               7.2954d0,-7.6762d0, 2.4898d0, 6.0140d0,-6.5420d0, 1.2890d0,
+               6.4190d0,-5.1840d0, 1.3620d0, 7.1608d0,-5.0495d0, 0.5747d0,
+               7.0760d0,-4.9560d0, 2.7270d0, 6.7770d0,-3.9803d0, 3.1099d0,
+               8.4500d0,-5.1930d0, 2.5810d0, 8.8309d0,-4.8755d0, 1.7590d0,
+               6.4060d0,-6.0590d0, 3.5580d0, 5.4021d0,-5.7313d0, 3.8281d0,
+               7.1570d0,-6.4240d0, 4.7070d0, 5.2170d0,-4.3260d0, 1.1690d0,
+               4.2960d0,-2.2560d0, 0.6290d0, 5.4330d0,-3.0200d0, 0.7990d0,
+               2.9930d0,-2.6780d0, 0.7940d0, 2.8670d0,-4.0630d0, 1.1830d0,
+               3.9570d0,-4.8300d0, 1.3550d0], 2, 75);
+    uniontype: reshape(array_dv Flat [1:
+              % nuc A union (24), nuc C union (24) -- shortened to zeros here
+               0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,
+               0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,
+               0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,
+               0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0,0.d0], 2, 24) ]
+end function % init
+
+
+% ----------------------------------------------------------------------------
+%  ** THE ROW SLICE (the faithful rewrite -- atom_pos keeps its ROW argument) **
+%
+%  `ref.nuc[5]` is a whole params ROW passed to atom_pos.  The SoA equivalent is
+%  a rank-2 -> rank-1 ROW SLICE, spelled with `..`:  s.params[k, ..].  This now
+%  works DIRECTLY on a record field (the `..` slice branch was added to
+%  to_if1's Record_array_ref handler, mirroring Array_ref).  atom_pos stays
+%  exactly as in the original benchmark -- it takes a row and indexes it.
+%
+%    ORIGINAL (0-based)                    SoA (1-based)
+%    atom_pos(ref.nuc[5], i, ref.tfo)      atom_pos(s.params[k, ..], i, tfo)
+%      params[i+0] ...                       params[i+0] ...   (row-slice arg)
+%
+%  NB: everything is 1-BASED.  The reshape'd dope + [k,j]/[k,..] indexing is
+%  correct 1-based (soa_init_dv, reshape_dv) but WRONG 0-based (a separate
+%  reshape lower-bound bug), so the native-0-based nucleic indices are all +1.
+% ----------------------------------------------------------------------------
+function atom_pos(params: OneDim; i: integer; tfo: OneDim   % <- ROW arg, UNCHANGED
+          returns double, double, double)
+     params[i+0] * tfo[1] + params[i+1] * tfo[4] + params[i+2] * tfo[7] + tfo[10],
+     params[i+0] * tfo[2] + params[i+1] * tfo[5] + params[i+2] * tfo[8] + tfo[11],
+     params[i+0] * tfo[3] + params[i+1] * tfo[6] + params[i+2] * tfo[9] + tfo[12]
+end function % atom_pos
+
+
+% ----------------------------------------------------------------------------
+%  dgf_base's type dispatch, SoA form.  A single `nuc` is now (s, k): the SoA
+%  struct plus the row index k.  The nuc's rows are recovered as `..` slices of
+%  the SoA fields:  s.params[k, ..] = ref.nuc[5], s.uniontype[k, ..] = nuc[6].
+%
+%    ORIGINAL                              SoA
+%    ref.nuc[0,0] = 0.d0                   s.typ[k] = 0.d0
+%    atom_pos(ref.nuc[5], 30, ref.tfo)     atom_pos(s.params[k, ..], 31, tfo)
+% ----------------------------------------------------------------------------
+function base_c1(s: NucSoA; k: integer; tfo: OneDim
+          returns double, double, double)
+   if s.typ[k] = 0.d0 then                          % type A   (ref.nuc[0,0]=0)
+        atom_pos(s.params[k, ..], 31, tfo)          % ref.nuc[5] row slice; c1_ base
+   elseif s.typ[k] = 1.d0 then                      % type C
+        atom_pos(s.params[k, ..], 31, tfo)
+   else
+        atom_pos(s.params[k, ..], 31, tfo)
+   end if
+end function % base_c1
+
+
+function main(returns double)
+  let
+    s   := init();
+    tfo := array_dv OneDim [1: 1.d0, 0.d0, 0.d0,        % identity frame (rot=I, trans=0)
+                               0.d0, 1.d0, 0.d0,        %   1-based, so atom_pos with an
+                               0.d0, 0.d0, 1.d0,        %   identity tfo returns the raw
+                               0.d0, 0.d0, 0.d0];       %   (x,y,z) coords unchanged.
+    % scalar access:  s.params[k, j]   (c1_ x-coord of nuc A + nuc C, 1-based col 31)
+    a := s.params[1, 31] + s.params[2, 31];        % 6.5400 + 6.4190 = 12.9590
+    % row-slice atom_pos through a function + typ dispatch:
+    x0, y0, z0 := base_c1(s, 1, tfo)               % nuc A c1_ coords: 6.5400, 5.1200, -1.4190
+  in
+    a + x0 + y0 + z0                                % 12.9590 + 10.2410 = 23.2000
+  end let
+end function % main

@@ -1,0 +1,13 @@
+% NEGATIVE: a directly (inline) recursive type cannot be an array_dv element.
+% Stack recurses on ITSELF through a record field (tl: Stack) with no handle on
+% the cycle, so its size fold -- union = tag + max(arms) -- never terminates.
+% array_dv needs a compile-time element size, so array_dv[Stack] is rejected.
+% (Contrast member_dv: Radical recurses THROUGH an array_dv, whose fixed-size
+% dope handle stops the fold, so array_dv[Radical] IS sizable and allowed.)
+define main
+type Var   = record[ label: integer ];
+type Stack = union[ empty: null; node: record[ hd: Var; tl: Stack ] ];
+type Arr   = array_dv[Stack];
+function main(returns integer)
+  1
+end function

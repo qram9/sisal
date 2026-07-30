@@ -1,0 +1,115 @@
+% nucleic pseudoknot_domains: the backtracking DOMAIN SEARCH, on the pieces we
+% built -- SoA data (row slice) + the ML cons-list stack + get_var look-back.
+%
+% Control structure, verbatim from nucleic (reference/wc_dumas/helix3 all share
+% it):
+%     if constraint(...) then
+%        var    := try(n, i, ...);          % candidate placement
+%        stack1 := PUSH(stack, var);        % array_addh(stack, var)
+%        stack2, solutions1 := domains(k+1, stack1, solutions);   % recurse
+%        POP(stack2), solutions1            % array_remh(stack2)
+%     else stack, solutions
+%     end if
+% With a PERSISTENT list the pop is free: the caller simply keeps its own `s`,
+% which the recursion could not have changed (single assignment).
+%
+% Constraint = the real pseudoknot_constraint shape: look back through the stack
+% for the var placed at the previous level (get_var by label), then accept only
+% if the candidate's c1_ atom is within `lim` of that one -- pt_dist over
+% coordinates read as a ROW SLICE of the SoA.
+%
+% Data: the real c1_ atom coordinates of rA and rC (nucleic params[.., 31..33]).
+%   rA c1_ = ( 6.5400,  5.1200, -1.4190)
+%   rC c1_ = ( 6.4190, -5.1840,  1.3620)   -> dist(A,A)=dist(C,C)=0, dist(A,C)~10.673
+% So with lim=4 only same-nucleotide chains survive (2 of 8); with lim=12 every
+% chain survives (8 of 8).  3 levels, 2 candidates each.
+define main
+
+type Flat   = array_dv[double];
+type OneDim = array_dv[double];
+type SoA    = record[ coords: OneDim ];             % (2 x 3) dense rank-2
+
+type Var   = record[ label: integer; kidx: integer ];
+type Stack = union[ empty: null; node: record[ hd: Var; tl: Stack ] ];
+
+function init( returns SoA )
+  record SoA [
+    coords: reshape(array_dv Flat [1: 6.5400d0,  5.1200d0, -1.4190d0,   % rA c1_
+                                      6.4190d0, -5.1840d0,  1.3620d0],  % rC c1_
+                    2, 3) ]
+end function
+
+% --- ML cons-list stack (push / walk); pop is implicit for a persistent list ---
+function Empty( returns Stack )
+  union Stack[ empty: nil ]
+end function
+
+function Push( s: Stack; v: Var returns Stack )
+  union Stack[ node: record[ hd: v; tl: s ] ]
+end function
+
+% nucleic get_var: walk the spine to the var with this label.
+function GetVar( s: Stack; target: integer returns Var )
+  tagcase x := s
+  tag empty: record Var[ label: 0 - 1; kidx: 0 - 1 ]
+  tag node:
+     if x.hd.label = target then x.hd
+     else GetVar( x.tl, target )
+     end if
+  end tagcase
+end function
+
+function pt_dist( x1, y1, z1, x2, y2, z2: double returns double )
+  sqrt( (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2) + (z1 - z2) * (z1 - z2) )
+end function
+
+% pseudoknot_constraint: level 0 is free; afterwards the candidate must sit
+% within `lim` of the var placed at the previous level (found via get_var).
+function Constraint( s: SoA; stk: Stack; k, cand: integer; lim: double
+            returns boolean )
+  if k = 0 then true
+  else
+    let
+      prev := GetVar( stk, k - 1 );
+      pr   := s.coords[prev.kidx, ..];      % row slice = that nuc's c1_
+      cr   := s.coords[cand, ..]            % row slice = candidate's c1_
+    in
+      pt_dist( pr[1], pr[2], pr[3], cr[1], cr[2], cr[3] ) <= lim
+    end let
+  end if
+end function
+
+% pseudoknot_domains: dispatch on level k; at the base case a complete stack is
+% one solution.  Each level tries both candidate nucleotides -- push, recurse,
+% and (persistently) pop by keeping our own `stk`.
+function Domains( s: SoA; stk: Stack; k, nlev: integer; lim: double
+          returns integer )
+  if k = nlev then 1                                   % complete placement
+  else
+    let
+      % candidate 1
+      n1 := if Constraint( s, stk, k, 1, lim ) then
+               Domains( s, Push( stk, record Var[ label: k; kidx: 1 ] ),
+                        k + 1, nlev, lim )
+            else 0
+            end if;
+      % candidate 2
+      n2 := if Constraint( s, stk, k, 2, lim ) then
+               Domains( s, Push( stk, record Var[ label: k; kidx: 2 ] ),
+                        k + 1, nlev, lim )
+            else 0
+            end if
+    in
+      n1 + n2
+    end let
+  end if
+end function
+
+function main( returns integer, integer )
+  let
+    s := init()
+  in
+    Domains( s, Empty(), 0, 3,  4.0d0 ),    % tight: only same-nuc chains  -> 2
+    Domains( s, Empty(), 0, 3, 12.0d0 )     % loose: every chain           -> 8
+  end let
+end function

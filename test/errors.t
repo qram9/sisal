@@ -48,14 +48,24 @@ Multi-bind arity is strict - 2 names cannot absorb 3 values (no implicit packing
   there was an error: Ir.If1.Sem_error("Definition binds 2 name(s) but its right-hand side produces 3 value(s); names and values must correspond one-to-one")
   [1]
 
-Ragged array: a type recursive through a dense array (Paraffins Radical) is unsupported by the array_dv backend:
-  $ sisal wip/paraffins_dv.sis 2>&1
-  ragged array allocation detected and unsupported: type `RADICAL` is recursive through an array_dv (use a stream or a boxed representation) near "" in file: wip/paraffins_dv.sis (line 57: char 0..0)
-  there was an error: Ir.If1.Sem_error("ragged array allocation detected and unsupported: type `RADICAL` is recursive through an array_dv (use a stream or a boxed representation)")
+Sizability: a DIRECTLY (inline) recursive type has no compile-time size, so it
+cannot be an array_dv element.  (Recursion THROUGH an array_dv is sizable -- the
+dope handle stops the size fold -- and is allowed: see member_dv in positive.t.)
+  $ sisal unit/unsizable_dv_elem.sis 2>&1
+  array_dv element is not sizable: type `ARR` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead) near "" in file: unit/unsizable_dv_elem.sis (line 14: char 0..0)
+  there was an error: Ir.If1.Sem_error("array_dv element is not sizable: type `ARR` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead)")
   [1]
 
-Ragged array: member_dv's recursive union is likewise rejected (was a positive test; boxed-phase work):
-  $ sisal e2e/member_dv.sis 2>&1
-  ragged array allocation detected and unsupported: type `RADICAL` is recursive through an array_dv (use a stream or a boxed representation) near "" in file: e2e/member_dv.sis (line 105: char 0..0)
-  there was an error: Ir.If1.Sem_error("ragged array allocation detected and unsupported: type `RADICAL` is recursive through an array_dv (use a stream or a boxed representation)")
+Unsizability propagates through MANY levels of wrapping (record/union/record/union
+around the recursive type - every wrapper inherits the non-terminating fold):
+  $ sisal unit/unsizable_dv_deep.sis 2>&1
+  array_dv element is not sizable: type `ARR` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead) near "" in file: unit/unsizable_dv_deep.sis (line 31: char 0..0)
+  there was an error: Ir.If1.Sem_error("array_dv element is not sizable: type `ARR` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead)")
   [1]
+
+The offending array_dv can be buried anywhere in the definition, not just at top:
+  $ sisal unit/unsizable_dv_buried.sis 2>&1
+  array_dv element is not sizable: type `DEEP` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead) near "" in file: unit/unsizable_dv_buried.sis (line 15: char 0..0)
+  there was an error: Ir.If1.Sem_error("array_dv element is not sizable: type `DEEP` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead)")
+  [1]
+

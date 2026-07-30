@@ -1,0 +1,17 @@
+% reshape(A, d0, d1, ...): a flat 1-D array_dv reshaped to rank-2 and rank-3,
+% then indexed by [k,j] / [i,j,k].  A dope vector is flat, so reshape is a
+% descriptor rewrite over the same buffer (DV_RESHAPE -> sisal_array_reshapeN).
+define main
+type Flat = array_dv[integer];
+type Mat  = array_dv[integer];
+
+function main(returns integer)
+  let m2 := reshape(array_dv Flat [1: 11,12,13, 21,22,23, 31,32,33], 3, 3)
+  in let m3 := reshape(array_dv Flat [1: 1,2,3,4, 5,6,7,8, 9,10,11,12,
+                                         13,14,15,16, 17,18,19,20, 21,22,23,24],
+                       2, 3, 4)
+     in  m2[1,1] + m2[2,3] + m2[3,2]      % 11 + 23 + 32 = 66  (rank-2)
+         + m3[1,1,1] + m3[2,3,4]          %  1 + 24      = 25  (rank-3)
+     end let                               % total          = 91
+  end let
+end function

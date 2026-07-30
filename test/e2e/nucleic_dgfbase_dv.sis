@@ -1,0 +1,172 @@
+% nucleic dgf_base on the SoA: the base-frame builder.
+%   dgf_base = tfo2_combine(n[1], t, tfo_inv_ortho(tfo_align(atom_pos x3)))
+% where the 3 atoms are chosen by nucleotide type (ref.nuc[0,0]) and read from
+% the params / uniontype rows.  Promotes tfo2_combine + the type dispatch to SoA.
+%   ref.nuc[0,0] -> s.typ[k]    ref.nuc[5] -> s.params[k, ..]
+%   ref.nuc[6]   -> s.uniontype[k, ..]    n[1] -> s.dgf[k, ..]  (dgf_base_tfo row)
+% Data = real nuc A (rA); identity t and ref.tfo.  1-based (nucleic idx +1).
+% main returns a position-weighted digest; harness replicates the kernels.
+define main
+
+type Flat   = array_dv[double];
+type OneDim = array_dv[double];
+type SoA    = record[ typ: OneDim; params: OneDim; uniontype: OneDim; dgf: OneDim ];
+
+function init(returns SoA)
+  record SoA [
+    typ:    array_dv OneDim [1: 0.d0];                     % type A
+    params: reshape(array_dv Flat [1:
+              2.8930d0, 8.5380d0,-3.3280d0, 1.6980d0, 7.6960d0,-3.5570d0,
+              3.2260d0, 9.5010d0,-4.4020d0, 4.1590d0, 7.6040d0,-3.0340d0,
+              5.4550d0, 8.2120d0,-2.8810d0, 5.4546d0, 8.8508d0,-1.9978d0,
+              5.7588d0, 8.6625d0,-3.8259d0, 6.4970d0, 7.1480d0,-2.5980d0,
+              7.4896d0, 7.5919d0,-2.5214d0, 6.1630d0, 6.4860d0,-1.3440d0,
+              6.5400d0, 5.1200d0,-1.4190d0, 7.2763d0, 4.9681d0,-0.6297d0,   %  c1_(31)
+              7.1940d0, 4.8830d0,-2.7770d0, 6.8667d0, 3.9183d0,-3.1647d0,
+              8.5860d0, 5.0910d0,-2.6140d0, 8.9510d0, 4.7626d0,-1.7890d0,
+              6.5720d0, 6.0040d0,-3.6090d0, 5.5636d0, 5.7066d0,-3.8966d0,
+              7.3801d0, 6.3562d0,-4.7350d0, 4.7150d0, 0.4910d0,-0.1360d0,
+              6.3490d0, 2.1730d0,-0.6020d0, 5.9530d0, 0.9650d0,-0.2670d0,
+              5.2900d0, 2.9790d0,-0.8260d0, 3.9720d0, 2.6390d0,-0.7330d0,   %  c4(67)
+              3.6770d0, 1.3160d0,-0.3660d0], 1, 75);
+    uniontype: reshape(array_dv Flat [1:
+              2.4280d0, 0.8450d0,-0.2360d0, 3.1660d0, 3.7290d0,-1.0360d0,   %  n6 n7
+              5.3170d0, 4.2990d0,-1.1930d0, 4.0100d0, 4.6780d0,-1.2990d0,   %  n9(7) c8
+              6.6890d0, 0.1903d0,-0.0518d0, 1.6470d0, 1.4460d0,-0.4040d0,   %  h2 h61
+              2.2780d0,-0.1080d0,-0.0280d0, 3.4421d0, 5.5744d0,-1.5482d0], 1, 24); % h62 h8
+    dgf:    reshape(array_dv Flat [1:
+             -0.0018d0,-0.8207d0, 0.5714d0, 0.2679d0,-0.5509d0,-0.7904d0,
+              0.9634d0, 0.1517d0, 0.2209d0, 0.0073d0, 8.4030d0, 0.6232d0], 1, 12) ]
+end function
+
+% --- pure scalar kernels (verbatim from nucleic, 1-based array indices) ---
+function pt_phi(x, y, z: double returns double)
+  let b := atan2(x, z) in atan2( (cos(b) * z + sin(b) * x), y ) end let
+end function
+
+function pt_theta(x, z: double returns double)
+  atan2(x, z)
+end function
+
+function atom_pos(params: OneDim; i: integer; tfo: OneDim
+          returns double, double, double)
+     params[i+0] * tfo[1] + params[i+1] * tfo[4] + params[i+2] * tfo[7] + tfo[10],
+     params[i+0] * tfo[2] + params[i+1] * tfo[5] + params[i+2] * tfo[8] + tfo[11],
+     params[i+0] * tfo[3] + params[i+1] * tfo[6] + params[i+2] * tfo[9] + tfo[12]
+end function
+
+function tfo_align(p0, p1, p2, p3, p4, p5, p6, p7, p8: double;
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   let
+     x31 := p6 - p0;   y31 := p7 - p1;   z31 := p8 - p2;
+     rotpy0 := p3 - p0;   rotpy1 := p4 - p1;   rotpy2 := p5 - p2;
+     phi    := pt_phi(rotpy0, rotpy1, rotpy2);
+     theta  := pt_theta(rotpy0, rotpy2);
+     sinp := sin(phi);   sint := sin(theta);
+     cosp := cos(phi);   cost := cos(theta);
+     sinpsint := sinp * sint;   sinpcost := sinp * cost;
+     cospsint := cosp * sint;   cospcost := cosp * cost;
+     rotpz0 := cost * x31     - sint * z31;
+     rotpz1 := sinpsint * x31 + cosp * y31 + sinpcost * z31;
+     rotpz2 := cospsint * x31 - sinp * y31 + cospcost * z31;
+     rho  := pt_theta(rotpz0, rotpz2);
+     cosr := cos(rho);   sinr := sin(rho);
+     x := -p0 * cost     + p2 * sint;
+     y := -p0 * sinpsint - p1 * cosp - p2 * sinpcost;
+     z := -p0 * cospsint + p1 * sinp - p2 * cospcost
+   in
+     cost * cosr - cospsint * sinr, sinpsint, cost * sinr + cospsint * cosr,
+     sinp * sinr, cosp, - sinp * cosr,
+     - sint * cosr - cospcost * sinr, sinpcost, - sint * sinr + cospcost * cosr,
+     x * cosr - z * sinr, y, x * sinr + z * cosr
+   end let
+end function
+
+function tfo_inv_ortho(t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   t0, t3, t6,  t1, t4, t7,  t2, t5, t8,
+   -(t9 * t0 + t10 * t1 + t11 * t2),
+   -(t9 * t3 + t10 * t4 + t11 * t5),
+   -(t9 * t6 + t10 * t7 + t11 * t8)
+end function
+
+% tfo2_combine: compose a . b . (t-matrix).  a,b are tfo 12-vecs (1-based),
+% t0..t11 the incoming transform scalars.  Verbatim math, indices +1.
+function tfo2_combine(a, b: OneDim; t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11: double
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   let
+     n0  := b[1]*t0 + b[2]*t3 + b[3]*t6;
+     n1  := b[1]*t1 + b[2]*t4 + b[3]*t7;
+     n2  := b[1]*t2 + b[2]*t5 + b[3]*t8;
+     n3  := b[4]*t0 + b[5]*t3 + b[6]*t6;
+     n4  := b[4]*t1 + b[5]*t4 + b[6]*t7;
+     n5  := b[4]*t2 + b[5]*t5 + b[6]*t8;
+     n6  := b[7]*t0 + b[8]*t3 + b[9]*t6;
+     n7  := b[7]*t1 + b[8]*t4 + b[9]*t7;
+     n8  := b[7]*t2 + b[8]*t5 + b[9]*t8;
+     n9  := b[10]*t0 + b[11]*t3 + b[12]*t6 + t9;
+     n10 := b[10]*t1 + b[11]*t4 + b[12]*t7 + t10;
+     n11 := b[10]*t2 + b[11]*t5 + b[12]*t8 + t11
+   in
+     a[1]*n0 + a[2]*n3 + a[3]*n6,
+     a[1]*n1 + a[2]*n4 + a[3]*n7,
+     a[1]*n2 + a[2]*n5 + a[3]*n8,
+     a[4]*n0 + a[5]*n3 + a[6]*n6,
+     a[4]*n1 + a[5]*n4 + a[6]*n7,
+     a[4]*n2 + a[5]*n5 + a[6]*n8,
+     a[7]*n0 + a[8]*n3 + a[9]*n6,
+     a[7]*n1 + a[8]*n4 + a[9]*n7,
+     a[7]*n2 + a[8]*n5 + a[9]*n8,
+     a[10]*n0 + a[11]*n3 + a[12]*n6 + n9,
+     a[10]*n1 + a[11]*n4 + a[12]*n7 + n10,
+     a[10]*n2 + a[11]*n5 + a[12]*n8 + n11
+   end let
+end function
+
+% dgf_base on the SoA: nuc = (s, kref); n = (s, kn); t and ref.tfo are 12-vecs.
+% The 3 atoms differ by type; each if-arm is a SINGLE atom_pos call (per-arm,
+% never nested spread), then the 9 bound scalars flow into tfo_align.
+function dgf_base(t: OneDim; s: SoA; kref: integer; rtfo: OneDim; kn: integer
+          returns double, double, double, double, double, double,
+                  double, double, double, double, double, double)
+   let
+     prm := s.params[kref, ..];
+     uni := s.uniontype[kref, ..];
+     dgfrow := s.dgf[kn, ..];
+     typ := s.typ[kref];
+     q0, q1, q2 := atom_pos(prm, 31, rtfo);                 % c1_ (all types)
+     r0, r1, r2 := if typ = 0.d0 then atom_pos(uni, 7, rtfo)     % A: n9
+                   elseif typ = 1.d0 then atom_pos(prm, 58, rtfo) % C: n1
+                   elseif typ = 2.d0 then atom_pos(uni, 7, rtfo)  % G: n9
+                   else atom_pos(prm, 58, rtfo)                   % U: n1
+                   end if;
+     v0, v1, v2 := if typ = 0.d0 then atom_pos(prm, 67, rtfo)     % A: c4
+                   elseif typ = 1.d0 then atom_pos(prm, 64, rtfo) % C: c2
+                   elseif typ = 2.d0 then atom_pos(prm, 67, rtfo) % G: c4
+                   else atom_pos(prm, 64, rtfo)                   % U: c2
+                   end if;
+     a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 :=
+       tfo_align(q0, q1, q2, r0, r1, r2, v0, v1, v2);
+     i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11 :=
+       tfo_inv_ortho(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+   in
+     tfo2_combine(dgfrow, t, i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11)
+   end let
+end function
+
+function main(returns double)
+  let
+    s   := init();
+    id  := array_dv OneDim [1: 1.d0, 0.d0, 0.d0,   0.d0, 1.d0, 0.d0,
+                               0.d0, 0.d0, 1.d0,   0.d0, 0.d0, 0.d0];  % identity
+    t0,  t1,  t2,  t3,  t4,  t5,
+    t6,  t7,  t8,  t9,  t10, t11 := dgf_base(id, s, 1, id, 1)
+  in
+     1.d0*t0  +  2.d0*t1  +  3.d0*t2  +  4.d0*t3
+    + 5.d0*t4  +  6.d0*t5  +  7.d0*t6  +  8.d0*t7
+    + 9.d0*t8  + 10.d0*t9  + 11.d0*t10 + 12.d0*t11
+  end let
+end function
