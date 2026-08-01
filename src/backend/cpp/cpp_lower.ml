@@ -396,6 +396,157 @@ let forall_finalvalue_ports loop_gr =
           else acc)
         ret_gr.eset []
 
+(* ---------------------------------------------------------------------------
+   emit_reduction: the (init-before-loop, per-iteration update, after-loop,
+   declared-type) for ONE reduction output.
+
+   Nothing here depends on the loop FORM -- only on the operator, the result
+   type, the accumulator and the per-iteration value -- so a FORALL and a
+   for-initial can share it.  [primary_iter] is the index argmax/argmin report
+   (they declare int32, not out_ty, because they return an INDEX), [count]/[gctr]
+   are the gather counter `catenate` appends with, and [sub_gid]/[port] only name
+   the argmax temp.
+   --------------------------------------------------------------------------- *)
+let emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast ~count ~gctr
+    ~primary_iter ~sub_gid ~port =
+  ignore value;
+  match op with
+            | (R_argmax | R_argmin) as op ->
+                (* argmax/argmin: track the best VALUE in a temp accumulator and
+                   return the Sisal INDEX (the loop iterator) of the extremum.
+                   Result type is the index (int32), accumulator is the value. *)
+                let inf =
+                  match out_ty with
+                  | C.Basic "double" -> C.Id "1e308"
+                  | C.Basic "float" -> C.Id "3.4028235e+38f"
+                  | _ -> C.Id "0x7fffffff"
+                in
+                let accn = Printf.sprintf "__argm_%d_%d" sub_gid port in
+                let accv = C.Id accn in
+                let sentinel =
+                  if op = R_argmax then C.UnaryOp (C.Negate, inf) else inf
+                in
+                let cmp = if op = R_argmax then C.Gt else C.Lt in
+                let idx =
+                  match primary_iter with Some i -> i | None -> C.LitInt 0
+                in
+                let before =
+                  [
+                    C.Decl (out_ty, accn, Some sentinel);
+                    C.Expr (C.BinOp (C.Assign, res_v, C.LitInt 0));
+                  ]
+                in
+                let update =
+                  C.If
+                    ( C.BinOp (cmp, cast, accv),
+                      [
+                        C.Expr (C.BinOp (C.Assign, accv, cast));
+                        C.Expr (C.BinOp (C.Assign, res_v, idx));
+                      ],
+                      [] )
+                in
+                ( before,
+                  [ update ],
+                  [],
+                C.Basic "int32_t" )
+            | op when out_ty = C.Basic "sisal_array_t" ->
+                if op = R_catenate then
+                  let update =
+                    C.Expr
+                      (C.BinOp
+                         ( C.Assign,
+                           res_v,
+                           C.Call
+                             ( "sisal_array_catenate_store",
+                               [
+                                 res_v;
+                                 value;
+                                 C.Cast (C.Basic "int64_t", count);
+                                 C.Id gctr;
+                                 C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
+                               ] ) ))
+                  in
+                  ( [
+                      C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
+                      C.Expr
+                        (C.BinOp
+                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                    ],
+                    [ update ],
+                    [],
+                out_ty )
+                else
+                  let opcode =
+                    match op with
+                    | R_sum -> 0
+                    | R_product -> 1
+                    | R_greatest -> 2
+                    | R_least -> 3
+                    | _ -> assert false
+                  in
+                  let update =
+                    C.Expr
+                      (C.BinOp
+                         ( C.Assign,
+                           res_v,
+                           C.Call
+                             ( "sisal_array_ereduce",
+                               [ res_v; value; C.LitInt opcode ] ) ))
+                  in
+                  ( [
+                      C.Expr
+                        (C.BinOp
+                           (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
+                    ],
+                    [ update ],
+                    [],
+                out_ty )
+            | op ->
+                let inf =
+                  match out_ty with
+                  | C.Basic "double" -> C.Id "1e308"
+                  | C.Basic "float" -> C.Id "3.4028235e+38f"
+                  | _ -> C.Id "0x7fffffff"
+                in
+                let init_val =
+                  match op with
+                  | R_product -> C.LitInt 1
+                  | R_least -> inf
+                  | R_greatest -> C.UnaryOp (C.Negate, inf)
+                  | R_sum -> C.LitInt 0
+                  | R_argmax | R_argmin | R_catenate ->
+                      assert false (* handled in the arm above *)
+                in
+                let update =
+                  match op with
+                  | R_product ->
+                      C.Expr
+                        (C.BinOp
+                           (C.Assign, res_v, C.BinOp (C.Mul, res_v, cast)))
+                  | R_least ->
+                      C.If
+                        ( C.BinOp (C.Lt, cast, res_v),
+                          [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ],
+                          [] )
+                  | R_greatest ->
+                      C.If
+                        ( C.BinOp (C.Gt, cast, res_v),
+                          [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ],
+                          [] )
+                  | R_sum ->
+                      let o =
+                        if out_ty = C.Basic "bool" then C.LogOr else C.Add
+                      in
+                      C.Expr
+                        (C.BinOp (C.Assign, res_v, C.BinOp (o, res_v, cast)))
+                  | R_argmax | R_argmin | R_catenate ->
+                      assert false (* handled in the arm above *)
+                in
+                ( [ C.Expr (C.BinOp (C.Assign, res_v, init_val)) ],
+                  [ update ],
+                  [],
+                out_ty )
+
 (* For-initial RETURNS gather.  Unlike forall_gather_ports (which keys boundary
    inputs by the __forall_body_ prefix), a for-initial RETURNS names its boundary
    inputs __ret_N (the multi-return convention).  Returns, per DV_GATHER output,
@@ -429,6 +580,47 @@ let for_initial_gather_ports ret_gr =
                 ret_gr.eset None
             in
             match bin with Some b -> (dp, b) :: acc | None -> acc)
+        | _ -> acc
+      else acc)
+    ret_gr.eset []
+
+(* For-initial RETURNS reduction -- the REDUCE companion to
+   for_initial_gather_ports.  Same convention: return (returns_out_port, op,
+   returns_boundary_in_port) so the caller resolves the boundary-in port to a
+   BODY output / MERGE carry through the loop-level edges.  (forall_reduce_ports
+   maps to a forall BODY port instead, which is the wrong space here.) *)
+let for_initial_reduce_ports ret_gr =
+  ES.fold
+    (fun ((sn, _), (dn, dp), _) acc ->
+      if dn = 0 then
+        match NM.find_opt sn ret_gr.nmap with
+        | Some (Simple (_, REDUCE, _, _, pr)) -> (
+            let op_port =
+              match port_of_role pr Pr_reduce_fn with Some p -> p | None -> 0
+            in
+            let val_port =
+              match port_of_role pr Pr_value with Some p -> p | None -> 1
+            in
+            let op =
+              ES.fold
+                (fun ((s, _), (d, p), _) a ->
+                  if d = sn && p = op_port then
+                    match NM.find_opt s ret_gr.nmap with
+                    | Some (Literal (_, CHARACTER, v, _)) ->
+                        Some (reduce_op_of_string v)
+                    | _ -> a
+                  else a)
+                ret_gr.eset None
+            in
+            let bin =
+              ES.fold
+                (fun ((s, sp), (d, p), _) a ->
+                  if d = sn && p = val_port && s = 0 then Some sp else a)
+                ret_gr.eset None
+            in
+            match (op, bin) with
+            | Some o, Some b -> (dp, o, b) :: acc
+            | _ -> acc)
         | _ -> acc
       else acc)
     ret_gr.eset []
@@ -3001,6 +3193,11 @@ and lower_simple env gr nid sym pin pout pr =
      gather's dope source) likewise: its extent operands are read structurally
      off the RETURNS graph by the gather realization, never evaluated here. *)
     | DV_GATHER | AGATHER | STREAM | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
+    (* REDUCE in a RETURNS subgraph is realized by the enclosing loop
+       (forall: the per-port fold; for-initial: reduce_pre/reduce_store),
+       so the node itself is a passthrough here -- same treatment as the
+       gather nodes above. *)
+    | REDUCE -> e1
     | RBUILD -> (
         (* Record or Union construction.
            For records: C++ aggregate init `struct_rec_N{f0, ..}`.
@@ -4433,145 +4630,14 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 C.Call ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); value ])
               in
               match reduce_op_of port with
-              | Some ((R_argmax | R_argmin) as op) ->
-                  (* argmax/argmin: track the best VALUE in a temp accumulator and
-                     return the Sisal INDEX (the loop iterator) of the extremum.
-                     Result type is the index (int32), accumulator is the value. *)
-                  let inf =
-                    match out_ty with
-                    | C.Basic "double" -> C.Id "1e308"
-                    | C.Basic "float" -> C.Id "3.4028235e+38f"
-                    | _ -> C.Id "0x7fffffff"
-                  in
-                  let accn = Printf.sprintf "__argm_%d_%d" sub_gid port in
-                  let accv = C.Id accn in
-                  let sentinel =
-                    if op = R_argmax then C.UnaryOp (C.Negate, inf) else inf
-                  in
-                  let cmp = if op = R_argmax then C.Gt else C.Lt in
-                  let idx =
-                    match primary_iter with Some i -> i | None -> C.LitInt 0
-                  in
-                  let before =
-                    [
-                      C.Decl (out_ty, accn, Some sentinel);
-                      C.Expr (C.BinOp (C.Assign, res_v, C.LitInt 0));
-                    ]
-                  in
-                  let update =
-                    C.If
-                      ( C.BinOp (cmp, cast, accv),
-                        [
-                          C.Expr (C.BinOp (C.Assign, accv, cast));
-                          C.Expr (C.BinOp (C.Assign, res_v, idx));
-                        ],
-                        [] )
-                  in
-                  ( before,
-                    [ update ],
-                    [],
-                    (res_name, C.Basic "int32_t"),
-                    (port, res_v) )
-              | Some op when out_ty = C.Basic "sisal_array_t" ->
-                  if op = R_catenate then
-                    let update =
-                      C.Expr
-                        (C.BinOp
-                           ( C.Assign,
-                             res_v,
-                             C.Call
-                               ( "sisal_array_catenate_store",
-                                 [
-                                   res_v;
-                                   value;
-                                   C.Cast (C.Basic "int64_t", count);
-                                   C.Id gctr;
-                                   C.UnaryOp (C.AddrOf, C.Id ("__g_size_" ^ res_name));
-                                 ] ) ))
-                    in
-                    ( [
-                        C.Decl (C.Basic "uint64_t", "__g_size_" ^ res_name, Some (C.LitInt 0));
-                        C.Expr
-                          (C.BinOp
-                             (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                      ],
-                      [ update ],
-                      [],
-                      (res_name, out_ty),
-                      (port, res_v) )
-                  else
-                    let opcode =
-                      match op with
-                      | R_sum -> 0
-                      | R_product -> 1
-                      | R_greatest -> 2
-                      | R_least -> 3
-                      | _ -> assert false
-                    in
-                    let update =
-                      C.Expr
-                        (C.BinOp
-                           ( C.Assign,
-                             res_v,
-                             C.Call
-                               ( "sisal_array_ereduce",
-                                 [ res_v; value; C.LitInt opcode ] ) ))
-                    in
-                    ( [
-                        C.Expr
-                          (C.BinOp
-                             (C.Assign, res_v, C.Call ("sisal_array_empty", [])));
-                      ],
-                      [ update ],
-                      [],
-                      (res_name, out_ty),
-                      (port, res_v) )
               | Some op ->
-                  let inf =
-                    match out_ty with
-                    | C.Basic "double" -> C.Id "1e308"
-                    | C.Basic "float" -> C.Id "3.4028235e+38f"
-                    | _ -> C.Id "0x7fffffff"
+                  (* the operator arms live in emit_reduction, shared with the
+                     for-initial path; only the decl/bind tail is loop-specific *)
+                  let before, update, post, decl_ty =
+                    emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast
+                      ~count ~gctr ~primary_iter ~sub_gid ~port
                   in
-                  let init_val =
-                    match op with
-                    | R_product -> C.LitInt 1
-                    | R_least -> inf
-                    | R_greatest -> C.UnaryOp (C.Negate, inf)
-                    | R_sum -> C.LitInt 0
-                    | R_argmax | R_argmin | R_catenate ->
-                        assert false (* handled in the arm above *)
-                  in
-                  let update =
-                    match op with
-                    | R_product ->
-                        C.Expr
-                          (C.BinOp
-                             (C.Assign, res_v, C.BinOp (C.Mul, res_v, cast)))
-                    | R_least ->
-                        C.If
-                          ( C.BinOp (C.Lt, cast, res_v),
-                            [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ],
-                            [] )
-                    | R_greatest ->
-                        C.If
-                          ( C.BinOp (C.Gt, cast, res_v),
-                            [ C.Expr (C.BinOp (C.Assign, res_v, cast)) ],
-                            [] )
-                    | R_sum ->
-                        let o =
-                          if out_ty = C.Basic "bool" then C.LogOr else C.Add
-                        in
-                        C.Expr
-                          (C.BinOp (C.Assign, res_v, C.BinOp (o, res_v, cast)))
-                    | R_argmax | R_argmin | R_catenate ->
-                        assert false (* handled in the arm above *)
-                  in
-                  ( [ C.Expr (C.BinOp (C.Assign, res_v, init_val)) ],
-                    [ update ],
-                    [],
-                    (res_name, out_ty),
-                    (port, res_v) )
+                  (before, update, post, (res_name, decl_ty), (port, res_v))
               | None when is_final port ->
                   (* FINALVALUE: `value of X` with no reduction operator returns the
                      LAST iteration's value.  Overwrite res_v with the body value each
@@ -5705,6 +5771,133 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     | Some x -> x
     | _ -> failwith "no RET"
   in
+  (* Which loop-level source feeds a RETURNS boundary input.  A carry must be
+     read from its MERGE, never the body temp (a carry re-derived in the body is
+     exported on several body ports sharing one inner source).  Shared by the
+     RETURNS gather fold and the RETURNS reduction fold. *)
+  let resolve_ret_src ret_bin_port =
+    let src_from_edges =
+      ES.fold
+        (fun ((s, sp), (d, p), _) a ->
+          if d = g_ret_nid && p = ret_bin_port then Some (s, sp) else a)
+        loop_gr.eset None
+    in
+    let src_opt =
+      match src_from_edges with
+      | Some _ as found -> found
+      | None ->
+          let boundary_inputs = get_boundary_inputs g_ret_gr in
+          List.find_map
+            (fun (sn, sp, _, dp) ->
+              if dp = ret_bin_port then Some (sn, sp) else None)
+            boundary_inputs
+    in
+    let src =
+      match src_opt with
+      | None -> None
+      | Some (s, sp) ->
+          if s = body_nid then
+            (* A carry must be gathered from its MERGE, never the body
+               temp (user ruling).  A carry re-derived in the body (sieve
+               `main`: T := stream_first(old S)) is exported on SEVERAL
+               body boundary ports -- one to RETURNS, another to its
+               MERGE's backedge (MERGE input port 2) -- all sharing one
+               INNER source.  Link the RETURNS body port to that MERGE by
+               inner source (not port number), then read the MERGE (output
+               port 0), is_carry -- so the seed/loop-top read the carried
+               value, not the stuck bodycap. *)
+            let inner_src_of p =
+              ES.fold
+                (fun ((isn, isp), (dn, dp), _) a ->
+                  if dn = 0 && dp = p then Some (isn, isp) else a)
+                body_gr.eset None
+            in
+            let tgt_inner = inner_src_of sp in
+            let via_merge =
+              if tgt_inner = None then None
+              else
+                ES.fold
+                  (fun ((bs, bsp), (bd, bp), _) acc ->
+                    if
+                      bs = body_nid && bp = 2
+                      && inner_src_of bsp = tgt_inner
+                    then
+                      match NM.find_opt bd loop_gr.nmap with
+                      | Some (Simple (_, MERGE, _, _, _)) -> Some bd
+                      | _ -> acc
+                    else acc)
+                  loop_gr.eset None
+            in
+            (match via_merge with
+            | Some merge_nid -> Some (merge_nid, 0, true)
+            | None -> Some (s, sp, false))
+          else
+            match NM.find_opt s loop_gr.nmap with
+            | Some (Simple (_, MERGE, _, _, _)) -> Some (s, sp, true)
+            | _ -> Some (s, sp, false)
+    in
+    src
+  in
+
+  (* ---- for-initial REDUCTION (`returns value of sum/product/least/greatest/..`).
+     Same three pieces the gather uses -- init before the loop, update per
+     iteration, read after -- but accumulating a scalar instead of filling an
+     array.  The per-operator statements come from emit_reduction, shared with
+     the FORALL path, so both loop forms fold identically.  argmax/argmin need a
+     loop index to report and catenate needs a gather counter; neither is wired
+     for a sequential loop yet, so they fail loudly rather than miscompile. *)
+  let reduce_pre, reduce_store, reduce_binds =
+    List.fold_left
+      (fun (pre, store, binds) (ret_out_port, op, ret_bin_port) ->
+        match resolve_ret_src ret_bin_port with
+        | None -> (pre, store, binds)
+        | Some (src_n, bp, is_carry) -> (
+            match
+              FullPortMap.find_opt (sub_gid, src_n, bp, `Out) env_loop.var_map
+            with
+            | None -> (pre, store, binds)
+            | Some value ->
+                (match op with
+                 | R_argmax | R_argmin | R_catenate ->
+                     failwith
+                       (Printf.sprintf
+                          "for-initial reduction: %s is not supported in a \
+                           sequential loop yet (gid=%d port=%d)"
+                          (match op with
+                           | R_argmax -> "argmax" | R_argmin -> "argmin"
+                           | _ -> "catenate")
+                          gid ret_out_port)
+                 | _ -> ());
+                let res_name =
+                  get_c_name env.proc_map env.gid_name_map gid nid ret_out_port
+                    `Out gr
+                in
+                let res_v = C.Id res_name in
+                let out_ty = get_final_ty env gid nid ret_out_port `Out in
+                let cast =
+                  C.Call
+                    ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); value ])
+                in
+                let before, update, _post, _decl_ty =
+                  emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast
+                    ~count:(C.LitInt 0) ~gctr:"" ~primary_iter:None ~sub_gid
+                    ~port:ret_out_port
+                in
+                (* A CARRY's history starts with its SEED (body_0 in the 1.2
+                   model): the gather stores it once in the preheader and then
+                   once per iteration, so the fold must fold it in the same way.
+                   Before the loop the MERGE variable still holds the INIT value,
+                   so replaying the update there contributes exactly the seed. *)
+                let seed_fold = if is_carry then update else [] in
+                ( pre @ before @ seed_fold,
+                  store @ update,
+                  binds @ [ (ret_out_port, res_v) ] )
+            ))
+      ([], [], [])
+      (for_initial_reduce_ports g_ret_gr)
+  in
+
+
   let gather_pre, gather_store, gather_top, gather_post, gather_binds =
     List.fold_left
       (fun (pre, store, top, post, binds) (ret_out_port, ret_bin_port) ->
@@ -5712,66 +5905,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
            out port (body temporary — sequence starts at body_1) or, per the
            1.2 history model, a MERGE (carry — the seed is body_0 of the
            sequence; to_if1 wires carry returns through the MERGE mux). *)
-        let src_from_edges =
-          ES.fold
-            (fun ((s, sp), (d, p), _) a ->
-              if d = g_ret_nid && p = ret_bin_port then Some (s, sp) else a)
-            loop_gr.eset None
-        in
-        let src_opt =
-          match src_from_edges with
-          | Some _ as found -> found
-          | None ->
-              let boundary_inputs = get_boundary_inputs g_ret_gr in
-              List.find_map
-                (fun (sn, sp, _, dp) ->
-                  if dp = ret_bin_port then Some (sn, sp) else None)
-                boundary_inputs
-        in
-        let src =
-          match src_opt with
-          | None -> None
-          | Some (s, sp) ->
-              if s = body_nid then
-                (* A carry must be gathered from its MERGE, never the body
-                   temp (user ruling).  A carry re-derived in the body (sieve
-                   `main`: T := stream_first(old S)) is exported on SEVERAL
-                   body boundary ports -- one to RETURNS, another to its
-                   MERGE's backedge (MERGE input port 2) -- all sharing one
-                   INNER source.  Link the RETURNS body port to that MERGE by
-                   inner source (not port number), then read the MERGE (output
-                   port 0), is_carry -- so the seed/loop-top read the carried
-                   value, not the stuck bodycap. *)
-                let inner_src_of p =
-                  ES.fold
-                    (fun ((isn, isp), (dn, dp), _) a ->
-                      if dn = 0 && dp = p then Some (isn, isp) else a)
-                    body_gr.eset None
-                in
-                let tgt_inner = inner_src_of sp in
-                let via_merge =
-                  if tgt_inner = None then None
-                  else
-                    ES.fold
-                      (fun ((bs, bsp), (bd, bp), _) acc ->
-                        if
-                          bs = body_nid && bp = 2
-                          && inner_src_of bsp = tgt_inner
-                        then
-                          match NM.find_opt bd loop_gr.nmap with
-                          | Some (Simple (_, MERGE, _, _, _)) -> Some bd
-                          | _ -> acc
-                        else acc)
-                      loop_gr.eset None
-                in
-                (match via_merge with
-                | Some merge_nid -> Some (merge_nid, 0, true)
-                | None -> Some (s, sp, false))
-              else
-                match NM.find_opt s loop_gr.nmap with
-                | Some (Simple (_, MERGE, _, _, _)) -> Some (s, sp, true)
-                | _ -> Some (s, sp, false)
-        in
+        let src = resolve_ret_src ret_bin_port in
         match src with
         | None -> (pre, store, top, post, binds)
         | Some (src_n, bp, is_carry) -> (
@@ -6199,6 +6333,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
       (for_initial_gather_ports g_ret_gr)
   in
   let is_gather_port p = List.mem_assoc p gather_binds in
+  let is_reduce_port p = List.mem_assoc p reduce_binds in
   (* Backedge copies for the loop-carried MERGE phis. Each MERGE takes its body feedback on
      input port 2; copy that into the MERGE variable at the bottom of the loop body, after
      the body captures. Every RHS resolves to a loop-scope bodycap capture, a snapshot
@@ -6262,7 +6397,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
        top).  Body-temp gather_store runs after the body, per its history
        model. *)
     gather_top @ body_stmts @ body_capture_assigns @ merge_backedge_copies
-    @ gather_store @ carry_update_stmts @ test_stmts2
+    @ gather_store @ reduce_store @ carry_update_stmts @ test_stmts2
   in
   let while_loop =
     if is_post_test then C.DoWhile (loop_body_stmts, cond)
@@ -6345,10 +6480,12 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
   let props, final_env =
     List.fold_left
       (fun (acc, e) dp ->
-        if is_gather_port dp then
-          (* gather port: bind to the alloc'd-and-filled array, not the placeholder *)
+        if is_gather_port dp || is_reduce_port dp then
+          (* gather port: bind to the alloc'd-and-filled array; reduction
+             port: bind to the accumulator -- either way NOT the placeholder *)
           let stmts, e' =
-            assign_with_cast e gid nid dp `Out (List.assoc dp gather_binds)
+            assign_with_cast e gid nid dp `Out
+              (List.assoc dp (gather_binds @ reduce_binds))
           in
           (acc @ stmts, e')
         else
@@ -6427,7 +6564,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
         loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
         @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts
         @ merge_init_seeds @ test_stmts1 @ zero_trip_guard @ gather_pre
-        @ [ while_loop ] @ gather_post @ ret_stmts
+        @ reduce_pre @ [ while_loop ] @ gather_post @ ret_stmts
       in
       let fvs = collect_free_coro_vars body_stmts [ res_name ] in
       let params = String.concat ", " (List.map (fun n -> "auto " ^ n) fvs) in
@@ -6446,7 +6583,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
           (loop_local_decls @ merge_decls @ body_capture_decls @ loop_in_stmts
          @ init_stmts @ carry_init_stmts @ copy_non_merged_stmts
          @ merge_init_seeds @ test_stmts1 @ zero_trip_guard @ gather_pre
-         @ [ while_loop ] @ gather_post @ ret_stmts @ props);
+         @ reduce_pre @ [ while_loop ] @ gather_post @ ret_stmts @ props);
       ]
   in
   ( decl_stmts @ stmts,
