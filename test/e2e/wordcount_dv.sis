@@ -1,0 +1,40 @@
+% WordCount -- a for-initial that reduces (`returns value of sum count`) over a
+% character array, with is_char driving a two-state word/gap machine.
+%
+% Two things had to be true for this to work:
+%  * reductions in a sequential loop (the forall had them, the for-initial did
+%    not), and
+%  * CHARACTER LITERALS surviving to C.  The IF1 keeps them with their quotes
+%    (' ', '\t', '\n'), but the backend's literal lowering had no CHARACTER case
+%    and fell through to int_of_string, which cannot parse that and yielded 0.
+%    Every comparison became `c == 0`, so is_char called a space "not a space",
+%    the machine never left the in-word state, and ANY input counted 1 word.
+%
+% array_dv form of test/unit/wordcount.sis (the plain-`array` original gives the
+% same answers now).
+define main
+
+type ArrayChar = array_dv[character];
+
+function is_char( c: character returns boolean )
+  if ((c = ' ') | (c = '\t') | (c = '\n')) then false
+  else true
+  end if
+end function
+
+function main( text: ArrayChar returns integer )
+  for initial
+    count   := 0;
+    iword   := 0;
+    pointer := 1
+  while (pointer <= array_size(text)) repeat
+    count, iword := if (is_char(text[old pointer]) & (old iword = 0))
+                    then 1, 1
+                    elseif (is_char(text[old pointer]) & (old iword = 1))
+                    then 0, 1
+                    else 0, 0
+                    end if;
+    pointer := old pointer + 1
+  returns value of sum count
+  end for
+end function

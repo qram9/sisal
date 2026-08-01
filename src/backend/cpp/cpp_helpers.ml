@@ -115,6 +115,25 @@ let get_c_name proc_map gid_name_map gid nid pid dir gr =
           nid (sanitize name)
     | None -> var_name gid_name_map gid nid pid dir
 
+(** [c_literal_of code value] — one IF1 literal as a C expression.
+
+    CHARACTER is the case that matters: the IF1 keeps a char literal WITH its
+    quotes ('a', ' ', '\t'), which is already valid C, but the generic integer
+    path below cannot parse that and fell back to 0 -- so every character
+    comparison became `c == 0`.  wordcount's is_char then reported "not a
+    space" for a space and counted one word for any input. *)
+let c_literal_of code value =
+  match code with
+  | REAL -> C.LitFloat (float_of_string value)
+  | DOUBLE -> C.LitDouble (float_of_string value)
+  | BOOLEAN -> C.Id (String.lowercase_ascii value)
+  | CHARACTER | UCHAR
+    when String.length value >= 2
+         && value.[0] = '\''
+         && value.[String.length value - 1] = '\'' ->
+      C.Id value
+  | _ -> ( try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
+
 (** [get_graph_by_gid env target_gid] searches the graph hierarchy. *)
 let get_graph_by_gid env target_gid =
   match IntMap.find_opt target_gid env.procedures_info with
@@ -153,11 +172,7 @@ let get_expr env gid nid pid dir =
       (* Literals are never in var_map but can be resolved directly *)
       match NM.find_opt nid target_gr.nmap with
       | Some (Literal (_, code, value, _)) -> (
-          match code with
-          | REAL -> C.LitFloat (float_of_string value)
-          | DOUBLE -> C.LitDouble (float_of_string value)
-          | BOOLEAN -> C.Id (String.lowercase_ascii value)
-          | _ -> ( try C.LitInt (int_of_string value) with _ -> C.LitInt 0))
+          c_literal_of code value)
       | _ ->
           let is_tagcase_arm g_gid =
             match IntMap.find_opt g_gid env.parent_map with

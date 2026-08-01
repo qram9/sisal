@@ -356,6 +356,7 @@ run_group BINTREE_DV        bintree_dv          ""
 run_group PARA_DEARRAY_DV   para_dearray_dv     ""
 run_group LIST_ITER_DV      list_iter_dv        ""
 run_group FORINIT_REDUCE_DV forinit_reduce_dv   ""
+run_group WORDCOUNT_DV      wordcount_dv        ""
 
 
 echo "========================================"

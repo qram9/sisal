@@ -2035,14 +2035,7 @@ let rec lower_graph env parent_gr compound_nid gr gid =
     | nid :: rest -> (
         match NM.find_opt nid gr.nmap with
         | Some (Literal (_, code, value, _)) ->
-            let lit =
-              match code with
-              | REAL -> C.LitFloat (float_of_string value)
-              | DOUBLE -> C.LitDouble (float_of_string value)
-              | BOOLEAN -> C.Id (String.lowercase_ascii value)
-              | _ -> (
-                  try C.LitInt (int_of_string value) with _ -> C.LitInt 0)
-            in
+            let lit = c_literal_of code value in
             let stmts, e' = assign_with_cast e gid nid 0 `Out lit in
             walk_nodes covered (acc_stmts @ stmts) e' rest
         | Some node ->
@@ -3788,15 +3781,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
             | nid :: rest -> (
                 match NM.find_opt nid arm_gr.nmap with
                 | Some (Literal (_, code, value, _)) ->
-                    let lit =
-                      match code with
-                      | REAL -> C.LitFloat (float_of_string value)
-                      | DOUBLE -> C.LitDouble (float_of_string value)
-                      | BOOLEAN -> C.Id (String.lowercase_ascii value)
-                      | _ -> (
-                          try C.LitInt (int_of_string value)
-                          with _ -> C.LitInt 0)
-                    in
+                    let lit = c_literal_of code value in
                     let ss, e' = assign_with_cast e sub_gid nid 0 `Out lit in
                     walk covered (acc @ ss) e' rest
                 | Some node ->
