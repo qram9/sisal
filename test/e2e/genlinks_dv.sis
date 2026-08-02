@@ -1,0 +1,301 @@
+% GENLINKS — DV variant of GenLinks from unit/successor.sis (Job Shop
+% Scheduler).  Builds the successor-link structure the Trace/BackTrack phases
+% walk: for each job I, a LAYER of candidate successor jobs, each layer row
+% holding a per-segment successor index; plus the per-segment enable counts
+% (incoming arc counts) and the initial Ptrs segment records.
+%
+% THE RAGGEDNESS.  In the original, job I's layer has InitDepth[I] rows and
+% InitDepth varies per job, so Links is an array-of-array-of-array with rows of
+% differing length.  That shape has no array_dv spelling.  But the original
+% already carries the extent separately -- it RETURNS Depth alongside Links,
+% and every consumer loops `for J in 1, Depth[I]`.  So the representation is
+% already dense-plus-counts in disguise: this port makes that explicit by
+% padding every layer to the worst case MaxD = N-1 and keeping Depth as the
+% valid-extent vector.  Nothing outside the Depth-bounded region is ever read.
+%
+% Consequences:
+%   - Int_ThreeDim/Int_TwoDim/Int_OneDim are all array_dv[integer]; rank is a
+%     runtime property of the dope vector, so the flat spelling is the same.
+%   - Links is built by a rank-3 nest (gather of a gather of a gather).
+%   - The zero-row compression is a SHIFT, not repeated array_reml: dropping k
+%     leading rows of a padded plane is reading from J+k.  The original's
+%     `while (J < NumZeros)` runs NumZeros-1 times, so the shift is
+%     NumZeros-1 while Depth drops by NumZeros -- preserved exactly, including
+%     that asymmetry.
+%   - The `|| array [1: ...]` fudge row for job N becomes a select inside a
+%     forall over 1..N, which keeps the result rectangular.
+%   - `value of tree sum` -> `value of sum` (backend lowers REDUCE, not
+%     REDUCETREE; a left fold is a valid serialization of a tree fold).
+
+define Main
+
+type Element = record [Alpha, Beta: real; Priority: integer];
+type AB_TwoDim = array_dv [Element];
+type Int_OneDim = array_dv [integer];
+type Int_TwoDim = array_dv [integer];
+type Int_ThreeDim = array_dv [integer];
+type Real_OneDim = array_dv [real];
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Seg_TwoDim = array_dv [SegRec];
+
+function Compare (Row1,
+                  Row2: AB_TwoDim;
+                  Del: real;
+                  Q,
+                  N: integer
+                 returns
+                  Int_OneDim)
+   for I in 1, Q+1
+      Diff := Row1[I].Beta - Row2[1].Alpha;
+      Indx :=
+         if ((Diff > 0.0) & (Del = 0.0)) then
+            0
+         elseif (Diff <= 0.0) then
+            1
+         else
+            let
+               RIndx := (Diff / Del) + 1.0;
+               IIndx := Floor(RIndx);
+               Indx :=
+                  if ((RIndx - Real(IIndx)) = 0.0) then
+                     IIndx
+                  else
+                     IIndx+1
+                  end if;
+            in
+               if (Indx > (Q+1)) then
+                  0
+               else
+                  Indx
+               end if
+            end let
+         end if;
+   returns
+      array_dv of Indx
+   end for
+end function
+
+function RowSum (Row: Int_OneDim returns integer)
+   for Elt in Row
+   returns
+      value of sum Elt
+   end for
+end function
+
+function ZeroRow (Q: integer returns Int_OneDim)
+   for K in 1, Q+1
+   returns
+      array_dv of 0
+   end for
+end function
+
+
+function Main (AB : AB_TwoDim;       % alpha/beta array, rank 2
+               Zeros : Int_OneDim;   % rows in conflict (from Successors)
+               N,                    % still N
+               Q: integer;           % still Q
+               Del: Real_OneDim      % still deltas between starts / job
+              returns
+               Int_ThreeDim,         % Links   N x MaxD x (Q+1)
+               Seg_TwoDim,           % Ptrs    N x (Q+1)
+               Int_TwoDim,           % Vs      N x MaxD
+               Int_OneDim)           % Depth   N
+%
+%  generate the real successor array and pointer array
+%
+   let
+      MaxD := N - 1;          % worst-case layer depth: Depth[I] <= N-I <= N-1
+
+      % find how wide the row array will be by counting number of rows in
+      % conflict immediately after.  This is an optimization to limit the
+      % depth of the ptrs array.
+      InitDepth, InitLinks, Flags, InitVs :=
+         for I in 1, (N-1)
+            Depth :=
+               % get worst case size by counting successors in conflict
+               for initial
+                  Cnt := 1;
+               while (((I+Cnt) < N) & (Zeros[I+Cnt] = 0))
+               repeat
+                  Cnt := old Cnt + 1;
+               returns
+                  value of Cnt
+               end for;
+
+            Layer, Flg, Vs :=
+               % do appropriate comparisons; rows past Depth are padding
+               for J in 1, MaxD
+                  Live := J <= Depth;
+                  Dest := if Live then I + J else I end if;
+                  IvsJ := if Live then
+                             Compare (AB[I, ..], AB[Dest, ..], Del[Dest], Q, N)
+                          else
+                             ZeroRow (Q)
+                          end if;
+                  Flag := if Live then RowSum (IvsJ) else 0 end if;
+                  DestOut := if Live then Dest else 0 end if;
+               returns
+                  array_dv of IvsJ
+                  array_dv of Flag
+                  array_dv of DestOut
+               end for;
+         returns
+            array_dv of Depth
+            array_dv of Layer
+            array_dv of Flg
+            array_dv of Vs
+         end for;
+
+      % compress out zeros of rows in conflict because they just indicate path
+      % termination and if there is a longer path they won't be the max.  If
+      % all jobs to the end are in conflict, save one row of zeros.
+      ShortLinks, ShortVs, ShortDepth :=
+         for I in 1, N-1
+            % count the number of zero rows in this layer
+            NumZeros :=
+               for J in 1, (InitDepth[I] - 1)
+                  Zero :=
+                     if (Flags[I,J] = 0) then
+                        1
+                     else
+                        0
+                     end if;
+               returns
+                  value of sum Zero
+               end for;
+
+            % dropping NumZeros-1 leading rows of a padded plane is a shift
+            Shift := if NumZeros > 0 then NumZeros - 1 else 0 end if;
+
+            Layer :=
+               for J in 1, MaxD
+                  Row :=
+                     for K in 1, Q+1
+                     returns
+                        array_dv of
+                           if (J + Shift) <= MaxD then
+                              InitLinks[I, J+Shift, K]
+                           else
+                              0
+                           end if
+                     end for;
+               returns
+                  array_dv of Row
+               end for;
+
+            Vs :=
+               for J in 1, MaxD
+               returns
+                  array_dv of
+                     if (J + Shift) <= MaxD then
+                        InitVs[I, J+Shift]
+                     else
+                        0
+                     end if
+               end for;
+
+            % number of rows in layer after ripping out extra zero rows
+            Depth := InitDepth[I] - NumZeros;
+
+         returns
+            array_dv of Layer
+            array_dv of Vs
+            array_dv of Depth
+         end for;
+
+      % fudge in an extra row into links for job N (rectangular: a select over
+      % 1..N rather than the original's `|| array [1: ...]`)
+      Links :=
+         for I in 1, N cross
+             J in 1, MaxD cross
+             K in 1, Q+1
+         returns
+            array_dv of if I < N then ShortLinks[I,J,K] else 0 end if
+         end for;
+
+      Vs :=
+         for I in 1, N cross
+             J in 1, MaxD
+         returns
+            array_dv of
+               if I < N then
+                  ShortVs[I,J]
+               elseif J = 1 then
+                  1
+               else
+                  0
+               end if
+         end for;
+
+      Depth :=
+         for I in 1, N
+         returns
+            array_dv of if I < N then ShortDepth[I] else 1 end if
+         end for;
+
+      % Generate ptr array: brute force the search and summation to generate
+      % enable counts.  An enable count is the number of incoming arcs.
+      ECnts :=
+         for Job in 1, N        % for each job in ptr array
+            RowECnts :=
+               if (Job = 1) then
+                  ZeroRow (Q)
+               else
+                  for Seg in 1, (Q+1)   % for each segment in ptr array
+                     % look through all jobs which could link to this job
+                     Cnt :=
+                        for I in 1, (Job-1)
+                           % see if they actually reference the job
+                           RowECnt :=
+                              for J in 1, Depth[I]
+                                 Val :=
+                                    % if they reference job, sum for this segment
+                                    if (Vs[I,J] = Job) then
+                                       for K in 1, (Q+1)
+                                          SegVal :=
+                                             if (Links[I,J,K] = Seg) then
+                                                1
+                                             else
+                                                0
+                                             end if
+                                       returns
+                                          value of sum SegVal
+                                       end for
+                                    else
+                                       0
+                                    end if;
+                              returns
+                                 value of sum Val
+                              end for;
+                        returns
+                           value of sum RowECnt
+                        end for
+                  returns
+                     array_dv of Cnt
+                  end for
+               end if;
+         returns
+            array_dv of RowECnts
+         end for;
+
+      % now generate the segment records for each job
+      Ptrs :=
+         for I in 1, N cross
+             J in 1, (Q+1)
+            Seg := record SegRec [EnableCnt : ECnts[I,J];
+                                  Max: record MaxRec [Val : 0;
+                                                      Job : 0;
+                                                      Seg : 0];
+                                  Priority: AB[I,J].Priority;
+                                  Fired: false;
+                                  Leaf: false];
+         returns
+            array_dv of Seg
+         end for;
+
+   in
+      Links, Ptrs, Vs, Depth
+   end let
+end function    % end of GenLinks

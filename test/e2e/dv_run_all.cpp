@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
 
 #include "dv_rank8_slices_harness.h"
 
@@ -422,6 +423,11 @@ extern "C" struct BT_results func_MAIN();
 #endif
 #ifdef TEST_SUCCESSOR_DV
 extern "C" sisal_array_t func_MAIN(sisal_array_t ab, sisal_array_t del, int32_t q, int32_t n);
+#endif
+#ifdef TEST_GENLINKS_DV
+struct GL_results { sisal_array_t links, ptrs, vs, depth; };
+extern "C" struct GL_results func_MAIN(sisal_array_t ab, sisal_array_t zeros,
+                                       int32_t n, int32_t q, sisal_array_t del);
 #endif
 #ifdef TEST_ARRAY_EX_DV
 extern "C" sisal_array_t func_MAIN();
@@ -9744,6 +9750,126 @@ static void test_successor_dv(void) {
   check("trailing flag for row N is 0", (int)R.size == NJ && ((int32_t*)R.data)[NJ - 1] == 0);
 }
 #endif
+#ifdef TEST_GENLINKS_DV
+// Job Shop GenLinks: the successor-link structure Trace/BackTrack later walk.
+// In the original, job I's layer has InitDepth[I] rows and InitDepth varies per
+// job -- a ragged array-of-array-of-array with no array_dv spelling.  But the
+// original already RETURNS Depth alongside Links and every consumer loops
+// `for J in 1, Depth[I]`, so the representation is dense-plus-counts in
+// disguise; the port makes that explicit, padding each layer to MaxD = N-1.
+// Nothing outside the Depth-bounded region is read, so the mirror below runs
+// the ORIGINAL ragged algorithm and compares only where Depth says it counts.
+// Two datasets: one with NumZeros == 0 throughout (padding only) and one that
+// drives the leading-zero-row compression, which is a SHIFT on a padded plane
+// rather than repeated array_reml.
+struct gl_elem { float alpha, beta; int32_t prio; };
+struct gl_maxrec { int32_t val, job, seg; };
+struct gl_segrec { int32_t ecnt; gl_maxrec mx; int32_t prio; bool fired, leaf; };
+static std::vector<int> gl_compare(const gl_elem* r1, const gl_elem* r2, float del, int Q) {
+  std::vector<int> out(Q + 1);
+  for (int i = 1; i <= Q + 1; i++) {
+    float diff = r1[i - 1].beta - r2[0].alpha;
+    int indx;
+    if (diff > 0.0f && del == 0.0f) indx = 0;
+    else if (diff <= 0.0f) indx = 1;
+    else { float ri = diff / del + 1.0f; int ii = (int)std::floor(ri);
+           int t = ((ri - (float)ii) == 0.0f) ? ii : ii + 1; indx = (t > Q + 1) ? 0 : t; }
+    out[i - 1] = indx;
+  }
+  return out;
+}
+static void gl_case(float sp, float dstep, float dur, const char* tag) {
+  const int N = 5, Q = 2, MaxD = N - 1;
+  gl_elem ab[N * (Q + 1)]; float del[N]; int zeros[N] = { 0, 0, 0, 0, 0 };
+  for (int j = 0; j < N; j++) {
+    float start = 1.0f + sp * j; del[j] = 0.75f + dstep * j;
+    for (int i = 1; i <= Q + 1; i++) {
+      float a = start + (float)(i - 1) * del[j];
+      ab[j * (Q + 1) + (i - 1)] = { a, a + dur, 7 - j };
+    }
+  }
+  // ---- mirror: the ORIGINAL ragged algorithm ----
+  std::vector<int> initDepth(N, 0);
+  std::vector<std::vector<std::vector<int>>> layer(N + 1);
+  std::vector<std::vector<int>> flags(N + 1), ivs(N + 1);
+  for (int I = 1; I <= N - 1; I++) {
+    int cnt = 1;
+    while ((I + cnt) < N && zeros[I + cnt - 1] == 0) cnt++;
+    initDepth[I - 1] = cnt;
+    for (int J = 1; J <= cnt; J++) {
+      int dest = I + J;
+      std::vector<int> row = gl_compare(&ab[(I - 1) * (Q + 1)], &ab[(dest - 1) * (Q + 1)], del[dest - 1], Q);
+      int s2 = 0; for (int v : row) s2 += v;
+      layer[I].push_back(row); flags[I].push_back(s2); ivs[I].push_back(dest);
+    }
+  }
+  std::vector<std::vector<std::vector<int>>> sLinks(N + 1);
+  std::vector<std::vector<int>> sVs(N + 1); std::vector<int> sDepth(N + 1, 0);
+  for (int I = 1; I <= N - 1; I++) {
+    int nz = 0;
+    for (int J = 1; J <= initDepth[I - 1] - 1; J++) if (flags[I][J - 1] == 0) nz++;
+    int shift = nz > 0 ? nz - 1 : 0;   // `while (J < NumZeros)` runs NumZeros-1 times
+    for (size_t j = shift; j < layer[I].size(); j++) { sLinks[I].push_back(layer[I][j]); sVs[I].push_back(ivs[I][j]); }
+    sDepth[I] = initDepth[I - 1] - nz;
+  }
+  std::vector<int> mDepth(N + 1);
+  for (int I = 1; I <= N - 1; I++) mDepth[I] = sDepth[I];
+  mDepth[N] = 1;
+  auto mLinks = [&](int I, int J, int K) -> int { return (I == N) ? 0 : sLinks[I][J - 1][K - 1]; };
+  auto mVs = [&](int I, int J) -> int { return (I == N) ? ((J == 1) ? 1 : 0) : sVs[I][J - 1]; };
+  std::vector<std::vector<int>> ec(N + 1, std::vector<int>(Q + 2, 0));
+  for (int Job = 2; Job <= N; Job++)
+    for (int Seg = 1; Seg <= Q + 1; Seg++) {
+      int tot = 0;
+      for (int I = 1; I <= Job - 1; I++)
+        for (int J = 1; J <= mDepth[I]; J++)
+          if (mVs(I, J) == Job) { int c = 0; for (int K = 1; K <= Q + 1; K++) if (mLinks(I, J, K) == Seg) c++; tot += c; }
+      ec[Job][Seg] = tot;
+    }
+  // ---- the compiled Sisal ----
+  sisal_array_t A = sisal_array_alloc_sized(2, 96, N * (Q + 1), sizeof(gl_elem));
+  A.rank = 2; A.dims[0] = N; A.dims[1] = Q + 1;
+  A.lower_bound[0] = 1; A.lower_bound[1] = 1; A.stride[0] = Q + 1; A.stride[1] = 1;
+  for (int i = 0; i < N * (Q + 1); i++) ((gl_elem*)A.data)[i] = ab[i];
+  sisal_array_t Z = sisal_array_alloc_sized(1, 96, N, sizeof(int32_t)); Z.lower_bound[0] = 1;
+  for (int i = 0; i < N; i++) ((int32_t*)Z.data)[i] = zeros[i];
+  sisal_array_t D = sisal_array_alloc_sized(1, 96, N, sizeof(float)); D.lower_bound[0] = 1;
+  for (int i = 0; i < N; i++) ((float*)D.data)[i] = del[i];
+
+  GL_results r = func_MAIN(A, Z, N, Q, D);
+  char msg[160];
+  snprintf(msg, sizeof msg, "%s: Links is rank-3 (N, MaxD, Q+1)", tag);
+  check(msg, r.links.rank == 3 && (int)r.links.dims[0] == N
+         && (int)r.links.dims[1] == MaxD && (int)r.links.dims[2] == Q + 1);
+  int okD = (int)r.depth.size == N;
+  for (int I = 1; okD && I <= N; I++) okD = ((int32_t*)r.depth.data)[I - 1] == mDepth[I];
+  snprintf(msg, sizeof msg, "%s: Depth == ragged mirror", tag);
+  check(msg, okD);
+  int okL = 1, okV = 1;
+  for (int I = 1; I <= N; I++) for (int J = 1; J <= mDepth[I]; J++) {
+    okV &= ((int32_t*)r.vs.data)[(I - 1) * MaxD + (J - 1)] == mVs(I, J);
+    for (int K = 1; K <= Q + 1; K++)
+      okL &= ((int32_t*)r.links.data)[((I - 1) * MaxD + (J - 1)) * (Q + 1) + (K - 1)] == mLinks(I, J, K);
+  }
+  snprintf(msg, sizeof msg, "%s: Links over the Depth-bounded region == mirror", tag);
+  check(msg, okL);
+  snprintf(msg, sizeof msg, "%s: Vs over the Depth-bounded region == mirror", tag);
+  check(msg, okV);
+  int okP = 1;
+  for (int I = 1; I <= N; I++) for (int J = 1; J <= Q + 1; J++) {
+    gl_segrec g = ((gl_segrec*)r.ptrs.data)[(I - 1) * (Q + 1) + (J - 1)];
+    okP &= g.ecnt == ec[I][J] && g.prio == ab[(I - 1) * (Q + 1) + (J - 1)].prio
+        && g.mx.val == 0 && g.mx.job == 0 && g.mx.seg == 0 && !g.fired && !g.leaf;
+  }
+  snprintf(msg, sizeof msg, "%s: Ptrs enable counts + priorities == mirror", tag);
+  check(msg, okP);
+}
+static void test_genlinks_dv(void) {
+  printf("\n=== Group: genlinks_dv (ragged layers as padded rank-3 + Depth) ===\n");
+  gl_case(0.5f,  0.5f, 1.0f, "padding only (Depth 4 3 2 1 1)");
+  gl_case(0.25f, 0.0f, 2.0f, "shift active (Depth 3 2 1 1 1)");
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11115,6 +11241,9 @@ main (void)
 #ifdef TEST_SUCCESSOR_DV
   test_successor_dv ();
 #endif
+#ifdef TEST_GENLINKS_DV
+  test_genlinks_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11284,7 +11413,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
