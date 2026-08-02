@@ -362,6 +362,7 @@ run_group SUCCESSOR_DV      successor_dv        ""
 run_group GENLINKS_DV       genlinks_dv         ""
 run_group GENARCS_DV        genarcs_dv          ""
 run_group TRACEUTIL_DV      traceutil_dv        ""
+run_group ARCGRID_DV        arcgrid_dv          ""
 
 
 echo "========================================"

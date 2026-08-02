@@ -435,6 +435,14 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_ARCGRID_DV
+struct ag_maxr { int32_t val, job, seg; };
+struct ag_segr { int32_t ecnt; ag_maxr mx; int32_t prio; bool fired, leaf; };
+struct ag_arcr { int32_t job, seg; ag_maxr mx; };
+struct AG_results { sisal_array_t grid, maxs, cnts; };
+extern "C" struct AG_results func_MAIN(sisal_array_t arcs, sisal_array_t grid,
+                                       int32_t n, int32_t q);
+#endif
 #ifdef TEST_TRACEUTIL_DV
 struct tu_maxr { int32_t val, job, seg; };
 struct tu_segr { int32_t ecnt; tu_maxr mx; int32_t prio; bool fired, leaf; };
@@ -10039,6 +10047,106 @@ static void test_traceutil_dv(void) {
         r.ns.mx.val == mns.mx.val && r.ns.mx.job == mns.mx.job && r.ns.mx.seg == mns.mx.seg);
 }
 #endif
+#ifdef TEST_ARCGRID_DV
+// SortArcs + ExpandToGrid + UpdateGrid: fold a wavefront's arcs back into the
+// Grid.  The original gets there by sorting the arcs by Job (Batcher),
+// splitting into runs with Unique, sorting each run by Segment, splitting
+// again, sorting each segment's arcs by Max.Val and keeping the last -- a
+// COMPRESSED ragged pair of tables -- and then spending ExpandToGrid putting
+// the holes back to recover the dense N x (Q+1) grid UpdateGrid consumes.
+//
+// That round trip is an artifact of the array-of-array representation, so the
+// port fuses it into one cross over (job, segment) with a per-cell fold.  The
+// mirror below runs the ORIGINAL three-stage pipeline -- Batcher-order sorts,
+// ragged compressed tables, re-expansion -- so the fusion is CHECKED, not just
+// restated in two places.  Test data gives every cell distinct Max.Vals, so
+// the answer never rests on how equal keys happen to be ordered.
+static ag_maxr ag_findmax(ag_maxr a, ag_maxr b) {
+  if (a.val > b.val) return a;
+  if (b.val > a.val) return b;
+  return (a.job < b.job) ? a : b;
+}
+static void test_arcgrid_dv(void) {
+  printf("\n=== Group: arcgrid_dv (sort/group/expand fused to a dense fold) ===\n");
+  const int N = 3, Q = 1, S = Q + 1;
+  std::vector<ag_arcr> arcs = {
+    { 1, 1, { 5, 9, 9 } }, { 1, 1, { 8, 7, 7 } },                       // (1,1): 2 arcs
+    { 1, 2, { 3, 1, 1 } },                                              // (1,2): 1 arc
+    { 2, 2, { 9, 2, 2 } }, { 2, 2, { 4, 3, 3 } }, { 2, 2, { 6, 4, 4 } },// (2,2): 3 arcs
+    { 3, 1, { 2, 5, 5 } },                                              // (3,1): 1 arc
+  };                                                                    // (2,1),(3,2): none
+  std::vector<ag_segr> grid(N * S);
+  for (int i = 0; i < N; i++) for (int k = 0; k < S; k++) {
+    ag_segr g{}; g.ecnt = 4; g.mx = { (i + k) % 3, 6, 6 }; g.prio = 10 * (i + 1) + k;
+    g.fired = false; g.leaf = false; grid[i * S + k] = g;
+  }
+  // ---- mirror: the ORIGINAL pipeline ----
+  std::vector<ag_arcr> byJob = arcs;
+  std::stable_sort(byJob.begin(), byJob.end(),
+                   [](const ag_arcr& a, const ag_arcr& b) { return a.job < b.job; });
+  std::vector<int> jobLocs; std::vector<std::vector<int>> segLocs, arcCnts;
+  std::vector<std::vector<ag_maxr>> maxArcs;
+  for (size_t i = 0; i < byJob.size();) {
+    size_t j = i; while (j < byJob.size() && byJob[j].job == byJob[i].job) j++;
+    std::vector<ag_arcr> aJob(byJob.begin() + i, byJob.begin() + j);
+    std::stable_sort(aJob.begin(), aJob.end(),
+                     [](const ag_arcr& a, const ag_arcr& b) { return a.seg < b.seg; });
+    std::vector<int> sl, ac; std::vector<ag_maxr> ma;
+    for (size_t p = 0; p < aJob.size();) {
+      size_t q2 = p; while (q2 < aJob.size() && aJob[q2].seg == aJob[p].seg) q2++;
+      std::vector<ag_arcr> cell(aJob.begin() + p, aJob.begin() + q2);
+      std::stable_sort(cell.begin(), cell.end(),
+                       [](const ag_arcr& a, const ag_arcr& b) { return a.mx.val < b.mx.val; });
+      ma.push_back(cell.back().mx); ac.push_back((int)cell.size()); sl.push_back(aJob[p].seg);
+      p = q2;
+    }
+    jobLocs.push_back(byJob[i].job); segLocs.push_back(sl);
+    arcCnts.push_back(ac); maxArcs.push_back(ma);
+    i = j;
+  }
+  ag_maxr zero{ 0, 0, 0 };
+  std::vector<ag_maxr> mMax(N * S, zero); std::vector<int> mCnt(N * S, 0);
+  for (size_t r = 0; r < jobLocs.size(); r++) {
+    int I = jobLocs[r];
+    for (size_t c = 0; c < segLocs[r].size(); c++) {
+      int K = segLocs[r][c];
+      mMax[(I - 1) * S + (K - 1)] = maxArcs[r][c];
+      mCnt[(I - 1) * S + (K - 1)] = arcCnts[r][c];
+    }
+  }
+  std::vector<ag_segr> mGrid(N * S);
+  for (int I = 1; I <= N; I++) for (int K = 1; K <= S; K++) {
+    ag_segr g = grid[(I - 1) * S + (K - 1)]; int c = mCnt[(I - 1) * S + (K - 1)];
+    if (c != 0) { g.ecnt = g.ecnt - c; g.mx = ag_findmax(g.mx, mMax[(I - 1) * S + (K - 1)]); }
+    mGrid[(I - 1) * S + (K - 1)] = g;
+  }
+  // ---- compiled Sisal ----
+  sisal_array_t A = sisal_array_alloc_sized(1, 96, arcs.size(), sizeof(ag_arcr));
+  A.lower_bound[0] = 1; memcpy(A.data, arcs.data(), sizeof(ag_arcr) * arcs.size());
+  sisal_array_t G = sisal_array_alloc_sized(2, 96, N * S, sizeof(ag_segr));
+  G.rank = 2; G.dims[0] = N; G.dims[1] = S; G.lower_bound[0] = 1; G.lower_bound[1] = 1;
+  G.stride[0] = S; G.stride[1] = 1; memcpy(G.data, grid.data(), sizeof(ag_segr) * N * S);
+  AG_results r = func_MAIN(A, G, N, Q);
+
+  int okc = (int)r.cnts.size == N * S, okm = 1, okg = 1;
+  for (int i = 0; i < N * S; i++) {
+    okc &= ((int32_t*)r.cnts.data)[i] == mCnt[i];
+    ag_maxr a = ((ag_maxr*)r.maxs.data)[i];
+    okm &= a.val == mMax[i].val && a.job == mMax[i].job && a.seg == mMax[i].seg;
+    ag_segr g = ((ag_segr*)r.grid.data)[i];
+    okg &= g.ecnt == mGrid[i].ecnt && g.mx.val == mGrid[i].mx.val
+        && g.mx.job == mGrid[i].mx.job && g.prio == mGrid[i].prio
+        && g.fired == mGrid[i].fired;
+  }
+  check("per-cell arc counts == original pipeline", okc);
+  check("per-cell best Max == original pipeline", okm);
+  check("updated Grid (enable counts + folded Max) == original pipeline", okg);
+  check("cells with no arcs keep a zero Max and count",
+        ((int32_t*)r.cnts.data)[2] == 0 && ((ag_maxr*)r.maxs.data)[2].val == 0);
+  check("a cell with several arcs keeps the greatest Max.Val",
+        ((int32_t*)r.cnts.data)[3] == 3 && ((ag_maxr*)r.maxs.data)[3].val == 9);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11419,6 +11527,9 @@ main (void)
 #ifdef TEST_TRACEUTIL_DV
   test_traceutil_dv ();
 #endif
+#ifdef TEST_ARCGRID_DV
+  test_arcgrid_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11588,7 +11699,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

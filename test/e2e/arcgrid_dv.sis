@@ -1,0 +1,137 @@
+% ARCGRID — DV variant of SortArcs + ExpandToGrid + UpdateGrid from
+% unit/trace.sis (Job Shop Scheduler): fold one wavefront's bag of arcs back
+% into the Grid, decrementing each destination segment's enable count by the
+% number of arcs arriving and folding in the best incoming Max.
+%
+% WHY THE MIDDLE TWO FUSE AWAY.  In the original, SortArcs sorts the arcs by
+% Job (Batcher), splits them into per-job runs with Unique, sorts each run by
+% Segment, splits again, sorts each segment's arcs by Max.Val and keeps the
+% last -- producing a COMPRESSED, ragged pair of tables (one row per job that
+% has arcs, one entry per segment that has arcs) plus the SegLocs/JobLocs
+% saying where the occupied cells were.  ExpandToGrid then spends its whole
+% length putting the holes back, via Diffs and array_fill, to recover a dense
+% N x (Q+1) grid -- which is exactly what UpdateGrid consumes.
+%
+% That compress/expand round trip is an artifact of the array-of-array
+% representation: it avoids materialising N x (Q+1) when few cells have arcs.
+% Under a dope vector the dense grid is the natural object, so the three
+% sorts, both Unique splits and the whole re-expansion collapse into ONE cross
+% over (job, segment) with a per-cell fold over the arcs.  Same answer, no
+% ragged intermediate, and Batcher drops out of the dependency graph entirely.
+%
+% ONE ORDERING NOTE.  When two arcs into the same cell carry the same
+% Max.Val, which one the original keeps depends on how Batcher orders equal
+% keys -- it is not pinned down by the program.  The fold below keeps the
+% FIRST such arc.  The test data gives every cell distinct Max.Vals so the
+% answer does not rest on that choice.
+
+define Main
+
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Seg_TwoDim = array_dv [SegRec];
+type ArcRec = record [Job, Seg: integer; Max: MaxRec];
+type Arc_OneDim = array_dv [ArcRec];
+type Int_TwoDim = array_dv [integer];
+type Max_TwoDim = array_dv [MaxRec];
+
+function FindMax (Rec1,
+                  Rec2: MaxRec
+                 returns
+                  MaxRec)
+%
+%  determines the max of two records and returns it
+%
+   if (Rec1.Val > Rec2.Val) then
+      Rec1
+   elseif (Rec2.Val > Rec1.Val) then
+      Rec2
+   else
+      if (Rec1.Job < Rec2.Job) then
+         Rec1
+      else
+         Rec2
+      end if
+   end if
+end function   % end of FindMax
+
+
+function UpdateSeg (Seg : SegRec;
+                    Cnt : integer;
+                    Max : MaxRec
+                   returns
+                    SegRec)
+%
+%  Update the destination segment for the arc
+%
+   let
+      NewECnt := Seg.EnableCnt - Cnt;
+      NewMax := FindMax (Seg.Max, Max);
+      NewRec := Seg replace [EnableCnt: NewECnt; Max: NewMax];
+   in
+      NewRec
+   end let
+end function   % end of UpdateSeg
+
+
+function Main (Arcs : Arc_OneDim;   % this wavefront's surviving arcs
+               Grid : Seg_TwoDim;   % N x (Q+1)
+               N,
+               Q : integer
+              returns
+               Seg_TwoDim,          % the updated Grid
+               Max_TwoDim,          % per-cell best incoming Max  (ExpandToGrid's 1st)
+               Int_TwoDim)          % per-cell arc count          (ExpandToGrid's 2nd)
+   let
+      ZeroRec := record MaxRec [Val: 0; Job: 0; Seg: 0];
+      ASize := array_size (Arcs);
+
+      Maxs, Cnts :=
+         % SortArcs + ExpandToGrid, fused: for each destination cell, the
+         % number of arcs arriving and the best Max among them
+         for I in 1, N cross
+             K in 1, (Q+1)
+            Best, Cnt :=
+               for initial
+                  J := 0;
+                  Best := ZeroRec;
+                  C := 0;
+               while (J < ASize)
+               repeat
+                  J := old J + 1;
+                  Arc := Arcs[J];
+                  Hit := (Arc.Job = I) & (Arc.Seg = K);
+                  % strict > keeps the FIRST arc on a tie (see header note)
+                  Best := if (Hit & ((old C = 0) | (Arc.Max.Val > old Best.Val))) then
+                             Arc.Max
+                          else
+                             old Best
+                          end if;
+                  C := if Hit then old C + 1 else old C end if;
+               returns
+                  value of Best
+                  value of C
+               end for;
+         returns
+            array_dv of Best
+            array_dv of Cnt
+         end for;
+
+      % UpdateGrid, unchanged
+      NewGrid :=
+         for I in 1, N cross
+             K in 1, (Q+1)
+            NewSeg :=
+               if (Cnts[I,K] ~= 0) then
+                  UpdateSeg (Grid[I,K], Cnts[I,K], Maxs[I,K])
+               else
+                  Grid[I,K]
+               end if;
+         returns
+            array_dv of NewSeg
+         end for;
+   in
+      NewGrid, Maxs, Cnts
+   end let
+end function
