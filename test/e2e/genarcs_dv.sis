@@ -1,0 +1,83 @@
+% GENARCS — DV variant of GenArcs from unit/trace.sis (Job Shop Scheduler).
+% One wavefront step of the trace: fan out from every (job, segment) of the
+% Grid, keep only the arcs leaving an ENABLED, not-yet-fired segment that
+% actually go somewhere, and mark those segments fired (and leaf, if some of
+% their candidate arcs were dropped).
+%
+% This is the shape the `when` mask is FOR.  The surviving arc count per
+% segment is a property of the data, so Arcs is ragged -- but it is never
+% returned as a rectangular array: it is immediately CATENATEd across the whole
+% cross, which flattens the ragged pieces into one 1-D array_dv whose length is
+% data-dependent.  That is a reduction, not a gather, so the rectangularity
+% rule does not apply to it.  The mask sits on a SINGLE generator (J in 1,
+% Depth[I]) inside the cross body, not on the cross itself.
+%
+% DV changes: types flattened (Seg_TwoDim/Int_ThreeDim etc. are all one
+% array_dv, rank being a runtime property), `array of` -> `array_dv of`, and
+% a Main wrapper.  Grid/Links/Vs/Depth come in as the dense-plus-Depth
+% structure genlinks_dv produces.
+
+define Main
+
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Seg_TwoDim = array_dv [SegRec];
+type ArcRec = record [Job, Seg: integer; Max: MaxRec];
+type Arc_OneDim = array_dv [ArcRec];
+type Int_OneDim = array_dv [integer];
+type Int_TwoDim = array_dv [integer];
+type Int_ThreeDim = array_dv [integer];
+
+function Main (Links : Int_ThreeDim;   % N x MaxD x (Q+1)
+               Grid : Seg_TwoDim;      % N x (Q+1): jobs/segments, values, leafmark
+               Vs : Int_TwoDim;        % N x MaxD: which jobs are compared
+               Depth : Int_OneDim;     % N: valid layer extent per job
+               N,
+               Q : integer
+              returns
+               Seg_TwoDim,             % an updated Grid array
+               Arc_OneDim)             % Good arcs
+%
+%  Generate all possible arcs and keep the good ones.  Count them
+%  and mark segments as fired and possibly leaves.
+%
+   for I in 1, N cross
+       K in 1, (Q+1)
+
+      Seg := Grid[I,K];
+      NewVal := Seg.Priority + Seg.Max.Val;
+
+      % fan out from all segments but only keep the good ones
+      % that is ones from enabled segments that are going somewhere
+      Arcs :=
+         for J in 1, Depth[I]
+            Arc := record ArcRec [Job: Vs[I,J];
+                                  Seg: Links[I,J,K];
+                                  Max: record MaxRec [Val: NewVal;
+                                                      Job: I;
+                                                      Seg: K]];
+         returns
+            array_dv of Arc when (((Seg.EnableCnt = 0) & ~Seg.Fired)  &
+                                (Links[I,J,K] ~= 0))
+         end for;
+
+      NewSeg :=
+         % check for enabled segment mark fired and adjust value
+         % also check if the segment is a leaf
+         if ((Seg.EnableCnt = 0) & ~Seg.Fired) then
+            if (array_size(Arcs) ~= Depth[I]) then
+               % mark as leaf
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true;
+                            Leaf: true]
+            else
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true]
+            end if
+         else
+            Seg
+         end if;
+   returns
+      array_dv of NewSeg
+      value of catenate Arcs
+   end for
+end function   % end of GenArcs

@@ -429,6 +429,12 @@ struct GL_results { sisal_array_t links, ptrs, vs, depth; };
 extern "C" struct GL_results func_MAIN(sisal_array_t ab, sisal_array_t zeros,
                                        int32_t n, int32_t q, sisal_array_t del);
 #endif
+#ifdef TEST_GENARCS_DV
+struct GA_results { sisal_array_t grid, arcs; };
+extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
+                                       sisal_array_t vs, sisal_array_t depth,
+                                       int32_t n, int32_t q);
+#endif
 #ifdef TEST_ARRAY_EX_DV
 extern "C" sisal_array_t func_MAIN();
 #endif
@@ -9870,6 +9876,94 @@ static void test_genlinks_dv(void) {
   gl_case(0.25f, 0.0f, 2.0f, "shift active (Depth 3 2 1 1 1)");
 }
 #endif
+#ifdef TEST_GENARCS_DV
+// One wavefront step of the Job Shop trace: fan out from every (job, segment)
+// of the Grid, keep only arcs leaving an ENABLED, not-yet-fired segment that
+// actually go somewhere, and mark those segments fired -- and leaf, when some
+// of their candidate arcs were dropped.
+//
+// This is the forall shape a CROSS could not express until the RETURNS port
+// classifier learned to follow the nested relay: `array_dv of NewSeg` is a
+// gather and `value of catenate Arcs` is a reduction, on the same cross.  The
+// `when` mask sits on the inner single generator, where masking is legal --
+// the surviving arc count is data-dependent, so Arcs is ragged, but it is
+// CATENATEd rather than gathered, which flattens the ragged pieces into one
+// 1-D array_dv.  array_size(Arcs) then drives the leaf marking.
+struct ga_maxr { int32_t val, job, seg; };
+struct ga_segr { int32_t ecnt; ga_maxr mx; int32_t prio; bool fired, leaf; };
+struct ga_arcr { int32_t job, seg; ga_maxr mx; };
+static void test_genarcs_dv(void) {
+  printf("\n=== Group: genarcs_dv (cross carrying gather + catenate) ===\n");
+  const int N = 3, Q = 1, S = Q + 1, MaxD = 2;
+  int depth[N] = { 2, 1, 1 };
+  int vs[N * MaxD] = { 2, 3,  3, 0,  0, 0 };
+  int links[N * MaxD * S] = { 1, 0,  2, 1,   0, 2,  0, 0,   0, 0,  0, 0 };
+  ga_segr grid[N * S];
+  for (int i = 0; i < N; i++) for (int k = 0; k < S; k++) {
+    ga_segr g{};
+    g.ecnt = (i == 2 && k == 1) ? 1 : 0;   // one segment not enabled
+    g.mx = { i + 1, 0, 0 }; g.prio = 10 * (i + 1) + k;
+    g.fired = (i == 1 && k == 0);          // one segment already fired
+    g.leaf = false; grid[i * S + k] = g;
+  }
+  // ---- mirror ----
+  std::vector<ga_segr> mgrid(N * S); std::vector<ga_arcr> marcs;
+  for (int I = 1; I <= N; I++) for (int K = 1; K <= S; K++) {
+    ga_segr seg = grid[(I - 1) * S + (K - 1)];
+    int newval = seg.prio + seg.mx.val;
+    std::vector<ga_arcr> arcs;
+    for (int J = 1; J <= depth[I - 1]; J++) {
+      int lk = links[((I - 1) * MaxD + (J - 1)) * S + (K - 1)];
+      if ((seg.ecnt == 0 && !seg.fired) && lk != 0)
+        arcs.push_back({ vs[(I - 1) * MaxD + (J - 1)], lk, { newval, I, K } });
+    }
+    ga_segr ns = seg;
+    if (seg.ecnt == 0 && !seg.fired) {
+      ns.mx.val = newval; ns.fired = true;
+      if ((int)arcs.size() != depth[I - 1]) ns.leaf = true;
+    }
+    mgrid[(I - 1) * S + (K - 1)] = ns;
+    for (auto& a : arcs) marcs.push_back(a);
+  }
+  // ---- compiled Sisal ----
+  auto mk = [&](int rank, int d0, int d1, int d2, size_t esz, const void* src, size_t n) {
+    sisal_array_t A = sisal_array_alloc_sized(rank, 96, n, esz);
+    A.rank = rank; A.dims[0] = d0; A.lower_bound[0] = 1;
+    if (rank > 1) { A.dims[1] = d1; A.lower_bound[1] = 1; }
+    if (rank > 2) { A.dims[2] = d2; A.lower_bound[2] = 1; }
+    if (rank == 1) A.stride[0] = 1;
+    if (rank == 2) { A.stride[0] = d1; A.stride[1] = 1; }
+    if (rank == 3) { A.stride[0] = d1 * d2; A.stride[1] = d2; A.stride[2] = 1; }
+    memcpy(A.data, src, esz * n); return A;
+  };
+  sisal_array_t L = mk(3, N, MaxD, S, sizeof(int32_t), links, N * MaxD * S);
+  sisal_array_t G = mk(2, N, S, 0, sizeof(ga_segr), grid, N * S);
+  sisal_array_t V = mk(2, N, MaxD, 0, sizeof(int32_t), vs, N * MaxD);
+  sisal_array_t Dp = mk(1, N, 0, 0, sizeof(int32_t), depth, N);
+
+  GA_results r = func_MAIN(L, G, V, Dp, N, Q);
+  check("updated Grid stays rank-2 (N, Q+1)",
+        r.grid.rank == 2 && (int)r.grid.dims[0] == N && (int)r.grid.dims[1] == S);
+  int okg = (int)r.grid.size == N * S;
+  for (int i = 0; okg && i < N * S; i++) {
+    ga_segr a = ((ga_segr*)r.grid.data)[i], b = mgrid[i];
+    okg = a.ecnt == b.ecnt && a.mx.val == b.mx.val && a.prio == b.prio
+       && a.fired == b.fired && a.leaf == b.leaf;
+  }
+  check("Grid (fired / leaf / Max.Val) == mirror", okg);
+  check("catenated Arcs length is the surviving count",
+        (int)r.arcs.size == (int)marcs.size());
+  int oka = (int)r.arcs.size == (int)marcs.size();
+  for (int i = 0; oka && i < (int)marcs.size(); i++) {
+    ga_arcr a = ((ga_arcr*)r.arcs.data)[i], b = marcs[i];
+    oka = a.job == b.job && a.seg == b.seg && a.mx.val == b.mx.val
+       && a.mx.job == b.mx.job && a.mx.seg == b.mx.seg;
+  }
+  check("Arcs content and cross order == mirror", oka);
+  int anyleaf = 0; for (int i = 0; i < N * S; i++) anyleaf |= mgrid[i].leaf;
+  check("the mask actually bites (some segment marked leaf)", anyleaf != 0);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11244,6 +11338,9 @@ main (void)
 #ifdef TEST_GENLINKS_DV
   test_genlinks_dv ();
 #endif
+#ifdef TEST_GENARCS_DV
+  test_genarcs_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11413,7 +11510,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

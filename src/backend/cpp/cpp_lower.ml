@@ -215,19 +215,50 @@ let forall_fold_op loop_gr =
    fires for a single-output fold), this enumerates EACH reduction output, so a forall
    with several `value of <reduce>` outputs (or a mix with gathers) can be lowered
    per-port.  body_out_port is the body output this REDUCE folds (via __forall_body_K). *)
-let forall_reduce_ports loop_gr =
+let rec forall_reduce_ports loop_gr =
   match find_subgraph loop_gr "RETURNS" with
   | None -> []
-  | Some (_, ret_gr) ->
+  | Some (_, ret_gr) -> reduce_ports_of_returns ret_gr
+
+(* A CROSS builds one RETURNS level per generator.  The two output kinds sit at
+   different depths there: a GATHER keeps an explicit node at EVERY level (each
+   one re-gathers the level below into the next rank), but a REDUCE appears only
+   at the innermost level -- the outer levels wire its result straight to their
+   boundary with no node of their own.  Reading only the outer level therefore
+   sees the gather and misses the reduction, which is why a cross could carry
+   two gathers, or two reductions (the single-output fold path collapses those),
+   but not one of each.
+
+   Following the relay is sound because the generator nest is already flattened
+   into ONE C loop nest (bind_gen_outputs), and a fold keeps ONE accumulator
+   across the whole nest -- so the innermost REDUCE is the whole cross's
+   reduction, not a per-slice partial. *)
+and reduce_ports_of_returns ret_gr =
       let ins =
         match NM.find_opt 0 ret_gr.nmap with
         | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
+      (* A value relayed out of a nested level names its producer in THIS
+         level's boundary-port space; map it back to this level's body port. *)
+      let lift p =
+        match List.find_opt (fun (_, _, _, bp) -> bp = p) ins with
+        | Some (_, source_port, _, _) -> source_port
+        | None -> p
+      in
       ES.fold
-        (fun ((sn, _), (dn, dp), _) acc ->
+        (fun ((sn, sp), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
+            | Some (Compound (_, _, _, pr, sub, _))
+              when get_compound_type pr = If1_results -> (
+                (* relayed from the nested cross level: classify it there *)
+                match
+                  List.find_opt (fun (rp, _, _) -> rp = sp)
+                    (reduce_ports_of_returns sub)
+                with
+                | Some (_, op, nested_b) -> (dp, op, lift nested_b) :: acc
+                | None -> acc)
             | Some (Simple (_, REDUCE, _, _, pr)) -> (
                 (* reduce operator and value ports come from the Portmap (legacy
                    fixed: reduce_fn@0, value@1). *)
@@ -405,19 +436,37 @@ let forall_gather_ports loop_gr =
    FINALVALUE node — `returns value of X` with NO reduction operator, which keeps the
    LAST iteration's value (not a gather, not a fold).  The value is FINALVALUE's
    port-0 input.  Returns (returns_out_port, body_out_port) per such output. *)
-let forall_finalvalue_ports loop_gr =
+let rec forall_finalvalue_ports loop_gr =
   match find_subgraph loop_gr "RETURNS" with
   | None -> []
-  | Some (_, ret_gr) ->
+  | Some (_, ret_gr) -> finalvalue_ports_of_returns ret_gr
+
+(* Relayed out of a nested CROSS level exactly as a REDUCE is -- see the note on
+   reduce_ports_of_returns.  Keep-last across the flattened nest is the last
+   iteration of the whole nest, which is what the innermost FINALVALUE names. *)
+and finalvalue_ports_of_returns ret_gr =
       let ins =
         match NM.find_opt 0 ret_gr.nmap with
         | Some (Boundary (ins, _, _, _)) -> ins
         | _ -> []
       in
+      let lift p =
+        match List.find_opt (fun (_, _, _, bp) -> bp = p) ins with
+        | Some (_, source_port, _, _) -> source_port
+        | None -> p
+      in
       ES.fold
-        (fun ((sn, _), (dn, dp), _) acc ->
+        (fun ((sn, sp), (dn, dp), _) acc ->
           if dn = 0 then
             match NM.find_opt sn ret_gr.nmap with
+            | Some (Compound (_, _, _, pr, sub, _))
+              when get_compound_type pr = If1_results -> (
+                match
+                  List.find_opt (fun (rp, _) -> rp = sp)
+                    (finalvalue_ports_of_returns sub)
+                with
+                | Some (_, nested_b) -> (dp, lift nested_b) :: acc
+                | None -> acc)
             | Some (Simple (_, FINALVALUE, _, _, _)) ->
                 let bport =
                   ES.fold
