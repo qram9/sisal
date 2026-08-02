@@ -358,6 +358,7 @@ run_group LIST_ITER_DV      list_iter_dv        ""
 run_group FORINIT_REDUCE_DV forinit_reduce_dv   ""
 run_group WORDCOUNT_DV      wordcount_dv        ""
 run_group BACKTRACK_DV      backtrack_dv        ""
+run_group SUCCESSOR_DV      successor_dv        ""
 
 
 echo "========================================"

@@ -1,0 +1,107 @@
+% SUCCESSOR — DV variant of unit/successor.sis (Job Shop Scheduler: for each
+% segment of job I, the index of the first segment of job I+1 that can follow
+% it).  Element/Int_OneDim/Real_OneDim inlined from types.h.
+%
+% DV changes:
+%   - AB_TwoDim = array_dv[Element], a FLAT rank-2 dope vector (not
+%     array_dv[AB_OneDim] — nested dope vectors are malformed).  A row is
+%     reached with the `..` slice, AB[I, ..], which rank-reduces 2 -> 1;
+%     AB_OneDim is the same array_dv[Element] seen at rank 1.
+%   - gather clauses `array of` -> `array_dv of`.
+%   - `value of tree sum` -> `value of sum`.  The C backend lowers REDUCE but
+%     not REDUCETREE; a left fold is a valid serialization of a tree fold, so
+%     this is the faithful sequential reading of the original.  (The `tree`
+%     hint only matters once the reduction is actually parallelised.)
+%   - Main wrapper added: the original is a library of three functions.
+%
+% GenLinks is NOT ported here — its Links/Vs rows have a per-row Depth, so it
+% is genuinely ragged and needs the list-and-pack treatment.
+
+define Main
+
+type Element = record [Alpha, Beta: real; Priority: integer];
+type AB_OneDim = array_dv [Element];
+type AB_TwoDim = array_dv [Element];
+type Int_OneDim = array_dv [integer];
+type Real_OneDim = array_dv [real];
+
+function Compare (Row1,             % row 1
+                  Row2: AB_OneDim;  % row 2
+                  Del: real;        % difference between starts of segments of row 2
+                  Q,                % number of segments - 1
+                  N: integer        % number of jobs
+                 returns
+                  Int_OneDim)       % index of first successor segment
+%
+%  Compare two rows and generate index array
+%
+   for I in 1, Q+1
+      Diff := Row1[I].Beta - Row2[1].Alpha;
+      Indx :=
+          % see if the segment has any successors
+         if ((Diff > 0.0) & (Del = 0.0)) then
+            0
+
+         % all segments of row 2 are successors for this segment
+         elseif (Diff <= 0.0) then
+            1
+
+         % might have a successor if shift isn't greater than Q+1
+         else
+            let
+               % calculate segment index of successor
+               RIndx := (Diff / Del) + 1.0;
+               IIndx := Floor(RIndx);
+               Indx :=
+                  if ((RIndx - Real(IIndx)) = 0.0) then
+                     IIndx
+                  else
+                     IIndx+1
+                  end if;
+            in
+               % see if index is too big
+               if (Indx > (Q+1)) then
+                  0
+               else
+                  Indx
+               end if
+            end let
+         end if;
+   returns
+      array_dv of Indx
+   end for
+end function   % end of Compare
+
+
+function RowSum (Row: Int_OneDim  % row of values to sum
+                returns
+                 integer)         % sum of elements in row
+%
+%   Sum up elements in a row
+%
+   for Elt in Row
+   returns
+      value of sum Elt             % `tree sum` in the original
+   end for
+end function   % end of RowSum
+
+
+function Main (AB : AB_TwoDim;      % alpha/beta starts and finishes, rank 2
+               Del : Real_OneDim;   % deltas between starts / job
+               Q : integer;         % still Q
+               N : integer          % still N
+              returns
+               Int_OneDim)          % rows in complete conflict
+%
+%  Calculate successor for each row  (`Successors` in the original)
+%
+   for I in 1, N-1
+      % compare row pairwise
+      IndexRow := Compare (AB[I, ..], AB[I+1, ..], Del[I+1], Q, N);
+
+      % find out which rows are in complete conflict with their successor
+      Zero := RowSum (IndexRow);
+   returns
+      array_dv of Zero
+   end for || array_dv Int_OneDim [1: 0]     % add flag for row N
+end function    % end of Successors

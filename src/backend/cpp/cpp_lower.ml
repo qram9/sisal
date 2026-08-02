@@ -7052,14 +7052,14 @@ let lower_to_c tm gr filename =
             if ckind = If1_forall || ckind = If1_loop_initial then begin
               let loop_name = Printf.sprintf "loop_%d" nid in
               let path' = path @ [loop_name] in
-              Printf.printf "  [LOOP] Path: %s -> %s\n" (String.concat " -> " path) loop_name;
+              Printf.eprintf "  [LOOP] Path: %s -> %s\n" (String.concat " -> " path) loop_name;
               let gen_sub = find_subgraph sub_gr "GENERATOR" in
               begin match gen_sub with
               | Some (_, gen_gr) ->
                   ES.iter
                     (fun ((sn, sp), (dn, dp), _) ->
                       if dn = 0 then
-                        Printf.printf "    -> Loop Boundary port %d fed by node %d output %d\n" dp sn sp)
+                        Printf.eprintf "    -> Loop Boundary port %d fed by node %d output %d\n" dp sn sp)
                     gen_gr.eset
               | None -> ()
               end;
@@ -7086,7 +7086,7 @@ let lower_to_c tm gr filename =
                       | _ -> "func_UNKNOWN")
                   | _ -> "func_UNKNOWN")
             in
-            Printf.printf "  [CALL] Path: %s -> calls %s (node %d)\n" (String.concat " -> " path) fname nid;
+            Printf.eprintf "  [CALL] Path: %s -> calls %s (node %d)\n" (String.concat " -> " path) fname nid;
             if not (StringSet.mem fname visited) then
               let visited' = StringSet.add fname visited in
               IntMap.iter
@@ -7094,7 +7094,7 @@ let lower_to_c tm gr filename =
                   if name = fname then
                     match IntMap.find_opt pnid procedures_info_map with
                     | Some callee_gr ->
-                        Printf.printf "    [INTERPROC] Traversing callee: %s\n" fname;
+                        Printf.eprintf "    [INTERPROC] Traversing callee: %s\n" fname;
                         walk_graph visited' [fname] proc_map procedures_info_map callee_gr
                     | None -> ())
                 proc_map
@@ -7102,7 +7102,7 @@ let lower_to_c tm gr filename =
       g.nmap
   in
 
-  Printf.printf "\n=== INTERPROCEDURAL LOOP & CALL GRAPH WALK ===\n";
+  Printf.eprintf "\n=== INTERPROCEDURAL LOOP & CALL GRAPH WALK ===\n";
   let main_nid_opt =
     IntMap.fold
       (fun nid name acc ->
@@ -7123,7 +7123,7 @@ let lower_to_c tm gr filename =
           walk_graph (StringSet.singleton name) [name] proc_map procedures_info_map sub_gr)
         procedures_info
   end;
-  Printf.printf "==============================================\n\n";
+  Printf.eprintf "==============================================\n\n";
 
   let procedures =
     List.concat_map

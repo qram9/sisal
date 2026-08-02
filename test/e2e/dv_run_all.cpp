@@ -420,6 +420,9 @@ extern "C" int32_t func_MAIN(sisal_array_t text);
 struct BT_results { sisal_array_t jobs, segs, leafvals; };
 extern "C" struct BT_results func_MAIN();
 #endif
+#ifdef TEST_SUCCESSOR_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t ab, sisal_array_t del, int32_t q, int32_t n);
+#endif
 #ifdef TEST_ARRAY_EX_DV
 extern "C" sisal_array_t func_MAIN();
 #endif
@@ -9685,6 +9688,62 @@ static void test_backtrack_dv() {
   check("leaf sweep collects both leaves [50,10]", okl);
 }
 #endif
+#ifdef TEST_SUCCESSOR_DV
+// Job Shop successor index: for each segment of job I, the index of the first
+// segment of job I+1 that can follow it; RowSum folds a row to detect jobs in
+// COMPLETE conflict with their successor (sum 0).  AB is a FLAT rank-2
+// array_dv[Element] and each row is taken with the `..` slice AB[I,..], which
+// rank-reduces 2 -> 1 -- the nested array_dv[AB_OneDim] of the original is
+// malformed under the dope-vector model.  Trailing `|| [1:0]` flags row N.
+struct su_elem { float alpha, beta; int32_t prio; };
+static int su_rowsum(const su_elem* r1, const su_elem* r2, float del, int Q) {
+  int sum = 0;
+  for (int i = 1; i <= Q + 1; i++) {
+    float diff = r1[i - 1].beta - r2[0].alpha;
+    int indx;
+    if (diff > 0.0f && del == 0.0f) indx = 0;
+    else if (diff <= 0.0f) indx = 1;
+    else {
+      float rindx = diff / del + 1.0f;
+      int iindx = (int)std::floor(rindx);
+      int t = ((rindx - (float)iindx) == 0.0f) ? iindx : iindx + 1;
+      indx = (t > Q + 1) ? 0 : t;
+    }
+    sum += indx;
+  }
+  return sum;
+}
+static void test_successor_dv(void) {
+  printf("\n=== Group: successor_dv (rank-2 `..` row slice + fold) ===\n");
+  enum { NJ = 4, Q = 3 };
+  su_elem ab[NJ * (Q + 1)]; float del[NJ];
+  for (int j = 0; j < NJ; j++) {
+    float start = 1.0f + 1.0f * j, dur = 6.0f;
+    del[j] = 0.75f + 0.5f * j;
+    for (int i = 1; i <= Q + 1; i++) {
+      float a = start + (float)(i - 1) * del[j];
+      ab[j * (Q + 1) + (i - 1)] = { a, a + dur, 7 - j };
+    }
+  }
+  sisal_array_t A = sisal_array_alloc_sized(2, 96, NJ * (Q + 1), sizeof(su_elem));
+  A.rank = 2; A.dims[0] = NJ; A.dims[1] = Q + 1;
+  A.lower_bound[0] = 1; A.lower_bound[1] = 1;
+  A.stride[0] = Q + 1; A.stride[1] = 1;
+  for (int i = 0; i < NJ * (Q + 1); i++) ((su_elem*)A.data)[i] = ab[i];
+  sisal_array_t D = sisal_array_alloc_sized(1, 96, NJ, sizeof(float));
+  D.lower_bound[0] = 1;
+  for (int i = 0; i < NJ; i++) ((float*)D.data)[i] = del[i];
+
+  sisal_array_t R = func_MAIN(A, D, Q, NJ);
+  check("result is one flag per job (N)", (int)R.size == NJ);
+  int ok = (int)R.size == NJ;
+  for (int j = 1; ok && j <= NJ - 1; j++)
+    ok = ((int32_t*)R.data)[j - 1] == su_rowsum(&ab[(j - 1) * (Q + 1)], &ab[j * (Q + 1)], del[j], Q);
+  check("per-row successor sums == C mirror", ok);
+  check("row 1 is in COMPLETE conflict (sum 0)", (int)R.size == NJ && ((int32_t*)R.data)[0] == 0);
+  check("trailing flag for row N is 0", (int)R.size == NJ && ((int32_t*)R.data)[NJ - 1] == 0);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11053,6 +11112,9 @@ main (void)
 #ifdef TEST_BACKTRACK_DV
   test_backtrack_dv ();
 #endif
+#ifdef TEST_SUCCESSOR_DV
+  test_successor_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11222,7 +11284,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
