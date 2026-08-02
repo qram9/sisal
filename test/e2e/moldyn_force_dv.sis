@@ -1,0 +1,187 @@
+% MOLDYN_FORCE — DV variant of the force core of unit/moldyn.sis, T. M. DeBoni's
+% Newtonian pairwise particle dynamics modeller.  This is the inner loop of the
+% simulation: for every particle, the total force its neighbours exert on it,
+% under a Morse potential with a numerical adjustment term.
+%
+%   Calc_Forces   sum the three force components over a particle's neighbours
+%   Force         one component of the force between two particles
+%   Morse_Force   the force magnitude, projected onto one dimension
+%   Basic_Morse   the Morse potential's derivative
+%   F_ADJUST      the adjustment term subtracted from it
+%   Sep_Rad       interparticle distance
+%
+% THE STATE VECTOR.  S is flat with stride 6 per particle -- x, y, z, vx, vy, vz
+% -- so particle P's coordinates start at (P-1)*6+1.  That is already a dope
+% vector's natural shape and is kept verbatim.
+%
+% THE PARAMETER TABLES.  PROBLEM_DATA holds six tables indexed by a PAIR of
+% particle types, A1[Tp,Tn] and friends.  In the original each is an
+% array[array[real]]; here each is a FLAT rank-2 array_dv, so the record is six
+% dope handles rather than six ragged nests -- the same struct-of-arrays shape
+% the ENSEMBLE record already had (POSITIONS is a record of three arrays, not
+% an array of position records).
+%
+% THE NEIGHBOUR LISTS are the ragged part: how many neighbours a particle has
+% is a property of the configuration, not of the program.  They are carried the
+% way GenLinks' layers are -- a rectangular rank-2 NEIGHBORS padded to the
+% worst case, with NCOUNT giving each row's valid extent.  Nothing past
+% NCOUNT[P] is ever read, and a particle with no neighbours takes the
+% zero-trip path, where the sum reductions correctly yield 0.
+%
+% FIDELITY NOTE: the original does not call the exp intrinsic.  It defines
+% e_to_power as `exp(e, X)` -- e raised to X via the two-argument power -- with
+% e written out to nine digits.  That is kept, since pow(2.718281828, x) is not
+% bit-identical to exp(x), and the mirror uses the same form.
+
+define Main
+
+type Reals = array_dv [real];
+type Ints = array_dv [integer];
+
+type PROBLEM_DATA_REC = record
+     [ NUMBER_OF_TYPES : integer;   % also the extent of each table below
+       A1 : Reals;                  % Morse potential parameter   (rank 2)
+       B1 : Reals;                  % Morse potential parameter   (rank 2)
+       Re : Reals;                  % equilibrium separation      (rank 2)
+       Rc : Reals;                  % dissociation separation     (rank 2)
+       ALFA : Reals;                % force adjustment parameter  (rank 2)
+       C0 : Reals;                  % force adjustment parameter  (rank 2)
+       MASS : Reals;                % particle masses, indexed by TYPES
+       DELTA_T : real;
+       ENDTIME : real;
+       TOLERANCE : real ];
+
+function square (X : real returns real)
+   X * X
+end function
+
+function Sep_Rad (X1, Y1, Z1, X2, Y2, Z2 : real returns real)
+   let
+      X_DIFF_SQ := square(X1 - X2);
+      Y_DIFF_SQ := square(Y1 - Y2);
+      Z_DIFF_SQ := square(Z1 - Z2)
+   in
+      sqrt( X_DIFF_SQ + Y_DIFF_SQ + Z_DIFF_SQ )
+   end let
+end function
+
+% e raised to X.  The original spells this out rather than calling exp(X).
+function e_to_power (X : real returns real)
+   let
+      e : real := 2.718281828
+   in
+      exp( e, X )
+   end let
+end function
+
+function log_base_10 (X : real returns real)
+   let
+      log_of_e : real := 0.434294482
+   in
+      log_of_e * LOG( X )
+   end let
+end function
+
+% the actual calculation for Morse_Force
+function Basic_Morse (R, A1, B1, Re : real returns real)
+   (-1.0 / B1 ) * e_to_power( -2.0 * A1 * (R-Re) ) +
+   (+1.0 / B1 ) * e_to_power( -A1 * (R-Re) )
+end function
+
+% a numerical adjustment on the basic force
+function F_ADJUST (R: real; T1, T2 : integer;
+                   PROBLEM_DATA : PROBLEM_DATA_REC returns real)
+   let
+      ALFA : real := PROBLEM_DATA.ALFA[ T1, T2 ];
+      C0 : real := PROBLEM_DATA.C0[ T1, T2 ]
+   in
+      ALFA * e_to_power(ALFA * (R-C0))
+   end let
+end function
+
+% interparticle force under the Morse model, normalised to give the desired
+% vector component.  R and DELTA_Q are the separation magnitude and the
+% separation along one dimension.
+function Morse_Force (R : real; Tp, Tn : integer; DELTA_Q : real;
+                      PROBLEM_DATA : PROBLEM_DATA_REC returns real)
+   let
+      A1 : real := PROBLEM_DATA.A1[ Tp, Tn ];
+      B1 : real := PROBLEM_DATA.B1[ Tp, Tn ];
+      Re : real := PROBLEM_DATA.Re[ Tp, Tn ];
+
+      BASIC_FORCE : real := Basic_Morse( R, A1, B1, Re );
+      FADJ : real := F_ADJUST( R, Tp, Tn, PROBLEM_DATA )
+   in
+      -( BASIC_FORCE - FADJ ) * DELTA_Q / R
+   end let
+end function
+
+% the component of the force between PARTICLE and NEIGHBOR along DIMENSION
+function Force (PARTICLE, NEIGHBOR: integer;
+                DIMENSION : character; S : Reals;
+                TYPES: Ints; PROBLEM_DATA : PROBLEM_DATA_REC
+               returns real)
+   let
+      J : integer := (PARTICLE-1) * 6 + 1;
+      Xp : real := S[ J ];
+      Yp : real := S[ J+1 ];
+      Zp : real := S[ J+2 ];
+      Tp : integer := TYPES[ PARTICLE ];
+
+      K : integer := (NEIGHBOR-1) * 6 + 1;
+      Xn : real := S[ K ];
+      Yn : real := S[ K+1 ];
+      Zn : real := S[ K+2 ];
+      Tn : integer := TYPES[ NEIGHBOR ];
+
+      R : real := Sep_Rad( Xp, Yp, Zp, Xn, Yn, Zn );
+      Delta_Q : real := if DIMENSION = 'X'
+                           then (Xp-Xn)
+                        elseif DIMENSION = 'Y'
+                           then (Yp-Yn)
+                        else (Zp-Zn)
+                        end if
+   in
+      Morse_Force( R, Tp, Tn, Delta_Q, PROBLEM_DATA )
+   end let
+end function
+
+% all three components of the total force on PARTICLE exerted by its neighbours
+function Calc_Forces (PARTICLE : integer; S : Reals;
+                      NEIGHBORS : Ints;      % rank 2, padded
+                      NCOUNT : Ints;         % valid extent per row
+                      TYPES : Ints;
+                      PROBLEM_DATA : PROBLEM_DATA_REC
+                     returns real, real, real)
+   let
+      NEIGHBOR_COUNT := NCOUNT[ PARTICLE ]
+   in
+      for I in 1, NEIGHBOR_COUNT
+         NEIGHBOR := NEIGHBORS[ PARTICLE, I ];
+         FXi : real := Force( PARTICLE, NEIGHBOR, 'X', S, TYPES, PROBLEM_DATA );
+         FYi : real := Force( PARTICLE, NEIGHBOR, 'Y', S, TYPES, PROBLEM_DATA );
+         FZi : real := Force( PARTICLE, NEIGHBOR, 'Z', S, TYPES, PROBLEM_DATA );
+      returns
+         value of sum FXi
+         value of sum FYi
+         value of sum FZi
+      end for
+   end let
+end function
+
+function Main (S : Reals;                 % flat state, stride 6 per particle
+               TYPES : Ints;
+               NEIGHBORS : Ints;          % rank 2: particle x padded slot
+               NCOUNT : Ints;             % neighbours per particle
+               PROBLEM_DATA : PROBLEM_DATA_REC;
+               NP : integer               % number of particles
+              returns
+               Reals, Reals, Reals)       % FX, FY, FZ per particle
+   for P in 1, NP
+      FX, FY, FZ := Calc_Forces( P, S, NEIGHBORS, NCOUNT, TYPES, PROBLEM_DATA );
+   returns
+      array_dv of FX
+      array_dv of FY
+      array_dv of FZ
+   end for
+end function

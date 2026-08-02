@@ -365,6 +365,7 @@ run_group TRACEUTIL_DV      traceutil_dv        ""
 run_group ARCGRID_DV        arcgrid_dv          ""
 run_group TRACE_DV          trace_dv            ""
 run_group JOB_DV            job_dv              ""
+run_group MOLDYN_FORCE_DV   moldyn_force_dv     ""
 
 
 echo "========================================"

@@ -435,6 +435,14 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_MOLDYN_FORCE_DV
+struct md_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
+               float dt, endt, tol; };
+struct MD_results { sisal_array_t fx, fy, fz; };
+extern "C" struct MD_results func_MAIN(sisal_array_t S, sisal_array_t types,
+                                       sisal_array_t neighbors, sisal_array_t ncount,
+                                       md_pd pd, int32_t np);
+#endif
 #ifdef TEST_JOB_DV
 struct jb_srec  { float start, finish, dur; int32_t prio; };
 struct jb_sortr { float val; int32_t loc; };
@@ -10489,6 +10497,146 @@ static void test_job_dv(void) {
   check("schedule is a permutation of the four jobs", (int)r.path.size == N);
 }
 #endif
+#ifdef TEST_MOLDYN_FORCE_DV
+// The force core of moldyn -- T. M. DeBoni's Newtonian pairwise particle
+// dynamics modeller -- and the inner loop of that simulation: for every
+// particle, the total force its neighbours exert under a Morse potential with
+// a numerical adjustment term.
+//
+// Three things are being exercised.  The state vector S is FLAT with stride 6
+// per particle (x,y,z,vx,vy,vz), so particle P starts at (P-1)*6+1.  The six
+// Morse parameter tables are indexed by a PAIR of particle types, A1[Tp,Tn],
+// carried as flat rank-2 array_dv fields inside one record -- struct of
+// arrays, the shape moldyn's ENSEMBLE record already used.  And the neighbour
+// lists are ragged (how many neighbours a particle has is a property of the
+// configuration), so they are a rectangular padded NEIGHBORS with NCOUNT
+// giving each row's valid extent, as GenLinks' layers are.
+//
+// Force also selects its component with CHARACTER literals 'X'/'Y'/'Z', which
+// is why the test data gives all three components distinct values -- a mix-up
+// between them would show.  One particle is placed far outside the cutoff so
+// it has NO neighbours, taking the zero-trip path where the sum reductions
+// must yield 0 rather than garbage.
+//
+// FIDELITY: the original never calls the exp intrinsic; it defines e_to_power
+// as `exp(e, X)`, e-to-the-X via the two-argument power, with e written to
+// nine digits.  The mirror uses powf(2.718281828f, x) to match, since that is
+// not bit-identical to expf(x).
+enum { MD_NP = 5, MD_NT = 2, MD_MAXN = MD_NP - 1 };
+static float md_a1[MD_NT * MD_NT], md_b1[MD_NT * MD_NT], md_re[MD_NT * MD_NT];
+static float md_rc[MD_NT * MD_NT], md_alfa[MD_NT * MD_NT], md_c0[MD_NT * MD_NT];
+static float md_S[MD_NP * 6]; static int md_types[MD_NP];
+static float md_e_to_power(float x) { return powf(2.718281828f, x); }
+static float md_sep(float x1, float y1, float z1, float x2, float y2, float z2) {
+  float dx = x1 - x2, dy = y1 - y2, dz = z1 - z2;
+  return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+static float md_basic_morse(float R, float A1, float B1, float Re) {
+  return (-1.0f / B1) * md_e_to_power(-2.0f * A1 * (R - Re))
+       + ( 1.0f / B1) * md_e_to_power(-A1 * (R - Re));
+}
+static float md_f_adjust(float R, int t1, int t2) {
+  float A = md_alfa[(t1 - 1) * MD_NT + (t2 - 1)], C = md_c0[(t1 - 1) * MD_NT + (t2 - 1)];
+  return A * md_e_to_power(A * (R - C));
+}
+static float md_morse_force(float R, int tp, int tn, float dq) {
+  float A = md_a1[(tp - 1) * MD_NT + (tn - 1)], B = md_b1[(tp - 1) * MD_NT + (tn - 1)];
+  float Re = md_re[(tp - 1) * MD_NT + (tn - 1)];
+  return -(md_basic_morse(R, A, B, Re) - md_f_adjust(R, tp, tn)) * dq / R;
+}
+static float md_force(int p, int n, char dim) {
+  int j = (p - 1) * 6, k = (n - 1) * 6;
+  float xp = md_S[j], yp = md_S[j + 1], zp = md_S[j + 2];
+  float xn = md_S[k], yn = md_S[k + 1], zn = md_S[k + 2];
+  int tp = md_types[p - 1], tn = md_types[n - 1];
+  float R = md_sep(xp, yp, zp, xn, yn, zn);
+  float dq = (dim == 'X') ? (xp - xn) : (dim == 'Y') ? (yp - yn) : (zp - zn);
+  return md_morse_force(R, tp, tn, dq);
+}
+static void test_moldyn_force_dv(void) {
+  printf("\n=== Group: moldyn_force_dv (Morse force over ragged neighbours) ===\n");
+  float pos[MD_NP][3] = { { 0.0f, 0.0f, 0.0f }, { 1.1f, 0.2f, 0.0f },
+                          { 0.3f, 1.0f, 0.4f }, { 2.0f, 1.6f, 0.5f },
+                          { 9.0f, 9.0f, 9.0f } };   // last one is isolated
+  for (int p = 0; p < MD_NP; p++) {
+    md_S[p * 6] = pos[p][0]; md_S[p * 6 + 1] = pos[p][1]; md_S[p * 6 + 2] = pos[p][2];
+    md_S[p * 6 + 3] = 0.1f * p; md_S[p * 6 + 4] = 0.0f; md_S[p * 6 + 5] = -0.05f * p;
+  }
+  int t[MD_NP] = { 1, 2, 1, 2, 1 }; memcpy(md_types, t, sizeof t);
+  for (int i = 0; i < MD_NT; i++) for (int j = 0; j < MD_NT; j++) {
+    int x = i * MD_NT + j;
+    md_a1[x] = 1.0f + 0.1f * x; md_b1[x] = 2.0f + 0.2f * x;
+    md_re[x] = 1.0f + 0.05f * x; md_rc[x] = 3.0f;
+    md_alfa[x] = 0.5f + 0.1f * x; md_c0[x] = 2.5f + 0.1f * x;
+  }
+  const float CUT = 2.0f;
+  std::vector<int> nb(MD_NP * MD_MAXN, 0), nc(MD_NP, 0);
+  for (int p = 1; p <= MD_NP; p++) {
+    int c = 0;
+    for (int q = 1; q <= MD_NP; q++) if (q != p) {
+      float R = md_sep(pos[p - 1][0], pos[p - 1][1], pos[p - 1][2],
+                       pos[q - 1][0], pos[q - 1][1], pos[q - 1][2]);
+      if (R <= CUT) nb[(p - 1) * MD_MAXN + (c++)] = q;
+    }
+    nc[p - 1] = c;
+  }
+  // ---- mirror ----
+  std::vector<float> mfx(MD_NP, 0), mfy(MD_NP, 0), mfz(MD_NP, 0);
+  for (int p = 1; p <= MD_NP; p++) {
+    float fx = 0, fy = 0, fz = 0;
+    for (int i = 0; i < nc[p - 1]; i++) {
+      int n = nb[(p - 1) * MD_MAXN + i];
+      fx += md_force(p, n, 'X'); fy += md_force(p, n, 'Y'); fz += md_force(p, n, 'Z');
+    }
+    mfx[p - 1] = fx; mfy[p - 1] = fy; mfz[p - 1] = fz;
+  }
+  // ---- compiled Sisal ----
+  auto mk1 = [&](const void* src, size_t n, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(1, 96, n, esz);
+    A.lower_bound[0] = 1; A.stride[0] = 1; memcpy(A.data, src, esz * n); return A;
+  };
+  auto mk2 = [&](const void* src, int d0, int d1, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(2, 96, (size_t)d0 * d1, esz);
+    A.rank = 2; A.dims[0] = d0; A.dims[1] = d1;
+    A.lower_bound[0] = 1; A.lower_bound[1] = 1; A.stride[0] = d1; A.stride[1] = 1;
+    memcpy(A.data, src, esz * (size_t)d0 * d1); return A;
+  };
+  md_pd pd; pd.nt = MD_NT;
+  pd.A1 = mk2(md_a1, MD_NT, MD_NT, sizeof(float));
+  pd.B1 = mk2(md_b1, MD_NT, MD_NT, sizeof(float));
+  pd.Re = mk2(md_re, MD_NT, MD_NT, sizeof(float));
+  pd.Rc = mk2(md_rc, MD_NT, MD_NT, sizeof(float));
+  pd.ALFA = mk2(md_alfa, MD_NT, MD_NT, sizeof(float));
+  pd.C0 = mk2(md_c0, MD_NT, MD_NT, sizeof(float));
+  float mass[MD_NT] = { 1.0f, 2.0f };
+  pd.MASS = mk1(mass, MD_NT, sizeof(float));
+  pd.dt = 0.01f; pd.endt = 1.0f; pd.tol = 1e-6f;
+  sisal_array_t S = mk1(md_S, MD_NP * 6, sizeof(float));
+  sisal_array_t T = mk1(md_types, MD_NP, sizeof(int32_t));
+  sisal_array_t NB = mk2(nb.data(), MD_NP, MD_MAXN, sizeof(int32_t));
+  sisal_array_t NC = mk1(nc.data(), MD_NP, sizeof(int32_t));
+  MD_results r = func_MAIN(S, T, NB, NC, pd, MD_NP);
+
+  check("one force triple per particle",
+        (int)r.fx.size == MD_NP && (int)r.fy.size == MD_NP && (int)r.fz.size == MD_NP);
+  int ok = (int)r.fx.size == MD_NP;
+  for (int p = 0; ok && p < MD_NP; p++) {
+    float sx = ((float*)r.fx.data)[p], sy = ((float*)r.fy.data)[p], sz = ((float*)r.fz.data)[p];
+    float tol = 1e-4f * (1.0f + fabsf(mfx[p]) + fabsf(mfy[p]) + fabsf(mfz[p]));
+    ok = fabsf(sx - mfx[p]) < tol && fabsf(sy - mfy[p]) < tol && fabsf(sz - mfz[p]) < tol;
+  }
+  check("Morse forces == C mirror (all three components)", ok);
+  check("neighbour counts genuinely vary (2 3 3 2 0)",
+        nc[0] == 2 && nc[1] == 3 && nc[2] == 3 && nc[3] == 2 && nc[4] == 0);
+  check("isolated particle gets exactly zero force (zero-trip sum)",
+        ((float*)r.fx.data)[4] == 0.0f && ((float*)r.fy.data)[4] == 0.0f
+        && ((float*)r.fz.data)[4] == 0.0f);
+  int distinct = 1;
+  for (int p = 0; p < MD_NP - 1; p++)
+    if (mfx[p] == mfy[p] || mfy[p] == mfz[p]) distinct = 0;
+  check("X/Y/Z components differ, so a character mix-up would show", distinct);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11878,6 +12026,9 @@ main (void)
 #ifdef TEST_JOB_DV
   test_job_dv ();
 #endif
+#ifdef TEST_MOLDYN_FORCE_DV
+  test_moldyn_force_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -12047,7 +12198,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
