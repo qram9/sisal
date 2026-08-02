@@ -1,0 +1,24 @@
+% NEGATIVE: a `when` mask on a CROSS gather is not an array_dv operation.
+%
+% Masking COMPACTS -- `for i in 1,6 returns array_dv of i when mod(i,2)=0` gives
+% [2,4,6], three of six.  A cross gather's result is rectangular (i_ext x j_ext),
+% so masking it makes the shape ragged: how many survive is a property of the
+% DATA, not of the extents.  array_dv is strictly sized, so there is no array_dv
+% answer here.
+%
+% This used to compile and SILENTLY DROP the mask (returning all four elements,
+% [11,12,21,22], instead of [12,21]).  The IF1 does carry the mask -- a cross
+% builds a nested RETURNS and the mask rides the INNER gather -- but the lowering
+% only consulted the outer one.
+%
+% The alternatives are in the error message: give the result an explicit extent
+% when the size is known, or accumulate into a list and pack it once (what
+% e2e/backtrack_dv.sis does for a walk whose length is unknown until it ends).
+define main
+type A = array_dv[integer];
+
+function main( returns A )
+  for i in 1, 2 cross j in 1, 2
+  returns array_dv of i*10 + j when (i + j) = 3
+  end for
+end function

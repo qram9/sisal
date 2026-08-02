@@ -318,6 +318,46 @@ let forall_reduce_filter_of loop_gr out_port =
           else acc)
         ret_gr.eset None
 
+(* A `when`/`unless` mask on a MULTI-GENERATOR (cross) gather has no array_dv
+   answer.  Masking COMPACTS -- a single-generator masked gather returns only the
+   elements that pass -- but a cross gather's result is rectangular (i_ext x
+   j_ext), and a mask makes it ragged: the surviving count is a property of the
+   data, not of the extents.  array_dv is strictly sized, so that shape simply is
+   not an array_dv operation.
+
+   The IF1 does carry the mask (a cross builds a NESTED RETURNS and the mask sits
+   on the INNER gather, while the outer one has no Pr_mask), and the lowering
+   only ever consulted the outer -- so this used to compile to a full rectangular
+   array with the mask SILENTLY DROPPED.  Wrong answers of plausible size are the
+   worst failure mode, so reject instead, and say what to do about it. *)
+let reject_masked_cross_gather loop_gr =
+  match find_subgraph loop_gr "RETURNS" with
+  | None -> ()
+  | Some (_, ret_gr) ->
+      NM.iter
+        (fun _ node ->
+          match node with
+          | Compound (_, _, _, cpr, inner_gr, _)
+            when Cpp_helpers.get_compound_type cpr = If1_results ->
+              NM.iter
+                (fun _ inner ->
+                  match inner with
+                  | Simple (_, (DV_GATHER | AGATHER), _, _, ipr)
+                    when port_of_role ipr Pr_mask <> None ->
+                      failwith
+                        "forall gather: a `when`/`unless` mask on a CROSS \
+                         generator is not an array_dv operation -- masking \
+                         compacts, so the surviving count is a property of the \
+                         data and the result is ragged, not rectangular. \
+                         Accumulate into a list and pack it once at the end \
+                         (see test/e2e/backtrack_dv.sis).  An explicit extent \
+                         (`array_dv(n) of ... when ...`) carries a mask on a \
+                         SINGLE generator, but not across a cross."
+                  | _ -> ())
+                inner_gr.nmap
+          | _ -> ())
+        ret_gr.nmap
+
 (* Companion to forall_reduce_ports: list of (returns_out_port, body_out_port) for each
    RETURNS output fed by a DV_GATHER node (an array output).  Together they classify
    EVERY output port of a multi-output forall, so a mixed gather+reduce forall can be
@@ -4581,6 +4621,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         in
         (* RETURNS ports fed by FINALVALUE (`value of X`, keep-last) vs DV_GATHER. *)
         let final_specs = forall_finalvalue_ports loop_gr in
+        reject_masked_cross_gather loop_gr;
         let gather_specs = forall_gather_ports loop_gr in
         let is_final p = List.exists (fun (fp, _) -> fp = p) final_specs in
         let is_gather p = List.exists (fun (gp, _) -> gp = p) gather_specs in

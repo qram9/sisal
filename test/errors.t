@@ -48,6 +48,12 @@ Multi-bind arity is strict - 2 names cannot absorb 3 values (no implicit packing
   there was an error: Ir.If1.Sem_error("Definition binds 2 name(s) but its right-hand side produces 3 value(s); names and values must correspond one-to-one")
   [1]
 
+A `when` mask on a CROSS gather is not an array_dv operation: masking compacts,
+so the result is ragged rather than rectangular.  (It used to compile and drop
+the mask silently, returning the full rectangular array.)
+  $ sisal unit/masked_cross_gather.sis --c=/dev/null 2>&1 | grep '^there was'
+  there was an error: Failure("forall gather: a `when`/`unless` mask on a CROSS generator is not an array_dv operation -- masking compacts, so the surviving count is a property of the data and the result is ragged, not rectangular. Accumulate into a list and pack it once at the end (see test/e2e/backtrack_dv.sis).  An explicit extent (`array_dv(n) of ... when ...`) carries a mask on a SINGLE generator, but not across a cross.")
+
 Sizability: a DIRECTLY (inline) recursive type has no compile-time size, so it
 cannot be an array_dv element.  (Recursion THROUGH an array_dv is sizable -- the
 dope handle stops the size fold -- and is allowed: see member_dv in positive.t.)

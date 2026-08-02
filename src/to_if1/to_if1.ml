@@ -1956,6 +1956,27 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
               let is_body nm =
                 String.length nm >= 13 && String.sub nm 0 13 = "__forall_body"
               in
+              (* RETURNS BOUNDARY PORT MAP.  Every import here has a fully
+                 known role (body value, `when` mask, scatter placement, gather
+                 extent, loop bound), so record the port each one actually lands
+                 on and publish it as a Portmap on the RETURNS compound.  The
+                 backend then asks "which port is the mask?" instead of
+                 recomputing an offset -- the same doctrine the DV_GATHER /
+                 REDUCE node Portmaps already follow. *)
+              let bmap = ref [] in
+              let note lbl p =
+                let role =
+                  if is_body lbl then If1.Pr_value
+                  else if String.length lbl >= 14
+                          && String.sub lbl 0 14 = "__forall_mask_" then If1.Pr_mask
+                  else if String.length lbl >= 6 && String.sub lbl 0 6 = "__plc_"
+                  then If1.Pr_placement
+                  else if String.length lbl >= 6 && String.sub lbl 0 6 = "__ext_"
+                  then If1.Pr_extent
+                  else If1.Pr_other lbl
+                in
+                bmap := !bmap @ [ (role, p) ]
+              in
               let rn_gr, body_base, body_count, rn_edges =
                 List.fold_left
                   (fun (rn_gr, base, cnt, redges) item ->
@@ -1966,6 +1987,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                             let p, rn_gr =
                               If1.add_to_boundary_inputs ~namen:nm dd dp rn_gr
                             in
+                            note nm p;
                             if is_body nm then
                               ( rn_gr,
                                 (if cnt = 0 then p else base),
@@ -1973,20 +1995,18 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                                 redges )
                             else (rn_gr, base, cnt, redges)
                         | None -> (rn_gr, base, cnt, redges))
-                    | `Src (sn, sp, ty, lbl, expect) ->
-                        (* placement/extent: recorded source, explicit edge --
-                           wire_all_syms can't lay these (labels are cosmetic,
-                           never in a symtab).  The port MUST land where
-                           add_return_gr's payload rewrite computed it. *)
+                    | `Src (sn, sp, ty, lbl, _expect) ->
+                        (* placement/extent/mask: recorded source, explicit edge
+                           -- wire_all_syms can't lay these (labels are
+                           cosmetic, never in a symtab).  The port it lands on is
+                           RECORDED in the RETURNS boundary Portmap below rather
+                           than asserted: masks are imported before placements
+                           and extents, so any hand-computed expectation shifts
+                           the moment a `when` appears.  Roles, not positions. *)
                         let p, rn_gr =
                           If1.add_to_boundary_inputs ~namen:lbl sn sp rn_gr
                         in
-                        if p <> expect then
-                          failwith
-                            (Printf.sprintf
-                               "forall returns positional contract violated: \
-                                %s landed on port %d, expected %d"
-                               lbl p expect);
+                        note lbl p;
                         (rn_gr, base, cnt, redges @ [ (sn, sp, p, ty) ]))
                   (rn_gr, -1, 0, []) imports
               in
@@ -2017,6 +2037,7 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                     ]
                 else pl
               in
+              let pl = pl @ [ If1.Portmap !bmap ] in
               let forall_gr =
                 {
                   forall_gr with
