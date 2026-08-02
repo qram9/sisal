@@ -1,0 +1,104 @@
+% BackTrack's path trace, rewritten along the array_dv + list lines.
+%
+% The original (test/unit/BackTrack.sis) does:
+%     for initial NextJob := JobIndex; NextSeg := SegIndex
+%     while FinalPtrs[NextJob,NextSeg].Max.Job ~= 0 repeat ...
+%     returns array of NextJob  array of NextSeg
+% and the C backend cannot size those gathers: the loop is a SENTINEL-terminated
+% pointer chase (follow Max.Job/.Max.Seg back through the job-schedule DAG until
+% Max.Job = 0), so the trip count is a property of the data, not of the test.
+% There is no bound to derive -- `bound - seed + 1` is meaningless for a `~=`.
+%
+% So the two kinds of storage are separated by what they actually are:
+%   * FinalPtrs stays an ARRAY_DV.  It is rectangular (jobs x segments) and
+%     SegRec is a non-recursive record, hence sizable -- a dope holds it fine,
+%     and FinalPtrs[j,s].Max.Job is the rank-2-subscript-then-nested-field read.
+%   * the trace result becomes a LIST, because its length is unknown until the
+%     walk ends.  It is packed into an array_dv once, at the end.
+%
+% A bonus of consing: the last node visited ends up at the HEAD, so the list is
+% already in schedule order.  The original gathers in visit order and then runs a
+% second loop to reverse it (its ReverseJob -> JobOrder step); that pass is gone.
+%
+% Exercised here: rank-2 array_dv of records with nested field access, a
+% for-initial carrying TWO lists, a for-initial carrying a list AND an array_dv,
+% and array_addh growth.
+define main
+
+% FinalPtrs stays an array_dv: it is RECTANGULAR (jobs x segments), not ragged,
+% and SegRec is a non-recursive record, so it is sizable and lives in a dope.
+type MaxRec = record[ Val, Job, Seg: integer ];
+type SegRec = record[ EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean ];
+type SegArr = array_dv[ SegRec ];          % rank-2: jobs x segs
+type Ints   = array_dv[ integer ];
+
+% the trace result has NO statically known length (it is a sentinel-terminated
+% pointer chase), so it is accumulated as a LIST, then packed once at the end.
+type IList = union[ empty: null; cons: record[ hd: integer; tl: IList ] ];
+
+function Mt( returns IList ) union IList[ empty: nil ] end function
+function Cons( h: integer; t: IList returns IList )
+  union IList[ cons: record[ hd: h; tl: t ] ]
+end function
+function Hd( l: IList returns integer )
+  tagcase x := l tag empty: 0 tag cons: x.hd end tagcase
+end function
+function Tl( l: IList returns IList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+% pack a list into an array_dv -- one pass, carrying both the list and the array
+function Pack( l: IList returns Ints )
+  for initial
+    cur := l;
+    acc := array_dv Ints []
+  while ~is empty( cur ) repeat
+    acc := array_addh( old acc, Hd( old cur ) );
+    cur := Tl( old cur )
+  returns value of acc
+  end for
+end function
+
+% BackTrack's walk: follow Max.Job/.Max.Seg back until the 0 sentinel.
+% Consing puts the LAST-visited node at the head, i.e. the list comes out in
+% schedule order already -- the original gathered in visit order and then had to
+% reverse it (its `ReverseJob` / `JobOrder` pair).
+function Trace( FinalPtrs: SegArr; JobIndex, SegIndex: integer
+       returns IList, IList )
+  for initial
+    nj := JobIndex;
+    ns := SegIndex;
+    jl := Cons( JobIndex, Mt() );
+    sl := Cons( SegIndex, Mt() )
+  while FinalPtrs[ nj, ns ].Max.Job ~= 0 repeat
+    nj := FinalPtrs[ old nj, old ns ].Max.Job;
+    ns := FinalPtrs[ old nj, old ns ].Max.Seg;
+    jl := Cons( FinalPtrs[ old nj, old ns ].Max.Job, old jl );
+    sl := Cons( FinalPtrs[ old nj, old ns ].Max.Seg, old sl )
+  returns value of jl
+          value of sl
+  end for
+end function
+
+% ---- a small synthetic graph so the walk is checkable -------------------
+% chain: (3,2) -> (2,1) -> (1,2) -> sentinel
+function MkPtrs( returns SegArr )
+  for j in 1, 3 cross s in 1, 2
+    m := if j = 3 & s = 2 then record MaxRec[ Val: 0; Job: 2; Seg: 1 ]
+         elseif j = 2 & s = 1 then record MaxRec[ Val: 0; Job: 1; Seg: 2 ]
+         else record MaxRec[ Val: 0; Job: 0; Seg: 0 ]
+         end if
+  returns array_dv of record SegRec[ EnableCnt: 0; Max: m; Priority: 0;
+                                     Fired: false; Leaf: false ]
+  end for
+end function
+
+function main( returns Ints, Ints )
+  let
+    p := MkPtrs();
+    jl, sl := Trace( p, 3, 2 )
+  in
+    Pack( jl ), Pack( sl )
+  end let
+end function
