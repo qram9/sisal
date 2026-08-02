@@ -435,6 +435,14 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_TRACE_DV
+struct tr_maxr { int32_t val, job, seg; };
+struct tr_segr { int32_t ecnt; tr_maxr mx; int32_t prio; bool fired, leaf; };
+struct tr_arcr { int32_t job, seg; tr_maxr mx; };
+extern "C" sisal_array_t func_MAIN(sisal_array_t links, sisal_array_t ptrs,
+                                   sisal_array_t vs, sisal_array_t depth,
+                                   int32_t n, int32_t q);
+#endif
 #ifdef TEST_ARCGRID_DV
 struct ag_maxr { int32_t val, job, seg; };
 struct ag_segr { int32_t ecnt; ag_maxr mx; int32_t prio; bool fired, leaf; };
@@ -10147,6 +10155,149 @@ static void test_arcgrid_dv(void) {
         ((int32_t*)r.cnts.data)[3] == 3 && ((ag_maxr*)r.maxs.data)[3].val == 9);
 }
 #endif
+#ifdef TEST_TRACE_DV
+// The whole Job Shop wavefront to fixpoint, and the last function of
+// trace.sis: fan arcs out of every enabled unfired segment, fold them back
+// into the Grid (decrementing enable counts, which is what enables the next
+// wave), repeat until a pass yields no arcs.  What propagates is the
+// longest-path value: a segment's Max.Val becomes its own priority plus the
+// best value arriving at it.
+//
+// The loop is SENTINEL-terminated -- `while (array_size(Arcs) ~= 0)`, no
+// derivable trip count.  That is fatal for a for-initial GATHER, which must
+// size its allocation up front (backtrack_dv had to accumulate into a list
+// and pack once at the end).  Here it costs nothing: `value of Grid` is a
+// FINALVALUE, which keeps the last iteration's value and allocates nothing,
+// so the sentinel loop lowers directly.
+//
+// The mirror runs the ORIGINAL staging throughout -- GenArcs, then the
+// Batcher-order sorts / ragged compressed tables / re-expansion that the port
+// fuses -- so the whole pipeline is checked end to end, not just its pieces.
+enum { TR_N = 3, TR_Q = 1, TR_S = TR_Q + 1, TR_MAXD = 2 };
+static int tr_depth[TR_N] = { 2, 1, 1 };
+static int tr_vs[TR_N * TR_MAXD] = { 2, 3,  3, 0,  0, 0 };
+static int tr_links[TR_N * TR_MAXD * TR_S];
+static tr_maxr tr_findmax(tr_maxr a, tr_maxr b) {
+  if (a.val > b.val) return a;
+  if (b.val > a.val) return b;
+  return (a.job < b.job) ? a : b;
+}
+static void tr_genarcs(std::vector<tr_segr>& grid, std::vector<tr_arcr>& out) {
+  std::vector<tr_segr> ng(TR_N * TR_S); out.clear();
+  for (int I = 1; I <= TR_N; I++) for (int K = 1; K <= TR_S; K++) {
+    tr_segr seg = grid[(I - 1) * TR_S + (K - 1)];
+    int newval = seg.prio + seg.mx.val;
+    std::vector<tr_arcr> arcs;
+    for (int J = 1; J <= tr_depth[I - 1]; J++) {
+      int lk = tr_links[((I - 1) * TR_MAXD + (J - 1)) * TR_S + (K - 1)];
+      if ((seg.ecnt == 0 && !seg.fired) && lk != 0)
+        arcs.push_back({ tr_vs[(I - 1) * TR_MAXD + (J - 1)], lk, { newval, I, K } });
+    }
+    tr_segr ns = seg;
+    if (seg.ecnt == 0 && !seg.fired) {
+      ns.mx.val = newval; ns.fired = true;
+      if ((int)arcs.size() != tr_depth[I - 1]) ns.leaf = true;
+    }
+    ng[(I - 1) * TR_S + (K - 1)] = ns;
+    for (auto& a : arcs) out.push_back(a);
+  }
+  grid = ng;
+}
+static void tr_arcgrid(const std::vector<tr_arcr>& arcs, std::vector<tr_segr>& grid) {
+  std::vector<tr_arcr> byJob = arcs;
+  std::stable_sort(byJob.begin(), byJob.end(),
+                   [](const tr_arcr& a, const tr_arcr& b) { return a.job < b.job; });
+  tr_maxr zero{ 0, 0, 0 };
+  std::vector<tr_maxr> mMax(TR_N * TR_S, zero); std::vector<int> mCnt(TR_N * TR_S, 0);
+  for (size_t i = 0; i < byJob.size();) {
+    size_t j = i; while (j < byJob.size() && byJob[j].job == byJob[i].job) j++;
+    std::vector<tr_arcr> aJob(byJob.begin() + i, byJob.begin() + j);
+    std::stable_sort(aJob.begin(), aJob.end(),
+                     [](const tr_arcr& a, const tr_arcr& b) { return a.seg < b.seg; });
+    for (size_t p = 0; p < aJob.size();) {
+      size_t q2 = p; while (q2 < aJob.size() && aJob[q2].seg == aJob[p].seg) q2++;
+      std::vector<tr_arcr> cell(aJob.begin() + p, aJob.begin() + q2);
+      std::stable_sort(cell.begin(), cell.end(),
+                       [](const tr_arcr& a, const tr_arcr& b) { return a.mx.val < b.mx.val; });
+      int I = byJob[i].job, K = aJob[p].seg;
+      mMax[(I - 1) * TR_S + (K - 1)] = cell.back().mx;
+      mCnt[(I - 1) * TR_S + (K - 1)] = (int)cell.size();
+      p = q2;
+    }
+    i = j;
+  }
+  for (int I = 1; I <= TR_N; I++) for (int K = 1; K <= TR_S; K++) {
+    int c = mCnt[(I - 1) * TR_S + (K - 1)];
+    if (c != 0) {
+      tr_segr& g = grid[(I - 1) * TR_S + (K - 1)];
+      g.ecnt -= c; g.mx = tr_findmax(g.mx, mMax[(I - 1) * TR_S + (K - 1)]);
+    }
+  }
+}
+static void test_trace_dv(void) {
+  printf("\n=== Group: trace_dv (sentinel wavefront to fixpoint) ===\n");
+  memset(tr_links, 0, sizeof tr_links);
+  auto L = [&](int I, int J, int K) -> int& {
+    return tr_links[((I - 1) * TR_MAXD + (J - 1)) * TR_S + (K - 1)]; };
+  L(1,1,1) = 1; L(1,1,2) = 2;      // job1 -> job2, segment-wise
+  L(1,2,1) = 1; L(1,2,2) = 1;      // job1 -> job3 seg1 from both segments
+  L(2,1,1) = 2; L(2,1,2) = 2;      // job2 -> job3 seg2
+  int ecnt[TR_N * TR_S] = { 0, 0,  1, 1,  2, 2 };   // incoming arc counts
+  std::vector<tr_segr> grid0(TR_N * TR_S);
+  for (int i = 0; i < TR_N; i++) for (int k = 0; k < TR_S; k++) {
+    tr_segr g{}; g.ecnt = ecnt[i * TR_S + k]; g.mx = { 0, 0, 0 };
+    g.prio = 10 * (i + 1) + (k + 1); g.fired = false; g.leaf = false;
+    grid0[i * TR_S + k] = g;
+  }
+  // ---- mirror: wavefront to fixpoint, original staging ----
+  std::vector<tr_segr> mg = grid0; std::vector<tr_arcr> arcs;
+  tr_genarcs(mg, arcs);
+  int waves = 0;
+  while (!arcs.empty()) {
+    waves++;
+    std::vector<tr_segr> tmp = mg; tr_arcgrid(arcs, tmp);
+    mg = tmp; tr_genarcs(mg, arcs);
+  }
+  // ---- compiled Sisal ----
+  auto mk = [&](int rank, int d0, int d1, int d2, size_t esz, const void* src, size_t n) {
+    sisal_array_t A = sisal_array_alloc_sized(rank, 96, n, esz);
+    A.rank = rank; A.dims[0] = d0; A.lower_bound[0] = 1;
+    if (rank > 1) { A.dims[1] = d1; A.lower_bound[1] = 1; }
+    if (rank > 2) { A.dims[2] = d2; A.lower_bound[2] = 1; }
+    if (rank == 1) A.stride[0] = 1;
+    if (rank == 2) { A.stride[0] = d1; A.stride[1] = 1; }
+    if (rank == 3) { A.stride[0] = d1 * d2; A.stride[1] = d2; A.stride[2] = 1; }
+    memcpy(A.data, src, esz * n); return A;
+  };
+  sisal_array_t Lk = mk(3, TR_N, TR_MAXD, TR_S, sizeof(int32_t), tr_links, TR_N * TR_MAXD * TR_S);
+  sisal_array_t P  = mk(2, TR_N, TR_S, 0, sizeof(tr_segr), grid0.data(), TR_N * TR_S);
+  sisal_array_t V  = mk(2, TR_N, TR_MAXD, 0, sizeof(int32_t), tr_vs, TR_N * TR_MAXD);
+  sisal_array_t Dp = mk(1, TR_N, 0, 0, sizeof(int32_t), tr_depth, TR_N);
+  sisal_array_t r = func_MAIN(Lk, P, V, Dp, TR_N, TR_Q);
+
+  check("result is the rank-2 Grid", r.rank == 2 && (int)r.size == TR_N * TR_S);
+  int ok = (int)r.size == TR_N * TR_S;
+  for (int i = 0; ok && i < TR_N * TR_S; i++) {
+    tr_segr a = ((tr_segr*)r.data)[i], b = mg[i];
+    ok = a.ecnt == b.ecnt && a.fired == b.fired && a.leaf == b.leaf
+      && a.mx.val == b.mx.val && a.mx.job == b.mx.job && a.mx.seg == b.mx.seg
+      && a.prio == b.prio;
+  }
+  check("converged Grid == original staged pipeline", ok);
+  int allfired = 1, anyleaf = 0;
+  for (int i = 0; i < TR_N * TR_S; i++) {
+    allfired &= ((tr_segr*)r.data)[i].fired;
+    anyleaf |= ((tr_segr*)r.data)[i].leaf;
+  }
+  check("the sentinel loop ran to fixpoint (every segment fired)", allfired);
+  check("terminal segments are marked leaf", anyleaf);
+  check("longest-path value propagated: (2,1) = prio 21 + best incoming 11",
+        ((tr_segr*)r.data)[2].mx.val == 32);
+  check("longest-path value propagated: (3,2) = prio 32 + max(32,34)",
+        ((tr_segr*)r.data)[5].mx.val == 66);
+  check("mirror needed more than one wavefront", waves >= 2);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11530,6 +11681,9 @@ main (void)
 #ifdef TEST_ARCGRID_DV
   test_arcgrid_dv ();
 #endif
+#ifdef TEST_TRACE_DV
+  test_trace_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11699,7 +11853,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

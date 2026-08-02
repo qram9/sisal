@@ -1,0 +1,181 @@
+% TRACE — DV variant of Trace from unit/trace.sis (Job Shop Scheduler), and
+% the last function in that file.  Runs the whole wavefront to fixpoint: fan
+% out arcs from every enabled, unfired segment, fold them back into the Grid
+% (decrementing enable counts, which is what enables the next wave), and
+% repeat until a pass produces no arcs at all.
+%
+% The loop is SENTINEL-terminated -- `while (array_size(Arcs) ~= 0)` -- with no
+% derivable trip count.  That is fatal for a for-initial GATHER, which has to
+% size its allocation up front (see backtrack_dv, where the trace had to
+% accumulate into a list and pack once at the end).  Here it costs nothing:
+% `value of Grid` is a FINALVALUE, which keeps the last iteration's value and
+% allocates nothing, so the sentinel loop lowers directly.
+%
+% The body is one call rather than the original's three, because SortArcs +
+% ExpandToGrid + UpdateGrid fuse into a single dense per-cell fold -- see
+% arcgrid_dv for that reasoning and for the check against the original
+% three-stage pipeline.
+
+define Main
+
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Seg_TwoDim = array_dv [SegRec];
+type ArcRec = record [Job, Seg: integer; Max: MaxRec];
+type Arc_OneDim = array_dv [ArcRec];
+type Int_OneDim = array_dv [integer];
+type Int_TwoDim = array_dv [integer];
+type Int_ThreeDim = array_dv [integer];
+
+function FindMax (Rec1, Rec2: MaxRec returns MaxRec)
+   if (Rec1.Val > Rec2.Val) then
+      Rec1
+   elseif (Rec2.Val > Rec1.Val) then
+      Rec2
+   else
+      if (Rec1.Job < Rec2.Job) then Rec1 else Rec2 end if
+   end if
+end function
+
+function UpdateSeg (Seg : SegRec; Cnt : integer; Max : MaxRec returns SegRec)
+   let
+      NewECnt := Seg.EnableCnt - Cnt;
+      NewMax := FindMax (Seg.Max, Max);
+      NewRec := Seg replace [EnableCnt: NewECnt; Max: NewMax];
+   in
+      NewRec
+   end let
+end function
+
+function ZeroRow (Q: integer returns Int_OneDim)
+   for K in 1, Q+1
+   returns array_dv of 0
+   end for
+end function
+
+
+function GenArcs (Links : Int_ThreeDim;
+                  Grid : Seg_TwoDim;
+                  Vs : Int_TwoDim;
+                  Depth : Int_OneDim;
+                  N, Q : integer
+                 returns
+                  Seg_TwoDim,
+                  Arc_OneDim)
+%
+%  Generate all possible arcs and keep the good ones.  Count them
+%  and mark segments as fired and possibly leaves.
+%
+   for I in 1, N cross
+       K in 1, (Q+1)
+      Seg := Grid[I,K];
+      NewVal := Seg.Priority + Seg.Max.Val;
+      Arcs :=
+         for J in 1, Depth[I]
+            Arc := record ArcRec [Job: Vs[I,J];
+                                  Seg: Links[I,J,K];
+                                  Max: record MaxRec [Val: NewVal;
+                                                      Job: I;
+                                                      Seg: K]];
+         returns
+            array_dv of Arc when (((Seg.EnableCnt = 0) & ~Seg.Fired)  &
+                                (Links[I,J,K] ~= 0))
+         end for;
+      NewSeg :=
+         if ((Seg.EnableCnt = 0) & ~Seg.Fired) then
+            if (array_size(Arcs) ~= Depth[I]) then
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true;
+                            Leaf: true]
+            else
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true]
+            end if
+         else
+            Seg
+         end if;
+   returns
+      array_dv of NewSeg
+      value of catenate Arcs
+   end for
+end function
+
+
+function ArcGrid (Arcs : Arc_OneDim;
+                  Grid : Seg_TwoDim;
+                  N, Q : integer
+                 returns
+                  Seg_TwoDim)
+%
+%  SortArcs + ExpandToGrid + UpdateGrid, fused (see arcgrid_dv)
+%
+   let
+      ZeroRec := record MaxRec [Val: 0; Job: 0; Seg: 0];
+      ASize := array_size (Arcs);
+
+      Maxs, Cnts :=
+         for I in 1, N cross
+             K in 1, (Q+1)
+            Best, Cnt :=
+               for initial
+                  J := 0;
+                  Best := ZeroRec;
+                  C := 0;
+               while (J < ASize)
+               repeat
+                  J := old J + 1;
+                  Arc := Arcs[J];
+                  Hit := (Arc.Job = I) & (Arc.Seg = K);
+                  Best := if (Hit & ((old C = 0) | (Arc.Max.Val > old Best.Val))) then
+                             Arc.Max
+                          else
+                             old Best
+                          end if;
+                  C := if Hit then old C + 1 else old C end if;
+               returns
+                  value of Best
+                  value of C
+               end for;
+         returns
+            array_dv of Best
+            array_dv of Cnt
+         end for;
+
+      NewGrid :=
+         for I in 1, N cross
+             K in 1, (Q+1)
+            NewSeg :=
+               if (Cnts[I,K] ~= 0) then
+                  UpdateSeg (Grid[I,K], Cnts[I,K], Maxs[I,K])
+               else
+                  Grid[I,K]
+               end if;
+         returns
+            array_dv of NewSeg
+         end for;
+   in
+      NewGrid
+   end let
+end function
+
+
+function Main (Links : Int_ThreeDim;
+               Ptrs : Seg_TwoDim;
+               Vs : Int_TwoDim;
+               Depth : Int_OneDim;
+               N, Q : integer
+              returns
+               Seg_TwoDim)           % return an updated Ptr array
+%
+%  Trace all possible pathes using pruning
+%
+   % the max length of a job schedule is N
+   for initial
+      Grid, Arcs := GenArcs (Links, Ptrs, Vs, Depth, N, Q);
+   while (array_size(Arcs) ~= 0)
+   repeat
+      NewGrid := ArcGrid (old Arcs, old Grid, N, Q);
+      Grid, Arcs := GenArcs (Links, NewGrid, Vs, Depth, N, Q);
+   returns
+      value of Grid
+   end for
+end function   % end of Trace
