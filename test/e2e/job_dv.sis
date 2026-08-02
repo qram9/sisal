@@ -1,0 +1,668 @@
+% JOB — DV variant of unit/job.sis, the Job Shop Scheduler's top-level driver,
+% with its six included files assembled into one unit.  This is the whole
+% benchmark rather than a stage of it:
+%
+%   1) sort jobs by the start of their window                    (Batcher)
+%   2) break each job into Q+1 segments with start/finish times  (AlphaBeta)
+%   3) pairwise-compare job I with I+1, looking for conflicts    (Successors)
+%   4) build the Link/Ptr arrays -- who can follow whom, and how
+%      many arcs arrive at each segment                          (GenLinks)
+%   5) trace all paths to fixpoint, keeping the best arc into
+%      each segment                                              (Trace)
+%   6) find the max-valued leaf and walk back to the root        (BackTrack)
+%   7) map the schedule back to the ORIGINAL job numbers
+%
+% Assembled from the stage ports, each already checked against the original
+% on its own: batcher_dv, alphabeta_dv, successor_dv, genlinks_dv,
+% traceutil_dv, genarcs_dv, arcgrid_dv, trace_dv, backtrack_dv.  The three
+% representation decisions those made are what let the whole thing compile:
+%
+%   * every multi-dimensional type is a FLAT array_dv, rank being a runtime
+%     property; a row comes from the `..` slice.  Nested array_dv is malformed.
+%   * GenLinks' per-job layers are ragged, so they are padded to the worst
+%     case with Depth carried as the valid-extent vector -- which is what the
+%     original already did, since it returns Depth and every consumer loops
+%     `for J in 1, Depth[I]`.
+%   * BackTrack's walk and leaf sweep have data-dependent length, so they
+%     accumulate into LISTS and pack once at the end.  FinalPtrs itself stays
+%     an array_dv: it is rectangular and SegRec is sizable.
+%
+% SortArcs + ExpandToGrid + UpdateGrid are fused into one dense per-cell fold
+% (see arcgrid_dv), which is why Batcher is called only from MAIN here.
+
+define Main
+
+type SRec = record [Start, Finish, Duration: real; Priority: integer];
+type SRec_OneDim = array_dv [SRec];
+type SortRec = record [Val: real; Loc: integer];
+type Sort_OneDim = array_dv [SortRec];
+type Element = record [Alpha, Beta: real; Priority: integer];
+type AB_TwoDim = array_dv [Element];      % flat rank-2; a row is AB[I,..]
+type Real_OneDim = array_dv [real];
+type Int_OneDim = array_dv [integer];
+type Int_TwoDim = array_dv [integer];
+type Int_ThreeDim = array_dv [integer];
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Seg_TwoDim = array_dv [SegRec];
+type ArcRec = record [Job, Seg: integer; Max: MaxRec];
+type Arc_OneDim = array_dv [ArcRec];
+
+% the backtrack results have no statically known length
+type IList = union [empty: null; cons: record [hd: integer; tl: IList]];
+
+
+% ---- 1) Batcher merge-exchange sort ----------------------------------------
+
+function CeilingOfLog2 (N: integer returns integer)
+   for initial
+      L := 0;
+      TwoToTheL := 1;
+   while (TwoToTheL < N)
+   repeat
+      L := old L + 1;
+      TwoToTheL := 2 * old TwoToTheL;
+   returns
+      value of L
+   end for
+end function
+
+function Intersect (I, P: integer returns integer)
+   if (mod(I/P, 2) = 1) then P else 0 end if
+end function
+
+function Batcher (K : Sort_OneDim returns Sort_OneDim)
+   let
+      N := array_size(K);
+      T := CeilingOfLog2(N);
+      Sorted :=
+         for initial
+            P := exp(2, T);
+            B := array_setl(K, 0);
+         while (P > 1)
+         repeat
+            P := old P / 2;
+            B :=
+               for initial
+                  Q := exp(2, T);
+                  R := 0;
+                  D := P;
+                  C := old B;
+               repeat
+                  C :=
+                     for Elt in old C at I
+                        NewElt :=
+                           if (Intersect(I,P) = old R) & (I + old D < N) then
+                              if (Elt.Val < old C[I + old D].Val) then
+                                 Elt
+                              else
+                                 old C[I + old D]
+                              end if
+                           elseif (Intersect(I-old D,P) = old R) & (I >= old D) then
+                              if (Elt.Val > old C[I - old D].Val) then
+                                 Elt
+                              else
+                                 old C[I - old D]
+                              end if
+                           else
+                              Elt
+                           end if;
+                     returns
+                        array_dv of NewElt
+                     end for;
+                  D := old Q - P;
+                  Q := old Q / 2;
+                  R := P;
+               until (Q < P)
+               returns
+                  value of C
+               end for;
+         returns
+            value of B
+         end for
+   in
+      array_setl(Sorted, 1)
+   end let
+end function
+
+
+% ---- 2) AlphaBeta: per-job segment start/finish times -----------------------
+
+function AlphaBeta (Sorted : SRec_OneDim;
+                    Q : integer
+                   returns
+                    AB_TwoDim,
+                    Real_OneDim)
+   for Elt in Sorted
+      Last_Start := Elt.Finish - Elt.Duration;
+      Del := (Last_Start - Elt.Start) / Real(Q);
+      Row :=
+         for I in 1, Q+1
+            Alpha := Elt.Start + (Real(I-1) * Del);
+            Beta := Alpha + Elt.Duration;
+         returns
+            array_dv of record Element [Alpha: Alpha; Beta: Beta;
+                                        Priority: Elt.Priority]
+         end for;
+   returns
+      array_dv of Row
+      array_dv of Del
+   end for
+end function
+
+
+% ---- 3) Successors: which jobs are in complete conflict ---------------------
+
+function Compare (Row1,
+                  Row2: AB_TwoDim;
+                  Del: real;
+                  Q,
+                  N: integer
+                 returns
+                  Int_OneDim)
+   for I in 1, Q+1
+      Diff := Row1[I].Beta - Row2[1].Alpha;
+      Indx :=
+         if ((Diff > 0.0) & (Del = 0.0)) then
+            0
+         elseif (Diff <= 0.0) then
+            1
+         else
+            let
+               RIndx := (Diff / Del) + 1.0;
+               IIndx := Floor(RIndx);
+               Indx :=
+                  if ((RIndx - Real(IIndx)) = 0.0) then
+                     IIndx
+                  else
+                     IIndx+1
+                  end if;
+            in
+               if (Indx > (Q+1)) then 0 else Indx end if
+            end let
+         end if;
+   returns
+      array_dv of Indx
+   end for
+end function
+
+function RowSum (Row: Int_OneDim returns integer)
+   for Elt in Row
+   returns
+      value of sum Elt              % `tree sum` in the original
+   end for
+end function
+
+function ZeroRow (Q: integer returns Int_OneDim)
+   for K in 1, Q+1
+   returns array_dv of 0
+   end for
+end function
+
+function Successors (AB : AB_TwoDim;
+                     Del : Real_OneDim;
+                     Q,
+                     N : integer
+                    returns
+                     Int_OneDim)
+   for I in 1, N-1
+      IndexRow := Compare (AB[I, ..], AB[I+1, ..], Del[I+1], Q, N);
+      Zero := RowSum (IndexRow);
+   returns
+      array_dv of Zero
+   end for || array_dv Int_OneDim [1: 0]     % add flag for row N
+end function
+
+
+% ---- 4) GenLinks: the Link and Ptr arrays -----------------------------------
+
+function GenLinks (AB : AB_TwoDim;
+                   Zeros : Int_OneDim;
+                   N,
+                   Q: integer;
+                   Del: Real_OneDim
+                  returns
+                   Int_ThreeDim,        % Links  N x MaxD x (Q+1)
+                   Seg_TwoDim,          % Ptrs   N x (Q+1)
+                   Int_TwoDim,          % Vs     N x MaxD
+                   Int_OneDim)          % Depth  N
+   let
+      MaxD := N - 1;          % worst-case layer depth: Depth[I] <= N-I <= N-1
+
+      InitDepth, InitLinks, Flags, InitVs :=
+         for I in 1, (N-1)
+            Depth :=
+               for initial
+                  Cnt := 1;
+               while (((I+Cnt) < N) & (Zeros[I+Cnt] = 0))
+               repeat
+                  Cnt := old Cnt + 1;
+               returns
+                  value of Cnt
+               end for;
+
+            Layer, Flg, Vs :=
+               for J in 1, MaxD
+                  Live := J <= Depth;
+                  Dest := if Live then I + J else I end if;
+                  IvsJ := if Live then
+                             Compare (AB[I, ..], AB[Dest, ..], Del[Dest], Q, N)
+                          else
+                             ZeroRow (Q)
+                          end if;
+                  Flag := if Live then RowSum (IvsJ) else 0 end if;
+                  DestOut := if Live then Dest else 0 end if;
+               returns
+                  array_dv of IvsJ
+                  array_dv of Flag
+                  array_dv of DestOut
+               end for;
+         returns
+            array_dv of Depth
+            array_dv of Layer
+            array_dv of Flg
+            array_dv of Vs
+         end for;
+
+      ShortLinks, ShortVs, ShortDepth :=
+         for I in 1, N-1
+            NumZeros :=
+               for J in 1, (InitDepth[I] - 1)
+                  Zero := if (Flags[I,J] = 0) then 1 else 0 end if;
+               returns
+                  value of sum Zero
+               end for;
+
+            Shift := if NumZeros > 0 then NumZeros - 1 else 0 end if;
+
+            Layer :=
+               for J in 1, MaxD
+                  Row :=
+                     for K in 1, Q+1
+                     returns
+                        array_dv of
+                           if (J + Shift) <= MaxD then
+                              InitLinks[I, J+Shift, K]
+                           else
+                              0
+                           end if
+                     end for;
+               returns
+                  array_dv of Row
+               end for;
+
+            Vs :=
+               for J in 1, MaxD
+               returns
+                  array_dv of
+                     if (J + Shift) <= MaxD then InitVs[I, J+Shift] else 0 end if
+               end for;
+
+            Depth := InitDepth[I] - NumZeros;
+         returns
+            array_dv of Layer
+            array_dv of Vs
+            array_dv of Depth
+         end for;
+
+      Links :=
+         for I in 1, N cross
+             J in 1, MaxD cross
+             K in 1, Q+1
+         returns
+            array_dv of if I < N then ShortLinks[I,J,K] else 0 end if
+         end for;
+
+      Vs :=
+         for I in 1, N cross
+             J in 1, MaxD
+         returns
+            array_dv of
+               if I < N then ShortVs[I,J]
+               elseif J = 1 then 1
+               else 0
+               end if
+         end for;
+
+      Depth :=
+         for I in 1, N
+         returns
+            array_dv of if I < N then ShortDepth[I] else 1 end if
+         end for;
+
+      ECnts :=
+         for Job in 1, N
+            RowECnts :=
+               if (Job = 1) then
+                  ZeroRow (Q)
+               else
+                  for Seg in 1, (Q+1)
+                     Cnt :=
+                        for I in 1, (Job-1)
+                           RowECnt :=
+                              for J in 1, Depth[I]
+                                 Val :=
+                                    if (Vs[I,J] = Job) then
+                                       for K in 1, (Q+1)
+                                          SegVal :=
+                                             if (Links[I,J,K] = Seg) then 1 else 0 end if
+                                       returns
+                                          value of sum SegVal
+                                       end for
+                                    else
+                                       0
+                                    end if;
+                              returns
+                                 value of sum Val
+                              end for;
+                        returns
+                           value of sum RowECnt
+                        end for
+                  returns
+                     array_dv of Cnt
+                  end for
+               end if;
+         returns
+            array_dv of RowECnts
+         end for;
+
+      Ptrs :=
+         for I in 1, N cross
+             J in 1, (Q+1)
+            Seg := record SegRec [EnableCnt : ECnts[I,J];
+                                  Max: record MaxRec [Val : 0; Job : 0; Seg : 0];
+                                  Priority: AB[I,J].Priority;
+                                  Fired: false;
+                                  Leaf: false];
+         returns
+            array_dv of Seg
+         end for;
+   in
+      Links, Ptrs, Vs, Depth
+   end let
+end function
+
+
+% ---- 5) Trace: the wavefront to fixpoint ------------------------------------
+
+function FindMax (Rec1, Rec2: MaxRec returns MaxRec)
+   if (Rec1.Val > Rec2.Val) then
+      Rec1
+   elseif (Rec2.Val > Rec1.Val) then
+      Rec2
+   else
+      if (Rec1.Job < Rec2.Job) then Rec1 else Rec2 end if
+   end if
+end function
+
+function UpdateSeg (Seg : SegRec; Cnt : integer; Max : MaxRec returns SegRec)
+   let
+      NewECnt := Seg.EnableCnt - Cnt;
+      NewMax := FindMax (Seg.Max, Max);
+      NewRec := Seg replace [EnableCnt: NewECnt; Max: NewMax];
+   in
+      NewRec
+   end let
+end function
+
+function GenArcs (Links : Int_ThreeDim;
+                  Grid : Seg_TwoDim;
+                  Vs : Int_TwoDim;
+                  Depth : Int_OneDim;
+                  N, Q : integer
+                 returns
+                  Seg_TwoDim,
+                  Arc_OneDim)
+   for I in 1, N cross
+       K in 1, (Q+1)
+      Seg := Grid[I,K];
+      NewVal := Seg.Priority + Seg.Max.Val;
+      Arcs :=
+         for J in 1, Depth[I]
+            Arc := record ArcRec [Job: Vs[I,J];
+                                  Seg: Links[I,J,K];
+                                  Max: record MaxRec [Val: NewVal; Job: I; Seg: K]];
+         returns
+            array_dv of Arc when (((Seg.EnableCnt = 0) & ~Seg.Fired)  &
+                                (Links[I,J,K] ~= 0))
+         end for;
+      NewSeg :=
+         if ((Seg.EnableCnt = 0) & ~Seg.Fired) then
+            if (array_size(Arcs) ~= Depth[I]) then
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true;
+                            Leaf: true]
+            else
+               Seg replace [Max: Seg.Max replace [Val: NewVal]; Fired: true]
+            end if
+         else
+            Seg
+         end if;
+   returns
+      array_dv of NewSeg
+      value of catenate Arcs
+   end for
+end function
+
+function ArcGrid (Arcs : Arc_OneDim;
+                  Grid : Seg_TwoDim;
+                  N, Q : integer
+                 returns
+                  Seg_TwoDim)
+   let
+      ZeroRec := record MaxRec [Val: 0; Job: 0; Seg: 0];
+      ASize := array_size (Arcs);
+
+      Maxs, Cnts :=
+         for I in 1, N cross
+             K in 1, (Q+1)
+            Best, Cnt :=
+               for initial
+                  J := 0;
+                  Best := ZeroRec;
+                  C := 0;
+               while (J < ASize)
+               repeat
+                  J := old J + 1;
+                  Arc := Arcs[J];
+                  Hit := (Arc.Job = I) & (Arc.Seg = K);
+                  Best := if (Hit & ((old C = 0) | (Arc.Max.Val > old Best.Val))) then
+                             Arc.Max
+                          else
+                             old Best
+                          end if;
+                  C := if Hit then old C + 1 else old C end if;
+               returns
+                  value of Best
+                  value of C
+               end for;
+         returns
+            array_dv of Best
+            array_dv of Cnt
+         end for;
+
+      NewGrid :=
+         for I in 1, N cross
+             K in 1, (Q+1)
+            NewSeg :=
+               if (Cnts[I,K] ~= 0) then
+                  UpdateSeg (Grid[I,K], Cnts[I,K], Maxs[I,K])
+               else
+                  Grid[I,K]
+               end if;
+         returns
+            array_dv of NewSeg
+         end for;
+   in
+      NewGrid
+   end let
+end function
+
+function Trace (Links : Int_ThreeDim;
+                Ptrs : Seg_TwoDim;
+                Vs : Int_TwoDim;
+                Depth : Int_OneDim;
+                N, Q : integer
+               returns
+                Seg_TwoDim)
+   for initial
+      Grid, Arcs := GenArcs (Links, Ptrs, Vs, Depth, N, Q);
+   while (array_size(Arcs) ~= 0)
+   repeat
+      NewGrid := ArcGrid (old Arcs, old Grid, N, Q);
+      Grid, Arcs := GenArcs (Links, NewGrid, Vs, Depth, N, Q);
+   returns
+      value of Grid
+   end for
+end function
+
+
+% ---- 6) BackTrack: best leaf, then walk back to the root --------------------
+
+function Mt (returns IList) union IList [empty: nil] end function
+
+function Cons (h: integer; t: IList returns IList)
+   union IList [cons: record [hd: h; tl: t]]
+end function
+
+function Hd (l: IList returns integer)
+   tagcase x := l tag empty: 0 tag cons: x.hd end tagcase
+end function
+
+function Tl (l: IList returns IList)
+   tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+function Pack (l: IList returns Int_OneDim)
+   for initial
+      cur := l;
+      acc := array_dv Int_OneDim []
+   while ~is empty(cur) repeat
+      acc := array_addh (old acc, Hd(old cur));
+      cur := Tl (old cur)
+   returns value of acc
+   end for
+end function
+
+% every Leaf node's value and position -- a masked sweep whose survivor count
+% is a property of the data, so it accumulates into lists
+function Leaves (FinalPtrs: Seg_TwoDim; NJ, NS: integer
+                returns IList, IList, IList)
+   for initial
+      k := 1;
+      vs := Mt();
+      js := Mt();
+      ss := Mt()
+   while k <= NJ * NS repeat
+      j := ((old k - 1) / NS) + 1;
+      s := mod(old k - 1, NS) + 1;
+      vs := if FinalPtrs[j,s].Leaf then Cons(FinalPtrs[j,s].Max.Val, old vs)
+            else old vs end if;
+      js := if FinalPtrs[j,s].Leaf then Cons(j, old js) else old js end if;
+      ss := if FinalPtrs[j,s].Leaf then Cons(s, old ss) else old ss end if;
+      k := old k + 1
+   returns value of vs
+           value of js
+           value of ss
+   end for
+end function
+
+% the leaf with the largest Val -- what the original gets by sorting with
+% Batcher and taking the last element
+function BestLeaf (vs, js, ss: IList returns integer, integer)
+   for initial
+      v := vs;  j := js;  s := ss;
+      bv := 0 - 1;  bj := 1;  bs := 1
+   while ~is empty(v) repeat
+      better := Hd(old v) > old bv;
+      bv := if better then Hd(old v) else old bv end if;
+      bj := if better then Hd(old j) else old bj end if;
+      bs := if better then Hd(old s) else old bs end if;
+      v := Tl(old v);  j := Tl(old j);  s := Tl(old s)
+   returns value of bj
+           value of bs
+   end for
+end function
+
+% follow Max.Job/.Max.Seg back until the 0 sentinel.  Consing puts the
+% LAST-visited node at the head, so the list is already in schedule order --
+% the original gathers in visit order and then reverses.
+function BackWalk (FinalPtrs: Seg_TwoDim; JobIndex, SegIndex: integer
+                  returns IList)
+   for initial
+      nj := JobIndex;
+      ns := SegIndex;
+      jl := Cons(JobIndex, Mt())
+   while FinalPtrs[nj, ns].Max.Job ~= 0 repeat
+      nj := FinalPtrs[old nj, old ns].Max.Job;
+      ns := FinalPtrs[old nj, old ns].Max.Seg;
+      jl := Cons(FinalPtrs[old nj, old ns].Max.Job, old jl)
+   returns value of jl
+   end for
+end function
+
+function BackTrack (FinalPtrs: Seg_TwoDim; N, NS: integer returns Int_OneDim)
+   let
+      vs, js, ss := Leaves (FinalPtrs, N, NS);
+      bj, bs := BestLeaf (vs, js, ss);
+   in
+      Pack (BackWalk (FinalPtrs, bj, bs))
+   end let
+end function
+
+
+% ---- 7) the driver ----------------------------------------------------------
+
+function Main (Q: integer;        % number of segments to break job into
+               A: SRec_OneDim     % job information
+              returns
+               Seg_TwoDim,
+               Int_OneDim)
+%
+%  Job shop scheduling
+%
+   let
+      % figure out how many jobs working on
+      N := array_size(A);
+
+      % sort the jobs by the start of the windows
+      Sort :=
+         for Elt in A at I
+         returns
+            array_dv of record SortRec [Val: Elt.Start; Loc: I]
+         end for;
+
+      Sorted := Batcher(Sort);
+
+      % use the sorted array to reposition A into a sorted array
+      SortedA :=
+         for Elt in Sorted
+         returns
+            array_dv of A[Elt.Loc]
+         end for;
+
+      % break them into segments with a start and end times
+      AB, Del := AlphaBeta (SortedA, Q);
+
+      % look for conflicts among immediate successors
+      Zeros := Successors (AB, Del, Q, N);
+
+      % create the Link and Ptr arrays
+      Links, Ptrs, Vs, Depth := GenLinks (AB, Zeros, N, Q, Del);
+
+      % trace all paths
+      FinalPtrs := Trace (Links, Ptrs, Vs, Depth, N, Q);
+
+      % find the max valued path and trace it backward
+      JobSchedule := BackTrack (FinalPtrs, N, Q+1);
+
+      % retreive the original job numbers
+      MaximumJobPathThatWeCouldFind :=
+         for Elt in JobSchedule
+         returns
+            array_dv of Sorted[Elt].Loc
+         end for;
+   in
+      FinalPtrs, MaximumJobPathThatWeCouldFind
+   end let
+end function   % end of MAIN

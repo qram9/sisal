@@ -364,6 +364,7 @@ run_group GENARCS_DV        genarcs_dv          ""
 run_group TRACEUTIL_DV      traceutil_dv        ""
 run_group ARCGRID_DV        arcgrid_dv          ""
 run_group TRACE_DV          trace_dv            ""
+run_group JOB_DV            job_dv              ""
 
 
 echo "========================================"

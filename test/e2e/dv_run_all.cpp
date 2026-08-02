@@ -435,6 +435,16 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_JOB_DV
+struct jb_srec  { float start, finish, dur; int32_t prio; };
+struct jb_sortr { float val; int32_t loc; };
+struct jb_elem  { float alpha, beta; int32_t prio; };
+struct jb_maxr  { int32_t val, job, seg; };
+struct jb_segr  { int32_t ecnt; jb_maxr mx; int32_t prio; bool fired, leaf; };
+struct jb_arcr  { int32_t job, seg; jb_maxr mx; };
+struct JOB_results { sisal_array_t finalptrs, path; };
+extern "C" struct JOB_results func_MAIN(int32_t q, sisal_array_t a);
+#endif
 #ifdef TEST_TRACE_DV
 struct tr_maxr { int32_t val, job, seg; };
 struct tr_segr { int32_t ecnt; tr_maxr mx; int32_t prio; bool fired, leaf; };
@@ -10298,6 +10308,187 @@ static void test_trace_dv(void) {
   check("mirror needed more than one wavefront", waves >= 2);
 }
 #endif
+#ifdef TEST_JOB_DV
+// The Job Shop Scheduler END TO END -- unit/job.sis with its six includes
+// assembled: sort jobs by window start (Batcher), cut each into Q+1 segments
+// (AlphaBeta), find pairwise conflicts (Successors), build the Link/Ptr
+// arrays (GenLinks), trace all paths to fixpoint (Trace), pick the max-valued
+// leaf and walk back (BackTrack), then map the schedule to ORIGINAL job
+// numbers.  Every stage is separately checked against the original in its own
+// group; this one checks that the composition is right.
+//
+// The mirror re-runs all seven stages independently.  GenLinks is mirrored in
+// the original RAGGED form and then materialised into the padded layout the
+// port uses -- genlinks_dv is what establishes those agree inside Depth.
+// Job Start times are distinct, so Batcher's order is unambiguous and the
+// answer does not depend on how it breaks ties.
+static jb_maxr jb_findmax(jb_maxr a, jb_maxr b) {
+  if (a.val > b.val) return a;
+  if (b.val > a.val) return b;
+  return (a.job < b.job) ? a : b;
+}
+static void test_job_dv(void) {
+  printf("\n=== Group: job_dv (Job Shop Scheduler, end to end) ===\n");
+  const int N = 4, Q = 2, S = Q + 1, MaxD = N - 1;
+  std::vector<jb_srec> A = { { 5.0f, 20.0f, 4.0f, 3 }, { 1.0f, 12.0f, 3.0f, 5 },
+                             { 8.0f, 25.0f, 5.0f, 2 }, { 3.0f, 16.0f, 2.0f, 7 } };
+  auto cmp_row = [&](const jb_elem* r1, const jb_elem* r2, float del) {
+    std::vector<int> o(Q + 1);
+    for (int i = 1; i <= Q + 1; i++) {
+      float diff = r1[i - 1].beta - r2[0].alpha; int ix;
+      if (diff > 0.0f && del == 0.0f) ix = 0;
+      else if (diff <= 0.0f) ix = 1;
+      else { float ri = diff / del + 1.0f; int ii = (int)std::floor(ri);
+             int t = ((ri - (float)ii) == 0.0f) ? ii : ii + 1; ix = (t > Q + 1) ? 0 : t; }
+      o[i - 1] = ix;
+    }
+    return o;
+  };
+  auto rsum = [](const std::vector<int>& v) { int s2 = 0; for (int x : v) s2 += x; return s2; };
+
+  // 1) Batcher
+  std::vector<jb_sortr> sorted(N);
+  for (int i = 0; i < N; i++) sorted[i] = { A[i].start, i + 1 };
+  std::stable_sort(sorted.begin(), sorted.end(),
+                   [](const jb_sortr& a, const jb_sortr& b) { return a.val < b.val; });
+  std::vector<jb_srec> sortedA(N);
+  for (int i = 0; i < N; i++) sortedA[i] = A[sorted[i].loc - 1];
+  // 2) AlphaBeta
+  std::vector<jb_elem> ab(N * S); std::vector<float> del(N);
+  for (int j = 0; j < N; j++) {
+    float ls = sortedA[j].finish - sortedA[j].dur;
+    float d = (ls - sortedA[j].start) / (float)Q; del[j] = d;
+    for (int i = 1; i <= S; i++) {
+      float a = sortedA[j].start + (float)(i - 1) * d;
+      ab[j * S + (i - 1)] = { a, a + sortedA[j].dur, sortedA[j].prio };
+    }
+  }
+  // 3) Successors
+  std::vector<int> zeros(N, 0);
+  for (int I = 1; I <= N - 1; I++) zeros[I - 1] = rsum(cmp_row(&ab[(I - 1) * S], &ab[I * S], del[I]));
+  zeros[N - 1] = 0;
+  // 4) GenLinks (ragged, then materialised padded)
+  std::vector<int> initDepth(N, 0);
+  std::vector<std::vector<std::vector<int>>> layer(N + 1);
+  std::vector<std::vector<int>> flags(N + 1), ivsv(N + 1);
+  for (int I = 1; I <= N - 1; I++) {
+    int cnt = 1; while ((I + cnt) < N && zeros[I + cnt - 1] == 0) cnt++;
+    initDepth[I - 1] = cnt;
+    for (int J = 1; J <= cnt; J++) {
+      int dest = I + J;
+      std::vector<int> row = cmp_row(&ab[(I - 1) * S], &ab[(dest - 1) * S], del[dest - 1]);
+      layer[I].push_back(row); flags[I].push_back(rsum(row)); ivsv[I].push_back(dest);
+    }
+  }
+  std::vector<int> mDepth(N + 1, 0);
+  std::vector<std::vector<std::vector<int>>> sL(N + 1);
+  std::vector<std::vector<int>> sV(N + 1);
+  for (int I = 1; I <= N - 1; I++) {
+    int nz = 0; for (int J = 1; J <= initDepth[I - 1] - 1; J++) if (flags[I][J - 1] == 0) nz++;
+    int sh = nz > 0 ? nz - 1 : 0;
+    for (size_t j2 = sh; j2 < layer[I].size(); j2++) { sL[I].push_back(layer[I][j2]); sV[I].push_back(ivsv[I][j2]); }
+    mDepth[I] = initDepth[I - 1] - nz;
+  }
+  mDepth[N] = 1;
+  std::vector<int> links(N * MaxD * S, 0), vs(N * MaxD, 0);
+  for (int I = 1; I <= N - 1; I++) for (int J = 1; J <= MaxD; J++) {
+    if (J <= (int)sV[I].size()) vs[(I - 1) * MaxD + (J - 1)] = sV[I][J - 1];
+    for (int K = 1; K <= S; K++)
+      if (J <= (int)sL[I].size()) links[((I - 1) * MaxD + (J - 1)) * S + (K - 1)] = sL[I][J - 1][K - 1];
+  }
+  vs[(N - 1) * MaxD + 0] = 1;
+  std::vector<int> ecnts(N * S, 0);
+  for (int Job = 2; Job <= N; Job++) for (int Seg = 1; Seg <= S; Seg++) {
+    int tot = 0;
+    for (int I = 1; I <= Job - 1; I++) for (int J = 1; J <= mDepth[I]; J++)
+      if (vs[(I - 1) * MaxD + (J - 1)] == Job)
+        for (int K = 1; K <= S; K++) if (links[((I - 1) * MaxD + (J - 1)) * S + (K - 1)] == Seg) tot++;
+    ecnts[(Job - 1) * S + (Seg - 1)] = tot;
+  }
+  std::vector<jb_segr> ptrs(N * S);
+  for (int I = 1; I <= N; I++) for (int J = 1; J <= S; J++) {
+    jb_segr g{}; g.ecnt = ecnts[(I - 1) * S + (J - 1)]; g.mx = { 0, 0, 0 };
+    g.prio = ab[(I - 1) * S + (J - 1)].prio; g.fired = false; g.leaf = false;
+    ptrs[(I - 1) * S + (J - 1)] = g;
+  }
+  // 5) Trace
+  auto genarcs = [&](std::vector<jb_segr>& grid, std::vector<jb_arcr>& out) {
+    std::vector<jb_segr> ng(N * S); out.clear();
+    for (int I = 1; I <= N; I++) for (int K = 1; K <= S; K++) {
+      jb_segr seg = grid[(I - 1) * S + (K - 1)]; int nv = seg.prio + seg.mx.val;
+      std::vector<jb_arcr> arcs;
+      for (int J = 1; J <= mDepth[I]; J++) {
+        int lk = links[((I - 1) * MaxD + (J - 1)) * S + (K - 1)];
+        if ((seg.ecnt == 0 && !seg.fired) && lk != 0)
+          arcs.push_back({ vs[(I - 1) * MaxD + (J - 1)], lk, { nv, I, K } });
+      }
+      jb_segr ns = seg;
+      if (seg.ecnt == 0 && !seg.fired) { ns.mx.val = nv; ns.fired = true;
+        if ((int)arcs.size() != mDepth[I]) ns.leaf = true; }
+      ng[(I - 1) * S + (K - 1)] = ns;
+      for (auto& a : arcs) out.push_back(a);
+    }
+    grid = ng;
+  };
+  auto arcgrid = [&](const std::vector<jb_arcr>& arcs, std::vector<jb_segr>& grid) {
+    jb_maxr zero{ 0, 0, 0 };
+    std::vector<jb_maxr> mm(N * S, zero); std::vector<int> mc(N * S, 0);
+    for (auto& a : arcs) {
+      int i2 = (a.job - 1) * S + (a.seg - 1);
+      if (mc[i2] == 0 || a.mx.val > mm[i2].val) mm[i2] = a.mx;
+      mc[i2]++;
+    }
+    for (int i2 = 0; i2 < N * S; i2++)
+      if (mc[i2] != 0) { grid[i2].ecnt -= mc[i2]; grid[i2].mx = jb_findmax(grid[i2].mx, mm[i2]); }
+  };
+  std::vector<jb_segr> mg = ptrs; std::vector<jb_arcr> arcs; genarcs(mg, arcs);
+  int waves = 0;
+  while (!arcs.empty()) { waves++; std::vector<jb_segr> t = mg; arcgrid(arcs, t); mg = t; genarcs(mg, arcs); }
+  // 6) BackTrack
+  int bv = -1, bj = 1, bs = 1;
+  for (int k = 1; k <= N * S; k++) {
+    int j2 = ((k - 1) / S) + 1, s2 = ((k - 1) % S) + 1;
+    if (mg[(j2 - 1) * S + (s2 - 1)].leaf) {
+      int v = mg[(j2 - 1) * S + (s2 - 1)].mx.val;
+      if (v > bv) { bv = v; bj = j2; bs = s2; }
+    }
+  }
+  std::vector<int> chain;
+  { int nj = bj, ns2 = bs; chain.push_back(nj);
+    while (mg[(nj - 1) * S + (ns2 - 1)].mx.job != 0) {
+      int pj = mg[(nj - 1) * S + (ns2 - 1)].mx.job, ps = mg[(nj - 1) * S + (ns2 - 1)].mx.seg;
+      nj = pj; ns2 = ps; chain.push_back(nj);
+    } }
+  std::reverse(chain.begin(), chain.end());
+  // 7) original job numbers
+  std::vector<int> mpath; for (int e : chain) mpath.push_back(sorted[e - 1].loc);
+
+  // ---- compiled Sisal ----
+  sisal_array_t Aa = sisal_array_alloc_sized(1, 96, N, sizeof(jb_srec));
+  Aa.lower_bound[0] = 1; memcpy(Aa.data, A.data(), sizeof(jb_srec) * N);
+  JOB_results r = func_MAIN(Q, Aa);
+
+  check("FinalPtrs is the rank-2 job x segment grid",
+        r.finalptrs.rank == 2 && (int)r.finalptrs.size == N * S);
+  int okf = (int)r.finalptrs.size == N * S;
+  for (int i = 0; okf && i < N * S; i++) {
+    jb_segr a = ((jb_segr*)r.finalptrs.data)[i], b = mg[i];
+    okf = a.ecnt == b.ecnt && a.fired == b.fired && a.leaf == b.leaf
+       && a.mx.val == b.mx.val && a.mx.job == b.mx.job && a.mx.seg == b.mx.seg
+       && a.prio == b.prio;
+  }
+  check("FinalPtrs == the seven-stage mirror", okf);
+  int okp = (int)r.path.size == (int)mpath.size();
+  for (int i = 0; okp && i < (int)mpath.size(); i++) okp = ((int32_t*)r.path.data)[i] == mpath[i];
+  check("job schedule (in ORIGINAL job numbers) == mirror", okp);
+  int allfired = 1; for (int i = 0; i < N * S; i++) allfired &= ((jb_segr*)r.finalptrs.data)[i].fired;
+  check("trace reached fixpoint (every segment fired)", allfired);
+  check("the trace took several wavefronts", waves >= 2);
+  // priorities are 3,5,2,7; the best path chains all four jobs, so 17
+  check("best path value is the sum of all four priorities (17)", bv == 17);
+  check("schedule is a permutation of the four jobs", (int)r.path.size == N);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11684,6 +11875,9 @@ main (void)
 #ifdef TEST_TRACE_DV
   test_trace_dv ();
 #endif
+#ifdef TEST_JOB_DV
+  test_job_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11853,7 +12047,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
