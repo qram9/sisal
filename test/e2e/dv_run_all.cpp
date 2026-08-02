@@ -417,7 +417,7 @@ extern "C" struct FORINIT_RED_results func_MAIN();
 extern "C" int32_t func_MAIN(sisal_array_t text);
 #endif
 #ifdef TEST_BACKTRACK_DV
-struct BT_results { sisal_array_t jobs, segs; };
+struct BT_results { sisal_array_t jobs, segs, leafvals; };
 extern "C" struct BT_results func_MAIN();
 #endif
 #ifdef TEST_ARRAY_EX_DV
@@ -9675,6 +9675,14 @@ static void test_backtrack_dv() {
   }
   check("jobs in schedule order [1,2,3]", okj);
   check("segs follow the same links [2,1,2]", oks);
+  // the leaf sweep: two Leaf nodes, (3,2) Val 50 and (1,1) Val 10.  Consing
+  // reverses, so the list comes out [50,10].  BestLeaf must pick the Val-50
+  // one -- not merely the first leaf it meets -- for the trace above to start
+  // at (3,2) and produce [1,2,3].
+  bool okl = r.leafvals.size == 2
+             && ((int32_t *)r.leafvals.data)[0] == 50
+             && ((int32_t *)r.leafvals.data)[1] == 10;
+  check("leaf sweep collects both leaves [50,10]", okl);
 }
 #endif
 #ifdef TEST_ARRAY_EX_DV

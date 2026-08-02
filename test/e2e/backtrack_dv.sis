@@ -81,24 +81,80 @@ function Trace( FinalPtrs: SegArr; JobIndex, SegIndex: integer
   end for
 end function
 
-% ---- a small synthetic graph so the walk is checkable -------------------
-% chain: (3,2) -> (2,1) -> (1,2) -> sentinel
-function MkPtrs( returns SegArr )
-  for j in 1, 3 cross s in 1, 2
-    m := if j = 3 & s = 2 then record MaxRec[ Val: 0; Job: 2; Seg: 1 ]
-         elseif j = 2 & s = 1 then record MaxRec[ Val: 0; Job: 1; Seg: 2 ]
-         else record MaxRec[ Val: 0; Job: 0; Seg: 0 ]
-         end if
-  returns array_dv of record SegRec[ EnableCnt: 0; Max: m; Priority: 0;
-                                     Fired: false; Leaf: false ]
+
+% ---- leaf sweep -------------------------------------------------------------
+% The original collects leaves with a nested masked gather:
+%     for Job in FinalPtrs at I / for Seg in Job at J
+%       returns array of real(Seg.Max.Val) when Seg.Leaf ...
+%     returns value of catenate Row ...
+% Two reasons that is not an array_dv shape: `for X in <rank-2 dope>` wants a
+% genuine array-of-arrays (a dope is flat), and a `when` mask COMPACTS, so how
+% many leaves survive is a property of the data -- ragged, not rectangular.
+% (The compiler now rejects a masked cross gather outright rather than silently
+% dropping the mask.)  So the sweep accumulates into LISTS, same as the trace.
+function Leaves( FinalPtrs: SegArr; NJ, NS: integer
+        returns IList, IList, IList )
+  for initial
+    k  := 1;
+    vs := Mt();
+    js := Mt();
+    ss := Mt()
+  while k <= NJ * NS repeat
+    j := ((old k - 1) / NS) + 1;
+    s := mod( old k - 1, NS ) + 1;
+    vs := if FinalPtrs[ j, s ].Leaf then Cons( FinalPtrs[ j, s ].Max.Val, old vs )
+          else old vs end if;
+    js := if FinalPtrs[ j, s ].Leaf then Cons( j, old js ) else old js end if;
+    ss := if FinalPtrs[ j, s ].Leaf then Cons( s, old ss ) else old ss end if;
+    k  := old k + 1
+  returns value of vs
+          value of js
+          value of ss
   end for
 end function
 
-function main( returns Ints, Ints )
+% pick the leaf with the largest Val -- what the original gets by sorting with
+% batcher and taking the last element
+function BestLeaf( vs, js, ss: IList returns integer, integer )
+  for initial
+    v := vs;  j := js;  s := ss;
+    bv := 0 - 1;  bj := 1;  bs := 1
+  while ~is empty( v ) repeat
+    better := Hd( old v ) > old bv;
+    bv := if better then Hd( old v ) else old bv end if;
+    bj := if better then Hd( old j ) else old bj end if;
+    bs := if better then Hd( old s ) else old bs end if;
+    v  := Tl( old v );  j := Tl( old j );  s := Tl( old s )
+  returns value of bj
+          value of bs
+  end for
+end function
+
+% ---- a small synthetic graph so the walk is checkable -------------------
+% Best path ends at the leaf (3,2) with Val 50 and chains back
+%     (3,2) -> (2,1) -> (1,2) -> sentinel (Max.Job = 0)
+% A second, WORSE leaf at (1,1) with Val 10 makes the selection do real work:
+% BestLeaf must pick (3,2), not merely the first leaf it meets.
+function MkPtrs( returns SegArr )
+  for j in 1, 3 cross s in 1, 2
+    m := if j = 3 & s = 2 then record MaxRec[ Val: 50; Job: 2; Seg: 1 ]
+         elseif j = 2 & s = 1 then record MaxRec[ Val: 40; Job: 1; Seg: 2 ]
+         elseif j = 1 & s = 1 then record MaxRec[ Val: 10; Job: 0; Seg: 0 ]
+         else record MaxRec[ Val: 0; Job: 0; Seg: 0 ]
+         end if;
+    isleaf := (j = 3 & s = 2) | (j = 1 & s = 1)
+  returns array_dv of record SegRec[ EnableCnt: 0; Max: m; Priority: 0;
+                                     Fired: false; Leaf: isleaf ]
+  end for
+end function
+
+function main( returns Ints, Ints, Ints )
   let
     p := MkPtrs();
-    jl, sl := Trace( p, 3, 2 )
+    vs, js, ss := Leaves( p, 3, 2 );        % every Leaf node
+    bj, bs     := BestLeaf( vs, js, ss );   % the best one = the path end
+    jl, sl     := Trace( p, bj, bs )        % walk back from it
   in
-    Pack( jl ), Pack( sl )
+    Pack( jl ), Pack( sl ), Pack( vs )
   end let
 end function
