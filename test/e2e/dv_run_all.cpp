@@ -435,6 +435,14 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_TRACEUTIL_DV
+struct tu_maxr { int32_t val, job, seg; };
+struct tu_segr { int32_t ecnt; tu_maxr mx; int32_t prio; bool fired, leaf; };
+struct TU_results { sisal_array_t st, fin, d; tu_segr ns; };
+extern "C" struct TU_results func_MAIN(sisal_array_t sorted, sisal_array_t vals,
+                                       int32_t low, int32_t high, tu_segr seg,
+                                       int32_t cnt, tu_maxr mx);
+#endif
 #ifdef TEST_ARRAY_EX_DV
 extern "C" sisal_array_t func_MAIN();
 #endif
@@ -9964,6 +9972,73 @@ static void test_genarcs_dv(void) {
   check("the mask actually bites (some segment marked leaf)", anyleaf != 0);
 }
 #endif
+#ifdef TEST_TRACEUTIL_DV
+// The utility layer at the head of trace.sis, which SortArcs and ExpandToGrid
+// are built on: FindMax (max of two MaxRec by .Val, ties to the LOWER .Job),
+// UpdateSeg, Unique and Diffs.
+//
+// Unique is the one with teeth: TWO masked gathers sharing one mask on a
+// SINGLE generator, finding the start and end index of each run of equal keys.
+// Masking on one generator is legal -- survivors are counted once and both
+// outputs come out the same length -- unlike a mask across a cross, where the
+// surviving shape would be ragged.  The run boundaries are then stitched with
+// `||` onto a one-element array_dv at each end.
+struct tu_sortr { float val; int32_t loc; };
+static void test_traceutil_dv(void) {
+  printf("\n=== Group: traceutil_dv (masked run-boundary gather + FindMax) ===\n");
+  const int NS = 6, NV = 3;
+  float keys[NS] = { 1, 1, 1, 2, 2, 3 };      // three runs
+  std::vector<tu_sortr> sorted(NS);
+  for (int i = 0; i < NS; i++) sorted[i] = { keys[i], i + 1 };
+  int32_t vals[NV] = { 2, 5, 6 };
+  int32_t low = 1, high = 9;
+  tu_segr seg{}; seg.ecnt = 5; seg.mx = { 7, 4, 1 }; seg.prio = 3;
+  seg.fired = false; seg.leaf = false;
+  int32_t cnt = 2;
+  tu_maxr mx = { 7, 2, 9 };                   // ties on Val -> lower Job wins
+
+  // ---- mirror ----
+  std::vector<tu_sortr> mst, mfin;
+  mst.push_back({ sorted[0].val, 1 });
+  for (int I = 1; I <= NS - 1; I++)
+    if (sorted[I - 1].val != sorted[I].val) mst.push_back({ sorted[I].val, I + 1 });
+  for (int I = 1; I <= NS - 1; I++)
+    if (sorted[I - 1].val != sorted[I].val) mfin.push_back({ sorted[I - 1].val, I });
+  mfin.push_back({ sorted[NS - 1].val, NS });
+  std::vector<int> md;
+  for (int I = 1; I <= NV; I++) md.push_back(I == 1 ? vals[0] - low : vals[I - 1] - vals[I - 2] - 1);
+  md.push_back(high - vals[NV - 1]);
+  tu_maxr wmax = (seg.mx.val > mx.val) ? seg.mx : (mx.val > seg.mx.val) ? mx
+               : (seg.mx.job < mx.job) ? seg.mx : mx;
+  tu_segr mns = seg; mns.ecnt = seg.ecnt - cnt; mns.mx = wmax;
+
+  // ---- compiled Sisal ----
+  sisal_array_t S = sisal_array_alloc_sized(1, 96, NS, sizeof(tu_sortr));
+  S.lower_bound[0] = 1; memcpy(S.data, sorted.data(), sizeof(tu_sortr) * NS);
+  sisal_array_t V = sisal_array_alloc_sized(1, 96, NV, sizeof(int32_t));
+  V.lower_bound[0] = 1; memcpy(V.data, vals, sizeof(int32_t) * NV);
+  TU_results r = func_MAIN(S, V, low, high, seg, cnt, mx);
+
+  auto same = [](sisal_array_t a, std::vector<tu_sortr>& m) {
+    if ((int)a.size != (int)m.size()) return 0;
+    for (int i = 0; i < (int)m.size(); i++) {
+      tu_sortr s = ((tu_sortr*)a.data)[i];
+      if (s.val != m[i].val || s.loc != m[i].loc) return 0;
+    }
+    return 1;
+  };
+  check("run STARTS == mirror (one per run of equal keys)", same(r.st, mst));
+  check("run ENDS == mirror", same(r.fin, mfin));
+  check("both masked outputs have the same length",
+        r.st.size == r.fin.size && (int)r.st.size == (int)mst.size());
+  int okd = (int)r.d.size == (int)md.size();
+  for (int i = 0; okd && i < (int)md.size(); i++) okd = ((int32_t*)r.d.data)[i] == md[i];
+  check("Diffs expansion deltas == mirror", okd);
+  check("UpdateSeg: enable count decremented", r.ns.ecnt == mns.ecnt);
+  check("FindMax tie on .Val resolves to the LOWER .Job",
+        r.ns.mx.val == mns.mx.val && r.ns.mx.job == mns.mx.job && r.ns.mx.seg == mns.mx.seg);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -11341,6 +11416,9 @@ main (void)
 #ifdef TEST_GENARCS_DV
   test_genarcs_dv ();
 #endif
+#ifdef TEST_TRACEUTIL_DV
+  test_traceutil_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -11510,7 +11588,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

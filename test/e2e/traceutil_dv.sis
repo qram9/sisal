@@ -1,0 +1,150 @@
+% TRACEUTIL — DV variant of the four utility functions at the head of
+% unit/trace.sis (Job Shop Scheduler): FindMax, UpdateSeg, Unique and Diffs.
+% These are the layer SortArcs and ExpandToGrid are built on.
+%
+%   FindMax    max of two MaxRec by .Val, ties broken by the LOWER .Job
+%   UpdateSeg  decrement a segment's enable count and fold in a new max
+%   Unique     given a sorted key column, the START and END index of each run
+%              of equal keys -- a masked gather on the run boundaries, with the
+%              first start and last finish stitched on at the ends
+%   Diffs      how many holes to open between adjacent elements to expand a
+%              compressed array back to full size
+%
+% DV changes: types flattened to array_dv, `array of` -> `array_dv of`,
+% `array Sort_OneDim [...]` -> `array_dv Sort_OneDim [...]`, Main wrapper.
+%
+% Unique is the interesting one: TWO masked gathers on one generator, sharing
+% a mask.  Masking on a single generator is legal -- the survivors are counted
+% once and both outputs get the same length -- unlike a mask across a cross,
+% where the surviving shape would be ragged.
+
+define Main
+
+type SortRec = record [Val: real; Loc: integer];
+type Sort_OneDim = array_dv [SortRec];
+type MaxRec = record [Val, Job, Seg: integer];
+type SegRec = record [EnableCnt: integer; Max: MaxRec; Priority: integer;
+                      Fired, Leaf: boolean];
+type Int_OneDim = array_dv [integer];
+
+function FindMax (Rec1,
+                  Rec2: MaxRec
+                 returns
+                  MaxRec)
+%
+%  determines the max of two records and returns it
+%
+   if (Rec1.Val > Rec2.Val) then
+      Rec1
+   elseif (Rec2.Val > Rec1.Val) then
+      Rec2
+   else
+      % really want to select the one that finishes first, not based
+      % on some form of starting time.  But would require Alphas and Dels.
+      if (Rec1.Job < Rec2.Job) then
+         Rec1
+      else
+         Rec2
+      end if
+   end if
+end function   % end of FindMax
+
+
+function UpdateSeg (Seg : SegRec;
+                    Cnt : integer;
+                    Max : MaxRec
+                   returns
+                    SegRec)
+%
+%  Update the destination segment for the arc
+%
+   let
+      NewECnt := Seg.EnableCnt - Cnt;
+      NewMax := FindMax (Seg.Max, Max);
+      NewRec := Seg replace [EnableCnt: NewECnt; Max: NewMax];
+   in
+      NewRec
+   end let
+end function   % end of UpdateSeg
+
+
+function Unique (Sorted : Sort_OneDim
+                returns
+                 Sort_OneDim,          % starts of range
+                 Sort_OneDim)          % ends of range
+%
+%  For example, when sorting by Job and Segment, first sort by job and run
+%  this routine on the results to find the ranges of each job.  Then, the
+%  segments associated with each job can be sorted in parallel.
+%
+   let
+      % this is a different N
+      N := array_size(Sorted);
+
+      Starts, Finishes :=
+         for I in 1, (N-1)
+            Start := record SortRec [Val: Sorted[I+1].Val; Loc: I+1];
+            Finish := record SortRec [Val: Sorted[I].Val; Loc: I];
+         returns
+            array_dv of Start when Sorted[I].Val ~= Sorted[I+1].Val
+            array_dv of Finish when Sorted[I].Val ~= Sorted[I+1].Val
+         end for;
+
+      % fix up boundries
+      ActualStart := array_dv Sort_OneDim [1: record SortRec [Val: Sorted[1].Val;
+                                           Loc: 1]] || Starts;
+      ActualFinish := Finishes || array_dv Sort_OneDim [1: record SortRec
+                                            [Val: Sorted[N].Val; Loc: N]];
+   in
+      ActualStart, ActualFinish
+   end let
+end function   % end of Unique
+
+
+function Diffs (Vals : Int_OneDim;    % array of values
+                Low,                  % lower bound of expanded array
+                High : integer        % upper bound of expnaded array
+               returns
+                Int_OneDim)           % array of differences
+%
+%  Want to expand a compressed array to full size.  So, count the number of
+%  spaces which are to be added between each adjacent element.
+%
+   let
+      Size := array_size(Vals);
+      Deltas :=
+         for I in 1, Size
+            Delta :=
+               if (I = 1) then
+                  Vals[I] - Low
+               else
+                  Vals[I] - Vals[I-1] - 1
+               end if;
+         returns
+            array_dv of Delta
+         end for || array_dv Int_OneDim [1: (High - Vals[Size])];
+   in
+      Deltas
+   end let
+end function   % end of Diffs
+
+
+function Main (Sorted : Sort_OneDim;   % a sorted key column
+               Vals : Int_OneDim;      % compressed positions
+               Low, High : integer;    % bounds of the expanded array
+               Seg : SegRec;           % segment to update
+               Cnt : integer;          % arcs arriving at it
+               Mx : MaxRec             % incoming max
+              returns
+               Sort_OneDim,            % run starts
+               Sort_OneDim,            % run ends
+               Int_OneDim,             % expansion deltas
+               SegRec)                 % updated segment
+   let
+      St, Fin := Unique (Sorted);
+      D := Diffs (Vals, Low, High);
+      NS := UpdateSeg (Seg, Cnt, Mx);
+   in
+      St, Fin, D, NS
+   end let
+end function
