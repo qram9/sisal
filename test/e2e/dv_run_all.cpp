@@ -435,6 +435,16 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_MOLDYN_NBRLIST_DV
+struct nl_pos { sisal_array_t X, Y, Z; };
+struct nl_vel { sisal_array_t VX, VY, VZ; };
+struct nl_ens { float tout, step, err; int32_t size; nl_pos pos; nl_vel vel;
+                sisal_array_t types; };
+struct nl_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
+                float dt, endt, tol; };
+struct NL_results { sisal_array_t flat, lens; int32_t nrows; };
+extern "C" struct NL_results func_MAIN(nl_ens e, nl_pd pd);
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 struct mn_pos { sisal_array_t X, Y, Z; };
 struct mn_vel { sisal_array_t VX, VY, VZ; };
@@ -10740,6 +10750,100 @@ static void test_moldyn_neighbors_dv(void) {
   mn_case(bx, by, bz, "every particle maximal");
 }
 #endif
+#ifdef TEST_MOLDYN_NBRLIST_DV
+// The same neighbour structure as moldyn_neighbors_dv, but as a LIST OF
+// array_dv -- which is what a ragged 2-D actually is.  The inner dimension is
+// a genuine rank-1 dope of exactly the neighbour count (the ORIGINAL masked
+// gather, untouched); the outer dimension is a cons list holding those dopes
+// by reference.
+//
+// Nothing is padded and nothing is scanned.  moldyn_neighbors_dv has to spend
+// NP x (NP-1) slots however sparse the graph is, and needs a per-slot search
+// to fill them; here the outer loop is O(1) per particle because consing
+// stores the handle.  The check below prints both figures: for the sparse
+// case the flat data is 10 slots against the padded form's 30.
+//
+// The cross nest cannot express this.  `for P in 1,NP cross K in 1,MaxN` fixes
+// dims[1] before the loops open and lands row P at P*width via a single flat
+// write counter -- there is no width here.  So the nest comes apart: a
+// let-bound inner forall per particle, and a for-initial over particles that
+// conses.  Iteration runs DOWNWARD so consing yields ascending order with no
+// reversal pass.
+//
+// Verified as a CSR pair -- Flatten gives every row end to end, Row_Lengths
+// gives where each stops -- against a mirror that builds the ragged lists
+// directly.
+static int nl_case(const float* px, const float* py, const float* pz, const char* tag) {
+  const int NP = 6, NT = 2;
+  int ty[NP] = { 1, 1, 2, 1, 2, 1 };
+  float rc[NT * NT] = { 2.0f, 2.0f, 2.0f, 2.0f };
+  auto sep = [&](int a, int b) {
+    float dx = px[a] - px[b], dy = py[a] - py[b], dz = pz[a] - pz[b];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+  };
+  std::vector<std::vector<int>> nb(NP);
+  for (int p = 1; p <= NP; p++) for (int q = 1; q <= NP; q++)
+    if (q != p && sep(p - 1, q - 1) <= rc[(ty[p - 1] - 1) * NT + (ty[q - 1] - 1)])
+      nb[p - 1].push_back(q);
+  std::vector<int> mflat, mlens;
+  for (int p = 0; p < NP; p++) {
+    mlens.push_back((int)nb[p].size());
+    for (int v : nb[p]) mflat.push_back(v);
+  }
+  auto mk1 = [&](const void* s2, size_t n, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(1, 96, n, esz);
+    A.lower_bound[0] = 1; A.stride[0] = 1; memcpy(A.data, s2, esz * n); return A;
+  };
+  auto mk2 = [&](const void* s2, int d0, int d1, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(2, 96, (size_t)d0 * d1, esz);
+    A.rank = 2; A.dims[0] = d0; A.dims[1] = d1;
+    A.lower_bound[0] = 1; A.lower_bound[1] = 1; A.stride[0] = d1; A.stride[1] = 1;
+    memcpy(A.data, s2, esz * (size_t)d0 * d1); return A;
+  };
+  nl_ens e; e.tout = 0; e.step = 0.01f; e.err = 0; e.size = NP;
+  e.pos.X = mk1(px, NP, sizeof(float)); e.pos.Y = mk1(py, NP, sizeof(float));
+  e.pos.Z = mk1(pz, NP, sizeof(float));
+  float zv[NP] = { 0, 0, 0, 0, 0, 0 };
+  e.vel.VX = mk1(zv, NP, sizeof(float)); e.vel.VY = mk1(zv, NP, sizeof(float));
+  e.vel.VZ = mk1(zv, NP, sizeof(float));
+  e.types = mk1(ty, NP, sizeof(int32_t));
+  nl_pd pd; pd.nt = NT; float one[NT * NT] = { 1, 1, 1, 1 };
+  pd.A1 = mk2(one, NT, NT, sizeof(float)); pd.B1 = mk2(one, NT, NT, sizeof(float));
+  pd.Re = mk2(one, NT, NT, sizeof(float)); pd.Rc = mk2(rc, NT, NT, sizeof(float));
+  pd.ALFA = mk2(one, NT, NT, sizeof(float)); pd.C0 = mk2(one, NT, NT, sizeof(float));
+  float mass[NT] = { 1, 2 }; pd.MASS = mk1(mass, NT, sizeof(float));
+  pd.dt = 0.01f; pd.endt = 1.0f; pd.tol = 1e-6f;
+  NL_results r = func_MAIN(e, pd);
+
+  char msg[160];
+  snprintf(msg, sizeof msg, "%s: one list node per particle", tag);
+  check(msg, r.nrows == NP && (int)r.lens.size == NP);
+  int okl = (int)r.lens.size == (int)mlens.size();
+  for (int i = 0; okl && i < (int)mlens.size(); i++)
+    okl = ((int32_t*)r.lens.data)[i] == mlens[i];
+  snprintf(msg, sizeof msg, "%s: row lengths == ragged mirror", tag);
+  check(msg, okl);
+  int okf = (int)r.flat.size == (int)mflat.size();
+  for (int i = 0; okf && i < (int)mflat.size(); i++)
+    okf = ((int32_t*)r.flat.data)[i] == mflat[i];
+  snprintf(msg, sizeof msg, "%s: rows end to end == ragged mirror", tag);
+  check(msg, okf);
+  snprintf(msg, sizeof msg, "%s: nothing padded (flat size == sum of lengths)", tag);
+  check(msg, (int)r.flat.size == (int)mflat.size());
+  printf("       flat uses %d slots; the padded rank-2 form would use %d\n",
+         (int)r.flat.size, NP * (NP - 1));
+  return okl && okf;
+}
+static void test_moldyn_nbrlist_dv(void) {
+  printf("\n=== Group: moldyn_nbrlist_dv (ragged 2-D as a list of array_dv) ===\n");
+  float ax[6] = { 0.0f, 0.5f, 1.0f, 2.5f, 5.0f, 20.0f };
+  float ay[6] = { 0, 0, 0, 0, 0, 0 }, az[6] = { 0, 0, 0, 0, 0, 0 };
+  float bx[6] = { 0.0f, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f };
+  float by[6] = { 0, 0, 0, 0, 0, 0 }, bz[6] = { 0, 0, 0, 0, 0, 0 };
+  nl_case(ax, ay, az, "sparse");
+  nl_case(bx, by, bz, "dense");
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -12135,6 +12239,9 @@ main (void)
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
+#ifdef TEST_MOLDYN_NBRLIST_DV
+  test_moldyn_nbrlist_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -12304,7 +12411,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

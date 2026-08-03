@@ -1,0 +1,207 @@
+% MOLDYN_NBRLIST — moldyn's neighbour structure as a LIST OF array_dv, which is
+% what a ragged 2-D actually is: the inner dimension is a real rank-1 dope
+% vector of exactly the right length, and the outer dimension is a cons list
+% holding those dopes by reference.
+%
+% Contrast moldyn_neighbors_dv, which carries the same structure as a padded
+% rank-2 rectangle plus an NCOUNT extent vector.  Padding costs NP x (NP-1)
+% slots however sparse the neighbour graph is, and it needed a per-slot scan
+% (Kth_Neighbor) to fill.  Here nothing is padded and nothing is scanned:
+% Get_Neighbors -- the ORIGINAL masked gather, untouched -- produces each row at
+% its true length, and consing stores the handle, so the outer loop is O(1) per
+% particle rather than O(NP).
+%
+% Why the cross had to come apart.  `for P in 1,NP cross K in 1,MaxN` fixes one
+% rectangular shape for the whole build: dims[1] is written before the loops
+% open, and the single flat write counter makes row P land at P*width by
+% construction.  There is no width here -- rows differ -- so the nest is
+% dismantled: a let-bound inner forall per particle (the array_dv), and a
+% for-initial over particles that conses the results (the list).
+%
+% `array_dv of <ragged array_dv>` has no defined meaning and the compiler does
+% not currently reject it; this file is the shape one should write instead.
+%
+% Iteration runs DOWNWARD, NP..1, because consing puts the newest at the head:
+% descending order in, ascending order out, no reversal pass.
+%
+% The walkers take the list as a PARAMETER rather than seeding a carry from
+% Get_Neighbor_Lists(...) directly.  A for-initial whose union carry is seeded
+% from a call result mis-wires its INIT->body carries when an integer carry
+% sits alongside (the emitted C assigns across slots and will not compile).
+% Parameter-seeded carries are fine, which is how backtrack_dv is written too.
+
+define Main
+
+type Reals = array_dv [real];
+type Ints = array_dv [integer];
+
+% the outer dimension: a list of rank-1 dope vectors, held by reference
+type NList = union [ empty: null; cons: record [ hd: Ints; tl: NList ] ];
+
+type POS_REC = record [X, Y, Z : Reals];
+type VEL_REC = record [VX, VY, VZ : Reals];
+
+type ENSEMBLE_STATE_REC = record
+     [ TOUT : real;
+       CURRENT_STEP : real;
+       CURRENT_ERR : real;
+       ENSEMBLE_SIZE : integer;
+       POSITIONS : POS_REC;
+       VELOCITIES : VEL_REC;
+       TYPES : Ints ];
+
+type PROBLEM_DATA_REC = record
+     [ NUMBER_OF_TYPES : integer;
+       A1 : Reals; B1 : Reals; Re : Reals; Rc : Reals;
+       ALFA : Reals; C0 : Reals;
+       MASS : Reals;
+       DELTA_T : real; ENDTIME : real; TOLERANCE : real ];
+
+function Mt (returns NList) union NList [empty: nil] end function
+
+function Cons (h: Ints; t: NList returns NList)
+   union NList [cons: record [hd: h; tl: t]]
+end function
+
+function Hd (l: NList returns Ints)
+   tagcase x := l tag empty: array_dv Ints [] tag cons: x.hd end tagcase
+end function
+
+function Tl (l: NList returns NList)
+   tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+
+function square (X : real returns real)
+   X * X
+end function
+
+function Sep_Rad (X1, Y1, Z1, X2, Y2, Z2 : real returns real)
+   let
+      X_DIFF_SQ := square(X1 - X2);
+      Y_DIFF_SQ := square(Y1 - Y2);
+      Z_DIFF_SQ := square(Z1 - Z2)
+   in
+      sqrt( X_DIFF_SQ + Y_DIFF_SQ + Z_DIFF_SQ )
+   end let
+end function
+
+function Separation (PARTICLE, OTHER_PARTICLE : integer;
+                     ENSEMBLE : ENSEMBLE_STATE_REC
+                    returns real)
+   let
+      X1 := ENSEMBLE.POSITIONS.X[ PARTICLE ];
+      Y1 := ENSEMBLE.POSITIONS.Y[ PARTICLE ];
+      Z1 := ENSEMBLE.POSITIONS.Z[ PARTICLE ];
+      X2 := ENSEMBLE.POSITIONS.X[ OTHER_PARTICLE ];
+      Y2 := ENSEMBLE.POSITIONS.Y[ OTHER_PARTICLE ];
+      Z2 := ENSEMBLE.POSITIONS.Z[ OTHER_PARTICLE ]
+   in
+      Sep_Rad( X1, Y1, Z1, X2, Y2, Z2 )
+   end let
+end function
+
+function Is_Neighbor (PARTICLE, OTHER_PARTICLE : integer;
+                      ENSEMBLE : ENSEMBLE_STATE_REC;
+                      PROBLEM_DATA : PROBLEM_DATA_REC
+                     returns boolean)
+   let
+      T1 : integer := ENSEMBLE.TYPES[ PARTICLE ];
+      T2 : integer := ENSEMBLE.TYPES[ OTHER_PARTICLE ];
+      RC : real := PROBLEM_DATA.Rc[ T1, T2 ]
+   in
+      OTHER_PARTICLE ~= PARTICLE &
+      Separation( PARTICLE, OTHER_PARTICLE, ENSEMBLE ) <= RC
+   end let
+end function
+
+% THE INNER DIMENSION -- the original masked gather, untouched.  A single
+% generator, so the survivors are counted once and the row comes back as a
+% rank-1 array_dv of exactly the neighbour count.
+function Get_Neighbors (PARTICLE : integer;
+                        ENSEMBLE : ENSEMBLE_STATE_REC;
+                        PROBLEM_DATA : PROBLEM_DATA_REC
+                       returns Ints)
+   for OTHER_PARTICLE in 1, ENSEMBLE.ENSEMBLE_SIZE
+   returns
+      array_dv of OTHER_PARTICLE
+      when Is_Neighbor( PARTICLE, OTHER_PARTICLE, ENSEMBLE, PROBLEM_DATA )
+   end for
+end function
+
+% THE OUTER DIMENSION -- a for-initial that binds each particle's row with a
+% let-style definition and conses the HANDLE onto the list.  No copying, no
+% padding, no width to agree on.  Descending so the list comes out ascending.
+function Get_Neighbor_Lists (ENSEMBLE : ENSEMBLE_STATE_REC;
+                             PROBLEM_DATA : PROBLEM_DATA_REC
+                            returns NList)
+   for initial
+      P := ENSEMBLE.ENSEMBLE_SIZE + 1;
+      ACC := Mt();
+   while P > 1
+   repeat
+      P := old P - 1;
+      ROW := Get_Neighbors( P, ENSEMBLE, PROBLEM_DATA );
+      ACC := Cons( ROW, old ACC );
+   returns
+      value of ACC
+   end for
+end function
+
+
+% ---- walking it: the list arrives as a PARAMETER (see the header note) ------
+
+function Row_Count (L : NList returns integer)
+   for initial
+      CUR := L;
+      N := 0;
+   while ~is empty(CUR)
+   repeat
+      N := old N + 1;
+      CUR := Tl( old CUR );
+   returns
+      value of N
+   end for
+end function
+
+% each row's length, in list order
+function Row_Lengths (L : NList returns Ints)
+   for initial
+      CUR := L;
+      ACC := array_dv Ints [];
+   while ~is empty(CUR)
+   repeat
+      ACC := array_addh( old ACC, array_size( Hd(old CUR) ) );
+      CUR := Tl( old CUR );
+   returns
+      value of ACC
+   end for
+end function
+
+% every row end to end -- the flat half of a CSR pair, with Row_Lengths the
+% other half.  Nothing is padded, so this is exactly as long as the data.
+function Flatten (L : NList returns Ints)
+   for initial
+      CUR := L;
+      ACC := array_dv Ints [];
+   while ~is empty(CUR)
+   repeat
+      ACC := old ACC || Hd( old CUR );
+      CUR := Tl( old CUR );
+   returns
+      value of ACC
+   end for
+end function
+
+function Main (ENSEMBLE : ENSEMBLE_STATE_REC;
+               PROBLEM_DATA : PROBLEM_DATA_REC
+              returns
+               Ints,        % every neighbour row, end to end
+               Ints,        % each row's length
+               integer)     % number of rows
+   let
+      LISTS := Get_Neighbor_Lists( ENSEMBLE, PROBLEM_DATA );
+   in
+      Flatten( LISTS ), Row_Lengths( LISTS ), Row_Count( LISTS )
+   end let
+end function
