@@ -1,0 +1,167 @@
+% MOLDYN_NEIGHBORS — DV variant of Get_Neighbor_Lists / Get_Neighbors /
+% Separation from unit/moldyn.sis.  These BUILD the ragged neighbour structure
+% that moldyn_force_dv then consumes: for each particle, which other particles
+% lie within the type-pair dissociation radius Rc.
+%
+% Get_Neighbors is kept exactly as the original writes it -- a masked gather on
+% a SINGLE generator.  That is legal and compacts correctly: the survivor count
+% is data-dependent, and a lone generator's mask is counted once, so the row
+% comes out packed with length = the number of neighbours.
+%
+% Get_Neighbor_Lists is what cannot survive verbatim.  It gathers those rows
+% with `array of N_LIST`, and since each row has a different length the result
+% is ragged -- no array_dv shape.  It becomes the padded rank-2 NEIGHBORS plus
+% the NCOUNT extent vector that the force core already expects, the same
+% treatment GenLinks' layers got.
+%
+% HOW THE PADDED ROW IS BUILT.  The obvious spelling -- take the packed row and
+% append zeros, `N_LIST || Zeros(MaxN - array_size(N_LIST))` -- is avoided on
+% purpose.  It hits a compiler bug: when the FIRST row's right operand is empty
+% (a particle with the maximum number of neighbours, so no padding), the
+% enclosing rank-2 gather reports dims[1] = true_length + 1 while size stays
+% correct, and every row after the first is read at the wrong stride.  Rows
+% where the pad is empty anywhere OTHER than the first are fine, as is an empty
+% LEFT operand, and `a || empty` on its own is fine -- it is the gather's
+% inner-extent derivation that goes wrong.  Sizing MaxN so the pad is never
+% empty would dodge it, but only by depending on the data, so the row is
+% instead built directly: slot K holds the K-th qualifying particle, found by a
+% scan, or 0 when the particle has fewer than K neighbours.
+
+define Main
+
+type Reals = array_dv [real];
+type Ints = array_dv [integer];
+
+type POS_REC = record [X, Y, Z : Reals];
+type VEL_REC = record [VX, VY, VZ : Reals];
+
+type ENSEMBLE_STATE_REC = record
+     [ TOUT : real;
+       CURRENT_STEP : real;
+       CURRENT_ERR : real;
+       ENSEMBLE_SIZE : integer;
+       POSITIONS : POS_REC;
+       VELOCITIES : VEL_REC;
+       TYPES : Ints ];
+
+type PROBLEM_DATA_REC = record
+     [ NUMBER_OF_TYPES : integer;
+       A1 : Reals; B1 : Reals; Re : Reals; Rc : Reals;   % rank 2, by type pair
+       ALFA : Reals; C0 : Reals;
+       MASS : Reals;
+       DELTA_T : real; ENDTIME : real; TOLERANCE : real ];
+
+function square (X : real returns real)
+   X * X
+end function
+
+function Sep_Rad (X1, Y1, Z1, X2, Y2, Z2 : real returns real)
+   let
+      X_DIFF_SQ := square(X1 - X2);
+      Y_DIFF_SQ := square(Y1 - Y2);
+      Z_DIFF_SQ := square(Z1 - Z2)
+   in
+      sqrt( X_DIFF_SQ + Y_DIFF_SQ + Z_DIFF_SQ )
+   end let
+end function
+
+function Separation (PARTICLE, OTHER_PARTICLE : integer;
+                     ENSEMBLE : ENSEMBLE_STATE_REC
+                    returns real)
+   let
+      X1 := ENSEMBLE.POSITIONS.X[ PARTICLE ];
+      Y1 := ENSEMBLE.POSITIONS.Y[ PARTICLE ];
+      Z1 := ENSEMBLE.POSITIONS.Z[ PARTICLE ];
+      X2 := ENSEMBLE.POSITIONS.X[ OTHER_PARTICLE ];
+      Y2 := ENSEMBLE.POSITIONS.Y[ OTHER_PARTICLE ];
+      Z2 := ENSEMBLE.POSITIONS.Z[ OTHER_PARTICLE ]
+   in
+      Sep_Rad( X1, Y1, Z1, X2, Y2, Z2 )
+   end let
+end function
+
+% true when OTHER_PARTICLE is a neighbour of PARTICLE -- the original's mask,
+% factored out so the packed row and the padded row cannot drift apart
+function Is_Neighbor (PARTICLE, OTHER_PARTICLE : integer;
+                      ENSEMBLE : ENSEMBLE_STATE_REC;
+                      PROBLEM_DATA : PROBLEM_DATA_REC
+                     returns boolean)
+   let
+      T1 : integer := ENSEMBLE.TYPES[ PARTICLE ];
+      T2 : integer := ENSEMBLE.TYPES[ OTHER_PARTICLE ];
+      RC : real := PROBLEM_DATA.Rc[ T1, T2 ]
+   in
+      OTHER_PARTICLE ~= PARTICLE &
+      Separation( PARTICLE, OTHER_PARTICLE, ENSEMBLE ) <= RC
+   end let
+end function
+
+% the original, verbatim in shape: a masked gather on a single generator, so
+% the row comes out PACKED with length = the neighbour count
+function Get_Neighbors (PARTICLE : integer;
+                        ENSEMBLE : ENSEMBLE_STATE_REC;
+                        PROBLEM_DATA : PROBLEM_DATA_REC
+                       returns Ints)
+   for OTHER_PARTICLE in 1, ENSEMBLE.ENSEMBLE_SIZE
+   returns
+      array_dv of OTHER_PARTICLE
+      when Is_Neighbor( PARTICLE, OTHER_PARTICLE, ENSEMBLE, PROBLEM_DATA )
+   end for
+end function
+
+% the K-th qualifying particle for PARTICLE, or 0 if it has fewer than K
+function Kth_Neighbor (PARTICLE, K : integer;
+                       ENSEMBLE : ENSEMBLE_STATE_REC;
+                       PROBLEM_DATA : PROBLEM_DATA_REC
+                      returns integer)
+   for initial
+      Q := 0;
+      SEEN := 0;
+      FOUND := 0;
+   while (Q < ENSEMBLE.ENSEMBLE_SIZE) & (FOUND = 0)
+   repeat
+      Q := old Q + 1;
+      HIT := Is_Neighbor( PARTICLE, Q, ENSEMBLE, PROBLEM_DATA );
+      SEEN := if HIT then old SEEN + 1 else old SEEN end if;
+      FOUND := if (HIT & (SEEN = K)) then Q else old FOUND end if;
+   returns
+      value of FOUND
+   end for
+end function
+
+% the assembled structure: a rectangular rank-2 NEIGHBORS padded to the worst
+% case, plus NCOUNT giving each row's valid extent
+function Get_Neighbor_Lists (ENSEMBLE : ENSEMBLE_STATE_REC;
+                             PROBLEM_DATA : PROBLEM_DATA_REC
+                            returns Ints, Ints)
+   let
+      NP := ENSEMBLE.ENSEMBLE_SIZE;
+      MaxN := NP - 1;        % a particle can neighbour every other one
+
+      NEIGHBORS :=
+         for PARTICLE in 1, NP cross
+             K in 1, MaxN
+         returns
+            array_dv of Kth_Neighbor( PARTICLE, K, ENSEMBLE, PROBLEM_DATA )
+         end for;
+
+      % the count comes from the original packed row, so the two spellings of
+      % "who are my neighbours" are cross-checked against each other
+      NCOUNT :=
+         for PARTICLE in 1, NP
+            N_LIST := Get_Neighbors( PARTICLE, ENSEMBLE, PROBLEM_DATA );
+         returns
+            array_dv of array_size( N_LIST )
+         end for;
+   in
+      NEIGHBORS, NCOUNT
+   end let
+end function
+
+function Main (ENSEMBLE : ENSEMBLE_STATE_REC;
+               PROBLEM_DATA : PROBLEM_DATA_REC
+              returns
+               Ints,        % NEIGHBORS, rank 2: particle x padded slot
+               Ints)        % NCOUNT, neighbours per particle
+   Get_Neighbor_Lists( ENSEMBLE, PROBLEM_DATA )
+end function
