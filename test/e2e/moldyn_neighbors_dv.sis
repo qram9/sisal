@@ -16,16 +16,27 @@
 %
 % HOW THE PADDED ROW IS BUILT.  The obvious spelling -- take the packed row and
 % append zeros, `N_LIST || Zeros(MaxN - array_size(N_LIST))` -- is avoided on
-% purpose.  It hits a compiler bug: when the FIRST row's right operand is empty
-% (a particle with the maximum number of neighbours, so no padding), the
-% enclosing rank-2 gather reports dims[1] = true_length + 1 while size stays
-% correct, and every row after the first is read at the wrong stride.  Rows
-% where the pad is empty anywhere OTHER than the first are fine, as is an empty
-% LEFT operand, and `a || empty` on its own is fine -- it is the gather's
-% inner-extent derivation that goes wrong.  Sizing MaxN so the pad is never
-% empty would dodge it, but only by depending on the data, so the row is
-% instead built directly: slot K holds the K-th qualifying particle, found by a
-% scan, or 0 when the particle has fewer than K neighbours.
+% purpose.  It hits a compiler bug in the FORALL gather's inner-extent
+% derivation: when the FIRST row's right operand is empty (a particle with the
+% maximum number of neighbours, so no padding), the result reports
+% dims[1] = true_length + 1.  The DATA and size are correct -- the rows are
+% packed properly -- so nothing is corrupted, but any consumer that indexes by
+% dims[1], as this test's harness does, reads every later row at the wrong
+% offset.
+%
+% The bug is narrow, which is why `||` inside a gather is used elsewhere
+% without trouble:
+%   - only a FORALL gather is affected; the for-initial gather derives the
+%     extent correctly in the same situation.
+%   - only the FIRST row matters.  An empty pad in any later row is fine, an
+%     empty LEFT operand is fine, and `a || empty` outside a gather is fine.
+%   - non-empty operands are fine throughout, which is why kin16_dv's
+%     `array_dv of (singleton(..) || Vc)` has always worked.
+%
+% Sizing MaxN so the pad is never empty would dodge it, but only by depending
+% on the data, so the row is instead built directly: slot K holds the K-th
+% qualifying particle, found by a scan, or 0 when the particle has fewer than
+% K neighbours.
 
 define Main
 
