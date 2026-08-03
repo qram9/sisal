@@ -442,8 +442,8 @@ struct nl_ens { float tout, step, err; int32_t size; nl_pos pos; nl_vel vel;
                 sisal_array_t types; };
 struct nl_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
                 float dt, endt, tol; };
-struct NL_results { sisal_array_t flat, lens; int32_t nrows; };
-extern "C" struct NL_results func_MAIN(nl_ens e, nl_pd pd);
+struct NL_results { sisal_array_t row, lens; int32_t nrows; };
+extern "C" struct NL_results func_MAIN(nl_ens e, nl_pd pd, int32_t want);
 #endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 struct mn_pos { sisal_array_t X, Y, Z; };
@@ -10813,26 +10813,31 @@ static int nl_case(const float* px, const float* py, const float* pz, const char
   pd.ALFA = mk2(one, NT, NT, sizeof(float)); pd.C0 = mk2(one, NT, NT, sizeof(float));
   float mass[NT] = { 1, 2 }; pd.MASS = mk1(mass, NT, sizeof(float));
   pd.dt = 0.01f; pd.endt = 1.0f; pd.tol = 1e-6f;
-  NL_results r = func_MAIN(e, pd);
 
   char msg[160];
+  // one call per particle: each hands back that row's OWN array_dv, at its
+  // true length -- no padding to strip, no buffer to slice
+  int okl = 1, okr = 1, okn = 1, total = 0;
+  for (int p = 1; p <= NP; p++) {
+    NL_results r = func_MAIN(e, pd, p);
+    okn &= (r.nrows == NP) && ((int)r.lens.size == NP);
+    for (int i = 0; i < NP && i < (int)r.lens.size; i++)
+      if (((int32_t*)r.lens.data)[i] != (int)nb[i].size()) okl = 0;
+    // the row itself: length is the neighbour count exactly
+    if ((int)r.row.size != (int)nb[p - 1].size()) okr = 0;
+    else for (int k = 0; k < (int)nb[p - 1].size(); k++)
+      if (((int32_t*)r.row.data)[k] != nb[p - 1][k]) okr = 0;
+    if (p == 1) for (int i = 0; i < NP; i++) total += (int)nb[i].size();
+  }
   snprintf(msg, sizeof msg, "%s: one list node per particle", tag);
-  check(msg, r.nrows == NP && (int)r.lens.size == NP);
-  int okl = (int)r.lens.size == (int)mlens.size();
-  for (int i = 0; okl && i < (int)mlens.size(); i++)
-    okl = ((int32_t*)r.lens.data)[i] == mlens[i];
+  check(msg, okn);
   snprintf(msg, sizeof msg, "%s: row lengths == ragged mirror", tag);
   check(msg, okl);
-  int okf = (int)r.flat.size == (int)mflat.size();
-  for (int i = 0; okf && i < (int)mflat.size(); i++)
-    okf = ((int32_t*)r.flat.data)[i] == mflat[i];
-  snprintf(msg, sizeof msg, "%s: rows end to end == ragged mirror", tag);
-  check(msg, okf);
-  snprintf(msg, sizeof msg, "%s: nothing padded (flat size == sum of lengths)", tag);
-  check(msg, (int)r.flat.size == (int)mflat.size());
-  printf("       flat uses %d slots; the padded rank-2 form would use %d\n",
-         (int)r.flat.size, NP * (NP - 1));
-  return okl && okf;
+  snprintf(msg, sizeof msg, "%s: each row is its OWN array_dv at its true length", tag);
+  check(msg, okr);
+  printf("       rows hold %d elements total; the padded rank-2 form would hold %d\n",
+         total, NP * (NP - 1));
+  return okl && okr && okn;
 }
 static void test_moldyn_nbrlist_dv(void) {
   printf("\n=== Group: moldyn_nbrlist_dv (ragged 2-D as a list of array_dv) ===\n");

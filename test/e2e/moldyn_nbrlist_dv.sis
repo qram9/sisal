@@ -22,7 +22,13 @@
 % not currently reject it; this file is the shape one should write instead.
 %
 % Iteration runs DOWNWARD, NP..1, because consing puts the newest at the head:
-% descending order in, ascending order out, no reversal pass.
+% descending order in, ascending order out, no reversal pass.  Consing is O(1)
+% -- only the dope handle is stored -- so the outer loop never copies a row.
+%
+% There is no `||` in this file.  Catenating rows back into one buffer would
+% copy the whole accumulation on every step, and it is exactly the operator
+% that mis-derives an extent when a gather builds rank 2 from it.  The list is
+% the outer dimension; rows are reached by walking it.
 %
 % The walkers take the list as a PARAMETER rather than seeding a carry from
 % Get_Neighbor_Lists(...) directly.  A for-initial whose union carry is seeded
@@ -178,30 +184,44 @@ function Row_Lengths (L : NList returns Ints)
    end for
 end function
 
-% every row end to end -- the flat half of a CSR pair, with Row_Lengths the
-% other half.  Nothing is padded, so this is exactly as long as the data.
-function Flatten (L : NList returns Ints)
+% drop the first N nodes.  The RETURNS is `value of CUR` -- the carry itself,
+% not an expression over it.  That distinction is load-bearing: a zero-trip
+% for-initial returns the seed correctly for a bare carry, but `value of <expr
+% over the carry>` yields the type default instead of evaluating the
+% expression on the seed (so `value of Hd(CUR)` would hand back an empty row
+% for N = 0).  Keeping the loop to the carry and applying Hd outside sidesteps
+% it entirely.
+function Advance (L : NList; N : integer returns NList)
    for initial
       CUR := L;
-      ACC := array_dv Ints [];
-   while ~is empty(CUR)
+      K := 0;
+   while K < N
    repeat
-      ACC := old ACC || Hd( old CUR );
+      K := old K + 1;
       CUR := Tl( old CUR );
    returns
-      value of ACC
+      value of CUR
    end for
 end function
 
+% the I-th row, handed back as the array_dv the list already holds.  No
+% catenation anywhere in this file: the list IS the outer dimension, so rows
+% are reached by walking it, not by gluing them into one buffer.  Returning
+% the handle costs nothing.
+function Nth_Row (L : NList; I : integer returns Ints)
+   Hd( Advance( L, I - 1 ) )
+end function
+
 function Main (ENSEMBLE : ENSEMBLE_STATE_REC;
-               PROBLEM_DATA : PROBLEM_DATA_REC
+               PROBLEM_DATA : PROBLEM_DATA_REC;
+               WANT : integer          % which row to hand back
               returns
-               Ints,        % every neighbour row, end to end
+               Ints,        % that particle's neighbours, at its true length
                Ints,        % each row's length
                integer)     % number of rows
    let
       LISTS := Get_Neighbor_Lists( ENSEMBLE, PROBLEM_DATA );
    in
-      Flatten( LISTS ), Row_Lengths( LISTS ), Row_Count( LISTS )
+      Nth_Row( LISTS, WANT ), Row_Lengths( LISTS ), Row_Count( LISTS )
    end let
 end function
