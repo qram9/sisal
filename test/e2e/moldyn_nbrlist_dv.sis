@@ -35,6 +35,8 @@
 % from a call result mis-wires its INIT->body carries when an integer carry
 % sits alongside (the emitted C assigns across slots and will not compile).
 % Parameter-seeded carries are fine, which is how backtrack_dv is written too.
+% That one is still open; the zero-trip issue that used to force Nth_Row into
+% an Advance/Hd pair is not -- see zerotrip_expr_dv.
 
 define Main
 
@@ -184,32 +186,26 @@ function Row_Lengths (L : NList returns Ints)
    end for
 end function
 
-% drop the first N nodes.  The RETURNS is `value of CUR` -- the carry itself,
-% not an expression over it.  That distinction is load-bearing: a zero-trip
-% for-initial returns the seed correctly for a bare carry, but `value of <expr
-% over the carry>` yields the type default instead of evaluating the
-% expression on the seed (so `value of Hd(CUR)` would hand back an empty row
-% for N = 0).  Keeping the loop to the carry and applying Hd outside sidesteps
-% it entirely.
-function Advance (L : NList; N : integer returns NList)
+% the I-th row, walked to directly.  The RETURNS is an EXPRESSION over the
+% carry (`Hd(CUR)`, not bare `CUR`), which used to hand back the type default
+% on a zero-trip -- an empty row for I = 1, the very first particle.  That is
+% fixed (to_if1 specialises an expression payload at the seed and selects it
+% with a MERGE), so the walk and the read are one function again rather than
+% an Advance/Hd pair.
+% No catenation anywhere in this file: the list IS the outer dimension, so
+% rows are reached by walking it, not by gluing them into one buffer.
+% Returning the handle costs nothing.
+function Nth_Row (L : NList; I : integer returns Ints)
    for initial
       CUR := L;
-      K := 0;
-   while K < N
+      K := 1;
+   while (K < I) & (~is empty(CUR))
    repeat
       K := old K + 1;
       CUR := Tl( old CUR );
    returns
-      value of CUR
+      value of Hd( CUR )
    end for
-end function
-
-% the I-th row, handed back as the array_dv the list already holds.  No
-% catenation anywhere in this file: the list IS the outer dimension, so rows
-% are reached by walking it, not by gluing them into one buffer.  Returning
-% the handle costs nothing.
-function Nth_Row (L : NList; I : integer returns Ints)
-   Hd( Advance( L, I - 1 ) )
 end function
 
 function Main (ENSEMBLE : ENSEMBLE_STATE_REC;
