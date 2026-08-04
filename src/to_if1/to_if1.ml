@@ -7315,9 +7315,24 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let for_gr_init =
         If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
       in
+      let n_ret_seeds = ref 0 in
+      (* (clause index, INIT boundary out port) for each RETURNS clause whose
+         payload was specialised at the seed -- what the never-runs MERGE needs
+         in order to know which RETURNS input to feed. *)
+      let ret_seed_ports : (int * int) list ref = ref [] in
+      (* (clause index, BODY boundary out port).  Recorded where the clause
+         values are actually exported rather than inferred: neither "= the
+         clause index" nor "= the RETURNS input port" holds in general -- BODY
+         exports carries and captures too, and RETURNS numbers its inputs
+         starting with ITS OWN captures. *)
+      let ret_body_ports : (int * int) list ref = ref [] in
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
+        (* add_decls / add_body_for_initial are each invoked from BOTH the
+           LoopA and the LoopB path; only one survives.  Reset so the surviving
+           path's ports are what the wiring sees, not a mix of both. *)
+        ret_seed_ports := [];
         let build_init_graph in_gr =
           If1.inherit_parent_syms in_gr (If1.get_a_new_graph in_gr)
         in
@@ -7388,6 +7403,70 @@ and do_simple_exp_impl in_gr in_sim_ex =
             cs
             (If1.boundary_out_port_count out_gr, out_gr)
         in
+        (* A zero-trip loop never runs the BODY, so a RETURNS clause whose
+           payload is an EXPRESSION has nothing to read and comes back as the
+           type default.  A clause whose payload is a bare VARIABLE is already
+           correct: a carry has a MERGE that INIT seeds, so `value of I` sees
+           the seed.  So specialise only the expression clauses here -- lower
+           them against INIT's scope, where name lookup resolves each carry to
+           its seed -- and leave bare-variable clauses completely alone, which
+           keeps INIT's boundary layout untouched for every program that is
+           right today.  (Primaries arrive wrapped in Ast.Pos, so strip it
+           before asking whether the payload is a bare name.) *)
+        let indexed_expr_clauses =
+          let rec strip_pos = function
+            | Ast.Pos (_, e) -> strip_pos e
+            | e -> e
+          in
+          (* Only the plain forms.  The SHAPED ones (array_dv(n) of e, and the
+             `at [i]` scatter) carry extent and placement expressions that are
+             lowered by their own machinery -- lower_shaped_extents and the
+             plc_tuples export -- whose port layout a second lowering here
+             disturbs. *)
+          let payload = function
+            | Ast.Value_of (_, _, e)
+            | Ast.Array_of e
+            | Ast.Dv_array_of (_, e)
+            | Ast.Stream_of e -> Some e
+            | Ast.Dv_array_shaped _ | Ast.Dv_array_shaped_at _ -> None
+          in
+          List.filter
+            (fun (_, rc) ->
+              match rc with
+              | Ast.Return_exp (rexp, _) -> (
+                  match payload rexp with
+                  | None -> false
+                  | Some e -> (
+                      match strip_pos e with
+                      | Ast.Val _ -> false  (* bare carry: the MERGE covers it *)
+                      | _ -> true))
+              | Ast.Old_ret _ -> false)
+            (List.mapi (fun i rc -> (i, rc)) r)
+        in
+        let out_gr =
+          if indexed_expr_clauses = [] then out_gr
+          else
+            (* lower each surviving clause individually so its ORIGINAL index
+               travels with it -- the RETURNS input it feeds is that index *)
+            let out_gr, idx_tuples =
+              List.fold_left
+                (fun (g, acc) (idx, rc) ->
+                  let _, tup, _, g = do_returns_clause g rc in
+                  (g, acc @ [ (idx, tup) ]))
+                (out_gr, []) indexed_expr_clauses
+            in
+            let base = If1.boundary_out_port_count out_gr in
+            List.iteri
+              (fun pos (idx, _) ->
+                ret_seed_ports := !ret_seed_ports @ [ (idx, base + pos) ])
+              idx_tuples;
+            n_ret_seeds := List.length idx_tuples;
+            to_if1_msg 3
+              "For_initial: specialised %d expression RETURNS clause(s) at the \
+               seed for the zero-trip arm"
+              (List.length idx_tuples);
+            If1.output_to_boundary (List.map snd idx_tuples) out_gr
+        in
         (xyz, out_gr)
       in
 
@@ -7404,6 +7483,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
 
       let add_body_for_initial init_gr bi rclau =
         to_if1_msg 3 "For_initial: lowering BODY";
+        ret_body_ports := [];
         let bbr =
           If1.inherit_parent_syms init_gr (If1.get_a_new_graph init_gr)
         in
@@ -7432,6 +7512,11 @@ and do_simple_exp_impl in_gr in_sim_ex =
               match act with `Dv_array_of (_, _, plcs) -> plcs | _ -> [])
             return_action_list
         in
+        let body_base = If1.boundary_out_port_count body_gr in
+        List.iteri
+          (fun k _ ->
+            ret_body_ports := !ret_body_ports @ [ (k, body_base + k) ])
+          ret_tuple_list;
         let body_gr =
           If1.output_bound_names_for_subgraphs
             (ret_tuple_list @ plc_tuples)
@@ -7551,7 +7636,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     cs 0
                 in
                 let start =
-                  If1.boundary_out_port_count decl_gr - (2 * non_old_count)
+                  If1.boundary_out_port_count decl_gr - !n_ret_seeds
+                  - (2 * non_old_count)
                 in
                 let lst1, p1 =
                   If1.SM.fold
@@ -8073,7 +8159,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                     cs 0
                 in
                 let start =
-                  If1.boundary_out_port_count decl_gr - (2 * non_old_count)
+                  If1.boundary_out_port_count decl_gr - !n_ret_seeds
+                  - (2 * non_old_count)
                 in
                 let lst1, p1 =
                   If1.SM.fold
@@ -8571,6 +8658,85 @@ and do_simple_exp_impl in_gr in_sim_ex =
                           | None -> g
                         else g)
                       fg.If1.eset fg
+                in
+                (* ZERO-TRIP ARM for RETURNS clauses whose payload is an
+                   EXPRESSION.  A bare carry is handled just above: its body
+                   port's inner source IS a carry, so the fold reroutes it
+                   through that carry's MERGE and a zero-trip read sees INIT's
+                   seed.  An expression has no carry to match -- its inner
+                   source is the operator node -- so it stays wired to a BODY
+                   port the body never wrote and comes back as the type
+                   default.  INIT now also carries the payload specialised at
+                   the seed (see add_decls); give each one the same INIT|BODY
+                   mux the carries get, selected by MERGE_first. *)
+                let fg =
+                  if !ret_seed_ports = [] then fg
+                  else
+                    let ret_cn2 =
+                      If1.NM.fold
+                        (fun nid node acc ->
+                          match node with
+                          | If1.Compound (_, _, _, prags, _, _)
+                            when List.exists
+                                   (function
+                                     | If1.Name "RETURNS" -> true
+                                     | _ -> false)
+                                   prags ->
+                              nid
+                          | _ -> acc)
+                        fg.If1.nmap (-1)
+                    in
+                    if ret_cn2 = -1 then fg
+                    else
+                      List.fold_left
+                        (fun fg (clause_idx, init_port) ->
+                          match
+                            (match List.assoc_opt clause_idx !ret_body_ports with
+                             | None -> None
+                             | Some bp ->
+                                 If1.ES.fold
+                                   (fun ((sn, sp), (dn, dp), ty) acc ->
+                                     if sn = body_cn && dn = ret_cn2 && sp = bp
+                                     then Some (bp, dp, ty)
+                                     else acc)
+                                   fg.If1.eset None)
+                          with
+                          | None -> fg
+                          | Some (body_port, ret_port, ty) ->
+                              let (mn, _, _), fg =
+                                If1.add_node_2
+                                  (`Simple
+                                     ( If1.MERGE,
+                                       [| ""; ""; "" |],
+                                       [| "" |],
+                                       [ If1.Name
+                                           (Printf.sprintf "MERGE_ret_%d"
+                                              clause_idx) ] ))
+                                  fg
+                              in
+                              let fg = If1.add_edge mf 0 mn 0 bool_ty fg in
+                              let fg =
+                                If1.add_edge init_cn init_port mn 1 ty fg
+                              in
+                              let fg = If1.add_edge body_cn body_port mn 2 ty fg in
+                              let fg =
+                                {
+                                  fg with
+                                  If1.eset =
+                                    If1.ES.remove
+                                      ( (body_cn, body_port),
+                                        (ret_cn2, ret_port),
+                                        ty )
+                                      fg.If1.eset;
+                                }
+                              in
+                              to_if1_msg 3
+                                "LoopB RETURNS zero-trip arm: clause#%d \
+                                 init%d:%d | body%d:%d -> merge%d:0 -> ret%d:%d"
+                                clause_idx init_cn init_port body_cn body_port mn
+                                ret_cn2 ret_port;
+                              If1.add_edge mn 0 ret_cn2 ret_port ty fg)
+                        fg !ret_seed_ports
                 in
                 fg
               in

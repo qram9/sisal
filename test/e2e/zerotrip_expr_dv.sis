@@ -1,0 +1,57 @@
+% ZERO-TRIP RETURNS OVER AN EXPRESSION.
+%
+% docs/loop_behavior_comparison.md Rule 1: a for-initial's `initial` clause is
+% body_0 of every returns sequence, so a zero-trip loop (guard false on entry)
+% yields the SEED rather than nothing.  That held for a RETURNS whose payload
+% is a bare CARRY -- a carry has a MERGE that INIT seeds, so `value of I` reads
+% it -- but not for a payload that is an EXPRESSION: `I * 2` was lowered only
+% into the BODY, so a zero-trip read hit a port the body never wrote and came
+% back as the type default (0 / empty).
+%
+% Now INIT also holds each expression payload specialised at the seed, and a
+% MERGE per clause selects it when the loop never runs.  All three RETURNS
+% forms are pinned here, bare and expression side by side, because only the
+% expression ones were wrong.
+%
+% Expected values are OSC 13.0.3's (~/work/oldsisal), not our own:
+%     value of I*2       -> 20      value of I*3+1  -> 31
+%     array of I*2       -> [20]    value of sum I*2 -> 20
+% and OSC agrees with the doc on the bare forms too: zero-trip `array of I`
+% gives [1,1: 10], the 5-check loop gives [1,6: 1 2 3 4 5 6], sum -> 21.
+
+define Main
+
+type Ints = array_dv [integer];
+
+function Main (returns
+               integer,   % value of I            bare      zero-trip
+               integer,   % value of I * 2        expression
+               integer,   % value of I * 3 + 1    expression, nested
+               Ints,      % array_dv of I         bare
+               Ints,      % array_dv of I * 2     expression
+               integer,   % value of sum I        bare
+               integer,   % value of sum I * 2    expression
+               integer)   % value of I * 2        NON zero-trip (last body value)
+   let
+      fv_bare := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns value of I end for;
+      fv_expr := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns value of I * 2 end for;
+      fv_nest := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns value of I * 3 + 1 end for;
+      ga_bare := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns array_dv of I end for;
+      ga_expr := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns array_dv of I * 2 end for;
+      rd_bare := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns value of sum I end for;
+      rd_expr := for initial I := 10; while I < 5 repeat I := old I + 1;
+                 returns value of sum I * 2 end for;
+      % the loop DOES run: keep-last must still be the final body value, so the
+      % zero-trip arm must not leak into the ordinary path
+      live := for initial I := 1; while I <= 3 repeat I := old I + 1;
+              returns value of I * 2 end for;
+   in
+      fv_bare, fv_expr, fv_nest, ga_bare, ga_expr, rd_bare, rd_expr, live
+   end let
+end function

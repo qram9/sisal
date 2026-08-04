@@ -368,6 +368,7 @@ run_group JOB_DV            job_dv              ""
 run_group MOLDYN_FORCE_DV   moldyn_force_dv     ""
 run_group MOLDYN_NEIGHBORS_DV moldyn_neighbors_dv ""
 run_group MOLDYN_NBRLIST_DV moldyn_nbrlist_dv   ""
+run_group ZEROTRIP_EXPR_DV  zerotrip_expr_dv    ""
 
 
 echo "========================================"

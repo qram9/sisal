@@ -270,6 +270,7 @@ BOXES the cycle-closing field, as OCaml/Haskell represent `Cons of 'a * 'a list`
   $ sisal e2e/moldyn_force_dv.sis
   $ sisal e2e/moldyn_neighbors_dv.sis
   $ sisal e2e/moldyn_nbrlist_dv.sis
+  $ sisal e2e/zerotrip_expr_dv.sis
 
 Higher-order functions and closures:
   $ sisal unit/higher_order_fun.sis

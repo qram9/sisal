@@ -435,6 +435,11 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_ZEROTRIP_EXPR_DV
+struct ZT_results { int32_t fvb, fve, fvn; sisal_array_t gab, gae;
+                    int32_t rdb, rde, live; };
+extern "C" struct ZT_results func_MAIN();
+#endif
 #ifdef TEST_MOLDYN_NBRLIST_DV
 struct nl_pos { sisal_array_t X, Y, Z; };
 struct nl_vel { sisal_array_t VX, VY, VZ; };
@@ -10849,6 +10854,33 @@ static void test_moldyn_nbrlist_dv(void) {
   nl_case(bx, by, bz, "dense");
 }
 #endif
+#ifdef TEST_ZEROTRIP_EXPR_DV
+// docs/loop_behavior_comparison.md Rule 1: the `initial` clause is body_0 of
+// every returns sequence, so a zero-trip loop yields the SEED, not nothing.
+// That held for a RETURNS whose payload is a bare CARRY -- a carry has a MERGE
+// which INIT seeds -- but not for an EXPRESSION payload, which was lowered
+// only into the BODY and so read a port the body never wrote, coming back as
+// the type default (0 / empty / wrong element type).
+//
+// Expected values are OSC 13.0.3's, taken from ~/work/oldsisal, not our own.
+// Bare and expression forms sit side by side because only the expression ones
+// were ever wrong, and `live` pins that the zero-trip arm does NOT leak into
+// the ordinary path (the loop runs; keep-last must be the final body value).
+static void test_zerotrip_expr_dv(void) {
+  printf("\n=== Group: zerotrip_expr_dv (Rule 1 for expression payloads) ===\n");
+  ZT_results r = func_MAIN();
+  check("value of I           == 10  (bare, already worked)", r.fvb == 10);
+  check("value of I * 2       == 20  (OSC 13.0.3)", r.fve == 20);
+  check("value of I * 3 + 1   == 31  (OSC 13.0.3)", r.fvn == 31);
+  check("array_dv of I        == [10] (bare)",
+        (int)r.gab.size == 1 && ((int32_t*)r.gab.data)[0] == 10);
+  check("array_dv of I * 2    == [20], and as INTEGRAL not double",
+        (int)r.gae.size == 1 && ((int32_t*)r.gae.data)[0] == 20);
+  check("value of sum I       == 10  (bare)", r.rdb == 10);
+  check("value of sum I * 2   == 20  (OSC 13.0.3)", r.rde == 20);
+  check("non zero-trip keep-last still the last BODY value (8)", r.live == 8);
+}
+#endif
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
@@ -12247,6 +12279,9 @@ main (void)
 #ifdef TEST_MOLDYN_NBRLIST_DV
   test_moldyn_nbrlist_dv ();
 #endif
+#ifdef TEST_ZEROTRIP_EXPR_DV
+  test_zerotrip_expr_dv ();
+#endif
 #ifdef TEST_ARRAY_EX_DV
   test_array_ex_dv ();
 #endif
@@ -12416,7 +12451,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
