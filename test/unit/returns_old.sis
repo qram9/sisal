@@ -1,0 +1,6 @@
+define Main
+function Main(returns integer)
+  for initial I := 1; while I <= 3 repeat I := old I + 1;
+  returns old value of I
+  end for
+end function

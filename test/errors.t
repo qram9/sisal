@@ -75,3 +75,11 @@ The offending array_dv can be buried anywhere in the definition, not just at top
   there was an error: Ir.If1.Sem_error("array_dv element is not sizable: type `DEEP` places a directly (inline) recursive type in an array_dv, so its size fold does not terminate (box the recursive arm, or recurse through an array_dv/stream handle instead)")
   [1]
 
+`old` in a returns clause.  It parses (the grammar has return_clause_old) but
+has no meaning: a RETURNS is evaluated once per value of the loop's history and
+the first of those is the seed, which has no previous iteration.  OSC 13.0.3
+does not lower it either -- its frontend reports 0 semantic errors and then
+if1ld aborts.
+  $ sisal unit/returns_old.sis 2>&1 | grep '^there was'
+  there was an error: Ir.If1.Sem_error("`old` is not allowed in a returns clause: a RETURNS is evaluated once per value of the loop's history, and the first of those is the seed, which has no previous iteration to read.  Bind the previous value to a carry in the loop body and return that instead")
+

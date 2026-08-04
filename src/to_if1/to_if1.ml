@@ -11693,7 +11693,21 @@ and get_assoc_list inner_gr =
 
 and do_returns_clause in_gr ret_clause =
   match ret_clause with
-  | Ast.Old_ret (_, _) -> failwith "DON't KNOW WHAT TO DO HERE"
+  | Ast.Old_ret (_, _) ->
+      (* `returns old <clause>` parses -- the grammar has return_clause_old --
+         but has no meaning to give: a RETURNS is evaluated once per value in
+         the history, and `old` names the PREVIOUS iteration's value, which for
+         body_0 (the seed) does not exist.  OSC 13.0.3 does not lower it either:
+         its frontend accepts the program with 0 semantic errors and then
+         if1ld aborts.  Reject it here rather than dying with an internal
+         failure. *)
+      raise
+        (If1.Sem_error
+           "`old` is not allowed in a returns clause: a RETURNS is evaluated \
+            once per value of the loop's history, and the first of those is \
+            the seed, which has no previous iteration to read.  Bind the \
+            previous value to a carry in the loop body and return that \
+            instead")
   | Ast.Return_exp (rexp, mask_clause) ->
       let msk, in_gr =
         match mask_clause with
