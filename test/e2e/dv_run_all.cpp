@@ -465,6 +465,14 @@ struct mn_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
 struct MN_results { sisal_array_t neighbors, ncount; };
 extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 #endif
+#ifdef TEST_MOLDYN_DIFFUN_DV
+struct df_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
+               float dt, endt, tol; };
+struct DF_results { sisal_array_t sdot; };
+extern "C" struct DF_results func_MAIN(sisal_array_t S, sisal_array_t types,
+                                       sisal_array_t neighbors, sisal_array_t ncount,
+                                       df_pd pd, int32_t np);
+#endif
 #ifdef TEST_MOLDYN_FORCE_DV
 struct md_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
                float dt, endt, tol; };
@@ -10667,6 +10675,119 @@ static void test_moldyn_force_dv(void) {
   check("X/Y/Z components differ, so a character mix-up would show", distinct);
 }
 #endif
+#ifdef TEST_MOLDYN_DIFFUN_DV
+// moldyn's Diffun: the DERIVATIVE the ODE solver calls.  For each particle the
+// state derivative is (vx, vy, vz, ax, ay, az) -- the velocity components read
+// straight out of the state vector, the accelerations the Morse forces divided
+// by the particle's mass.  Built on the force core, so this stage adds only the
+// per-particle assembly.
+//
+// The original builds each 6-slot chunk with array_fill + a multi-element
+// replace (fill every slot with 0.0, then overwrite all six); under a dope
+// vector the chunk is written out and catenated, with no scratch buffer.
+// Masses differ per type, so a wrong MASS[TYPES[I]] lookup would show.
+enum { DF_NP = 5, DF_NT = 2, DF_MAXN = DF_NP - 1 };
+static float df_a1[DF_NT * DF_NT], df_b1[DF_NT * DF_NT], df_re[DF_NT * DF_NT];
+static float df_alfa[DF_NT * DF_NT], df_c0[DF_NT * DF_NT];
+static float df_S[DF_NP * 6]; static int df_types[DF_NP];
+static float df_e2p(float x) { return powf(2.718281828f, x); }
+static float df_sep(float x1, float y1, float z1, float x2, float y2, float z2) {
+  float dx = x1 - x2, dy = y1 - y2, dz = z1 - z2;
+  return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+static float df_force(int p, int n, char dim) {
+  int j = (p - 1) * 6, k = (n - 1) * 6;
+  float xp = df_S[j], yp = df_S[j + 1], zp = df_S[j + 2];
+  float xn = df_S[k], yn = df_S[k + 1], zn = df_S[k + 2];
+  int tp = df_types[p - 1], tn = df_types[n - 1];
+  int x = (tp - 1) * DF_NT + (tn - 1);
+  float R = df_sep(xp, yp, zp, xn, yn, zn);
+  float basic = (-1.0f / df_b1[x]) * df_e2p(-2.0f * df_a1[x] * (R - df_re[x]))
+              + ( 1.0f / df_b1[x]) * df_e2p(-df_a1[x] * (R - df_re[x]));
+  float fadj = df_alfa[x] * df_e2p(df_alfa[x] * (R - df_c0[x]));
+  float dq = (dim == 'X') ? (xp - xn) : (dim == 'Y') ? (yp - yn) : (zp - zn);
+  return -(basic - fadj) * dq / R;
+}
+static void test_moldyn_diffun_dv(void) {
+  printf("\n=== Group: moldyn_diffun_dv (state derivative: v and F/mass) ===\n");
+  float pos[DF_NP][3] = { { 0.0f, 0.0f, 0.0f }, { 1.1f, 0.2f, 0.0f },
+                          { 0.3f, 1.0f, 0.4f }, { 2.0f, 1.6f, 0.5f },
+                          { 9.0f, 9.0f, 9.0f } };
+  for (int p = 0; p < DF_NP; p++) {
+    df_S[p * 6] = pos[p][0]; df_S[p * 6 + 1] = pos[p][1]; df_S[p * 6 + 2] = pos[p][2];
+    df_S[p * 6 + 3] = 0.1f * p; df_S[p * 6 + 4] = 0.02f * p; df_S[p * 6 + 5] = -0.05f * p;
+  }
+  int t[DF_NP] = { 1, 2, 1, 2, 1 }; memcpy(df_types, t, sizeof t);
+  float rc[DF_NT * DF_NT];
+  for (int i = 0; i < DF_NT; i++) for (int j = 0; j < DF_NT; j++) {
+    int x = i * DF_NT + j;
+    df_a1[x] = 1.0f + 0.1f * x; df_b1[x] = 2.0f + 0.2f * x;
+    df_re[x] = 1.0f + 0.05f * x; rc[x] = 3.0f;
+    df_alfa[x] = 0.5f + 0.1f * x; df_c0[x] = 2.5f + 0.1f * x;
+  }
+  float mass[DF_NT] = { 1.5f, 2.5f };   // distinct, so a bad MASS lookup shows
+  const float CUT = 2.0f;
+  std::vector<int> nb(DF_NP * DF_MAXN, 0), nc(DF_NP, 0);
+  for (int p = 1; p <= DF_NP; p++) {
+    int c = 0;
+    for (int q = 1; q <= DF_NP; q++) if (q != p) {
+      float R = df_sep(pos[p-1][0], pos[p-1][1], pos[p-1][2],
+                       pos[q-1][0], pos[q-1][1], pos[q-1][2]);
+      if (R <= CUT) nb[(p - 1) * DF_MAXN + (c++)] = q;
+    }
+    nc[p - 1] = c;
+  }
+  // ---- mirror ----
+  std::vector<float> want(DF_NP * 6, 0);
+  for (int p = 1; p <= DF_NP; p++) {
+    int j = (p - 1) * 6; float fx = 0, fy = 0, fz = 0;
+    for (int i = 0; i < nc[p - 1]; i++) {
+      int n = nb[(p - 1) * DF_MAXN + i];
+      fx += df_force(p, n, 'X'); fy += df_force(p, n, 'Y'); fz += df_force(p, n, 'Z');
+    }
+    float m = mass[df_types[p - 1] - 1];
+    want[j] = df_S[j+3]; want[j+1] = df_S[j+4]; want[j+2] = df_S[j+5];
+    want[j+3] = fx / m;  want[j+4] = fy / m;    want[j+5] = fz / m;
+  }
+  auto mk1 = [&](const void* s2, size_t n, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(1, 96, n, esz);
+    A.lower_bound[0] = 1; A.stride[0] = 1; memcpy(A.data, s2, esz * n); return A;
+  };
+  auto mk2 = [&](const void* s2, int d0, int d1, size_t esz) {
+    sisal_array_t A = sisal_array_alloc_sized(2, 96, (size_t)d0 * d1, esz);
+    A.rank = 2; A.dims[0] = d0; A.dims[1] = d1;
+    A.lower_bound[0] = 1; A.lower_bound[1] = 1; A.stride[0] = d1; A.stride[1] = 1;
+    memcpy(A.data, s2, esz * (size_t)d0 * d1); return A;
+  };
+  df_pd pd; pd.nt = DF_NT;
+  pd.A1 = mk2(df_a1, DF_NT, DF_NT, 4); pd.B1 = mk2(df_b1, DF_NT, DF_NT, 4);
+  pd.Re = mk2(df_re, DF_NT, DF_NT, 4); pd.Rc = mk2(rc, DF_NT, DF_NT, 4);
+  pd.ALFA = mk2(df_alfa, DF_NT, DF_NT, 4); pd.C0 = mk2(df_c0, DF_NT, DF_NT, 4);
+  pd.MASS = mk1(mass, DF_NT, 4);
+  pd.dt = 0.01f; pd.endt = 1.0f; pd.tol = 1e-6f;
+  sisal_array_t S = mk1(df_S, DF_NP * 6, 4), T = mk1(df_types, DF_NP, 4);
+  sisal_array_t NB = mk2(nb.data(), DF_NP, DF_MAXN, 4), NC = mk1(nc.data(), DF_NP, 4);
+  DF_results r = func_MAIN(S, T, NB, NC, pd, DF_NP);
+
+  check("S_DOT has one 6-slot chunk per particle",
+        (int)r.sdot.size == DF_NP * 6);
+  int okv = 1, oka = 1;
+  for (int p = 0; p < DF_NP; p++) {
+    int j = p * 6;
+    for (int k = 0; k < 3; k++)
+      if (fabsf(((float*)r.sdot.data)[j+k] - want[j+k]) > 1e-5f) okv = 0;
+    for (int k = 3; k < 6; k++)
+      if (fabsf(((float*)r.sdot.data)[j+k] - want[j+k])
+          > 1e-4f * (1.0f + fabsf(want[j+k]))) oka = 0;
+  }
+  check("velocity half == the state vector's own v components", okv);
+  check("acceleration half == Morse force / MASS[TYPES[I]]", oka);
+  check("isolated particle has zero acceleration",
+        ((float*)r.sdot.data)[4*6+3] == 0.0f
+        && ((float*)r.sdot.data)[4*6+4] == 0.0f
+        && ((float*)r.sdot.data)[4*6+5] == 0.0f);
+}
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 // moldyn's Get_Neighbor_Lists / Get_Neighbors / Separation -- what BUILDS the
 // ragged neighbour structure moldyn_force_dv consumes.
@@ -12315,6 +12436,9 @@ main (void)
 #ifdef TEST_MOLDYN_FORCE_DV
   test_moldyn_force_dv ();
 #endif
+#ifdef TEST_MOLDYN_DIFFUN_DV
+  test_moldyn_diffun_dv ();
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
@@ -12496,7 +12620,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
