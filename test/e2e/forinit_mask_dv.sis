@@ -1,0 +1,60 @@
+% `when`/`unless` MASKS on a for-initial RETURNS.
+%
+% These were dropped on the floor: masked gathers and masked reductions on a
+% sequential loop admitted every element, silently, and for loops that RUN --
+% not just some zero-trip corner.  The forall path was always correct, which is
+% why moldyn's Get_Neighbors (a forall) worked while the same shape written as
+% a for-initial did not.
+%
+% The seed is the interesting part.  A carry's history begins with body_0, so a
+% masked gather has to decide about the seed too, and the seed's mask is the
+% mask expression applied to the SEED.  The BODY's copy cannot supply that: it
+% computes the mask on the POST-UPDATE value (`(old I + 1) > 2`, not
+% `seed > 2`).  So masks are specialised in INIT and selected by their own
+% INIT|BODY mux, the same treatment expression payloads got in 1569e65 -- which
+% is what makes both zero-trip directions come out right rather than one of
+% them being right by accident.
+%
+% Every expected value here is OSC 13.0.3's (~/work/oldsisal):
+%   seed 1,  while I<5, when I>2    -> [3,4,5]   (history 1,2,3,4,5; seed excluded)
+%   seed 10, while I<5, when I>2    -> [10]      (zero-trip, mask TRUE at seed)
+%   seed 10, while I<5, when I>100  -> []        (zero-trip, mask FALSE at seed)
+
+define Main
+
+type Ints = array_dv [integer];
+
+function Main (returns
+               Ints,      % forall masked gather      (was already right)
+               Ints,      % for-initial masked gather
+               integer,   % forall masked reduce      (was already right)
+               integer,   % for-initial masked reduce
+               Ints,      % zero-trip, mask TRUE at the seed
+               Ints,      % zero-trip, mask FALSE at the seed
+               Ints)      % unmasked control -- the whole history, seed included
+   let
+      fa := for I in 1, 5
+            returns array_dv of I when I > 2
+            end for;
+      fi := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns array_dv of I when I > 2
+            end for;
+      ra := for I in 1, 5
+            returns value of sum I when I > 2
+            end for;
+      ri := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns value of sum I when I > 2
+            end for;
+      zt := for initial I := 10; while I < 5 repeat I := old I + 1;
+            returns array_dv of I when I > 2
+            end for;
+      zf := for initial I := 10; while I < 5 repeat I := old I + 1;
+            returns array_dv of I when I > 100
+            end for;
+      un := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns array_dv of I
+            end for;
+   in
+      fa, fi, ra, ri, zt, zf, un
+   end let
+end function

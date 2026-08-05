@@ -5964,8 +5964,56 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                    Before the loop the MERGE variable still holds the INIT value,
                    so replaying the update there contributes exactly the seed. *)
                 let seed_fold = if is_carry then update else [] in
-                ( pre @ before @ seed_fold,
-                  store @ update,
+                (* A `when`/`unless` mask on the reduction: same resolution as
+                   the gather's (node Pr_mask port -> RETURNS boundary input ->
+                   loop-level source).  It guards BOTH the per-iteration fold
+                   and the preheader seed fold -- the mask has its own INIT|BODY
+                   mux, so in the preheader it reads INIT's copy, i.e. the mask
+                   evaluated at the seed. *)
+                let mask_opt =
+                  let rnid =
+                    ES.fold
+                      (fun ((sn, _), (dn, dp), _) a ->
+                        if dn = 0 && dp = ret_out_port then Some sn else a)
+                      g_ret_gr.eset None
+                  in
+                  match rnid with
+                  | None -> None
+                  | Some rn -> (
+                      match NM.find_opt rn g_ret_gr.nmap with
+                      | Some (Simple (_, _, _, _, rpr)) -> (
+                          match port_of_role rpr Pr_mask with
+                          | None -> None
+                          | Some mport -> (
+                              match
+                                ES.fold
+                                  (fun ((sn, sp), (dn, dp), _) a ->
+                                    if dn = rn && dp = mport && sn = 0 then Some sp
+                                    else a)
+                                  g_ret_gr.eset None
+                              with
+                              | None -> None
+                              | Some mb -> (
+                                  match
+                                    ES.fold
+                                      (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                        if dn2 = g_ret_nid && dp2 = mb then
+                                          Some (sn2, sp2)
+                                        else a)
+                                      loop_gr.eset None
+                                  with
+                                  | None -> None
+                                  | Some (sn2, sp2) ->
+                                      Some (get_expr env_loop sub_gid sn2 sp2 `Out))))
+                      | _ -> None)
+                in
+                let guard stmts =
+                  match (mask_opt, stmts) with
+                  | None, _ | _, [] -> stmts
+                  | Some m, _ -> [ C.If (m, stmts, []) ]
+                in
+                ( pre @ before @ guard seed_fold,
+                  store @ guard update,
                   binds @ [ (ret_out_port, res_v) ] )
             ))
       ([], [], [])
@@ -6093,6 +6141,45 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       | _ -> None)
                   | None -> None
                 in
+                (* A `when`/`unless` mask rides the gather's Pr_mask port,
+                   resolved exactly like the scatter placement above: node port
+                   -> RETURNS boundary input -> loop-level source.  It is a
+                   per-iteration BODY value, so it reads the body capture
+                   assigned before the store runs.  (Masks and `at` placements
+                   are mutually exclusive -- both would want port 3 -- which the
+                   frontend already enforces.) *)
+                let mask_opt =
+                  match gnid with
+                  | Some g -> (
+                      match NM.find_opt g g_ret_gr.nmap with
+                      | Some (Simple (_, _, _, _, gpr)) -> (
+                          match port_of_role gpr Pr_mask with
+                          | None -> None
+                          | Some mport -> (
+                              match
+                                ES.fold
+                                  (fun ((sn, sp), (dn, dp), _) a ->
+                                    if dn = g && dp = mport && sn = 0 then Some sp
+                                    else a)
+                                  g_ret_gr.eset None
+                              with
+                              | None -> None
+                              | Some mb -> (
+                                  match
+                                    ES.fold
+                                      (fun ((sn2, sp2), (dn2, dp2), _) a ->
+                                        if dn2 = g_ret_nid && dp2 = mb then
+                                          Some (sn2, sp2)
+                                        else a)
+                                      loop_gr.eset None
+                                  with
+                                  | None -> None
+                                  | Some (sn2, sp2) ->
+                                      Some
+                                        (get_expr env_loop sub_gid sn2 sp2 `Out))))
+                      | _ -> None)
+                  | None -> None
+                in
                 (* store slot: scatter coordinate (1-based -> -1) or the
                    iteration counter *)
                 let slot =
@@ -6117,6 +6204,17 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                [ C.Id (string_of_c_type elem_ty); body_val ] )
                          ));
                   ]
+                in
+                (* A masked gather COMPACTS: only survivors are stored, and the
+                   slot counter advances only when one is, so it doubles as the
+                   survivor count.  The allocation was sized from the loop trip
+                   count, i.e. the worst case, so the descriptor is patched down
+                   afterwards (gather_post) -- the same over-allocate / count /
+                   shrink shape the forall masked gather uses. *)
+                let scalar_store =
+                  match mask_opt with
+                  | None -> scalar_store
+                  | Some m -> [ C.If (m, scalar_store, []) ]
                 in
                 (* Shaped gather `array_dv(e1,..,ek) of`: the RETURNS DV_GATHER's
                    dope port is fed by DV_MAKE_DOPE, whose extent operands are
@@ -6203,10 +6301,30 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                      ] ) ));
                         ]
                       in
+                      (* A masked gather over-allocated to the trip count;
+                         `ctr` counted the survivors, so shrink the descriptor
+                         to it after the loop. *)
+                      let post_mask =
+                        match mask_opt with
+                        | None -> []
+                        | Some _ ->
+                            [
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Index (C.Member (res_v, "dims"), C.LitInt 0),
+                                     C.Cast (C.Basic "int64_t", C.Id ctr) ));
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Member (res_v, "size"),
+                                     C.Cast (C.Basic "uint64_t", C.Id ctr) ));
+                            ]
+                      in
                       ( pre @ pre',
                         store @ store',
                         top,
-                        post,
+                        post @ post_mask,
                         (ret_out_port, res_v) :: binds )
                     else
                       let k = List.length exts in
@@ -6242,10 +6360,30 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                         ]
                         @ dims_sets
                       in
+                      (* A masked gather over-allocated to the trip count;
+                         `ctr` counted the survivors, so shrink the descriptor
+                         to it after the loop. *)
+                      let post_mask =
+                        match mask_opt with
+                        | None -> []
+                        | Some _ ->
+                            [
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Index (C.Member (res_v, "dims"), C.LitInt 0),
+                                     C.Cast (C.Basic "int64_t", C.Id ctr) ));
+                              C.Expr
+                                (C.BinOp
+                                   ( C.Assign,
+                                     C.Member (res_v, "size"),
+                                     C.Cast (C.Basic "uint64_t", C.Id ctr) ));
+                            ]
+                      in
                       ( pre @ pre',
                         store @ scalar_store,
                         top,
-                        post,
+                        post @ post_mask,
                         (ret_out_port, res_v) :: binds )
                 | None ->
                     (* Bare gather: read the bound off the TEST compare NODE (cond
@@ -6395,13 +6533,38 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                       elem_ty ));
                            ])
                       (* body_0 tick: gather_pre runs after the MERGE seeds,
-                         so the MERGE variable holds the seed here *)
+                         so the MERGE variables hold the seed here -- including
+                         the mask's own MERGE, which carries INIT's copy of the
+                         mask evaluated AT THE SEED.  So the seed tick can use
+                         the guarded store like any other. *)
                       @ if is_carry then store' else []
+                    in
+                    (* A masked gather over-allocated to the loop trip count;
+                       `ctr` advanced only on survivors, so it IS the surviving
+                       count -- shrink the descriptor to it after the loop, the
+                       same over-allocate / count / shrink shape the forall
+                       masked gather uses. *)
+                    let post_mask =
+                      match mask_opt with
+                      | None -> []
+                      | Some _ ->
+                          [
+                            C.Expr
+                              (C.BinOp
+                                 ( C.Assign,
+                                   C.Index (C.Member (res_v, "dims"), C.LitInt 0),
+                                   C.Cast (C.Basic "int64_t", C.Id ctr) ));
+                            C.Expr
+                              (C.BinOp
+                                 ( C.Assign,
+                                   C.Member (res_v, "size"),
+                                   C.Cast (C.Basic "uint64_t", C.Id ctr) ));
+                          ]
                     in
                     ( pre @ pre',
                       store @ store',
                       top,
-                      post,
+                      post @ post_mask,
                       (ret_out_port, res_v) :: binds )
                 )))
       ([], [], [], [], [])

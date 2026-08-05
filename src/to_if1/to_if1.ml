@@ -7326,6 +7326,14 @@ and do_simple_exp_impl in_gr in_sim_ex =
          exports carries and captures too, and RETURNS numbers its inputs
          starting with ITS OWN captures. *)
       let ret_body_ports : (int * int) list ref = ref [] in
+      (* The same two maps for the `when`/`unless` MASKS.  A carry's history
+         starts with the SEED, so a masked gather must decide about the seed
+         too -- and the seed's mask is the mask expression applied to the SEED,
+         which the BODY's copy cannot supply (there it is applied to the
+         post-update value).  So masks are specialised in INIT exactly like
+         expression payloads, and get the same INIT|BODY mux. *)
+      let mask_seed_ports : (int * int) list ref = ref [] in
+      let mask_body_ports : (int * int) list ref = ref [] in
       (* NEW add_decls *)
       let add_decls in_gr dp =
         to_if1_msg 3 "For_initial: lowering INIT";
@@ -7430,17 +7438,24 @@ and do_simple_exp_impl in_gr in_sim_ex =
             | Ast.Stream_of e -> Some e
             | Ast.Dv_array_shaped _ | Ast.Dv_array_shaped_at _ -> None
           in
-          List.filter
-            (fun (_, rc) ->
+          List.filter_map
+            (fun (i, rc) ->
               match rc with
-              | Ast.Return_exp (rexp, _) -> (
+              | Ast.Return_exp (rexp, mc) -> (
                   match payload rexp with
-                  | None -> false
-                  | Some e -> (
-                      match strip_pos e with
-                      | Ast.Val _ -> false  (* bare carry: the MERGE covers it *)
-                      | _ -> true))
-              | Ast.Old_ret _ -> false)
+                  | None -> None   (* shaped/scatter: its own machinery *)
+                  | Some e ->
+                      let pay_is_expr =
+                        match strip_pos e with
+                        | Ast.Val _ -> false  (* bare carry: its MERGE covers it *)
+                        | _ -> true
+                      in
+                      let has_mask =
+                        match mc with Ast.No_mask -> false | _ -> true
+                      in
+                      if pay_is_expr || has_mask then Some (i, rc, pay_is_expr)
+                      else None)
+              | Ast.Old_ret _ -> None)
             (List.mapi (fun i rc -> (i, rc)) r)
         in
         let out_gr =
@@ -7450,15 +7465,29 @@ and do_simple_exp_impl in_gr in_sim_ex =
                travels with it -- the RETURNS input it feeds is that index *)
             let out_gr, idx_tuples =
               List.fold_left
-                (fun (g, acc) (idx, rc) ->
-                  let _, tup, _, g = do_returns_clause g rc in
-                  (g, acc @ [ (idx, tup) ]))
+                (fun (g, acc) (idx, rc, pay_is_expr) ->
+                  (* do_returns_clause lowers the payload AND the mask; keep
+                     whichever of the two this clause needs specialised *)
+                  let _, tup, msk, g = do_returns_clause g rc in
+                  let acc =
+                    if pay_is_expr then acc @ [ (`Payload idx, tup) ] else acc
+                  in
+                  let acc =
+                    match msk with
+                    | Some m -> acc @ [ (`Mask idx, m) ]
+                    | None -> acc
+                  in
+                  (g, acc))
                 (out_gr, []) indexed_expr_clauses
             in
             let base = If1.boundary_out_port_count out_gr in
             List.iteri
-              (fun pos (idx, _) ->
-                ret_seed_ports := !ret_seed_ports @ [ (idx, base + pos) ])
+              (fun pos (k, _) ->
+                match k with
+                | `Payload idx ->
+                    ret_seed_ports := !ret_seed_ports @ [ (idx, base + pos) ]
+                | `Mask idx ->
+                    mask_seed_ports := !mask_seed_ports @ [ (idx, base + pos) ])
               idx_tuples;
             n_ret_seeds := List.length idx_tuples;
             to_if1_msg 3
@@ -7529,19 +7558,21 @@ and do_simple_exp_impl in_gr in_sim_ex =
            registering them there, so the count reads 0 while port 0 is already
            taken and the mask edge collides and is dropped.  Take the next port
            from the actual edge count instead. *)
-        let body_gr =
+        let body_gr, _ =
           List.fold_left
-            (fun g m ->
+            (fun (g, idx) m ->
               match m with
-              | None -> g
+              | None -> (g, idx + 1)
               | Some (mn, mp, mty) ->
                   let port =
                     If1.ES.fold
                       (fun (_, (dn, _), _) n -> if dn = 0 then n + 1 else n)
                       g.If1.eset 0
                   in
-                  If1.add_to_boundary_outputs ~start_port:port mn mp mty g)
-            body_gr mask_ty_list
+                  mask_body_ports := !mask_body_ports @ [ (idx, port) ];
+                  ( If1.add_to_boundary_outputs ~start_port:port mn mp mty g,
+                    idx + 1 ))
+            (body_gr, 0) mask_ty_list
         in
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
@@ -8758,6 +8789,81 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                 ret_cn2 ret_port;
                               If1.add_edge mn 0 ret_cn2 ret_port ty fg)
                         fg !ret_seed_ports
+                in
+                (* ...and the same for each MASK.  Without this the preheader
+                   seed tick would read the BODY's mask variable, which is not
+                   assigned until the loop runs -- and even once it is, the
+                   BODY applies the mask to the POST-UPDATE value, not to the
+                   seed.  With the mux the preheader reads INIT's copy, i.e.
+                   the mask evaluated at the seed. *)
+                let fg =
+                  if !mask_seed_ports = [] then fg
+                  else
+                    let ret_cn3 =
+                      If1.NM.fold
+                        (fun nid node acc ->
+                          match node with
+                          | If1.Compound (_, _, _, prags, _, _)
+                            when List.exists
+                                   (function
+                                     | If1.Name "RETURNS" -> true
+                                     | _ -> false)
+                                   prags ->
+                              nid
+                          | _ -> acc)
+                        fg.If1.nmap (-1)
+                    in
+                    if ret_cn3 = -1 then fg
+                    else
+                      List.fold_left
+                        (fun fg (clause_idx, init_port) ->
+                          match
+                            (match List.assoc_opt clause_idx !mask_body_ports with
+                             | None -> None
+                             | Some bp ->
+                                 If1.ES.fold
+                                   (fun ((sn, sp), (dn, dp), ty) acc ->
+                                     if sn = body_cn && dn = ret_cn3 && sp = bp
+                                     then Some (bp, dp, ty)
+                                     else acc)
+                                   fg.If1.eset None)
+                          with
+                          | None -> fg
+                          | Some (body_port, ret_port, ty) ->
+                              let (mn, _, _), fg =
+                                If1.add_node_2
+                                  (`Simple
+                                     ( If1.MERGE,
+                                       [| ""; ""; "" |],
+                                       [| "" |],
+                                       [ If1.Name
+                                           (Printf.sprintf "MERGE_mask_%d"
+                                              clause_idx) ] ))
+                                  fg
+                              in
+                              let fg = If1.add_edge mf 0 mn 0 bool_ty fg in
+                              let fg =
+                                If1.add_edge init_cn init_port mn 1 ty fg
+                              in
+                              let fg = If1.add_edge body_cn body_port mn 2 ty fg in
+                              let fg =
+                                {
+                                  fg with
+                                  If1.eset =
+                                    If1.ES.remove
+                                      ( (body_cn, body_port),
+                                        (ret_cn3, ret_port),
+                                        ty )
+                                      fg.If1.eset;
+                                }
+                              in
+                              to_if1_msg 3
+                                "LoopB mask zero-trip arm: clause#%d init%d:%d \
+                                 | body%d:%d -> merge%d:0 -> ret%d:%d"
+                                clause_idx init_cn init_port body_cn body_port mn
+                                ret_cn3 ret_port;
+                              If1.add_edge mn 0 ret_cn3 ret_port ty fg)
+                        fg !mask_seed_ports
                 in
                 fg
               in
@@ -11370,7 +11476,17 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
     in
     let (dd, ee, _), in_gr =
       If1.add_node_2
-        (`Simple (which_ins, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
+        (`Simple
+           ( which_ins,
+             [| ""; ""; "" |],
+             [| "" |],
+             (* name the ports by ROLE, as the forall REDUCE does -- the mask
+                was already wired to port 2 but with no Portmap the backend had
+                no way to find it and lowered the reduction unmasked *)
+             [
+               If1.Portmap
+                 [ (If1.Pr_reduce_fn, 0); (If1.Pr_value, 1); (If1.Pr_mask, 2) ];
+             ] ))
         in_gr
     in
     let (lx, ly, _), in_gr =
