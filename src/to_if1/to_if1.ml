@@ -11328,11 +11328,11 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
        `let mask_ty_list = List.map (fun _ -> None) return_action_list`
      which silently dropped every `when`/`unless` on a for-initial, so masked
      gathers and masked reductions admitted every element. *)
-  let mask_ty_list, ret_gr =
+  let mask_ty_list, ret_gr, mat_edges =
     List.fold_left
-      (fun (acc, rg) (idx, m) ->
+      (fun (acc, rg, edges) (idx, m) ->
         match m with
-        | None -> (acc @ [ None ], rg)
+        | None -> (acc @ [ None ], rg, edges)
         | Some (mn, mp, mty) -> (
             match body_out_port_of mn mp with
             | Some dp ->
@@ -11344,13 +11344,16 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                   "add_return_gr_for_initial: mask#%d (node=%d,port=%d) -> \
                    body_cn:%d -> ret in-port %d"
                   idx mn mp dp bp;
-                (acc @ [ Some (mty, bp) ], rg)
+                (* and the for_gr-level edge body_cn:dp -> ret_cn:bp, without
+                   which the RETURNS boundary input exists but nothing feeds
+                   it, so the backend resolves the mask to nothing *)
+                (acc @ [ Some (mty, bp) ], rg, (body_cn, dp, bp, mty) :: edges)
             | None ->
                 to_if1_msg 3
                   "add_return_gr_for_initial: mask#%d has no BODY boundary output"
                   idx;
-                (acc @ [ None ], rg)))
-      ([], ret_gr)
+                (acc @ [ None ], rg, edges)))
+      ([], ret_gr, mat_edges)
       (List.mapi (fun i m -> (i, m)) mask_ty_list)
   in
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
