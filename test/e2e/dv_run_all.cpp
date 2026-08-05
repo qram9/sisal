@@ -465,6 +465,17 @@ struct mn_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
 struct MN_results { sisal_array_t neighbors, ncount; };
 extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 #endif
+#ifdef TEST_MOLDYN_DV
+struct mdy_posr { sisal_array_t X, Y, Z; };
+struct mdy_velr { sisal_array_t VX, VY, VZ; };
+struct mdy_ens { float tout, step, err; int32_t size; mdy_posr pos; mdy_velr vel;
+                 sisal_array_t types; };
+struct mdy_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
+                float dt, endt, tol; };
+struct MDY_results { sisal_array_t traj; mdy_ens e; };
+extern "C" struct MDY_results func_MAIN(mdy_ens e, sisal_array_t neighbors,
+                                        sisal_array_t ncount, mdy_pd pd);
+#endif
 #ifdef TEST_MOLDYN_SOLVE_DV
 struct sv_posr { sisal_array_t X, Y, Z; };
 struct sv_velr { sisal_array_t VX, VY, VZ; };
@@ -11212,6 +11223,146 @@ static void test_moldyn_solve_dv(void) {
         fabsf(got[0][4] - (9.0f + 0.4f*STEP0)) < 1e-3f);
 }
 #endif
+#ifdef TEST_MOLDYN_DV
+// moldyn END TO END: Evolve_Ensemble and the driver, running the simulation.
+//
+// NOT A STREAM.  moldyn declares STATE_STREAM / TIME_POS_STREAM, but every
+// `returns stream of ...` line is COMMENTED OUT in the original -- Main returns
+// TIME_POS_ARRAY_ARRAY, gathering a [TOUT, X1] pair per step.  Ported as
+// written rather than as the dead type declarations suggest.
+//
+// The driver RECOMPUTES the force-adjustment parameters before starting: ALFA
+// and C0 derived from the Morse constants and the cutoff, replaced into
+// PROBLEM_DATA.  Two quirks kept: it reads Rc/Re/A1/B1 at [1,1] for every
+// (I,J), so both tables come out uniform, and it uses log_base_10 where the
+// derivation wants a natural log.  The mirror reproduces both, so the check
+// would fail if the port quietly "fixed" either.
+//
+// The trajectory gather is also worth noting: its trip count comes from
+// `TOUT <= ENDTIME`, where TOUT is a REAL advancing by DELTA_T rather than an
+// integer counter, and it sizes correctly -- seed plus one entry per step.
+enum { MDY_NP = 5, MDY_NT = 2, MDY_MAXN = MDY_NP - 1 };
+static float mdy_a1[MDY_NT*MDY_NT], mdy_b1[MDY_NT*MDY_NT], mdy_re[MDY_NT*MDY_NT];
+static float mdy_alfa[MDY_NT*MDY_NT], mdy_c0[MDY_NT*MDY_NT], mdy_rc[MDY_NT*MDY_NT];
+static int mdy_types[MDY_NP];
+static float mdy_mass[MDY_NT] = { 1.5f, 2.5f };
+static std::vector<int> mdy_nb, mdy_nc;
+static float mdy_BETA[6][5]={{0,0,0,0,0},{1.f/4,0,0,0,0},{3.f/32,9.f/32,0,0,0},
+  {1932.f/2197,-7200.f/2197,7296.f/2197,0,0},
+  {439.f/216,-8.f,3680.f/513,-845.f/4104,0},
+  {-8.f/27,2.f,-3544.f/2565,1859.f/4104,-11.f/40}};
+static float mdy_GAMMA[6]={16.f/135,0,6656.f/12825,28561.f/56430,-9.f/50,2.f/55};
+static float mdy_GSTAR[6]={25.f/216,0,1408.f/2565,2197.f/4104,-1.f/5,0};
+static float mdy_e2p(float x){ return powf(2.718281828f,x); }
+static float mdy_sep(float x1,float y1,float z1,float x2,float y2,float z2){
+  float dx=x1-x2,dy=y1-y2,dz=z1-z2; return sqrtf(dx*dx+dy*dy+dz*dz); }
+static float mdy_force(const float* S,int p,int n,char dim){
+  int j=(p-1)*6,k=(n-1)*6;
+  float xp=S[j],yp=S[j+1],zp=S[j+2],xn=S[k],yn=S[k+1],zn=S[k+2];
+  int x=(mdy_types[p-1]-1)*MDY_NT+(mdy_types[n-1]-1);
+  float R=mdy_sep(xp,yp,zp,xn,yn,zn);
+  float basic=(-1.0f/mdy_b1[x])*mdy_e2p(-2.0f*mdy_a1[x]*(R-mdy_re[x]))
+             +( 1.0f/mdy_b1[x])*mdy_e2p(-mdy_a1[x]*(R-mdy_re[x]));
+  float fadj=mdy_alfa[x]*mdy_e2p(mdy_alfa[x]*(R-mdy_c0[x]));
+  float dq=(dim=='X')?(xp-xn):(dim=='Y')?(yp-yn):(zp-zn);
+  return -(basic-fadj)*dq/R; }
+static std::vector<float> mdy_diffun(const std::vector<float>& S){
+  std::vector<float> d(S.size(),0.0f);
+  for(int p=1;p<=MDY_NP;p++){ int j=(p-1)*6; float fx=0,fy=0,fz=0;
+    for(int i=0;i<mdy_nc[p-1];i++){ int q=mdy_nb[(p-1)*MDY_MAXN+i];
+      fx+=mdy_force(S.data(),p,q,'X'); fy+=mdy_force(S.data(),p,q,'Y');
+      fz+=mdy_force(S.data(),p,q,'Z'); }
+    float m=mdy_mass[mdy_types[p-1]-1];
+    d[j]=S[j+3]; d[j+1]=S[j+4]; d[j+2]=S[j+5];
+    d[j+3]=fx/m; d[j+4]=fy/m;   d[j+5]=fz/m; }
+  return d; }
+static std::vector<float> mdy_step(const std::vector<float>& S,float H){
+  int SS=(int)S.size();
+  std::vector<std::vector<float>> K(SS,std::vector<float>(6,0.f));
+  for(int I=1;I<=6;I++){
+    std::vector<float> Sa(SS);
+    for(int L=0;L<SS;L++){ float s2=0;
+      for(int J=1;J<I;J++) s2+=mdy_BETA[I-1][J-1]*K[L][J-1];
+      Sa[L]=S[L]+s2; }
+    std::vector<float> sd=mdy_diffun(Sa);
+    for(int L=0;L<SS;L++) K[L][I-1]=H*sd[L]; }
+  std::vector<float> ns(SS);
+  for(int L=0;L<SS;L++){ float s2=0;
+    for(int I=0;I<6;I++) s2+=mdy_GAMMA[I]*K[L][I]; ns[L]=S[L]+s2; }
+  return ns; }
+static void test_moldyn_dv(void) {
+  printf("\n=== Group: moldyn_dv (the whole simulation, end to end) ===\n");
+  float pos[MDY_NP][3]={{0.0f,0.0f,0.0f},{1.1f,0.2f,0.0f},{0.3f,1.0f,0.4f},
+                        {2.0f,1.6f,0.5f},{9.0f,9.0f,9.0f}};
+  float px[MDY_NP],py[MDY_NP],pz[MDY_NP],vx[MDY_NP],vy[MDY_NP],vz[MDY_NP];
+  for(int p=0;p<MDY_NP;p++){ px[p]=pos[p][0];py[p]=pos[p][1];pz[p]=pos[p][2];
+    vx[p]=0.1f*p; vy[p]=0.02f*p; vz[p]=-0.05f*p; }
+  int t[MDY_NP]={1,2,1,2,1}; memcpy(mdy_types,t,sizeof t);
+  for(int i=0;i<MDY_NT;i++) for(int j=0;j<MDY_NT;j++){ int x=i*MDY_NT+j;
+    mdy_a1[x]=1.0f+0.1f*x; mdy_b1[x]=2.0f+0.2f*x; mdy_re[x]=1.0f+0.05f*x;
+    mdy_rc[x]=3.0f; mdy_alfa[x]=0.5f+0.1f*x; mdy_c0[x]=2.5f+0.1f*x; }
+  const float CUT=2.0f;
+  mdy_nb.assign(MDY_NP*MDY_MAXN,0); mdy_nc.assign(MDY_NP,0);
+  for(int p=1;p<=MDY_NP;p++){ int c=0;
+    for(int q=1;q<=MDY_NP;q++) if(q!=p){
+      float R=mdy_sep(pos[p-1][0],pos[p-1][1],pos[p-1][2],
+                      pos[q-1][0],pos[q-1][1],pos[q-1][2]);
+      if(R<=CUT) mdy_nb[(p-1)*MDY_MAXN+(c++)]=q; }
+    mdy_nc[p-1]=c; }
+  auto mk1=[&](const void* s2,size_t n,size_t esz){
+    sisal_array_t A=sisal_array_alloc_sized(1,96,n,esz); A.lower_bound[0]=1;
+    A.stride[0]=1; memcpy(A.data,s2,esz*n); return A; };
+  auto mk2=[&](const void* s2,int d0,int d1,size_t esz){
+    sisal_array_t A=sisal_array_alloc_sized(2,96,(size_t)d0*d1,esz);
+    A.rank=2;A.dims[0]=d0;A.dims[1]=d1;A.lower_bound[0]=1;A.lower_bound[1]=1;
+    A.stride[0]=d1;A.stride[1]=1; memcpy(A.data,s2,esz*(size_t)d0*d1); return A; };
+  const float TOUT0=0.0f, STEP0=0.01f, DT=0.25f, ENDT=1.0f;
+  mdy_pd pd; pd.nt=MDY_NT;
+  pd.A1=mk2(mdy_a1,MDY_NT,MDY_NT,4); pd.B1=mk2(mdy_b1,MDY_NT,MDY_NT,4);
+  pd.Re=mk2(mdy_re,MDY_NT,MDY_NT,4); pd.Rc=mk2(mdy_rc,MDY_NT,MDY_NT,4);
+  pd.ALFA=mk2(mdy_alfa,MDY_NT,MDY_NT,4); pd.C0=mk2(mdy_c0,MDY_NT,MDY_NT,4);
+  pd.MASS=mk1(mdy_mass,MDY_NT,4); pd.dt=DT; pd.endt=ENDT; pd.tol=1.0f;
+  mdy_ens e; e.tout=TOUT0; e.step=STEP0; e.err=-1.0f; e.size=MDY_NP;
+  e.pos.X=mk1(px,MDY_NP,4); e.pos.Y=mk1(py,MDY_NP,4); e.pos.Z=mk1(pz,MDY_NP,4);
+  e.vel.VX=mk1(vx,MDY_NP,4); e.vel.VY=mk1(vy,MDY_NP,4); e.vel.VZ=mk1(vz,MDY_NP,4);
+  e.types=mk1(mdy_types,MDY_NP,4);
+  sisal_array_t NB=mk2(mdy_nb.data(),MDY_NP,MDY_MAXN,4);
+  sisal_array_t NC=mk1(mdy_nc.data(),MDY_NP,4);
+
+  // mirror the ALFA/C0 recomputation, quirks and all
+  float Rc=mdy_rc[0], Re=mdy_re[0], A1=mdy_a1[0], B1=mdy_b1[0], eps=1.0e-8f;
+  float basic=(-1.0f/B1)*mdy_e2p(-2.0f*A1*(Rc-Re))+( 1.0f/B1)*mdy_e2p(-A1*(Rc-Re));
+  const float L10=0.434294482f;
+  float na=(L10*logf(fabsf(basic)/eps))/(Rc-Re);
+  float nc=Re-(1.0f/na)*(L10*logf(eps/na));
+  for(int i=0;i<MDY_NT*MDY_NT;i++){ mdy_alfa[i]=na; mdy_c0[i]=nc; }
+  std::vector<float> mS(MDY_NP*6);
+  for(int p=0;p<MDY_NP;p++){ mS[p*6]=px[p];mS[p*6+1]=py[p];mS[p*6+2]=pz[p];
+    mS[p*6+3]=vx[p];mS[p*6+4]=vy[p];mS[p*6+5]=vz[p]; }
+  std::vector<std::pair<float,float>> mtraj;
+  { float T=TOUT0; mtraj.push_back({T,mS[0]});
+    while(T<=ENDT){ mS=mdy_step(mS,STEP0); T+=DT; mtraj.push_back({T,mS[0]}); } }
+
+  MDY_results r=func_MAIN(e,NB,NC,pd);
+
+  check("trajectory is rank-2, one [TOUT, X1] pair per step",
+        r.traj.rank==2 && (int)r.traj.dims[1]==2
+        && (int)r.traj.dims[0]==(int)mtraj.size());
+  int okt=(int)r.traj.dims[0]==(int)mtraj.size();
+  for(int i=0;okt&&i<(int)mtraj.size();i++){
+    float gt=((float*)r.traj.data)[i*2], gx=((float*)r.traj.data)[i*2+1];
+    if(fabsf(gt-mtraj[i].first)>1e-5f) okt=0;
+    if(fabsf(gx-mtraj[i].second)>1e-4f*(1.0f+fabsf(mtraj[i].second))) okt=0; }
+  check("whole trajectory == an independent seven-stage mirror", okt);
+  check("the seed state is entry 0 (1.2 history: initial is body_0)",
+        fabsf(((float*)r.traj.data)[0]-TOUT0)<1e-6f);
+  check("final TOUT is the first past ENDTIME (Rule 2: out-of-bound gathered)",
+        fabsf(r.e.tout-(ENDT+DT))<1e-5f);
+  check("particle 1 actually moved under the force",
+        fabsf(((float*)r.traj.data)[(mtraj.size()-1)*2+1]) > 1e-6f);
+  check("ENSEMBLE_SIZE survived every step", r.e.size==MDY_NP);
+}
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 // moldyn's Get_Neighbor_Lists / Get_Neighbors / Separation -- what BUILDS the
 // ragged neighbour structure moldyn_force_dv consumes.
@@ -12872,6 +13023,9 @@ main (void)
 #ifdef TEST_MOLDYN_SOLVE_DV
   test_moldyn_solve_dv ();
 #endif
+#ifdef TEST_MOLDYN_DV
+  test_moldyn_dv ();
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
@@ -13053,7 +13207,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
