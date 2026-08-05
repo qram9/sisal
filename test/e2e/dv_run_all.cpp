@@ -465,6 +465,15 @@ struct mn_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
 struct MN_results { sisal_array_t neighbors, ncount; };
 extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 #endif
+#ifdef TEST_MOLDYN_RKF45_DV
+struct f45_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
+                float dt, endt, tol; };
+struct F45_results { sisal_array_t s; float h, err; };
+extern "C" struct F45_results func_MAIN(sisal_array_t S, float H, float TOUT,
+                                        float TOL, sisal_array_t types,
+                                        sisal_array_t neighbors,
+                                        sisal_array_t ncount, f45_pd pd);
+#endif
 #ifdef TEST_MOLDYN_RK_DV
 struct rk_pd { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
                float dt, endt, tol; };
@@ -10915,6 +10924,153 @@ static void test_moldyn_rk_dv(void) {
         && K[1][0] != K[1][3]);
 }
 #endif
+#ifdef TEST_MOLDYN_RKF45_DV
+// moldyn's RKF45 solver: the FMM error estimate plus the adaptive step.
+//
+// RKF45 is RECURSIVE, not a loop.  Inside tolerance it takes the step;
+// otherwise it halves H and takes TWO half steps, the second fed by the first,
+// and returns the INNER call's H and error -- the first half step's are
+// discarded.  Recursion depth is data-dependent and there is NO depth guard, so
+// a tolerance the error can never meet is a stack overflow rather than a wrong
+// answer.  The retry tolerance below is therefore taken FROM THE DATA, strictly
+// between the error at H and at H/2, so the first call must halve and the
+// halved call then succeeds.
+//
+// The error estimate itself is a difference of nearly-equal coefficients
+// (GAMMA - GAMMA_STAR), so it loses precision to cancellation; it is checked
+// loosely while the evolved state and the accepted H are checked tightly.
+// Note also there is no absolute value in the original -- `value of greatest`
+// takes the SIGNED maximum -- so a large negative discrepancy never triggers a
+// retry.  Kept as written.
+enum { F45_NP = 5, F45_NT = 2, F45_MAXN = F45_NP - 1, F45_SS = F45_NP * 6 };
+static float f45_a1[F45_NT*F45_NT], f45_b1[F45_NT*F45_NT], f45_re[F45_NT*F45_NT];
+static float f45_alfa[F45_NT*F45_NT], f45_c0[F45_NT*F45_NT];
+static int f45_types[F45_NP];
+static float f45_mass[F45_NT] = { 1.5f, 2.5f };
+static std::vector<int> f45_nb, f45_nc;
+static float f45_BETA[6][5]={{0,0,0,0,0},{1.f/4,0,0,0,0},{3.f/32,9.f/32,0,0,0},
+  {1932.f/2197,-7200.f/2197,7296.f/2197,0,0},
+  {439.f/216,-8.f,3680.f/513,-845.f/4104,0},
+  {-8.f/27,2.f,-3544.f/2565,1859.f/4104,-11.f/40}};
+static float f45_GAMMA[6]={16.f/135,0,6656.f/12825,28561.f/56430,-9.f/50,2.f/55};
+static float f45_GSTAR[6]={25.f/216,0,1408.f/2565,2197.f/4104,-1.f/5,0};
+static float f45_e2p(float x){ return powf(2.718281828f,x); }
+static float f45_sep(float x1,float y1,float z1,float x2,float y2,float z2){
+  float dx=x1-x2,dy=y1-y2,dz=z1-z2; return sqrtf(dx*dx+dy*dy+dz*dz); }
+static float f45_force(const float* S,int p,int n,char dim){
+  int j=(p-1)*6,k=(n-1)*6;
+  float xp=S[j],yp=S[j+1],zp=S[j+2],xn=S[k],yn=S[k+1],zn=S[k+2];
+  int x=(f45_types[p-1]-1)*F45_NT+(f45_types[n-1]-1);
+  float R=f45_sep(xp,yp,zp,xn,yn,zn);
+  float basic=(-1.0f/f45_b1[x])*f45_e2p(-2.0f*f45_a1[x]*(R-f45_re[x]))
+             +( 1.0f/f45_b1[x])*f45_e2p(-f45_a1[x]*(R-f45_re[x]));
+  float fadj=f45_alfa[x]*f45_e2p(f45_alfa[x]*(R-f45_c0[x]));
+  float dq=(dim=='X')?(xp-xn):(dim=='Y')?(yp-yn):(zp-zn);
+  return -(basic-fadj)*dq/R; }
+static std::vector<float> f45_diffun(const std::vector<float>& S){
+  std::vector<float> d(S.size(),0.0f);
+  for(int p=1;p<=F45_NP;p++){ int j=(p-1)*6; float fx=0,fy=0,fz=0;
+    for(int i=0;i<f45_nc[p-1];i++){ int q=f45_nb[(p-1)*F45_MAXN+i];
+      fx+=f45_force(S.data(),p,q,'X'); fy+=f45_force(S.data(),p,q,'Y');
+      fz+=f45_force(S.data(),p,q,'Z'); }
+    float m=f45_mass[f45_types[p-1]-1];
+    d[j]=S[j+3]; d[j+1]=S[j+4]; d[j+2]=S[j+5];
+    d[j+3]=fx/m; d[j+4]=fy/m;   d[j+5]=fz/m; }
+  return d; }
+static void f45_calc_ks(const std::vector<float>& S,float H,
+                        std::vector<std::vector<float>>& K){
+  int SS=(int)S.size(); K.assign(SS,std::vector<float>(6,0.f));
+  for(int I=1;I<=6;I++){
+    std::vector<float> Sa(SS);
+    for(int L=0;L<SS;L++){ float s2=0;
+      for(int J=1;J<I;J++) s2+=f45_BETA[I-1][J-1]*K[L][J-1];
+      Sa[L]=S[L]+s2; }
+    std::vector<float> sd=f45_diffun(Sa);
+    for(int L=0;L<SS;L++) K[L][I-1]=H*sd[L]; } }
+static float f45_err(const std::vector<float>& S,float H,
+                     std::vector<std::vector<float>>& K){
+  f45_calc_ks(S,H,K);
+  float mx=-3.4e38f;
+  for(int L=0;L<(int)S.size();L++){ float s2=0;
+    for(int I=0;I<6;I++) s2+=K[L][I]*(f45_GAMMA[I]-f45_GSTAR[I]);
+    if(s2>mx) mx=s2; }
+  return mx; }
+static int f45_depth=0;
+static std::vector<float> f45_rkf45(const std::vector<float>& S,float H,float TOL,
+                                    float& oH,float& oE,int depth){
+  if(depth>f45_depth) f45_depth=depth;
+  if(depth>12){ oH=H; oE=0; return S; }          // mirror-only guard
+  std::vector<std::vector<float>> K; float e=f45_err(S,H,K);
+  if(e<TOL){ std::vector<float> ns(S.size());
+    for(int L=0;L<(int)S.size();L++){ float s2=0;
+      for(int I=0;I<6;I++) s2+=f45_GAMMA[I]*K[L][I]; ns[L]=S[L]+s2; }
+    oH=H; oE=e; return ns; }
+  float h1,e1; std::vector<float> S1=f45_rkf45(S,0.5f*H,TOL,h1,e1,depth+1);
+  return f45_rkf45(S1,0.5f*H,TOL,oH,oE,depth+1); }
+static void test_moldyn_rkf45_dv(void) {
+  printf("\n=== Group: moldyn_rkf45_dv (recursive adaptive step) ===\n");
+  float pos[F45_NP][3]={{0.0f,0.0f,0.0f},{1.1f,0.2f,0.0f},{0.3f,1.0f,0.4f},
+                        {2.0f,1.6f,0.5f},{9.0f,9.0f,9.0f}};
+  std::vector<float> S0(F45_SS);
+  for(int p=0;p<F45_NP;p++){ S0[p*6]=pos[p][0];S0[p*6+1]=pos[p][1];S0[p*6+2]=pos[p][2];
+    S0[p*6+3]=0.1f*p;S0[p*6+4]=0.02f*p;S0[p*6+5]=-0.05f*p; }
+  int t[F45_NP]={1,2,1,2,1}; memcpy(f45_types,t,sizeof t);
+  float rc[F45_NT*F45_NT];
+  for(int i=0;i<F45_NT;i++) for(int j=0;j<F45_NT;j++){ int x=i*F45_NT+j;
+    f45_a1[x]=1.0f+0.1f*x; f45_b1[x]=2.0f+0.2f*x; f45_re[x]=1.0f+0.05f*x;
+    rc[x]=3.0f; f45_alfa[x]=0.5f+0.1f*x; f45_c0[x]=2.5f+0.1f*x; }
+  const float CUT=2.0f;
+  f45_nb.assign(F45_NP*F45_MAXN,0); f45_nc.assign(F45_NP,0);
+  for(int p=1;p<=F45_NP;p++){ int c=0;
+    for(int q=1;q<=F45_NP;q++) if(q!=p){
+      float R=f45_sep(pos[p-1][0],pos[p-1][1],pos[p-1][2],
+                      pos[q-1][0],pos[q-1][1],pos[q-1][2]);
+      if(R<=CUT) f45_nb[(p-1)*F45_MAXN+(c++)]=q; }
+    f45_nc[p-1]=c; }
+  auto mk1=[&](const void* s2,size_t n,size_t esz){
+    sisal_array_t A=sisal_array_alloc_sized(1,96,n,esz); A.lower_bound[0]=1;
+    A.stride[0]=1; memcpy(A.data,s2,esz*n); return A; };
+  auto mk2=[&](const void* s2,int d0,int d1,size_t esz){
+    sisal_array_t A=sisal_array_alloc_sized(2,96,(size_t)d0*d1,esz);
+    A.rank=2;A.dims[0]=d0;A.dims[1]=d1;A.lower_bound[0]=1;A.lower_bound[1]=1;
+    A.stride[0]=d1;A.stride[1]=1; memcpy(A.data,s2,esz*(size_t)d0*d1); return A; };
+  f45_pd pd; pd.nt=F45_NT;
+  pd.A1=mk2(f45_a1,F45_NT,F45_NT,4); pd.B1=mk2(f45_b1,F45_NT,F45_NT,4);
+  pd.Re=mk2(f45_re,F45_NT,F45_NT,4); pd.Rc=mk2(rc,F45_NT,F45_NT,4);
+  pd.ALFA=mk2(f45_alfa,F45_NT,F45_NT,4); pd.C0=mk2(f45_c0,F45_NT,F45_NT,4);
+  pd.MASS=mk1(f45_mass,F45_NT,4); pd.dt=0.01f; pd.endt=1.0f; pd.tol=1e-6f;
+  sisal_array_t T=mk1(f45_types,F45_NP,4);
+  sisal_array_t NB=mk2(f45_nb.data(),F45_NP,F45_MAXN,4);
+  sisal_array_t NC=mk1(f45_nc.data(),F45_NP,4);
+  sisal_array_t Sa=mk1(S0.data(),F45_SS,4);
+
+  std::vector<std::vector<float>> Kt;
+  float e_full=f45_err(S0,0.01f,Kt), e_half=f45_err(S0,0.005f,Kt);
+  const float H=0.01f;
+  for (int c=0;c<2;c++){
+    float TOL = (c==0) ? 1.0f : 0.5f*(e_full+e_half);
+    f45_depth=0;
+    float wh,we; std::vector<float> ws=f45_rkf45(S0,H,TOL,wh,we,0);
+    F45_results r=func_MAIN(Sa,H,0.0f,TOL,T,NB,NC,pd);
+    char msg[160];
+    snprintf(msg,sizeof msg,"%s: accepted step H == %g",
+             c==0?"inside tolerance":"one retry", wh);
+    check(msg, fabsf(r.h-wh) < 1e-9f);
+    int okc=(int)r.s.size==(int)ws.size();
+    for(size_t L=0;okc&&L<ws.size();L++)
+      if(fabsf(((float*)r.s.data)[L]-ws[L])>1e-4f*(1.0f+fabsf(ws[L]))) okc=0;
+    snprintf(msg,sizeof msg,"%s: evolved state == mirror",
+             c==0?"inside tolerance":"one retry");
+    check(msg, okc);
+    snprintf(msg,sizeof msg,"%s: error estimate ~= mirror (cancellation-limited)",
+             c==0?"inside tolerance":"one retry");
+    check(msg, fabsf(r.err-we) <= 0.05f*fabsf(we) + 1e-15f);
+    if (c==1) check("the retry branch was actually taken (mirror depth >= 1)",
+                    f45_depth >= 1);
+  }
+  check("halving the step lowers the error estimate", e_half < e_full);
+}
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 // moldyn's Get_Neighbor_Lists / Get_Neighbors / Separation -- what BUILDS the
 // ragged neighbour structure moldyn_force_dv consumes.
@@ -12569,6 +12725,9 @@ main (void)
 #ifdef TEST_MOLDYN_RK_DV
   test_moldyn_rk_dv ();
 #endif
+#ifdef TEST_MOLDYN_RKF45_DV
+  test_moldyn_rkf45_dv ();
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
@@ -12750,7 +12909,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
