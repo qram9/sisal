@@ -7522,6 +7522,27 @@ and do_simple_exp_impl in_gr in_sim_ex =
             (ret_tuple_list @ plc_tuples)
             body_gr
         in
+        (* Export the `when`/`unless` values too, so the RETURNS graph has a
+           port to resolve each mask from.  NOT via output_to_boundary_with_none:
+           that derives its next port from the boundary's out_port_list, but
+           output_bound_names_for_subgraphs (just above) adds its edges WITHOUT
+           registering them there, so the count reads 0 while port 0 is already
+           taken and the mask edge collides and is dropped.  Take the next port
+           from the actual edge count instead. *)
+        let body_gr =
+          List.fold_left
+            (fun g m ->
+              match m with
+              | None -> g
+              | Some (mn, mp, mty) ->
+                  let port =
+                    If1.ES.fold
+                      (fun (_, (dn, _), _) n -> if dn = 0 then n + 1 else n)
+                      g.If1.eset 0
+                  in
+                  If1.add_to_boundary_outputs ~start_port:port mn mp mty g)
+            body_gr mask_ty_list
+        in
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
@@ -11300,7 +11321,38 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
       (([], ret_gr, in_gr, [], []), 0)
       (List.combine return_action_list ret_tuple_list)
   in
-  let mask_ty_list = List.map (fun _ -> None) return_action_list in
+  (* Resolve the masks the way the clause values were resolved just above:
+     find each one's BODY boundary out port and give the RETURNS graph an input
+     for it, yielding the (type, ret-in-port) pair create_return_nodes wants.
+     This used to be
+       `let mask_ty_list = List.map (fun _ -> None) return_action_list`
+     which silently dropped every `when`/`unless` on a for-initial, so masked
+     gathers and masked reductions admitted every element. *)
+  let mask_ty_list, ret_gr =
+    List.fold_left
+      (fun (acc, rg) (idx, m) ->
+        match m with
+        | None -> (acc @ [ None ], rg)
+        | Some (mn, mp, mty) -> (
+            match body_out_port_of mn mp with
+            | Some dp ->
+                let nm = Printf.sprintf "__mask_%d" idx in
+                let bp, rg =
+                  If1.add_to_boundary_inputs ~namen:nm body_cn dp rg
+                in
+                to_if1_msg 3
+                  "add_return_gr_for_initial: mask#%d (node=%d,port=%d) -> \
+                   body_cn:%d -> ret in-port %d"
+                  idx mn mp dp bp;
+                (acc @ [ Some (mty, bp) ], rg)
+            | None ->
+                to_if1_msg 3
+                  "add_return_gr_for_initial: mask#%d has no BODY boundary output"
+                  idx;
+                (acc @ [ None ], rg)))
+      ([], ret_gr)
+      (List.mapi (fun i m -> (i, m)) mask_ty_list)
+  in
   let do_reduc ((rdx, red_fn), tt, aa) msk_opt in_gr =
     let out_port_1 =
       let out_array = [| "" |] in
