@@ -1,0 +1,95 @@
+% !!! NOT REGISTERED -- THIS IS A BUG REPRO.  It compiles, and the emitted C is
+% SILENTLY WRONG.  See bug_init_carry_seed_scramble in memory.
+%
+% Scrambled INIT -> LoopB carry seeding.  A NESTED for-initial whose results are
+% multi-assigned into the enclosing loop's names: the inner loop's carries are
+% seeded from the WRONG INIT boundary outputs.  Here the inner `i` is seeded
+% from `w4`.
+%
+% The window SLIDES with the number of non-`old` names in the initial clause,
+% which is the signature of the positional derivation in to_if1:
+%     start = boundary_out_port_count decl_gr - n_ret_seeds - 2*non_old_count
+%
+%     tallies  1 -> i seeded from w0
+%     tallies  2 -> i seeded from i     (CORRECT, BY ACCIDENT)
+%     tallies  4 -> i seeded from w0
+%     tallies  8 -> i seeded from w4    (this file)
+%     tallies 12 -> i seeded from w6
+%
+% The accidental hit at 2 is why this survived: small nested loops land on the
+% right offset by luck, and nothing in the corpus had a nested for-initial with
+% several non-`old` initial names until ssphot's tracking loop.  w0..w7 are
+% declared in `initial` but assigned FRESH from the inner loop each iteration --
+% they never say `old` -- so they are not carries, and the count that locates
+% the real carries is wrong.
+%
+% ssphot_track_dv fails to BUILD because its shuffled types disagree.  Here they
+% agree, so it builds and runs and is quietly incorrect, which is the worse form.
+
+define Main
+function Main (returns double, integer)
+   let
+      r0, r1, o0, o1, o2, o3, o4, o5, o6, o7 :=
+      for initial
+         s0 := 0.5d0;
+         cnt := 0;
+         w0 := 0.0d0;
+         w1 := 0.0d0;
+         w2 := 0.0d0;
+         w3 := 0.0d0;
+         w4 := 0.0d0;
+         w5 := 0.0d0;
+         w6 := 0.0d0;
+         w7 := 0.0d0;
+      while cnt < 2
+      repeat
+         s0, cnt, w0, w1, w2, w3, w4, w5, w6, w7 :=
+            for initial
+               i  := 1;
+               sA := old s0;
+            w0 := 0.0d0;
+            w1 := 0.0d0;
+            w2 := 0.0d0;
+            w3 := 0.0d0;
+            w4 := 0.0d0;
+            w5 := 0.0d0;
+            w6 := 0.0d0;
+            w7 := 0.0d0;
+            while i <= 2
+            repeat
+               sA := old sA * 2.0d0;
+            w0 := old sA + 0.0d0;
+            w1 := old sA + 1.0d0;
+            w2 := old sA + 2.0d0;
+            w3 := old sA + 3.0d0;
+            w4 := old sA + 4.0d0;
+            w5 := old sA + 5.0d0;
+            w6 := old sA + 6.0d0;
+            w7 := old sA + 7.0d0;
+               i  := old i + 1
+            returns
+               value of sA
+               value of sum i
+            value of sum w0
+            value of sum w1
+            value of sum w2
+            value of sum w3
+            value of sum w4
+            value of sum w5
+            value of sum w6
+            value of sum w7
+            end for
+      returns
+         value of s0
+         value of sum cnt
+         value of sum w0
+         value of sum w1
+         value of sum w2
+         value of sum w3
+         value of sum w4
+         value of sum w5
+         value of sum w6
+         value of sum w7
+      end for
+   in r0, r1 end let
+end function
