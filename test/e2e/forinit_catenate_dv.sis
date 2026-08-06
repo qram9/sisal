@@ -1,0 +1,62 @@
+% `returns value of catenate` ON A SEQUENTIAL LOOP.
+%
+% This was rejected outright:
+%
+%     for-initial reduction: catenate is not supported in a sequential loop yet
+%
+% and the reason it went unnoticed for so long is worth recording.  Across the
+% whole e2e corpus there were 97 uses of catenate and every single one sat in a
+% FORALL -- not one in a for-initial.  So the gap was never worked around; it
+% was simply never asked for.  The only two programs in test/unit that do ask
+% (crossovers.sis and ssphot.sis) were both unported, and ssphot was unported
+% for exactly this reason.  Both compile now.
+%
+% WHY IT WAS BLOCKED, and why the fix is small.  A forall catenate preallocates:
+% sisal_array_catenate_store takes the trip count to size the result and a
+% gather counter to index it.  A sequential loop has neither.  But
+% sisal_array_catenate -- the grow-by-appending form -- needs neither either,
+% and already treats an empty operand as the identity.  So the sequential path
+% just uses that.  argmax/argmin remain rejected: they must report a loop INDEX,
+% which really is absent here, so they still fail loudly rather than guess.
+%
+% The 1.2 history rule applies as everywhere else: the seed is body_0, so its
+% row is part of the result, and a ZERO-TRIP loop still yields the seed's row
+% rather than nothing.  That is the case most likely to be got wrong, so it is
+% pinned explicitly.
+%
+% Expected values are OSC 13.0.3's (~/work/oldsisal), with Row(i) = i*10+1 .. i*10+i:
+%     i := 1 while i < 4   -> rows 1,2,3,4  -> [11 21 22 31 32 33 41 42 43 44]
+%     i := 9 while i < 4   -> zero trip     -> [91 .. 99]  (the seed's row)
+%     the same, when i > 2 -> rows 3,4      -> [31 32 33 41 42 43 44]
+% and the forall over 1..4 gives the identical 10 elements, so the two loop
+% forms agree.
+
+define Main
+
+type Ints = array_dv [integer];
+
+function Row (i : integer returns Ints)
+   for k in 1, i returns array_dv of i*10 + k end for
+end function
+
+function Main (returns
+                Ints,      % sequential catenate: seed's row included
+                Ints,      % ZERO TRIP: still the seed's row, not empty
+                Ints,      % masked: only the surviving rows
+                Ints,      % the forall equivalent -- must agree with the first
+                integer)   % ... and agree on length
+   let
+      seq  := for initial i := 1; while i < 4 repeat i := old i + 1;
+              returns value of catenate Row(i) end for;
+
+      zt   := for initial i := 9; while i < 4 repeat i := old i + 1;
+              returns value of catenate Row(i) end for;
+
+      mask := for initial i := 1; while i < 4 repeat i := old i + 1;
+              returns value of catenate Row(i) when i > 2 end for;
+
+      fa   := for i in 1, 4 returns value of catenate Row(i) end for
+   in
+      seq, zt, mask, fa, array_size(fa)
+   end let
+end function

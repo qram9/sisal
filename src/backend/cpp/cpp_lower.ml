@@ -496,8 +496,8 @@ and finalvalue_ports_of_returns ret_gr =
    are the gather counter `catenate` appends with, and [sub_gid]/[port] only name
    the argmax temp.
    --------------------------------------------------------------------------- *)
-let emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast ~count ~gctr
-    ~primary_iter ~sub_gid ~port =
+let emit_reduction ~sequential ~op ~out_ty ~res_name ~res_v ~value
+    ~cast ~count ~gctr ~primary_iter ~sub_gid ~port =
   ignore value;
   match op with
             | (R_argmax | R_argmin) as op ->
@@ -541,6 +541,18 @@ let emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast ~count ~gctr
             | op when out_ty = C.Basic "sisal_array_t" ->
                 if op = R_catenate then
                   let update =
+                    (* A SEQUENTIAL loop has neither a trip count to size the
+                       result from nor a gather counter to index it by, so it
+                       grows by appending instead -- sisal_array_catenate needs
+                       neither, and already treats an empty operand as the
+                       identity.  The forall keeps the preallocating store. *)
+                    if sequential then
+                      C.Expr
+                        (C.BinOp
+                           ( C.Assign,
+                             res_v,
+                             C.Call ("sisal_array_catenate", [ res_v; value ]) ))
+                    else
                     C.Expr
                       (C.BinOp
                          ( C.Assign,
@@ -4735,8 +4747,8 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   (* the operator arms live in emit_reduction, shared with the
                      for-initial path; only the decl/bind tail is loop-specific *)
                   let before, update, post, decl_ty =
-                    emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast
-                      ~count ~gctr ~primary_iter ~sub_gid ~port
+                    emit_reduction ~sequential:false ~op ~out_ty ~res_name ~res_v
+                      ~value ~cast ~count ~gctr ~primary_iter ~sub_gid ~port
                   in
                   (before, update, post, (res_name, decl_ty), (port, res_v))
               | None when is_final port ->
@@ -5959,14 +5971,17 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
             | None -> (pre, store, binds)
             | Some value ->
                 (match op with
-                 | R_argmax | R_argmin | R_catenate ->
+                 | R_argmax | R_argmin ->
+                     (* argmax/argmin still need a loop INDEX to report, which
+                        a sequential loop does not hand us; catenate needed
+                        only an extent and a counter, and now grows by
+                        appending instead. *)
                      failwith
                        (Printf.sprintf
                           "for-initial reduction: %s is not supported in a \
                            sequential loop yet (gid=%d port=%d)"
                           (match op with
-                           | R_argmax -> "argmax" | R_argmin -> "argmin"
-                           | _ -> "catenate")
+                           | R_argmax -> "argmax" | _ -> "argmin")
                           gid ret_out_port)
                  | _ -> ());
                 let res_name =
@@ -5980,9 +5995,9 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                     ("SISAL_CAST", [ C.Id (string_of_c_type out_ty); value ])
                 in
                 let before, update, _post, _decl_ty =
-                  emit_reduction ~op ~out_ty ~res_name ~res_v ~value ~cast
-                    ~count:(C.LitInt 0) ~gctr:"" ~primary_iter:None ~sub_gid
-                    ~port:ret_out_port
+                  emit_reduction ~sequential:true ~op ~out_ty ~res_name ~res_v
+                    ~value ~cast ~count:(C.LitInt 0) ~gctr:""
+                    ~primary_iter:None ~sub_gid ~port:ret_out_port
                 in
                 (* A CARRY's history starts with its SEED (body_0 in the 1.2
                    model): the gather stores it once in the preheader and then
