@@ -470,6 +470,12 @@ extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
+#ifdef TEST_SSPHOT_GEOM_DV
+struct SSG_results { sisal_array_t rr, zz; int32_t nz; double r0, r1;
+                     sisal_array_t shape; };
+extern "C" struct SSG_results func_MAIN(int32_t naxl, int32_t nradl, int32_t ir,
+                                        double radl, double axl);
+#endif
 #ifdef TEST_FORINIT_CATENATE_DV
 struct FCAT_results { sisal_array_t seq, zt, mask, fa; int32_t n; };
 extern "C" struct FCAT_results func_MAIN(void);
@@ -11459,6 +11465,67 @@ static void test_gather_conform_dv(void) {
   check("rows are correct when the LAST needs no pad (always worked)", okl);
 }
 #endif
+#ifdef TEST_SSPHOT_GEOM_DV
+// Cell geometry + generator of ssphot.sis (Monte Carlo photon transport), the
+// program that could not be compiled until `value of catenate` worked on a
+// sequential loop -- its TrackParticles carries an RNG seed and emits a
+// data-dependent number of particles per step, so it catenates variable-length
+// lists out of a genuine recurrence.
+//
+// Two forced rewrites: `coords = array[array[coordrec]]` becomes a FLAT rank-2
+// array_dv (nested dopes are malformed, and the C lowering is array_dv-only);
+// and `for coord in cellcoords at row, col` becomes an explicit cross, because
+// `array_dv [coordrec]` is statically RANK 1 -- rank being a runtime property --
+// so a dual index has no static dimension to bind and the frontend rejects it.
+// The cross needs no array to walk, so the two array_fill scaffolds the
+// original builds only to scatter over simply vanish.
+//
+// Expected values are an exact C mirror below, not a snapshot: the function is
+// index arithmetic plus sin/cos.  OSC is deliberately NOT the reference --
+// ssphot does not compile under it as shipped (`integer(floor(r))` is
+// integer-to-integer, which OSC rejects), so an OSC run would be measuring a
+// file already edited to appease it.
+static int ssg_ceiling(double r) {
+  return (r > std::floor(r)) ? (int)std::floor(r) + 1 : (int)r;
+}
+static void test_ssphot_geom_dv(void) {
+  printf("\n=== Group: ssphot_geom_dv (cell geometry + generator) ===\n");
+  const int naxl = 2, nradl = 2, ir = 12345;
+  const double radl = 4.0, axl = 90.0;
+  SSG_results x = func_MAIN(naxl, nradl, ir, radl, axl);
+  const double pi = 3.141592653589793238;
+  const int nz = nradl * naxl;
+  const double hr = radl / nradl, ha = axl * pi / (naxl * 180.0);
+  check("nzones = nradl * naxl", x.nz == nz);
+  check("the grid stayed rectangular: nzones x 5 slots",
+        (int)x.rr.size == nz * 5 && (int)x.zz.size == nz * 5
+        && ((int32_t*)x.shape.data)[0] == nz);
+  int bad = 0;
+  for (int row = 1; row <= nz; row++)
+    for (int col = 1; col <= 5; col++) {
+      int ird, iang;
+      // slots 1/5 share a corner; 2/3 step a ring out -- that index arithmetic
+      // IS the function, so the mirror reproduces it rather than the result
+      if (col == 1 || col == 5) { ird = ssg_ceiling((double)row / naxl);          iang = ird*naxl - row + 1; }
+      else if (col == 2)        { ird = ssg_ceiling((double)(row-naxl) / naxl);   iang = ird*naxl - row + 1 + naxl; }
+      else if (col == 3)        { ird = ssg_ceiling((double)(row-naxl) / naxl);   iang = ird*naxl - row + 2 + naxl; }
+      else                      { ird = ssg_ceiling((double)row / naxl);          iang = ird*naxl - row + 2; }
+      double ang = (iang - 1) * ha;
+      double r = (ird * hr) * std::sin(ang), z = (ird * hr) * std::cos(ang);
+      if (std::fabs(r) < 1e-9) r = 0.0;      // snapped: itype tests this exactly
+      if (std::fabs(z) < 1e-9) z = 0.0;
+      int k = (row - 1) * 5 + (col - 1);
+      if (std::fabs(((double*)x.rr.data)[k] - r) > 1e-12) bad++;
+      if (std::fabs(((double*)x.zz.data)[k] - z) > 1e-12) bad++;
+    }
+  check("every corner coordinate matches the mirror", bad == 0);
+  double two28 = 268435456.0, f = 41475557.0;
+  double m0 = (double)ir / two28 * f; m0 -= (double)(long long)m0;
+  double m1 = m0 * f;                 m1 -= (double)(long long)m1;
+  check("RandInit(12345) exact", std::fabs(x.r0 - m0) < 1e-15);
+  check("the draw after it exact", std::fabs(x.r1 - m1) < 1e-15);
+}
+#endif
 #ifdef TEST_FORINIT_CATENATE_DV
 // `returns value of catenate` on a SEQUENTIAL loop, which was rejected
 // outright.  Why it went unnoticed: across the whole e2e corpus there were 97
@@ -13511,6 +13578,9 @@ main (void)
 #ifdef TEST_FORINIT_CATENATE_DV
   test_forinit_catenate_dv ();
 #endif
+#ifdef TEST_SSPHOT_GEOM_DV
+  test_ssphot_geom_dv ();
+#endif
 #ifdef TEST_PSA_COST_DV
   test_psa_cost_dv ();
 #endif
@@ -13695,7 +13765,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_PSA_COST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_PSA_COST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

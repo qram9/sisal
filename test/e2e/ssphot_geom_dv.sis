@@ -1,0 +1,156 @@
+% SSPHOT_GEOM -- the cell geometry and the generator of ssphot.sis, a Monte
+% Carlo photon-transport code.  Layer 1 of that port.
+%
+% ssphot could not be compiled at all until `returns value of catenate` worked
+% on a sequential loop: its TrackParticles loop carries an RNG seed and emits a
+% data-dependent number of particles per step, so it catenates variable-length
+% lists out of a genuine recurrence.  That is the one place in the whole corpus
+% that needs it.
+%
+% TWO REWRITES, both forced and both mechanical.
+%
+% 1. `coords = array[array[coordrec]]` becomes a FLAT rank-2 array_dv of
+%    coordrec (nzones x 5).  Nested array_dv is malformed -- the descriptor is
+%    the array, so a dope holding dopes has no meaning here -- and the C
+%    lowering is array_dv-only, so `array[...]` is not an option to keep.
+%
+% 2. `for coord in cellcoords at row, col` becomes
+%    `for row in 1, nzones cross col in 1, 5`.  The scatter form cannot survive:
+%    `array_dv [coordrec]` is statically RANK 1 (rank is a runtime property), so
+%    a dual index has no static dimension to bind to and the frontend rejects it
+%    with "Array type expected when constructing scatter node".  The cross form
+%    says the same thing and needs no array to iterate over, so the two
+%    array_fill scaffolds the original builds only to scatter across
+%    (`array_fill(1,5,emptycoord)`, then nzones copies of that) simply
+%    disappear.
+%
+% WHAT THE GEOMETRY IS.  A zone grid of nradl radial by naxl angular cells; each
+% of the nzones cells gets five coordinate slots (four corners plus a
+% terminator).  Columns 1 and 5 share a corner, so slots 1/5 and 2/3 and 4 index
+% the radial ring `ird` and angular position `iang` differently -- that index
+% arithmetic is the substance of the function, and the polar-to-cartesian step
+% at the end is ordinary.  Coordinates within 1e-9 of zero are snapped to zero,
+% which matters because the itype classification downstream tests exactly that.
+%
+% Expected values are a C mirror of the same arithmetic (test/e2e/dv_run_all.cpp),
+% not a snapshot: AssignCells is pure index math plus sin/cos, so the mirror can
+% be exact.  OSC is not used as the reference here -- ssphot does not compile
+% under it as shipped (`integer(floor(r))` is integer-to-integer, which it
+% rejects), so an OSC run would be measuring a file I had already edited.
+
+define Main
+
+type coordrec = record [ rr, zz : double ];
+type coords   = array_dv [coordrec];   % rank 2 at runtime: nzones x 5
+type Doubles  = array_dv [double];
+type Ints     = array_dv [integer];
+
+% first draw from an integer seed: scale into [0,1), multiply, keep the fraction
+function RandInit (ir : integer returns double)
+   let
+      two28  := 268435456.0d0;
+      r      := double_real(ir) / two28;
+      factor := 41475557.0d0;
+      rp     := r * factor
+   in
+      rp - double_real(trunc(rp))
+   end let
+end function
+
+% the next draw: same multiplicative step on the previous value
+function Random (r : double returns double)
+   let
+      factor := 41475557.0d0;
+      rp     := r * factor
+   in
+      rp - double_real(trunc(rp))
+   end let
+end function
+
+function Ceiling (r : double returns integer)
+   if (r > double_real(floor(r))) then
+      integer(floor(r)) + 1
+   else
+      integer(r)
+   end if
+end function
+
+% the cell corner coordinates: nzones rows of 5 slots
+function AssignCells (naxl, nradl : integer; radl, axl : double
+                      returns coords, integer)
+   let
+      pi     := 3.141592653589793238d0;
+      nzones := nradl * naxl;
+      hr     := radl / (double_real(nradl));
+      ha     := axl * pi / (double_real(naxl) * 180.0d0);
+
+      ncc :=
+         for row in 1, nzones cross
+             col in 1, 5
+            ird, iang :=
+               if ((col = 1) | (col = 5)) then
+                  let
+                     r   := double_real(row) / double_real(naxl);
+                     ird := Ceiling(r)
+                  in
+                     ird, ird * naxl - row + 1
+                  end let
+               elseif (col = 2) then
+                  let
+                     r   := double_real(row - naxl) / double_real(naxl);
+                     ird := Ceiling(r)
+                  in
+                     ird, ird * naxl - row + 1 + naxl
+                  end let
+               elseif (col = 3) then
+                  let
+                     r   := double_real(row - naxl) / double_real(naxl);
+                     ird := Ceiling(r)
+                  in
+                     ird, ird * naxl - row + 2 + naxl
+                  end let
+               else  % (col = 4)
+                  let
+                     r   := double_real(row) / double_real(naxl);
+                     ird := Ceiling(r)
+                  in
+                     ird, ird * naxl - row + 2
+                  end let
+               end if;
+            r, z := let
+                       ang := double_real(iang - 1) * ha
+                    in
+                       (double_real(ird) * hr) * sin(ang),
+                       (double_real(ird) * hr) * cos(ang)
+                    end let;
+            rrr := if (abs(r) < 1.0d-9) then 0.0d0 else r end if;
+            zzz := if (abs(z) < 1.0d-9) then 0.0d0 else z end if;
+            cc  := record coordrec [ rr : rrr; zz : zzz ]
+         returns
+            array_dv of cc
+         end for
+   in
+      ncc, nzones
+   end let
+end function
+
+function Main (naxl, nradl, ir : integer; radl, axl : double
+              returns
+               Doubles,   % every slot's rr, row-major
+               Doubles,   % every slot's zz
+               integer,   % nzones
+               double,    % RandInit(ir)
+               double,    % and the draw after it
+               Ints)      % the rank-2 shape, to pin that it stayed rectangular
+   let
+      cc, nz := AssignCells(naxl, nradl, radl, axl);
+      rr := for row in 1, nz cross col in 1, 5
+            returns array_dv of cc[row, col].rr end for;
+      zz := for row in 1, nz cross col in 1, 5
+            returns array_dv of cc[row, col].zz end for;
+      r0 := RandInit(ir);
+      r1 := Random(r0)
+   in
+      rr, zz, nz, r0, r1, array_dv Ints [1: array_size(cc), nz * 5]
+   end let
+end function
