@@ -6393,41 +6393,61 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                         post @ post_mask,
                         (ret_out_port, res_v) :: binds )
                 | None ->
-                    (* Bare gather: read the bound off the TEST compare NODE (cond
-                    is only the lowered result variable).  Find the node feeding
-                    TEST boundary-out 0, assert it is `<=` for now, and lower its
-                    two operands: op0 = induction carry (holds the seed in the
-                    preheader), op1 = upper bound. *)
+                    (* Bare gather: try to read a trip count off the TEST compare
+                    NODE (cond is only the lowered result variable) so the result
+                    can be PREALLOCATED.  Find the node feeding TEST boundary-out
+                    0; if it is `i <op> bound` with op in </<=/>/>=, lower its two
+                    operands (op0 = induction carry, holding the seed in the
+                    preheader; op1 = the bound).
+
+                    This is a FAST PATH, not a requirement.  A loop test that is
+                    not a comparison -- psa's `while to = from`, `while ~found &
+                    (i < array_size(period))`, inside.sis's compound test -- has
+                    no derivable count, and used to be a hard failure ("loop test
+                    is not a </<=/>/>= comparison").  It now falls back to growing
+                    the result by appending, below.  Note the count is only ever
+                    an approximation of the real one anyway: it assumes a step of
+                    +/-1, so a non-unit induction would size it wrongly. *)
                     let cmp =
                       ES.fold
                         (fun (src, dst, _) a ->
                           if dst = (0, 0) then Some src else a)
                         test_gr.eset None
                     in
-                    let cn =
-                      match cmp with
-                      | Some (c, _) -> c
-                      | None -> failwith "for-initial gather: no TEST compare"
-                    in
-                    let cmp_sym =
-                      match NM.find_opt cn test_gr.nmap with
-                      | Some (Simple (_, s, _, _, _)) -> s
-                      | _ -> failwith "for-initial gather: no TEST compare node"
-                    in
-                    let lower_op p =
+                    let lower_op cn p =
                       match
                         ES.fold
                           (fun ((s, sp), (d, dp), _) a ->
                             if d = cn && dp = p then Some (s, sp) else a)
                           test_gr.eset None
                       with
-                      | Some (s, sp) -> get_expr e_test1 test_gid s sp `Out
-                      | None ->
-                          failwith
-                            "for-initial gather: missing TEST compare operand"
+                      | Some (s, sp) -> Some (get_expr e_test1 test_gid s sp `Out)
+                      | None -> None
                     in
-                    (* op0 = induction var (holds the seed in the preheader), op1 = bound *)
-                    let op0 = lower_op 0 and op1 = lower_op 1 in
+                    (* Some (op, induction, bound) when a count is derivable *)
+                    let trip_ops =
+                      match cmp with
+                      | None -> None
+                      | Some (cn, _) -> (
+                          match NM.find_opt cn test_gr.nmap with
+                          | Some
+                              (Simple
+                                 ( _,
+                                   (( LESSER_EQUAL | LESSER | GREATER_EQUAL
+                                    | GREATER ) as s),
+                                   _,
+                                   _,
+                                   _ )) -> (
+                              match (lower_op cn 0, lower_op cn 1) with
+                              | Some a, Some b -> Some (s, a, b)
+                              | _ -> None)
+                          | _ -> None)
+                    in
+                    (* Preallocate only when a count is derivable AND the element
+                       is scalar; an array_dv element always grows by appending
+                       (see concat_grow below), which is why it never needed the
+                       count in the first place. *)
+                    let prealloc = (not is_arr_elem) && trip_ops <> None in
                     let seed =
                       Printf.sprintf "__gseed_%d_%d" sub_gid ret_out_port
                     in
@@ -6440,15 +6460,12 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                     let dec a b = C.BinOp (C.Sub, a, b)
                     and inc e = C.BinOp (C.Add, e, C.LitInt 1) in
                     let trip_count =
-                      match cmp_sym with
-                      | LESSER_EQUAL -> inc (dec bd sd)
-                      | LESSER -> dec bd sd
-                      | GREATER_EQUAL -> inc (dec sd bd)
-                      | GREATER -> dec sd bd
-                      | _ ->
-                          failwith
-                            "for-initial gather: loop test is not a </<=/>/>= \
-                             comparison"
+                      match trip_ops with
+                      | Some (LESSER_EQUAL, _, _) -> inc (dec bd sd)
+                      | Some (LESSER, _, _) -> dec bd sd
+                      | Some (GREATER_EQUAL, _, _) -> inc (dec sd bd)
+                      | Some (GREATER, _, _) -> dec sd bd
+                      | _ -> C.LitInt 0 (* unused: the append path ignores it *)
                     in
                     let trip_count =
                       C.Cond
@@ -6511,7 +6528,37 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                    ( "sisal_array_concat_grow",
                                      [ res_v; body_val ] ) ));
                         ]
-                      else scalar_store
+                      else if prealloc then scalar_store
+                      else
+                        (* No derivable trip count: grow by appending.  The
+                           templated addh takes the element size off the
+                           descriptor rather than assuming 4 or 8 bytes, so this
+                           is correct for 1-byte bool and for record elements
+                           alike; T is deduced from the SISAL_CAST. *)
+                        let append =
+                          [
+                            C.Expr
+                              (C.BinOp
+                                 ( C.Assign,
+                                   res_v,
+                                   C.Call
+                                     ( "sisal_array_addh_val",
+                                       [
+                                         res_v;
+                                         C.Call
+                                           ( "SISAL_CAST",
+                                             [
+                                               C.Id (string_of_c_type elem_ty);
+                                               body_val;
+                                             ] );
+                                       ] ) ));
+                          ]
+                        in
+                        (* a masked gather appends only survivors, so there is
+                           nothing to shrink afterwards *)
+                        (match mask_opt with
+                        | None -> append
+                        | Some m -> [ C.If (m, append, []) ])
                     in
                     let pre' =
                       (if is_arr_elem then
@@ -6522,7 +6569,12 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                   res_v,
                                   C.Call ("sisal_array_empty", []) ));
                          ]
-                       else
+                       else if prealloc then
+                         let op0, op1 =
+                           match trip_ops with
+                           | Some (_, a, b) -> (a, b)
+                           | None -> assert false (* prealloc implies Some *)
+                         in
                          [
                            C.Decl (C.Basic "int32_t", seed, Some op0);
                            (* carry holds the seed in the preheader *)
@@ -6538,7 +6590,22 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                     alloc_array_call (C.LitInt 1) (C.LitInt tid)
                                       (C.Cast (C.Basic "uint64_t", size))
                                       elem_ty ));
-                           ])
+                           ]
+                       else
+                         (* Append path: start from a properly TYPED empty array
+                            -- rank 1, this element's type_id and byte size, zero
+                            elements.  sisal_array_empty() would not do: it is an
+                            all-zero descriptor, so addh would read esz 0 off it
+                            and allocate nothing. *)
+                         [
+                           C.Expr
+                             (C.BinOp
+                                ( C.Assign,
+                                  res_v,
+                                  alloc_array_call (C.LitInt 1) (C.LitInt tid)
+                                    (C.Cast (C.Basic "uint64_t", C.LitInt 0))
+                                    elem_ty ));
+                         ])
                       (* body_0 tick: gather_pre runs after the MERGE seeds,
                          so the MERGE variables hold the seed here -- including
                          the mask's own MERGE, which carries INIT's copy of the
@@ -6550,11 +6617,15 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                        `ctr` advanced only on survivors, so it IS the surviving
                        count -- shrink the descriptor to it after the loop, the
                        same over-allocate / count / shrink shape the forall
-                       masked gather uses. *)
+                       masked gather uses.
+
+                       Only when it was preallocated.  The append paths grow one
+                       survivor at a time, so there is nothing over-allocated to
+                       shrink -- and `ctr` is not even declared there, so
+                       emitting this would not compile. *)
                     let post_mask =
                       match mask_opt with
-                      | None -> []
-                      | Some _ ->
+                      | Some _ when prealloc ->
                           [
                             C.Expr
                               (C.BinOp
@@ -6567,6 +6638,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                    C.Member (res_v, "size"),
                                    C.Cast (C.Basic "uint64_t", C.Id ctr) ));
                           ]
+                      | _ -> []
                     in
                     ( pre @ pre',
                       store @ store',

@@ -1,0 +1,71 @@
+% FOR-INITIAL GATHER WITH NO DERIVABLE TRIP COUNT.
+%
+% A for-initial gather PREALLOCATES its result, sizing it from a trip count
+% read off the loop test -- which only works when the test is literally
+% `i <op> bound` with op in </<=/>/>= and a step of +/-1.  Anything else was a
+% hard compile failure:
+%
+%     for-initial gather: loop test is not a </<=/>/>= comparison
+%     for-initial gather: missing TEST compare operand
+%
+% That rejected ordinary loops.  psa.sis (simulated-annealing school timetable)
+% has `while to = from` and `while ~found & (i < array_size(period))`;
+% inside.sis has a compound test.  Neither is exotic and neither could be
+% compiled at all.
+%
+% Preallocation is now a FAST PATH rather than a requirement: when no count is
+% derivable the gather starts from a typed empty array_dv and APPENDS each
+% element as it is produced.  (O(n^2) copying for now -- capacity growth is on
+% the array-growth roadmap.  Correctness first.)
+%
+% Two details worth pinning:
+%   - the append uses the TEMPLATED addh, which takes the element size off the
+%     descriptor instead of assuming 4 or 8 bytes, so a 1-byte boolean element
+%     is stored at the right stride rather than corrupting its neighbours.
+%   - a masked gather on the append path needs no post-loop shrink: it appends
+%     only survivors, where the preallocated path over-allocates to the trip
+%     count and patches the descriptor down afterwards.
+%
+% Every expected value here is OSC 13.0.3's (~/work/oldsisal), and the loops
+% follow the 1.2 history rule (docs/loop_behavior_comparison.md): the seed is
+% body_0, so N passing checks yield N+1 elements.
+%     ok -> [1 2 3 4 5]   eq -> [1 2 3 4 5]   cj -> [1 2 3 4]
+%     mk -> [3 4 5 6]     rl -> [1 2 4 8]     bl -> [F F T T T]
+
+define Main
+
+type Ints  = array_dv [integer];
+type Reals = array_dv [real];
+type Bools = array_dv [boolean];
+
+function Main (returns
+                Ints,    % `<`  -- comparison, the preallocating fast path
+                Ints,    % `~=` -- no derivable count, appends
+                Ints,    % conjunction with a negation -- psa's shape
+                Ints,    % masked append: only survivors, no shrink
+                Reals,   % real element -- 8/4-byte stride
+                Bools)   % boolean element -- 1-byte stride
+   let
+      ok := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns array_dv of I end for;
+
+      eq := for initial I := 1; while I ~= 5 repeat I := old I + 1;
+            returns array_dv of I end for;
+
+      cj := for initial I := 1; F := false;
+            while ~F & (I < 5) repeat I := old I + 1; F := old I > 2;
+            returns array_dv of I end for;
+
+      mk := for initial I := 1; while I ~= 6 repeat I := old I + 1;
+            returns array_dv of I when I > 2 end for;
+
+      rl := for initial I := 1; R := 1.0; while I ~= 4
+            repeat I := old I + 1; R := old R * 2.0;
+            returns array_dv of R end for;
+
+      bl := for initial I := 1; while I ~= 5 repeat I := old I + 1;
+            returns array_dv of (I > 2) end for;
+   in
+      ok, eq, cj, mk, rl, bl
+   end let
+end function
