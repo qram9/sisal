@@ -437,7 +437,8 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
 #endif
 #ifdef TEST_FORINIT_MASK_DV
 struct FM_results { sisal_array_t fa, fi; int32_t ra, ri;
-                    sisal_array_t zt, zf, un; };
+                    sisal_array_t zt, zf, un, ug; int32_t ur;
+                    sisal_array_t wg; int32_t wr; };
 extern "C" struct FM_results func_MAIN();
 #endif
 #ifdef TEST_ZEROTRIP_EXPR_DV
@@ -12067,6 +12068,13 @@ static void test_forinit_mask_dv(void) {
         (int)r.zf.size == 0);
   check("unmasked control still the whole history == [1,2,3,4,5]",
         same(r.un, { 1, 2, 3, 4, 5 }));
+  // `unless` had NO for-initial coverage in the whole corpus -- 4 forall uses,
+  // zero sequential -- which is how `when` stayed broken here unnoticed.  It
+  // shares that machinery, so pin it both ways: `unless p` must equal `when ~p`.
+  check("for-initial `unless` gather == [1,2]", same(r.ug, { 1, 2 }));
+  check("for-initial `unless` reduction == 3", r.ur == 3);
+  check("`when ~p` agrees with `unless p` (gather)", same(r.wg, { 1, 2 }));
+  check("`when ~p` agrees with `unless p` (reduction)", r.wr == 3);
 }
 #endif
 #ifdef TEST_ARRAY_EX_DV

@@ -19,6 +19,8 @@
 %   seed 1,  while I<5, when I>2    -> [3,4,5]   (history 1,2,3,4,5; seed excluded)
 %   seed 10, while I<5, when I>2    -> [10]      (zero-trip, mask TRUE at seed)
 %   seed 10, while I<5, when I>100  -> []        (zero-trip, mask FALSE at seed)
+%   seed 1,  while I<5, unless I>2   -> [1,2]     (and sum 3)
+% OSC agrees that `unless p` and `when ~p` give the same answer, as they must.
 
 define Main
 
@@ -31,7 +33,11 @@ function Main (returns
                integer,   % for-initial masked reduce
                Ints,      % zero-trip, mask TRUE at the seed
                Ints,      % zero-trip, mask FALSE at the seed
-               Ints)      % unmasked control -- the whole history, seed included
+               Ints,      % unmasked control -- the whole history, seed included
+               Ints,      % for-initial `unless` gather
+               integer,   % for-initial `unless` reduction
+               Ints,      % the same written as `when ~p` -- must agree
+               integer)   %   likewise
    let
       fa := for I in 1, 5
             returns array_dv of I when I > 2
@@ -54,7 +60,23 @@ function Main (returns
       un := for initial I := 1; while I < 5 repeat I := old I + 1;
             returns array_dv of I
             end for;
+      % `unless` had NO for-initial coverage anywhere in the corpus -- 4 forall
+      % uses, zero sequential -- which is how `when` stayed broken here for so
+      % long.  It shares that machinery, so it is pinned both ways: `unless p`
+      % must equal `when ~p`.
+      ug := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns array_dv of I unless I > 2
+            end for;
+      ur := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns value of sum I unless I > 2
+            end for;
+      wg := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns array_dv of I when I <= 2
+            end for;
+      wr := for initial I := 1; while I < 5 repeat I := old I + 1;
+            returns value of sum I when I <= 2
+            end for;
    in
-      fa, fi, ra, ri, zt, zf, un
+      fa, fi, ra, ri, zt, zf, un, ug, ur, wg, wr
    end let
 end function
