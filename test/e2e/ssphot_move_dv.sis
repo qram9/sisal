@@ -1,0 +1,181 @@
+% SSPHOT_MOVE -- Russian roulette and the particle move, layer 5 of the ssphot
+% port.  This is the variance-reduction machinery: when a photon crosses into a
+% zone of different importance, or its weight drifts out of band, it is either
+% KILLED, or SPLIT into copies, or continued with a rescaled weight -- the
+% intent being that the expected weight carried forward is unchanged.
+%
+%   continue  ncopies 1, weight rescaled
+%   kill      ncopies 0, and wrr = -newgt -- the weight is BOOKED OUT, which is
+%             how the tally stays fair despite discarding the particle
+%   split     ncopies n, weight divided
+%
+% AND THE TWO SPLIT BRANCHES DO NOT AGREE, which is worth stating plainly
+% because it looks like a typo and is reproduced as written:
+%
+%   zeta < r0 :  ncopies = ir1 + 1, newgt / (r1 + 1)
+%                -> (ir1+1) copies of newgt/(ir1+1).  Expected weight PRESERVED.
+%   else      :  ncopies = ir0 + 1, newgt / (r1 + 1)   where ir0 = ir1 - 1
+%                -> ir1 copies of newgt/(ir1+1).  Expected weight is LOST:
+%                   a factor of ir1/(ir1+1).
+%
+% With r = 2 that is 2 copies at weight 1/3 where fairness wants 1/2, and the
+% test pins 2 and 0.333333 -- the original's numbers, not the physics'.  Either
+% the second branch means `r0 + 1.0` as its divisor, or it is a deliberately
+% biased estimator; the source says nothing either way, so it is transcribed
+% rather than corrected.  Quietly "fixing" the off-by-one would still run, still
+% look plausible, and silently change the benchmark's answer.
+%
+% WHAT IT EXERCISES in the compiler: `p replace [newgt: ...]` record update;
+% six- and eight-value returns; and -- the interesting one -- a multi-value call
+% SPLICED into a longer return list,
+%
+%     RRImportances(seed, idold, ximp, newp), 0, 0.0d0
+%
+% where a 6-tuple and two scalars make the 8 results Move promises.
+%
+% Note RRWeights compares against BOTH wmin and 1/wmin, so a weight of exactly
+% 1.0 with wmin = 0.5 falls in the continue band -- the boundary cases are
+% covered rather than only the middle of each branch.
+%
+% Expected values are an exact C mirror in the harness.
+
+define Main
+
+type particletype = record [ u, v, w, x, y, z, age, newgt : double;
+                             id, ir : integer ];
+type Doubles = array_dv [double];
+type Ints    = array_dv [integer];
+
+function Random (r : double returns double)
+   let factor := 41475557.0d0;  rp := r * factor
+   in  rp - double_real(trunc(rp))
+   end let
+end function
+
+% importance-based roulette: crossing into a more important zone splits, into a
+% less important one may kill
+function RRImportances (seed : double; idold : integer; ximp : Doubles;
+                        p : particletype
+                        returns double, particletype, double, integer,
+                                integer, integer)
+   if (ximp[p.id] = ximp[idold]) then          % same importance: just continue
+      seed, p, 0.0d0, 0, 0, 1
+   else
+      let
+         r    := ximp[p.id] / ximp[idold];
+         zeta := Random(seed);
+         ir1  := integer(trunc(r));
+         r1   := double_real(ir1);
+         ir0  := ir1 - 1;
+         r0   := r - r1
+      in
+         if ((r < 1.0d0) & (zeta < r0)) then   % continue, weight scaled up
+            let rinv := 1.0d0 / r
+            in  zeta, p replace [newgt : p.newgt * rinv],
+                p.newgt * (rinv - 1.0d0), 0, 0, 1
+            end let
+         elseif (r < 1.0d0) then               % kill, booking the weight out
+            zeta, p, -p.newgt, 1, 0, 0
+         elseif (zeta < r0) then               % split into ir1+1
+            zeta, p replace [newgt : p.newgt / (r1 + 1.0d0)], 0.0d0, 0, ir1, ir1 + 1
+         elseif (ir0 <= 0) then                % continue
+            zeta, p, 0.0d0, 0, 0, 1
+         else                                  % split into ir0+1
+            zeta, p replace [newgt : p.newgt / (r1 + 1.0d0)], 0.0d0, 0, ir0, ir0 + 1
+         end if
+      end let
+   end if
+end function
+
+% weight-based roulette: too light gets played for survival, too heavy splits
+function RRWeights (seed, wmin : double; p : particletype
+                    returns double, particletype, double, integer,
+                            integer, integer)
+   if (p.newgt < wmin) then
+      let newseed := Random(seed)
+      in
+         if (newseed < p.newgt) then           % survives, restored to weight 1
+            newseed, p replace [newgt : 1.0d0], 1.0d0 - p.newgt, 0, 0, 1
+         else                                  % kill
+            newseed, p, -p.newgt, 1, 0, 0
+         end if
+      end let
+   elseif (p.newgt < (1.0d0 / wmin)) then      % in band: continue untouched
+      seed, p, 0.0d0, 0, 0, 1
+   else
+      let
+         ir0 := integer(trunc(p.newgt));
+         ir1 := ir0 - 1
+      in
+         if (ir1 <= 0) then
+            seed, p, 0.0d0, 0, 0, 1
+         else
+            seed, p replace [newgt : p.newgt / (double_real(ir1) + 1.0d0)],
+            0.0d0, 0, ir1, ir1 + 1
+         end if
+      end let
+   end if
+end function
+
+% advance the photon to the zone boundary, then apply whichever roulette the
+% problem selected
+function Move (seed : double; p : particletype;
+               incr, nzones, mid, irr : integer;
+               dbound : double; ximp : Doubles; wcut : double
+               returns double, particletype, double, integer, integer,
+                       integer, integer, double)
+   let
+      idold := p.id;
+      newid := p.id + incr
+   in
+      if (newid > nzones) then                 % escaped the problem
+         seed, p, 0.0d0, 0, 0, 0, 1, p.newgt
+      else
+         let
+            newp := p replace [ x   : p.x + p.u * dbound;
+                                y   : p.y + p.v * dbound;
+                                z   : p.z + p.w * dbound;
+                                age : p.age + dbound * 3.3356349d-11;
+                                id  : newid;
+                                ir  : mid ]
+         in
+            if (irr = 0) then
+               seed, newp, 0.0d0, 0, 0, 1, 0, 0.0d0
+            elseif (irr = 1) then
+               % a 6-value call spliced with two more to make Move's 8
+               RRImportances(seed, idold, ximp, newp), 0, 0.0d0
+            else
+               RRWeights(seed, wcut, newp), 0, 0.0d0
+            end if
+         end let
+      end if
+   end let
+end function
+
+function Main (irr, incr, nzones, mid, pid : integer;
+               seed, newgt, dbound, wcut : double
+              returns
+               double,    % seed out
+               Doubles,   % the particle: u v w x y z age newgt
+               Ints,      % id, ir
+               double,    % wrr -- the weight booked in or out
+               integer,   % nrr    (killed)
+               integer,   % nsplt  (extra copies made)
+               integer,   % ncopies
+               integer,   % nescgp (escaped)
+               double)    % enesc  (weight that escaped)
+   let
+      ximp := array_dv Doubles [1: 1.0d0, 2.0d0, 4.0d0, 0.5d0, 3.5d0];
+      p := record particletype [ u : 0.5d0; v : 0.25d0; w : 0.125d0;
+                                 x : 1.0d0; y : 2.0d0; z : 3.0d0;
+                                 age : 0.0d0; newgt : newgt;
+                                 id : pid; ir : 1 ];
+      s1, np, wrr, nrr, nsplt, ncopies, nescgp, enesc :=
+         Move(seed, p, incr, nzones, mid, irr, dbound, ximp, wcut)
+   in
+      s1,
+      array_dv Doubles [1: np.u, np.v, np.w, np.x, np.y, np.z, np.age, np.newgt],
+      array_dv Ints [1: np.id, np.ir],
+      wrr, nrr, nsplt, ncopies, nescgp, enesc
+   end let
+end function

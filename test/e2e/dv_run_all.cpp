@@ -470,6 +470,13 @@ extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
+#ifdef TEST_SSPHOT_MOVE_DV
+struct SSM_results { double s1; sisal_array_t pf, pi; double wrr;
+                     int32_t nrr, nsplt, ncopies, nescgp; double enesc; };
+extern "C" struct SSM_results func_MAIN(int32_t irr, int32_t incr, int32_t nzones,
+                                        int32_t mid, int32_t pid, double seed,
+                                        double newgt, double dbound, double wcut);
+#endif
 #ifdef TEST_SSPHOT_OPAC_DV
 struct SSO_results { sisal_array_t tot, sg, sr, shape, tg; };
 extern "C" struct SSO_results func_MAIN(int32_t ithom, int32_t ixopec,
@@ -11484,6 +11491,82 @@ static void test_gather_conform_dv(void) {
   check("rows are correct when the LAST needs no pad (always worked)", okl);
 }
 #endif
+#ifdef TEST_SSPHOT_MOVE_DV
+// ssphot layer 5: Russian roulette and the particle move.  A photon crossing
+// into a zone of different importance, or drifting out of its weight band, is
+// killed, split, or continued rescaled.  A kill books the weight OUT
+// (wrr = -newgt), which is how the tally stays fair despite discarding it.
+//
+// THE TWO SPLIT BRANCHES DO NOT AGREE, and that is reproduced rather than
+// corrected:
+//     zeta < r0 : ncopies = ir1+1, newgt/(r1+1)  -> expected weight PRESERVED
+//     else      : ncopies = ir0+1, newgt/(r1+1)  where ir0 = ir1-1
+//                 -> ir1 copies of newgt/(ir1+1), losing a factor ir1/(ir1+1)
+// With r = 2 that is 2 copies at weight 1/3 where fairness wants 1/2, and the
+// check below pins 2 and 1/3 -- the original's numbers.  Either the second
+// branch means `r0 + 1.0` as its divisor or it is a deliberately biased
+// estimator; the source says neither, so it is transcribed.  "Fixing" it would
+// still run, still look plausible, and silently change the answer.
+//
+// Compiler-wise this exercises `p replace [...]`, six- and eight-value returns,
+// and a 6-value call SPLICED with two scalars to make Move's 8.
+struct ssm_P { double u,v,w,x,y,z,age,newgt; int id,ir; };
+struct ssm_Six { double s; ssm_P p; double wrr; int nrr,nsplt,ncop; };
+static const double SSM_XIMP[6] = {0, 1.0, 2.0, 4.0, 0.5, 3.5};
+static double ssm_rnd(double r){ double f=41475557.0, rp=r*f; return rp-(double)(long long)rp; }
+static ssm_Six ssm_rrimp(double seed, int idold, ssm_P p) {
+  if (SSM_XIMP[p.id] == SSM_XIMP[idold]) return {seed,p,0.0,0,0,1};
+  double r = SSM_XIMP[p.id]/SSM_XIMP[idold], zeta = ssm_rnd(seed);
+  int ir1 = (int)r; double r1 = ir1; int ir0 = ir1-1; double r0 = r-r1;
+  if (r<1.0 && zeta<r0) { double ri=1.0/r; ssm_P q=p; q.newgt=p.newgt*ri;
+                          return {zeta,q,p.newgt*(ri-1.0),0,0,1}; }
+  if (r<1.0)    return {zeta,p,-p.newgt,1,0,0};
+  if (zeta<r0)  { ssm_P q=p; q.newgt=p.newgt/(r1+1.0); return {zeta,q,0.0,0,ir1,ir1+1}; }
+  if (ir0<=0)   return {zeta,p,0.0,0,0,1};
+  { ssm_P q=p; q.newgt=p.newgt/(r1+1.0); return {zeta,q,0.0,0,ir0,ir0+1}; }
+}
+static ssm_Six ssm_rrwt(double seed, double wmin, ssm_P p) {
+  if (p.newgt<wmin) { double ns=ssm_rnd(seed);
+    if (ns<p.newgt) { ssm_P q=p; q.newgt=1.0; return {ns,q,1.0-p.newgt,0,0,1}; }
+    return {ns,p,-p.newgt,1,0,0}; }
+  if (p.newgt < 1.0/wmin) return {seed,p,0.0,0,0,1};
+  int ir0=(int)p.newgt, ir1=ir0-1;
+  if (ir1<=0) return {seed,p,0.0,0,0,1};
+  { ssm_P q=p; q.newgt=p.newgt/((double)ir1+1.0); return {seed,q,0.0,0,ir1,ir1+1}; }
+}
+static int ssm_case(int irr,int incr,int nzones,int mid,int pid,
+                    double seed,double newgt,double dbound,double wcut) {
+  SSM_results g = func_MAIN(irr,incr,nzones,mid,pid,seed,newgt,dbound,wcut);
+  ssm_P p{0.5,0.25,0.125,1.0,2.0,3.0,0.0,newgt,pid,1}, ep = p;
+  double es=seed, ewrr=0, eenesc=0; int enrr=0,ensplt=0,encop=0,eesc=0;
+  int idold=p.id, newid=p.id+incr;
+  if (newid>nzones) { encop=0; eesc=1; eenesc=p.newgt; }
+  else { ssm_P np=p; np.x=p.x+p.u*dbound; np.y=p.y+p.v*dbound; np.z=p.z+p.w*dbound;
+         np.age=p.age+dbound*3.3356349e-11; np.id=newid; np.ir=mid;
+    if (irr==0) { ep=np; encop=1; }
+    else { ssm_Six r6 = (irr==1) ? ssm_rrimp(seed,idold,np) : ssm_rrwt(seed,wcut,np);
+           es=r6.s; ep=r6.p; ewrr=r6.wrr; enrr=r6.nrr; ensplt=r6.nsplt; encop=r6.ncop; } }
+  auto ok=[](double a,double b){ return std::fabs(a-b)<=1e-12*std::fabs(b)+1e-15; };
+  const double* pf=(const double*)g.pf.data; const int32_t* pi=(const int32_t*)g.pi.data;
+  return ok(g.s1,es) && ok(pf[7],ep.newgt) && ok(pf[3],ep.x) && ok(pf[6],ep.age)
+      && pi[0]==ep.id && pi[1]==ep.ir && ok(g.wrr,ewrr) && g.nrr==enrr
+      && g.nsplt==ensplt && g.ncopies==encop && g.nescgp==eesc && ok(g.enesc,eenesc);
+}
+static void test_ssphot_move_dv(void) {
+  printf("\n=== Group: ssphot_move_dv (Russian roulette + move) ===\n");
+  check("irr=0: plain move, one copy",        ssm_case(0,1,5,2,1, 0.3,1.0,2.0,0.5));
+  check("escaped the problem (newid>nzones)", ssm_case(1,9,5,2,1, 0.3,1.0,2.0,0.5));
+  check("importance split 1->2 (2 copies at 1/3, as written)",
+                                              ssm_case(1,1,5,2,1, 0.3,1.0,2.0,0.5));
+  check("importance r<1: continue, weight scaled up",
+                                              ssm_case(1,3,5,2,1, 0.3,1.0,2.0,0.5));
+  check("same importance: untouched",         ssm_case(1,0,5,2,3, 0.3,1.0,2.0,0.5));
+  check("weight roulette, light particle",    ssm_case(2,1,5,2,1, 0.3,0.2,2.0,0.5));
+  check("weight in band (wmin .. 1/wmin)",    ssm_case(2,1,5,2,1, 0.3,1.0,2.0,0.5));
+  check("weight roulette, heavy: splits 4 ways",
+                                              ssm_case(2,1,5,2,1, 0.3,4.0,2.0,0.5));
+}
+#endif
 #ifdef TEST_SSPHOT_OPAC_DV
 // ssphot layer 4: per-material scattering cross-sections, on layer 3's lookup.
 // For each material take its 13 group opacities (interpolated, or a user
@@ -13838,6 +13921,9 @@ main (void)
 #ifdef TEST_SSPHOT_OPAC_DV
   test_ssphot_opac_dv ();
 #endif
+#ifdef TEST_SSPHOT_MOVE_DV
+  test_ssphot_move_dv ();
+#endif
 #ifdef TEST_PSA_COST_DV
   test_psa_cost_dv ();
 #endif
@@ -14022,7 +14108,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_PSA_COST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
