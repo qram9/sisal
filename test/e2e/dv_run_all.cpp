@@ -469,6 +469,10 @@ extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
+#ifdef TEST_PSA_RNG_DV
+struct PSA_RNG_results { sisal_array_t K, KB, AK, SS; double r; sisal_array_t s2; };
+extern "C" struct PSA_RNG_results func_MAIN(int32_t n, int32_t s1);
+#endif
 #ifdef TEST_FORINIT_GATHER_GROWTH_DV
 struct FGG_results { sisal_array_t ok, eq, cj, mk, rl, bl; };
 extern "C" struct FGG_results func_MAIN(void);
@@ -11424,6 +11428,54 @@ static void test_gather_conform_dv(void) {
   check("rows are correct when the LAST needs no pad (always worked)", okl);
 }
 #endif
+#ifdef TEST_PSA_RNG_DV
+// The RNG layer of psa.sis (Parallel Scheduler v1.0, 1989: simulated annealing
+// on the School TimeTable Problem).  psa could not be compiled AT ALL until the
+// for-initial gather stopped requiring a derivable trip count.
+//
+// A 48-bit multiplicative congruential sequence carried in FOUR 12-bit limbs --
+// a bignum in base 4096 built from nothing but integer * / and mod -- so it
+// pins exact integer semantics end to end, with no clock or OS entropy.
+//
+// `fourplex` is 0-BASED; Seed_Type = array[fourplex] becomes a rank-2 array_dv
+// (n x 4) whose rows are those 0-based limb vectors.  That combination found a
+// real bug: sisal_copy_inner_dims copied dims but not lower_bound, so stacking
+// 0-based rows produced a rank-2 that was 1-BASED on its inner axis, and a row
+// taken back out read one limb off.  ranf then returned 1.796434e-07 instead of
+// 4.385825e-11 -- which is exactly 12345/68719476736, i.e. seed[1] where
+// seed[0] was meant.  Values below are OSC 13.0.3's.
+static void test_psa_rng_dv(void) {
+  printf("\n=== Group: psa_rng_dv (psa's 48-bit LCG in 12-bit limbs) ===\n");
+  PSA_RNG_results r = func_MAIN(5, 12345);
+  auto ints_eq = [](sisal_array_t x, const int* w, int n, int lb) {
+    if (x.rank != 1 || (int)x.size != n || (int)x.lower_bound[0] != lb) return 0;
+    for (int i = 0; i < n; i++) if (((int32_t*)x.data)[i] != w[i]) return 0;
+    return 1;
+  };
+  int wK[4] = {3276, 3276, 3276, 204};
+  check("ranf_k(5) = [3276 3276 3276 204], 0-based", ints_eq(r.K, wK, 4, 0));
+  // 48 bits, least significant first; 1-based since ranf_a_to_k reads k[1..46]
+  int wKB[48]; for (int i = 0; i < 48; i++) wKB[i] = ((i % 4) == 2 || (i % 4) == 3) ? 1 : 0;
+  wKB[44] = 0; wKB[45] = 0; wKB[46] = 0; wKB[47] = 0;
+  check("its 48-bit expansion, 1-based", ints_eq(r.KB, wKB, 48, 1));
+  int wAK[4] = {401, 1026, 1384, 3243};
+  check("a**k mod 2**48 = [401 1026 1384 3243]", ints_eq(r.AK, wAK, 4, 0));
+  // the seed set: rows 1-based, limbs 0-based -- the lower_bound that was lost
+  int wSS[20] = { 12345,0,0,0,  2377,2346,60,607,  2905,580,3633,1934,
+                  1641,2130,2945,2989,  2681,2532,1992,2514 };
+  int okss = r.SS.rank == 2 && (int)r.SS.dims[0] == 5 && (int)r.SS.dims[1] == 4
+             && (int)r.SS.size == 20
+             && (int)r.SS.lower_bound[0] == 1 && (int)r.SS.lower_bound[1] == 0;
+  for (int i = 0; okss && i < 20; i++)
+    if (((int32_t*)r.SS.data)[i] != wSS[i]) okss = 0;
+  check("rans(5,12345): 5 x 4 seeds, rows 1-based and limbs 0-BASED", okss);
+  // the value that exposed the lost bound
+  check("ranf(SS[1,..]) = 4.385825e-11 (not 1.796434e-07)",
+        fabs(r.r - 4.3858247e-11) < 1e-17);
+  int ws2[4] = {781, 3527, 3254, 267};
+  check("and the seed after it = [781 3527 3254 267]", ints_eq(r.s2, ws2, 4, 0));
+}
+#endif
 #ifdef TEST_FORINIT_GATHER_GROWTH_DV
 // A for-initial gather PREALLOCATES, sizing itself from a trip count read off
 // the loop test -- which only works for `i <op> bound` with op in </<=/>/>=.
@@ -13190,6 +13242,9 @@ main (void)
 #ifdef TEST_FORINIT_GATHER_GROWTH_DV
   test_forinit_gather_growth_dv ();
 #endif
+#ifdef TEST_PSA_RNG_DV
+  test_psa_rng_dv ();
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
@@ -13371,7 +13426,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

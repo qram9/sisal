@@ -415,7 +415,15 @@ inline sisal_array_t sisal_array_empty(void) { sisal_array_t a = {}; return a; }
    RUNTIME quantity read off its dope: result rank = val.rank + 1, inner dims
    copied from val (assumes uniform elements). */
 inline void sisal_copy_inner_dims(sisal_array_t* res, sisal_array_t val) {
-    for (int i = 0; i < (int)val.rank && i < 7; i++) res->dims[i + 1] = val.dims[i];
+    /* lower_bound travels with dims.  alloc_sized defaults every bound to 1, so
+       without this a rank-2 built by stacking 0-BASED rows silently came back
+       1-based on its inner axis, and a row taken back out of it was read one
+       element off.  (psa's `fourplex` is 4 limbs indexed 0..3; stacking them
+       into the seed set turned a[0] into a[1] and shifted every limb.) */
+    for (int i = 0; i < (int)val.rank && i < 7; i++) {
+        res->dims[i + 1] = val.dims[i];
+        res->lower_bound[i + 1] = val.lower_bound[i];
+    }
     /* rank-1 vals from casts/views may carry dims[0]=0 with size set */
     if (val.rank == 1 && res->dims[1] == 0) res->dims[1] = (int64_t)val.size;
 }
