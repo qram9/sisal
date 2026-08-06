@@ -1,0 +1,177 @@
+% SSPHOT_CELLS -- edge classification and cell volumes, layer 2 of the ssphot
+% port.  Builds directly on ssphot_geom_dv's corner grid.
+%
+% SlopeIntercept walks each cell's five corner slots and classifies the EDGE
+% leaving that slot, which is what the transport kernel later intersects rays
+% against:
+%
+%     itype 0  the terminator slot (col 5) -- no edge
+%     itype 2  both endpoints on the axis (rr = 0 exactly)
+%     itype 3  radially flat  (|rdif| < 1e-9)
+%     itype 4  axially flat   (|zdif| < 1e-9)
+%     itype 1  a genuine slope, so m = rdif/zdif is safe to form
+%
+% The order of those tests is load-bearing and is preserved exactly: itype 1 is
+% the only branch that divides by zdif, and it is reachable only after the
+% |zdif| < 1e-9 test has already excluded the near-zero case.  Note the geometry
+% layer snaps coordinates within 1e-9 of zero TO zero, which is what makes the
+% `rr = 0.0d0` equality test on itype 2 meaningful rather than fragile -- the two
+% layers are coupled through that tolerance and neither reads right alone.
+%
+% FindVolume sums four edge contributions per zone (the 1.0471976 factor is
+% pi/3, the cone-frustum volume constant), skipping edges that are degenerate
+% (itype 2 or 4) and two hand-excluded slots at the grid's leading corner:
+% `(j ~= 1 | ks ~= 2)` and `(j ~= naxl | ks > 2)`.  Those exclusions are
+% reproduced as written -- they encode which faces are shared with a neighbour
+% and would be double counted, and guessing at them would change the answer.
+%
+% Same two forced rewrites as layer 1: `cellinfo = array[array[inforec]]`
+% becomes a flat rank-2 array_dv, and the `at row, col` scatter becomes an
+% explicit cross, since a statically rank-1 `array_dv [inforec]` gives a dual
+% index nothing to bind to.
+%
+% Expected values are an exact C mirror in the harness -- the whole layer is
+% arithmetic and comparisons, so the mirror is exact, and ssphot is not
+% OSC-clean as shipped (see ssphot_geom_dv).
+
+define Main
+
+type coordrec = record [ rr, zz : double ];
+type inforec  = record [ itype : integer; sqm, bom : double ];
+type coords   = array_dv [coordrec];   % rank 2: nzones x 5
+type cellinfo = array_dv [inforec];    % rank 2: nzones x 5
+type Doubles  = array_dv [double];
+type Ints     = array_dv [integer];
+
+function Ceiling (r : double returns integer)
+   if (r > double_real(floor(r))) then integer(floor(r)) + 1 else integer(r) end if
+end function
+
+function AssignCells (naxl, nradl : integer; radl, axl : double
+                      returns coords, integer)
+   let
+      pi     := 3.141592653589793238d0;
+      nzones := nradl * naxl;
+      hr     := radl / (double_real(nradl));
+      ha     := axl * pi / (double_real(naxl) * 180.0d0);
+      ncc :=
+         for row in 1, nzones cross col in 1, 5
+            ird, iang :=
+               if ((col = 1) | (col = 5)) then
+                  let r := double_real(row) / double_real(naxl); ird := Ceiling(r)
+                  in ird, ird * naxl - row + 1 end let
+               elseif (col = 2) then
+                  let r := double_real(row - naxl) / double_real(naxl); ird := Ceiling(r)
+                  in ird, ird * naxl - row + 1 + naxl end let
+               elseif (col = 3) then
+                  let r := double_real(row - naxl) / double_real(naxl); ird := Ceiling(r)
+                  in ird, ird * naxl - row + 2 + naxl end let
+               else
+                  let r := double_real(row) / double_real(naxl); ird := Ceiling(r)
+                  in ird, ird * naxl - row + 2 end let
+               end if;
+            r, z := let ang := double_real(iang - 1) * ha
+                    in (double_real(ird) * hr) * sin(ang),
+                       (double_real(ird) * hr) * cos(ang) end let;
+            rrr := if (abs(r) < 1.0d-9) then 0.0d0 else r end if;
+            zzz := if (abs(z) < 1.0d-9) then 0.0d0 else z end if;
+            cc  := record coordrec [ rr : rrr; zz : zzz ]
+         returns array_dv of cc
+         end for
+   in
+      ncc, nzones
+   end let
+end function
+
+% classify the edge leaving each corner slot, and precompute m^2 and b/m for
+% the sloped ones
+function SlopeIntercept (cellcoords : coords; nzones : integer
+                         returns cellinfo)
+   for row in 1, nzones cross
+       col in 1, 5
+      cell := cellcoords[row, col];
+      newrec :=
+         if (col = 5) then
+            record inforec [ itype : 0; sqm : 0.0d0; bom : 0.0d0 ]
+         else
+            let
+               nxt   := cellcoords[row, col + 1];
+               rdif  := nxt.rr - cell.rr;
+               zdif  := nxt.zz - cell.zz;
+               itype :=
+                  if ((cell.rr = 0.0d0) & (nxt.rr = 0.0d0)) then
+                     2
+                  elseif (abs(rdif) < 1.0d-9) then
+                     3
+                  elseif (abs(zdif) < 1.0d-9) then
+                     4
+                  else
+                     1
+                  end if;
+               sqm, bom :=
+                  if (itype = 1) then
+                     if ((col = 1) | (col = 3)) then
+                        let m := rdif / zdif
+                        in  m * m, 0.0d0
+                        end let
+                     else
+                        let
+                           m := rdif / zdif;
+                           b := ((cell.rr * nxt.zz) - (nxt.rr * cell.zz)) / zdif
+                        in
+                           m * m, b / m
+                        end let
+                     end if
+                  else
+                     0.0d0, 0.0d0
+                  end if
+            in
+               record inforec [ itype : itype; sqm : sqm; bom : bom ]
+            end let
+         end if
+   returns array_dv of newrec
+   end for
+end function
+
+% cone-frustum volume per zone: four edge contributions, degenerate and
+% shared-face slots excluded
+function FindVolume (cn : coords; ci : cellinfo; nzones, naxl : integer
+                     returns Doubles)
+   for j in 1, nzones
+      volume :=
+         for ks in 1, 4
+            tv1 :=
+               if (((ci[j,ks].itype ~= 2) & (ci[j,ks].itype ~= 4)) &
+                   ((j ~= 1) | (ks ~= 2)) &
+                   ((j ~= naxl) | (ks > 2))) then
+                  ((cn[j,ks+1].zz - cn[j,ks].zz) *
+                    (cn[j,ks+1].rr * (cn[j,ks+1].rr + cn[j,ks].rr)
+                       + (cn[j,ks].rr * cn[j,ks].rr)))
+                          * 1.0471976d0
+               else
+                  0.0d0
+               end if
+         returns value of sum tv1
+         end for
+   returns array_dv of volume
+   end for
+end function
+
+function Main (naxl, nradl : integer; radl, axl : double
+              returns
+               Ints,      % every slot's itype, row-major
+               Doubles,   % every slot's sqm
+               Doubles,   % every slot's bom
+               Doubles,   % each zone's volume
+               integer)   % nzones
+   let
+      cn, nz := AssignCells(naxl, nradl, radl, axl);
+      ci     := SlopeIntercept(cn, nz);
+      vol    := FindVolume(cn, ci, nz, naxl);
+      ty     := for j in 1, nz cross k in 1, 5 returns array_dv of ci[j,k].itype end for;
+      sq     := for j in 1, nz cross k in 1, 5 returns array_dv of ci[j,k].sqm   end for;
+      bo     := for j in 1, nz cross k in 1, 5 returns array_dv of ci[j,k].bom   end for
+   in
+      ty, sq, bo, vol, nz
+   end let
+end function

@@ -470,6 +470,11 @@ extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
+#ifdef TEST_SSPHOT_CELLS_DV
+struct SSC_results { sisal_array_t ty, sq, bo, vol; int32_t nz; };
+extern "C" struct SSC_results func_MAIN(int32_t naxl, int32_t nradl,
+                                        double radl, double axl);
+#endif
 #ifdef TEST_SSPHOT_GEOM_DV
 struct SSG_results { sisal_array_t rr, zz; int32_t nz; double r0, r1;
                      sisal_array_t shape; };
@@ -11465,6 +11470,77 @@ static void test_gather_conform_dv(void) {
   check("rows are correct when the LAST needs no pad (always worked)", okl);
 }
 #endif
+#ifdef TEST_SSPHOT_CELLS_DV
+// ssphot layer 2: edge classification and cell volumes, on layer 1's corners.
+//
+// SlopeIntercept classifies the edge leaving each corner slot -- 0 terminator,
+// 2 both ends on the axis, 3 radially flat, 4 axially flat, 1 a genuine slope.
+// The ORDER of those tests is load-bearing: itype 1 is the only branch that
+// divides by zdif, and it is reachable only once |zdif| < 1e-9 has been
+// excluded.  It is also coupled to layer 1: the geometry snaps coordinates
+// within 1e-9 of zero TO zero, which is what makes itype 2's `rr = 0.0`
+// equality test meaningful rather than fragile.
+//
+// FindVolume sums four cone-frustum contributions per zone (1.0471976 = pi/3),
+// skipping degenerate edges and two hand-excluded slots at the leading corner.
+// Those exclusions encode which faces are shared with a neighbour and would
+// otherwise be double counted; they are reproduced as written.
+static int ssc_ceil(double r) {
+  return (r > std::floor(r)) ? (int)std::floor(r) + 1 : (int)r;
+}
+static void test_ssphot_cells_dv(void) {
+  printf("\n=== Group: ssphot_cells_dv (edge classification + volumes) ===\n");
+  const int naxl = 2, nradl = 2; const double radl = 4.0, axl = 90.0;
+  SSC_results x = func_MAIN(naxl, nradl, radl, axl);
+  const double pi = 3.141592653589793238; const int nz = nradl * naxl;
+  const double hr = radl / nradl, ha = axl * pi / (naxl * 180.0);
+  double cr[64], cz[64];
+  for (int row = 1; row <= nz; row++) for (int col = 1; col <= 5; col++) {
+    int ird, iang;
+    if (col == 1 || col == 5) { ird = ssc_ceil((double)row/naxl);        iang = ird*naxl-row+1; }
+    else if (col == 2)        { ird = ssc_ceil((double)(row-naxl)/naxl); iang = ird*naxl-row+1+naxl; }
+    else if (col == 3)        { ird = ssc_ceil((double)(row-naxl)/naxl); iang = ird*naxl-row+2+naxl; }
+    else                      { ird = ssc_ceil((double)row/naxl);        iang = ird*naxl-row+2; }
+    double ang = (iang-1)*ha, r = (ird*hr)*std::sin(ang), z = (ird*hr)*std::cos(ang);
+    if (std::fabs(r) < 1e-9) r = 0.0;  if (std::fabs(z) < 1e-9) z = 0.0;
+    cr[(row-1)*5+col-1] = r; cz[(row-1)*5+col-1] = z;
+  }
+  int ity[64]; double sq[64], bo[64]; int bad = 0;
+  for (int row = 1; row <= nz; row++) for (int col = 1; col <= 5; col++) {
+    int k = (row-1)*5+col-1;
+    if (col == 5) { ity[k] = 0; sq[k] = 0; bo[k] = 0; continue; }
+    double rr = cr[k], zz = cz[k], nr = cr[k+1], nzz = cz[k+1];
+    double rdif = nr-rr, zdif = nzz-zz;
+    int it = (rr == 0.0 && nr == 0.0) ? 2 : (std::fabs(rdif) < 1e-9) ? 3
+           : (std::fabs(zdif) < 1e-9) ? 4 : 1;
+    double s = 0, b2 = 0;
+    if (it == 1) { double m = rdif/zdif;
+      if (col == 1 || col == 3) { s = m*m; b2 = 0.0; }
+      else { double b = ((rr*nzz)-(nr*zz))/zdif; s = m*m; b2 = b/m; } }
+    ity[k] = it; sq[k] = s; bo[k] = b2;
+  }
+  for (int k = 0; k < nz*5; k++) {
+    if (((int32_t*)x.ty.data)[k] != ity[k]) bad++;
+    if (std::fabs(((double*)x.sq.data)[k] - sq[k]) > 1e-12) bad++;
+    if (std::fabs(((double*)x.bo.data)[k] - bo[k]) > 1e-12) bad++;
+  }
+  check("grid is still nzones x 5", x.nz == nz && (int)x.ty.size == nz*5);
+  check("itype / sqm / bom match the mirror at every slot", bad == 0);
+  int badv = 0;
+  for (int j = 1; j <= nz; j++) { double v = 0;
+    for (int ks = 1; ks <= 4; ks++) { int k = (j-1)*5+ks-1;
+      if (((ity[k] != 2) && (ity[k] != 4)) && ((j != 1) || (ks != 2))
+          && ((j != naxl) || (ks > 2)))
+        v += ((cz[k+1]-cz[k]) * (cr[k+1]*(cr[k+1]+cr[k]) + (cr[k]*cr[k]))) * 1.0471976; }
+    if (std::fabs(((double*)x.vol.data)[j-1] - v) > 1e-9) badv++; }
+  check("zone volumes match, with the shared faces excluded", badv == 0);
+  // all four zones must have a real volume; a zero would mean the exclusions
+  // swallowed a face they should not have
+  int anyzero = 0;
+  for (int j = 0; j < nz; j++) if (((double*)x.vol.data)[j] == 0.0) anyzero = 1;
+  check("no zone came out with zero volume", !anyzero);
+}
+#endif
 #ifdef TEST_SSPHOT_GEOM_DV
 // Cell geometry + generator of ssphot.sis (Monte Carlo photon transport), the
 // program that could not be compiled until `value of catenate` worked on a
@@ -13581,6 +13657,9 @@ main (void)
 #ifdef TEST_SSPHOT_GEOM_DV
   test_ssphot_geom_dv ();
 #endif
+#ifdef TEST_SSPHOT_CELLS_DV
+  test_ssphot_cells_dv ();
+#endif
 #ifdef TEST_PSA_COST_DV
   test_psa_cost_dv ();
 #endif
@@ -13765,7 +13844,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_PSA_COST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_PSA_COST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
