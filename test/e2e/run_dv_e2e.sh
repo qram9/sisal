@@ -391,6 +391,7 @@ run_group MOLDYN_NEIGHBORS_DV moldyn_neighbors_dv ""
 run_group MOLDYN_NBRLIST_DV moldyn_nbrlist_dv   ""
 run_group ZEROTRIP_EXPR_DV  zerotrip_expr_dv    ""
 run_group FORINIT_MASK_DV   forinit_mask_dv     ""
+run_group FORINIT_SHADOW_DV forinit_shadow_dv   ""
 
 
 echo "========================================"

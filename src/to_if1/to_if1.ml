@@ -1088,6 +1088,8 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                       If1.val_ty = cc;
                       If1.val_def = aa;
                       If1.def_port = bb;
+                      (* LOCAL: generator loop variable *)
+                      If1.inherited = false;
                     }
                     cs,
                   ps );
@@ -1116,6 +1118,8 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                        If1.val_ty = If1.lookup_tyid If1.INTEGRAL;
                        If1.val_def = aa;
                        If1.def_port = bb + 1;
+                       (* LOCAL: generator at-index name *)
+                       If1.inherited = false;
                      }
                      cs,
                    ps ));
@@ -1205,6 +1209,8 @@ and nest_sub_generator ?(level = 0) in_gr ie =
                   If1.val_name = name;
                   If1.val_def = sgn;
                   If1.def_port = op;
+                  (* LOCAL: generator output, defined by the compound *)
+                  If1.inherited = false;
                 }
                 cs,
               ps );
@@ -1561,6 +1567,8 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                     If1.val_name = name;
                     If1.val_def = gn;
                     If1.def_port = op;
+                    (* LOCAL: generator output, defined by the compound *)
+                    If1.inherited = false;
                   }
                   cs,
                 ps );
@@ -1772,6 +1780,8 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                             If1.val_ty = ty;
                             If1.val_def = bx;
                             If1.def_port = k;
+                            (* LOCAL: __forall_body_k *)
+                            If1.inherited = false;
                           }
                           cs,
                         ps );
@@ -1798,6 +1808,8 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                                 If1.val_def = bx;
                                 If1.def_port =
                                   List.length ret_tuple_list + mask_idx;
+                                (* LOCAL: __forall_mask_k *)
+                                If1.inherited = false;
                               }
                               cs,
                             ps );
@@ -2597,6 +2609,9 @@ and do_params_decl po in_gr z =
                 If1.val_ty = type_num;
                 If1.val_def = 0;
                 If1.def_port = port;
+                (* LOCAL: a function PARAMETER.  On the boundary, but the
+                   function's own -- not imported from an enclosing scope. *)
+                If1.inherited = false;
               }
             in
             let _, in_gr = If1.add_to_boundary_inputs ~namen:hdx 0 port in_gr in
@@ -2812,6 +2827,8 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
                   If1.val_ty = vt;
                   If1.val_def = vn;
                   If1.def_port = vp;
+                  (* LOCAL: a `:=` binding (let / decldef / initial / body) *)
+                  If1.inherited = false;
                 }
                 localsyms,
               globsyms );
@@ -2898,6 +2915,7 @@ and map_names_to_type decls atyp in_gr =
                   If1.val_def = 0;
                   (* these are unknown at this time *)
                   If1.def_port = 0;
+                  If1.inherited = false (* LOCAL: let-rec binding *);
                 }
                 localsyms
             in
@@ -2934,6 +2952,7 @@ and map_names_to_type decls atyp in_gr =
                   If1.val_def = 0;
                   (* these are unknown at this time *)
                   If1.def_port = 0;
+                  If1.inherited = false (* LOCAL: let-rec function name *);
                 }
                 localsyms
             in
@@ -3083,6 +3102,8 @@ and get_new_tagcase_graph in_gr vntt e =
                     If1.val_ty = tag_ty;
                     If1.val_def = cast_n;
                     If1.def_port = cast_p;
+                    (* LOCAL: tagcase arm binding *)
+                    If1.inherited = false;
                   }
                   cs_parent,
                 ps );
@@ -3189,6 +3210,7 @@ and boundary_node_lookup in_gr =
                  If1.val_name = str;
                  If1.val_def = jj;
                  If1.def_port = jp;
+                 If1.inherited = _;
                } z1 -> if jj = x && jp = p then If1.AStrSet.add str z1 else z1)
           ps z)
       in_lists zzz
@@ -3822,7 +3844,13 @@ and maybe_add_dope (n, p, ty) in_gr =
 and inject_sym name (n, p, ty) in_gr =
   let globals, locals = in_gr.If1.symtab in
   let entry =
-    { If1.val_name = name; If1.val_ty = ty; If1.val_def = n; If1.def_port = p }
+    {
+      If1.val_name = name;
+      If1.val_ty = ty;
+      If1.val_def = n;
+      If1.def_port = p;
+      If1.inherited = false (* LOCAL: injected binding *);
+    }
   in
   { in_gr with If1.symtab = (If1.SM.add name entry globals, locals) }
 
@@ -7346,20 +7374,19 @@ and do_simple_exp_impl in_gr in_sim_ex =
         in
         let init_gr = build_init_graph in_gr in
         let xyz, out_gr = do_decldef_part init_gr dp in
-        (* A local-symtab name becomes a carry (gets an INIT output seeding a MERGE)
-           iff it is NOT a boundary INPUT of out_gr.  Rationale:
-           after lowering the decldefs, captured/inherited values (X, P, OLD A) live
-           on the boundary input-list; decldef-bound carries (A, K, XT, I) do not --
-           even when a carry aliases a boundary value (`A := X` makes A.val_def=0 like
-           a boundary input), A is still absent from the boundary input-list.  So
-           "not in boundary in-list" cleanly separates carries from captures, where the
-           old "val_def<>0" and "not in parent CS" tests both failed. *)
-        let boundary_in_names =
-          List.map
-            (fun (_, _, name, _) -> name)
-            (If1.get_boundary_inputs out_gr)
-        in
-        let is_init_bound v = not (List.mem v boundary_in_names) in
+        (* A local-symtab name becomes a carry (gets an INIT output seeding a
+           MERGE) iff its symtab entry is a LOCAL definition -- [inherited =
+           false].  Every other test tried here was a proxy for that and each
+           had a hole:
+             - "val_def <> 0" dropped the pass-through alias `A := X` (val_def=0
+               because A aliases a boundary value) -> gaussj's `old A` = {0};
+             - "not in the boundary in-list" dropped a name that was IMPORTED
+               and then REBOUND by this clause (`w := 0` shadowing an enclosing
+               w, and `X := X`), because nothing removes the stale in-list entry.
+           [inherited] records provenance at the moment the entry is created, so
+           it separates all four cases.  Note `X := X` is indistinguishable from
+           a capture by (val_def, def_port) alone -- the rebinding writes back
+           the identical pair -- so no comparison-based test can replace this. *)
         let _, out_gr =
           let cs = fst out_gr.If1.symtab in
           (* First pass: export current values *)
@@ -7371,8 +7398,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                      If1.val_ty = t1;
                      If1.val_def = dd;
                      If1.def_port = dp;
+                     If1.inherited = inh;
                    } (op, out_gr) ->
-                if dd <> 0 || is_init_bound v then
+                ignore v;
+                if not inh then
                   (op + 1, If1.add_edge dd dp 0 op t1 out_gr)
                 else (op, out_gr))
               cs
@@ -7386,8 +7415,9 @@ and do_simple_exp_impl in_gr in_sim_ex =
                    If1.val_ty = t1;
                    If1.val_def = dd;
                    If1.def_port = dp;
+                   If1.inherited = inh;
                  } (op, out_gr) ->
-              if dd <> 0 || is_init_bound v then
+              if not inh then
                 let old_name = "OLD " ^ v in
                 let out_gr = If1.add_edge dd dp 0 op t1 out_gr in
                 let cs', ps = out_gr.If1.symtab in
@@ -7401,6 +7431,8 @@ and do_simple_exp_impl in_gr in_sim_ex =
                             If1.val_ty = t1;
                             If1.val_def = dd;
                             If1.def_port = dp;
+                            (* OLD X mirrors X's provenance *)
+                            If1.inherited = inh;
                           }
                           cs',
                         ps );
@@ -7671,17 +7703,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
-                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
-                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
-                let init_in_names =
-                  List.map
-                    (fun (_, _, name, _) -> name)
-                    (If1.get_boundary_inputs decl_gr)
-                in
-                let is_carry v _e =
-                  (not (List.mem v init_in_names)) && not (is_old v)
-                in
+                (* A carry is a LOCAL definition in the INIT symtab -- mirrors
+                   add_decls's export predicate exactly.  See the rationale
+                   there for why [inherited] replaces the boundary in-list. *)
+                let is_carry v e = (not e.If1.inherited) && not (is_old v) in
                 let non_old_count =
                   If1.SM.fold
                     (fun v e n -> if is_carry v e then n + 1 else n)
@@ -8194,17 +8219,10 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 let is_old v =
                   String.length v >= 4 && String.sub v 0 4 = "OLD "
                 in
-                (* A carry is a local-symtab name that is NOT a boundary INPUT of the INIT
-                   graph -- mirrors add_decls's is_init_bound exactly (a pass-through alias
-                   `A := X` is val_def=0 but still absent from the boundary in-list). *)
-                let init_in_names =
-                  List.map
-                    (fun (_, _, name, _) -> name)
-                    (If1.get_boundary_inputs decl_gr)
-                in
-                let is_carry v _e =
-                  (not (List.mem v init_in_names)) && not (is_old v)
-                in
+                (* A carry is a LOCAL definition in the INIT symtab -- mirrors
+                   add_decls's export predicate exactly.  See the rationale
+                   there for why [inherited] replaces the boundary in-list. *)
+                let is_carry v e = (not e.If1.inherited) && not (is_old v) in
                 let non_old_count =
                   If1.SM.fold
                     (fun v e n -> if is_carry v e then n + 1 else n)
@@ -10540,6 +10558,8 @@ and declare_returns_input name ty in_gr =
               If1.val_ty = ty;
               If1.val_def = 0;
               If1.def_port = p;
+              (* IMPORT: a boundary input relayed from the enclosing scope *)
+              If1.inherited = true;
             }
             cs,
           ps );
@@ -11976,6 +11996,7 @@ and do_global in_gr f =
                 If1.val_ty = fn_ty;
                 If1.val_def = 0;
                 If1.def_port = 0;
+                If1.inherited = false (* function name, not a value import *);
               }
               globsyms );
       } )
@@ -12394,6 +12415,7 @@ and do_internals (names, in_gr) f =
                   If1.val_def = 0;
                   (* these are unknown at this time *)
                   If1.def_port = 0;
+                  If1.inherited = false (* function name *);
                 }
                 localsyms,
               globsyms );
@@ -12413,6 +12435,7 @@ and do_internals (names, in_gr) f =
                   If1.val_def = 0;
                   (* these are unknown at this time *)
                   If1.def_port = 0;
+                  If1.inherited = false (* function name *);
                 }
                 globsyms );
         }
@@ -12461,6 +12484,7 @@ and do_internals (names, in_gr) f =
                   If1.val_ty = fn_ty;
                   If1.val_def = aa;
                   If1.def_port = bb;
+                  If1.inherited = false (* function name *);
                 }
                 localsyms,
               globsyms );
@@ -12492,6 +12516,7 @@ and do_function_def in_gr = function
                   If1.val_ty = fn_ty;
                   If1.val_def = 0;
                   If1.def_port = 0;
+                  If1.inherited = false (* function name, not a value import *);
                 }
                 localsyms,
               globsyms );

@@ -569,6 +569,27 @@ and if1_value = {
   val_name : string;
   val_def : int;
   def_port : int;
+  inherited : bool;
+      (** TRUE when this entry was created by an IMPORT -- the name is defined in
+      an enclosing scope and was threaded onto THIS graph's boundary (see
+      [get_symbol_id]'s parent branch, which writes both a boundary in-port and
+      this entry).  FALSE only for a genuine LOCAL definition: a decldef/let
+      binding, a function parameter, a generator loop variable, a MERGE output.
+
+      True is the default: inheritance is TRANSITIVE, so a name imported through
+      several graph levels stays true, and a name that is local in a child
+      becomes inherited when the parent re-imports it.  Record copies
+      ([{ entry with ... }]) may therefore propagate the flag unchanged.
+
+      Invariant: [inherited = true] implies the name is in the graph's boundary
+      INPUT list.  The converse does NOT hold -- parameters and locally rebound
+      names sit on the boundary while being local.
+
+      Meaningful only relative to THIS graph: read it from the current scope
+      (cs), never from the parent scope (ps).
+
+      Currently WRITE-ONLY (nothing reads it yet); the carry-detection
+      predicates move onto it in a later step. *)
 }
 (** Symbol table entry. *)
 
@@ -1423,7 +1444,7 @@ and get_old_var_port vv in_gr =
   let cs = fst (get_symtab in_gr) in
   let old_name = "OLD " ^ vv in
   if SM.mem old_name cs = true then
-    let { val_name = _; val_ty = _; val_def = _; def_port = cou } =
+    let { val_name = _; val_ty = _; val_def = _; def_port = cou; inherited = _ } =
       SM.find old_name cs
     in
     `Found_one cou
@@ -1432,7 +1453,7 @@ and get_old_var_port vv in_gr =
 and defs_of_bound_names in_gr =
   let cs = fst (get_symtab in_gr) in
   SM.fold
-    (fun k { val_name = _; val_ty = _; val_def = def; def_port = _ } xx ->
+    (fun k { val_name = _; val_ty = _; val_def = def; def_port = _; inherited = _ } xx ->
       IntMap.add def k xx)
     cs IntMap.empty
 
@@ -2386,7 +2407,7 @@ and lookup_fn_ty in_fn_name in_gr =
    * for an id - this can do that in the local and the global
    * ty tabs just like symtab does *)
   let tm = get_typemap_tm in_gr in
-  let { val_name = _; val_ty = sym_ty; val_def = _; def_port = _ } =
+  let { val_name = _; val_ty = sym_ty; val_def = _; def_port = _; inherited = _ } =
     match find_sym_opt in_fn_name in_gr with
     | Some reco -> reco
     | None -> failwith ("FUNCTION NOT FOUND: " ^ in_fn_name)
@@ -2725,6 +2746,9 @@ and inject_vouchers_into_symtab in_gr usings =
             val_def = -1;
             (* Our Sentinel: "I am a Voucher" *)
             def_port = 0;
+            (* A `using` link proxy is a GLOBAL handle, not a boundary import:
+               it has no boundary in-port, so it must not claim inherited. *)
+            inherited = false;
           }
         in
 
@@ -3546,7 +3570,13 @@ and add_local_sym in_gr sym_name (sym_def, def_port, def_ty) =
   let cs, ps = get_symtab in_gr in
   let cs =
     SM.add sym_name
-      { val_name = sym_name; val_ty = def_ty; val_def = sym_def; def_port }
+      {
+        val_name = sym_name;
+        val_ty = def_ty;
+        val_def = sym_def;
+        def_port;
+        inherited = false (* LOCAL definition *);
+      }
       cs
   in
   { in_gr with symtab = (cs, ps) }
@@ -4267,7 +4297,7 @@ and string_of_node_map ?(offset = 2) in_gr =
   match nn with [] -> [] | _ -> "----NODES----" :: nn
 
 and string_of_if1_value tm = function
-  | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
+  | { val_ty = ii; val_name = st; val_def = jj; def_port = p; inherited = _ } ->
       let ttt =
         match TM.mem ii tm with
         | true -> printable_full_type tm ii
@@ -4277,7 +4307,7 @@ and string_of_if1_value tm = function
       ^ string_of_int p ^ ")"
 
 and string_of_if1_value_in tm = function
-  | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
+  | { val_ty = ii; val_name = st; val_def = jj; def_port = p; inherited = _ } ->
       let ttt =
         match TM.mem ii tm with
         | true ->
@@ -4293,7 +4323,7 @@ and string_of_if1_value_in tm = function
       else ""
 
 and string_of_if1_value_out tm = function
-  | { val_ty = ii; val_name = st; val_def = jj; def_port = p } ->
+  | { val_ty = ii; val_name = st; val_def = jj; def_port = p; inherited = _ } ->
       let ttt =
         match TM.mem ii tm with
         | true ->
@@ -4503,7 +4533,15 @@ and bind_name nam (n, p, ty) in_gr =
   {
     in_gr with
     symtab =
-      ( SM.add nam { val_ty = ty; val_name = nam; val_def = n; def_port = p } cs,
+      ( SM.add nam
+          {
+            val_ty = ty;
+            val_name = nam;
+            val_def = n;
+            def_port = p;
+            inherited = false (* LOCAL definition *);
+          }
+          cs,
         ps );
   }
 
@@ -4528,6 +4566,7 @@ and get_symbol_id v in_gr =
           val_name = p_entry.val_name;
           val_def = 0;
           def_port = next_port;
+          inherited = true (* THE import site: defined in an enclosing scope *);
         }
         cs
     in
@@ -4995,7 +5034,14 @@ let intrinsic_lib =
          (fun (id, local_symtab) (name, ty_id) ->
            ( id + 1,
              SM.add name
-               { val_name = name; val_ty = ty_id; val_def = -1; def_port = 0 }
+               {
+                 val_name = name;
+                 val_ty = ty_id;
+                 val_def = -1;
+                 def_port = 0;
+                 (* intrinsic GLOBAL, never a boundary import *)
+                 inherited = false;
+               }
                local_symtab ))
          (id, ps) lib_registry
      in

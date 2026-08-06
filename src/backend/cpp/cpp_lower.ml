@@ -5522,6 +5522,8 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                             val_ty;
                             val_def = init_nid;
                             def_port = sp;
+                            (* backend-synthesised local rebinding *)
+                            inherited = false;
                           }
                           cs_acc
                     | None -> cs_acc)

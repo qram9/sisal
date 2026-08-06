@@ -1,0 +1,67 @@
+% A name REBOUND in a `for initial` clause -- one an enclosing scope also binds
+% -- must become a real loop carry, not stay a capture of the outer binding.
+% Sisal 2.0 Ch6 6.1: "the value name may be re-established within the
+% construct"; 6.1.2: a carried value "may be explicitly initialized in the top
+% part, or implicitly initialized merely by its use -- in the latter case the
+% value with that name is copied for use within the for; the exterior name is
+% not changed".
+%
+% The front end used to half-rebind such a name: the symtab entry was repointed
+% at the local node while the BOUNDARY still listed the name as imported, and NO
+% MERGE pair was built -- so the loop had no carry and could not accumulate.
+% Both cases below returned 1.  Fixed by the `inherited` symtab flag: carry
+% detection keys off recorded provenance instead of boundary-list membership.
+%
+% Each case is a PAIR -- the same computation with the loop's name shadowing an
+% enclosing binding, and with a fresh name.  The pair must agree, and both must
+% equal the harness's reference loop.  Identifier choice is the only difference
+% within a pair; that is the whole bug.
+%
+% NOT covered here: the same shadowing between an enclosing and a NESTED
+% for-initial's initial clause (test/e2e/bug_nested_init_carry.sis).  The carry
+% is now built there too, but the inner `old` still does not advance -- see
+% bug_init_carry_seed_scramble in memory.
+
+define Main
+
+function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
+                      integer, integer)   % 2. X := X          / A := X
+  let
+    % --- 1. a `let` binds w; the for-initial rebinds it to a fresh literal.
+    %        The rebinding was visible in the symtab, but the stale boundary
+    %        import kept W from getting a carry.
+    w := 5;
+    let_shadow := for initial w := 0; i := 1;
+                  while i <= 2 repeat
+                     i := old i + 1;
+                     w := old w + 1;
+                  returns value of w end for;
+
+    let_fresh  := for initial q := 0; i := 1;
+                  while i <= 2 repeat
+                     i := old i + 1;
+                     q := old q + 1;
+                  returns value of q end for;
+
+    % --- 2. `X := X` -- 6.1.2's implicit copy-in written out explicitly, and
+    %        the degenerate case: the rebinding writes back the IDENTICAL
+    %        (node, port), so the symtab keeps NO evidence of it.  No test that
+    %        compares values can separate this from a capture; only recorded
+    %        provenance can.  `A := X` is the control, and it worked before only
+    %        because A happened to be an unused name.
+    x := 5;
+    self_alias := for initial x := x; i := 1;
+                  while i <= 2 repeat
+                     i := old i + 1;
+                     x := old x + 1;
+                  returns value of x end for;
+
+    alias_ctl  := for initial a := x; i := 1;
+                  while i <= 2 repeat
+                     i := old i + 1;
+                     a := old a + 1;
+                  returns value of a end for
+  in
+    let_shadow, let_fresh, self_alias, alias_ctl
+  end let
+end function
