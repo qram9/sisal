@@ -1,0 +1,40 @@
+% DEPENDENT CROSS RANGES WHOSE BOUNDS ARE EXPRESSIONS.
+%
+% fec8715 made `for i in 1,n cross j in i,n` work: a nested bound that reads an
+% enclosing axis is not loop-invariant, so its boundary COPY-INS moved from the
+% preheader into the enclosing loop (Fortran sequential-DO: bounds evaluated at
+% loop entry).  The bound MATH stayed hoisted, which is only correct while the
+% bound is a bare name.
+%
+% The moment it is an expression -- `j in i + 1, n`, the upper triangle, which
+% is how psa.sis writes Period_Cost -- `i + 1` was computed ONCE in the
+% preheader with i still unset, and every inner loop then ran over the same
+% stale range.  Silently: `j in i+1, n` returned all zeros, and `j in i, n-1`
+% came back empty.
+%
+% Both halves are needed and both are pinned here: the math is emitted
+% per-iteration, and AFTER the copy-ins (computing i+1 before i is copied in
+% reads the previous iteration's i -- which produced a 294-million-element
+% descriptor when tried the other way round).
+
+define Main
+
+type Ints = array_dv [integer];
+
+function Main (n : integer
+              returns
+               Ints,      % bare iterator as the lower bound (worked before)
+               Ints,      % EXPRESSION over the iterator -- the upper triangle
+               Ints,      % bare iterator as the upper bound
+               Ints,      % dependent lower + expression upper
+               integer)   % a reduction over the same dependent nest
+   let
+      bare  := for i in 1, n cross j in i, n     returns array_dv of i*10+j end for;
+      plus1 := for i in 1, n cross j in i + 1, n returns array_dv of i*10+j end for;
+      lower := for i in 1, n cross j in 1, i     returns array_dv of i*10+j end for;
+      upper := for i in 1, n cross j in i, n - 1 returns array_dv of i*10+j end for;
+      pairs := for i in 1, n cross j in i + 1, n returns value of sum 1 end for
+   in
+      bare, plus1, lower, upper, pairs
+   end let
+end function

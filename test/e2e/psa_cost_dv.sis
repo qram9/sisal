@@ -1,0 +1,166 @@
+% PSA_COST -- the cost/energy layer of psa.sis, and the schedule representation
+% every later layer is built on.
+%
+% THE RAGGED PROBLEM.  psa's schedule is `array [array [Tuple_Type]]`: one
+% period per timeslot, each holding however many lessons currently sit in it.
+% The sizes are not merely unequal, they CHANGE -- the whole algorithm is moving
+% tuples between periods, shrinking one and growing another on every swap.  So
+% there is no rectangle to be had and no array_dv shape for it directly.
+%
+% It becomes a padded rank-2 array_dv (periods x capacity) plus a PSIZE vector
+% giving each period's live length, the same dense-plus-counts treatment
+% moldyn's neighbour lists got.  Capacity is the tuple count: the worst case is
+% every lesson landing in one period.  Slots past PSIZE[p] hold a zero tuple and
+% must never be read -- which is exactly what these cost functions have to get
+% right, so the ragged case below is the interesting one.
+%
+% CONSEQUENCE FOR SIGNATURES.  The original reads `array_size(Period)` to find a
+% period's length.  On a padded row that is the CAPACITY, not the length, so the
+% count travels as an explicit parameter.  That is the honest cost of de-ragging
+% and it is visible in every signature here.
+%
+% ONE SISAL 1.2 SEMANTIC WORTH RECORDING, because OSC caught it and it is easy
+% to get wrong: `for k in 5, 6 returns array of ...` yields an array whose LOWER
+% BOUND is 5, not 1 -- the generator's start becomes the array's origin.  psa's
+% Init_Periods calls array_setl(Period, 1) for precisely this reason.  Building
+% the OSC reference without it gave an ARRAY SUBSCRIPT VIOLATION inside
+% Period_Cost, which indexes 1..array_size.
+%
+% Expected values are OSC 13.0.3's (~/work/oldsisal), on the same data:
+%   equal 3x3 periods : costs [1 1 1], global 3, Member T/F, Period_Index 2/3
+%   ragged  4,2,3     : costs [3 0 1], global 4
+% Period_Index returns array_size when the tuple is absent (the loop runs out),
+% which is why the not-found answer is 3 and not 0.
+
+define Main
+
+type T      = record [ Class, Subject, Teacher, Room, Frequency : integer ];
+type Period = array_dv [T];      % rank 1: one period's tuples (padded row)
+type Sched  = array_dv [T];      % rank 2 at runtime: periods x capacity
+type Ints   = array_dv [integer];
+type Bools  = array_dv [boolean];
+
+function MkT (i : integer returns T)
+   record T [ Class : mod(i,3)+1; Subject : i; Teacher : mod(i,2)+1;
+              Room : mod(i,4)+1; Frequency : 1 ]
+end function
+
+function ZeroT (returns T)
+   record T [ Class : 0; Subject : 0; Teacher : 0; Room : 0; Frequency : 0 ]
+end function
+
+% two lessons clash once per resource they share
+function Tuple_Tuple_Cost (Tuple_1, Tuple_2 : T returns integer)
+   if Tuple_1.Room    = Tuple_2.Room    then 1 else 0 end if
+      +
+   if Tuple_1.Class   = Tuple_2.Class   then 1 else 0 end if
+      +
+   if Tuple_1.Teacher = Tuple_2.Teacher then 1 else 0 end if
+end function
+
+% cost of adding Tuple to a period -- only the first N slots are live
+function Tuple_Period_Cost (Tuple : T; Prd : Period; N : integer
+                            returns integer)
+   for i in 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Tuple )
+   end for
+end function
+
+% a period's internal cost.  The cost matrix is symmetric, so only the upper
+% triangle is walked -- a dependent cross range, legal and sequential.
+function Period_Cost (Prd : Period; N : integer returns integer)
+   for i in 1, N cross
+       j in i + 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Prd[j] )
+   end for
+end function
+
+function Member (tuple : T; prd : Period; N : integer returns boolean)
+   for initial
+       i     := 0;
+       found := false
+   while ~found & (i < N) repeat
+       i     := old i + 1;
+       found := (prd[i].Class     = tuple.Class)   &
+                (prd[i].Room      = tuple.Room)    &
+                (prd[i].Subject   = tuple.Subject) &
+                (prd[i].Teacher   = tuple.Teacher) &
+                (prd[i].Frequency = tuple.Frequency)
+   returns value of found
+   end for
+end function
+
+% the tuple's slot, or N when it is absent (the scan simply runs out)
+function Period_Index (tuple : T; prd : Period; N : integer returns integer)
+   for initial
+       i     := 0;
+       found := false
+   while ~found & (i < N) repeat
+       i     := old i + 1;
+       found := (prd[i].Class     = tuple.Class)   &
+                (prd[i].Room      = tuple.Room)    &
+                (prd[i].Subject   = tuple.Subject) &
+                (prd[i].Teacher   = tuple.Teacher) &
+                (prd[i].Frequency = tuple.Frequency)
+   returns value of i
+   end for
+end function
+
+% sum of every period's internal cost -- the schedule's energy
+function Global_Cost (S : Sched; PSize : Ints returns integer)
+   for p in 1, array_size(PSize)
+   returns value of sum Period_Cost( S[p, ..], PSize[p] )
+   end for
+end function
+
+% each period's cost, in order
+function Period_Costs (S : Sched; PSize : Ints returns Ints)
+   for p in 1, array_size(PSize)
+   returns array_dv of Period_Cost( S[p, ..], PSize[p] )
+   end for
+end function
+
+function Main (NP, NT : integer
+              returns
+               Ints,      % equal periods: each period's cost
+               integer,   %   and the global cost
+               boolean,   % Member, present
+               boolean,   % Member, absent
+               integer,   % Period_Index, present
+               integer,   % Period_Index, absent
+               Ints,      % RAGGED (4,2,3) held padded: each period's cost
+               integer,   %   and its global cost -- padding must not count
+               Ints)      %   the live lengths
+   let
+      % --- equal periods: NP x NT, no padding at all ---
+      Sched := for p in 1, NP
+               returns array_dv of
+                  for k in 1, NT returns array_dv of MkT((p-1)*NT + k) end for
+               end for;
+      Sizes := for p in 1, NP returns array_dv of NT end for;
+
+      % --- ragged 4,2,3 over tuples 1..9, padded to capacity 4 ---
+      RSZ   := array_dv Ints [1: 4, 2, 3];
+      RBase := array_dv Ints [1: 0, 4, 6];      % tuples before period p
+      Cap   := 4;
+      Rg    := for p in 1, 3
+                  n := RSZ[p];
+                  b := RBase[p];
+               returns array_dv of
+                  for k in 1, Cap
+                  returns array_dv of
+                     if k <= n then MkT(b + k) else ZeroT() end if
+                  end for
+               end for;
+   in
+      Period_Costs(Sched, Sizes),
+      Global_Cost(Sched, Sizes),
+      Member(      MkT(5), Sched[2, ..], NT),
+      Member(     MkT(99), Sched[2, ..], NT),
+      Period_Index(MkT(5), Sched[2, ..], NT),
+      Period_Index(MkT(99), Sched[2, ..], NT),
+      Period_Costs(Rg, RSZ),
+      Global_Cost(Rg, RSZ),
+      RSZ
+   end let
+end function

@@ -4232,7 +4232,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
      element loop (element type FROM THE IF1 typemap, not hardcoded); several axes
      at one level = a dot (one counter, siblings in lockstep); ARRAY_SCATTER's
      port 1 is the `at`-index (= lower_bound + k). *)
-  let rec lower_gen ?(before = []) g ggid inner =
+  let rec lower_gen ?(before = []) ?(emit_bounds = false) g ggid inner =
     let env_g0 = { env_loop with curr_gid = ggid; curr_gr = g } in
     let slot n p = get_c_name env.proc_map env.gid_name_map ggid n p `Out g in
     let port_cty n p =
@@ -4263,6 +4263,14 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               (pre, rs, ss @ [ (n, `Dv) ], bind (bind e n 0) n 1)
           | Some (Simple (_, ASCATTER, _, _, _)) ->
               (pre, rs, ss @ [ (n, `Arr) ], bind (bind e n 0) n 1)
+          | Some (Simple _ as node) when emit_bounds ->
+              (* DEPENDENT nest: this level's bound math reads an enclosing
+                 axis (`j in i+1, n`), so it is NOT loop-invariant and cannot
+                 be hoisted.  Emit it into `pre`, which lower_gen places inside
+                 the enclosing loop -- the same treatment the boundary copy-ins
+                 get.  Hoisting it computed `i+1` once with i still unset. *)
+              let s, e' = lower_node e g n node in
+              (pre @ s, rs, ss, e')
           | Some (Simple _) ->
               (* dataflow (bound math) is materialised UP FRONT by materialize_bounds
                  (loop-invariant, hoisted before the alloc), so skip it here. *)
@@ -4290,7 +4298,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
       | Some (ign, igr) ->
           let igid = gen_gid_of ggid ign in
           let cis = relay_copyins g ign ggid igr igid in
-          lower_gen ~before:cis igr igid inner
+          lower_gen ~before:cis ~emit_bounds:dependent igr igid inner
       | None -> inner
     in
     match (ranges, scatters) with
@@ -4323,8 +4331,14 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
         in
         (* `before` (copy-ins for a nested level / allocs at the top) must
            precede bound_outs: a dependent nested bound's re-export reads the
-           copied-in slot of THIS iteration, not the previous one. *)
-        pre @ before @ bound_outs
+           copied-in slot of THIS iteration, not the previous one.
+
+           When this level's bound math is emitted here (~emit_bounds, the
+           dependent nest), it must come AFTER those copy-ins for the same
+           reason -- `j in i+1, n` computes i+1 from the copied-in i, so
+           running it first reads the PREVIOUS iteration's i. *)
+        (if emit_bounds then before @ pre else pre @ before)
+        @ bound_outs
         @ [
             C.For
               ( C.Expr (C.BinOp (C.Assign, C.Id it, lb)),
@@ -4552,6 +4566,11 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               ([], e) (topo_sort g)
           in
           match find_subgraph g "GENERATOR" with
+          (* DEPENDENT nest: a nested bound may read an enclosing axis, so it
+             is not loop-invariant and must NOT be hoisted here.  lower_gen
+             emits it per-iteration instead (~emit_bounds).  Only the OUTERMOST
+             level's bounds are genuinely invariant. *)
+          | Some _ when dependent -> (stmts, e)
           | Some (ign, igr) ->
               let s2, e = materialize_bounds igr (gen_gid_of ggid ign) ign e in
               (stmts @ s2, e)
