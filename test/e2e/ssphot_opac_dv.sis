@@ -1,0 +1,180 @@
+% SSPHOT_OPAC -- per-material scattering cross-sections, layer 4 of the ssphot
+% port, built on layer 3's table lookup.
+%
+% For each material: get its 13 group opacities (interpolated from the library
+% table, or a single user-supplied override), add the Thomson scattering term,
+% and record the total, the sum, and the scattering ratio per group.  The result
+% is a rank-2 array_dv of scattrec, materials x 13.
+%
+% THE GRIDS ARE THE REAL ONES from the source -- two 32-point temperature grids
+% and a 14-point density grid, both spanning several decades.  They are worth
+% carrying verbatim rather than synthesising, because they are what makes the
+% bracket search in layer 3 non-trivial: the second grid is the first shifted by
+% six entries, which is exactly why materials 2 and 4 select it.
+%
+% `t := array[1: t1, t2]` -- a literal whose ELEMENTS are arrays -- is built as
+% a gather of the two rows instead, `for k in 1,2 returns array_dv of ...`.  A
+% literal of arrays would want a rank-1 of descriptors, which is the nested-dope
+% shape that has no meaning here; the gather stacks them into the flat rank-2
+% the lookup actually indexes.
+%
+% `for matl in inp.mtls` scatters over a FIELD ACCESS -- an expression, not a
+% name.  That emitted C++ referencing an undeclared generator relay until
+% f047f5a; this file is a real use of that fix rather than a reduced one.
+%
+% The input record is trimmed to the fields Opacities reads (igroup, ithom,
+% ixopec, opec, mtls); the original's carries a dozen more that only later
+% layers touch.
+%
+% Expected values are an exact C mirror in the harness.
+
+define Main
+
+type materialrec = record [ mtl : integer; atrat, dns, tmp : double;
+                            matb, mate : integer ];
+type scattrec    = record [ sigtot, sig, scrat : double ];
+type Materials   = array_dv [materialrec];
+type scatt       = array_dv [scattrec];    % rank 2: materials x 13
+type Doubles     = array_dv [double];
+type Ints        = array_dv [integer];
+
+type input = record [ igroup, ithom, ixopec : integer;
+                      opec : double;
+                      mtls : Materials ];
+
+function Interp (matl : materialrec; x : Doubles; t : Doubles; d : Doubles
+                 returns Doubles)
+   let
+      e := 2.7182817459106445d0;
+      ityp := if (matl.mtl = 2) | (matl.mtl = 4) then 2 else 1 end if;
+      itmax, itmin := for temp in t[ityp, ..] at i
+                         ubound := (matl.tmp <= temp);
+                      returns value of least    i unless (~ ubound)
+                              value of greatest i unless ubound
+                      end for;
+      tmin := t[ityp, itmin];
+      tmax := t[ityp, itmax];
+      trat := (matl.tmp - tmin) / (tmax - tmin);
+      idmax, idmin := for dns in d at i
+                         ubound := (matl.dns <= dns);
+                      returns value of least    i unless (~ ubound)
+                              value of greatest i unless ubound
+                      end for;
+      dmin := d[idmin];
+      dmax := d[idmax];
+      drat := (matl.dns - dmin) / (dmax - dmin)
+   in
+      for ie in 1, 13
+         xt  := x[idmin, itmax, ie, matl.mtl] +
+                (x[idmax, itmax, ie, matl.mtl] - x[idmin, itmax, ie, matl.mtl]) * drat;
+         xt1 := x[idmin, itmin, ie, matl.mtl] +
+                (x[idmax, itmin, ie, matl.mtl] - x[idmin, itmin, ie, matl.mtl]) * drat;
+         opcv := exp(e, xt1 + (xt - xt1) * trat)
+      returns array_dv of opcv
+      end for
+   end let
+end function
+
+function TempGrids (returns Doubles)
+   let
+      t1 := array_dv Doubles [1: 79.0d0, 99.0d0, 125.0d0, 157.0d0, 198.0d0,
+              250.0d0, 315.0d0, 397.0d0, 500.0d0, 630.0d0,
+              974.0d0, 1000.0d0, 1260.0d0, 1587.0d0, 2000.0d0,
+              2520.0d0, 3175.0d0, 4000.0d0, 5040.0d0, 6350.0d0,
+              8000.0d0, 10079.0d0, 12699.0d0, 16000.0d0, 20159.0d0,
+              25398.0d0, 32000.0d0, 40317.0d0, 50797.0d0, 64000.0d0,
+              80635.0d0, 101594.0d0];
+      t2 := array_dv Doubles [1: 20.0d0, 25.0d0, 31.0d0, 39.0d0, 50.0d0, 63.0d0,
+              79.0d0, 99.0d0, 125.0d0, 157.0d0, 198.0d0, 250.0d0,
+              315.0d0, 397.0d0, 500.0d0, 630.0d0, 974.0d0, 1000.0d0,
+              1260.0d0, 1587.0d0, 2000.0d0, 2520.0d0, 3175.0d0, 4000.0d0,
+              5040.0d0, 6350.0d0, 8000.0d0, 10079.0d0, 12699.0d0,
+              16000.0d0, 20159.0d0, 25398.0d0]
+   in
+      % stack the two rows into the flat rank-2 the lookup indexes
+      for k in 1, 2
+      returns array_dv of (if k = 1 then t1 else t2 end if)
+      end for
+   end let
+end function
+
+function DensGrid (returns Doubles)
+   array_dv Doubles [1: 3.162d-4, 1.000d-3, 3.162d-3, 1.000d-2, 3.162d-2,
+                        1.000d-1, 3.162d-1, 1.000d+0, 3.162d+0, 1.000d+1,
+                        3.162d+1, 1.000d+2, 3.162d+2, 1.000d+3]
+end function
+
+function Opacities (inp : input; libopac : Doubles returns scatt)
+   let
+      xthom := if (inp.ithom = 0) then 0.0d0 else 1.0d0 end if;
+      t := TempGrids();
+      d := DensGrid()
+   in
+      for matl in inp.mtls
+         opcv := if (inp.ixopec = 0) then
+                    Interp(matl, libopac, t, d)
+                 else
+                    for k in 1, 13 returns array_dv of inp.opec end for
+                 end if;
+         sigth := 0.4006d0 * matl.atrat * matl.dns * xthom;
+         opacvector :=
+            for ig in 1, 13
+               % igroup pins every group to one energy; ixopec overrides the
+               % table entirely, in which case dns is already folded in
+               sigtot := if ((inp.igroup ~= 0) & (inp.ixopec = 0)) then
+                            matl.dns * opcv[inp.igroup]
+                         elseif (inp.ixopec = 0) then
+                            matl.dns * opcv[ig]
+                         else
+                            opcv[ig]
+                         end if;
+               sig    := sigtot + sigth;
+               scrat  := sigth / sig;
+               srec   := record scattrec [ sigtot : sigtot; sig : sig; scrat : scrat ]
+            returns array_dv of srec
+            end for
+      returns array_dv of opacvector
+      end for
+   end let
+end function
+
+function Main (ithom, ixopec, igroup : integer; opec : double
+              returns
+               Doubles,   % sigtot for every (material, group)
+               Doubles,   % sig
+               Doubles,   % scrat
+               Ints,      % the result's shape
+               Doubles)   % the two temperature grids, flattened
+   let
+      ND := 14;  NT := 32;  NE := 13;  NM := 4;
+      libopac :=
+         for id in 1, ND returns array_dv of
+            for it in 1, NT returns array_dv of
+               for ie in 1, NE returns array_dv of
+                  for im in 1, NM returns array_dv of
+                     double_real(id) * 0.05d0 + double_real(it) * 0.02d0
+                     + double_real(ie) * 0.125d0 + double_real(im) * 0.0625d0
+                  end for end for end for end for;
+
+      mtls := for m in 1, NM
+              returns array_dv of
+                 record materialrec [ mtl : m; atrat : 1.5d0 + double_real(m);
+                                      dns : 2.0d0 * double_real(m);
+                                      tmp : 300.0d0 * double_real(m);
+                                      matb : 1; mate : 1 ]
+              end for;
+
+      inp := record input [ igroup : igroup; ithom : ithom; ixopec : ixopec;
+                            opec : opec; mtls : mtls ];
+
+      sc := Opacities(inp, libopac);
+
+      tot := for m in 1, NM cross g in 1, NE returns array_dv of sc[m,g].sigtot end for;
+      sg  := for m in 1, NM cross g in 1, NE returns array_dv of sc[m,g].sig    end for;
+      sr  := for m in 1, NM cross g in 1, NE returns array_dv of sc[m,g].scrat  end for;
+      tg  := TempGrids();
+      tgf := for k in 1, 2 cross j in 1, NT returns array_dv of tg[k,j] end for
+   in
+      tot, sg, sr, array_dv Ints [1: array_size(sc), NM, NE], tgf
+   end let
+end function
