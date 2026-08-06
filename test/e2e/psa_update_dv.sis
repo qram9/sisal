@@ -1,0 +1,176 @@
+% PSA_UPDATE -- applying a swap: take a lesson out of one period and put it in
+% another, and carry the energy along.  Layer 4, and the one that exercises the
+% padded schedule hardest, because this is what makes periods shrink and grow.
+%
+% HOW REMOVAL WORKS, and why it survives de-ragging cleanly.  The original does
+%
+%     period_1 := period[swap.index: period[size]];   % last tuple over the hole
+%     array_remh(period_1)                            % then drop the last slot
+%
+% -- a hole-fill, not an ordered delete: the LAST lesson is moved into the
+% vacated slot and the period shortens by one.  Order within a period carries no
+% meaning (the cost function is symmetric over pairs), so this is sound, and it
+% ports to the padded form exactly: overwrite slot `index` with slot `n`, then
+% decrement PSIZE[p].  Nothing moves, nothing reallocates, and the stale copy
+% left at slot n is past the live length so it can never be read.  Insertion is
+% the mirror: write at PSIZE[p]+1 and increment.
+%
+% That is the payoff of dense-plus-counts over a list of array_dv here -- both
+% ends of a swap are O(1) index writes, where the original's array_remh and
+% array_addh each copy a whole period.
+%
+% ONE FIDELITY DETAIL, reproduced rather than tidied: Update_State_P recomputes
+% the move's cost from the schedule as it stands mid-pass --
+%
+%     Er := Tuple_Period_Cost(swap.tuple, S1[swap.from])
+%
+% -- with NO `- 3`, while Get_Swap's Er (psa_swap_dv) subtracts 3 for the
+% lesson's own class/room/teacher self-match.  So the parallel path prices a
+% move differently from the sequential one.  The original comment admits the
+% energy "may be incorrect due to simultaneous swaps"; this is part of why.  A
+% port that quietly inserted the -3 would disagree with OSC.
+%
+% Expected values are OSC 13.0.3's (~/work/oldsisal):
+%   one swap (period 1 slot 2 -> period 3):  sizes [2 3 4], energy 2,
+%     period 1 left holding subjects [1 3] -- 3 filled the hole 2 left --
+%     and a global cost of 5
+%   two swaps at once (1->2 and 3->1):       sizes [3 4 2], energy 3
+
+define Main
+
+type T      = record [ Class, Subject, Teacher, Room, Frequency : integer ];
+type Swap   = record [ Tuple : T; From, To, Index, Ea, Er : integer ];
+type Period = array_dv [T];
+type Sched  = array_dv [T];      % rank 2: periods x capacity
+type Swaps  = array_dv [Swap];
+type Ints   = array_dv [integer];
+
+function MkT (i : integer returns T)
+   record T [ Class : mod(i,3)+1; Subject : i; Teacher : mod(i,2)+1;
+              Room : mod(i,4)+1; Frequency : 1 ]
+end function
+
+function MkSwap (f, t, ix : integer; tp : T returns Swap)
+   record Swap [ Tuple : tp; From : f; To : t; Index : ix; Ea : 2; Er : 0 ]
+end function
+
+function Tuple_Tuple_Cost (Tuple_1, Tuple_2 : T returns integer)
+   if Tuple_1.Room    = Tuple_2.Room    then 1 else 0 end if
+      +
+   if Tuple_1.Class   = Tuple_2.Class   then 1 else 0 end if
+      +
+   if Tuple_1.Teacher = Tuple_2.Teacher then 1 else 0 end if
+end function
+
+function Tuple_Period_Cost (Tuple : T; Prd : Period; N : integer returns integer)
+   for i in 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Tuple )
+   end for
+end function
+
+function Period_Cost (Prd : Period; N : integer returns integer)
+   for i in 1, N cross
+       j in i + 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Prd[j] )
+   end for
+end function
+
+function Global_Cost (S : Sched; PSize : Ints returns integer)
+   for p in 1, array_size(PSize)
+   returns value of sum Period_Cost( S[p, ..], PSize[p] )
+   end for
+end function
+
+% hole-fill removal: the last live lesson moves into slot `index`, and the
+% period shortens by one.  Only the count changes shape.
+function Remove_Tuple (S : Sched; PSize : Ints; p, index : integer
+                       returns Sched, Ints)
+   let
+       n := PSize[p]
+   in
+       S[p, index: S[p, n]],
+       PSize[p: n - 1]
+   end let
+end function
+
+% remove from From, append to To, and move the energy by the swap's own price
+function Update_State (swap : Swap; energy : integer;
+                       S : Sched; PSize : Ints
+                       returns integer, Sched, Ints)
+   let
+       S1, P1 := Remove_Tuple(S, PSize, swap.From, swap.Index);
+       m      := P1[swap.To]
+   in
+       energy + swap.Ea - swap.Er,
+       S1[swap.To, m + 1: swap.Tuple],
+       P1[swap.To: m + 1]
+   end let
+end function
+
+% the parallel form: apply a whole set in order, repricing each move against
+% the schedule as it stands when that move is applied.  See the header note --
+% Er here has no `- 3`.
+function Update_State_P (Swap_Set : Swaps; NS : integer; E_in : integer;
+                         S_in : Sched; PSize_in : Ints
+                         returns integer, Sched, Ints)
+   for initial
+       i     := 0;
+       E     := E_in;
+       S     := S_in;
+       PSize := PSize_in
+   while i < NS repeat
+       i    := old i + 1;
+       swap := Swap_Set[i];
+       E, S, PSize :=
+          if swap.From ~= 0 then
+             let
+                 S1, P1 := Remove_Tuple(old S, old PSize, swap.From, swap.Index);
+                 Ea     := Tuple_Period_Cost(swap.Tuple, S1[swap.To, ..],   P1[swap.To]);
+                 Er     := Tuple_Period_Cost(swap.Tuple, S1[swap.From, ..], P1[swap.From]);
+                 m      := P1[swap.To]
+             in
+                 old E + Ea - Er,
+                 S1[swap.To, m + 1: swap.Tuple],
+                 P1[swap.To: m + 1]
+             end let
+          else
+             old E, old S, old PSize
+          end if
+   returns value of E
+           value of S
+           value of PSize
+   end for
+end function
+
+function Main (Cap : integer
+              returns
+               Ints,      % sizes after one swap
+               integer,   %   the energy it produced
+               Ints,      %   period 1's surviving subjects, in slot order
+               integer,   %   and the schedule's global cost
+               integer,   % energy after two simultaneous swaps
+               Ints)      %   and the sizes they leave
+   let
+      % 3 periods of 3 lessons, padded to Cap so a period can grow
+      Sched := for p in 1, 3
+               returns array_dv of
+                  for k in 1, Cap
+                  returns array_dv of
+                     if k <= 3 then MkT((p-1)*3 + k) else MkT(0) end if
+                  end for
+               end for;
+      PSize := for p in 1, 3 returns array_dv of 3 end for;
+
+      % move slot 2 of period 1 (Subject 2) into period 3
+      sw            := MkSwap(1, 3, 2, MkT(2));
+      E1, S1, Sz1   := Update_State(sw, 0, Sched, PSize);
+      subj1         := for k in 1, Sz1[1] returns array_dv of S1[1, k].Subject end for;
+
+      % two at once, as the parallel annealer would apply them
+      SS            := array_dv Swaps [1: MkSwap(1, 2, 1, MkT(1)),
+                                          MkSwap(3, 1, 3, MkT(9))];
+      E2, S2, Sz2   := Update_State_P(SS, 2, 0, Sched, PSize)
+   in
+      Sz1, E1, subj1, Global_Cost(S1, Sz1), E2, Sz2
+   end let
+end function
