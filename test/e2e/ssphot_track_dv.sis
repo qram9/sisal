@@ -1,0 +1,367 @@
+% !!! NOT REGISTERED IN THE SUITE -- IT DOES NOT BUILD YET.  See BLOCKED below.
+%
+% SSPHOT_TRACK -- the particle tracking loop.  This is the construct that made
+% ssphot uncompilable, and the reason it was picked as the benchmark to port.
+%
+% Two nested sequential loops.  The inner one walks the current particle list,
+% decides each photon's fate, and emits ncopies copies of it -- 0 if killed or
+% absorbed or escaped, 1 if it continues, n if it split.  Those variable-length
+% pieces are glued together with
+%
+%     returns value of catenate tplist
+%
+% on a FOR-INITIAL, which was rejected outright until 34a02f8:
+%
+%     for-initial reduction: catenate is not supported in a sequential loop yet
+%
+% and this is the only program in the whole corpus that asks for it.  Nothing
+% else could be sequential here: the loop threads an RNG seed, so iteration i
+% cannot start before i-1 finishes, and the number of particles emitted is
+% data-dependent.  It is a genuine recurrence producing ragged output -- the
+% one shape a forall cannot express.
+%
+% The outer loop then re-runs on whatever the inner one produced, until the list
+% empties.  Splitting can make it grow, so termination is a property of the
+% physics (killed and absorbed particles outnumber splits) rather than of a
+% trip count -- which is exactly why the outer `while array_size(plist) > 0` has
+% no derivable bound either, and needed e55d31b.
+%
+% NOT PORTED HERE: DetDistToBound, the ray/cell intersection that computes how
+% far a photon travels before hitting a zone boundary.  It is independent of
+% this loop's structure -- the transport does not care how dbound was obtained,
+% only what it is -- so it arrives as a per-zone table alongside the zone
+% increments.  Substituting a table keeps the loop, the recurrence and the
+% catenate exactly as the original writes them; it does not stand in for the
+% geometry, which is still to do.
+%
+% The 13 tallies are carried as they are in the original: the inner loop SUMS
+% them across the particle list, and the outer loop sums those per-pass totals.
+% wrr and the kill counters exist so that weight discarded by roulette is booked
+% out rather than silently lost -- see ssphot_move_dv, including the split
+% branch whose bookkeeping does not balance.
+%
+% BLOCKED on the INIT positional contract.  This file emits IF1 and C fine, but
+% the C does not compile: the INIT -> LoopB carry seeds come out SCRAMBLED,
+% every carry taking a different carry's initial value --
+%
+%     (v_LoopB_..._I      = v_INIT_..._SEEDA);
+%     (v_LoopB_..._SEEDA  = v_INIT_..._TPLIST);
+%     (v_LoopB_..._TPLIST = v_INIT_..._WABS);
+%     error: assigning to 'double' from incompatible type 'sisal_array_t'
+%
+% The type error is a symptom; the wiring is the bug, and where the types happen
+% to agree it would MISCOMPILE SILENTLY instead of failing to build.
+%
+% Cause is the known one: to_if1 finds the carries among the INIT boundary
+% outputs by counting backwards,
+%     start = boundary_out_port_count decl_gr - n_ret_seeds - 2*non_old_count
+% which is a positional guess, not a contract.  Here only i, seedA and tplist
+% are real carries (they use `old`); the other twelve tallies are declared in
+% `initial` but assigned fresh from the call each iteration, so they are body
+% locals -- and the count comes out wrong.
+%
+% Narrowed but NOT reduced.  Three shapes that do NOT trigger it: many carries
+% plus a catenate; carries assigned fresh from a multi-value call; and a mix of
+% `old` carries with non-`old` initial names.  All wire correctly.  What is left
+% distinguishing this one is that a NESTED for-initial's fourteen results are
+% multi-assigned into the ENCLOSING for-initial's carries.
+%
+% The fix is the INIT portmap flagged earlier -- naming the INIT outputs by role
+% instead of deriving their positions -- which is a to_if1 change and wants
+% discussing before it is attempted.
+%
+% Everything above this line is complete and matches the source; when the wiring
+% is fixed this needs a C mirror and the five registration points.
+
+define Main
+
+type particletype = record [ u, v, w, x, y, z, age, newgt : double;
+                             id, ir : integer ];
+type scattrec     = record [ sigtot, sig, scrat : double ];
+type Particles    = array_dv [particletype];
+type Doubles      = array_dv [double];
+type Ints         = array_dv [integer];
+
+function Random (r : double returns double)
+   let factor := 41475557.0d0;  rp := r * factor
+   in  rp - double_real(trunc(rp))
+   end let
+end function
+
+function RRWeights (seed, wmin : double; p : particletype
+                    returns double, particletype, double, integer,
+                            integer, integer)
+   if (p.newgt < wmin) then
+      let newseed := Random(seed)
+      in
+         if (newseed < p.newgt) then
+            newseed, p replace [newgt : 1.0d0], 1.0d0 - p.newgt, 0, 0, 1
+         else
+            newseed, p, -p.newgt, 1, 0, 0
+         end if
+      end let
+   elseif (p.newgt < (1.0d0 / wmin)) then
+      seed, p, 0.0d0, 0, 0, 1
+   else
+      let ir0 := integer(trunc(p.newgt));  ir1 := ir0 - 1
+      in
+         if (ir1 <= 0) then
+            seed, p, 0.0d0, 0, 0, 1
+         else
+            seed, p replace [newgt : p.newgt / (double_real(ir1) + 1.0d0)],
+            0.0d0, 0, ir1, ir1 + 1
+         end if
+      end let
+   end if
+end function
+
+function RRImportances (seed : double; idold : integer; ximp : Doubles;
+                        p : particletype
+                        returns double, particletype, double, integer,
+                                integer, integer)
+   if (ximp[p.id] = ximp[idold]) then
+      seed, p, 0.0d0, 0, 0, 1
+   else
+      let
+         r    := ximp[p.id] / ximp[idold];
+         zeta := Random(seed);
+         ir1  := integer(trunc(r));
+         r1   := double_real(ir1);
+         ir0  := ir1 - 1;
+         r0   := r - r1
+      in
+         if ((r < 1.0d0) & (zeta < r0)) then
+            let rinv := 1.0d0 / r
+            in  zeta, p replace [newgt : p.newgt * rinv],
+                p.newgt * (rinv - 1.0d0), 0, 0, 1
+            end let
+         elseif (r < 1.0d0) then
+            zeta, p, -p.newgt, 1, 0, 0
+         elseif (zeta < r0) then
+            zeta, p replace [newgt : p.newgt / (r1 + 1.0d0)], 0.0d0, 0, ir1, ir1 + 1
+         elseif (ir0 <= 0) then
+            zeta, p, 0.0d0, 0, 0, 1
+         else
+            zeta, p replace [newgt : p.newgt / (r1 + 1.0d0)], 0.0d0, 0, ir0, ir0 + 1
+         end if
+      end let
+   end if
+end function
+
+function Move (seed : double; p : particletype;
+               incr, nzones, mid, irr : integer;
+               dbound : double; ximp : Doubles; wcut : double
+               returns double, particletype, double, integer, integer,
+                       integer, integer, double)
+   let
+      idold := p.id;
+      newid := p.id + incr
+   in
+      if (newid > nzones) then
+         seed, p, 0.0d0, 0, 0, 0, 1, p.newgt
+      else
+         let
+            newp := p replace [ x   : p.x + p.u * dbound;
+                                y   : p.y + p.v * dbound;
+                                z   : p.z + p.w * dbound;
+                                age : p.age + dbound * 3.3356349d-11;
+                                id  : newid;
+                                ir  : mid ]
+         in
+            if (irr = 0) then
+               seed, newp, 0.0d0, 0, 0, 1, 0, 0.0d0
+            elseif (irr = 1) then
+               RRImportances(seed, idold, ximp, newp), 0, 0.0d0
+            else
+               RRWeights(seed, wcut, newp), 0, 0.0d0
+            end if
+         end let
+      end if
+   end let
+end function
+
+% Thomson scattering: sample a deflection cosine from the tabulated
+% distribution and rotate the direction cosines about it
+function Thom (seed : double; p : particletype
+               returns double, particletype)
+   let
+      % the source's 128-point table is a cosine ramp; regenerating it keeps the
+      % file readable and the sampling identical in shape
+      csn := for k in 1, 128
+             returns array_dv of cos( (double_real(k - 1) / 128.0d0)
+                                      * 3.1415926535897932d0 )
+             end for;
+      seed1  := Random(seed);
+      index  := integer(trunc(seed1 * 128.0d0 + 1.0d0));
+      sctang := csn[index];
+      seed2  := Random(seed1);
+      t3     := 6.2831853d0 * seed2;
+      t4     := sqrt(1.0d0 - sctang * sctang);
+      t5     := sqrt(1.0d0 - p.w * p.w);
+      temp1  := t4 / t5;
+      temp2  := sin(t3);
+      temp3  := cos(t3);
+      temp4  := p.w * temp3
+   in
+      seed2,
+      p replace [ u : p.u * sctang + temp1 * (p.u * temp4 - p.v * temp2);
+                  v : p.v * sctang + temp1 * (p.v * temp4 + p.u * temp2);
+                  w : p.w * sctang - (t4 * t5) * temp3 ]
+   end let
+end function
+
+% one photon's fate: lost, moved to a boundary, absorbed, scattered, or censused
+function DetParticleFate (seed : double; p : particletype;
+                          dbound, tcen, wcut : double;
+                          incr, nzones, mid, irr : integer;
+                          ximp : Doubles; scatter : scattrec
+                          returns double, particletype, double, integer,
+                                  integer, integer, integer, double, integer,
+                                  double, integer, double, integer, integer,
+                                  double)
+   if (dbound = 1000.0d0) then                      % lost
+      seed, p, 0.0d0, 0, 0, 0, 0, 0.0d0, 1, p.newgt, 0, 0.0d0, 0, 0, 0.0d0
+   else
+      let
+         seed1 := Random(seed);
+         dist  := -log(seed1) / scatter.sig;        % free path to a collision
+         dcen  := (tcen - p.age) * 2.99793d10       % distance to census time
+      in
+         if ((dbound < dist) & (dbound < dcen)) then
+            Move(seed1, p, incr, nzones, mid, irr, dbound, ximp, wcut),
+            0, 0.0d0, 0, 0.0d0, 0, 0, 0.0d0
+         elseif (dist < dcen) then
+            let seed2 := Random(seed1)
+            in
+               if (seed2 > scatter.scrat) then      % absorbed
+                  seed2, p, 0.0d0, 0, 0, 0, 0, 0.0d0, 0, 0.0d0, 1, p.newgt,
+                  0, 0, 0.0d0
+               else                                 % collision: scatter
+                  let
+                     newp := p replace [ x   : p.x + p.u * dist;
+                                         y   : p.y + p.v * dist;
+                                         z   : p.z + p.w * dist;
+                                         age : p.age + dist * 3.3356349d-11 ];
+                     seed3, newnewp := Thom(seed2, newp)
+                  in
+                     if (irr = 2) then
+                        RRWeights(seed3, wcut, newnewp),
+                        0, 0.0d0, 0, 0.0d0, 0, 0.0d0, 1, 0, 0.0d0
+                     else
+                        seed3, newnewp, 0.0d0, 0, 0, 1, 0, 0.0d0, 0, 0.0d0,
+                        0, 0.0d0, 1, 0, 0.0d0
+                     end if
+                  end let
+               end if
+            end let
+         else                                       % reached census time
+            seed1, p, 0.0d0, 0, 0, 0, 0, 0.0d0, 0, 0.0d0, 0, 0.0d0, 0, 1, p.newgt
+         end if
+      end let
+   end if
+end function
+
+function TrackParticles (seed : double; p : particletype;
+                         tcen, wcut : double;
+                         nzones, mid, irr : integer;
+                         incrs : Ints; dbounds : Doubles;
+                         ximp : Doubles; scatter : scattrec
+                         returns double, double, integer, integer, integer,
+                                 double, integer, double, integer, double,
+                                 integer, integer, double, integer)
+   for initial
+      plist  := array_dv Particles [1: p];
+      seed0  := seed;
+      wrr    := 0.0d0;  nrr   := 0;  nsplt := 0;
+      nescgp := 0;      enesc := 0.0d0;
+      nlost  := 0;      wlost := 0.0d0;
+      nabs   := 0;      wabs  := 0.0d0;
+      nscat  := 0;      ncen  := 0;  wcen := 0.0d0;
+      ntrac  := 0
+   while (array_size(plist) > 0)
+   repeat
+      len   := array_size(old plist);
+      ntrac := old ntrac + len;
+      seed0, plist, wrr, nrr, nsplt, nescgp, enesc,
+        nlost, wlost, nabs, wabs, nscat, ncen, wcen :=
+           for initial
+              i      := 1;
+              seedA  := old seed0;
+              tplist := array_dv Particles [];
+              wrr    := 0.0d0;  nrr   := 0;  nsplt := 0;
+              nescgp := 0;      enesc := 0.0d0;
+              nlost  := 0;      wlost := 0.0d0;
+              nabs   := 0;      wabs  := 0.0d0;
+              nscat  := 0;      ncen  := 0;  wcen := 0.0d0
+           while (i <= len)
+           repeat
+              q  := old plist[old i];
+              db := dbounds[q.id];
+              seedA, newp, wrr, nrr, nsplt, ncopies, nescgp, enesc,
+                nlost, wlost, nabs, wabs, nscat, ncen, wcen :=
+                   DetParticleFate(old seedA, q, db, tcen, wcut,
+                                   incrs[q.id], nzones, mid, irr, ximp, scatter);
+              % 0 copies if it died, 1 if it lives, n if it split
+              tplist := for k in 1, ncopies returns array_dv of newp end for;
+              i      := old i + 1
+           returns
+              value of seedA
+              value of catenate tplist
+              value of sum wrr
+              value of sum nrr
+              value of sum nsplt
+              value of sum nescgp
+              value of sum enesc
+              value of sum nlost
+              value of sum wlost
+              value of sum nabs
+              value of sum wabs
+              value of sum nscat
+              value of sum ncen
+              value of sum wcen
+           end for
+   returns
+      value of seed0
+      value of sum wrr
+      value of sum nrr
+      value of sum nsplt
+      value of sum nescgp
+      value of sum enesc
+      value of sum nlost
+      value of sum wlost
+      value of sum nabs
+      value of sum wabs
+      value of sum nscat
+      value of sum ncen
+      value of sum wcen
+      value of ntrac
+   end for
+end function
+
+function Main (nzones, mid, irr : integer;
+               seed, newgt, tcen, wcut, sig, scrat : double
+              returns
+               double,    % seed out
+               Doubles,   % wrr enesc wlost wabs wcen
+               Ints,      % nrr nsplt nescgp nlost nabs nscat ncen ntrac
+               integer)   % ntrac again, for readability
+   let
+      ximp    := array_dv Doubles [1: 1.0d0, 1.0d0, 2.0d0, 2.0d0, 1.0d0];
+      % what DetDistToBound would have produced, one per zone
+      dbounds := array_dv Doubles [1: 0.5d0, 0.75d0, 1.0d0, 1.25d0, 1000.0d0];
+      incrs   := array_dv Ints    [1: 1, 1, 1, 1, 1];
+      scatter := record scattrec [ sigtot : 1.0d0; sig : sig; scrat : scrat ];
+      p := record particletype [ u : 0.5d0; v : 0.5d0; w : 0.7071067811865476d0;
+                                 x : 0.0d0; y : 0.0d0; z : 0.0d0;
+                                 age : 0.0d0; newgt : newgt; id : 1; ir : 1 ];
+      s1, wrr, nrr, nsplt, nescgp, enesc, nlost, wlost,
+        nabs, wabs, nscat, ncen, wcen, ntrac :=
+           TrackParticles(seed, p, tcen, wcut, nzones, mid, irr,
+                          incrs, dbounds, ximp, scatter)
+   in
+      s1,
+      array_dv Doubles [1: wrr, enesc, wlost, wabs, wcen],
+      array_dv Ints [1: nrr, nsplt, nescgp, nlost, nabs, nscat, ncen, ntrac],
+      ntrac
+   end let
+end function
