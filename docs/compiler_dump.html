@@ -1,0 +1,433 @@
+<title>IF1 dump — nested for-initial, rebound name</title>
+<style>
+ body{font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:24px;
+      background:#fff;color:#111;max-width:100%;box-sizing:border-box}
+ h1{font-size:20px;margin:0 0 4px} h2{font-size:16px;margin:28px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}
+ .lede{color:#555;margin:0 0 18px}
+ pre{background:#f6f8fa;border:1px solid #e1e4e8;border-radius:6px;padding:10px;overflow-x:auto;
+     font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
+ .cols{display:flex;gap:16px;flex-wrap:wrap} .cols>div{flex:1 1 340px;min-width:0}
+ .wrap{overflow-x:auto;border:1px solid #e1e4e8;border-radius:6px}
+ table.if1{border-collapse:collapse;width:100%;font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+ table.if1 td{padding:1px 8px;vertical-align:top;white-space:pre;border-right:1px solid #eee}
+ tr.diff td{background:#fff5b1} tr.diff td:empty{background:#ffeef0}
+ .k{color:#6f42c1}
+ table.key{border-collapse:collapse;margin:8px 0;font-size:13px;width:100%}
+ table.key th,table.key td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top}
+ table.key th{background:#f6f8fa}
+ .ok{color:#116329} .bad{color:#a40e26;font-weight:600}
+ code{background:#f0f1f3;padding:1px 4px;border-radius:3px;font-size:12px}
+ @media (prefers-color-scheme:dark){
+   body{background:#0d1117;color:#c9d1d9} pre,.wrap{background:#161b22;border-color:#30363d}
+   table.if1 td{border-color:#21262d} tr.diff td{background:#3b2e00} tr.diff td:empty{background:#3d1518}
+   table.key th{background:#161b22} table.key th,table.key td{border-color:#30363d}
+   code{background:#161b22} .k{color:#d2a8ff} .ok{color:#3fb950} .bad{color:#ff7b72}
+   h2{border-color:#30363d} .lede{color:#8b949e} }
+</style>
+<h1>IF1 dump — a rebound name in a nested <code>for-initial</code></h1>
+<p class="lede">Two identical loops. The only difference is whether the inner <code>initial</code> clause
+reuses the enclosing name <code>w</code> or picks a fresh one <code>v</code>. The shadowed version is
+24 IF1 lines shorter, and what is missing is a carry.</p>
+
+<h2>What to look at</h2>
+<table class="key"><tr><th></th><th>renamed inner (v) — CORRECT</th><th>shadowed inner (w) — BROKEN</th></tr>
+<tr><td>symtab, outer name</td><td><code>INTEGRAL; W; (__0 : 3)</code><br><span class="ok">boundary-in port 3 = enclosing w</span></td>
+<td><code>INTEGRAL; W; (__2 : 0)</code><br><span class="bad">repointed at the LOCAL node</span></td></tr>
+<tr><td>symtab, local name</td><td><code>INTEGRAL; V; (__2 : 0)</code></td><td><span class="bad">— none; W is the only entry</span></td></tr>
+<tr><td>carries (MERGE pairs)</td><td><code>__6 MERGE %na=V</code><br><code>__8 MERGE %na=OLD V</code></td>
+<td><span class="bad">no MERGE for W at all</span></td></tr>
+<tr><td>BOUNDARY</td><td><code>[(0,3,W,7);(2,0,V,6);(0,2,OLD W,5);(2,0,OLD V,4);…]</code><br>8 entries</td>
+<td><code>[(0,3,W,5);(0,2,OLD W,4);…]</code><br>6 entries — <span class="bad">W still IMPORTED from (0,3)</span></td></tr></table>
+<p>The two halves disagree: the symtab entry is repointed at the local node, but the BOUNDARY still
+lists the name as imported from the enclosing scope, and no MERGE pair is created for the local
+binding. The inner loop is therefore short one carry and its <code>OLD</code>, LoopB ends up with
+fewer slots than INIT exports, and the positional carry derivation downstream reads the wrong
+window — which is the scrambled seeding seen in the emitted C.</p>
+
+<h2>Source</h2>
+<div class="cols">
+ <div><b>renamed inner (v) — correct</b><pre>define Main
+function Main(returns integer)
+  let c, x :=
+    for initial cnt := 0; w := 0;
+    while cnt &lt; 2 repeat
+      cnt, w := for initial i := 1; v := 0;
+                while i &lt;= 2 repeat i := old i + 1; v := old v + 1;
+                returns value of i value of sum v end for;
+    returns value of cnt value of sum w end for
+  in c end let
+end function
+</pre></div>
+ <div><b>shadowed inner (w) — broken</b><pre>define Main
+function Main(returns integer)
+  let c, x :=
+    for initial cnt := 0; w := 0;
+    while cnt &lt; 2 repeat
+      cnt, w := for initial i := 1; w := 0;
+                while i &lt;= 2 repeat i := old i + 1; w := old w + 1;
+                returns value of i value of sum w end for;
+    returns value of cnt value of sum w end for
+  in c end let
+end function
+</pre></div>
+</div>
+
+<h2>Full IF1, aligned</h2>
+<p class="lede">Node numbers normalised before aligning, so highlighted rows are structural
+differences rather than renumbering. Left = renamed (correct), right = shadowed (broken).
+An empty cell means the line exists on only one side.</p>
+<div class="wrap"><table class="if1">
+<tr><th style="position:sticky;top:0;background:#f6f8fa;text-align:left;padding:4px 8px">renamed (v) — correct</th>
+<th style="position:sticky;top:0;background:#f6f8fa;text-align:left;padding:4px 8px">shadowed (w) — broken</th></tr>
+<tr class="same"><td class="ln">Graph {</td><td class="ln">Graph {</td></tr>
+<tr class="same"><td class="ln">----NODES----</td><td class="ln">----NODES----</td></tr>
+<tr class="same"><td class="ln">__1 0 %na=MAIN ,Compound_of(PROCEDURE)</td><td class="ln">__1 0 %na=MAIN ,Compound_of(PROCEDURE)</td></tr>
+<tr class="same"><td class="ln">  Graph {</td><td class="ln">  Graph {</td></tr>
+<tr class="same"><td class="ln">  ----NODES----</td><td class="ln">  ----NODES----</td></tr>
+<tr class="same"><td class="ln">  __1 0 %na=LET_NON_REC ,Compound_of(UNKNOWN)</td><td class="ln">  __1 0 %na=LET_NON_REC ,Compound_of(UNKNOWN)</td></tr>
+<tr class="same"><td class="ln">    Graph {</td><td class="ln">    Graph {</td></tr>
+<tr class="same"><td class="ln">    ----NODES----</td><td class="ln">    ----NODES----</td></tr>
+<tr class="same"><td class="ln">    __1 0 SrcLine (10,5) ,%na=<b class="k">LoopB</b> ,Compound_of(<b class="k">INIT</b>)</td><td class="ln">    __1 0 SrcLine (10,5) ,%na=<b class="k">LoopB</b> ,Compound_of(<b class="k">INIT</b>)</td></tr>
+<tr class="same"><td class="ln">      Graph {</td><td class="ln">      Graph {</td></tr>
+<tr class="same"><td class="ln">      ----NODES----</td><td class="ln">      ----NODES----</td></tr>
+<tr class="same"><td class="ln">      __9 <b class="k">MERGE</b> [|4,4,1|] [|8,7,6,5|] %na=<b class="k">MERGE</b>_first</td><td class="ln">      __9 <b class="k">MERGE</b> [|4,4,1|] [|8,7,6,5|] %na=<b class="k">MERGE</b>_first</td></tr>
+<tr class="same"><td class="ln">      __8 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD W</td><td class="ln">      __8 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD W</td></tr>
+<tr class="same"><td class="ln">      __7 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD CNT</td><td class="ln">      __7 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD CNT</td></tr>
+<tr class="same"><td class="ln">      __6 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=W</td><td class="ln">      __6 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=W</td></tr>
+<tr class="same"><td class="ln">      __5 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=CNT</td><td class="ln">      __5 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=CNT</td></tr>
+<tr class="same"><td class="ln">      __4 0 %na=<b class="k">INIT</b> ,Compound_of(<b class="k">INIT</b>)</td><td class="ln">      __4 0 %na=<b class="k">INIT</b> ,Compound_of(<b class="k">INIT</b>)</td></tr>
+<tr class="same"><td class="ln">        Graph {</td><td class="ln">        Graph {</td></tr>
+<tr class="same"><td class="ln">        ----NODES----</td><td class="ln">        ----NODES----</td></tr>
+<tr class="same"><td class="ln">        __3 &quot;True&quot;</td><td class="ln">        __3 &quot;True&quot;</td></tr>
+<tr class="same"><td class="ln">        __2 &quot;0&quot;</td><td class="ln">        __2 &quot;0&quot;</td></tr>
+<tr class="same"><td class="ln">        __1 &quot;0&quot;</td><td class="ln">        __1 &quot;0&quot;</td></tr>
+<tr class="same"><td class="ln">        <b class="k">BOUNDARY</b> [[], [(3,0);(2,0);(1,0);(2,0);(1,0)]]</td><td class="ln">        <b class="k">BOUNDARY</b> [[], [(3,0);(2,0);(1,0);(2,0);(1,0)]]</td></tr>
+<tr class="same"><td class="ln">        ----EDGES----</td><td class="ln">        ----EDGES----</td></tr>
+<tr class="same"><td class="ln">        __3:0 -&gt; __0:4 [ID:1 BOOLEAN]</td><td class="ln">        __3:0 -&gt; __0:4 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">        __2:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __2:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        GLOBAL-SYM: </td><td class="ln">        GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">        LOCAL-SYM: </td><td class="ln">        LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        } 4</td><td class="ln">        } 4</td></tr>
+<tr class="same"><td class="ln">      __3 0 %na=<b class="k">TEST</b> ,Compound_of(<b class="k">TEST</b>)</td><td class="ln">      __3 0 %na=<b class="k">TEST</b> ,Compound_of(<b class="k">TEST</b>)</td></tr>
+<tr class="same"><td class="ln">        Graph {</td><td class="ln">        Graph {</td></tr>
+<tr class="same"><td class="ln">        ----NODES----</td><td class="ln">        ----NODES----</td></tr>
+<tr class="same"><td class="ln">        __2 LESSER [|0,1|] [|3,0|]</td><td class="ln">        __2 LESSER [|0,1|] [|3,0|]</td></tr>
+<tr class="same"><td class="ln">        __1 &quot;2&quot;</td><td class="ln">        __1 &quot;2&quot;</td></tr>
+<tr class="same"><td class="ln">        <b class="k">BOUNDARY</b> [[(2,0,W,3);(2,0,OLD W,2);(1,0,OLD CNT,1);(1,0,CNT,0)], [(2,0)]]</td><td class="ln">        <b class="k">BOUNDARY</b> [[(2,0,W,3);(2,0,OLD W,2);(1,0,OLD CNT,1);(1,0,CNT,0)], [(2,0)]]</td></tr>
+<tr class="same"><td class="ln">        ----EDGES----</td><td class="ln">        ----EDGES----</td></tr>
+<tr class="same"><td class="ln">        __2:0 -&gt; __0:0 [ID:1 BOOLEAN]</td><td class="ln">        __2:0 -&gt; __0:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        GLOBAL-SYM: </td><td class="ln">        GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        LOCAL-SYM: </td><td class="ln">        LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">        <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">        } 4</td><td class="ln">        } 4</td></tr>
+<tr class="same"><td class="ln">      __2 0 %na=<b class="k">RETURNS</b> ,Compound_of(RESULTS)</td><td class="ln">      __2 0 %na=<b class="k">RETURNS</b> ,Compound_of(RESULTS)</td></tr>
+<tr class="same"><td class="ln">        Graph {</td><td class="ln">        Graph {</td></tr>
+<tr class="same"><td class="ln">        ----NODES----</td><td class="ln">        ----NODES----</td></tr>
+<tr class="same"><td class="ln">        __3 &quot;sum&quot;</td><td class="ln">        __3 &quot;sum&quot;</td></tr>
+<tr class="same"><td class="ln">        __2 REDUCE [|3,0|] [|0|] Portmap[reduce_fn:0;value:1;mask:2]</td><td class="ln">        __2 REDUCE [|3,0|] [|0|] Portmap[reduce_fn:0;value:1;mask:2]</td></tr>
+<tr class="same"><td class="ln">        __1 FINALVALUE [|0|] [|0|]</td><td class="ln">        __1 FINALVALUE [|0|] [|0|]</td></tr>
+<tr class="same"><td class="ln">        <b class="k">BOUNDARY</b> [[(1,0,__ret_1,1);(1,1,__ret_0,0)], [(2,0);(1,0)]]</td><td class="ln">        <b class="k">BOUNDARY</b> [[(1,0,__ret_1,1);(1,1,__ret_0,0)], [(2,0);(1,0)]]</td></tr>
+<tr class="same"><td class="ln">        ----EDGES----</td><td class="ln">        ----EDGES----</td></tr>
+<tr class="same"><td class="ln">        __3:0 -&gt; __2:0 [ID:3 CHARACTER]</td><td class="ln">        __3:0 -&gt; __2:0 [ID:3 CHARACTER]</td></tr>
+<tr class="same"><td class="ln">        __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:1 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:1 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        GLOBAL-SYM: </td><td class="ln">        GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">        } 4</td><td class="ln">        } 4</td></tr>
+<tr class="same"><td class="ln">      __1 0 %na=<b class="k">BODY</b> ,Compound_of(<b class="k">BODY</b>)</td><td class="ln">      __1 0 %na=<b class="k">BODY</b> ,Compound_of(<b class="k">BODY</b>)</td></tr>
+<tr class="same"><td class="ln">        Graph {</td><td class="ln">        Graph {</td></tr>
+<tr class="same"><td class="ln">        ----NODES----</td><td class="ln">        ----NODES----</td></tr>
+<tr class="same"><td class="ln">        __3 &quot;False&quot;</td><td class="ln">        __3 &quot;False&quot;</td></tr>
+<tr class="same"><td class="ln">        __1 0 SrcLine (9,38) ,SrcLine (9,21) ,%na=<b class="k">LoopB</b> ,Compound_of(<b class="k">INIT</b>)</td><td class="ln">        __1 0 SrcLine (9,38) ,SrcLine (9,21) ,%na=<b class="k">LoopB</b> ,Compound_of(<b class="k">INIT</b>)</td></tr>
+<tr class="same"><td class="ln">          Graph {</td><td class="ln">          Graph {</td></tr>
+<tr class="same"><td class="ln">          ----NODES----</td><td class="ln">          ----NODES----</td></tr>
+<tr class="diff"><td class="ln">          __9 <b class="k">MERGE</b> [|4,4,1|] [|8,7,6,5|] %na=<b class="k">MERGE</b>_first</td><td class="ln">          __7 <b class="k">MERGE</b> [|4,4,1|] [|6,5|] %na=<b class="k">MERGE</b>_first</td></tr>
+<tr class="diff"><td class="ln">          __8 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD V</td><td class="ln">          __6 <b class="k">MERGE</b> [|7,4,1|] [|1,3,2|] %na=OLD I</td></tr>
+<tr class="diff"><td class="ln">          __7 <b class="k">MERGE</b> [|9,4,1|] [|1,3,2|] %na=OLD I</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __6 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=V</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">          __5 <b class="k">MERGE</b> [|9,4,1|] [|1,3|] %na=I</td><td class="ln">          __5 <b class="k">MERGE</b> [|7,4,1|] [|1,3|] %na=I</td></tr>
+<tr class="same"><td class="ln">          __4 0 %na=<b class="k">INIT</b> ,Compound_of(<b class="k">INIT</b>)</td><td class="ln">          __4 0 %na=<b class="k">INIT</b> ,Compound_of(<b class="k">INIT</b>)</td></tr>
+<tr class="same"><td class="ln">            Graph {</td><td class="ln">            Graph {</td></tr>
+<tr class="same"><td class="ln">            ----NODES----</td><td class="ln">            ----NODES----</td></tr>
+<tr class="same"><td class="ln">            __3 &quot;True&quot;</td><td class="ln">            __3 &quot;True&quot;</td></tr>
+<tr class="same"><td class="ln">            __2 &quot;0&quot;</td><td class="ln">            __2 &quot;0&quot;</td></tr>
+<tr class="same"><td class="ln">            __1 &quot;1&quot;</td><td class="ln">            __1 &quot;1&quot;</td></tr>
+<tr class="same"><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(3,0);(2,0);(1,0);(2,0);(1,0)]]</td><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(3,0);(2,0);(1,0);(2,0);(1,0)]]</td></tr>
+<tr class="same"><td class="ln">            ----EDGES----</td><td class="ln">            ----EDGES----</td></tr>
+<tr class="same"><td class="ln">            __3:0 -&gt; __0:4 [ID:1 BOOLEAN]</td><td class="ln">            __3:0 -&gt; __0:4 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            GLOBAL-SYM: </td><td class="ln">            GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            LOCAL-SYM: </td><td class="ln">            LOCAL-SYM: </td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; V; (__2 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD V; (__2 : 0)</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            } 4</td><td class="ln">            } 4</td></tr>
+<tr class="same"><td class="ln">          __3 0 %na=<b class="k">TEST</b> ,Compound_of(<b class="k">TEST</b>)</td><td class="ln">          __3 0 %na=<b class="k">TEST</b> ,Compound_of(<b class="k">TEST</b>)</td></tr>
+<tr class="same"><td class="ln">            Graph {</td><td class="ln">            Graph {</td></tr>
+<tr class="same"><td class="ln">            ----NODES----</td><td class="ln">            ----NODES----</td></tr>
+<tr class="same"><td class="ln">            __2 LESSER_EQUAL [|0,1|] [|3,0|]</td><td class="ln">            __2 LESSER_EQUAL [|0,1|] [|3,0|]</td></tr>
+<tr class="same"><td class="ln">            __1 &quot;2&quot;</td><td class="ln">            __1 &quot;2&quot;</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,7);(2,0,V,6);(0,2,OLD W,5);(2,0,OLD V,4);(1,0,OLD I,3);(0,1,OLD CNT,2);(1,0,I,1);(0,0,CNT,0)], [(2,0)]]</td><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,5);(0,2,OLD W,4);(1,0,OLD I,3);(0,1,OLD CNT,2);(1,0,I,1);(0,0,CNT,0)], [(2,0)]]</td></tr>
+<tr class="same"><td class="ln">            ----EDGES----</td><td class="ln">            ----EDGES----</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:0 [ID:1 BOOLEAN]</td><td class="ln">            __2:0 -&gt; __0:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">            __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __0:1 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __0:1 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            GLOBAL-SYM: </td><td class="ln">            GLOBAL-SYM: </td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; V; (__2 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD V; (__2 : 0)</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            LOCAL-SYM: </td><td class="ln">            LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 7)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 5)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; V; (__0 : 6)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 4)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 5)</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD V; (__0 : 4)</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 2)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; I; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; I; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            } 4</td><td class="ln">            } 4</td></tr>
+<tr class="same"><td class="ln">          __2 0 %na=<b class="k">RETURNS</b> ,Compound_of(RESULTS)</td><td class="ln">          __2 0 %na=<b class="k">RETURNS</b> ,Compound_of(RESULTS)</td></tr>
+<tr class="same"><td class="ln">            Graph {</td><td class="ln">            Graph {</td></tr>
+<tr class="same"><td class="ln">            ----NODES----</td><td class="ln">            ----NODES----</td></tr>
+<tr class="same"><td class="ln">            __3 &quot;sum&quot;</td><td class="ln">            __3 &quot;sum&quot;</td></tr>
+<tr class="same"><td class="ln">            __2 REDUCE [|3,0|] [|0|] Portmap[reduce_fn:0;value:1;mask:2]</td><td class="ln">            __2 REDUCE [|3,0|] [|0|] Portmap[reduce_fn:0;value:1;mask:2]</td></tr>
+<tr class="same"><td class="ln">            __1 FINALVALUE [|0|] [|0|]</td><td class="ln">            __1 FINALVALUE [|0|] [|0|]</td></tr>
+<tr class="same"><td class="ln">            <b class="k">BOUNDARY</b> [[(1,0,__ret_1,5);(1,1,__ret_0,4);(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(2,0);(1,0)]]</td><td class="ln">            <b class="k">BOUNDARY</b> [[(1,0,__ret_1,5);(1,1,__ret_0,4);(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(2,0);(1,0)]]</td></tr>
+<tr class="same"><td class="ln">            ----EDGES----</td><td class="ln">            ----EDGES----</td></tr>
+<tr class="same"><td class="ln">            __3:0 -&gt; __2:0 [ID:3 CHARACTER]</td><td class="ln">            __3:0 -&gt; __2:0 [ID:3 CHARACTER]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __0:5 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __0:5 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __0:4 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __0:4 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            GLOBAL-SYM: </td><td class="ln">            GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            LOCAL-SYM: </td><td class="ln">            LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            } 4</td><td class="ln">            } 4</td></tr>
+<tr class="same"><td class="ln">          __1 0 %na=<b class="k">BODY</b> ,Compound_of(<b class="k">BODY</b>)</td><td class="ln">          __1 0 %na=<b class="k">BODY</b> ,Compound_of(<b class="k">BODY</b>)</td></tr>
+<tr class="same"><td class="ln">            Graph {</td><td class="ln">            Graph {</td></tr>
+<tr class="same"><td class="ln">            ----NODES----</td><td class="ln">            ----NODES----</td></tr>
+<tr class="same"><td class="ln">            __5 &quot;False&quot;</td><td class="ln">            __5 &quot;False&quot;</td></tr>
+<tr class="diff"><td class="ln">            __4 ADD [|0,3|] [|0,0,0|] SrcLine (8,48) ,%na=V</td><td class="ln">            __4 ADD [|0,3|] [|0|] SrcLine (8,48) ,%na=W</td></tr>
+<tr class="same"><td class="ln">            __3 &quot;1&quot;</td><td class="ln">            __3 &quot;1&quot;</td></tr>
+<tr class="same"><td class="ln">            __2 ADD [|0,1|] [|0,0,0|] SrcLine (8,33) ,%na=I</td><td class="ln">            __2 ADD [|0,1|] [|0,0,0|] SrcLine (8,33) ,%na=I</td></tr>
+<tr class="same"><td class="ln">            __1 &quot;1&quot;</td><td class="ln">            __1 &quot;1&quot;</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,7);(2,0,V,6);(0,2,OLD W,5);(2,0,OLD V,4);(1,0,OLD I,3);(0,1,OLD CNT,2);(1,0,I,1);(0,0,CNT,0)], [(5,0);(4,0);(2,0);(4,0);(2,0)]]</td><td class="ln">            <b class="k">BOUNDARY</b> [[(0,3,W,5);(0,2,OLD W,4);(1,0,OLD I,3);(0,1,OLD CNT,2);(1,0,I,1);(0,0,CNT,0)], [(5,0);(2,0);(2,0)]]</td></tr>
+<tr class="same"><td class="ln">            ----EDGES----</td><td class="ln">            ----EDGES----</td></tr>
+<tr class="same"><td class="ln">            __5:0 -&gt; __0:6 [ID:1 BOOLEAN]</td><td class="ln">            __5:0 -&gt; __0:4 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">            __4:0 -&gt; __0:5 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            __4:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            __4:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __4:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __3:0 -&gt; __4:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __3:0 -&gt; __4:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:4 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __2:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __1:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __0:4 -&gt; __4:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __0:4 -&gt; __4:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            __0:3 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">            __0:3 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">            GLOBAL-SYM: </td><td class="ln">            GLOBAL-SYM: </td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; V; (__2 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD V; (__2 : 0)</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">            FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; I; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            LOCAL-SYM: </td><td class="ln">            LOCAL-SYM: </td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; W; (__0 : 7)</td><td class="ln">            <b class="k">INTEGRAL</b>; W; (__4 : 0)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; V; (__4 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 4)</td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD W; (__0 : 5)</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">            <b class="k">INTEGRAL</b>; OLD V; (__0 : 4)</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__0 : 3)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD I; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 2)</td><td class="ln">            <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; I; (__2 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; I; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">            <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">            } 6</td><td class="ln">            } 6</td></tr>
+<tr class="same"><td class="ln">          <b class="k">BOUNDARY</b> [[(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(2,1);(2,0)]]</td><td class="ln">          <b class="k">BOUNDARY</b> [[(0,3,W,3);(0,2,OLD W,2);(0,1,OLD CNT,1);(0,0,CNT,0)], [(2,1);(2,0)]]</td></tr>
+<tr class="same"><td class="ln">          ----EDGES----</td><td class="ln">          ----EDGES----</td></tr>
+<tr class="diff"><td class="ln">          __9:0 -&gt; __8:0 [ID:1 BOOLEAN]</td><td class="ln">          __7:0 -&gt; __6:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __9:0 -&gt; __7:0 [ID:1 BOOLEAN]</td><td class="ln">          __7:0 -&gt; __5:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __9:0 -&gt; __6:0 [ID:1 BOOLEAN]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __9:0 -&gt; __5:0 [ID:1 BOOLEAN]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __8:0 -&gt; __3:4 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __8:0 -&gt; __2:5 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __8:0 -&gt; __1:4 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __7:0 -&gt; __3:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __7:0 -&gt; __2:4 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __7:0 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">          __6:0 -&gt; __3:6 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __6:0 -&gt; __3:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="diff"><td class="ln"></td><td class="ln">          __6:0 -&gt; __2:4 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __6:0 -&gt; __1:6 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __6:0 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __5:0 -&gt; __3:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __5:0 -&gt; __3:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __5:0 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __5:0 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="diff"><td class="ln">          __4:4 -&gt; __9:1 [ID:1 BOOLEAN]</td><td class="ln">          __4:4 -&gt; __7:1 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __4:4 -&gt; __9:0 [ID:1 BOOLEAN]</td><td class="ln">          __4:4 -&gt; __7:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __4:3 -&gt; __8:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __4:2 -&gt; __7:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">          __4:1 -&gt; __6:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __4:3 -&gt; __6:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __4:0 -&gt; __5:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __4:2 -&gt; __5:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __2:1 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __2:1 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __2:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __2:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="diff"><td class="ln">          __1:6 -&gt; __9:2 [ID:1 BOOLEAN]</td><td class="ln">          __1:4 -&gt; __7:2 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __1:6 -&gt; __9:0 [ID:1 BOOLEAN]</td><td class="ln">          __1:4 -&gt; __7:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="diff"><td class="ln">          __1:5 -&gt; __8:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="diff"><td class="ln">          __1:4 -&gt; __7:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln"></td></tr>
+<tr class="same"><td class="ln">          __1:3 -&gt; __6:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __1:3 -&gt; __6:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __1:2 -&gt; __5:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __1:2 -&gt; __5:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="diff"><td class="ln"></td><td class="ln">          __1:0 -&gt; __2:5 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:3 -&gt; __4:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:3 -&gt; __4:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:2 -&gt; __4:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:2 -&gt; __4:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:1 -&gt; __4:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:1 -&gt; __4:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:0 -&gt; __4:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:0 -&gt; __4:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:3 -&gt; __3:7 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:3 -&gt; __3:5 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:2 -&gt; __3:5 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:2 -&gt; __3:4 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:1 -&gt; __3:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:1 -&gt; __3:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:0 -&gt; __3:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:0 -&gt; __3:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:3 -&gt; __2:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:3 -&gt; __2:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:2 -&gt; __2:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:2 -&gt; __2:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:1 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:1 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:3 -&gt; __1:7 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:3 -&gt; __1:5 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:2 -&gt; __1:5 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:2 -&gt; __1:4 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:1 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:1 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">          __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">          GLOBAL-SYM: </td><td class="ln">          GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">          <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">          <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">          <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">          FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">          FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">          <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">          LOCAL-SYM: </td><td class="ln">          LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; W; (__0 : 3)</td><td class="ln">          <b class="k">INTEGRAL</b>; W; (__0 : 3)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">          <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">          <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">          <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td><td class="ln">          <b class="k">INTEGRAL</b>; CNT; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">          } 10 __4,__4,__3,__1,__2</td><td class="ln">          } 8 __4,__4,__3,__1,__2</td></tr>
+<tr class="same"><td class="ln">        <b class="k">BOUNDARY</b> [[(2,0,W,3);(2,0,OLD W,2);(1,0,OLD CNT,1);(1,0,CNT,0)], [(3,0);(1,1);(1,0);(1,1);(1,0)]]</td><td class="ln">        <b class="k">BOUNDARY</b> [[(2,0,W,3);(2,0,OLD W,2);(1,0,OLD CNT,1);(1,0,CNT,0)], [(3,0);(1,1);(1,0);(1,1);(1,0)]]</td></tr>
+<tr class="same"><td class="ln">        ----EDGES----</td><td class="ln">        ----EDGES----</td></tr>
+<tr class="same"><td class="ln">        __3:0 -&gt; __0:6 [ID:1 BOOLEAN]</td><td class="ln">        __3:0 -&gt; __0:6 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">        __1:1 -&gt; __0:5 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:1 -&gt; __0:5 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:1 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:1 -&gt; __0:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:1 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:1 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:4 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:4 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __1:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __1:0 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:3 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:3 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:2 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:2 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:1 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:1 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">        __0:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">        GLOBAL-SYM: </td><td class="ln">        GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__2 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">        FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        LOCAL-SYM: </td><td class="ln">        LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; W; (__1 : 1)</td><td class="ln">        <b class="k">INTEGRAL</b>; W; (__1 : 1)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD W; (__0 : 2)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td><td class="ln">        <b class="k">INTEGRAL</b>; OLD CNT; (__0 : 1)</td></tr>
+<tr class="same"><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td><td class="ln">        <b class="k">INTEGRAL</b>; CNT; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">        } 4</td><td class="ln">        } 4</td></tr>
+<tr class="same"><td class="ln">      <b class="k">BOUNDARY</b> [[], [(2,1);(2,0)]]</td><td class="ln">      <b class="k">BOUNDARY</b> [[], [(2,1);(2,0)]]</td></tr>
+<tr class="same"><td class="ln">      ----EDGES----</td><td class="ln">      ----EDGES----</td></tr>
+<tr class="same"><td class="ln">      __9:0 -&gt; __8:0 [ID:1 BOOLEAN]</td><td class="ln">      __9:0 -&gt; __8:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __9:0 -&gt; __7:0 [ID:1 BOOLEAN]</td><td class="ln">      __9:0 -&gt; __7:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __9:0 -&gt; __6:0 [ID:1 BOOLEAN]</td><td class="ln">      __9:0 -&gt; __6:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __9:0 -&gt; __5:0 [ID:1 BOOLEAN]</td><td class="ln">      __9:0 -&gt; __5:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __8:0 -&gt; __3:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __8:0 -&gt; __3:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __8:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __8:0 -&gt; __2:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __8:0 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __8:0 -&gt; __1:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __7:0 -&gt; __3:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __7:0 -&gt; __3:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __7:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __7:0 -&gt; __2:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __7:0 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __7:0 -&gt; __1:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __6:0 -&gt; __3:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __6:0 -&gt; __3:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __6:0 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __6:0 -&gt; __1:3 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __5:0 -&gt; __3:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __5:0 -&gt; __3:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __5:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __5:0 -&gt; __1:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __4:4 -&gt; __9:1 [ID:1 BOOLEAN]</td><td class="ln">      __4:4 -&gt; __9:1 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __4:4 -&gt; __9:0 [ID:1 BOOLEAN]</td><td class="ln">      __4:4 -&gt; __9:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __4:3 -&gt; __8:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __4:3 -&gt; __8:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __4:2 -&gt; __7:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __4:2 -&gt; __7:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __4:1 -&gt; __6:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __4:1 -&gt; __6:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __4:0 -&gt; __5:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __4:0 -&gt; __5:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __2:1 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __2:1 -&gt; __0:1 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __2:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __2:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __1:6 -&gt; __9:2 [ID:1 BOOLEAN]</td><td class="ln">      __1:6 -&gt; __9:2 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __1:6 -&gt; __9:0 [ID:1 BOOLEAN]</td><td class="ln">      __1:6 -&gt; __9:0 [ID:1 BOOLEAN]</td></tr>
+<tr class="same"><td class="ln">      __1:5 -&gt; __8:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __1:5 -&gt; __8:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __1:4 -&gt; __7:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __1:4 -&gt; __7:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __1:3 -&gt; __6:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __1:3 -&gt; __6:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      __1:2 -&gt; __5:2 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">      __1:2 -&gt; __5:2 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">      GLOBAL-SYM: </td><td class="ln">      GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">      FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">      FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">      } 10 __4,__4,__3,__1,__2</td><td class="ln">      } 10 __4,__4,__3,__1,__2</td></tr>
+<tr class="same"><td class="ln">    <b class="k">BOUNDARY</b> [[], []]</td><td class="ln">    <b class="k">BOUNDARY</b> [[], []]</td></tr>
+<tr class="same"><td class="ln">    ----EDGES----</td><td class="ln">    ----EDGES----</td></tr>
+<tr class="same"><td class="ln">    __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">    __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">    GLOBAL-SYM: </td><td class="ln">    GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">    FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">    FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">    LOCAL-SYM: </td><td class="ln">    LOCAL-SYM: </td></tr>
+<tr class="same"><td class="ln">    <b class="k">INTEGRAL</b>; X; (__1 : 1)</td><td class="ln">    <b class="k">INTEGRAL</b>; X; (__1 : 1)</td></tr>
+<tr class="same"><td class="ln">    <b class="k">INTEGRAL</b>; C; (__1 : 0)</td><td class="ln">    <b class="k">INTEGRAL</b>; C; (__1 : 0)</td></tr>
+<tr class="same"><td class="ln">    } 4</td><td class="ln">    } 4</td></tr>
+<tr class="same"><td class="ln">  <b class="k">BOUNDARY</b> [[], []]</td><td class="ln">  <b class="k">BOUNDARY</b> [[], []]</td></tr>
+<tr class="same"><td class="ln">  ----EDGES----</td><td class="ln">  ----EDGES----</td></tr>
+<tr class="same"><td class="ln">  __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td><td class="ln">  __1:0 -&gt; __0:0 [ID:6 <b class="k">INTEGRAL</b>]</td></tr>
+<tr class="same"><td class="ln">  GLOBAL-SYM: </td><td class="ln">  GLOBAL-SYM: </td></tr>
+<tr class="same"><td class="ln">  FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td><td class="ln">  FUNCTION  () <b class="k">RETURNS</b> (<b class="k">INTEGRAL</b>); MAIN; (__0 : 0)</td></tr>
+<tr class="same"><td class="ln">  } 4</td><td class="ln">  } 4</td></tr>
+<tr class="same"><td class="ln"><b class="k">BOUNDARY</b> [[], []]</td><td class="ln"><b class="k">BOUNDARY</b> [[], []]</td></tr>
+<tr class="same"><td class="ln">} 2</td><td class="ln">} 2</td></tr>
+</table></div>
+
+<h2>Reproduce</h2>
+<pre>sisal test/e2e/bug_nested_init_carry.sis --if1=/tmp/shadowed.if1 --debug=2
+# then rename the inner accumulators and diff the two IF1 files</pre>
