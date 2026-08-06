@@ -1,0 +1,59 @@
+% SCATTER WHOSE SOURCE IS AN EXPRESSION, NOT A NAME.
+%
+% `for t in T[1,..] at i ...` emitted C++ that did not compile: the generator's
+% boundary-input relay was assigned but never declared.
+%
+%     (v_GENERATOR_..._n__0_p0_o = v_FORALL_..._n__0_p0_o);   % no declaration
+%     error: use of undeclared identifier 'v_GENERATOR_..._n__0_p0_o'
+%
+% Only an EXPRESSION source was affected.  A scatter over a plain name resolves
+% straight to the parent variable and needs no relay at all, so the whole corpus
+% -- which always scattered over names -- never touched it.  The two declaration
+% passes cover symbol-table values and the LOOP's own boundary; an anonymous
+% generator port is in neither, so relay_copyins now declares it when nothing
+% else has.
+%
+% ssphot's Interp is what hit this: it brackets a temperature grid with
+% `for temp in t[ityp] at i`, scattering over a row of a rank-2 table.
+%
+% Checked here in the forms that matter: a bare row, a row feeding masked
+% reductions (the bracket pair), a nested-loop row that changes per iteration,
+% and -- as a control -- the same thing bound to a name first, which always
+% worked and must still agree.
+
+define Main
+
+type Doubles = array_dv [double];
+type Ints    = array_dv [integer];
+
+function Main (returns Ints, Ints, Ints, Ints)
+   let
+      T := for i in 1, 3 returns array_dv of
+              for j in 1, 6 returns array_dv of double_real(i * 100 + j * 10)
+              end for
+           end for;
+
+      % (a) scatter directly over a row expression
+      a := for t in T[2, ..] at i returns array_dv of i * integer(t) end for;
+
+      % (b) the same, bound to a name first -- the spelling that always worked
+      Row := T[2, ..];
+      b := for t in Row at i returns array_dv of i * integer(t) end for;
+
+      % (c) an expression source feeding two MASKED reductions -- ssphot's
+      %     bracket pair, where `unless (~p)` is `when p`
+      lo, hi := for t in T[1, ..] at i
+                   ub := (135.0d0 <= t);
+                returns value of least    i unless (~ ub)
+                        value of greatest i unless ub
+                end for;
+
+      % (d) the row varies per outer iteration, so the relay is not loop-invariant
+      d := for r in 1, 3
+              s := for t in T[r, ..] at i returns value of sum integer(t) end for;
+           returns array_dv of s
+           end for
+   in
+      a, b, array_dv Ints [1: lo, hi], d
+   end let
+end function

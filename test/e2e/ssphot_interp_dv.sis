@@ -19,18 +19,13 @@
 % unless ubound` the largest strictly below.  They are a bracket, and reading
 % the double negative correctly matters -- `unless (~p)` is `when p`.
 %
-% ONE COMPILER BUG WORKED AROUND, deliberately and not silently.  The original
-% scatters over an inline expression, `for temp in t[ityp] at i`.  That emits
-% C++ referencing an UNDECLARED generator relay temp:
-%
-%     (v_GENERATOR_..._n__0_p0_o = ...);        % never declared
-%     error: use of undeclared identifier 'v_GENERATOR_..._n__0_p0_o'
-%
-% Binding the row to a name first compiles and is what this file does (TRow).
-% A scatter over a plain rank-1 NAME has always been fine, masked or not -- only
-% an inline expression source breaks, because with a name the scatter resolves
-% straight to the parent variable and no relay temp exists.  The bug is real and
-% still open; it is not fixed here because a working spelling exists.
+% The scatter source here is an inline EXPRESSION -- `for temp in t[ityp, ..] at
+% i`, exactly as the original writes it.  That used to emit C++ referencing an
+% undeclared generator relay temp (the boundary port was assigned but never
+% declared, since neither decl pass covers an anonymous generator port).  A
+% scatter over a plain NAME was always fine, because it resolves straight to the
+% parent variable and needs no relay at all.  Fixed in relay_copyins, so the
+% faithful spelling is what this file uses; xfa_scatter_expr_dv pins it.
 %
 % ARRAY MAPPING: `aaaareal = array[array[array[array[double_real]]]]` becomes a
 % FLAT rank-4 array_dv, indexed x[id, it, ie, mtl].  `aareal` -> flat rank 2,
@@ -46,7 +41,8 @@ type materialrec = record [ mtl : integer; atrat, dns, tmp : double;
 type Doubles = array_dv [double];    % rank 1, 2 or 4 depending on use
 type Ints    = array_dv [integer];
 
-% bracket `target` in a monotonically increasing grid row
+% bracket `target` in a monotonically increasing grid row.  Kept only so Main
+% can report the indices; Interp itself scatters inline, as the original does.
 function Bracket (Row : Doubles; target : double returns integer, integer)
    for temp in Row at i
       ubound := (target <= temp);
@@ -63,15 +59,24 @@ function Interp (matl : materialrec; x : Doubles; t : Doubles; d : Doubles
       % materials 2 and 4 index the second temperature grid
       ityp := if (matl.mtl = 2) | (matl.mtl = 4) then 2 else 1 end if;
 
-      % `for temp in t[ityp] at i` cannot be written inline -- see the header
-      TRow := t[ityp, ..];
-      itmax, itmin := Bracket(TRow, matl.tmp);
+      % the original's spelling: scatter straight over the grid row
+      itmax, itmin := for temp in t[ityp, ..] at i
+                         ubound := (matl.tmp <= temp);
+                      returns
+                         value of least    i unless (~ ubound)
+                         value of greatest i unless ubound
+                      end for;
 
       tmin := t[ityp, itmin];
       tmax := t[ityp, itmax];
       trat := (matl.tmp - tmin) / (tmax - tmin);
 
-      idmax, idmin := Bracket(d, matl.dns);
+      idmax, idmin := for dns in d at i
+                         ubound := (matl.dns <= dns);
+                      returns
+                         value of least    i unless (~ ubound)
+                         value of greatest i unless ubound
+                      end for;
       dmin := d[idmin];
       dmax := d[idmax];
       drat := (matl.dns - dmin) / (dmax - dmin)

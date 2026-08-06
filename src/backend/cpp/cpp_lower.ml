@@ -4211,7 +4211,22 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
               let dst =
                 get_c_name env.proc_map env.gid_name_map ggid 0 k `Out g
               in
-              acc @ [ C.Expr (C.BinOp (C.Assign, C.Id dst, parent_expr)) ]
+              (* Declare the relay when nothing else has.  The decl passes above
+                 cover symbol-table values and the LOOP's own boundary; a
+                 generator boundary port that is an anonymous temp is in
+                 neither, so an assignment to it referenced a name that was
+                 never declared.  That is only reachable when the scatter source
+                 is an EXPRESSION -- `for t in T[1,..] at i` -- because a plain
+                 name resolves straight to the parent variable and needs no
+                 relay at all.  var_map records what has been declared. *)
+              let stmt =
+                if FullPortMap.mem (ggid, 0, k, `Out) env_loop.var_map then
+                  C.Expr (C.BinOp (C.Assign, C.Id dst, parent_expr))
+                else
+                  C.Decl
+                    (get_final_ty env_loop ggid 0 k `Out, dst, Some parent_expr)
+              in
+              acc @ [ stmt ]
           | None -> acc)
         in_ports []
     in
