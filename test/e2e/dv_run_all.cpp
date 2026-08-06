@@ -462,7 +462,7 @@ struct mn_ens { float tout, step, err; int32_t size; mn_pos pos; mn_vel vel;
                 sisal_array_t types; };
 struct mn_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
                 float dt, endt, tol; };
-struct MN_results { sisal_array_t neighbors, ncount; };
+struct MN_results { sisal_array_t neighbors, ncount, scan; };
 extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 #endif
 #ifdef TEST_GATHER_CONFORM_DV
@@ -11543,7 +11543,20 @@ static int mn_case(const float* px, const float* py, const float* pz, const char
   check(msg, okc);
   snprintf(msg, sizeof msg, "%s: padded rows == mirror, zero-filled past the count", tag);
   check(msg, okr);
-  return okc && okr;
+  // The rows above are built the NATURAL way -- `N_LIST || Zeros(MaxN - size)`
+  // -- which used to be unwritable here: an empty pad on the FIRST row left
+  // the gather reporting dims[1] = true_length + 1, so every later row was
+  // read at the wrong offset.  NEIGHBORS_SCAN builds the identical rectangle
+  // by an independent search (Kth_Neighbor), so the two spellings have to
+  // agree element for element -- a regression in either shows as a
+  // disagreement rather than as a plausible wrong answer.
+  int oks = r.scan.rank == 2 && (int)r.scan.dims[0] == NP
+            && (int)r.scan.dims[1] == MaxN && (int)r.scan.size == NP * MaxN;
+  for (int i = 0; oks && i < NP * MaxN; i++)
+    if (((int32_t*)r.scan.data)[i] != ((int32_t*)r.neighbors.data)[i]) oks = 0;
+  snprintf(msg, sizeof msg, "%s: `|| Zeros(..)` rows == independent scan", tag);
+  check(msg, oks);
+  return okc && okr && oks;
 }
 static void test_moldyn_neighbors_dv(void) {
   printf("\n=== Group: moldyn_neighbors_dv (building the ragged lists) ===\n");

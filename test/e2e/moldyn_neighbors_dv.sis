@@ -15,28 +15,26 @@
 % treatment GenLinks' layers got.
 %
 % HOW THE PADDED ROW IS BUILT.  The obvious spelling -- take the packed row and
-% append zeros, `N_LIST || Zeros(MaxN - array_size(N_LIST))` -- is avoided on
-% purpose.  It hits a compiler bug in the FORALL gather's inner-extent
-% derivation: when the FIRST row's right operand is empty (a particle with the
-% maximum number of neighbours, so no padding), the result reports
-% dims[1] = true_length + 1.  The DATA and size are correct -- the rows are
-% packed properly -- so nothing is corrupted, but any consumer that indexes by
-% dims[1], as this test's harness does, reads every later row at the wrong
-% offset.
+% append zeros, `N_LIST || Zeros(MaxN - array_size(N_LIST))` -- is what this
+% file now uses.  It used to be unwritable: appending an EMPTY array bumped
+% dims[0] by a phantom row while size grew by nothing, so a particle with the
+% maximum number of neighbours (no padding needed) left the enclosing gather
+% reporting dims[1] = true_length + 1, and every later row was then read at the
+% wrong offset.  The data was packed correctly throughout -- only the
+% descriptor lied -- which is why it went unnoticed until a consumer indexed by
+% dims[1].
 %
-% The bug is narrow, which is why `||` inside a gather is used elsewhere
-% without trouble:
-%   - only a FORALL gather is affected; the for-initial gather derives the
-%     extent correctly in the same situation.
-%   - only the FIRST row matters.  An empty pad in any later row is fine, an
-%     empty LEFT operand is fine, and `a || empty` outside a gather is fine.
-%   - non-empty operands are fine throughout, which is why kin16_dv's
-%     `array_dv of (singleton(..) || Vc)` has always worked.
+% That is fixed in the runtime: `a || empty` is the identity, and `||` now
+% requires its operands to conform along every axis but the one being extended,
+% as numpy's concatenate does.  This file is the benchmark-scale exercise of
+% that fix -- case B below gives every particle the maximum neighbour count, so
+% EVERY pad is empty, and case A makes only the first row full.
 %
-% Sizing MaxN so the pad is never empty would dodge it, but only by depending
-% on the data, so the row is instead built directly: slot K holds the K-th
-% qualifying particle, found by a scan, or 0 when the particle has fewer than
-% K neighbours.
+% The scan that used to build the rectangle (Kth_Neighbor, slot K holds the
+% K-th qualifying particle) is kept as NEIGHBORS_SCAN.  Two independent
+% spellings of the same rectangle must agree element for element, so a
+% regression in either shows up as a disagreement rather than as a plausible
+% wrong answer.
 
 define Main
 
@@ -120,6 +118,10 @@ function Get_Neighbors (PARTICLE : integer;
    end for
 end function
 
+function Zeros (N : integer returns Ints)
+   for K in 1, N returns array_dv of 0 end for
+end function
+
 % the K-th qualifying particle for PARTICLE, or 0 if it has fewer than K
 function Kth_Neighbor (PARTICLE, K : integer;
                        ENSEMBLE : ENSEMBLE_STATE_REC;
@@ -144,12 +146,22 @@ end function
 % case, plus NCOUNT giving each row's valid extent
 function Get_Neighbor_Lists (ENSEMBLE : ENSEMBLE_STATE_REC;
                              PROBLEM_DATA : PROBLEM_DATA_REC
-                            returns Ints, Ints)
+                            returns Ints, Ints, Ints)
    let
       NP := ENSEMBLE.ENSEMBLE_SIZE;
       MaxN := NP - 1;        % a particle can neighbour every other one
 
+      % THE NATURAL SPELLING: take the packed row and append zeros.  This is
+      % what the bug used to make unwritable.
       NEIGHBORS :=
+         for PARTICLE in 1, NP
+            N_LIST := Get_Neighbors( PARTICLE, ENSEMBLE, PROBLEM_DATA );
+         returns
+            array_dv of N_LIST || Zeros( MaxN - array_size( N_LIST ) )
+         end for;
+
+      % the same rectangle built by an independent scan, kept as a cross-check
+      NEIGHBORS_SCAN :=
          for PARTICLE in 1, NP cross
              K in 1, MaxN
          returns
@@ -165,7 +177,7 @@ function Get_Neighbor_Lists (ENSEMBLE : ENSEMBLE_STATE_REC;
             array_dv of array_size( N_LIST )
          end for;
    in
-      NEIGHBORS, NCOUNT
+      NEIGHBORS, NCOUNT, NEIGHBORS_SCAN
    end let
 end function
 
@@ -173,6 +185,7 @@ function Main (ENSEMBLE : ENSEMBLE_STATE_REC;
                PROBLEM_DATA : PROBLEM_DATA_REC
               returns
                Ints,        % NEIGHBORS, rank 2: particle x padded slot
-               Ints)        % NCOUNT, neighbours per particle
+               Ints,        % NCOUNT, neighbours per particle
+               Ints)        % the same rectangle via an independent scan
    Get_Neighbor_Lists( ENSEMBLE, PROBLEM_DATA )
 end function
