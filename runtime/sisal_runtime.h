@@ -732,7 +732,59 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
        was then read at the wrong stride.) */
     if (b.data == NULL || b.size == 0) return a;
     size_t esz = sisal_esz(a);
-    int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
+    /* Appending TO an empty accumulator adopts B's shape.  An empty descriptor
+       (from a zero-trip loop) carries no usable dims, so inheriting A's
+       trailing dims here would manufacture a bogus rectangle -- `empty || row`
+       used to come back rank 2, dims 1 x 0, size 5.  A SLAB is promoted to one
+       row; a STACK is taken as is. */
+    if (a.data == NULL || a.size == 0) {
+        sisal_array_t res = sisal_array_alloc_sized(
+            (b.rank == a.rank - 1) ? a.rank : b.rank, b.type_id, b.size, sisal_esz(b));
+        if (b.rank == a.rank - 1) {
+            res.dims[0] = 1; res.lower_bound[0] = 0;
+            for (int k = 0; k < (int)b.rank; k++) {
+                res.dims[k + 1] = b.dims[k]; res.lower_bound[k + 1] = b.lower_bound[k];
+            }
+        } else {
+            for (int k = 0; k < (int)b.rank; k++) {
+                res.dims[k] = b.dims[k]; res.lower_bound[k] = b.lower_bound[k];
+            }
+        }
+        memcpy(res.data, b.data, (size_t)b.size * sisal_esz(b));
+        return res;
+    }
+    /* B must CONFORM: same rank (a stack of rows) or exactly one less (a single
+       row), and every dimension except the one being extended must match.  This
+       is numpy's rule for concatenate along axis 0 -- "all the input array
+       dimensions except for the concatenation axis must match exactly".
+       Without it a mismatch is silent and produces a descriptor whose dims
+       disagree with its own size: a 3 x 5 with a 3-wide row appended reported
+       dims 4 x 5 (20 slots) while size stayed 18, so the last row read two
+       elements past the end of the buffer. */
+    int nd = (int)a.rank, bd = (int)b.rank;
+    int64_t trailing = 1;
+    for (int k = 1; k < nd; k++) trailing *= a.dims[k];
+    int conform = (bd == nd || bd == nd - 1);
+    for (int k = 1; conform && k < nd; k++)
+        if ((bd == nd ? b.dims[k] : b.dims[k - 1]) != a.dims[k]) conform = 0;
+    int64_t add_rows = (bd == nd) ? b.dims[0] : 1;
+    if (conform && (int64_t)b.size != add_rows * trailing) conform = 0;
+    if (!conform) {
+        fprintf(stderr, "SISAL runtime error: `||` operands do not conform. "
+                        "Appending along the first axis needs every other "
+                        "dimension to match: left is rank %d, dims [", nd);
+        for (int k = 0; k < nd; k++) fprintf(stderr, "%s%lld", k ? " x " : "", (long long)a.dims[k]);
+        fprintf(stderr, "]; right is rank %d, dims [", bd);
+        for (int k = 0; k < bd; k++) fprintf(stderr, "%s%lld", k ? " x " : "", (long long)b.dims[k]);
+        fprintf(stderr, "]. The right operand must be one row (rank %d, dims [", nd - 1);
+        for (int k = 1; k < nd; k++) fprintf(stderr, "%s%lld", k > 1 ? " x " : "", (long long)a.dims[k]);
+        fprintf(stderr, "]) or a stack of them (rank %d, dims [n", nd);
+        for (int k = 1; k < nd; k++) fprintf(stderr, " x %lld", (long long)a.dims[k]);
+        fprintf(stderr, "]). To hold rows of differing widths, pad them to a "
+                        "common width and carry the extents, or use a list of "
+                        "array_dv.\n");
+        abort();
+    }
     int64_t b_elems = (int64_t)b.size;
     sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size + (uint64_t)b_elems, sisal_esz(a));
     res.lower_bound[0] = a.lower_bound[0];
