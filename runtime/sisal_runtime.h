@@ -722,6 +722,15 @@ inline sisal_array_t sisal_array_addh_val(sisal_array_t a, T val) {
    dim grows by b.dims[0].  Trailing dims are inherited from A; data is A's flat buffer
    with B's flat buffer appended.  (Numpy `concatenate`-along-axis-0 semantics.) */
 inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
+    /* Appending an EMPTY array is the identity.  Without this the add_rows
+       fallback below reads b.dims[0] == 0 and substitutes 1, bumping dims[0]
+       by a phantom row while size grows by nothing -- leaving a descriptor
+       whose dims disagree with its own size.  sisal_array_catenate guards this
+       one level up, but `||` lowers straight to addh_arr, so the guard has to
+       live here too.  (Symptom: a rank-2 gather of `a || b` rows reported
+       dims[1] = width+1 when the first row's b was empty, and every later row
+       was then read at the wrong stride.) */
+    if (b.data == NULL || b.size == 0) return a;
     size_t esz = sisal_esz(a);
     int64_t add_rows = (b.rank == a.rank) ? (b.dims[0] > 0 ? b.dims[0] : 1) : 1;
     int64_t b_elems = (int64_t)b.size;
@@ -824,15 +833,47 @@ inline sisal_array_t sisal_array_gather_store(
     
     uint64_t fsz = *first_size;
     size_t esz = sisal_esz(val);
-    
-    if (val.size == fsz) {
-        if (val.size > 0) {
-            memcpy((char*)acc.data + (uint64_t)gctr * fsz * esz, val.data, val.size * esz);
-        }
-        return acc;
-    } else {
-        return acc;
+
+    /* CONFORMITY.  A gather is a stack: it adds one leading axis and every
+       element must have the same shape, exactly as numpy's np.stack requires
+       ("all input arrays must have the same shape").  The first element fixed
+       the trailing dims (above); check each later one against them, per
+       dimension rather than by total size alone.  A mismatch used to be
+       silently dropped -- the element simply vanished from the result -- which
+       is the worst of the three options.  Ragged data has no dope-vector
+       shape: pad the rows to a common width and carry the true extents
+       alongside, or keep a list of array_dv. */
+    int conform = ((int)val.rank == (int)acc.rank - loop_rank);
+    for (int k = 0; conform && k < (int)val.rank; k++) {
+        if (val.dims[k] != acc.dims[loop_rank + k]) conform = 0;
     }
+    if (!conform || val.size != fsz) {
+        fprintf(stderr,
+                "SISAL runtime error: gather element %d does not conform. "
+                "A gather stacks elements of identical shape; element 0 had "
+                "size %llu, element %d has size %llu",
+                gctr, (unsigned long long)fsz, gctr,
+                (unsigned long long)val.size);
+        if ((int)val.rank == (int)acc.rank - loop_rank) {
+            fprintf(stderr, " (dims");
+            for (int k = 0; k < (int)val.rank; k++)
+                fprintf(stderr, " %lld vs %lld",
+                        (long long)val.dims[k],
+                        (long long)acc.dims[loop_rank + k]);
+            fprintf(stderr, ")");
+        } else {
+            fprintf(stderr, " (rank %d vs %d)",
+                    (int)val.rank, (int)acc.rank - loop_rank);
+        }
+        fprintf(stderr, ".\nRagged data has no array_dv shape: pad the rows to a "
+                        "common width and carry the extents alongside, or use a "
+                        "list of array_dv.\n");
+        abort();
+    }
+    if (val.size > 0) {
+        memcpy((char*)acc.data + (uint64_t)gctr * fsz * esz, val.data, val.size * esz);
+    }
+    return acc;
 }
 
 

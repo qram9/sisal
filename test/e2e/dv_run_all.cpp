@@ -465,6 +465,10 @@ struct mn_pd  { int32_t nt; sisal_array_t A1, B1, Re, Rc, ALFA, C0, MASS;
 struct MN_results { sisal_array_t neighbors, ncount; };
 extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 #endif
+#ifdef TEST_GATHER_CONFORM_DV
+struct GC_results { sisal_array_t rows, lens, last; };
+extern "C" struct GC_results func_MAIN(int32_t m);
+#endif
 #ifdef TEST_MOLDYN_DV
 struct mdy_posr { sisal_array_t X, Y, Z; };
 struct mdy_velr { sisal_array_t VX, VY, VZ; };
@@ -11363,6 +11367,54 @@ static void test_moldyn_dv(void) {
   check("ENSEMBLE_SIZE survived every step", r.e.size==MDY_NP);
 }
 #endif
+#ifdef TEST_GATHER_CONFORM_DV
+// `packed || Zeros(width - array_size(packed))` -- the natural way to pad a
+// masked (compacted) row out to a rectangle, which is the standard move for
+// carrying a ragged structure as dense-plus-counts.
+//
+// It used to produce a MALFORMED result whenever the FIRST row needed no
+// padding: dims came back 3 x 6 while size was 15 (3 rows of 5), so dims and
+// size disagreed and every row after the first was read at the wrong stride.
+// The cause was `||` itself, not the gather: appending an EMPTY array bumped
+// dims[0] by a phantom row (the add_rows fallback reads b.dims[0] == 0 and
+// substitutes 1) while size grew by nothing.  The gather faithfully copied the
+// inconsistent descriptor it was handed.
+//
+// A gather is a STACK: one new leading axis, every element the same shape, as
+// numpy's np.stack requires.  A non-conforming element is now a loud runtime
+// error naming the shapes rather than being silently dropped -- not exercised
+// here, since it aborts.
+//
+// Both orders are covered: FIRST row full (the case that broke) and LAST row
+// full (which always worked), so a fix that merely moved the problem would
+// show.
+static void test_gather_conform_dv(void) {
+  printf("\n=== Group: gather_conform_dv (|| padding; gather is a stack) ===\n");
+  GC_results r = func_MAIN(5);
+  // survivors 5,4,3 -> pads 0,1,2 -> rows all 5 long, FIRST needs no pad
+  int want_first[3][5] = {{1,2,3,4,5},{1,2,3,4,0},{1,2,3,0,0}};
+  // survivors 3,4,5 -> pads 2,1,0 -> rows all 5 long, LAST needs no pad
+  int want_last[3][5]  = {{1,2,3,0,0},{1,2,3,4,0},{1,2,3,4,5}};
+  check("padded rows are rank-2 with dims consistent with size",
+        r.rows.rank == 2 && (int)r.rows.dims[0] == 3
+        && (int)r.rows.dims[1] == 5
+        && (int)r.rows.size == (int)r.rows.dims[0] * (int)r.rows.dims[1]);
+  int oklen = (int)r.lens.size == 3;
+  for (int i = 0; oklen && i < 3; i++)
+    if (((int32_t*)r.lens.data)[i] != 5) oklen = 0;
+  check("`a || Zeros(0)` reports length 5, not 6 (no phantom row)", oklen);
+  int okf = (int)r.rows.dims[1] == 5;
+  for (int p = 0; okf && p < 3; p++)
+    for (int k = 0; k < 5; k++)
+      if (((int32_t*)r.rows.data)[p*5+k] != want_first[p][k]) okf = 0;
+  check("rows read at dims[1] are correct when the FIRST needs no pad", okf);
+  int okl = r.last.rank == 2 && (int)r.last.dims[1] == 5;
+  for (int p = 0; okl && p < 3; p++)
+    for (int k = 0; k < 5; k++)
+      if (((int32_t*)r.last.data)[p*5+k] != want_last[p][k]) okl = 0;
+  check("rows are correct when the LAST needs no pad (always worked)", okl);
+}
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
 // moldyn's Get_Neighbor_Lists / Get_Neighbors / Separation -- what BUILDS the
 // ragged neighbour structure moldyn_force_dv consumes.
@@ -13026,6 +13078,9 @@ main (void)
 #ifdef TEST_MOLDYN_DV
   test_moldyn_dv ();
 #endif
+#ifdef TEST_GATHER_CONFORM_DV
+  test_gather_conform_dv ();
+#endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV
   test_moldyn_neighbors_dv ();
 #endif
@@ -13207,7 +13262,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

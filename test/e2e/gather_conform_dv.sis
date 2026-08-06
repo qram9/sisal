@@ -1,0 +1,58 @@
+% PADDING A COMPACTED ROW WITH `||`, AND GATHER CONFORMITY.
+%
+% `packed || Zeros(width - array_size(packed))` is the natural way to pad a
+% masked (compacted) row out to a rectangle -- the standard move for carrying a
+% ragged structure as dense-plus-counts.  It used to produce a MALFORMED result
+% whenever the first row needed no padding at all:
+%
+%   dims = 3 x 6   but   size = 15   (3 rows of 5)
+%
+% dims and size disagreeing, and every row after the first then read at the
+% wrong stride.  The cause was in `||` itself, not the gather: appending an
+% EMPTY array bumped dims[0] by a phantom row (the add_rows fallback reads
+% b.dims[0] == 0 and substitutes 1) while size grew by nothing.  The gather
+% faithfully copied the inconsistent descriptor it was handed.
+%
+% A gather is a STACK -- it adds one leading axis and every element must have
+% the same shape, as numpy's np.stack requires -- so a non-conforming element
+% is now a loud runtime error naming the offending shapes, where before it was
+% silently dropped from the result.  (Not exercised here: it aborts.)
+%
+% The rows below are 5, 5, 5 by construction, with the FIRST needing no pad --
+% the case that used to break.
+
+define Main
+
+type Ints = array_dv [integer];
+
+function Zeros (N : integer returns Ints)
+   for K in 1, N returns array_dv of 0 end for
+end function
+
+function Main (M : integer
+              returns
+               Ints,      % padded rows, rank 2
+               Ints,      % the length of each row as `||` reports it
+               Ints)      % rows where the LAST needs no pad (always worked)
+   let
+      first_full :=
+         for P in 1, 3
+            a := for K in 1, 5 returns array_dv of K when K <= 6-P end for;
+         returns array_dv of a || Zeros( M - array_size(a) )
+         end for;
+
+      lens :=
+         for P in 1, 3
+            a := for K in 1, 5 returns array_dv of K when K <= 6-P end for;
+         returns array_dv of array_size( a || Zeros( M - array_size(a) ) )
+         end for;
+
+      last_full :=
+         for P in 1, 3
+            a := for K in 1, 5 returns array_dv of K when K <= P + 2 end for;
+         returns array_dv of a || Zeros( M - array_size(a) )
+         end for;
+   in
+      first_full, lens, last_full
+   end let
+end function
