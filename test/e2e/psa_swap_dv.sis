@@ -1,0 +1,241 @@
+% PSA_SWAP -- psa's move selection: pick a lesson and a destination period at
+% random, price the move, and let the Boltzmann criterion accept or reject it.
+% Layer 3 of the port, on top of psa_rng_dv (the generator) and psa_cost_dv
+% (the padded schedule and the cost functions).
+%
+% This is where the for-initial loops with no derivable trip count actually
+% live, the ones that made psa uncompilable:
+%
+%     while array_size(schedule[from]) = 0 ...   -- keep drawing until non-empty
+%     while to = from ...                        -- keep drawing until different
+%
+% Neither is `i <op> bound`, so neither could be sized in advance.  They are
+% rejection sampling: the count is not merely unknown, it is unbounded in
+% principle.  Both are FinalValue loops (`returns value of`), so they never
+% needed a preallocated gather -- but the gather's trip-count derivation ran
+% regardless and rejected the whole program.
+%
+% THE SCHEDULE, as psa_cost_dv established: a padded rank-2 array_dv (periods x
+% capacity) plus PSIZE giving each period's live length.  So the original's
+% `array_size(schedule[from])` becomes `PSize[from]` -- reading the row would
+% give the capacity, which for an empty period is emphatically not 0 and would
+% break the rejection loop's exit condition.
+%
+% Expected values are OSC 13.0.3's (~/work/oldsisal), seed 12345, T = 1.0:
+%     Get_Swap   -> From 1, To 3, Index 2, Ea 2, Er 0, moving Subject 2
+%     next seed  -> [125 3914 1591 2084]
+%     Get_Swap_P -> rejects (success 0), returning the zero swap
+%     Boltzmann(seed, delta 2, T 1) -> accept
+
+define Main
+
+type T        = record [ Class, Subject, Teacher, Room, Frequency : integer ];
+type Swap     = record [ Tuple : T; From, To, Index, Ea, Er : integer ];
+type Period   = array_dv [T];
+type Sched    = array_dv [T];        % rank 2: periods x capacity
+type Ints     = array_dv [integer];
+type fourplex = array_dv [integer];  % 4 limbs, 0-based
+
+function ranf_odd (n : integer returns integer)
+   if mod(n, 2) = 0 then 0 else 1 end if
+end function
+
+function ranf_mod_mult (a, b : fourplex returns fourplex)
+   let
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array_dv fourplex [0: mod(k0,4096), mod(k1,4096), mod(k2,4096), mod(k3,4096)]
+   end let
+end function
+
+function ranf (seed : fourplex returns double, fourplex)
+   double_real(seed[3]) / 4096.0d0 +
+   double_real(seed[2]) / 16777216.0d0 +
+   double_real(seed[1]) / 68719476736.0d0 +
+   double_real(seed[0]) / 281474976710656.0d0,
+
+   ranf_mod_mult(array_dv fourplex [0: 373, 3707, 1442, 647], seed)
+end function
+
+function MkT (i : integer returns T)
+   record T [ Class : mod(i,3)+1; Subject : i; Teacher : mod(i,2)+1;
+              Room : mod(i,4)+1; Frequency : 1 ]
+end function
+
+function ZeroT (returns T)
+   record T [ Class : 0; Subject : 0; Teacher : 0; Room : 0; Frequency : 0 ]
+end function
+
+function ZeroSwap (returns Swap)
+   record Swap [ Tuple : ZeroT(); From : 0; To : 0; Index : 0; Ea : 0; Er : 0 ]
+end function
+
+function Tuple_Tuple_Cost (Tuple_1, Tuple_2 : T returns integer)
+   if Tuple_1.Room    = Tuple_2.Room    then 1 else 0 end if
+      +
+   if Tuple_1.Class   = Tuple_2.Class   then 1 else 0 end if
+      +
+   if Tuple_1.Teacher = Tuple_2.Teacher then 1 else 0 end if
+end function
+
+function Tuple_Period_Cost (Tuple : T; Prd : Period; N : integer returns integer)
+   for i in 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Tuple )
+   end for
+end function
+
+function Period_Index (tuple : T; prd : Period; N : integer returns integer)
+   for initial
+       i     := 0;
+       found := false
+   while ~found & (i < N) repeat
+       i     := old i + 1;
+       found := (prd[i].Class     = tuple.Class)   &
+                (prd[i].Room      = tuple.Room)    &
+                (prd[i].Subject   = tuple.Subject) &
+                (prd[i].Teacher   = tuple.Teacher) &
+                (prd[i].Frequency = tuple.Frequency)
+   returns value of i
+   end for
+end function
+
+% a lesson drawn uniformly from period `from`
+function Choose_Tuple (seed : fourplex; from : integer;
+                       schedule : Sched; PSize : Ints
+                       returns fourplex, integer, T)
+   let
+       random, seed1 := ranf(seed);
+       size          := PSize[from];
+       index         := trunc( random * double_real(size) ) + 1
+   in
+       seed1, index, schedule[from, index]
+   end let
+end function
+
+function Choose_Period (seed : fourplex; N_Periods : integer
+                        returns fourplex, integer)
+   let
+       random, seed1 := ranf(seed)
+   in
+       seed1, trunc(random * double_real(N_Periods)) + 1
+   end let
+end function
+
+% accept a worsening move with probability e**(-delta/T); always accept an
+% improving one
+function Boltzmann (seed : fourplex; delta : integer; Tmp : real
+                    returns fourplex, boolean)
+   if delta <= 0 then
+      seed, true
+   else
+      let
+          random, seed1 := ranf(seed);
+          prob := exp( 2.718281828, real(- delta) / Tmp )
+      in
+          seed1, double_real(prob) > random
+      end let
+   end if
+end function
+
+% Draw a non-empty FROM period, a different TO period, and a lesson in FROM.
+% Both loops are rejection sampling -- no trip count exists.
+function Get_Swap (seed : fourplex; schedule : Sched; PSize : Ints
+                   returns fourplex, Swap)
+   let
+       N := array_size(PSize);
+
+       seed1, from := for initial
+                          seed1, from := Choose_Period(seed, N)
+                      while PSize[from] = 0 repeat
+                          seed1, from := Choose_Period(old seed1, N)
+                      returns value of seed1
+                              value of from
+                      end for;
+
+       seed2, to   := for initial
+                          seed2, to := Choose_Period(seed1, N)
+                      while to = from repeat
+                          seed2, to := Choose_Period(old seed2, N)
+                      returns value of seed2
+                              value of to
+                      end for;
+
+       seed3, index, tuple := Choose_Tuple(seed2, from, schedule, PSize)
+   in
+       seed3,
+       record Swap [ Tuple : tuple;
+                     From  : from;
+                     To    : to;
+                     Index : index;
+                     Ea    : Tuple_Period_Cost(tuple, schedule[to, ..],   PSize[to]);
+                     Er    : Tuple_Period_Cost(tuple, schedule[from, ..], PSize[from]) - 3 ]
+   end let
+end function
+
+% the parallel variant: FROM is fixed (one swap per period), and the move is
+% priced and then accepted or rejected before it is proposed
+function Get_Swap_P (seed : fourplex; from : integer; Tmp : real;
+                     schedule : Sched; PSize : Ints
+                     returns fourplex, integer, integer, Swap)
+   let
+       seed1, to := for initial
+                        N         := array_size(PSize);
+                        seed1, to := Choose_Period(seed, N)
+                    while to = from repeat
+                        seed1, to := Choose_Period(old seed1, N)
+                    returns value of seed1
+                            value of to
+                    end for;
+
+       seed2, index, tuple := Choose_Tuple(seed1, from, schedule, PSize);
+
+       Ea, Er := Tuple_Period_Cost(tuple, schedule[to, ..],   PSize[to]),
+                 Tuple_Period_Cost(tuple, schedule[from, ..], PSize[from]) - 3;
+
+       seed3, Accept := Boltzmann(seed2, Ea - Er, Tmp)
+   in
+       if ~Accept then
+          seed3, 1, 0, ZeroSwap()
+       else
+          seed2, 1, 1,
+          record Swap [ Tuple : tuple; From : from; To : to;
+                        Index : Period_Index(tuple, schedule[from, ..], PSize[from]);
+                        Ea    : Ea;    Er   : Er ]
+       end if
+   end let
+end function
+
+function Main (sd : integer; Tmp : real
+              returns
+               Ints,      % Get_Swap:   From To Index Ea Er Subject
+               fourplex,  %   and the seed it leaves behind
+               integer,   % Get_Swap_P: success flag
+               Ints,      %   and its swap, likewise flattened
+               boolean)   % Boltzmann(seed, delta 2, T)
+   let
+      Sched := for p in 1, 3
+               returns array_dv of
+                  for k in 1, 3 returns array_dv of MkT((p-1)*3 + k) end for
+               end for;
+      PSize := for p in 1, 3 returns array_dv of 3 end for;
+
+      seed0 := array_dv fourplex [0: sd, 0, 0, 0];
+
+      s1, sw          := Get_Swap(seed0, Sched, PSize);
+      s2, n, ok, swp  := Get_Swap_P(seed0, 1, Tmp, Sched, PSize);
+      s3, b           := Boltzmann(seed0, 2, Tmp)
+   in
+      array_dv Ints [1: sw.From, sw.To, sw.Index, sw.Ea, sw.Er, sw.Tuple.Subject],
+      s1,
+      ok,
+      array_dv Ints [1: swp.From, swp.To, swp.Index, swp.Ea, swp.Er, swp.Tuple.Subject],
+      b
+   end let
+end function
