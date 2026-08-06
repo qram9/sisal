@@ -470,7 +470,8 @@ struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
 #ifdef TEST_ADDH_ROW_DV
-struct AR_results { sisal_array_t one, blk, grown, flat, ident; };
+struct AR_results { sisal_array_t one, blk, grown, flat, ident,
+                                  ah_one, ah_empty, ah_accum; };
 extern "C" struct AR_results func_MAIN(int32_t n);
 #endif
 #ifdef TEST_MOLDYN_DV
@@ -11451,6 +11452,17 @@ static void test_addh_row_dv(void) {
     if (((int32_t*)r.flat.data)[i] != (i/5+1)*10 + i%5 + 1) okflat = 0;
   check("row || row -> flat 10, not 2x5", okflat);
   check("m || empty is the identity", rows_ok(r.ident, 3));
+  // array_addh is the sharper tool: its second operand is ONE element by
+  // definition, so a row is unambiguous and nothing has to be sniffed.  That
+  // is what lets it work from an EMPTY accumulator, where a zero-trip gather's
+  // rank-1 descriptor leaves `||` with nothing to infer from.
+  check("array_addh(3x5, row) -> 4x5", rows_ok(r.ah_one, 4));
+  check("array_addh(empty, row) -> 1x5, not rank 1",
+        r.ah_empty.rank == 2 && (int)r.ah_empty.dims[0] == 1
+        && (int)r.ah_empty.dims[1] == 5 && (int)r.ah_empty.size == 5);
+  // the one that actually bites: this silently built a flat 15-vector
+  check("rows added in a loop from an EMPTY seed -> 3x5, not flat 15",
+        rows_ok(r.ah_accum, 3));
 }
 #endif
 #ifdef TEST_MOLDYN_NEIGHBORS_DV

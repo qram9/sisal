@@ -795,6 +795,63 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
     return res;
 }
 
+/* array_dv addh where the appended value is ONE ELEMENT that happens to be an
+   array -- i.e. exactly one row.  This is `array_addh`, not `||`, and the
+   distinction matters: addh's second operand is a single element BY
+   DEFINITION, so the result rank is always rank(b)+1 and the leading dim
+   always grows by exactly 1.  Nothing has to be inferred.
+
+   addh_arr, which `||` uses, cannot know that -- both of ITS operands are
+   arrays of the same kind, so it has to sniff ranks to tell a single row from
+   a stack of rows, and it gets no useful answer when the accumulator is empty
+   (a zero-trip gather returns a descriptor that has lost its rank: rank 1, not
+   "rank 2 with dims 0 x 5").  Routing addh through the sniffing path is what
+   made `array_addh(empty, row)` come back rank 1, and made the ordinary
+   build-a-matrix-row-by-row loop seeded from an empty array produce a FLAT
+   vector instead of a matrix.  Here the empty case is unambiguous: one element
+   of rank r means a 1 x (b.dims) result, whatever the accumulator looks like. */
+inline sisal_array_t sisal_array_addh_row(sisal_array_t a, sisal_array_t b) {
+    size_t esz = sisal_esz(b);
+    int nd = (int)b.rank + 1;
+    if (a.data == NULL || a.size == 0) {
+        sisal_array_t res = sisal_array_alloc_sized(nd, b.type_id, b.size, esz);
+        res.dims[0] = 1; res.lower_bound[0] = 0;
+        for (int k = 0; k < (int)b.rank; k++) {
+            res.dims[k + 1] = b.dims[k]; res.lower_bound[k + 1] = b.lower_bound[k];
+        }
+        if (b.size) memcpy(res.data, b.data, (size_t)b.size * esz);
+        return res;
+    }
+    /* the row must fit the rectangle it is joining */
+    int conform = ((int)a.rank == nd);
+    for (int k = 0; conform && k < (int)b.rank; k++)
+        if (b.dims[k] != a.dims[k + 1]) conform = 0;
+    if (!conform) {
+        fprintf(stderr, "SISAL runtime error: array_addh row does not conform. "
+                        "The array is rank %d, dims [", (int)a.rank);
+        for (int k = 0; k < (int)a.rank; k++)
+            fprintf(stderr, "%s%lld", k ? " x " : "", (long long)a.dims[k]);
+        fprintf(stderr, "], so one element is rank %d, dims [", (int)a.rank - 1);
+        for (int k = 1; k < (int)a.rank; k++)
+            fprintf(stderr, "%s%lld", k > 1 ? " x " : "", (long long)a.dims[k]);
+        fprintf(stderr, "]; the appended value is rank %d, dims [", (int)b.rank);
+        for (int k = 0; k < (int)b.rank; k++)
+            fprintf(stderr, "%s%lld", k ? " x " : "", (long long)b.dims[k]);
+        fprintf(stderr, "]. To hold rows of differing widths, pad them to a "
+                        "common width and carry the extents, or use a list of "
+                        "array_dv.\n");
+        abort();
+    }
+    sisal_array_t res = sisal_array_alloc_sized(nd, a.type_id, a.size + b.size, esz);
+    for (int k = 0; k < nd; k++) {
+        res.dims[k] = a.dims[k]; res.lower_bound[k] = a.lower_bound[k];
+    }
+    res.dims[0] = a.dims[0] + 1;
+    memcpy(res.data, a.data, (size_t)a.size * esz);
+    if (b.size) memcpy((char*)res.data + (size_t)a.size * esz, b.data, (size_t)b.size * esz);
+    return res;
+}
+
 inline sisal_array_t sisal_array_catenate(sisal_array_t acc, sisal_array_t val) {
     /* empty val is the identity: without this, addh_arr would still bump
        dims[0] by one phantom (zero-element) row/slot, leaving dims[0]

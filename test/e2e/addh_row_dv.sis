@@ -22,6 +22,21 @@
 % arrays gives a 1-D result.  Building a matrix by appending rows therefore has
 % to start from a rank-2 seed (a 1xN gather), which is what `grown` does -- the
 % ordinary accumulate-rows-in-a-loop pattern.
+%
+% `array_addh` is the SHARPER tool for that job, and the second half of this
+% test covers it.  addh's second operand is ONE ELEMENT by definition, so for a
+% rank-2 array_dv it is always exactly one row: the result rank is rank(b)+1
+% and the leading dim grows by 1, with nothing to infer.  `||` cannot know that
+% -- both of its operands are arrays of the same kind -- so it sniffs ranks,
+% and sniffing has no answer when the accumulator is EMPTY, because a zero-trip
+% gather returns a descriptor that has lost its rank (rank 1, not "rank 2 with
+% dims 0 x 5" the way np.zeros((0,5)) would be).
+%
+% Routing addh through that sniffing path is what made `array_addh(empty, row)`
+% come back rank 1 instead of 1xN, and -- the one that actually bites -- made
+% the ordinary build-a-matrix-row-by-row loop seeded from an empty array
+% produce a FLAT 15-element vector rather than a 3x5 matrix, silently.  addh
+% now has its own entry point and `accum` below starts from empty.
 
 define Main
 
@@ -37,7 +52,10 @@ function Main (N : integer
                Ints,      % 3x5 || 2x5 stack    -> 5x5
                Ints,      % rows appended in a loop from a 1xN seed -> 4x5
                Ints,      % rank1 || rank1      -> flat 5
-               Ints)      % 3x5 || empty        -> 3x5 unchanged
+               Ints,      % 3x5 || empty        -> 3x5 unchanged
+               Ints,      % array_addh(3x5, row)   -> 4x5
+               Ints,      % array_addh(empty, row) -> 1x5, NOT rank 1
+               Ints)      % rows added in a loop from an EMPTY seed -> 3x5
    let
       M   := for P in 1, 3 returns array_dv of Row(P, N) end for;
       blk := for P in 4, 5 returns array_dv of Row(P, N) end for;
@@ -54,11 +72,25 @@ function Main (N : integer
                end for;
 
       empty := for K in 1, 0 returns array_dv of K end for;
+
+      % the same accumulate pattern, but seeded from EMPTY -- which `||` cannot
+      % do (it would flatten) and addh can, because one element is one row
+      accum := for initial
+                  R := 1;
+                  A := empty;
+               while R <= 3 repeat
+                  R := old R + 1;
+                  A := array_addh(old A, Row(old R, N));
+               returns value of A
+               end for;
    in
       M || Row(4, N),
       M || blk,
       grown,
       Row(1, N) || Row(2, N),
-      M || empty
+      M || empty,
+      array_addh(M, Row(4, N)),
+      array_addh(empty, Row(1, N)),
+      accum
    end let
 end function

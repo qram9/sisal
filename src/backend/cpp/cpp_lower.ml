@@ -2957,7 +2957,14 @@ and lower_simple env gr nid sym pin pout pr =
           match val_ty with
           | C.Basic "int32_t" | C.Basic "bool" -> "sisal_array_addh_i32"
           | C.Basic "double" -> "sisal_array_addh_f64"
-          | C.Basic "sisal_array_t" -> "sisal_array_addh_arr"
+          (* ONE element that is itself an array -- i.e. one row.  addh's
+             second operand is a single element by definition, so this is the
+             unambiguous "grow the leading dim by 1" case and must NOT go to
+             addh_arr, which `||` uses and which has to sniff ranks to tell a
+             row from a stack.  Sniffing gives no answer for an empty
+             accumulator, which is what made a build-a-matrix-row-by-row loop
+             seeded from an empty array come out flat. *)
+          | C.Basic "sisal_array_t" -> "sisal_array_addh_row"
           (* RECORD element: append by value via the generic templated helper
              (T deduced from e2), NOT the float fallback. *)
           | ty when is_struct_cty ty -> "sisal_array_addh_val"
