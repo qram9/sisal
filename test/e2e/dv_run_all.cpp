@@ -469,6 +469,12 @@ extern "C" struct MN_results func_MAIN(mn_ens e, mn_pd pd);
 struct GC_results { sisal_array_t rows, lens, last; };
 extern "C" struct GC_results func_MAIN(int32_t m);
 #endif
+#ifdef TEST_PSA_DV
+struct PSA_results { sisal_array_t sz0, firsts; int32_t cost0, nsw, nsu;
+                     sisal_array_t sz1, Es, szf; int32_t tot; };
+extern "C" struct PSA_results func_MAIN(int32_t NT, int32_t MP, int32_t sd,
+                                        int32_t msw, int32_t msu, float t0);
+#endif
 #ifdef TEST_PSA_UPDATE_DV
 struct PSA_UPD_results { sisal_array_t sz1; int32_t E1; sisal_array_t subj1;
                          int32_t gc, E2; sisal_array_t sz2; };
@@ -11448,6 +11454,65 @@ static void test_gather_conform_dv(void) {
   check("rows are correct when the LAST needs no pad (always worked)", okl);
 }
 #endif
+#ifdef TEST_PSA_DV
+// psa.sis entire: Parallel Scheduler v1.0 (1989), simulated annealing on the
+// School TimeTable Problem.  Lessons are dealt into timeslot periods; two in
+// the same period cost 1 for each of room, class and teacher they share; the
+// annealer moves lessons between periods, accepting worsenings with
+// probability e**(-delta/T) and cooling by 0.9.
+//
+// Init_Periods joins its two unequal groups of periods with `||` -- held padded
+// they are blocks of one rectangle, so it is a vstack, rank-2 on rank-2.
+// Get_Swap_Set is a four-output forall: two gathers (advanced seeds as rank-1
+// rows stacked into a rank-2, and the proposed swaps as records) plus two sum
+// reductions.
+//
+// WHAT IS EXACT AND WHAT IS NOT.  Everything deterministic is pinned to OSC
+// 13.0.3: the partition, the initial cost, one full swap round.  The cooling
+// run is deliberately NOT compared value-by-value -- it is a long trajectory
+// whose every branch is a float comparison against exp(), so matching OSC step
+// for step would demand bit-identical transcendentals rather than correct
+// compilation.  It is checked by the invariants that hold however the dice
+// fall.
+static void test_psa_dv(void) {
+  printf("\n=== Group: psa_dv (whole program: annealing a timetable) ===\n");
+  auto eq = [](sisal_array_t x, const int* w, int n) {
+    if ((int)x.size != n) return 0;
+    for (int i = 0; i < n; i++) if (((int32_t*)x.data)[i] != w[i]) return 0;
+    return 1;
+  };
+  // --- 7 lessons over 3 periods: uneven partition, one swap accepted ---
+  PSA_results a = func_MAIN(7, 3, 12345, 40, 20, 5.0f);
+  int a0[3] = {3,2,2}, af[3] = {1,4,6}, a1[3] = {4,1,2};
+  check("7 over 3: Init_Periods deals [3 2 2] -- `||` joins the two groups",
+        eq(a.sz0, a0, 3));
+  check("periods start at lessons 1, 4, 6", eq(a.firsts, af, 3));
+  check("that partition is already clash-free (cost 0)", a.cost0 == 0);
+  check("one round proposes 3 moves and accepts 1", a.nsw == 3 && a.nsu == 1);
+  check("leaving sizes [4 1 2]", eq(a.sz1, a1, 3));
+  // --- 30 over 3: periods wide enough to clash, so it actually anneals ---
+  PSA_results b = func_MAIN(30, 3, 12345, 40, 20, 5.0f);
+  int b0[3] = {10,10,10}, bf[3] = {1,11,21};
+  check("30 over 3: even partition [10 10 10]", eq(b.sz0, b0, 3));
+  check("periods start at lessons 1, 11, 21", eq(b.firsts, bf, 3));
+  check("initial cost 36", b.cost0 == 36);
+  check("one round proposes 3 moves and accepts none", b.nsw == 3 && b.nsu == 0);
+  check("so the sizes are unchanged", eq(b.sz1, b0, 3));
+  // --- the cooling run, by invariant ---
+  int lessons = 0, maxp = 0;
+  for (uint64_t i = 0; i < b.szf.size; i++) {
+    int v = ((int32_t*)b.szf.data)[i];
+    lessons += v; if (v > maxp) maxp = v;
+  }
+  check("it terminates and records at least one temperature", b.Es.size >= 1);
+  check("every lesson is still scheduled exactly once", lessons == 30);
+  check("no period overflows the capacity", maxp <= 30);
+  int neg = 0;
+  for (uint64_t i = 0; i < b.Es.size; i++)
+    if (((int32_t*)b.Es.data)[i] < 0) neg = 1;
+  check("the energy never goes negative", !neg);
+}
+#endif
 #ifdef TEST_PSA_UPDATE_DV
 // Applying a swap -- the layer that exercises the padded schedule hardest,
 // since this is what makes periods shrink and grow.
@@ -13395,6 +13460,9 @@ main (void)
 #ifdef TEST_PSA_UPDATE_DV
   test_psa_update_dv ();
 #endif
+#ifdef TEST_PSA_DV
+  test_psa_dv ();
+#endif
 #ifdef TEST_PSA_COST_DV
   test_psa_cost_dv ();
 #endif
@@ -13579,7 +13647,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_COST_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_PSA_COST_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

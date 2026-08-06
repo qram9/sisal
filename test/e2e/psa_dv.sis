@@ -1,0 +1,469 @@
+% PSA -- Parallel Scheduler v1.0 (03/23/89): simulated annealing on the School
+% TimeTable Problem.  The whole program, and the last layer of the port.
+%
+% Lessons ("tuples": class, subject, teacher, room) are dealt into timeslot
+% periods.  Two lessons in the same period cost 1 for each of room, class and
+% teacher they share, so a period's cost is its internal clash count and the
+% schedule's energy is the sum.  The annealer repeatedly moves a lesson from one
+% period to another, accepting improvements always and worsenings with
+% probability e**(-delta/T), cooling T by 0.9 until the energy reaches zero or
+% stops changing for five temperatures.
+%
+% Layers 1-4 are psa_rng_dv (48-bit LCG in 12-bit limbs), psa_cost_dv (the
+% padded schedule and the cost functions), psa_swap_dv (move selection and
+% Boltzmann) and psa_update_dv (applying a swap).  This file adds what remained:
+%
+%   Init_Periods    -- deal the lessons out.  The original builds the two
+%                      unequal groups separately and joins them with `||`:
+%                      the first `extras` periods get size+1 lessons, the rest
+%                      get size.  Held padded, both groups are blocks of the
+%                      same rectangle, so the `||` is a vstack -- rank-2 on
+%                      rank-2, conforming on the trailing axis.  It is kept
+%                      rather than fused into one loop precisely because that
+%                      is a real use of it.
+%   Get_Swap_Set    -- one proposal per period, in parallel: a four-output
+%                      forall gathering the advanced seeds (rank-1 rows into a
+%                      rank-2) and the proposed swaps (records), while summing
+%                      the proposal and acceptance counts.
+%   Anneal / Scheduler -- the cooling loop.
+%
+% WHAT IS CHECKED EXACTLY, AND WHAT IS NOT.  Everything deterministic is pinned
+% to OSC 13.0.3 (~/work/oldsisal): the partition, the first swap round, the
+% costs.  The full cooling run is NOT checked value-by-value and should not be:
+% it is a 205-iteration trajectory whose every branch depends on a float
+% comparison against exp(), so agreeing with OSC step for step would require
+% bit-identical transcendentals, not correct compilation.  OSC's own run
+% (60 lessons, 30 periods) reaches cost 0 in 205 iterations and 10918 swaps.
+% What is checked about it instead are the invariants that must hold however
+% the dice fall -- lessons are conserved, no period exceeds capacity, the energy
+% never goes negative, and the loop terminates.
+%
+% OSC, for 7 lessons over 3 periods, seed 12345:
+%     Init_Periods -> sizes [3 2 2], periods starting at lessons 1, 4, 6
+%     initial cost 0
+%     one Get_Swap_Set round -> 3 proposals, 1 accepted, sizes [4 1 2]
+
+define Main
+
+type T        = record [ Class, Subject, Teacher, Room, Frequency : integer ];
+type Swap     = record [ Tuple : T; From, To, Index, Ea, Er : integer ];
+type Period   = array_dv [T];
+type Sched    = array_dv [T];        % rank 2: periods x capacity
+type Swaps    = array_dv [Swap];
+type Ints     = array_dv [integer];
+type Reals    = array_dv [real];
+type fourplex = array_dv [integer];  % 4 limbs, 0-based
+type SeedSet  = array_dv [integer];  % rank 2: periods x 4
+
+% ---------------------------------------------------------------- RNG (layer 1)
+
+function ranf_odd (n : integer returns integer)
+   if mod(n, 2) = 0 then 0 else 1 end if
+end function
+
+function ranf_even (n : integer returns integer)
+   if mod(n, 2) = 0 then 1 else 0 end if
+end function
+
+function ranf_mod_mult (a, b : fourplex returns fourplex)
+   let
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array_dv fourplex [0: mod(k0,4096), mod(k1,4096), mod(k2,4096), mod(k3,4096)]
+   end let
+end function
+
+function ranf_k (n : integer returns fourplex)
+   let
+       nn := n + ranf_even(n);
+       q3 := 1024 / nn;      r3 := 1024 - (nn * q3);
+       q2 := (r3 * 4096) / nn; r2 := (r3 * 4096) - (nn * q2);
+       q1 := (r2 * 4096) / nn; r1 := (r2 * 4096) - (nn * q1);
+       q0 := (r1 * 4096) / nn
+   in
+       array_dv fourplex [0: q0, q1, q2, q3]
+   end let
+end function
+
+function ranf_k_binary (k : fourplex returns Ints)
+   for i in 0, 3
+   returns value of catenate
+       for initial
+           j := 1; x := k[i] / 2; bit := ranf_odd(k[i])
+       while j < 12 repeat
+           j := old j + 1; x := old x / 2; bit := ranf_odd(old x)
+       returns array_dv of bit
+       end for
+   end for
+end function
+
+function ranf_a_to_k (a : fourplex; k : Ints returns fourplex)
+   for initial
+       i := 0; a_i := a; a_k := array_dv fourplex [0: 1, 0, 0, 0]
+   while i < 46 repeat
+       i   := old i + 1;
+       a_k := if k[i] = 0 then old a_k
+              else ranf_mod_mult(old a_k, old a_i) end if;
+       a_i := ranf_mod_mult(old a_i, old a_i)
+   returns value of a_k
+   end for
+end function
+
+function rans (n, seed1 : integer returns SeedSet)
+   for initial
+       i    := 1;
+       seed := if seed1 = 0 then array_dv fourplex [0: 3281, 4041, 595, 2376]
+               else array_dv fourplex [0: abs(seed1), 0, 0, 0] end if;
+       a    := array_dv fourplex [0: 373, 3707, 1442, 647];
+       a_k  := ranf_a_to_k(a, ranf_k_binary(ranf_k(n)))
+   while i < n repeat
+       i    := old i + 1;
+       seed := ranf_mod_mult(old seed, a_k)
+   returns array_dv of seed
+   end for
+end function
+
+function ranf (seed : fourplex returns double, fourplex)
+   double_real(seed[3]) / 4096.0d0 +
+   double_real(seed[2]) / 16777216.0d0 +
+   double_real(seed[1]) / 68719476736.0d0 +
+   double_real(seed[0]) / 281474976710656.0d0,
+   ranf_mod_mult(array_dv fourplex [0: 373, 3707, 1442, 647], seed)
+end function
+
+% --------------------------------------------------------------- cost (layer 2)
+
+function MkT (i : integer returns T)
+   record T [ Class : mod(i,7)+1; Subject : i; Teacher : mod(i,5)+1;
+              Room : mod(i,6)+1; Frequency : 1 ]
+end function
+
+function ZeroT (returns T)
+   record T [ Class : 0; Subject : 0; Teacher : 0; Room : 0; Frequency : 0 ]
+end function
+
+function ZeroSwap (returns Swap)
+   record Swap [ Tuple : ZeroT(); From : 0; To : 0; Index : 0; Ea : 0; Er : 0 ]
+end function
+
+function Tuple_Tuple_Cost (Tuple_1, Tuple_2 : T returns integer)
+   if Tuple_1.Room    = Tuple_2.Room    then 1 else 0 end if
+      + if Tuple_1.Class   = Tuple_2.Class   then 1 else 0 end if
+      + if Tuple_1.Teacher = Tuple_2.Teacher then 1 else 0 end if
+end function
+
+function Tuple_Period_Cost (Tuple : T; Prd : Period; N : integer returns integer)
+   for i in 1, N returns value of sum Tuple_Tuple_Cost( Prd[i], Tuple ) end for
+end function
+
+function Period_Cost (Prd : Period; N : integer returns integer)
+   for i in 1, N cross j in i + 1, N
+   returns value of sum Tuple_Tuple_Cost( Prd[i], Prd[j] )
+   end for
+end function
+
+function Global_Cost (S : Sched; PSize : Ints returns integer)
+   for p in 1, array_size(PSize)
+   returns value of sum Period_Cost( S[p, ..], PSize[p] )
+   end for
+end function
+
+function Period_Index (tuple : T; prd : Period; N : integer returns integer)
+   for initial
+       i := 0; found := false
+   while ~found & (i < N) repeat
+       i     := old i + 1;
+       found := (prd[i].Class     = tuple.Class)   &
+                (prd[i].Room      = tuple.Room)    &
+                (prd[i].Subject   = tuple.Subject) &
+                (prd[i].Teacher   = tuple.Teacher) &
+                (prd[i].Frequency = tuple.Frequency)
+   returns value of i
+   end for
+end function
+
+% --------------------------------------------------------------- swap (layer 3)
+
+function Choose_Tuple (seed : fourplex; from : integer;
+                       schedule : Sched; PSize : Ints
+                       returns fourplex, integer, T)
+   let
+       random, seed1 := ranf(seed);
+       size          := PSize[from];
+       index         := trunc( random * double_real(size) ) + 1
+   in
+       seed1, index, schedule[from, index]
+   end let
+end function
+
+function Choose_Period (seed : fourplex; N_Periods : integer
+                        returns fourplex, integer)
+   let random, seed1 := ranf(seed)
+   in  seed1, trunc(random * double_real(N_Periods)) + 1
+   end let
+end function
+
+function Boltzmann (seed : fourplex; delta : integer; Tmp : real
+                    returns fourplex, boolean)
+   if delta <= 0 then
+      seed, true
+   else
+      let
+          random, seed1 := ranf(seed);
+          prob := exp( 2.718281828, real(- delta) / Tmp )
+      in  seed1, double_real(prob) > random
+      end let
+   end if
+end function
+
+function Get_Swap (seed : fourplex; schedule : Sched; PSize : Ints
+                   returns fourplex, Swap)
+   let
+       N := array_size(PSize);
+       seed1, from := for initial
+                          seed1, from := Choose_Period(seed, N)
+                      while PSize[from] = 0 repeat
+                          seed1, from := Choose_Period(old seed1, N)
+                      returns value of seed1
+                              value of from
+                      end for;
+       seed2, to   := for initial
+                          seed2, to := Choose_Period(seed1, N)
+                      while to = from repeat
+                          seed2, to := Choose_Period(old seed2, N)
+                      returns value of seed2
+                              value of to
+                      end for;
+       seed3, index, tuple := Choose_Tuple(seed2, from, schedule, PSize)
+   in
+       seed3,
+       record Swap [ Tuple : tuple; From : from; To : to; Index : index;
+                     Ea : Tuple_Period_Cost(tuple, schedule[to, ..],   PSize[to]);
+                     Er : Tuple_Period_Cost(tuple, schedule[from, ..], PSize[from]) - 3 ]
+   end let
+end function
+
+function Get_Swap_P (seed : fourplex; from : integer; Tmp : real;
+                     schedule : Sched; PSize : Ints
+                     returns fourplex, integer, integer, Swap)
+   let
+       seed1, to := for initial
+                        N         := array_size(PSize);
+                        seed1, to := Choose_Period(seed, N)
+                    while to = from repeat
+                        seed1, to := Choose_Period(old seed1, N)
+                    returns value of seed1
+                            value of to
+                    end for;
+       seed2, index, tuple := Choose_Tuple(seed1, from, schedule, PSize);
+       Ea, Er := Tuple_Period_Cost(tuple, schedule[to, ..],   PSize[to]),
+                 Tuple_Period_Cost(tuple, schedule[from, ..], PSize[from]) - 3;
+       seed3, Accept := Boltzmann(seed2, Ea - Er, Tmp)
+   in
+       if ~Accept then
+          seed3, 1, 0, ZeroSwap()
+       else
+          seed2, 1, 1,
+          record Swap [ Tuple : tuple; From : from; To : to;
+                        Index : Period_Index(tuple, schedule[from, ..], PSize[from]);
+                        Ea    : Ea; Er : Er ]
+       end if
+   end let
+end function
+
+% One proposal per period, in parallel.  Four outputs: the advanced seeds
+% (rank-1 rows stacked into a rank-2), the proposals themselves (records), and
+% two counters.
+function Get_Swap_Set (seed : SeedSet; Tmp : real; schedule : Sched; PSize : Ints
+                       returns SeedSet, integer, integer, Swaps)
+   for i in 1, array_size(PSize)
+       seed_p, swap, success, swap_p :=
+          let
+              random, seed1 := ranf(seed[i, ..])
+          in
+              if PSize[i] = 0 then
+                 seed1, 0, 0, ZeroSwap()
+              else
+                 Get_Swap_P(seed1, i, Tmp, schedule, PSize)
+              end if
+          end let
+   returns array_dv of seed_p
+           value of sum swap
+           value of sum success
+           array_dv of swap_p
+   end for
+end function
+
+% ------------------------------------------------------------- update (layer 4)
+
+function Remove_Tuple (S : Sched; PSize : Ints; p, index : integer
+                       returns Sched, Ints)
+   let n := PSize[p]
+   in  S[p, index: S[p, n]], PSize[p: n - 1]
+   end let
+end function
+
+function Update_State (swap : Swap; energy : integer; S : Sched; PSize : Ints
+                       returns integer, Sched, Ints)
+   let
+       S1, P1 := Remove_Tuple(S, PSize, swap.From, swap.Index);
+       m      := P1[swap.To]
+   in
+       energy + swap.Ea - swap.Er,
+       S1[swap.To, m + 1: swap.Tuple],
+       P1[swap.To: m + 1]
+   end let
+end function
+
+function Update_State_P (Swap_Set : Swaps; NS, E_in : integer;
+                         S_in : Sched; PSize_in : Ints
+                         returns integer, Sched, Ints)
+   for initial
+       i := 0; E := E_in; S := S_in; PSize := PSize_in
+   while i < NS repeat
+       i    := old i + 1;
+       swap := Swap_Set[i];
+       E, S, PSize :=
+          if swap.From ~= 0 then
+             let
+                 S1, P1 := Remove_Tuple(old S, old PSize, swap.From, swap.Index);
+                 Ea     := Tuple_Period_Cost(swap.Tuple, S1[swap.To, ..],   P1[swap.To]);
+                 Er     := Tuple_Period_Cost(swap.Tuple, S1[swap.From, ..], P1[swap.From]);
+                 m      := P1[swap.To]
+             in
+                 old E + Ea - Er,
+                 S1[swap.To, m + 1: swap.Tuple],
+                 P1[swap.To: m + 1]
+             end let
+          else
+             old E, old S, old PSize
+          end if
+   returns value of E
+           value of S
+           value of PSize
+   end for
+end function
+
+% ------------------------------------------------------------- driver (layer 5)
+
+% Deal the lessons out: the first `extras` periods take size+1, the rest take
+% size.  The original builds the two groups separately and joins them with
+% `||`; held padded they are blocks of one rectangle, so that is a vstack.
+function Init_Periods (extras, size, Max_Periods, Cap : integer; Tuples : Period
+                       returns Sched)
+   for i in 1, extras
+       LB := (i - 1) * (size + 1) + 1
+   returns array_dv of
+       for k in 1, Cap
+       returns array_dv of
+          if k <= size + 1 then Tuples[LB + k - 1] else ZeroT() end if
+       end for
+   end for
+
+   ||
+
+   for j in extras + 1, Max_Periods
+       LB2 := (j - 1) * size + extras + 1
+   returns array_dv of
+       for k in 1, Cap
+       returns array_dv of
+          if k <= size then Tuples[LB2 + k - 1] else ZeroT() end if
+       end for
+   end for
+end function
+
+function Init_Sizes (extras, size, Max_Periods : integer returns Ints)
+   for p in 1, Max_Periods
+   returns array_dv of if p <= extras then size + 1 else size end if
+   end for
+end function
+
+% anneal at a fixed temperature until the swap or success budget runs out
+function Anneal (Max_swaps, Max_success, E_in : integer;
+                 seed_in : SeedSet; Tmp : real;
+                 S_in : Sched; PS_in : Ints
+                 returns SeedSet, integer, integer, integer, Sched, Ints)
+   for initial
+       seed, swaps, success, Swap_Set := Get_Swap_Set(seed_in, Tmp, S_in, PS_in);
+       E, schedule, PSize := Update_State_P(Swap_Set, array_size(PS_in), E_in, S_in, PS_in)
+   while (swaps < Max_swaps) & (success < Max_success) & (E > 0) repeat
+       seed, N_swaps, N_success, Swap_Set :=
+             Get_Swap_Set(old seed, Tmp, old schedule, old PSize);
+       swaps   := old swaps   + N_swaps;
+       success := old success + N_success;
+       E, schedule, PSize :=
+             Update_State_P(Swap_Set, array_size(old PSize), old E, old schedule, old PSize)
+   returns value of seed
+           value of E
+           value of swaps
+           value of success
+           value of schedule
+           value of PSize
+   end for
+end function
+
+% cool by 0.9 until the ground state is reached or nothing changes for five
+function Scheduler (Max_Periods, Max_Swaps, Max_Success, seed_in, Cap : integer;
+                    T0 : real; S_in : Sched; PS_in : Ints
+                    returns Reals, Ints, integer, Sched, Ints)
+   for initial
+       No_change := 0;  swaps := 0;  success := 0;
+       T         := T0;
+       seed      := rans(Max_Periods, seed_in);
+       E         := Global_Cost(S_in, PS_in);
+       schedule  := S_in;
+       PSize     := PS_in
+   while (E > 0) & (No_change < 5) repeat
+       seed, E, swaps, success, schedule, PSize :=
+             Anneal(Max_Swaps, Max_Success, old E, old seed, old T,
+                    old schedule, old PSize);
+       T         := 0.9 * old T;
+       No_change := if E ~= old E then 0 else old No_change + 1 end if
+   returns array_dv of T
+           array_dv of E
+           value of swaps
+           value of schedule
+           value of PSize
+   end for
+end function
+
+function Main (NT, MP, sd, Max_Swaps, Max_Success : integer; T0 : real
+              returns
+               Ints,      % Init_Periods sizes
+               Ints,      % the lesson each period starts with
+               integer,   % the initial cost
+               integer,   % one Get_Swap_Set round: proposals
+               integer,   %   accepted
+               Ints,      %   and the sizes it leaves
+               Ints,      % end to end: energy per temperature
+               Ints,      %   final period sizes
+               integer)   %   total swaps
+   let
+      Tuples := for i in 1, NT returns array_dv of MkT(i) end for;
+      psz    := NT / MP;
+      extras := mod(NT, MP);
+      Cap    := NT;                       % worst case: every lesson in one period
+      S0     := Init_Periods(extras, psz, MP, Cap, Tuples);
+      Sz0    := Init_Sizes(extras, psz, MP);
+      firsts := for p in 1, MP returns array_dv of S0[p, 1].Subject end for;
+      cost0  := Global_Cost(S0, Sz0);
+
+      % one parallel round from a known seed
+      seeds            := rans(MP, sd);
+      sd1, nsw, nsu, SwSet := Get_Swap_Set(seeds, 1.0, S0, Sz0);
+      E1, S1, Sz1      := Update_State_P(SwSet, MP, cost0, S0, Sz0);
+
+      % the full cooling run
+      Ts, Es, tot, Sf, Szf := Scheduler(MP, Max_Swaps, Max_Success, sd, Cap,
+                                        T0, S0, Sz0)
+   in
+      Sz0, firsts, cost0, nsw, nsu, Sz1, Es, Szf, tot
+   end let
+end function
