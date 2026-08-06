@@ -1,0 +1,37 @@
+% !!! NOT REGISTERED -- BUG REPRO.  It compiles, runs, and RETURNS THE WRONG
+% NUMBER.  Simplest form of bug_init_carry_seed_scramble (memory).
+%
+% A `let` binds w, and a `for initial` inside it REBINDS w.  Result is 1;
+% it should be 2 (seed 0, incremented twice).  Rename the loop's w to q and
+% the identical loop returns 2.  The identifier is the only difference.
+%
+% No nesting of loops is needed -- one let and one for-initial is enough.
+%
+% IF1, renamed (correct):
+%   MERGE %na=Q, %na=OLD Q, %na=I, %na=OLD I          <- 4 carries
+%   BOUNDARY [(0,0,W,4);(1,0,Q,3);(1,0,OLD Q,2);(2,0,OLD I,1);(2,0,I,0)]
+%      W imported from the let at (0,0); Q local at (1,0).  Consistent.
+%
+% IF1, shadowed (broken):
+%   MERGE %na=I, %na=OLD I                            <- W HAS NO CARRY
+%   BOUNDARY [(0,0,W,3);(1,0,OLD W,2);(2,0,OLD I,1);(2,0,I,0)]
+%      W resolves to (0,0)  = the LET's binding
+%      OLD W resolves to (1,0) = the LOCAL node
+%
+% The two halves of the same carry point at different scopes, and no MERGE is
+% built for W, so there is no carry -- the loop cannot accumulate.  Fix belongs
+% where the `initial` clause is lowered: a name rebound there must stop
+% resolving to the enclosing binding and become a local carry, for BOTH its
+% plain and its `old` form.
+
+define Main
+function Main(returns integer)
+  let
+    w := 5;
+    r := for initial w := 0; i := 1;
+         while i <= 2 repeat
+            i := old i + 1;
+            w := old w + 1;
+         returns value of w end for
+  in r end let
+end function
