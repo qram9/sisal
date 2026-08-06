@@ -17,8 +17,21 @@ absent -- argmax/argmin need a loop INDEX to report, which a sequential loop
 does not have, and they are our APL extension rather than Sisal 1.2 (OSC does
 not know the name at all).
 
-The scan is deliberately crude -- a line-based paren-free tracker of
-`for` / `for initial` / `end for` nesting.  It is a signpost, not a parser.
+The scan is deliberately crude -- a line-based tracker of `for` / `for initial`
+/ `end for` nesting.  It is a signpost, not a parser.  Two mistakes it made
+while being written, both of which produced CONFIDENT WRONG NUMBERS rather than
+obvious breakage, are now guarded and worth knowing about if you extend it:
+
+  * `\bfor\b` matches the `for` inside `end for`, so a closer pushed a frame and
+    then popped the one it had just pushed.  The real loop was never closed and
+    every attribution after it in the file was shifted.  Closers are stripped
+    before openers are matched.  A file whose stack does not return to empty at
+    EOF is the symptom.
+  * Attribution must happen BEFORE closers are processed.  A clause written on
+    one line -- `returns value of product i end for` -- would otherwise be
+    credited to the enclosing scope, inventing a gap where the coverage exists.
+    That single bug reported product/least/greatest as having no sequential
+    coverage when forinit_reduce_dv had covered them all along.
 """
 import re, sys, pathlib, collections
 
@@ -52,19 +65,27 @@ def scan(dirs):
     tally = collections.defaultdict(collections.Counter)
     for d in dirs:
         for f in sorted(pathlib.Path(d).glob("*.sis")):
-            stack = []
+            stack = []   # reset per file; residue must not cross files
             for line in f.read_text(errors="replace").splitlines():
                 code = line.split('%')[0]          # strip Sisal comments
-                for m in re.finditer(r'\bfor\b(\s+initial\b)?', code, re.I):
+                # `end for` must be removed BEFORE looking for openers: \bfor\b
+                # matches the `for` inside `end for`, so a closer would push a
+                # frame and then pop the one it just pushed, leaving the real
+                # loop unclosed and skewing everything after it in the file.
+                openers = re.sub(r'\bend\s+for\b', ' ', code, flags=re.I)
+                for m in re.finditer(r'\bfor\b(\s+initial\b)?', openers, re.I):
                     stack.append('for-initial' if m.group(1) else 'forall')
+                # Attribute BEFORE closing: `returns value of product i end for`
+                # puts the whole clause and its `end for` on one line, so popping
+                # first would credit the construct to the ENCLOSING scope (or to
+                # nothing at all) and report a false gap.
+                if stack:
+                    kind = stack[-1]                # innermost enclosing loop
+                    for name, pat in ALL:
+                        if re.search(pat, code, re.I):
+                            tally[name][kind] += 1
                 for _ in re.finditer(r'\bend\s+for\b', code, re.I):
                     if stack: stack.pop()
-                if not stack:
-                    continue
-                kind = stack[-1]                    # innermost enclosing loop
-                for name, pat in ALL:
-                    if re.search(pat, code, re.I):
-                        tally[name][kind] += 1
     return tally
 
 def main():
