@@ -5,12 +5,18 @@
 % from the WRONG INIT boundary outputs -- here `i` is seeded from `w4` and `sA`
 % from `w5`, a contiguous window starting four slots too far.
 %
-% TRIGGER: NAME SHADOWING between the two for-initial scopes.  w0..w7 are
-% declared in BOTH the outer and the inner `initial` clause.  Give the inner
-% ones distinct names (v0..v7) and everything below is identical and wires
-% correctly -- verified.  The count of non-`old` names is NOT the trigger; it
-% only sets how far the window slides, since it counts how many shadowed names
-% there are.
+% TRIGGER: NAME SHADOWING between the two for-initial scopes.  ONE shared name
+% is enough -- this file uses eight only because that is how it was first found.
+% Reduced further:
+%
+%   outer `initial` has w, inner `initial` has w   ->  OLD_I seeded from W  (bad)
+%   outer `initial` has w, inner `initial` has v   ->  OLD_I seeded from OLD_I
+%
+% identical loops, the identifier is the ONLY difference.  Shadowing elsewhere
+% (let scopes, params, a single loop) is fine; it is specifically a name shared
+% between an enclosing and a nested for-initial's `initial` clause.  The count
+% of shadowed names only shifts WHICH wrong slot is taken -- some counts land on
+% the right one by accident, which is part of why this went unseen.
 %
 %     shadowed names  1 -> i seeded from w0
 %                     2 -> i seeded from i     (CORRECT, BY ACCIDENT)
