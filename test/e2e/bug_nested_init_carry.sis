@@ -1,30 +1,32 @@
 % !!! NOT REGISTERED -- THIS IS A BUG REPRO.  It compiles, and the emitted C is
 % SILENTLY WRONG.  See bug_init_carry_seed_scramble in memory.
 %
-% Scrambled INIT -> LoopB carry seeding.  A NESTED for-initial whose results are
-% multi-assigned into the enclosing loop's names: the inner loop's carries are
-% seeded from the WRONG INIT boundary outputs.  Here the inner `i` is seeded
-% from `w4`.
+% Scrambled INIT -> LoopB carry seeding.  The inner loop's carries are seeded
+% from the WRONG INIT boundary outputs -- here `i` is seeded from `w4` and `sA`
+% from `w5`, a contiguous window starting four slots too far.
 %
-% The window SLIDES with the number of non-`old` names in the initial clause,
-% which is the signature of the positional derivation in to_if1:
-%     start = boundary_out_port_count decl_gr - n_ret_seeds - 2*non_old_count
+% TRIGGER: NAME SHADOWING between the two for-initial scopes.  w0..w7 are
+% declared in BOTH the outer and the inner `initial` clause.  Give the inner
+% ones distinct names (v0..v7) and everything below is identical and wires
+% correctly -- verified.  The count of non-`old` names is NOT the trigger; it
+% only sets how far the window slides, since it counts how many shadowed names
+% there are.
 %
-%     tallies  1 -> i seeded from w0
-%     tallies  2 -> i seeded from i     (CORRECT, BY ACCIDENT)
-%     tallies  4 -> i seeded from w0
-%     tallies  8 -> i seeded from w4    (this file)
-%     tallies 12 -> i seeded from w6
+%     shadowed names  1 -> i seeded from w0
+%                     2 -> i seeded from i     (CORRECT, BY ACCIDENT)
+%                     4 -> i seeded from w0
+%                     8 -> i seeded from w4    (this file)
+%                    12 -> i seeded from w6
 %
-% The accidental hit at 2 is why this survived: small nested loops land on the
-% right offset by luck, and nothing in the corpus had a nested for-initial with
-% several non-`old` initial names until ssphot's tracking loop.  w0..w7 are
-% declared in `initial` but assigned FRESH from the inner loop each iteration --
-% they never say `old` -- so they are not carries, and the count that locates
-% the real carries is wrong.
+% The accidental hit at 2 is part of why it survived; the other part is that
+% nothing in the corpus nested two for-initials sharing accumulator names until
+% ssphot's tracking loop, which declares wrr/nrr/nsplt/... in BOTH scopes
+% exactly as reproduced here.  That shadowing is in the original source, not an
+% artefact of the port.
 %
 % ssphot_track_dv fails to BUILD because its shuffled types disagree.  Here they
-% agree, so it builds and runs and is quietly incorrect, which is the worse form.
+% agree, so it builds and runs and is quietly incorrect -- the worse form.  Check
+% wiring by NAME (each v_LoopB_*_X from v_INIT_*_X), never by "it compiled".
 
 define Main
 function Main (returns double, integer)
