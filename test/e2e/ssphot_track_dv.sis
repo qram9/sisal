@@ -1,5 +1,3 @@
-% !!! NOT REGISTERED IN THE SUITE -- IT DOES NOT BUILD YET.  See BLOCKED below.
-%
 % SSPHOT_TRACK -- the particle tracking loop.  This is the construct that made
 % ssphot uncompilable, and the reason it was picked as the benchmark to port.
 %
@@ -40,38 +38,34 @@
 % out rather than silently lost -- see ssphot_move_dv, including the split
 % branch whose bookkeeping does not balance.
 %
-% BLOCKED on the INIT positional contract.  This file emits IF1 and C fine, but
-% the C does not compile: the INIT -> LoopB carry seeds come out SCRAMBLED,
-% every carry taking a different carry's initial value --
+% Registered in the dv e2e suite (group SSPHOT_TRACK_DV).  It was BLOCKED for a
+% long time on what looked like an INIT positional contract: the INIT -> LoopB
+% carry seeds came out SCRAMBLED, every carry taking a different carry's initial
+% value, and the emitted C did not compile --
 %
 %     (v_LoopB_..._I      = v_INIT_..._SEEDA);
 %     (v_LoopB_..._SEEDA  = v_INIT_..._TPLIST);
-%     (v_LoopB_..._TPLIST = v_INIT_..._WABS);
 %     error: assigning to 'double' from incompatible type 'sisal_array_t'
 %
-% The type error is a symptom; the wiring is the bug, and where the types happen
-% to agree it would MISCOMPILE SILENTLY instead of failing to build.
+% The real cause was NAME SHADOWING, not positional arithmetic.  The thirteen
+% tallies are declared in BOTH the outer and the inner `initial` clause -- as
+% the original source writes them -- so each was a name shared between an
+% enclosing and a nested for-initial.  A name rebound in an `initial` clause
+% kept its stale boundary import, so carry detection classified it as a capture
+% and built no MERGE pair; the loop then had fewer carry slots than INIT
+% exported and the positional derivation read the wrong window.  Fixed by
+% recording provenance in the symtab (`inherited`) and by clearing a carry's
+% BODY/TEST input port by destination rather than by edge identity.
 %
-% Cause is the known one: to_if1 finds the carries among the INIT boundary
-% outputs by counting backwards,
-%     start = boundary_out_port_count decl_gr - n_ret_seeds - 2*non_old_count
-% which is a positional guess, not a contract.  Here only i, seedA and tplist
-% are real carries (they use `old`); the other twelve tallies are declared in
-% `initial` but assigned fresh from the call each iteration, so they are body
-% locals -- and the count comes out wrong.
+% Expected values come from a reference implementation of the same algorithm in
+% C, in the harness -- not from literals.  Cross-checked against OSC 13.0.3
+% (~/work/oldsisal): the Sisal, the C reference and OSC agree on the seed, both
+% tally arrays and ntrac for all six parameter sets.
 %
-% Narrowed but NOT reduced.  Three shapes that do NOT trigger it: many carries
-% plus a catenate; carries assigned fresh from a multi-value call; and a mix of
-% `old` carries with non-`old` initial names.  All wire correctly.  What is left
-% distinguishing this one is that a NESTED for-initial's fourteen results are
-% multi-assigned into the ENCLOSING for-initial's carries.
-%
-% The fix is the INIT portmap flagged earlier -- naming the INIT outputs by role
-% instead of deriving their positions -- which is a to_if1 change and wants
-% discussing before it is attempted.
-%
-% Everything above this line is complete and matches the source; when the wiring
-% is fixed this needs a C mirror and the five registration points.
+% STILL NOT PORTED: DetDistToBound, the ray/cell intersection that computes how
+% far a photon travels before hitting a zone boundary.  It arrives here as a
+% per-zone table, which keeps the loop, the recurrence and the catenate exactly
+% as the original writes them but does not stand in for the geometry.
 
 define Main
 

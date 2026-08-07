@@ -435,6 +435,12 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_SSPHOT_TRACK_DV
+struct SSPT_results { double seed; sisal_array_t doubles, ints; int32_t ntrac; };
+extern "C" struct SSPT_results func_MAIN(int32_t nzones, int32_t mid, int32_t irr,
+                                         double seed, double newgt, double tcen,
+                                         double wcut, double sig, double scrat);
+#endif
 #ifdef TEST_FORINIT_SHADOW_DV
 struct FSH_results { int32_t let_shadow, let_fresh, self_alias, alias_ctl;
                      int32_t nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w; };
@@ -12433,6 +12439,240 @@ static void test_zerotrip_expr_dv(void) {
   check("non zero-trip keep-last still the last BODY value (8)", r.live == 8);
 }
 #endif
+#ifdef TEST_SSPHOT_TRACK_DV
+// SSPHOT particle tracking -- the loop that made ssphot uncompilable and the
+// reason it was picked as the porting benchmark.  Two nested SEQUENTIAL loops:
+// the inner one walks the current particle list threading an RNG seed (so
+// iteration i cannot start before i-1 finishes) and emits a data-dependent
+// number of copies of each photon, glued with `returns value of catenate
+// tplist` -- the one shape a forall cannot express.  The outer loop re-runs on
+// whatever the inner produced until the list empties.
+//
+// This is also the file that exposed the carry-shadowing bug: the tallies are
+// declared in BOTH the outer and inner `initial` clauses, so every one of them
+// was a name shared between an enclosing and a nested for-initial.  Before the
+// fix the INIT->LoopB seeds came out scrambled and the emitted C did not even
+// compile (`assigning to double from sisal_array_t`).
+//
+// Reference below is the same algorithm in C, structured function-for-function
+// against the Sisal.  Cross-checked against OSC 13.0.3 (~/work/oldsisal): the
+// Sisal, this reference and OSC agree on the seed, both tally arrays and ntrac
+// for every parameter set exercised here.
+namespace ssref {
+
+struct P { double u, v, w, x, y, z, age, newgt; int32_t id, ir; };
+
+static double rnd(double r) {
+  double rp = r * 41475557.0;
+  return rp - (double)(int32_t)rp;             // rp - double_real(trunc(rp))
+}
+
+// seed, p, wrr, nrr, nsplt, ncopies
+struct R6 { double seed; P p; double wrr; int32_t nrr, nsplt, ncopies; };
+
+static R6 rrweights(double seed, double wmin, P p) {
+  R6 o { seed, p, 0.0, 0, 0, 1 };
+  if (p.newgt < wmin) {
+    double ns = rnd(seed);
+    o.seed = ns;
+    if (ns < p.newgt) { o.p.newgt = 1.0; o.wrr = 1.0 - p.newgt; o.ncopies = 1; }
+    else              { o.wrr = -p.newgt; o.nrr = 1; o.ncopies = 0; }
+  } else if (p.newgt < (1.0 / wmin)) {
+    /* keep as-is */
+  } else {
+    int32_t ir0 = (int32_t)p.newgt, ir1 = ir0 - 1;
+    if (ir1 > 0) {
+      o.p.newgt = p.newgt / ((double)ir1 + 1.0);
+      o.nsplt = ir1; o.ncopies = ir1 + 1;
+    }
+  }
+  return o;
+}
+
+static R6 rrimportances(double seed, int32_t idold, const double *ximp, P p) {
+  R6 o { seed, p, 0.0, 0, 0, 1 };
+  if (ximp[p.id] == ximp[idold]) return o;     // ximp is 1-based
+  double r = ximp[p.id] / ximp[idold];
+  double zeta = rnd(seed);
+  int32_t ir1 = (int32_t)r;
+  double r1 = (double)ir1;
+  int32_t ir0 = ir1 - 1;
+  double r0 = r - r1;
+  o.seed = zeta;
+  if (r < 1.0 && zeta < r0) {
+    double rinv = 1.0 / r;
+    o.p.newgt = p.newgt * rinv;
+    o.wrr = p.newgt * (rinv - 1.0);
+  } else if (r < 1.0) {
+    o.wrr = -p.newgt; o.nrr = 1; o.ncopies = 0;
+  } else if (zeta < r0) {
+    o.p.newgt = p.newgt / (r1 + 1.0); o.nsplt = ir1; o.ncopies = ir1 + 1;
+  } else if (ir0 <= 0) {
+    /* keep as-is */
+  } else {
+    o.p.newgt = p.newgt / (r1 + 1.0); o.nsplt = ir0; o.ncopies = ir0 + 1;
+  }
+  return o;
+}
+
+// + nescgp, enesc
+struct R8 { R6 s; int32_t nescgp; double enesc; };
+
+static R8 move(double seed, P p, int32_t incr, int32_t nzones, int32_t mid,
+               int32_t irr, double dbound, const double *ximp, double wcut) {
+  int32_t idold = p.id, newid = p.id + incr;
+  if (newid > nzones)
+    return R8 { R6 { seed, p, 0.0, 0, 0, 0 }, 1, p.newgt };
+  P np = p;
+  np.x = p.x + p.u * dbound;
+  np.y = p.y + p.v * dbound;
+  np.z = p.z + p.w * dbound;
+  np.age = p.age + dbound * 3.3356349e-11;
+  np.id = newid; np.ir = mid;
+  if (irr == 0) return R8 { R6 { seed, np, 0.0, 0, 0, 1 }, 0, 0.0 };
+  R6 s = (irr == 1) ? rrimportances(seed, idold, ximp, np)
+                    : rrweights(seed, wcut, np);
+  return R8 { s, 0, 0.0 };
+}
+
+static void thom(double seed, P p, double *so, P *po) {
+  double csn[129];
+  for (int k = 1; k <= 128; k++)
+    csn[k] = cos(((double)(k - 1) / 128.0) * 3.1415926535897932);
+  double s1 = rnd(seed);
+  int32_t index = (int32_t)(s1 * 128.0 + 1.0);
+  double sctang = csn[index];
+  double s2 = rnd(s1);
+  double t3 = 6.2831853 * s2;
+  double t4 = sqrt(1.0 - sctang * sctang);
+  double t5 = sqrt(1.0 - p.w * p.w);
+  double temp1 = t4 / t5, temp2 = sin(t3), temp3 = cos(t3), temp4 = p.w * temp3;
+  P q = p;
+  q.u = p.u * sctang + temp1 * (p.u * temp4 - p.v * temp2);
+  q.v = p.v * sctang + temp1 * (p.v * temp4 + p.u * temp2);
+  q.w = p.w * sctang - (t4 * t5) * temp3;
+  *so = s2; *po = q;
+}
+
+// the full 15-tuple DetParticleFate returns
+struct Fate { double seed; P p; double wrr; int32_t nrr, nsplt, ncopies, nescgp;
+              double enesc; int32_t nlost; double wlost; int32_t nabs;
+              double wabs; int32_t nscat, ncen; double wcen; };
+
+static Fate fate(double seed, P p, double dbound, double tcen, double wcut,
+                 int32_t incr, int32_t nzones, int32_t mid, int32_t irr,
+                 const double *ximp, double sig, double scrat) {
+  Fate f {}; f.seed = seed; f.p = p;
+  if (dbound == 1000.0) { f.nlost = 1; f.wlost = p.newgt; return f; }
+  double s1 = rnd(seed);
+  double dist = -log(s1) / sig;
+  double dcen = (tcen - p.age) * 2.99793e10;
+  if (dbound < dist && dbound < dcen) {
+    R8 m = move(s1, p, incr, nzones, mid, irr, dbound, ximp, wcut);
+    f.seed = m.s.seed; f.p = m.s.p; f.wrr = m.s.wrr; f.nrr = m.s.nrr;
+    f.nsplt = m.s.nsplt; f.ncopies = m.s.ncopies;
+    f.nescgp = m.nescgp; f.enesc = m.enesc;
+    return f;
+  }
+  if (dist < dcen) {
+    double s2 = rnd(s1);
+    if (s2 > scrat) { f.seed = s2; f.nabs = 1; f.wabs = p.newgt; return f; }
+    P np = p;
+    np.x = p.x + p.u * dist; np.y = p.y + p.v * dist; np.z = p.z + p.w * dist;
+    np.age = p.age + dist * 3.3356349e-11;
+    double s3; P nnp;
+    thom(s2, np, &s3, &nnp);
+    if (irr == 2) {
+      R6 s = rrweights(s3, wcut, nnp);
+      f.seed = s.seed; f.p = s.p; f.wrr = s.wrr; f.nrr = s.nrr;
+      f.nsplt = s.nsplt; f.ncopies = s.ncopies; f.nscat = 1;
+    } else {
+      f.seed = s3; f.p = nnp; f.ncopies = 1; f.nscat = 1;
+    }
+    return f;
+  }
+  f.seed = s1; f.ncen = 1; f.wcen = p.newgt;          // reached census time
+  return f;
+}
+
+struct Totals { double seed; double wrr, enesc, wlost, wabs, wcen;
+                int32_t nrr, nsplt, nescgp, nlost, nabs, nscat, ncen, ntrac; };
+
+static Totals track(double seed, P p0, double tcen, double wcut, int32_t nzones,
+                    int32_t mid, int32_t irr, const int32_t *incrs,
+                    const double *dbounds, const double *ximp, double sig,
+                    double scrat) {
+  Totals T {}; T.seed = seed;
+  std::vector<P> plist { p0 };
+  double seed0 = seed;
+  while (!plist.empty()) {                       // while array_size(plist) > 0
+    T.ntrac += (int32_t)plist.size();
+    std::vector<P> tplist;
+    double seedA = seed0;
+    for (size_t i = 0; i < plist.size(); i++) {  // sequential: seedA threads
+      P q = plist[i];
+      Fate f = fate(seedA, q, dbounds[q.id], tcen, wcut, incrs[q.id], nzones,
+                    mid, irr, ximp, sig, scrat);
+      seedA = f.seed;
+      for (int32_t k = 0; k < f.ncopies; k++) tplist.push_back(f.p);
+      T.wrr += f.wrr;  T.nrr += f.nrr;  T.nsplt += f.nsplt;
+      T.nescgp += f.nescgp; T.enesc += f.enesc;
+      T.nlost += f.nlost;   T.wlost += f.wlost;
+      T.nabs += f.nabs;     T.wabs += f.wabs;
+      T.nscat += f.nscat;   T.ncen += f.ncen;   T.wcen += f.wcen;
+    }
+    seed0 = seedA;
+    plist = tplist;
+  }
+  T.seed = seed0;
+  return T;
+}
+
+}  // namespace ssref
+
+static void test_ssphot_track_dv(void) {
+  printf("\n=== Group: ssphot_track_dv (nested sequential loops + catenate) ===\n");
+  struct Case { int32_t nzones, mid, irr;
+                double seed, newgt, tcen, wcut, sig, scrat; const char *what; };
+  const Case cases[] = {
+    { 5, 3, 1, 0.5,   1.0, 1e-11, 0.1,  1.0, 0.5, "census on the first step" },
+    { 5, 3, 1, 0.5,   1.0, 1.0,   0.1,  1.0, 0.1, "scatter then absorbed" },
+    { 5, 3, 1, 0.37,  1.0, 1e-10, 0.5,  2.0, 0.3, "split, absorb, census" },
+    { 5, 3, 1, 0.9,   1.0, 1.0,   0.1,  1.0, 0.9, "split, roulette, lost" },
+    { 5, 3, 2, 0.42,  1.0, 1.0,   0.3,  1.0, 0.5, "irr=2 (RRWeights) branch" },
+    { 5, 3, 1, 0.123, 2.0, 1.0,   0.05, 0.5, 0.7, "newgt=2 weight splitting" },
+  };
+  const double ximp[6]    = { 0, 1.0, 1.0, 2.0, 2.0, 1.0 };       // 1-based
+  const double dbounds[6] = { 0, 0.5, 0.75, 1.0, 1.25, 1000.0 };
+  const int32_t incrs[6]  = { 0, 1, 1, 1, 1, 1 };
+
+  for (const Case &c : cases) {
+    ssref::P p0 { 0.5, 0.5, 0.7071067811865476, 0.0, 0.0, 0.0, 0.0,
+                  c.newgt, 1, 1 };
+    ssref::Totals r = ssref::track(c.seed, p0, c.tcen, c.wcut, c.nzones, c.mid,
+                                   c.irr, incrs, dbounds, ximp, c.sig, c.scrat);
+    SSPT_results g = func_MAIN(c.nzones, c.mid, c.irr, c.seed, c.newgt, c.tcen,
+                               c.wcut, c.sig, c.scrat);
+    const double *gd = (const double *)g.doubles.data;
+    const int32_t *gi = (const int32_t *)g.ints.data;
+    char msg[256];
+    snprintf(msg, sizeof msg, "%-26s seed threads through every iteration", c.what);
+    check(msg, fabs(g.seed - r.seed) < 1e-12);
+    snprintf(msg, sizeof msg, "%-26s weights [wrr enesc wlost wabs wcen]", c.what);
+    check(msg, (int)g.doubles.size == 5
+               && fabs(gd[0] - r.wrr)   < 1e-12 && fabs(gd[1] - r.enesc) < 1e-12
+               && fabs(gd[2] - r.wlost) < 1e-12 && fabs(gd[3] - r.wabs)  < 1e-12
+               && fabs(gd[4] - r.wcen)  < 1e-12);
+    snprintf(msg, sizeof msg, "%-26s counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]", c.what);
+    check(msg, (int)g.ints.size == 8
+               && gi[0] == r.nrr    && gi[1] == r.nsplt && gi[2] == r.nescgp
+               && gi[3] == r.nlost  && gi[4] == r.nabs  && gi[5] == r.nscat
+               && gi[6] == r.ncen   && gi[7] == r.ntrac);
+    snprintf(msg, sizeof msg, "%-26s ntrac agrees with the counts array", c.what);
+    check(msg, g.ntrac == r.ntrac && g.ntrac == gi[7]);
+  }
+}
+#endif
 #ifdef TEST_FORINIT_SHADOW_DV
 // A name REBOUND in a `for initial` clause, where an enclosing scope binds it
 // too.  Sisal 2.0 Ch6 6.1 permits re-establishing an enclosing name inside a
@@ -14006,6 +14246,9 @@ main (void)
 #ifdef TEST_ZEROTRIP_EXPR_DV
   test_zerotrip_expr_dv ();
 #endif
+#ifdef TEST_SSPHOT_TRACK_DV
+  test_ssphot_track_dv ();
+#endif
 #ifdef TEST_FORINIT_SHADOW_DV
   test_forinit_shadow_dv ();
 #endif
@@ -14181,7 +14424,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
