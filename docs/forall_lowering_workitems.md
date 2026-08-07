@@ -138,3 +138,14 @@ decldef body — all correct; dv suite 12 groups pass / 4 pre-existing fails.
       `forall_dv_{at,cross,dot,dot3}.sis` were renamed (`for x in A …`) and
       promoted to `test/e2e/`, so they no longer trip it. See
       `forall_rebuild_note.md` "Known bug — scatter self-shadow".
+
+      **RETIRED 2026-08-06 -- does NOT reproduce.** Verified at current master
+      AND at pre-session `4ce1b08` (built in a throwaway worktree), three
+      variants: `for a in A returns array_dv of a + 1` -> `11 21 31`;
+      `for a in A at i returns array_dv of a + i` -> `11 22 33`;
+      `for i in 1, n` with `n` from an enclosing `let` -> `3 6 9`.  All correct,
+      0 C errors, and already correct at 4ce1b08 -- so this was fixed at some
+      earlier point and the item was never retired.  It still has NO e2e
+      coverage, which is how the stale claim survived: the original repro files
+      (`forall_dv_{at,cross,dot,dot3}.sis`) were renamed to `for x in A` when
+      they were promoted, so nothing exercises the name clash any more.
