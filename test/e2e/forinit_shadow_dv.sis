@@ -17,15 +17,17 @@
 % equal the harness's reference loop.  Identifier choice is the only difference
 % within a pair; that is the whole bug.
 %
-% NOT covered here: the same shadowing between an enclosing and a NESTED
-% for-initial's initial clause (test/e2e/bug_nested_init_carry.sis).  The carry
-% is now built there too, but the inner `old` still does not advance -- see
-% bug_init_carry_seed_scramble in memory.
+% Case 3/4 is the nested form -- the shared name is between an ENCLOSING and a
+% NESTED initial clause, and the inner loop's results feed the outer loop's
+% carries.  ssphot's tracking loop declares its tallies in BOTH scopes in the
+% original source, so this is real-code shape.
 
 define Main
 
 function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
-                      integer, integer)   % 2. X := X          / A := X
+                      integer, integer,   % 2. X := X          / A := X
+                      integer, integer,   % 3. nested, shared name  (cnt, w)
+                      integer, integer)   % 4. nested, fresh name   (cnt, v)
   let
     % --- 1. a `let` binds w; the for-initial rebinds it to a fresh literal.
     %        The rebinding was visible in the symtab, but the stale boundary
@@ -60,8 +62,32 @@ function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
                   while i <= 2 repeat
                      i := old i + 1;
                      a := old a + 1;
-                  returns value of a end for
+                  returns value of a end for;
+
+    % --- 3/4. nested: the inner `initial` reuses the OUTER loop's carry name.
+    %          The inner body's `old w` used to be fed from a stale producer
+    %          left on its boundary port, so it never advanced.
+    nest_sh_c, nest_sh_w :=
+        for initial cnt := 0; w := 0;
+        while cnt < 2 repeat
+           cnt, w := for initial i := 1; w := 0;
+                     while i <= 2 repeat
+                        i := old i + 1;
+                        w := old w + 1;
+                     returns value of i value of sum w end for;
+        returns value of cnt value of sum w end for;
+
+    nest_rn_c, nest_rn_w :=
+        for initial cnt := 0; w := 0;
+        while cnt < 2 repeat
+           cnt, w := for initial i := 1; v := 0;
+                     while i <= 2 repeat
+                        i := old i + 1;
+                        v := old v + 1;
+                     returns value of i value of sum v end for;
+        returns value of cnt value of sum w end for
   in
-    let_shadow, let_fresh, self_alias, alias_ctl
+    let_shadow, let_fresh, self_alias, alias_ctl,
+    nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w
   end let
 end function

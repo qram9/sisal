@@ -7969,13 +7969,25 @@ and do_simple_exp_impl in_gr in_sim_ex =
                               | Some e -> e.If1.val_ty
                               | None -> 0)
                         in
-                        let old_edge =
-                          ((init_cn, init_k), (body_cn, body_inp), ty)
-                        in
+                        let _ = init_k in
+                        (* This port belongs to a CARRY -- a name the `initial` clause defined
+   locally (inherited = false) -- so the MERGE must end up its ONLY
+   producer.  Removing by exact edge identity assumed the port was fed
+   from INIT, which holds only when the carry's name is unbound outside
+   the loop: when it SHADOWS an enclosing name,
+   wire_all_syms_to_compound resolves it OUTWARD and the port is fed
+   from the loop boundary instead, so the identity removal was a silent
+   no-op and left two producers on one port.  Clear the port by
+   DESTINATION -- a boundary input has exactly one producer by
+   construction, and INIT still reaches the MERGE on port 1. *)
                         let fg =
                           {
                             fg with
-                            If1.eset = If1.ES.remove old_edge fg.If1.eset;
+                            If1.eset =
+                              If1.ES.filter
+                                (fun (_, (dn, dp), _) ->
+                                  not (dn = body_cn && dp = body_inp))
+                                fg.If1.eset;
                           }
                         in
                         let (mn, _, _), fg =
@@ -8500,14 +8512,24 @@ and do_simple_exp_impl in_gr in_sim_ex =
                                 | Some e -> e.If1.val_ty
                                 | None -> 0)
                           in
-                          (* Remove old direct INIT→BODY edge *)
-                          let old_edge =
-                            ((init_cn, init_k), (body_cn, body_inp), ty)
-                          in
+                          (* This port belongs to a CARRY -- a name the `initial` clause defined
+                             locally (inherited = false) -- so the MERGE must end up its ONLY
+                             producer.  Removing by exact edge identity assumed the port was fed
+                             from INIT, which holds only when the carry's name is unbound outside
+                             the loop: when it SHADOWS an enclosing name,
+                             wire_all_syms_to_compound resolves it OUTWARD and the port is fed
+                             from the loop boundary instead, so the identity removal was a silent
+                             no-op and left two producers on one port.  Clear the port by
+                             DESTINATION -- a boundary input has exactly one producer by
+                             construction, and INIT still reaches the MERGE on port 1. *)
                           let fg =
                             {
                               fg with
-                              If1.eset = If1.ES.remove old_edge fg.If1.eset;
+                              If1.eset =
+                                If1.ES.filter
+                                  (fun (_, (dn, dp), _) ->
+                                    not (dn = body_cn && dp = body_inp))
+                                  fg.If1.eset;
                             }
                           in
                           (* Create MERGE node in for_gr *)
@@ -8527,14 +8549,15 @@ and do_simple_exp_impl in_gr in_sim_ex =
                           let fg =
                             match If1.SM.find_opt name test_ins_map with
                             | Some test_inp ->
-                                let old_test_edge =
-                                  ((init_cn, init_k), (test_cn, test_inp), ty)
-                                in
+                                (* same, for the TEST guard's input port *)
                                 let fg =
                                   {
                                     fg with
                                     If1.eset =
-                                      If1.ES.remove old_test_edge fg.If1.eset;
+                                      If1.ES.filter
+                                        (fun (_, (dn, dp), _) ->
+                                          not (dn = test_cn && dp = test_inp))
+                                        fg.If1.eset;
                                   }
                                 in
                                 If1.add_edge mn 0 test_cn test_inp ty fg

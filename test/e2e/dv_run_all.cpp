@@ -436,7 +436,8 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        int32_t n, int32_t q);
 #endif
 #ifdef TEST_FORINIT_SHADOW_DV
-struct FSH_results { int32_t let_shadow, let_fresh, self_alias, alias_ctl; };
+struct FSH_results { int32_t let_shadow, let_fresh, self_alias, alias_ctl;
+                     int32_t nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w; };
 extern "C" struct FSH_results func_MAIN();
 #endif
 #ifdef TEST_FORINIT_MASK_DV
@@ -12473,6 +12474,28 @@ static void test_forinit_shadow_dv(void) {
   check("`A := X` alias carry (control) agrees", r.alias_ctl == want_x_seeded);
   check("self-alias and fresh-name alias give the SAME answer",
         r.self_alias == r.alias_ctl);
+
+  // Nested: the inner `initial` reuses the OUTER loop's carry name.  Reference
+  // is the same nest in C, with the history rule applied at both levels (the
+  // seed is body_0 and so contributes to `sum`).
+  int ref_c, ref_w;
+  {
+    int cnt = 0, w = 0, sum_w = w;      // outer seed contributes
+    while (cnt < 2) {
+      int i = 1, iw = 0, sum_iw = iw;   // inner seed contributes
+      while (i <= 2) { int oi = i, ow = iw; i = oi + 1; iw = ow + 1; sum_iw += iw; }
+      cnt = i; w = sum_iw; sum_w += w;
+    }
+    ref_c = cnt; ref_w = sum_w;
+  }
+  check("nested, inner reuses the outer carry name: last cnt",
+        r.nest_sh_c == ref_c);
+  check("nested, inner reuses the outer carry name: sum w",
+        r.nest_sh_w == ref_w);
+  check("nested, fresh inner name (control): last cnt", r.nest_rn_c == ref_c);
+  check("nested, fresh inner name (control): sum w", r.nest_rn_w == ref_w);
+  check("nested shadowed and nested fresh give the SAME answer",
+        r.nest_sh_c == r.nest_rn_c && r.nest_sh_w == r.nest_rn_w);
 }
 #endif
 #ifdef TEST_FORINIT_MASK_DV
