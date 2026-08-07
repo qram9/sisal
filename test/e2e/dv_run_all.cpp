@@ -4811,12 +4811,58 @@ static void
 test_feo_fft_parts2 (void)
 {
   printf ("\n=== Group: feo_fft_parts2 ===\n");
-  FUNC_MAIN_results r = func_MAIN();
-  // ARRAY-valued carries do not collect their seed yet (the shaped_store
-  // helper allocates off the first element and cannot take a preheader store),
-  // so these stay at the 3 body values while scalar carries now include it.
-  check ("W[0] size == 3", r.res_0.size == 3);
-  check ("W[1] size == 3", r.res_1.size == 3);
+  FUNC_MAIN_results r = func_MAIN ();
+
+  // W(16): log2(16)=4 is even so m starts at 4, and W_n(4) is EMPTY (its forall
+  // runs m in 0, 4/4-2 = 0,-1).  One body iteration then takes m to 16, so the
+  // gather holds a SINGLE ROW -- rank 2, dims (1,3) -- not three stages.  The
+  // old assertion `size == 3` read that as three stages and checked nothing
+  // else: it would have passed with every twiddle factor wrong.
+  //
+  // ARRAY-valued carries do not collect their seed yet (sisal_array_shaped_store
+  // allocates off the first element and cannot take a preheader store), so the
+  // empty W_n(4) seed row is absent -- which is why one row, not two.
+  //
+  // Reference: W_n(16) is the radix-4 twiddle set, w1 = exp(-i*k*2*pi/16) for
+  // k = 1..3, with w2 = w1^2 and w3 = w1^3 by the same complex multiply the
+  // Sisal spells out as cmult.
+  const int rows = 1, cols = 3;
+  double e1re[3], e1im[3], e2re[3], e2im[3], e3re[3], e3im[3];
+  {
+    const double pi = 4.0 * atan (1.0);
+    const double step = 2.0 * pi / 16.0;
+    for (int k = 0; k < cols; k++)
+      {
+        double angle = (double)(k + 1) * step;
+        e1re[k] = cos (angle);
+        e1im[k] = -sin (angle);
+        e2re[k] = e1re[k] * e1re[k] - e1im[k] * e1im[k];
+        e2im[k] = e1re[k] * e1im[k] + e1im[k] * e1re[k];
+        e3re[k] = e1re[k] * e2re[k] - e1im[k] * e2im[k];
+        e3im[k] = e1re[k] * e2im[k] + e1im[k] * e2re[k];
+      }
+  }
+  struct TW { const char *name; sisal_array_t got; const double *want; };
+  TW W[6] = {
+    { "w1re", r.res_0, e1re }, { "w1im", r.res_1, e1im },
+    { "w2re", r.res_2, e2re }, { "w2im", r.res_3, e2im },
+    { "w3re", r.res_4, e3re }, { "w3im", r.res_5, e3im },
+  };
+  for (int q = 0; q < 6; q++)
+    {
+      char msg[128];
+      snprintf (msg, sizeof msg, "%s is rank 2, dims (%d,%d)", W[q].name, rows,
+                cols);
+      check (msg, W[q].got.rank == 2 && (int)W[q].got.dims[0] == rows
+                      && (int)W[q].got.dims[1] == cols
+                      && (int)W[q].got.size == rows * cols);
+      bool ok = ((int)W[q].got.size == rows * cols);
+      for (int k = 0; ok && k < cols; k++)
+        ok = ok && near_d (((const double *)W[q].got.data)[k], W[q].want[k]);
+      snprintf (msg, sizeof msg, "%s matches the radix-4 twiddle reference",
+                W[q].name);
+      check (msg, ok);
+    }
 }
 #endif
 
