@@ -393,6 +393,7 @@ run_group ZEROTRIP_EXPR_DV  zerotrip_expr_dv    ""
 run_group FORINIT_MASK_DV   forinit_mask_dv     ""
 run_group FORINIT_SHADOW_DV forinit_shadow_dv   ""
 run_group SSPHOT_TRACK_DV   ssphot_track_dv     ""
+run_group SIMPLE_BACKSUB_DV simple_backsub_dv   ""
 
 
 echo "========================================"

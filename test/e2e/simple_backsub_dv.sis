@@ -1,0 +1,69 @@
+% The tridiagonal back-substitution from the SIMPLE hydrodynamics benchmark
+% (test/unit/simple.sis, the `temp_r := for initial r := array Oned []; ...`
+% loop in the k-direction sweep).  Extracted because it is the one place in the
+% corpus where a REAL program had an ARRAY-VALUED carry whose name shadows an
+% enclosing binding:
+%
+%     temp_r := for initial
+%                 r  := array Oned [];          % r also bound further out
+%                 ml := lmx;
+%                 V  := temp[k, ml+1];
+%               while ( ml >= lmnp ) repeat
+%                 ml := old ml - 1;
+%                 V  := a[old ml] * old V + b[old ml];
+%                 r  := array_addl( old r, V );
+%               returns value of r
+%               end for;
+%
+% Before the shadowing fixes, `r` got no MERGE pair -- its two halves resolved
+% to different scopes (`R` imported from the enclosing boundary, `OLD R` bound
+% locally) -- so the accumulation could not carry and the loop silently
+% produced a wrong array.  unit/simple.sis is IF1-checked only, so nothing ran
+% it; this is the runtime coverage for that shape.
+%
+% Why this case earns its place beyond the scalar ones: the carry is an
+% ARRAY.  A missing MERGE on a scalar leaves a stale-but-typed value, which is
+% how the earlier bugs stayed quiet; on a dope vector it leaves an empty or
+% dangling descriptor, so the same defect shows up as a wrong SIZE, not just a
+% wrong number.  `array_addl` also grows the carry from an EMPTY seed, which
+% makes the seed's identity load-bearing.
+%
+% The recurrence is the standard Thomas-algorithm back sweep,
+%     V_j = a_j * V_{j+1} + b_j,  j = n .. 1
+% with each V prepended, so the result comes out in ascending j.
+
+define Main
+
+type Doubles = array_dv[double];
+
+function Main(n : integer returns Doubles, Doubles, integer, double)
+  let
+    % a and b as the forward sweep would have left them -- deterministic, and
+    % chosen so the recurrence neither decays to zero nor blows up
+    a := for j in 1, n returns array_dv of 0.5d0 + 0.25d0 * double_real(j)
+                                                  / double_real(n)
+         end for;
+    b := for j in 1, n returns array_dv of double_real(j) end for;
+
+    % the enclosing binding the loop's `r` shadows.  Sisal 2.0 Ch6 6.1.2: the
+    % loop COPIES the name, "the exterior name is not changed", so this array
+    % must still be [-1.0] after the loop below has built its own r.
+    r := array_dv Doubles [1: -1.0d0];
+
+    back := for initial
+              r  := array_dv Doubles [];
+              ml := n;
+              V  := 1.0d0;
+            while ml >= 1 repeat
+              ml := old ml - 1;
+              V  := a[old ml] * old V + b[old ml];
+              r  := array_addl(old r, V);
+            returns value of r
+            end for
+  in
+    back,                    % the accumulated array
+    r,                       % the enclosing r, which must be untouched
+    array_size(back),        % size, the thing a lost carry gets wrong first
+    array_size(r)            % ... and the exterior one, still 1
+  end let
+end function
