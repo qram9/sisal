@@ -128,32 +128,24 @@ let out_port_1 = [| "1"; "" |]
 let in_port_0 = [||]
 let out_port_0 = [||]
 
-(* [carry_needs_merge_in body_sg] is the loop carry-detection predicate.  Shared by both
-   LoopA (Iterator_termination) and LoopB (Termination_iterator): whether a carried name
-   needs a MERGE phi is a property of the BODY subgraph, not of the loop's pre/post-test
-   shape, so both forms must use identical logic.  For a non-OLD name from init_ports with
-   body symtab entry [e]:
-     val_def = 0 : it aliases an OLD carry-in port — its body def_port differs from its own
-                   boundary-in port (identity carry, e.g. k:=old k, or k:=old m);
-     val_def<> 0 : it is computed in the body AND also arrives as a boundary input
-                   (a normal changing carry, e.g. i:=old i+1).
-   A true external (e.g. n) is bound to its own boundary-in port (def_port = that port) and
-   is excluded by the first clause. *)
-let carry_needs_merge_in body_sg =
-  let ins_map =
-    match If1.NM.find_opt 0 body_sg.If1.nmap with
-    | Some (If1.Boundary (ins, _, _, _)) ->
-        List.fold_left
-          (fun m (_, _, n, dp) -> If1.SM.add n dp m)
-          If1.SM.empty ins
-    | _ -> If1.SM.empty
-  in
-  fun name e ->
-    if e.If1.val_def = 0 then
-      match If1.SM.find_opt name ins_map with
-      | Some bp -> e.If1.def_port <> bp
-      | None -> false
-    else If1.SM.mem name ins_map
+(* [carry_needs_merge_in body_sg] decides whether a carried name needs a MERGE
+   phi.  Applied to names already selected from [init_ports] (INIT's local
+   carries), looked up in the BODY subgraph's own symtab -- so together with the
+   INIT-side predicate it enforces the rule that a carry is LOCAL IN BOTH INIT
+   AND BODY (Sisal 2.0 Ch6 6.1.2: "each carried value is redefined exactly once
+   in the body").  Shared by LoopA and LoopB: carry-ness is a property of the
+   BODY subgraph, not of the loop's pre/post-test shape.
+
+   This used to RECONSTRUCT the answer -- val_def = 0 plus a comparison of
+   def_port against the name's own boundary-in port.  That reconstruction is
+   unreliable exactly where it matters: a name REBOUND in the `initial` clause
+   while an enclosing scope also binds it looks identical to a capture by
+   (val_def, def_port), because the rebinding can write back the same pair.
+   [inherited] records the answer at binding time instead, so MERGE connectivity
+   is now decided by LOCAL analysis at every point. *)
+let carry_needs_merge_in _body_sg name e =
+  ignore name;
+  not e.If1.inherited
 
 (* an expression like
    let x = 1 in sisal would
