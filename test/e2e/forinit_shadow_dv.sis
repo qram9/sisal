@@ -28,11 +28,20 @@ function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
                       integer, integer,   % 2. X := X          / A := X
                       integer, integer,   % 3. nested, shared name  (cnt, w)
                       integer, integer,   % 4. nested, fresh name   (cnt, v)
-                      integer, integer)   % 5. the GUARD reads the shadowed carry
+                      integer, integer,   % 5. the GUARD reads the shadowed carry
+                      integer)            % 6. the exterior binding is untouched
   let
     % --- 1. a `let` binds w; the for-initial rebinds it to a fresh literal.
     %        The rebinding was visible in the symtab, but the stale boundary
     %        import kept W from getting a carry.
+    %
+    %        Case 6 reads this same w AFTER the loop.  Sisal 2.0 Ch6 6.1.2 is
+    %        explicit that re-establishing a name inside a `for` COPIES it --
+    %        "the exterior name is not changed" -- so the let's w must still be
+    %        5 here even though the loop carried its own w from 0 to 2.  Every
+    %        other case checks the value the loop produced; none checked that
+    %        the enclosing binding survived, which is the other half of the
+    %        rule and the half a bad fix would break.
     w := 5;
     let_shadow := for initial w := 0; i := 1;
                   while i <= 2 repeat
@@ -102,10 +111,14 @@ function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
     guard_fresh  := for initial g := 0;
                     while g < 3 repeat
                        g := old g + 1;
-                    returns value of g end for
+                    returns value of g end for;
+
+    % --- 6. the exterior binding, read after the loop that shadowed it
+    outer_w := w
   in
     let_shadow, let_fresh, self_alias, alias_ctl,
     nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w,
-    guard_shadow, guard_fresh
+    guard_shadow, guard_fresh,
+    outer_w
   end let
 end function

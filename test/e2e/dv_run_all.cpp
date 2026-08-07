@@ -444,7 +444,8 @@ extern "C" struct SSPT_results func_MAIN(int32_t nzones, int32_t mid, int32_t ir
 #ifdef TEST_FORINIT_SHADOW_DV
 struct FSH_results { int32_t let_shadow, let_fresh, self_alias, alias_ctl;
                      int32_t nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w;
-                     int32_t guard_shadow, guard_fresh; };
+                     int32_t guard_shadow, guard_fresh;
+                     int32_t outer_w; };
 extern "C" struct FSH_results func_MAIN();
 #endif
 #ifdef TEST_FORINIT_MASK_DV
@@ -12749,6 +12750,16 @@ static void test_forinit_shadow_dv(void) {
   check("fresh guard name (control) agrees", r.guard_fresh == ref_guard);
   check("guard shadowed and guard fresh give the SAME answer",
         r.guard_shadow == r.guard_fresh);
+
+  // Sisal 2.0 Ch6 6.1.2: re-establishing a name inside a `for` COPIES it --
+  // "the exterior name is not changed".  The let bound w := 5; the loop above
+  // carried its own w from 0 to 2.  Reading w after the loop must still give 5.
+  // This is the other half of the rule, and the half a fix that made the carry
+  // work by writing through to the outer binding would break.
+  const int ref_outer_w = 5;                       // the let's binding, untouched
+  check("the enclosing w is unchanged by the loop that shadowed it",
+        r.outer_w == ref_outer_w);
+  check("...and is NOT the carry's final value", r.outer_w != r.let_shadow);
 }
 #endif
 #ifdef TEST_FORINIT_MASK_DV
