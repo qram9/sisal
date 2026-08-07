@@ -4808,6 +4808,9 @@ test_feo_fft_parts2 (void)
 {
   printf ("\n=== Group: feo_fft_parts2 ===\n");
   FUNC_MAIN_results r = func_MAIN();
+  // ARRAY-valued carries do not collect their seed yet (the shaped_store
+  // helper allocates off the first element and cannot take a preheader store),
+  // so these stay at the 3 body values while scalar carries now include it.
   check ("W[0] size == 3", r.res_0.size == 3);
   check ("W[1] size == 3", r.res_1.size == 3);
 }
@@ -5644,10 +5647,12 @@ test_loop13_dv (void)
 #endif
 #ifdef TEST_LOOP5_DV
 // Livermore loop 5: tridiagonal elimination (sequential recurrence) lowered as
-// a `for initial ... returns array of X`.  X[1]=Xin[1];
-// X[i]=Z[i]*(Y[i]-X[i-1]) for i=2..n.  The for-initial gather collects the
-// per-iteration body values X[2..n] (n-1 elements) -- the regression guard for
-// the for-initial DV_GATHER realization.
+// a `for initial ... returns array_dv(n) of X`.  X[1]=Xin[1];
+// X[i]=Z[i]*(Y[i]-X[i-1]) for i=2..n.  The declared extent is a SIZE
+// DESCRIPTOR: slot 0 is the seed (body_0, here X[1]) and the loop fills the
+// rest, so the gather is the whole X[1..n] -- n elements, not the n-1 body
+// values.  That is what makes this form agree with `value of`, the bare
+// `array_dv of`, `stream of`, every reduction, and OSC 13.0.3.
 static void
 test_loop5_dv (void)
 {
@@ -5664,11 +5669,10 @@ test_loop5_dv (void)
   sisal_array_t Xa = make_double_arr (Xin, 6), Ya = make_double_arr (Y, 6),
                 Za = make_double_arr (Z, 6);
   sisal_array_t r = func_MAIN (1, n, Xa, Ya, Za);
-  bool ok
-      = (r.rank == 1) && ((int)r.size == n - 1) && ((int)r.dims[0] == n - 1);
-  for (int k = 0; ok && k < n - 1; k++)
-    ok = ok && near_d (ad (r, k), X[k + 2]);
-  check ("loop5_dv gather [X2..Xn] matches C reference", ok);
+  bool ok = (r.rank == 1) && ((int)r.size == n) && ((int)r.dims[0] == n);
+  for (int k = 0; ok && k < n; k++)
+    ok = ok && near_d (ad (r, k), X[k + 1]);
+  check ("loop5_dv gather [X1..Xn] incl. the seed matches C reference", ok);
   if (Xa.data)
     free (Xa.data);
   if (Ya.data)
@@ -5696,11 +5700,13 @@ test_loop11s_dv (void)
     X[i] = X[i - 1] + Yin[i - 1]; // ref prefix sum
   sisal_array_t Ya = make_double_arr (Yin, 6);
   sisal_array_t r = func_MAIN (1, n, Ya);
-  bool ok
-      = (r.rank == 1) && ((int)r.size == n - 1) && ((int)r.dims[0] == n - 1);
-  for (int k = 0; ok && k < n - 1; k++)
-    ok = ok && near_d (ad (r, k), X[k + 2]);
-  check ("loop11s_dv prefix-sum gather [X2..Xn] matches C reference", ok);
+  // declared extent is a SIZE DESCRIPTOR: slot 0 is the seed (body_0 = X[1]),
+  // so the gather is the whole prefix-sum X[1..n], not just the body values.
+  bool ok = (r.rank == 1) && ((int)r.size == n) && ((int)r.dims[0] == n);
+  for (int k = 0; ok && k < n; k++)
+    ok = ok && near_d (ad (r, k), X[k + 1]);
+  check ("loop11s_dv prefix-sum gather [X1..Xn] incl. seed matches C reference",
+         ok);
   if (Ya.data)
     free (Ya.data);
   if (r.data)
@@ -5723,7 +5729,6 @@ test_loop17_dv (void)
          VSP[4] = { 2.0, 2.1, 2.2, 2.3 }, VSTP[4] = { 0.5, 0.6, 0.7, 0.8 },
          VXNEin[4] = { 3.0, 3.1, 3.2, 3.3 };
   double XNMt = 1.0 / 3.0, E6t = 1.03 / 3.07;
-  (void)E6t;
   double E3 = XNMt * LV (VLR, n) + LV (VLIN, n), XNC = 5.0 / 3.0 * E3,
          XNEI = LV (VXNEin, n), E6, XNM;
   if (XNMt > XNC || XNEI > XNC)
@@ -5737,9 +5742,16 @@ test_loop17_dv (void)
       XNM = E3 + E3 - XNMt;
     }
   double oldXNM = XNM, oldE6 = E6;
-  int cnt = n - 2;
+  // body_0: VXNE, VE3 and VXND all have seed values from the initial clause
+  // (VXND := E6t; VE3/VXNE from the same if that set E6/XNM), and the declared
+  // extent is a size descriptor, so each gather starts with its seed.
+  double seedVE3, seedVXNE;
+  if (XNMt > XNC || XNEI > XNC) { seedVE3 = E6; seedVXNE = E6; }
+  else { seedVE3 = E3; seedVXNE = E3 + E3 - XNEI; }
+  int cnt = n - 1;
   double gV[8], gE[8], gD[8];
   int idx = 0;
+  gV[idx] = seedVXNE; gE[idx] = seedVE3; gD[idx] = E6t; idx++;
   for (int i = n - 1; i >= 2; i--)
     {
       double e3 = oldXNM * LV (VLR, i) + LV (VLIN, i), xnc = 5.0 / 3.0 * e3,
@@ -5775,7 +5787,7 @@ test_loop17_dv (void)
   for (int k = 0; ok && k < cnt; k++)
     ok = ok && near_d (ad (r.res_0, k), gV[k])
          && near_d (ad (r.res_1, k), gE[k]) && near_d (ad (r.res_2, k), gD[k]);
-  check ("loop17_dv 3 gathers (VXNE,VE3,VXND) match C reference", ok);
+  check ("loop17_dv 3 gathers (VXNE,VE3,VXND) incl. seeds match C reference", ok);
   if (a.data)
     free (a.data);
   if (b.data)
@@ -5987,6 +5999,7 @@ test_loop20_dv (void)
     double DN = (DI == 0.0) ? 0.20 : std::max (S, std::min (A (Z, 1) / DI, T));
     double X = (A (XXin, 1) * (A (W, 1) + DN * A (V, 1)) + A (U, 1))
                / (A (VX, 1) + DN * A (V, 1));
+    Xg[gc++] = X;   // body_0: the seed X is slot 0 of the declared gather
     XX[2] = A (XXin, 1) + DN * (X - A (XXin, 1));
   }
   for (int i = 2; i <= n; i++)
@@ -6012,7 +6025,7 @@ test_loop20_dv (void)
   bool xxok = ((int)r.res_1.size == 5);
   for (int k = 0; xxok && k < 5; k++)
     xxok = xxok && near_d (ad (r.res_1, k), XX[k + 1]);
-  check ("loop20_dv X gather (i=2..n) matches C reference", xok);
+  check ("loop20_dv X gather (seed + i=2..n) matches C reference", xok);
   check ("loop20_dv XX (keep-last recurrence) matches C reference", xxok);
   if (xx.data)
     free (xx.data);
@@ -6239,8 +6252,10 @@ test_loop23s_dv (void)
 
   for (int j = 2; j <= 6; j++)
     {
-      double ZArc[4]; // elements for k = 2, 3, 4, 5
+      // slot 0 is the seed (ZA := old ZAt[j,1]), then k = 2..5
+      double ZArc[5];
       double ZA = M23 (ZAt, j, 1);
+      ZArc[0] = ZA;
       for (int k = 2; k <= 5; k++)
         {
           double QA = M23 (ZAt, j + 1, k) * M23 (ZR, j, k)
@@ -6248,18 +6263,21 @@ test_loop23s_dv (void)
                       + M23 (ZAt, j, k + 1) * M23 (ZU, j, k)
                       + ZA * M23 (ZV, j, k) + M23 (ZZ, j, k);
           ZA = M23 (ZAt, j, k) + 0.175 * (QA - M23 (ZAt, j, k));
-          ZArc[k - 2] = ZA;
+          ZArc[k - 1] = ZA;
         }
 
       // ZAt[j: array_addh(ZArc, ZAt[j, 6])]
-      // ZArc_appended has elements at indices 1..5: ZArc[0..3] and ZAt[j, 6]
+      // ZArc now carries the seed, so it is 5 long and the appended row covers
+      // columns 1..6: the seed keeps column 1 at its own value and the k=2..5
+      // results land at columns 2..5, i.e. at their natural indices.  Before
+      // the seed was collected they were shifted down one column.
       double old_col6 = M23 (ZAt, j, 6);
       M23 (ZAt, j, 1) = ZArc[0];
       M23 (ZAt, j, 2) = ZArc[1];
       M23 (ZAt, j, 3) = ZArc[2];
       M23 (ZAt, j, 4) = ZArc[3];
-      M23 (ZAt, j, 5) = old_col6;
-      // column 6 of ZAt[j] remains unchanged.
+      M23 (ZAt, j, 5) = ZArc[4];
+      M23 (ZAt, j, 6) = old_col6;
     }
 #undef M23
 
@@ -6577,8 +6595,10 @@ static void test_mr_forall_dv(void) {
 static void test_mr_forinit_dv(void) {
     printf("\n=== Group: mr_forinit_dv (for-initial scalar + 1-D gather) ===\n");
     struct MRFI_results r = func_MAIN();
-    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==1 && ai(r.res_1,1)==3 && ai(r.res_1,2)==6;
-    check("mr_forinit_dv (value of acc=6, gather=[1,3,6])", ok);
+    // slot 0 is the seed (acc := 0), then the body values 1, 3, 6
+    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 4) && ai(r.res_1,0)==0
+              && ai(r.res_1,1)==1 && ai(r.res_1,2)==3 && ai(r.res_1,3)==6;
+    check("mr_forinit_dv (value of acc=6, gather=[0,1,3,6] incl. seed)", ok);
     if (r.res_1.data) free(r.res_1.data);
 }
 #endif
@@ -8519,17 +8539,22 @@ static void test_shaped_gather_dv(void) {
     // m := old m * 4 while m < 64 -> iterates m = 4, 16, 64.  bound-seed sizing
     // would allocate 64-1 = 63 slots; the declared extent (3) sizes it exactly.
     struct FUNC_MAIN_results r = func_MAIN();
-    int32_t ex0[3] = { 4, 16, 64 };
-    bool ok0 = (r.res_0.rank == 1) && ((int)r.res_0.dims[0] == 3) && ((int)r.res_0.size == 3);
-    for (int k = 0; ok0 && k < 3; k++) ok0 = ok0 && (((int32_t*)r.res_0.data)[k] == ex0[k]);
-    check("scalar array_dv(3) of m == [4,16,64]", ok0);
+    int32_t ex0[4] = { 1, 4, 16, 64 };   // seed m := 1, then the body values
+    bool ok0 = (r.res_0.rank == 1) && ((int)r.res_0.dims[0] == 4) && ((int)r.res_0.size == 4);
+    for (int k = 0; ok0 && k < 4; k++) ok0 = ok0 && (((int32_t*)r.res_0.data)[k] == ex0[k]);
+    check("scalar array_dv(4) of m == [1,4,16,64] incl. the seed", ok0);
     // Row gather: element rank and byte size come off the element's dope at
     // RUNTIME (DV_NUM_RANK / sisal_array_shaped_store); leading dim = extent.
+    // The second clause gathers row(m) -- an EXPRESSION, not the carry.  Only a
+    // CARRY has a body_0, so only the carry clause takes the seed; this one
+    // stays at the 3 body values.  Hence the two clauses of one loop carry
+    // different extents (4 and 3), which is the rule, not an inconsistency:
+    // Sisal 1.2 does not admit body temporaries in RETURNS at all.
     int32_t ex1[12] = { 4,8,12,16, 16,32,48,64, 64,128,192,256 };
     bool ok1 = (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == 3)
             && ((int)r.res_1.dims[1] == 4) && ((int)r.res_1.size == 12);
     for (int k = 0; ok1 && k < 12; k++) ok1 = ok1 && (((int32_t*)r.res_1.data)[k] == ex1[k]);
-    check("row array_dv(3) of row(m) == 3x4 rows", ok1);
+    check("row array_dv(3) of row(m) == 3x4 rows (expression: no seed)", ok1);
     if (r.res_0.data) free(r.res_0.data);
     if (r.res_1.data) free(r.res_1.data);
 }
@@ -12469,6 +12494,7 @@ static void test_simple_fwdsweep_dv(void) {
     for (int32_t j = 1; j <= n; j++) { sg[j] = 1.0 + (double)j; tp[j] = (double)(n - j + 1); }
     for (int32_t j = 0; j <= n + 1; j++) cb[j] = 0.5 * (double)(j + 1);
     double a = 0.0, b = tp[1];
+    ra.push_back(a); rb.push_back(b);      // body_0: the seeds, slot 0
     for (int32_t l = 1; l <= n; l++) {
       double denom = sg[l] + cb[l + 1] + cb[l] * (1.0 - a);   // reads OLD a
       double na = cb[l + 1] / denom;
@@ -12487,14 +12513,14 @@ static void test_simple_fwdsweep_dv(void) {
       return true;
     };
     char msg[160];
-    snprintf(msg, sizeof msg, "n=%-2d both gathers size n (seed excluded; OSC gives n+1)", n);
-    check(msg, (int)g.a1.size == n && (int)g.b1.size == n && g.a1_n == n);
+    snprintf(msg, sizeof msg, "n=%-2d both gathers size n+1 (slot 0 is the seed, as OSC)", n);
+    check(msg, (int)g.a1.size == n + 1 && (int)g.b1.size == n + 1 && g.a1_n == n + 1);
     snprintf(msg, sizeof msg, "n=%-2d alpha sweep matches the reference", n);
     check(msg, same(ga, (int)g.a1.size, ra));
     snprintf(msg, sizeof msg, "n=%-2d beta sweep matches (reads old b AND denom)", n);
     check(msg, same(gb, (int)g.b1.size, rb));
     snprintf(msg, sizeof msg, "n=%-2d `a` rebound to the array after the loop", n);
-    check(msg, (int)g.a_rebound.size == n
+    check(msg, (int)g.a_rebound.size == n + 1
                && same((const double *)g.a_rebound.data, (int)g.a_rebound.size, ra));
   }
 }

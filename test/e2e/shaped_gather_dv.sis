@@ -19,7 +19,7 @@ function main( returns OneD, OneD )
     m := 1;
   while m < 64 repeat
     m := old m * 4;
-  returns array_dv(3) of m
+  returns array_dv(4) of m
           array_dv(3) of row(m)
   end for
 end function

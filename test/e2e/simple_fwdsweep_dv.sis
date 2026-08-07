@@ -36,17 +36,13 @@
 %
 % Extents are declared (`array_dv(n) of`) because a for-initial gather cannot
 % infer its trip count.  The sweep runs for l = 1..n, so each result has n
-% elements -- the n BODY values, seed excluded.
+% elements plus the seed: the declared extent is a SIZE DESCRIPTOR, slot 0 is
+% body_0, so `array_dv(n + 1) of a` yields the whole history.
 %
-% Cross-checked against OSC 13.0.3, which shows the one intended divergence.
-% Sisal 1.2's bare `array of` is a HISTORY gather: the initial clause is body_0
-% and contributes, so OSC returns n+1 elements with the seed first --
+% Matches OSC 13.0.3 exactly -- Sisal 1.2's `array of` is a history gather and
+% the initial clause contributes:
 %
-%   OSC   a_1 = [0.000000, 0.333333, 0.333333, 0.319149, 0.309211]   n+1
-%   here  a_1 = [          0.333333, 0.333333, 0.319149, 0.309211]   n
-%
-% The body values agree element for element; only the seed differs, and the
-% size assertion below pins that deliberately rather than papering over it.
+%   a_1 = [0.000000, 0.333333, 0.333333, 0.319149, 0.309211]   n+1, seed first
 
 define Main
 
@@ -73,8 +69,8 @@ function Main(n : integer returns Doubles, Doubles, Doubles, integer)
                    + cb[old l] * (1.0d0 - old a);
           a     := cb[old l + 1] / denom;
           b     := (sg[old l] * tp[old l] + cb[old l] * old b) / denom;
-        returns array_dv(n) of a
-                array_dv(n) of b
+        returns array_dv(n + 1) of a
+                array_dv(n + 1) of b
         end for;
 
     % the reuse the original performs: `a` was a double inside the loop and is

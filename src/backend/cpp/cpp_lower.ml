@@ -6379,6 +6379,15 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                      C.Cast (C.Basic "uint64_t", C.Id ctr) ));
                             ]
                       in
+                      (* NO body_0 tick here, unlike the scalar shaped case and
+                         the bare path.  sisal_array_shaped_store allocates
+                         lazily off the FIRST element's dope, and a preheader
+                         store leaves the descriptor empty (feo_fft's twiddle
+                         carries came out size 0).  So an ARRAY-VALUED carry
+                         still omits its seed while a scalar one collects it --
+                         a known gap, needing the runtime helper to accept a
+                         preheader store.  Scalar-vs-expression is a different
+                         and correct distinction: only a CARRY has a body_0. *)
                       ( pre @ pre',
                         store @ store',
                         top,
@@ -6417,6 +6426,18 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                                    elem_ty ));
                         ]
                         @ dims_sets
+                        (* body_0 tick, exactly as the bare path does it: the
+                           initial clause is body_0, so a CARRY's sequence
+                           starts with the seed.  gather_pre runs after the
+                           MERGE seeds, so body_val holds the seed here.  The
+                           declared extent is therefore a SIZE DESCRIPTOR --
+                           slot 0 is the seed and the loop fills 1..n-1 --
+                           which is what makes this form agree with `value of`,
+                           with the bare `array_dv of`, with `stream of`, with
+                           every reduction, and with OSC 13.0.3.  Without it
+                           this was the only RETURNS form in the compiler where
+                           the initializer did not contribute. *)
+                        @ if is_carry then scalar_store else []
                       in
                       (* A masked gather over-allocated to the trip count;
                          `ctr` counted the survivors, so shrink the descriptor
