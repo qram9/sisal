@@ -1,0 +1,68 @@
+% FirstTrue, from test/unit/crypto.sis -- linear search for the first set flag.
+% The rest of crypto (26^3 candidate strings, nested array[character]) is boxed
+% array-of-array territory and stays parked; this function is self-contained and
+% is worth having on its own for three reasons.
+%
+%   for initial
+%     i := array_liml(flags);
+%     n := array_limh(flags)
+%   while ( i <= n & ~flags[i] ) repeat
+%     i := old i + 1;
+%   returns value of i
+%   end for
+%
+% 1. A NON-COUNTED loop.  The guard is a compound condition that READS THE
+%    ARRAY -- `i <= n & ~flags[i]` -- so no trip count is derivable from the
+%    test at compile time.  This is the case the declared-extent gather exists
+%    for, exercised on the `value of` side where the count is not needed at all.
+%    (The bare-gather fast path reads the TEST compare to preallocate; here it
+%    must fall back, and the loop is still expected to be correct.)
+%
+% 2. A ZERO-TRIP `value of`.  When the very first flag is already set the guard
+%    is false on entry, the body never runs, and the result must be the SEED --
+%    array_liml(flags).  That is the settled 1.2 semantics (Sisal 90 §5.5, and
+%    OSC 13.0.3): the initial clause is body_0 and always contributes.  It is
+%    also the shape that used to return a type default before 250b43e.
+%
+% 3. A BOOLEAN array_dv.  bool is 1 byte while the generic helpers assume 4, so
+%    boolean arrays have their own history of stride bugs (fill_bool /
+%    replace_bool).  Building one by comparison and then INDEXING it inside a
+%    loop guard is a path none of the existing boolean tests take.
+%
+% NOT TESTED, and deliberately: the case where NO flag is set.  Sisal's `&` is
+% not short-circuit -- crypto.sis says so itself, "short circuit boolean not
+% guarantied / I'll add in the ADA style ``f1 and if f2''" -- so when the search
+% exhausts, `i <= n` is false but `~flags[i]` is still evaluated at i = n+1.
+% OSC 13.0.3 traps it:
+%
+%     TOKEN: (i,val=7)
+%     ERROR: (FirstTrue,line=7) ARRAY SUBSCRIPT VIOLATION [HIGH]
+%
+% We return 7 instead, reading one past the array without complaint.  The
+% original is therefore erroneous for that input, so there is no right answer to
+% assert; the harness exercises in-range positions only.  That we do not catch
+% it is a separate gap -- we have no runtime subscript checking at all.
+
+define Main
+
+type Bools = array_dv[boolean];
+
+function FirstTrue(flags : Bools returns integer)
+  for initial
+    i := array_liml(flags);
+    n := array_limh(flags)
+  while ( i <= n & ~flags[i] ) repeat
+    i := old i + 1;
+  returns
+    value of i
+  end for
+end function
+
+% pos = the 1-based position to set, or 0 for "no flag set at all"
+function Main(n : integer; pos : integer returns integer, integer, integer)
+  let
+    flags := for j in 1, n returns array_dv of j = pos end for
+  in
+    FirstTrue(flags), array_liml(flags), array_limh(flags)
+  end let
+end function
