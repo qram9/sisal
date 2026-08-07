@@ -27,7 +27,8 @@ define Main
 function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
                       integer, integer,   % 2. X := X          / A := X
                       integer, integer,   % 3. nested, shared name  (cnt, w)
-                      integer, integer)   % 4. nested, fresh name   (cnt, v)
+                      integer, integer,   % 4. nested, fresh name   (cnt, v)
+                      integer, integer)   % 5. the GUARD reads the shadowed carry
   let
     % --- 1. a `let` binds w; the for-initial rebinds it to a fresh literal.
     %        The rebinding was visible in the symtab, but the stale boundary
@@ -85,9 +86,26 @@ function Main(returns integer, integer,   % 1. let-bound name rebound / fresh
                         i := old i + 1;
                         v := old v + 1;
                      returns value of i value of sum v end for;
-        returns value of cnt value of sum w end for
+        returns value of cnt value of sum w end for;
+
+    % --- 5. the TEST subgraph, not just BODY.  Every case above reads the
+    %        shadowed carry only in the body; the `while` guard reads `i`.
+    %        TEST is wired by the same machinery and was exposed identically --
+    %        a guard reading a shadowed carry would have read the SEED forever,
+    %        so this loop would not terminate at all rather than return a wrong
+    %        number.  Nothing in the corpus covered it.
+    guard_shadow := for initial w := 0;
+                    while w < 3 repeat
+                       w := old w + 1;
+                    returns value of w end for;
+
+    guard_fresh  := for initial g := 0;
+                    while g < 3 repeat
+                       g := old g + 1;
+                    returns value of g end for
   in
     let_shadow, let_fresh, self_alias, alias_ctl,
-    nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w
+    nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w,
+    guard_shadow, guard_fresh
   end let
 end function

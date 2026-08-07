@@ -301,7 +301,7 @@ and get_tys ttts ous =
   | (fn, (_, _, tt)) :: tl -> get_tys tl ((fn, tt) :: ous)
   | [] -> ous
 
-and wire_all_syms_to_compound cn sub_gr outer_gr =
+and wire_all_syms_to_compound ?(skip = []) cn sub_gr outer_gr =
   (* inputs is (src_n, src_p, namen) list, in reverse order of addition.
      Reversing it gives the order they were added, which corresponds to local
      port IDs 0, 1, 2... *)
@@ -310,6 +310,18 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
     List.fold_left
       (fun (sub_gr, outer_gr)
            (src_n_in_boundary, src_p_in_boundary, xn, local_pid) ->
+        (* [skip] = names the CALLER owns; never resolve those outward.
+           Resolving by name is only correct when the name is unbound in the
+           enclosing scope -- there get_symbol_id RAISES, the try swallows it,
+           and the port is left for the owner to claim.  When the name IS bound
+           outside, the lookup succeeds and claims the port with the enclosing
+           binding; and because add_edge2 is FIRST-WRITER-WINS on a destination
+           port (if1.ml, `already_driven`), the owner's later and correct edge
+           is then silently DROPPED.  That is how a `for initial` carry whose
+           name shadows an enclosing one came to read a value that never
+           advanced.  Correctness must not rest on a lookup happening to fail. *)
+        if List.mem xn skip then (sub_gr, outer_gr)
+        else
         let res_opt =
           try Some (If1.get_symbol_id xn outer_gr) with _ -> None
         in
@@ -345,11 +357,15 @@ and wire_all_syms_to_compound cn sub_gr outer_gr =
   let outer_gr = If1.update_compound_subgraph cn sub_gr outer_gr in
   (sub_gr, outer_gr)
 
-and verify_compound_inputs cn sub_gr outer_gr =
+and verify_compound_inputs ?(skip = []) cn sub_gr outer_gr =
   let inputs = If1.get_named_input_ports sub_gr in
   let ordered_inputs = List.rev inputs in
   List.iteri
     (fun local_pid (src_n_in_boundary, src_p_in_boundary, xn, _) ->
+      (* Names the caller owns are wired later, from INIT, by wire_consumer --
+         they are deliberately unwired at this point. *)
+      if List.mem xn skip then ()
+      else
       let cs, ps = outer_gr.If1.symtab in
       let entry_opt =
         if If1.SM.mem xn cs then Some (If1.SM.find xn cs)
@@ -7601,7 +7617,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
         (body_gr, return_action_list, ret_tuple_list, mask_ty_list)
       in
 
-      let add_comp_node in_gr namen ?(prag = "") to_gr =
+      let add_comp_node in_gr namen ?(prag = "") ?(skip = []) to_gr =
         let c_of =
           match namen with
           | "INIT" -> If1.If1_loop_initial
@@ -7620,9 +7636,20 @@ and do_simple_exp_impl in_gr in_sim_ex =
         let (cn, _, _), on =
           If1.add_node_2 (`Compound (in_gr, If1.INTERNAL, 0, prags, [])) to_gr
         in
-        let in_gr, on = wire_all_syms_to_compound cn in_gr on in
-        verify_compound_inputs cn in_gr on;
+        let in_gr, on = wire_all_syms_to_compound ~skip cn in_gr on in
+        verify_compound_inputs ~skip cn in_gr on;
         on
+      in
+
+      (* The names this loop OWNS: bound locally by the `initial` clause, in
+         both their plain and their `old` form.  BODY and TEST must take these
+         from INIT (wire_consumer lays those edges by name), never from an
+         enclosing scope that happens to use the same identifier. *)
+      let owned_carry_names decl_gr =
+        If1.SM.fold
+          (fun n e acc ->
+            if e.If1.inherited then acc else n :: ("OLD " ^ n) :: acc)
+          (fst decl_gr.If1.symtab) []
       in
 
       let loopAOrB i for_gr in_gr =
@@ -7642,7 +7669,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (List.length return_action_list);
             let for_gr = for_gr in
             let for_gr =
-              add_comp_node body_gr "BODY"
+              add_comp_node body_gr "BODY" ~skip:(owned_carry_names decl_gr)
                 ~prag:
                   (Ast.str_decldef_part (`Loop_type d)
                   ^ "\n" ^ Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
@@ -7660,7 +7687,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr return_action_list
             in
             let for_gr =
-              add_comp_node test_gr "TEST"
+              add_comp_node test_gr "TEST" ~skip:(owned_carry_names decl_gr)
                 ~prag:(Ast.str_iterator ii ^ "\n" ^ Ast.str_termination t)
                 for_gr
             in
@@ -8158,7 +8185,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
               (List.length return_action_list);
             let for_gr = for_gr in
             let for_gr =
-              add_comp_node body_gr "BODY"
+              add_comp_node body_gr "BODY" ~skip:(owned_carry_names decl_gr)
                 ~prag:
                   (Ast.str_decldef_part (`Loop_type d)
                   ^ "\n" ^ Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
@@ -8178,7 +8205,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
                 for_gr return_action_list
             in
             let for_gr =
-              add_comp_node test_gr "TEST"
+              add_comp_node test_gr "TEST" ~skip:(owned_carry_names decl_gr)
                 ~prag:(Ast.str_termination t ^ "\n" ^ Ast.str_iterator ii)
                 for_gr
             in

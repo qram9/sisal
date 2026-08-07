@@ -443,7 +443,8 @@ extern "C" struct SSPT_results func_MAIN(int32_t nzones, int32_t mid, int32_t ir
 #endif
 #ifdef TEST_FORINIT_SHADOW_DV
 struct FSH_results { int32_t let_shadow, let_fresh, self_alias, alias_ctl;
-                     int32_t nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w; };
+                     int32_t nest_sh_c, nest_sh_w, nest_rn_c, nest_rn_w;
+                     int32_t guard_shadow, guard_fresh; };
 extern "C" struct FSH_results func_MAIN();
 #endif
 #ifdef TEST_FORINIT_MASK_DV
@@ -12736,6 +12737,18 @@ static void test_forinit_shadow_dv(void) {
   check("nested, fresh inner name (control): sum w", r.nest_rn_w == ref_w);
   check("nested shadowed and nested fresh give the SAME answer",
         r.nest_sh_c == r.nest_rn_c && r.nest_sh_w == r.nest_rn_w);
+
+  // The TEST subgraph, not just BODY.  Every case above reads the shadowed
+  // carry in the body only.  TEST is wired by the same machinery and was
+  // exposed identically -- a guard reading a shadowed carry would have read the
+  // SEED forever, so the loop would HANG rather than return a wrong number.
+  int ref_guard;
+  { int w = 0; while (w < 3) w = w + 1; ref_guard = w; }
+  check("`while w < 3` where w is the shadowed carry terminates and is right",
+        r.guard_shadow == ref_guard);
+  check("fresh guard name (control) agrees", r.guard_fresh == ref_guard);
+  check("guard shadowed and guard fresh give the SAME answer",
+        r.guard_shadow == r.guard_fresh);
 }
 #endif
 #ifdef TEST_FORINIT_MASK_DV
