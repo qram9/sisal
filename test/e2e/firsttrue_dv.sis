@@ -29,10 +29,12 @@
 %    replace_bool).  Building one by comparison and then INDEXING it inside a
 %    loop guard is a path none of the existing boolean tests take.
 %
-% NOT TESTED, and deliberately: the case where NO flag is set.  Sisal's `&` is
-% not short-circuit -- crypto.sis says so itself, "short circuit boolean not
-% guarantied / I'll add in the ADA style ``f1 and if f2''" -- so when the search
-% exhausts, `i <= n` is false but `~flags[i]` is still evaluated at i = n+1.
+% NOT TESTED, and deliberately: the case where NO flag is set.  Sisal is a
+% STRICT language -- every operand of every operator is evaluated, so nothing
+% short-circuits, `&` included.  crypto.sis says as much and contemplates a
+% SEPARATE operator for it, "short circuit boolean not guarantied / I'll add in
+% the ADA style ``f1 and if f2''".  So when the search exhausts, `i <= n` is
+% false but `~flags[i]` is still evaluated at i = n+1.
 % OSC 13.0.3 traps it:
 %
 %     TOKEN: (i,val=7)

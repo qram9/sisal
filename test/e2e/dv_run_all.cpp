@@ -12490,10 +12490,10 @@ static void test_zerotrip_expr_dv(void) {
 //     generic helpers assume 4; boolean arrays have their own stride history).
 // In-range answers verified against OSC 13.0.3.
 //
-// The exhausted case (no flag set) is NOT asserted: Sisal's `&` is not
-// short-circuit, so `~flags[i]` is evaluated at i = n+1 and OSC traps with
-// ARRAY SUBSCRIPT VIOLATION.  We return n+1 by reading past the array.  The
-// program is erroneous there, so there is no answer to check.
+// The exhausted case (no flag set) is NOT asserted: Sisal is STRICT, so both
+// operands of `&` are always evaluated and `~flags[i]` is read at i = n+1.  OSC
+// traps it with ARRAY SUBSCRIPT VIOLATION; we return n+1 by reading past the
+// array.  The program is erroneous there, so there is no answer to check.
 static void test_firsttrue_dv(void) {
   printf("\n=== Group: firsttrue_dv (non-counted guard, zero-trip value of) ===\n");
   for (int32_t n : { 1, 2, 6, 17 }) {
