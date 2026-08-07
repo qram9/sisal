@@ -1,0 +1,89 @@
+% The alpha/beta FORWARD sweep from the SIMPLE hydrodynamics benchmark
+% (test/unit/simple.sis, the `a_1, b_1 := for initial ...` loop in the
+% l-direction solve).  Companion to simple_backsub_dv, which covers the back
+% substitution that consumes what this produces.
+%
+%     a_1, b_1 := for initial
+%                   l := lmnp;
+%                   a := 0.0D0;
+%                   b := temp[k,lmn];
+%                 while ( l <= lmx ) repeat
+%                   l     := old l + 1;
+%                   denom := sig[k,old l] + cbb[k,old l]
+%                            + cbb[k,old l-1] * (1.0D0 - old a);
+%                   a     := cbb[k,old l] / denom;
+%                   b     := (sig[k,old l]*temp[k,old l]
+%                            + cbb[k,old l-1] * old b) / denom;
+%                 returns array of a
+%                         array of b
+%                 end for;
+%
+% What this covers that simple_backsub_dv does not:
+%
+%   * TWO `array of` GATHERS off one for-initial.  The back sweep returns
+%     `value of r` -- a single last-value.  Here the loop's per-iteration
+%     history is collected into two separate result arrays, which is the other
+%     RETURNS path entirely.
+%   * MUTUALLY DEPENDENT carries.  `denom` reads `old a`; `a` is computed from
+%     `denom`; `b` reads `old b` AND `denom`.  A carry mis-wired to its own new
+%     value rather than the previous one still type-checks and still produces
+%     numbers -- it just produces the wrong ones -- so this is the shape that
+%     needs a value-level reference rather than a size or a crash to catch.
+%   * A name reused at a DIFFERENT TYPE across the loop boundary: in the
+%     original, `a` is a double carry inside the loop and is then rebound as an
+%     ARRAY (`a := array_setl(a_1,lmn)`) immediately after it, in the same
+%     scope, for the back sweep to index.  That reuse is reproduced below.
+%
+% Extents are declared (`array_dv(n) of`) because a for-initial gather cannot
+% infer its trip count.  The sweep runs for l = 1..n, so each result has n
+% elements -- the n BODY values, seed excluded.
+%
+% Cross-checked against OSC 13.0.3, which shows the one intended divergence.
+% Sisal 1.2's bare `array of` is a HISTORY gather: the initial clause is body_0
+% and contributes, so OSC returns n+1 elements with the seed first --
+%
+%   OSC   a_1 = [0.000000, 0.333333, 0.333333, 0.319149, 0.309211]   n+1
+%   here  a_1 = [          0.333333, 0.333333, 0.319149, 0.309211]   n
+%
+% The body values agree element for element; only the seed differs, and the
+% size assertion below pins that deliberately rather than papering over it.
+
+define Main
+
+type Doubles = array_dv[double];
+
+function Main(n : integer returns Doubles, Doubles, Doubles, integer)
+  let
+    % stand-ins for the coefficient rows the enclosing forall would slice out
+    % of sig / cbb / temp at row k; deterministic and non-degenerate.
+    % cb runs to n+1: the body reads cb[old l + 1] and old l reaches n, which
+    % the original spells cbb[k, old l] against a row that is one longer.
+    sg := for j in 1, n returns array_dv of 1.0d0 + double_real(j) end for;
+    cb := for j in 0, n + 1 returns array_dv of 0.5d0 * double_real(j + 1) end for;
+    tp := for j in 1, n returns array_dv of double_real(n - j + 1) end for;
+
+    a_1, b_1 :=
+        for initial
+          l := 1;
+          a := 0.0d0;
+          b := tp[1];
+        while l <= n repeat
+          l     := old l + 1;
+          denom := sg[old l] + cb[old l + 1]
+                   + cb[old l] * (1.0d0 - old a);
+          a     := cb[old l + 1] / denom;
+          b     := (sg[old l] * tp[old l] + cb[old l] * old b) / denom;
+        returns array_dv(n) of a
+                array_dv(n) of b
+        end for;
+
+    % the reuse the original performs: `a` was a double inside the loop and is
+    % an ARRAY here, in the same scope, immediately after it
+    a := a_1;
+
+    % consume it the way the back sweep does, so the rebinding is not dead
+    chk := for j in 1, n returns value of sum a[j] end for
+  in
+    a_1, b_1, a, array_size(a_1)
+  end let
+end function
