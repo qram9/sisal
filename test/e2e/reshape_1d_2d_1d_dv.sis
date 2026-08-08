@@ -1,0 +1,52 @@
+% Round-trip reshape 1-D -> 2-D -> 1-D, from test/unit/reshape_1d_2d_1d.sis.
+%
+% The unit original returns `back1d[1]` and calls itself a smoke test: it would
+% pass if reshape returned any array whose first element happened to be 1.0.
+% This version returns the intermediates so the round trip can actually be
+% checked -- every element, both ranks, and the layout.
+%
+% What is being pinned:
+%
+%   * reshape does not move data.  An array_dv is a flat buffer plus a dope
+%     vector, and rank lives in the dope, not in the element type -- which is
+%     why `FlatD` below is the declared type of all three of flat, mat2d and
+%     back1d even though their ranks are 1, 2 and 1.  A reshape rewrites the
+%     dope; the buffer is untouched, so the contents must compare equal at
+%     every step.
+%
+%   * the layout is ROW-MAJOR.  mat2d[1,m] must be the m-th element of the flat
+%     array and mat2d[n,1] the ((n-1)*m + 1)-th.  Those two reads are the
+%     substantive claim; a column-major reshape would satisfy every size and
+%     rank check above and still be wrong.
+%
+%   * the round trip is exact: back1d equals flat element for element, not
+%     merely in size.
+%
+% OBSERVED, not asserted: reshaping BACK to rank 1 leaves dims[1] stale.  A
+% freshly built rank-1 array has dims = (12, 0); back1d has dims = (12, 4),
+% carrying the old second extent.  rank and size are correct, so nothing that
+% reads dims[0..rank-1] is affected, and the value of dims beyond the rank is
+% not specified anywhere -- but it is a difference from a natively-built array,
+% so it is written down here rather than asserted either way.
+
+define Main
+
+type FlatD = array_dv[double_real];
+
+function Main(n, m : integer
+              returns FlatD, FlatD, FlatD, double_real, double_real)
+let
+  flat   :=
+    for i in 1, n * m
+    returns array_dv of double_real(i)
+    end for;
+  mat2d  := reshape(flat, n, m);
+  back1d := reshape(mat2d, n * m)
+in
+  flat,
+  mat2d,
+  back1d,
+  mat2d[1, m],      % row-major => element m
+  mat2d[n, 1]       % row-major => element (n-1)*m + 1
+end let
+end function

@@ -398,6 +398,7 @@ run_group SIMPLE_FWDSWEEP_DV simple_fwdsweep_dv  ""
 run_group FIRSTTRUE_DV      firsttrue_dv        ""
 run_group RANF_DV           ranf_dv             ""
 run_group LIFE1_DV          life1_dv            ""
+run_group RESHAPE_1D_2D_1D_DV reshape_1d_2d_1d_dv ""
 
 
 echo "========================================"
