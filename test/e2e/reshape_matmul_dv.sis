@@ -1,0 +1,62 @@
+% Matrix multiply over reshaped operands, from test/unit/reshape_matmul.sis.
+% Last of the reshape family, and the first where the layout feeds ARITHMETIC
+% rather than only indexing: a stride error changes a sum instead of moving a
+% value, so it cannot be spotted by eye.
+%
+% The unit original returns C[1,1] and calls itself a smoke test.  It also
+% builds A as ALL ONES, which makes C[i,k] independent of i -- so any error that
+% mixed up A's rows would produce exactly the right answer.  Half the bug class
+% is invisible by construction.
+%
+% DELIBERATE DEVIATION from the source: A[i,j] = i*10 + j instead of 1.0, so
+% every element of A carries its own coordinates and a misread of either A index
+% changes the result.  B keeps the source's B[j,k] = j + k.  Everything else --
+% the shapes, the reshape round trip, and the linear-index forall the header
+% calls out as deliberate ("to avoid cross-forall with array_dv of") -- is as
+% written.
+%
+% With those,
+%
+%     C[i,k] = sum over j of (i*10 + j) * (j + k)
+%
+% which the harness computes independently.  Because the summand mixes both A
+% indices with both B indices, a wrong stride anywhere in either operand moves
+% the result; with all-ones A it would not.
+
+define Main
+
+type FlatD = array_dv[double_real];
+
+function Main(p, q, r : integer returns FlatD, FlatD, FlatD, FlatD)
+let
+  % A[i,j] = i*10 + j, row-major; i = (lin-1)/q + 1, j = lin - ((lin-1)/q)*q
+  A_flat :=
+    for lin in 1, p * q
+      ii := (lin - 1) / q + 1;
+      jj := lin - ((lin - 1) / q) * q
+    returns array_dv of double_real(ii * 10 + jj)
+    end for;
+  % B[j,k] = j + k, row-major
+  B_flat :=
+    for lin in 1, q * r
+      jj := (lin - 1) / r + 1;
+      kk := lin - ((lin - 1) / r) * r
+    returns array_dv of double_real(jj + kk)
+    end for;
+  A := reshape(A_flat, p, q);
+  B := reshape(B_flat, q, r);
+  % C[i,k] = sum over j of A[i,j] * B[j,k]
+  C_flat :=
+    for lin in 1, p * r
+      ii := (lin - 1) / r + 1;
+      kk := lin - ((lin - 1) / r) * r;
+      Cik := for j in 1, q
+             returns value of sum A[ii, j] * B[j, kk]
+             end for
+    returns array_dv of Cik
+    end for;
+  C := reshape(C_flat, p, r)
+in
+  A, B, C_flat, C
+end let
+end function
