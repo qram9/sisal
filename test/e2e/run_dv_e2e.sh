@@ -397,6 +397,7 @@ run_group SIMPLE_BACKSUB_DV simple_backsub_dv   ""
 run_group SIMPLE_FWDSWEEP_DV simple_fwdsweep_dv  ""
 run_group FIRSTTRUE_DV      firsttrue_dv        ""
 run_group RANF_DV           ranf_dv             ""
+run_group LIFE1_DV          life1_dv            ""
 
 
 echo "========================================"

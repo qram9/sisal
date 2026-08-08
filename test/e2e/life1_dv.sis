@@ -1,41 +1,35 @@
-% !!! NOT REGISTERED -- BLOCKED, and committed as a reproducer.
-%
 % Conway-variant Life from test/unit/life1.sis, ported to array_dv.  Distinct
 % from the covered life2_dv, which is a FLAT CROSS forall over the padded grid:
 % this one uses NESTED foralls and rebuilds the border explicitly, so it
 % exercises array_addl / array_addh at TWO RANKS -- 1-D on each row, then rank-2
-% on the grid, appending a whole ROW as one element.
+% on the grid, where the appended element is a whole ROW.
 %
-% BLOCKED on the subscript rank-reduce deviation.  A single subscript on a
-% rank-2 array_dv must RANK-REDUCE to a row; `lower_indices` instead treats the
-% last index as selecting an ELEMENT, so `G[Rlast]` and `G[0]` come out typed
-% INTEGRAL.  Reduced:
+% Two things the port has to get right, both about what an array_dv IS -- a flat
+% buffer plus a dope vector, with RANK a runtime property that never appears in
+% the element type:
 %
-%     M := for i in 1, 2 returns array_dv of
-%            for j in 1, 3 returns array_dv of i * 10 + j end for end for;
-%     r2 := M[2]
+%   * a rank-2 grid and a rank-1 row are BOTH `array_dv[integer]`.
+%     `array_dv[array_dv[integer]]` cannot be written; an array_dv is never
+%     directly inside another.  (Rank-k literals are built flat and reshaped --
+%     `reshape(array_dv Flat [1: ...], r, c)`; see reshape_dv.sis.)
+%   * a ROW is `G[I, ..]`, not `G[I]`.  The trailing `..` is the rank-reduce;
+%     a bare `G[I]` selects an element.
 %
-%     Sem_error("Return Type Mismatch: return value #2:
-%                Expected array_dv[INTEGRAL] (#94), but found INTEGRAL (#6)")
+% Getting the second wrong is SILENT here rather than fatal, which is worth
+% knowing: the row feeds array_addh, so the border is appended as ONE element
+% instead of Columns+2 and DoWork returns rank=2 dims=0,0 size=20 where 5x6=30
+% is right -- 20 = 18 + 1 + 1.
 %
-% In this file the mistyping is silent rather than fatal, because the row feeds
-% array_addh: the border row is appended as ONE element instead of Columns+2 of
-% them, so DoWork returns a malformed descriptor --
+% The outer driver is a for-initial whose carry is the whole GRID, advanced Num
+% generations by a call, so it also covers an array-valued carry threaded
+% through a function call and read back with `value of` -- including the
+% zero-trip case (Num=0 returns the seed grid unchanged).
 %
-%     Num=0 (zero-trip, returns the seed grid)  rank=2 dims=5,6 size=30   correct
-%     Num=1                                     rank=2 dims=0,0 size=20   WRONG
-%
-% and 20 is 18 + 1 + 1: the 3x6 interior plus one element per border row rather
-% than six.  See project_subscript_rank_reduce_invariant in memory.
-%
-% What is NOT at fault, each checked in isolation and correct:
-%   * rank-2 array_addh / array_addl of a row  -> 3x3, right contents
-%   * a forall gathering rows that are themselves addl/addh results -> 2x5
-%   * the outer for-initial carrying the whole grid: Num=0 returns it unchanged,
-%     which is also a clean zero-trip `value of` on an array-valued carry
-%
-% Register it once the subscript deviation is fixed; the rule below is the
-% source's, which is NOT standard Conway, and should be reproduced as-is.
+% The transition rule is the source's, which is NOT standard Conway:
+%     alive and Total > 5  -> 0
+%     otherwise Total ~= 3 -> 1
+%     otherwise            -> 0
+% Reproduced exactly rather than corrected; the reference implements the same.
 
 define Main
 
@@ -69,7 +63,7 @@ function DoWork( G : Grid; Rows, Columns : integer returns Grid )
                   returns array_dv of array_addh( Row, G[I,Clast] )
 		  end for;
     in
-	array_addl( array_addh( Middle, G[Rlast] ), G[0] )
+	array_addl( array_addh( Middle, G[Rlast, ..] ), G[0, ..] )
     end let
 end function
 
