@@ -435,6 +435,12 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_IFM_2ETC_DV
+extern "C" sisal_array_t func_MAIN(int32_t m, int32_t la, int32_t iink,
+                                   int32_t jink, int32_t jump, int32_t inc1,
+                                   int32_t inc2, sisal_array_t a,
+                                   sisal_array_t ci, sisal_array_t trigs);
+#endif
 #ifdef TEST_RESHAPE_MATMUL_DV
 struct RMM_results { sisal_array_t a, b, cflat, c; };
 extern "C" struct RMM_results func_MAIN(int32_t p, int32_t q, int32_t r);
@@ -12553,6 +12559,136 @@ static void test_zerotrip_expr_dv(void) {
   check("non zero-trip keep-last still the last BODY value (8)", r.live == 8);
 }
 #endif
+#ifdef TEST_IFM_2ETC_DV
+// IFACTm_2ETC, the radix-2 FFT butterfly pass (test/unit/IFm_2ETC.sis).  One of
+// the three kernels PassFreq / PassGrid declare as `global` externs, which is
+// the only reason those two cannot be promoted.
+//
+// Covers, in one function and nowhere else in the suite:
+//   * a NESTED for-initial whose carry is an ARRAY -- outer over k carrying
+//     (ia, ja, c), each arm over l carrying (ia1, ja1, c1), `value of` on the
+//     array carry at both levels;
+//   * MULTI-VALUE array replace, four positions in one expression:
+//     c1[ja1 : v1; jbxx : v2; ja1+1 : v3; jbxx+1 : v4];
+//   * a three-way IF whose result is a TUPLE of (integer, integer, array_dv);
+//   * `real` (single precision) elements.
+//
+// The reference below is the same butterfly transcribed to C.  Index arithmetic
+// this dense is where a transcription slips, so it was checked against OSC
+// 13.0.3 on every parameter set here BEFORE being trusted -- and OSC's runtime
+// subscript checking is what confirms these inputs stay in range, since we read
+// past the end silently.  All three agree on all 400 elements, all 7 sets.
+//
+// `old X` in a Sisal body is the value at ITERATION ENTRY, so every read of
+// old ia1 / old ja1 / old l within one body sees the same value -- hence the
+// explicit *_old locals rather than updating in place.
+namespace ifm2ref {
+static std::vector<float>
+kernel (int m, int la, int iink, int jink, int jump, int inc1, int inc2,
+        const std::vector<float> &a, const std::vector<float> &ci,
+        const std::vector<float> &trigs)
+{
+  std::vector<float> c = ci;
+  int k = 0, ia = 1, ja = 1;
+  while (k <= m / 2)
+    {
+      int k_old = k;
+      k = k_old + la;
+      int ia1 = ia, ja1 = ja;
+      std::vector<float> c1 = c;
+      if (k_old == 0)
+        {
+          for (int l = 1; l <= la; l++)
+            {
+              int ia1o = ia1, ja1o = ja1;
+              ia1 = ia1o + inc1; ja1 = ja1o + inc2;
+              int ib = ia1o + iink, jb = ja1o + jink;
+              c1[ja1o] = a[ia1o] + a[ib];
+              c1[jb] = a[ia1o] - a[ib];
+            }
+          ia = ia1 + jump; ja = ja1; c = c1;
+        }
+      else if (2 * k_old < m)
+        {
+          int kb = k_old * 2, lower = jink + 2, lupper = iink * 2 + jink - 2;
+          for (int l = lower; l <= lupper; l += 4)
+            {
+              int ia1o = ia1, ja1o = ja1, lo = l;
+              ia1 = ia1o + inc1; ja1 = ja1o + inc2;
+              int ib = ia1o + iink, jbxx = lo - ja1o;
+              float tempr = a[ib] * trigs[kb + 1] - a[ib + 1] * trigs[kb + 2];
+              float tempi = a[ib] * trigs[kb + 2] + a[ib + 1] * trigs[kb + 1];
+              c1[ja1o] = a[ia1o] + tempr;
+              c1[jbxx] = a[ia1o] - tempr;
+              c1[ja1o + 1] = a[ia1o + 1] + tempi;
+              c1[jbxx + 1] = tempi - a[ia1o + 1];
+            }
+          ia = ia1 + jump; ja = ja1; c = c1;
+        }
+      else
+        {
+          for (int l = 1; l <= la; l++)
+            {
+              int ia1o = ia1, ja1o = ja1;
+              ia1 = ia1o + inc1; ja1 = ja1o + inc2;
+              int ib = ia1o + iink;
+              c1[ja1o] = a[ia1o];
+              c1[ja1o + 1] = -a[ib];
+            }
+          // No + jump here, unlike the other two arms.  It makes no
+          // observable difference: arm 3 is chosen only when k_old == m/2
+          // exactly, after which k = m/2 + la > m/2 and the loop exits, so ia
+          // and ja written here are DEAD.  Perturbing them cannot be detected
+          // by any test -- a fact about the algorithm, not a gap in this one.
+          ia = ia1; ja = ja1; c = c1;
+        }
+    }
+  return c;
+}
+}
+static void test_ifm_2etc_dv (void)
+{
+  printf ("\n=== Group: ifm_2etc_dv (FFT radix-2 pass, nested array carries) ===\n");
+  struct Cfg { int n, la, inc1, inc2; };
+  const Cfg cfgs[] = { { 16, 1, 2, 1 }, { 32, 2, 2, 1 }, { 16, 2, 1, 1 },
+                       { 24, 1, 3, 1 }, { 32, 1, 2, 2 }, { 40, 2, 3, 1 },
+                       { 16, 4, 1, 1 } };
+  const int NEL = 400;
+  for (const Cfg &cf : cfgs)
+    {
+      const int m = cf.n / 2, iink = cf.inc1 * cf.la, jink = cf.inc2 * m,
+                jump = iink;
+      std::vector<float> a (NEL + 1), ci (NEL + 1, 0.f), trigs (NEL + 1);
+      for (int i = 1; i <= NEL; i++)
+        { a[i] = (float)i / 8.0f; trigs[i] = (float)i / 16.0f; }
+      std::vector<float> ref = ifm2ref::kernel (m, cf.la, iink, jink, jump,
+                                                cf.inc1, cf.inc2, a, ci, trigs);
+
+      auto mk = [&] (const std::vector<float> &src) {
+        sisal_array_t A = sisal_array_alloc_empty (1, 3, (uint64_t)NEL);
+        A.dims[0] = NEL; A.lower_bound[0] = 1;
+        for (int i = 1; i <= NEL; i++) ((float *)A.data)[i - 1] = src[i];
+        return A;
+      };
+      sisal_array_t aa = mk (a), cc = mk (ci), tt = mk (trigs);
+      sisal_array_t r = func_MAIN (m, cf.la, iink, jink, jump, cf.inc1,
+                                   cf.inc2, aa, cc, tt);
+
+      char msg[176];
+      snprintf (msg, sizeof msg, "n=%-2d la=%d inc1=%d inc2=%d result is %d reals",
+                cf.n, cf.la, cf.inc1, cf.inc2, NEL);
+      check (msg, (int)r.size == NEL && r.rank == 1);
+      bool ok = ((int)r.size == NEL);
+      for (int i = 1; ok && i <= NEL; i++)
+        ok = ok && (fabs ((double)((const float *)r.data)[i - 1]
+                          - (double)ref[i]) < 1e-5);
+      snprintf (msg, sizeof msg,
+                "n=%-2d la=%d inc1=%d inc2=%d butterfly matches the reference",
+                cf.n, cf.la, cf.inc1, cf.inc2);
+      check (msg, ok);
+    }
+}
+#endif
 #ifdef TEST_RESHAPE_MATMUL_DV
 // Matrix multiply over reshaped operands (test/unit/reshape_matmul.sis).  Last
 // of the reshape family and the first where the layout feeds ARITHMETIC rather
@@ -14938,6 +15074,9 @@ main (void)
 #ifdef TEST_ZEROTRIP_EXPR_DV
   test_zerotrip_expr_dv ();
 #endif
+#ifdef TEST_IFM_2ETC_DV
+  test_ifm_2etc_dv ();
+#endif
 #ifdef TEST_RESHAPE_MATMUL_DV
   test_reshape_matmul_dv ();
 #endif
@@ -15146,7 +15285,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
