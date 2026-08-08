@@ -1,0 +1,54 @@
+% Round-trip reshape 1-D -> 3-D -> 1-D, from test/unit/reshape_3d.sis.
+%
+% The unit original returns `back[1] + row_sum`, a single double: a wrong stride
+% on either of the two inner axes can cancel in that sum, and a wrong rank is
+% invisible.  This version returns the intermediates and pins each stride
+% separately.
+%
+% Row-major for a rank-3 (n, m, k) array means
+%
+%     flat index of vol[i, j, p]  =  ((i-1)*m + (j-1))*k + p
+%
+% so the three reads below isolate one stride each:
+%
+%     vol[1, 1, k]  = k          -- last axis is contiguous, stride 1
+%     vol[1, 2, 1]  = k + 1      -- middle axis has stride k
+%     vol[2, 1, 1]  = m*k + 1    -- first axis has stride m*k
+%
+% Get any one stride wrong and exactly one of those moves, which a single summed
+% double could hide.  row_sum (the sum along vol[1,1,*]) is kept as well, since
+% it is what the original checked.
+%
+% The probes require n >= 2 and m >= 2: vol[1,2,1] and vol[2,1,1] are out of
+% range for a degenerate extent, and with no runtime subscript checking such a
+% read returns garbage silently rather than failing.  The harness drives it
+% accordingly.
+
+define Main
+
+type FlatD = array_dv[double_real];
+
+function Main(n, m, k : integer
+              returns FlatD, FlatD, FlatD,
+                      double_real, double_real, double_real, double_real)
+let
+  flat :=
+    for i in 1, n * m * k
+    returns array_dv of double_real(i)
+    end for;
+  vol      := reshape(flat, n, m, k);
+  row_sum  :=
+    for p in 1, k
+    returns value of sum vol[1, 1, p]
+    end for;
+  back     := reshape(vol, n * m * k)
+in
+  flat,
+  vol,
+  back,
+  row_sum,
+  vol[1, 1, k],      % stride of the LAST axis   -> k
+  vol[1, 2, 1],      % stride of the MIDDLE axis -> k + 1
+  vol[2, 1, 1]       % stride of the FIRST axis  -> m*k + 1
+end let
+end function
