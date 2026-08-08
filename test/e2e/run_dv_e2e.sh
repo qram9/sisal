@@ -401,6 +401,7 @@ run_group LIFE1_DV          life1_dv            ""
 run_group RESHAPE_1D_2D_1D_DV reshape_1d_2d_1d_dv ""
 run_group RESHAPE_3D_DV     reshape_3d_dv       ""
 run_group RESHAPE_SCAN_DV   reshape_scan_dv     ""
+run_group RESHAPE_TRANSPOSE_DV reshape_transpose_dv ""
 
 
 echo "========================================"

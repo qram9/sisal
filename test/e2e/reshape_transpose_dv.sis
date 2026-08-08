@@ -1,0 +1,46 @@
+% Transpose via reshape, from test/unit/reshape_transpose.sis.
+%
+% The unit original returns `B2d[1,1]`, which is 101.0 whether the transpose
+% happened or not: [1,1] is the one element a transpose leaves fixed.  It is
+% blind to the operation it is named after.
+%
+% The encoding is what makes this checkable element by element: A[i,j] is
+% i*100 + j, so every element carries its own original coordinates.  A correct
+% transpose must therefore satisfy
+%
+%     B2d[r, c]  ==  c*100 + r        for every r in 1..m, c in 1..n
+%
+% -- not merely have the right shape.  Both the (m x n) shape and the
+% self-identifying values are checked; a transpose that got the shape right and
+% the striding wrong would pass the first and fail the second.
+%
+% The source computes i and j by integer division rather than mod
+% (`j = k - ((k-1)/m)*m`), which is worth keeping as written: it exercises the
+% division/truncation path on the index arithmetic rather than a mod intrinsic.
+
+define Main
+
+type FlatD = array_dv[double_real];
+
+function Main(n, m : integer returns FlatD, FlatD, FlatD, FlatD)
+let
+  % row-major flat: k in 1..n*m, i=(k-1)/m+1, j=k-((k-1)/m)*m
+  flat :=
+    for k in 1, n * m
+      i := (k - 1) / m + 1;
+      j := k - ((k - 1) / m) * m
+    returns array_dv of double_real(i * 100 + j)
+    end for;
+  A2d := reshape(flat, n, m);
+  % Transpose B is (m x n): linear index over m*n, r=(k-1)/n+1, c=k-((k-1)/n)*n
+  trans_flat :=
+    for k in 1, m * n
+      r := (k - 1) / n + 1;
+      c := k - ((k - 1) / n) * n
+    returns array_dv of A2d[c, r]
+    end for;
+  B2d := reshape(trans_flat, m, n)
+in
+  flat, A2d, trans_flat, B2d
+end let
+end function
