@@ -1,0 +1,85 @@
+% !!! NOT REGISTERED -- BLOCKED, and committed as a reproducer.
+%
+% Conway-variant Life from test/unit/life1.sis, ported to array_dv.  Distinct
+% from the covered life2_dv, which is a FLAT CROSS forall over the padded grid:
+% this one uses NESTED foralls and rebuilds the border explicitly, so it
+% exercises array_addl / array_addh at TWO RANKS -- 1-D on each row, then rank-2
+% on the grid, appending a whole ROW as one element.
+%
+% BLOCKED on the subscript rank-reduce deviation.  A single subscript on a
+% rank-2 array_dv must RANK-REDUCE to a row; `lower_indices` instead treats the
+% last index as selecting an ELEMENT, so `G[Rlast]` and `G[0]` come out typed
+% INTEGRAL.  Reduced:
+%
+%     M := for i in 1, 2 returns array_dv of
+%            for j in 1, 3 returns array_dv of i * 10 + j end for end for;
+%     r2 := M[2]
+%
+%     Sem_error("Return Type Mismatch: return value #2:
+%                Expected array_dv[INTEGRAL] (#94), but found INTEGRAL (#6)")
+%
+% In this file the mistyping is silent rather than fatal, because the row feeds
+% array_addh: the border row is appended as ONE element instead of Columns+2 of
+% them, so DoWork returns a malformed descriptor --
+%
+%     Num=0 (zero-trip, returns the seed grid)  rank=2 dims=5,6 size=30   correct
+%     Num=1                                     rank=2 dims=0,0 size=20   WRONG
+%
+% and 20 is 18 + 1 + 1: the 3x6 interior plus one element per border row rather
+% than six.  See project_subscript_rank_reduce_invariant in memory.
+%
+% What is NOT at fault, each checked in isolation and correct:
+%   * rank-2 array_addh / array_addl of a row  -> 3x3, right contents
+%   * a forall gathering rows that are themselves addl/addh results -> 2x5
+%   * the outer for-initial carrying the whole grid: Num=0 returns it unchanged,
+%     which is also a clean zero-trip `value of` on an array-valued carry
+%
+% Register it once the subscript deviation is fixed; the rule below is the
+% source's, which is NOT standard Conway, and should be reproduced as-is.
+
+define Main
+
+% Rank is a RUNTIME property of the dope vector, so a rank-2 grid and a rank-1
+% row are both spelled array_dv[integer]; a nested array_dv[array_dv[..]] is the
+% shape the model forbids (and the compiler rejects here outright).
+type   OneDim  = array_dv[integer];
+type     Grid  = array_dv[integer];
+
+function Compute( G : Grid; I : integer; J : integer returns integer )
+    let
+        Total := G[I+1,J-1] + G[I+1,J] + G[I+1,J+1] + 
+	         G[I-1,J-1] + G[I-1,J] + G[I-1,J+1] +
+                 G[I,J-1]   + G[I,J+1];
+    in
+        if ( G[I,J] = 1 & Total > 5 ) then 0 
+	ELSEIF ( Total ~= 3 ) then 1 else 0 end if
+    end let
+end function
+
+function DoWork( G : Grid; Rows, Columns : integer returns Grid )
+    let
+	Clast  := Columns + 1;
+	Rlast  := Rows    + 1;
+	Middle := for I in 1, Rows
+		      Mid := for J in 1, Columns
+				 V := Compute( G, I, J );
+			     returns array_dv of V
+			     end for;
+                      Row := array_addl( Mid, G[I,0] );
+                  returns array_dv of array_addh( Row, G[I,Clast] )
+		  end for;
+    in
+	array_addl( array_addh( Middle, G[Rlast] ), G[0] )
+    end let
+end function
+
+function Main( Num, Rows, Columns : integer; G : Grid returns Grid )
+    for initial
+	Count := Num;
+	NewG  := G
+    while ( Count > 0 ) repeat
+	Count := old Count - 1;
+	NewG  := DoWork( old NewG, Rows, Columns ); 
+    returns value of NewG
+    end for
+end function
