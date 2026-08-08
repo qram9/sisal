@@ -396,6 +396,7 @@ run_group SSPHOT_TRACK_DV   ssphot_track_dv     ""
 run_group SIMPLE_BACKSUB_DV simple_backsub_dv   ""
 run_group SIMPLE_FWDSWEEP_DV simple_fwdsweep_dv  ""
 run_group FIRSTTRUE_DV      firsttrue_dv        ""
+run_group RANF_DV           ranf_dv             ""
 
 
 echo "========================================"

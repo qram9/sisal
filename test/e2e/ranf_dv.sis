@@ -1,0 +1,83 @@
+% RANF, the Cray/LLNL 48-bit multiplicative congruential generator, as written
+% in Sisal by J. Feo and T. DeBoni -- test/unit/ranf.sis, ported to array_dv.
+% The full file also has `rans` (which divides the wheel into n subsequences and
+% returns array[Four_Plex] -- an array OF arrays, boxed territory) and the
+% ranf_k/ranf_k_binary/ranf_a_to_k machinery that supports it; those stay in
+% unit/.  ranf_mod_mult and ranf below are self-contained and are the generator
+% proper.
+%
+% A Four_Plex is four 12-bit digits, low-order first, simulating a 48-bit
+% integer: ranf_mod_mult is schoolbook base-4096 multiplication with the carries
+% written out and the result taken mod 2^48 by dropping everything above digit
+% 3.  The random number is the seed read as a fraction, Seed[3]/4096 +
+% Seed[2]/2^24 + Seed[1]/2^36 + Seed[0]/2^48, and the next seed is the current
+% one times the fixed multiplier [373, 3707, 1442, 647].
+%
+% Why it is worth an e2e group:
+%
+% 1. It is a pure SEQUENTIAL RECURRENCE -- iteration i cannot start until i-1
+%    has produced its seed -- and it is exactly reproducible, so a C reference
+%    can be compared digit for digit rather than within a tolerance.  Integer
+%    arithmetic throughout: any mis-wiring of the carry shows up as a wrong
+%    digit, not as rounding.
+%
+% 2. The `initial` clause does REAL WORK.  It calls ranf(seed0), so body_0 is
+%    the FIRST random number, and `array_dv(n) of rn` is the first n numbers of
+%    the sequence.  If the seed did not contribute, the gather would start at
+%    the second number and silently drop the first -- so this is a case where
+%    the seed rule is the difference between right and wrong output, not a
+%    convention.  See docs/for_initial_seed_semantics.md.
+%
+% 3. Multi-value carries fed from a CALL: `rn, s := ranf(old s)` rebinds two
+%    carries at once from one two-result function, in both the initial clause
+%    and the body.
+%
+% The canonical starting seed is the one the source names as "statistically the
+% best starting seed", [3281, 4041, 595, 2376].
+
+define Main
+
+type Four_Plex = array_dv[integer];
+
+function ranf_mod_mult( a, b: Four_Plex returns Four_Plex )
+   let
+       j0 := a[0] * b[0];
+       j1 := a[0] * b[1] + a[1] * b[0];
+       j2 := a[0] * b[2] + a[1] * b[1] + a[2] * b[0];
+       j3 := a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0];
+       k0 := j0;
+       k1 := j1 + k0 / 4096;
+       k2 := j2 + k1 / 4096;
+       k3 := j3 + k2 / 4096
+   in
+       array_dv Four_Plex [0: mod(k0, 4096), mod(k1, 4096),
+                              mod(k2, 4096), mod(k3, 4096)]
+   end let
+end function
+
+function ranf( Seed: Four_Plex returns double, Four_Plex )
+   double_real(Seed[3]) / 4096.0d0 +
+   double_real(Seed[2]) / 16777216.0d0 +
+   double_real(Seed[1]) / 68719476736.0d0 +
+   double_real(Seed[0]) / 281474976710656.0d0,
+
+   ranf_mod_mult( array_dv Four_Plex [0: 373, 3707, 1442, 647], Seed )
+end function
+
+% n numbers from the canonical seed, plus the seed left after them
+function Main( n : integer returns array_dv[double], Four_Plex )
+  let
+    seed0 := array_dv Four_Plex [0: 3281, 4041, 595, 2376]
+  in
+    for initial
+      i     := 1;
+      rn, s := ranf(seed0);        % body_0 IS the first random number
+    while i < n repeat
+      i     := old i + 1;
+      rn, s := ranf(old s);
+    returns
+      array_dv(n) of rn
+      value of s
+    end for
+  end let
+end function
