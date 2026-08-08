@@ -1,0 +1,45 @@
+% Triangular numbers reshaped to a matrix, diagonal extracted, flattened back --
+% from test/unit/reshape_scan.sis.
+%
+% The unit original returns `back1d[1]`, which is 1.0 for any correct-or-not
+% diagonal: element [1,1] is the first element of the buffer whatever the
+% strides are, so the check cannot see a layout error at all.  This version
+% returns the intermediates.
+%
+% The diagonal is the substantive part.  mat[d,d] on a row-major (rows, cols)
+% array is flat element (d-1)*cols + d, so with flat[i] = i(i+1)/2 the diagonal
+% is a subsequence of the triangular numbers whose GAPS depend on cols:
+%
+%     rows=3 cols=4 -> indices 1, 6, 11 -> 1, 21, 66
+%
+% A column-major read would give indices 1, 5, 9 and a different sequence
+% entirely, so the values -- not just the length -- pin the layout.  Note the
+% diagonal length is min(rows, cols), which is what makes the non-square cases
+% worth running.
+%
+% `reshape(diag, sz)` is a rank-1 -> rank-1 reshape, i.e. an identity: kept from
+% the original because a no-op reshape still has to preserve contents and rank,
+% and is the cheapest place for an off-by-one in the dope rewrite to show.
+
+define Main
+
+type FlatD = array_dv[double_real];
+
+function Main(rows, cols : integer
+              returns FlatD, FlatD, FlatD, FlatD, integer)
+let
+  flat :=
+    for i in 1, rows * cols
+    returns array_dv of double_real(i * (i + 1)) / 2.0
+    end for;
+  mat    := reshape(flat, rows, cols);
+  sz     := if rows < cols then rows else cols end if;
+  diag   :=
+    for d in 1, sz
+    returns array_dv of mat[d, d]
+    end for;
+  back1d := reshape(diag, sz)
+in
+  flat, mat, diag, back1d, sz
+end let
+end function

@@ -302,6 +302,7 @@ BOXES the cycle-closing field, as OCaml/Haskell represent `Cons of 'a * 'a list`
   $ sisal e2e/life1_dv.sis
   $ sisal e2e/reshape_1d_2d_1d_dv.sis
   $ sisal e2e/reshape_3d_dv.sis
+  $ sisal e2e/reshape_scan_dv.sis
 
 Higher-order functions and closures:
   $ sisal unit/higher_order_fun.sis
