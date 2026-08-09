@@ -1,0 +1,176 @@
+% newgaussj -- Gauss-Jordan returning both the INVERSE and the solution, from
+% test/unit/newgaussj.sis.  Second of the Gauss/LU cluster, and the one that adds
+% a property gaussjnew_dv cannot check: A * inv(A) = I.
+%
+% Rank-2 handling as in gaussjnew_dv: rank lives in the dope, so OneD and TwoD
+% are both array_dv[real].  Row-valued replace (`A[Irow: A[Icol,..]; ...]`), the
+% 2-D element replace `Tmp1A[Icol,Icol: 1.0]` and the row-gather are all kept as
+% written -- they work.
+%
+% THREE deviations, all the same one thing: scattering over the ROWS of a rank-2
+% is unsupported ("Array type expected when constructing scatter node"), so
+%     for Row  in A       at J    -> for J  in 1, N   with Row  := A[J,..]
+%     for Arow in Tmp3A   at LL dot Belem in Tmp2B
+%                                 -> for LL in 1, N   with Arow := Tmp3A[LL,..]
+%                                    and Belem := Tmp2B[LL]  (the dot goes away)
+%     for Arow in old InvA        -> for LL in 1, N   with Arow := InvA[LL,..]
+% Everything else, including the column-unscramble walking Indxr/Indxc backwards
+% and the `error[real]` guards, is as written.
+%
+% TWO SYSTEMS ARE DELIBERATELY ABSENT, and the reason is a bug in the source
+% rather than a gap in the checks.  The singularity guard reads
+%
+%     if ( old TmpA[Icol,Icol] = 0.0 ) then error[TwoD], error[OneD]
+%
+% i.e. it tests the UNSWAPPED matrix, but the pivot element after the swap that
+% Compute performs is TmpA[Irow,Icol].  For a matrix like {0,2,1; 1,0,3; 4,1,0}
+% the real pivot is A[3,1] = 4, perfectly good, yet A[1,1] = 0 sends it down the
+% error branch.  That branch then SEGFAULTS: an `error[OneD]` value is an array
+% whose data pointer is null, and the next iteration indexes it.  So the case
+% cannot be pinned the way mdfftgrid_dv pins its source bug -- a crash takes the
+% whole runner with it.  Systems here all have a nonzero leading pivot.
+%
+% Reference: max|Ax-b| for the solution AND max|A*inv - I| for the inverse,
+% neither a transcription of Gauss-Jordan.  Tolerance is 1e-4: `real` is float,
+% and the measured worst case is ~7e-7.
+
+define Main
+
+type OneI = array_dv[integer];
+type OneD = array_dv[real];
+type TwoD = array_dv[real];
+
+function Largest( N:integer; A:OneD; Ipiv:OneI returns real, integer )
+    for initial
+        K := 1; Idx := 0; Big := -1.0;
+    while ( K <= N ) repeat
+        K        := old K + 1;
+        Big, Idx := if ( Ipiv[old K] = 0 ) then
+                        if (abs(A[old K]) >= old Big) then
+                            abs(A[old K]), old K
+                        else
+                            old Big, old Idx
+                        end if
+                    elseif ( Ipiv[old K] > 1 ) then
+                        error[real], error[integer]
+                    else
+                        old Big, old Idx
+                    end if;
+    returns value of Big
+            value of Idx
+    end for
+end function
+
+function GetPivot( N:integer; A:TwoD; Ipiv:OneI returns integer, integer )
+    let
+        RBigs,
+        Cidxs  := for J in 1, N
+                      Row := A[J,..];
+                      Big,
+                      Idx  := if ( Ipiv[J] ~= 1 ) then
+                                  Largest( N, Row, Ipiv )
+                              else
+                                  -1.0, 0
+                              end if;
+                  returns array_dv of Big
+                          array_dv of Idx
+                  end for;
+        CBig   := for Elem in RBigs returns value of greatest Elem end for;
+        Irow   := for Elem in RBigs at I
+                      Irow := if ( Elem = CBig ) then I else 0 end if;
+                  returns value of greatest Irow
+                  end for;
+        Icol   := Cidxs[Irow];
+    in
+        Irow, Icol
+    end let
+end function
+
+function Compute( N,Irow,Icol:integer; A:TwoD; B:OneD returns TwoD, OneD )
+    let
+        Tmp1A,
+        Tmp1B  := if ( Irow ~= Icol ) then
+                      A[ Irow: A[Icol,..]; Icol: A[Irow,..] ],
+                      B[ Irow: B[Icol]; Icol: B[Irow] ]
+                  else
+                      A, B
+                  end if;
+        Pivinv := 1.0 / Tmp1A[Icol,Icol];
+        Tmp2A  := Tmp1A[Icol,Icol: 1.0 ];
+        Tmp1R  := for Elem in Tmp2A[Icol,..]
+                 returns array_dv of Elem * Pivinv
+                 end for;
+        Tmp3A := Tmp2A[ Icol: Tmp1R ];
+        Tmp2B := Tmp1B[ Icol: Tmp1B[Icol] * Pivinv ];
+    in
+        for LL in 1, N
+            Arow  := Tmp3A[LL,..];
+            Belem := Tmp2B[LL];
+            NewArow,
+            NewBelem := if ( LL = Icol ) then
+                            Arow, Belem
+                        else
+                            let
+                                Dum   := Arow[Icol];
+                                Tmp1R := Arow[ Icol: 0.0 ];
+                            in
+                                for Elem in Tmp1R at L
+                                returns array_dv of Elem - Tmp3A[Icol,L] * Dum
+                                end for,
+                                Belem - Tmp2B[Icol] * Dum
+                            end let
+                        end if;
+        returns array_dv of NewArow
+                array_dv of NewBelem
+        end for
+    end let
+end function
+
+function Main( N:integer; A:TwoD; B:OneD returns TwoD, OneD )
+    let
+        NewA,
+        NewB,
+        Indxr,
+        Indxc   := for initial
+                       I     := 1;
+                       Ipiv  := for J in 1, N returns array_dv of 0 end for;
+                       Indxr := array_dv OneI [];
+                       Indxc := array_dv OneI [];
+                       TmpB  := B;
+                       TmpA  := A;
+                   while ( I <= N ) repeat
+                       I     := old I + 1;
+                       Irow,
+                       Icol  := GetPivot( N, old TmpA, old Ipiv );
+                       Ipiv  := old Ipiv[ Icol: old Ipiv[Icol] + 1 ];
+                       Indxr := array_addh( old Indxr, Irow );
+                       Indxc := array_addh( old Indxc, Icol );
+                       TmpA,
+                       TmpB  := if ( old TmpA[Icol,Icol] = 0.0 ) then
+                                    error[TwoD], error[OneD]
+                                else
+                                    Compute( N, Irow, Icol, old TmpA, old TmpB )
+                                end if;
+                   returns value of TmpA
+                           value of TmpB
+                           value of Indxr
+                           value of Indxc
+                   end for;
+        InvA    := for initial
+                       L    := N;
+                       InvA := NewA;
+                   while ( L >= 1 ) repeat
+                       L    := old L - 1;
+                       Idxr := Indxr[old L];
+                       Idxc := Indxc[old L];
+                       InvA := for LL in 1, N
+                                   Arow := (old InvA)[LL,..]
+                               returns array_dv of
+                                   Arow[ Idxr: Arow[Idxc]; Idxc: Arow[Idxr] ]
+                               end for;
+                   returns value of InvA
+                   end for;
+    in
+        InvA, NewB
+    end let
+end function
