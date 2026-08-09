@@ -411,6 +411,7 @@ run_group IFG_2ETC_DV       ifg_2etc_dv         ""
 run_group IFG_3_DV          ifg_3_dv            ""
 run_group IFG_4_DV          ifg_4_dv            ""
 run_group PASSGRID_DV       passgrid_dv         ""
+run_group INITAL_DV         inital_dv           ""
 
 
 echo "========================================"

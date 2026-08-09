@@ -1,0 +1,70 @@
+% Inital -- spectral shallow-water model initialisation, from
+% test/unit/Inital.sis.  Thirteen return values in one function, covering four
+% shapes the suite has little of together:
+%
+%   * a forall returning TWO arrays at once (kmjx / kmjxx from one loop);
+%   * `value of CATENATE` over a forall whose body is itself a forall -- the
+%     epsilon table, mx blocks of jxx values flattened into one array;
+%   * a single-element replace on that result, epsilon_a[1 : 0.0], which exists
+%     because the first entry is sqrt(0 / -1);
+%   * a 13-tuple return mixing integer, real and three array types.
+%
+% SQRTR is declared `global` in the original (it is the model's sqrt wrapper);
+% here it is a one-line definition, since e2e files are self-contained and math
+% intrinsics are implicit.
+%
+% Everything is exactly computable, so the harness recomputes all thirteen
+% independently rather than snapshotting.
+
+DEFINE Main
+
+type ArrInt1 = array_dv[integer];
+type ArrReal1 = array_dv[real];
+
+function SQRTR(num : real returns real)
+  sqrt(num)
+end function
+
+FUNCTION Main(ir, ilong, ilat, mx, jx, jxx : integer; zmean1 : real
+		RETURNS integer, integer, integer, integer, 
+			real, real, real, real, real, 
+			ArrInt1, ArrInt1, ArrInt1, 
+			ArrReal1)
+LET
+ww := 7.292E-5;
+tw := ww * 2.0;
+irmax:= ir;
+
+ilath, irmax1, irmax2 := ilat / 2, irmax + 1, irmax + 2;
+
+asq, grav :=  6371.22E3 * 6371.22E3,  9.80616;
+zmean:= zmean1 * grav / asq;
+
+kmjx, kmjxx := 	FOR m IN 1, mx 
+		RETURNS array_dv of (m - 1) * jx
+			array_dv of (m - 1) * jxx
+	    	END FOR;
+
+ksq := 	FOR j IN 1, ir * 2 
+	RETURNS array_dv of j * (j + 1)
+	END FOR;
+
+epsilon_a :=    FOR mp IN 1, mx 
+		RETURNS VALUE of CATENATE
+		    FOR j IN 1, jxx    % epsilon_size is 1-272
+		    l := j + mp - 2;
+		    m := mp - 1;
+		    t := real((l + m) * (l - m));
+		    b := real(4 * l * l - 1);
+		    RETURNS array_dv of SQRTR(t / b)
+		    END FOR
+		END FOR;	
+
+epsilon := epsilon_a[1 : 0.0];
+
+IN
+ir, ilong, ilath, irmax2, ww, zmean, tw, asq, grav, 
+kmjx, kmjxx, ksq, epsilon
+
+END LET
+END FUNCTION

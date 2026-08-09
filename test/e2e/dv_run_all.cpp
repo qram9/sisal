@@ -435,6 +435,14 @@ extern "C" struct GA_results func_MAIN(sisal_array_t links, sisal_array_t grid,
                                        sisal_array_t vs, sisal_array_t depth,
                                        int32_t n, int32_t q);
 #endif
+#ifdef TEST_INITAL_DV
+struct INIT_results { int32_t ir, ilong, ilath, irmax2;
+                      float ww, zmean, tw, asq, grav;
+                      sisal_array_t kmjx, kmjxx, ksq, epsilon; };
+extern "C" struct INIT_results func_MAIN(int32_t ir, int32_t ilong, int32_t ilat,
+                                         int32_t mx, int32_t jx, int32_t jxx,
+                                         float zmean1);
+#endif
 #ifdef TEST_PASSGRID_DV
 extern "C" sisal_array_t func_MAIN(int32_t inc1, int32_t inc2, int32_t n,
                                    int32_t ifac, int32_t la, sisal_array_t a,
@@ -12985,6 +12993,77 @@ kernel (int m, int la, int iink, int jink, int jump, int inc1, int inc2,
 }
 #endif
 
+#ifdef TEST_INITAL_DV
+// Inital -- spectral shallow-water model initialisation (test/unit/Inital.sis).
+// Thirteen return values in one function, covering together:
+//   * a forall returning TWO arrays at once (kmjx / kmjxx from one loop);
+//   * `value of CATENATE` over a forall whose body is itself a forall -- the
+//     epsilon table, mx blocks of jxx values flattened into one array of mx*jxx;
+//   * a single-element replace on that result, epsilon_a[1 : 0.0], which exists
+//     because the first entry would be sqrt(0 / -1);
+//   * a 13-tuple return mixing integer, real and array types.
+// Cross-checked against OSC 13.0.3.
+static void test_inital_dv (void)
+{
+  printf ("\n=== Group: inital_dv (13-tuple, catenate over nested foralls) ===\n");
+  struct Cfg { int ir, ilong, ilat, mx, jx, jxx; float zmean1; };
+  const Cfg cfgs[] = { { 4, 8, 6, 3, 5, 7, 2.0f }, { 2, 4, 4, 2, 3, 3, 1.0f },
+                       { 6, 12, 10, 4, 6, 8, 0.5f }, { 1, 2, 2, 1, 1, 2, 3.0f } };
+  for (const Cfg &cf : cfgs)
+    {
+      const float ww = 7.292E-5f, tw = ww * 2.0f;
+      const float asq = 6371.22E3f * 6371.22E3f, grav = 9.80616f;
+      const float zmean = cf.zmean1 * grav / asq;
+      const int ilath = cf.ilat / 2, irmax2 = cf.ir + 2;
+      std::vector<int32_t> kmjx (cf.mx), kmjxx (cf.mx), ksq (cf.ir * 2);
+      for (int m = 1; m <= cf.mx; m++)
+        { kmjx[m - 1] = (m - 1) * cf.jx; kmjxx[m - 1] = (m - 1) * cf.jxx; }
+      for (int j = 1; j <= cf.ir * 2; j++) ksq[j - 1] = j * (j + 1);
+      std::vector<float> eps;
+      for (int mp = 1; mp <= cf.mx; mp++)          // catenate over mp
+        for (int j = 1; j <= cf.jxx; j++)          //   inner forall over j
+          {
+            int l = j + mp - 2, m = mp - 1;
+            float t = (float)((l + m) * (l - m));
+            float b = (float)(4 * l * l - 1);
+            eps.push_back (sqrtf (t / b));
+          }
+      eps[0] = 0.0f;                                // epsilon_a[1 : 0.0]
+
+      INIT_results r = func_MAIN (cf.ir, cf.ilong, cf.ilat, cf.mx, cf.jx,
+                                  cf.jxx, cf.zmean1);
+      char msg[190];
+      snprintf (msg, sizeof msg, "ir=%d mx=%d jxx=%d scalars", cf.ir, cf.mx,
+                cf.jxx);
+      check (msg, r.ir == cf.ir && r.ilong == cf.ilong && r.ilath == ilath
+                      && r.irmax2 == irmax2 && fabs (r.ww - ww) < 1e-12
+                      && fabs (r.tw - tw) < 1e-12
+                      && fabs (r.grav - grav) < 1e-5
+                      && fabs ((double)r.asq - (double)asq) < 1e6
+                      && fabs ((double)r.zmean - (double)zmean) < 1e-18);
+      auto samei = [] (sisal_array_t a, const std::vector<int32_t> &w) {
+        if ((int)a.size != (int)w.size ()) return false;
+        for (size_t i = 0; i < w.size (); i++)
+          if (((const int32_t *)a.data)[i] != w[i]) return false;
+        return true;
+      };
+      snprintf (msg, sizeof msg, "ir=%d mx=%d two arrays from one forall", cf.ir,
+                cf.mx);
+      check (msg, samei (r.kmjx, kmjx) && samei (r.kmjxx, kmjxx));
+      snprintf (msg, sizeof msg, "ir=%d ksq is j(j+1) for j=1..%d", cf.ir,
+                cf.ir * 2);
+      check (msg, samei (r.ksq, ksq));
+      bool eok = ((int)r.epsilon.size == cf.mx * cf.jxx);
+      for (size_t i = 0; eok && i < eps.size (); i++)
+        eok = eok && (fabs ((double)((const float *)r.epsilon.data)[i]
+                            - (double)eps[i]) < 1e-6);
+      snprintf (msg, sizeof msg,
+                "ir=%d mx=%d jxx=%d catenate gives %d epsilons, [1] replaced",
+                cf.ir, cf.mx, cf.jxx, cf.mx * cf.jxx);
+      check (msg, eok);
+    }
+}
+#endif
 #ifdef TEST_PASSGRID_DV
 // PassGrid, the GRID-direction FFT pass dispatcher (test/unit/PassGrid.sis).
 // Companion to passfreq_dv, and the reason the three ifg_*_dv kernels were
@@ -15805,6 +15884,9 @@ main (void)
 #ifdef TEST_ZEROTRIP_EXPR_DV
   test_zerotrip_expr_dv ();
 #endif
+#ifdef TEST_INITAL_DV
+  test_inital_dv ();
+#endif
 #ifdef TEST_PASSGRID_DV
   test_passgrid_dv ();
 #endif
@@ -16037,7 +16119,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
