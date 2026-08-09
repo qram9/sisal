@@ -177,3 +177,79 @@ parked (fragile reference).
 - union `incomplete type struct union_un_NNN` (3) — union boxing/fwd-decl.
 - intrinsic double-emission: `redefinition of func_ASINR`, "functions differ
   only in return type" (4); `conflicting types for func_MAIN` (2).
+
+---
+
+# REFRESHED SWEEP — Aug 9, 2026 (suite 344)
+
+Measured, not recalled: `test/unit/*.sis` stems with no `test/e2e` counterpart
+(matching after stripping `_dv` / `_e2e` / `_dv_e2e`), each rewritten
+mechanically to array_dv (`array[` → `array_dv[`, `returns array of` →
+`returns array_dv of`, `array_fill` → `array_dv_fill`) and compiled to C.
+
+    unit .sis                        291
+    e2e stems                        350
+    unit with no e2e counterpart     162
+      of which compile to C after the array_dv rewrite:  162  (ALL of them)
+
+**Compilation is no longer the gate.** Every uncovered unit file lowers to C.
+What a promotion costs now is the REFERENCE and the dependencies, so the tiers
+below are cut by that, not by whether the compiler copes.
+
+## Landed this campaign
+
+| file | what it bought |
+|---|---|
+| `mdfftfreq_dv` | whole frequency-direction FFT stack vs a naive DFT |
+| `mdfftgrid_dv` | inverse stack vs naive IDFT; pinned a source bug (`nfax<=1` uses `inc2=2`, should be 1 → grid at stride 2) |
+| `newsieve_dv`  | `array_dv[boolean]` end to end — the 1-byte element path, incl. `elem_bytes==1` across the C boundary |
+| `ck_yb_dv`     | ragged input as a LIST of array_dv rows; zero-trip `least`/`greatest` identities |
+
+## PENDING — `switch` (the one deferred candidate)
+
+`test/unit/switch.sis`, 75 lines. Simulated-annealing move generator for the TSP
+(`Make_Change` / `Single_Change`). **Not promoted; deferred deliberately.**
+
+It needs three dependencies inlined, per the self-contained-e2e convention:
+
+    global Remove_Edge  ( C : Cross_List; E : Edge_Type ... )
+    global Check_Crossed( E : Edge_Type; Itinerary : Itin_Type ... )
+    global Choose_Random( seed : Four_Plex; Itinerary : Itin_Type ... )
+
+Why it is harder than the FFT inlining that unblocked `passfreq`/`mdfftfreq`:
+
+1. `Cross_List` is a NESTED, mutated structure, not a read-only ragged one, so
+   the `ck_yb` trick (rewrite as a list because only sizes are read) does not
+   apply — `Remove_Edge` edits it.
+2. Its entry points are `Make_Change` / `Single_Change`, neither named `main`;
+   an e2e port needs a driver written around them.
+3. `Choose_Random` makes it stochastic, so the reference has to pin the RNG the
+   way `ranf_dv` / `psa_rng_dv` do, or the move set must be driven
+   deterministically.
+
+Re-assess after the boxed / array-of-array phase, when a mutable nested
+structure has a supported representation. Nothing blocks it in the compiler
+today — it compiles — the cost is the driver plus a deterministic reference.
+
+## What else is left, by cost
+
+- **47 — standalone, non-ragged, no `global`, not a negative test.** Reference
+  is the only work. Biggest first: `scan1`/`scan2` (411), `quad` (275),
+  `quadtree` (260), `basic_dv` (218), `zbuffer1`/`zbuffer2` (165), `sp.init`
+  (140), `newgaussj` (139), `stand_alone_gauss` (116), `gaussj_1`/`gaussj`
+  (109-110), `rank_reduce_suite` (81), `gaussjnew` (77), `lu.piv` (75).
+  The Gauss/LU cluster is the obvious next block — one linear-solve reference
+  (residual `‖Ax-b‖`, or compare against a C LU) serves five or six files.
+- **25 — need dependencies inlined (`global` decls).** Same shape as the FFT
+  promotions; mechanical but bulky. Includes `InitFFT`, `cfft_dv`, `feo.fft`,
+  `sieve`, `sieve_v2`, `kin16_dv`, `anneal`, the `bmk11a*` pair.
+- **21 — ragged, need the LIST rewrite** ([[reference_ragged_arrays_as_lists]]):
+  `tsp`, `cyk`, `fem`/`newfem`, `monolith`, `scat`, `newqueens`, `ssphot`,
+  `format`, `out`, `send`, `para`, and the `test_forall_*` trio.
+  `ck_yb` proved the route; check what the algorithm actually READS first.
+- **59 — helper fragments** with no matching entry function (`mat_ops`,
+  `vec_ip`, `innerproduct`, the `capture*`/`lambda_*` set, ...). Mostly already
+  exercised indirectly by the files that include them; not standalone
+  promotable.
+- **12 — negative tests**, already asserted in `test/errors.t`. Do NOT promote;
+  they are expected to fail to compile.
