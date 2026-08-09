@@ -406,6 +406,7 @@ run_group RESHAPE_MATMUL_DV reshape_matmul_dv   ""
 run_group IFM_2ETC_DV       ifm_2etc_dv         ""
 run_group IFM_3_DV          ifm_3_dv            ""
 run_group IFM_4_DV          ifm_4_dv            ""
+run_group PASSFREQ_DV       passfreq_dv         ""
 
 
 echo "========================================"
