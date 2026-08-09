@@ -190,11 +190,24 @@ mechanically to array_dv (`array[` → `array_dv[`, `returns array of` →
     unit .sis                        291
     e2e stems                        350
     unit with no e2e counterpart     162
-      of which compile to C after the array_dv rewrite:  162  (ALL of them)
 
-**Compilation is no longer the gate.** Every uncovered unit file lowers to C.
-What a promotion costs now is the REFERENCE and the dependencies, so the tiers
-below are cut by that, not by whether the compiler copes.
+Compiled after that rewrite, **by exit code**:
+
+    compiles                          44
+    fails                            117
+      of which: need the RANK-2 rewrite  45   (`type T = array[OtherArrType]`,
+                                               which the regex turns into the
+                                               illegal `array_dv[array_dv[...]]`;
+                                               the real form is `array_dv[double]`
+                                               + `[i,j]` + reshape)
+                other backend gaps       72   (VECMATMUL 6, VBUILD 4, lambda /
+                                               FUNCTION_TYPE 10, cross+dot 2, ...)
+
+**CORRECTION.** An earlier revision of this section claimed all 162 compiled and
+that "compilation is no longer the gate".  That was wrong: the sweep shelled out
+through `timeout`, which does not exist on macOS, so every invocation returned
+127 with no output and the grep read that as success.  Always take the EXIT CODE,
+never the absence of a matched error string.
 
 ## Landed this campaign
 
@@ -233,13 +246,18 @@ today — it compiles — the cost is the driver plus a deterministic reference.
 
 ## What else is left, by cost
 
-- **47 — standalone, non-ragged, no `global`, not a negative test.** Reference
-  is the only work. Biggest first: `scan1`/`scan2` (411), `quad` (275),
-  `quadtree` (260), `basic_dv` (218), `zbuffer1`/`zbuffer2` (165), `sp.init`
-  (140), `newgaussj` (139), `stand_alone_gauss` (116), `gaussj_1`/`gaussj`
-  (109-110), `rank_reduce_suite` (81), `gaussjnew` (77), `lu.piv` (75).
-  The Gauss/LU cluster is the obvious next block — one linear-solve reference
-  (residual `‖Ax-b‖`, or compare against a C LU) serves five or six files.
+- **15 — promotable now, reference is the only work** (compile as-is after the
+  mechanical rewrite): `outs2`/`outs` (36), `quadrature` (30), `ham` (25),
+  `quicksort1`/`noisedump`/`bad` (19), `tst`/`tst1` (10), `test_bin2` /
+  `sizable_dv_deep` (9), `test_forall_simple`/`test_forall_dot` (6), `hello` (5),
+  `stream` (4).  All small.
+- **45 — need the RANK-2 rewrite**, then reference only.  This is where the
+  payoff is: the Gauss/LU cluster (`gaussj`, `gaussj_1`, `gaussjnew`,
+  `newgaussj`, `lu`, `lu.piv`, `lu.npiv`, `stand_alone_gauss`) plus `mmult2`,
+  and the graphics set (`scan1`/`scan2`, `zbuffer1`/`zbuffer2`, `quad`,
+  `quadtree`).  One linear-solve reference (residual ‖Ax−b‖) serves the whole
+  Gauss/LU block.  The rewrite is `type TwoD = array[OneD]` →
+  `array_dv[double]`, subscripts `A[i,j]`, rows `A[i,..]`, built by reshape.
 - **25 — need dependencies inlined (`global` decls).** Same shape as the FFT
   promotions; mechanical but bulky. Includes `InitFFT`, `cfft_dv`, `feo.fft`,
   `sieve`, `sieve_v2`, `kin16_dv`, `anneal`, the `bmk11a*` pair.
