@@ -478,6 +478,11 @@ extern "C" sisal_array_t func_MAIN(int32_t inc1, int32_t inc2, int32_t n,
                                    int32_t ifac, int32_t la, sisal_array_t a,
                                    sisal_array_t c, sisal_array_t trigs);
 #endif
+#ifdef TEST_MDFFTFREQ_DV
+extern "C" sisal_array_t func_MAIN(int32_t nlev, int32_t nwave, int32_t nfax,
+                                   int32_t n, sisal_array_t ifax,
+                                   sisal_array_t trigs, sisal_array_t grid);
+#endif
 #ifdef TEST_IFM_4_DV
 extern "C" sisal_array_t func_MAIN(int32_t m, int32_t la, int32_t iink,
                                    int32_t jink, int32_t jump, int32_t inc1,
@@ -13430,6 +13435,128 @@ static void test_passfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_MDFFTFREQ_DV
+// MdFFTFreq, the multi-factor FFT driver (test/unit/MdFFTFreq.sis) -- the top
+// of the frequency-direction stack, with the three butterfly kernels and
+// PassFreq inlined so the WHOLE stack runs under one check.
+//
+// The reference here is a NAIVE DFT, not a snapshot and not another pass of the
+// same algorithm.  That is the point: passfreq_dv and the three ifm_*_dv groups
+// check each pass against a transcription of that pass, so a shared
+// misunderstanding of the algorithm would satisfy all four.  Composing the
+// passes has to produce the actual Fourier transform, and nothing below would
+// survive a wrong composition.
+//
+// Conventions, both read off test/unit/InitFFT.sis rather than guessed:
+//
+//   trigs[2k-1] = cos(-2*pi*(k-1)/n),  trigs[2k] = sin(-2*pi*(k-1)/n)
+//   output      = interleaved (re, im) for k = 0 .. nwave-1, UNSCALED,
+//                 zero-padded out to n by the trailing `|| array_dv_fill`
+//
+// ifax must be a genuine factorisation with 4s hoisted first, which is what
+// FACTR4 produces; the products are asserted below so a wrong table is a
+// failure rather than a silently different transform.
+//
+// The configurations are chosen to cover all three structural arms, which no
+// other group in the suite reaches:
+//
+//   nfax = 1        -- the THEN branch, a single PassFreq, no ping-pong at all
+//   nfax = 2 (even) -- ELSE + even parity: first pass writes into work
+//   nfax = 3 (odd)  -- ELSE + odd parity:  first pass writes into x
+//
+// plus radices 2, 3 and 4, and nwave < n/2 to exercise the zero padding.
+//
+// Verified to FAIL on a conjugated twiddle table (sin -> -sin): 8 of the 9
+// configurations report mismatches, so the comparison is live rather than
+// vacuous.  The n=4 case alone is insensitive to that particular flip.
+static void test_mdfftfreq_dv (void)
+{
+  printf ("\n=== Group: mdfftfreq_dv (multi-factor FFT driver vs naive DFT) ===\n");
+  struct Cfg { int n, nfax; int32_t ifax[4]; int nwave; };
+  const Cfg cfgs[] = {
+    { 4, 1, { 4 }, 2 },          // THEN branch: one pass, no ping-pong
+    { 8, 2, { 4, 2 }, 4 },       // even parity, radix 4 then 2
+    { 16, 2, { 4, 4 }, 8 },      // even parity, radix 4 twice
+    { 12, 2, { 4, 3 }, 6 },      // even parity, radix 3 present
+    { 6, 2, { 2, 3 }, 3 },       // even parity, no radix-4 pass at all
+    { 32, 3, { 4, 4, 2 }, 16 },  // ODD parity: first pass writes into x
+    { 24, 3, { 4, 2, 3 }, 12 },  // ODD parity, all three radices
+    { 8, 2, { 4, 2 }, 2 },       // nwave < n/2 -> trailing zero padding
+    { 16, 2, { 4, 4 }, 3 },      // nwave < n/2, odd truncation
+  };
+  for (const Cfg &cf : cfgs)
+    {
+      int prod = 1;
+      for (int i = 0; i < cf.nfax; i++) prod *= cf.ifax[i];
+      char msg[190];
+      snprintf (msg, sizeof msg, "n=%-2d ifax product == n (valid factorisation)",
+                cf.n);
+      check (msg, prod == cf.n);
+
+      std::vector<float> trigs (cf.n), grid (cf.n);
+      for (int Lp = 1; Lp <= cf.n; Lp++)
+        {
+          int k = (Lp + 1) / 2;
+          double ar = -2.0 * M_PI * (double)(k - 1) / (double)cf.n;
+          trigs[Lp - 1] = (float)((Lp % 2 == 0) ? sin (ar) : cos (ar));
+        }
+      // a signal with DC, a ramp and one pure tone: every bin is nonzero, and
+      // the tone pins the bin ORDER (a permuted spectrum moves its peak).
+      for (int i = 0; i < cf.n; i++)
+        grid[i] = (float)(1.0 + 0.5 * i
+                          + 3.0 * cos (2.0 * M_PI * i * 2.0 / (double)cf.n));
+
+      auto mkf = [&] (const std::vector<float> &src) {
+        sisal_array_t a
+            = sisal_array_alloc_empty (1, 8, (uint64_t)src.size ());
+        a.dims[0] = (int64_t)src.size (); a.lower_bound[0] = 1;
+        for (size_t i = 0; i < src.size (); i++) ((float *)a.data)[i] = src[i];
+        return a;
+      };
+      sisal_array_t r
+          = func_MAIN (1, cf.nwave, cf.nfax, cf.n,
+                       sisal_array_build_i32 (1, cf.nfax, cf.ifax), mkf (trigs),
+                       mkf (grid));
+
+      snprintf (msg, sizeof msg, "n=%-2d nfax=%d nwave=%-2d -> %d reals, rank 1",
+                cf.n, cf.nfax, cf.nwave, cf.n);
+      check (msg, (int)r.size == cf.n && r.rank == 1);
+
+      bool ok = ((int)r.size == cf.n);
+      const float *out = (const float *)r.data;
+      for (int k = 0; ok && k < cf.nwave; k++)
+        {
+          double R = 0, I = 0;
+          for (int j = 0; j < cf.n; j++)
+            {
+              double th = -2.0 * M_PI * (double)j * (double)k / (double)cf.n;
+              R += grid[j] * cos (th);
+              I += grid[j] * sin (th);
+            }
+          // relative to the bin magnitude: `real` is float, and n up to 32
+          // accumulates enough that an absolute bound would be either loose
+          // on the big bins or false on the small ones.
+          double sc = fmax (1.0, fabs (R) + fabs (I));
+          ok = ok && fabs ((double)out[2 * k] - R) / sc < 1e-4
+               && fabs ((double)out[2 * k + 1] - I) / sc < 1e-4;
+        }
+      snprintf (msg, sizeof msg,
+                "n=%-2d nfax=%d ifax=[%d%s%s] spectrum matches naive DFT", cf.n,
+                cf.nfax, cf.ifax[0],
+                cf.nfax > 1 ? (cf.ifax[1] == 2 ? ",2" : cf.ifax[1] == 3 ? ",3" : ",4") : "",
+                cf.nfax > 2 ? (cf.ifax[2] == 2 ? ",2" : cf.ifax[2] == 3 ? ",3" : ",4") : "");
+      check (msg, ok);
+
+      bool pad = true;
+      for (int i = 2 * cf.nwave; i < (int)r.size; i++) pad = pad && out[i] == 0.f;
+      snprintf (msg, sizeof msg, "n=%-2d nwave=%-2d tail [%d..%d] is zero-padded",
+                cf.n, cf.nwave, 2 * cf.nwave + 1, cf.n);
+      check (msg, pad);
+
+      if (r.data) free (r.data);
+    }
+}
+#endif
 #ifdef TEST_IFM_4_DV
 // IFACTm_4, the radix-4 FFT butterfly pass (test/unit/IFm_4.sis).  Last of the
 // three kernels PassFreq / PassGrid declare as `global` externs -- with this
@@ -16010,6 +16137,9 @@ main (void)
 #ifdef TEST_PASSFREQ_DV
   test_passfreq_dv ();
 #endif
+#ifdef TEST_MDFFTFREQ_DV
+  test_mdfftfreq_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -16227,7 +16357,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
