@@ -407,6 +407,7 @@ run_group IFM_2ETC_DV       ifm_2etc_dv         ""
 run_group IFM_3_DV          ifm_3_dv            ""
 run_group IFM_4_DV          ifm_4_dv            ""
 run_group PASSFREQ_DV       passfreq_dv         ""
+run_group IFG_2ETC_DV       ifg_2etc_dv         ""
 
 
 echo "========================================"
