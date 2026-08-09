@@ -483,6 +483,11 @@ extern "C" sisal_array_t func_MAIN(int32_t nlev, int32_t nwave, int32_t nfax,
                                    int32_t n, sisal_array_t ifax,
                                    sisal_array_t trigs, sisal_array_t grid);
 #endif
+#ifdef TEST_MDFFTGRID_DV
+extern "C" sisal_array_t func_MAIN(int32_t nlev, int32_t nwave, int32_t nfax,
+                                   int32_t n, sisal_array_t ifax,
+                                   sisal_array_t trigs, sisal_array_t gridii);
+#endif
 #ifdef TEST_IFM_4_DV
 extern "C" sisal_array_t func_MAIN(int32_t m, int32_t la, int32_t iink,
                                    int32_t jink, int32_t jump, int32_t inc1,
@@ -13557,6 +13562,169 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_MDFFTGRID_DV
+// MdFFTGrid, the multi-factor INVERSE FFT driver (test/unit/MdFFTGrid.sis) --
+// the grid-direction dual of mdfftfreq_dv, with the three IFACTg_* butterflies
+// and PassGrid inlined so the whole grid-direction stack runs as a composition.
+//
+// Reference is a naive INVERSE DFT.  The transform reconstructs a real signal
+// from nwave complex coefficients assuming Hermitian symmetry, UNSCALED:
+//
+//   g[j] = X[0].re + sum_{k=1..nwave-1} 2*( X[k].re*cos(2pi jk/n)
+//                                          - X[k].im*sin(2pi jk/n) )
+//
+// read off by probing DC-only and single-bin spectra rather than assumed.  The
+// result buffer is (n+1)*2 long; the first n entries are the grid values and
+// the tail is zero.
+//
+// trigs is the BACKWARD table (trigb in InitFFT: +sin, i.e. -SINtheta of the
+// negative angle), not the forward one MdFFTFreq takes.  That is load-bearing
+// and doubles as the liveness evidence: substituting the forward table breaks
+// n=12, 16, 6 and 24 outright.  (n=8 is insensitive to the flip, which is why
+// the table was pinned across radices instead of on one size.)
+//
+// The differences from the frequency direction are the point -- each is a place
+// a carry can go wrong that mdfftfreq_dv never reaches:
+//   * la GROWS (la3 := old la3 * ifax[old loop - 1]), read from the PREVIOUS
+//     factor, where MdFFTFreq divides it down
+//   * the loop stops at nfax-1 and a final PassGrid runs after it at inc2=1
+//   * the for-initial returns TWO values (la3 and work_la3), a scalar and an
+//     array out together
+//   * the input spectrum is zero-padded from nwave*2 up to n*2+2 on the way in
+static void test_mdfftgrid_dv (void)
+{
+  printf ("\n=== Group: mdfftgrid_dv (multi-factor inverse FFT vs naive IDFT) ===\n");
+  struct Cfg { int n, nfax; int32_t ifax[4]; int nwave; };
+  const Cfg cfgs[] = {
+    { 8, 2, { 4, 2 }, 4 },       // radix 4 then 2
+    { 12, 2, { 4, 3 }, 6 },      // radix 3 present
+    { 16, 2, { 4, 4 }, 8 },      // radix 4 twice
+    { 6, 2, { 2, 3 }, 3 },       // no radix-4 pass at all
+    { 24, 3, { 4, 2, 3 }, 12 },  // three passes, all three radices
+    { 32, 3, { 4, 4, 2 }, 16 },  // three passes
+    { 16, 2, { 4, 4 }, 3 },      // spectral truncation, nwave << n/2
+    { 12, 2, { 4, 3 }, 2 },      // truncation down to two coefficients
+    { 8, 2, { 4, 2 }, 2 },       // truncation on the smallest case
+  };
+  for (const Cfg &cf : cfgs)
+    {
+      int prod = 1;
+      for (int i = 0; i < cf.nfax; i++) prod *= cf.ifax[i];
+      char msg[190];
+      snprintf (msg, sizeof msg, "n=%-2d ifax product == n (valid factorisation)",
+                cf.n);
+      check (msg, prod == cf.n);
+
+      std::vector<float> trigs (cf.n), spec (cf.nwave * 2);
+      for (int Lp = 1; Lp <= cf.n; Lp++)
+        {
+          int k = (Lp + 1) / 2;
+          double ar = -2.0 * M_PI * (double)(k - 1) / (double)cf.n;
+          // BACKWARD table: +sin of the positive angle
+          trigs[Lp - 1] = (float)((Lp % 2 == 0) ? -sin (ar) : cos (ar));
+        }
+      for (int k = 0; k < cf.nwave; k++)
+        {
+          spec[2 * k] = (float)(1.0 / (k + 1));
+          spec[2 * k + 1] = (float)(0.3 * k - 0.2);
+        }
+      spec[1] = 0.f;  // the DC coefficient must be real
+
+      auto mkf = [&] (const std::vector<float> &src) {
+        sisal_array_t a
+            = sisal_array_alloc_empty (1, 8, (uint64_t)src.size ());
+        a.dims[0] = (int64_t)src.size (); a.lower_bound[0] = 1;
+        for (size_t i = 0; i < src.size (); i++) ((float *)a.data)[i] = src[i];
+        return a;
+      };
+      sisal_array_t r
+          = func_MAIN (1, cf.nwave, cf.nfax, cf.n,
+                       sisal_array_build_i32 (1, cf.nfax, cf.ifax), mkf (trigs),
+                       mkf (spec));
+
+      snprintf (msg, sizeof msg,
+                "n=%-2d nfax=%d nwave=%-2d -> (n+1)*2 = %d reals, rank 1", cf.n,
+                cf.nfax, cf.nwave, (cf.n + 1) * 2);
+      check (msg, (int)r.size == (cf.n + 1) * 2 && r.rank == 1);
+
+      bool ok = ((int)r.size == (cf.n + 1) * 2);
+      const float *out = (const float *)r.data;
+      for (int j = 0; ok && j < cf.n; j++)
+        {
+          double v = spec[0];
+          for (int k = 1; k < cf.nwave; k++)
+            {
+              double th = 2.0 * M_PI * (double)j * (double)k / (double)cf.n;
+              v += 2.0 * (spec[2 * k] * cos (th) - spec[2 * k + 1] * sin (th));
+            }
+          ok = ok && fabs ((double)out[j] - v) / fmax (1.0, fabs (v)) < 1e-5;
+        }
+      snprintf (msg, sizeof msg,
+                "n=%-2d nfax=%d nwave=%-2d reconstructs the signal (naive IDFT)",
+                cf.n, cf.nfax, cf.nwave);
+      check (msg, ok);
+
+      bool pad = true;
+      for (int i = cf.n; i < (int)r.size; i++) pad = pad && out[i] == 0.f;
+      snprintf (msg, sizeof msg, "n=%-2d tail [%d..%d] past the grid is zero",
+                cf.n, cf.n + 1, (cf.n + 1) * 2);
+      check (msg, pad);
+
+      if (r.data) free (r.data);
+    }
+
+  // nfax = 1 is DELIBERATELY pinned to what the source actually does, which is
+  // wrong.  The `nfax <= 1` branch calls PassGrid with inc2 = 2, while the
+  // multi-factor path's FINAL pass uses inc2 = 1 -- and it is that last pass
+  // which un-interleaves the result into contiguous grid values.  With one
+  // factor the single pass IS the final pass, so it should use inc2 = 1 too;
+  // using 2 leaves the grid at STRIDE 2 with zeros between.
+  //
+  // This is a bug in test/unit/MdFFTGrid.sis, not in the compiler -- we
+  // reproduce it faithfully.  Pinning the stride-2 layout records the deviation
+  // instead of hiding it: if the source is ever corrected, this check fails and
+  // says so, rather than the case silently going untested.
+  {
+    const int n = 4, nfax = 1, nwave = 2;
+    int32_t ifax[1] = { 4 };
+    std::vector<float> trigs (n), spec (nwave * 2);
+    for (int Lp = 1; Lp <= n; Lp++)
+      {
+        int k = (Lp + 1) / 2;
+        double ar = -2.0 * M_PI * (double)(k - 1) / (double)n;
+        trigs[Lp - 1] = (float)((Lp % 2 == 0) ? -sin (ar) : cos (ar));
+      }
+    spec[0] = 1.f; spec[1] = 0.f; spec[2] = 0.5f; spec[3] = 0.25f;
+    auto mkf = [&] (const std::vector<float> &src) {
+      sisal_array_t a = sisal_array_alloc_empty (1, 8, (uint64_t)src.size ());
+      a.dims[0] = (int64_t)src.size (); a.lower_bound[0] = 1;
+      for (size_t i = 0; i < src.size (); i++) ((float *)a.data)[i] = src[i];
+      return a;
+    };
+    sisal_array_t r
+        = func_MAIN (1, nwave, nfax, n, sisal_array_build_i32 (1, nfax, ifax),
+                     mkf (trigs), mkf (spec));
+    bool ok = ((int)r.size == (n + 1) * 2);
+    const float *out = (const float *)r.data;
+    for (int j = 0; ok && j < n; j++)
+      {
+        double v = spec[0];
+        for (int k = 1; k < nwave; k++)
+          {
+            double th = 2.0 * M_PI * (double)j * (double)k / (double)n;
+            v += 2.0 * (spec[2 * k] * cos (th) - spec[2 * k + 1] * sin (th));
+          }
+        // the values are right, but at stride 2, with zeros interleaved
+        ok = ok && fabs ((double)out[2 * j] - v) < 1e-5
+             && fabs ((double)out[2 * j + 1]) < 1e-5;
+      }
+    check ("nfax=1 returns the grid at STRIDE 2 (source bug: inc2=2 on the "
+           "single pass, should be 1)",
+           ok);
+    if (r.data) free (r.data);
+  }
+}
+#endif
 #ifdef TEST_IFM_4_DV
 // IFACTm_4, the radix-4 FFT butterfly pass (test/unit/IFm_4.sis).  Last of the
 // three kernels PassFreq / PassGrid declare as `global` externs -- with this
@@ -16140,6 +16308,9 @@ main (void)
 #ifdef TEST_MDFFTFREQ_DV
   test_mdfftfreq_dv ();
 #endif
+#ifdef TEST_MDFFTGRID_DV
+  test_mdfftgrid_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -16357,7 +16528,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
