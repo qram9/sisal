@@ -1,0 +1,65 @@
+% Sieve of Eratosthenes over a flag array, from test/unit/arsieve.sis.  The
+% suite's other sieves are all STREAM formulations (stream_sieve_dv,
+% stream_sieve_v2_dv, stream_uprime2_dv); this is the array one, and a different
+% set of shapes:
+%
+%   * NESTED for-initial with an ARRAY carry at BOTH levels -- the outer loop
+%     carries the flag array `a` over j, the inner marking loop carries `b`
+%     over i, `value of` on the array at each level;
+%   * an IF whose result is an ARRAY: on composite j the else branch returns
+%     `old a` unchanged, so the carry passes through a conditional untouched.
+%     A copy-vs-alias mistake there is invisible in the flags and shows in the
+%     primes;
+%   * single-element replace inside the inner loop, b[i : 1], on the carry that
+%     the loop is building;
+%   * a masked STREAM gather to finish: `stream of k unless T[k] = 1`.
+%
+% ONE DEVIATION from the source: the flags are INTEGER 0/1 rather than
+% CHARACTER '0'/'1'.  The flag type is incidental to the algorithm, and the
+% character version is currently miscompiled -- array_fill and the replace write
+% every 4th BYTE of a 1-byte element array, so the sieve returns near-garbage
+% (everything in 2..50 except 37) where OSC 13.0.3 gives the correct primes.
+% That is the 1-byte element-width issue recorded in project_bool_array_1byte_ops
+% (bool was fixed for fill/replace; character has the same width and was not).
+% With integer flags every shape above is exercised unchanged.
+%
+% The `global sqrt` of the original is dropped: math intrinsics are implicit
+% here, so no declaration is needed.
+%
+% Ground truth is the primes up to n -- the harness sieves independently in C.
+
+define Main
+
+function Main( n: integer returns stream[integer] )
+
+let T :=
+   let
+      L := integer(sqrt(real(n)));
+   in
+      for initial
+         a := array_fill(1,n,0);
+	    j := 2
+      while j <= L repeat
+         j := old j + 1;
+         a := if old a[old j] = 0 then
+	            for initial
+                    i := old j + old j;
+                    b := old a
+                 while i <= n repeat
+                    b := old b[old i: 1];
+                    i := old i + old j
+                 returns value of b
+                 end for
+              else
+                 old a
+              end if
+      returns value of a
+      end for
+   end let
+in
+   for k in 2,n
+   returns stream of k unless T[k] = 1
+   end for
+end let
+
+end function
