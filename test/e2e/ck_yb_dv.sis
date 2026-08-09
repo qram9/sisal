@@ -1,0 +1,98 @@
+% ck_yb -- Y-bucket statistics for the scan-conversion picture analysis, from
+% test/unit/ck_yb.sis.  The last of the ragged-array holdouts, ported by the
+% house rule that RAGGED ARRAYS ARE REWRITTEN WITH LISTS (see backtrack_dv.sis,
+% ml_list_dv.sis).
+%
+% The original input is
+%     type int_array2 = array[int_array1]      % array OF arrays
+% i.e. a Y bucket whose rows are the triangles falling on each scan line, so row
+% lengths vary with the picture.  That is genuinely ragged and cannot be a flat
+% array_dv.
+%
+% The saving observation is that ck_yb never reads a row's CONTENTS.  It uses
+% only array_size(yb[i]) and array_size(yb) -- the analysis is entirely about how
+% many triangles land where.  So the bucket becomes a LIST of array_dv rows:
+%
+%     type RowList = union[ empty: null; cons: record[ hd: Ints; tl: RowList ] ];
+%
+% and the rows stay real array_dvs of their stated length (a row of length 0 is
+% the zero-trip gather, an empty array_dv), so the raggedness is real rather than
+% modelled by a list of integers.
+%
+% The bucket is BUILT IN SISAL from a vector of row lengths, rather than passed
+% in: constructing a boxed union value from the harness would test the harness's
+% idea of the representation, not the compiler's.  It is built by iterating
+% DESCENDING and consing, so the list comes out in ascending row order -- which
+% `width` then pins, since a reversed list turns {3,2,5,1} into {1,5,2,3}.
+%
+% Everything downstream of the input is the ORIGINAL, unchanged: the same
+% sum reduction, the same `array_dv of s when s~=0` masked gather, and the same
+% least/greatest pair.  Only the representation of the ragged input moved.
+%
+% Exercised: a recursive union carrying an array_dv payload, a for-initial
+% carrying a list, a second for-initial walking a list while growing an array_dv
+% with array_addh, and a masked gather feeding zero-trip reductions.
+%
+% ZERO-TRIP EDGE: when every row is empty, `width` is empty and the min/max loop
+% runs zero times.  The reduction identities surface as least -> 2147483647 and
+% greatest -> -2147483647 (note: NOT INT_MIN).  The harness pins both.
+
+define Main
+
+type Ints    = array_dv[integer];
+type RowList = union[ empty: null; cons: record[ hd: Ints; tl: RowList ] ];
+
+function Mt( returns RowList ) union RowList[ empty: nil ] end function
+function Cons( h: Ints; t: RowList returns RowList )
+  union RowList[ cons: record[ hd: h; tl: t ] ]
+end function
+function Hd( l: RowList returns Ints )
+  tagcase x := l tag empty: array_dv Ints [] tag cons: x.hd end tagcase
+end function
+function Tl( l: RowList returns RowList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+function Main( row_lens : Ints
+               returns integer, integer, integer, integer, Ints )
+let
+  % build the RAGGED bucket as a list of rows, descending so the list comes
+  % out in ascending order
+  yb := for initial
+          i   := array_limh(row_lens);
+          acc := Mt()
+        while i >= array_liml(row_lens) repeat
+          i   := old i - 1;
+          acc := Cons( for j in 1, row_lens[old i] returns array_dv of j end for,
+                       old acc )
+        returns value of acc
+        end for;
+
+  % walk the list once to get each row's length
+  sizes := for initial
+             cur := yb;
+             acc := array_dv Ints []
+           while ~is empty( cur ) repeat
+             acc := array_addh( old acc, array_size( Hd( old cur ) ) );
+             cur := Tl( old cur )
+           returns value of acc
+           end for;
+
+  tri_count,
+  width      := for i in array_liml(sizes), array_limh(sizes)
+                  s := sizes[i];
+                returns value of sum s
+                        array_dv of s when s~=0
+                end for;
+
+  min_edge,
+  max_edge   := for i in array_liml(width), array_limh(width)
+                returns value of least    width[i]
+                        value of greatest width[i]
+                end for;
+
+  zeroes     := array_size(sizes) - array_size(width)
+in
+  tri_count, zeroes, min_edge, max_edge, width
+end let
+end function
