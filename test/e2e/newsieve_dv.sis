@@ -1,0 +1,85 @@
+% newsieve -- sieve of Eratosthenes over BOOLEAN flags, from test/unit/newsieve.sis.
+%
+% Promoted for the element type, not the algorithm.  arsieve_dv already covers a
+% sieve, but with INTEGER flags -- it was promoted that way because the
+% character-flag version is miscompiled (array_dv_fill and the replace write
+% every 4th BYTE of a 1-byte element array).  This one runs the whole thing on
+% `array_dv[boolean]`, so it is the suite's check that the 1-byte element path
+% is correct end to end:
+%
+%   * array_dv_fill(1, max_k, true)   -- 1-byte fill
+%   * returns array_dv of <boolean>   -- 1-byte gather build
+%   * (old X)[old k]                  -- 1-byte subscript read, as a loop guard
+%   * a boolean array carried through a for-initial and in and out of `sift`
+%   * returns array_dv of (2*i+1) when x[i]  -- masked compaction driven by the
+%     boolean flags, on a single generator
+%
+% DELIBERATE DEVIATION from the source: the flag array is returned alongside the
+% primes.  The original returns only the integer list, which would let a wrong
+% boolean LAYOUT still produce a right answer if the compaction happened to read
+% it consistently.  Returning the flags pins elem_bytes = 1 and the value of
+% every slot across the C boundary.
+%
+% The reference is exact primality, computed independently -- any corruption of
+% the flags changes the emitted list.  Verified live: seeding the flags all
+% false collapses the result to just [2].
+%
+% NOTE the source covers odd numbers up to 2*max_k+1, and for EVEN n that is
+% n+1, so sieve(100) legitimately ends in 101.  That is the source's index
+% range, not an error in the sieve; the reference models the same range.
+%
+% array_addl prepends the 2.  That is on the INTEGER array, so it does not touch
+% the latent 1-byte addh/addl issue.
+
+define Main
+
+% Helper to turn boolean flags back into actual odd numbers
+function convert(x: array_dv[boolean] returns array_dv[integer])
+    for i in array_liml(x), array_limh(x)
+        returns array_dv of (2*i + 1) when x[i]
+    end for
+end function
+
+% The core Sifting logic (striking out multiples)
+function sift(k: integer; A: array_dv[boolean] returns array_dv[boolean])
+    let 
+        p := 2*k + 1;  % The actual prime value
+        limit := array_limh(A)
+    in
+        for j in 1, limit
+            % Logic: If index j is >= p^2 index AND is a multiple of p, mark false
+            returns array_dv of if (j >= k + k*p) & (mod(j - k, p) = 0) 
+                             then false 
+                             else A[j] 
+                             end if
+        end for
+    end let
+end function
+
+% The main logic handling the (n-1)/2 adjustment and the number 2
+function Main(n: integer returns array_dv[boolean], array_dv[integer])
+    let
+        % Determine the max index k needed to cover up to n
+        max_k := if mod(n, 2) = 0 then n/2 else (n-1)/2 end if;
+        
+        % Run the sieve on odd numbers only
+        sifted_odds :=
+        for initial
+            X := array_dv_fill(1, max_k, true);
+            % Index 1 represents 2(1)+1 = 3. 1 is not prime, but we start at k=1 (3).
+            k := 1
+        while (2*k + 1) * (2*k + 1) <= n  % Only sift up to sqrt(n)
+        repeat
+            k := old k + 1;
+            % Only sift if the current k is still marked as prime
+            X := if (old X)[old k] then sift(old k, old X) else old X end if
+        returns value of X
+        end for;
+        
+        % Convert booleans to integers
+        odd_primes := convert(sifted_odds)
+    in
+        % Special case: Manually prepend '2' to the list of odd primes
+        sifted_odds, array_addl(odd_primes, 2)
+    end let
+end function
