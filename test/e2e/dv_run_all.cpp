@@ -13585,10 +13585,12 @@ static void test_mdfftfreq_dv (void)
 // solves the system -- the property that matters, independent of how x was
 // obtained.  The same reference serves the rest of the cluster.
 //
-// The rank-2 rewrite this port required is described in the .sis header: rank
-// lives in the dope, so OneD and TwoD are both array_dv[double]; the row-gather
-// that built the matrix and the row-valued pivot swap both became cross
-// foralls, since neither can be spelled without the forbidden nested form.
+// The rank-2 handling is described in the .sis header: rank lives in the dope,
+// so OneD and TwoD are both array_dv[double].  Building rank 2 by gathering rows
+// is legal -- nested `returns array_dv of (for ... returns array_dv of ...)`
+// gives a rank-2 array_dv, not an array of arrays -- so Compute and the
+// row-valued pivot swap are the original unchanged.  The one real deviation is
+// `for row in A at i`, scatter over rows, which is unsupported.
 //
 // Case 3 has a ZERO on the diagonal and is unsolvable without the pivot swap,
 // so a wrong GetPivot or a wrong swap fails it outright rather than quietly

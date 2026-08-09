@@ -5,22 +5,27 @@
 % THE RANK-2 REWRITE.  The original is
 %     type Oned = array[double];
 %     type Twod = array[Oned];        % array OF arrays
-% which the mechanical array->array_dv rewrite turns into the illegal
-% array_dv[array_dv[double]].  The real form is that RANK IS A RUNTIME PROPERTY:
-% TwoD and OneD are BOTH `array_dv[double]` and differ only in the dope.
-% Elements are A[i,j]; a row would be A[i,..].
+% and the point is that RANK IS A RUNTIME PROPERTY: OneD and TwoD are BOTH
+% `array_dv[double]` and differ only in the dope.  Elements are A[i,j]; a row is
+% A[i,..].
 %
-% Two constructs had to change shape, not just spelling:
+% Building rank 2 by GATHERING ROWS is legal and is what the original already
+% does -- a nested `for ... returns array_dv of (for ... returns array_dv of ...)`
+% yields a rank-2 array_dv (dims (n,n), row-major), NOT an array of arrays.  That
+% holds when the row is bound first and gathered by name, which is the original's
+% shape:
+%     Arow := if ... then for x in Ain[i,..] returns array_dv of ... end for
+%             else ... end if
+%     ... returns array_dv of Arow
+% So `Compute` is the original, unchanged apart from spelling.  The row-valued
+% pivot swap `A[Icol: A[Irow,..]; Irow: A[Icol,..]]` is likewise kept verbatim
+% and verified to swap rows correctly.
 %
-%   * `for row in A at i ... returns array of Arow` builds a rank-2 by gathering
-%     ROWS, i.e. exactly the nested array_dv the model forbids.  Replaced by a
-%     CROSS forall over (i,j) returning elements, which yields rank 2 directly.
-%   * the pivot row swap `old A[Icol: old A[Irow]; Irow: old A[Icol]]` replaces
-%     whole ROWS of a rank-2.  Replaced by a cross forall that selects from the
-%     swapped index, so no row-valued replace is needed.
-%
-% The algorithm is otherwise untouched: same pivot search (largest |a| over rows
-% not yet pivoted, ties to the LEAST row index), same swap, same elimination.
+% ONE genuine deviation: `for row in A at i` -- scattering over the ROWS of a
+% rank-2 -- is not supported ("Array type expected when constructing scatter
+% node"), so GetPivot's outer loop is `for i in 1, n` with `row := A[i,..]`.
+% Everything else about it, including the in-loop `value of greatest max` and
+% the `least i when x = max` tie-break, is as written.
 %
 % THE REFERENCE IS THE RESIDUAL, max|Ax - b|, not a transcription of
 % Gauss-Jordan.  Re-implementing the algorithm in the harness would agree with
@@ -41,18 +46,19 @@ type TwoD = array_dv[double];      % RANK 2 at runtime; rank is never in the typ
 
 function GetPivot(n: integer; A: TwoD; PIVR: Onei returns integer, integer)
    let
-      cols, maxs :=
+      cols, maxs, max :=
           for i in 1, n
+              row := A[i,..];
               col, max := if PIVR[i] = 0 then
                              for initial
                                  j   := 1;
                                  col := 1;
-                                 max := abs(A[i,1])
+                                 max := abs(row[1])
                              while j < n repeat
                                  j   := old j + 1;
                                  col, max :=
-                                   if abs(A[i,j]) > old max then
-                                      j, abs(A[i,j])
+                                   if abs(row[j]) > old max then
+                                      j, abs(row[j])
                                    else
                                       old col, old max
                                    end if
@@ -64,36 +70,34 @@ function GetPivot(n: integer; A: TwoD; PIVR: Onei returns integer, integer)
                           end if
           returns array_dv of col
                   array_dv of max
+                  value of greatest max
           end for;
-      max := for i in 1, n returns value of greatest maxs[i] end for;
-      row := for i in 1, n returns value of least i when maxs[i] = max end for
+      row := for x in maxs at i
+             returns value of least i when x = max
+             end for
    in
       cols[row], row
    end let
 end function
 
 function Compute(n, pvtrow: integer; Ain: TwoD; Bin: OneD returns TwoD, OneD)
-   let
-      pvtele := Ain[pvtrow, pvtrow];
-      Aout := for i in 1, n cross j in 1, n
-                 m := Ain[i, pvtrow] / pvtele
-              returns array_dv of if i = pvtrow then
-                                     Ain[i,j] / pvtele
-                                  else
-                                     Ain[i,j] - m * Ain[pvtrow,j]
-                                  end if
-              end for;
-      Bout := for i in 1, n
-                 m := Ain[i, pvtrow] / pvtele
-              returns array_dv of if i = pvtrow then
-                                     Bin[i] / pvtele
-                                  else
-                                     Bin[i] - m * Bin[pvtrow]
-                                  end if
-              end for
-   in
-      Aout, Bout
-   end let
+   for i in 1, n
+       pvtele     := Ain[pvtrow, pvtrow];
+       multipler  := Ain[i, pvtrow] / pvtele;
+       Arow, Bele := if i = pvtrow then
+                        for x in Ain[i,..]
+                        returns array_dv of x / pvtele
+                        end for,
+                        Bin[i] / pvtele
+                     else
+                        for x in Ain[i,..] at j
+                        returns array_dv of x - multipler * Ain[pvtrow, j]
+                        end for,
+                        Bin[i] - multipler * Bin[pvtrow]
+                     end if
+   returns array_dv of Arow
+           array_dv of Bele
+   end for
 end function
 
 function Main(n: integer; Ain: TwoD; Bin: OneD returns OneD)
@@ -104,26 +108,12 @@ function Main(n: integer; Ain: TwoD; Bin: OneD returns OneD)
    while I < n repeat
        I := old I + 1;
        Icol, Irow := GetPivot(n, old A, old PIVR);
-       % row swap done as a cross forall rather than a row-replace: a row of a
-       % rank-2 array_dv is A[i,..], and replacing one would need the nested form
-       A1 := if Icol ~= Irow then
-                for i in 1, n cross j in 1, n
-                returns array_dv of if i = Icol then (old A)[Irow, j]
-                                    elseif i = Irow then (old A)[Icol, j]
-                                    else (old A)[i, j]
-                                    end if
-                end for
-             else old A
-             end if;
-       B1 := if Icol ~= Irow then
-                for i in 1, n
-                returns array_dv of if i = Icol then (old B)[Irow]
-                                    elseif i = Irow then (old B)[Icol]
-                                    else (old B)[i]
-                                    end if
-                end for
-             else old B
-             end if;
+       A1, B1 := if ( Icol ~= Irow ) then
+                     (old A)[Icol: (old A)[Irow,..]; Irow: (old A)[Icol,..]],
+                     (old B)[Icol: (old B)[Irow];    Irow: (old B)[Icol]]
+                 else
+                     old A, old B
+                 end if;
        PIVR := old PIVR[Icol: 1];
        A, B := Compute(n, Icol, A1, B1)
    returns value of B
