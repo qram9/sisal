@@ -171,17 +171,28 @@ let main () =
       write_to !c_dest (Ir.C_ast_print.string_of_unit c_unit ^ "\n")
     end
   with e ->
-    let msg = Printexc.to_string e in
-    Printf.eprintf "there was an error: %s\n" msg;
     let lexbuf = !last_lexbuf in
     (match e with
     | Ir.If1.Sem_error msg | Ir.If1.Node_not_found msg ->
+        Printf.eprintf "there was an error: %s\n" (Printexc.to_string e);
         let msg = msg ^ " near \"" ^ Lexing.lexeme lexbuf ^ "\"" in
         error msg lexbuf
     | Sys_error msg -> Printf.eprintf "%s\n" msg
-    | _ ->
-        let msg = "Unexpected: " ^ "\"" ^ Lexing.lexeme lexbuf ^ "\"" in
-        error msg lexbuf);
+    | Lex.LexErr m ->
+        (* genuinely lexical: the lexbuf is parked on the offending token, so
+           the position means something. *)
+        error ("Lex error: " ^ m) lexbuf
+    | Failure m ->
+        (* `failwith` from to_if1 / the backend -- a type or lowering error,
+           long after parsing finished.  It has NO source position: the lexbuf
+           is exhausted, so lexeme is "" and lexeme_start_p is EOF.  Reporting
+           it through `error` used to print
+             Unexpected: "" in file: F (line <past the end>: char 0..0)
+           which reads as a syntax error and buries the real message on the
+           next line.  Genuine parse errors never arrive here at all -- see
+           parse_loop, which reports and exits on its own. *)
+        Printf.eprintf "error: %s\n" m
+    | _ -> Printf.eprintf "error: %s\n" (Printexc.to_string e));
     exit 1
 
 let () = main ()
