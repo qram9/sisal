@@ -4287,7 +4287,18 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           | Some (Simple (_, RANGEGEN, _, _, _)) ->
               (pre, rs @ [ n ], ss, bind (bind (bind e n 0) n 1) n 2)
           | Some (Simple (_, DV_SCATTER, _, _, _)) ->
-              (pre, rs, ss @ [ (n, `Dv) ], bind (bind e n 0) n 1)
+              (* `at I,J,K` binds one index PER RANK to ports 1..k of this one
+                 node, so bind every port the symtab actually uses, not just 1. *)
+              let hi =
+                SM.fold
+                  (fun _ v acc -> if v.val_def = n then max acc v.def_port else acc)
+                  (fst g.symtab) 1
+              in
+              let e =
+                List.fold_left (fun e p -> bind e n p) e
+                  (List.init (hi + 1) (fun p -> p))
+              in
+              (pre, rs, ss @ [ (n, `Dv) ], e)
           | Some (Simple (_, ASCATTER, _, _, _)) ->
               (pre, rs, ss @ [ (n, `Arr) ], bind (bind e n 0) n 1)
           | Some (Simple _ as node) when emit_bounds ->
@@ -4446,12 +4457,22 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                   | Some ty -> ty
                   | None -> 0
                 in
+                (* how many `at` index names this scatter carries (ports 1..n) *)
+                let n_at =
+                  SM.fold
+                    (fun _ v acc ->
+                      if v.val_def = s then max acc v.def_port else acc)
+                    (fst g.symtab) 0
+                in
                 let elem =
                   if
-                    rank_of_type_id env_loop.tm s_tyid > 1
+                    n_at <= 1
+                    && rank_of_type_id env_loop.tm s_tyid > 1
                     && ety = C.Basic "sisal_array_t"
                   then C.Call ("sisal_array_get_row", [ arr; C.Id k ])
                   else
+                    (* multi-index `at` goes ALL THE WAY TO THE ELEMENTS: the
+                       loop counter is a flat element position, never a row. *)
                     C.Index
                       ( C.Cast (C.Pointer (ety, []), C.Member (arr, "data")),
                         C.Id k )
@@ -4459,29 +4480,80 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 let base =
                   [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 0), elem)) ]
                 in
-                let at_used =
-                  SM.exists
-                    (fun _ v -> v.val_def = s && v.def_port = 1)
-                    (fst g.symtab)
+                let lb j =
+                  C.Cast
+                    ( C.Basic "int32_t",
+                      C.Index (C.Member (arr, "lower_bound"), C.LitInt j) )
                 in
                 match kind with
-                | (`Arr | `Dv) when at_used ->
-                    (* `at` index (port 1) = lower_bound[0] + k *)
-                    let idx =
-                      C.BinOp
-                        ( C.Add,
-                          C.Cast
-                            ( C.Basic "int32_t",
-                              C.Index
-                                (C.Member (arr, "lower_bound"), C.LitInt 0) ),
-                          C.Id k )
+                | (`Arr | `Dv) when n_at > 1 ->
+                    (* ROW-MAJOR decomposition of the flat position k into one
+                       index per rank.  For dims d0..d(m-1) the stride of axis j
+                       is the product of the dims after it, so
+                         I_j = (k / stride_j) % d_j + lower_bound[j]
+                       with stride_(m-1) = 1.  Emitted innermost-first so each
+                       divisor is a plain dims[] read. *)
+                    let dim j = C.Index (C.Member (arr, "dims"), C.LitInt j) in
+                    let idx_stmts =
+                      List.init n_at (fun j ->
+                          let stride =
+                            List.fold_left
+                              (fun acc t ->
+                                match acc with
+                                | None -> Some (dim t)
+                                | Some a -> Some (C.BinOp (C.Mul, a, dim t)))
+                              None
+                              (List.init (n_at - 1 - j) (fun t -> j + 1 + t))
+                          in
+                          let pos =
+                            match stride with
+                            | None -> C.Id k
+                            | Some sdv -> C.BinOp (C.Div, C.Id k, sdv)
+                          in
+                          let along =
+                            C.BinOp
+                              ( C.Mod,
+                                pos,
+                                C.Cast (C.Basic "int32_t", dim j) )
+                          in
+                          C.Expr
+                            (C.BinOp
+                               ( C.Assign,
+                                 C.Id (slot s (j + 1)),
+                                 C.BinOp (C.Add, lb j, along) )))
                     in
-                    base @ [ C.Expr (C.BinOp (C.Assign, C.Id (slot s 1), idx)) ]
+                    base @ idx_stmts
+                | (`Arr | `Dv)
+                  when SM.exists
+                         (fun _ v -> v.val_def = s && v.def_port = 1)
+                         (fst g.symtab) ->
+                    (* single `at` index (port 1) = lower_bound[0] + k *)
+                    base
+                    @ [
+                        C.Expr
+                          (C.BinOp
+                             ( C.Assign,
+                               C.Id (slot s 1),
+                               C.BinOp (C.Add, lb 0, C.Id k) ));
+                      ]
                 | _ -> base)
               scatters
           in
+          (* a multi-index `at` iterates EVERY ELEMENT, so its bound is the flat
+             size; a plain / single-index scatter over a rank > 1 keeps walking
+             the leading axis and binding rows. *)
+          let multi_at =
+            List.exists
+              (fun (s, _) ->
+                SM.fold
+                  (fun _ v acc ->
+                    if v.val_def = s then max acc v.def_port else acc)
+                  (fst g.symtab) 0
+                > 1)
+              scatters
+          in
           let limit_expr =
-            if rank_of_type_id env_loop.tm arr_tyid > 1 then
+            if (not multi_at) && rank_of_type_id env_loop.tm arr_tyid > 1 then
               C.Index (C.Member (parr, "dims"), C.LitInt 0)
             else C.Member (parr, "size")
           in
