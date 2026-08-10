@@ -1,0 +1,73 @@
+% quadrature -- adaptive-trapezoid integration of F(x) = x^2 + 1, from
+% test/unit/quadrature.sis.  Ported UNCHANGED: no arrays anywhere, so nothing to
+% convert; what it needed was two compiler fixes, not a rewrite.
+%
+% Why it is worth having: it is the suite's check on NESTED FUNCTIONS in anger.
+% F, Area and Quad are all defined inside Main, Quad RECURSES (twice per level,
+% in one expression), it calls its siblings, and its parameters Low/High SHADOW
+% Main's parameters of the same name.  That last part is the interesting one --
+% it is what broke:
+%
+%   * the lambda parameter list came out short (Area declared 4, emitted 3), so
+%     the call site could not match it.  Loud: it failed to compile.
+%   * with the count short, the guard that stops a capture copy-in from
+%     overwriting a parameter did not cover the trailing formals, so
+%         (v_QUAD_..._HIGH = HIGH);              <- the argument
+%         (v_QUAD_..._HIGH = v_g1_n__0_HIGH);    <- clobbered by the capture
+%     and every recursive call re-read MAIN's bounds.  The interval never
+%     shrank, so the adaptive recursion never terminated.  Silent: it would have
+%     been wrong numbers in any program where a nested function's parameter
+%     shares a name with an enclosing one.
+%
+% Both had one root cause -- counting a nested function's formals by resolving
+% its Function_ty, whose id is only meaningful in the typemap of the graph that
+% minted it.  Fixed to use the frontend's `inherited` flag instead.
+%
+% THE REFERENCE IS THE CLOSED FORM, integral of x^2+1 = x^3/3 + x, not another
+% quadrature rule.  Two properties are checked, and the second is the sharper:
+%
+%   1. |result - exact| within the adaptive tolerance
+%   2. result >= exact ALWAYS -- the trapezoid rule overestimates a convex
+%      integrand, and x^2+1 is convex everywhere.  A sign error, a mis-threaded
+%      bound or a truncated recursion breaks that inequality even where the
+%      magnitude still looks plausible.
+%
+% The degenerate range [2,2] is included: zero width, so the answer is exactly 0
+% and the recursion must terminate immediately.
+
+define Main
+
+function Main( Low, High: real returns real )
+
+   function F( X: real returns real )
+	X * X + 1.0
+   end function
+
+   function Area( Low, FLow , High, FHigh : real returns real )
+      (High - Low) * (FHigh + FLow) / 2.0
+   end function
+
+   function Quad( Low, FLow, High, FHigh, Trap: real returns real)
+      let
+	 Mid  := (Low + High)/ 2.0;
+	 FMid := F(Mid);
+	 LTrap := Area( Low, FLow, Mid, FMid );
+	 HTrap := Area( Mid, FMid, High, FHigh );
+      in
+	 if abs( LTrap + HTrap - Trap ) < 0.0001 % Epsilon
+	 then LTrap + HTrap
+	 else
+	    Quad( Low, FLow, Mid, FMid, LTrap) +
+	    Quad( Mid, FMid, High, FHigh, HTrap )
+         end if
+      end let
+   end function
+
+   let
+      FLow := F( Low );
+      FHigh := F( High );
+   in
+      Quad( Low, FLow, High, FHigh, Area( Low, FLow, High, FHigh) )
+   end let
+end function
+
