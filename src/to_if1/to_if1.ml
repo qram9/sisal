@@ -963,10 +963,14 @@ and do_field_def in_gr = function
      `for x in A`       -> a DV_SCATTER (array_dv) or ASCATTER (array) node;
      `... at i, j`      -> binds the index name(s) to the driver's extra ports.
    [curr_level] selects which axis/`at`-name we are on for nested loops.
+   [n_at] is how many `at` index names this generator carries, which sizes the
+   driver node: ONE output for the element value plus one per index, so
+   `for E in A at I,J,K` is a single DV_SCATTER with ports 0=E, 1=I, 2=J, 3=K
+   and every name is bound to a port of that one node.
    Returns the driver's (node, port, ty), the graph, and dv-info (is this axis
    an array_dv source?). The loop var is left in the local symtab with
    val_def <> 0 so build_gen_graph/generator_outputs will export it. *)
-and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
+and do_in_exp ?(curr_level = 1) ?(level = 0) ?(n_at = 1) in_gr = function
   | Ast.In_exp (vn, e) ->
       let ((aa, bb, cc), in_gr), dv_infos =
         match e with
@@ -1034,9 +1038,21 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                       t1
                   | _ -> t1
                 in
-                (* Peel curr_level array layers to find the element type and
-                   whether the source is an array_dv (-> DV_SCATTER) or a plain
-                   array/stream (-> ASCATTER). *)
+                (* Find the element type and whether the source is an array_dv
+                   (-> DV_SCATTER) or a plain array/stream (-> ASCATTER).
+
+                   VALUES ONLY: a scatter binds an ELEMENT, never an inner rank
+                   as an array.  For a plain nested `array[array[T]]` that means
+                   peeling one layer per `at` name (n_at layers) down to the
+                   scalar.  For an array_dv there is nothing to peel: RANK IS A
+                   RUNTIME PROPERTY, so `array_dv[T]` is one type layer whatever
+                   its rank and the element is T at any rank.  Peeling per level
+                   there is what used to raise "Array type expected when
+                   constructing scatter node" on `for E in A at I,J`. *)
+                (* how many layers to peel for a PLAIN nested array: the old
+                   k-axis nesting drove this off curr_level, the single-axis
+                   `at` form drives it off the index count.  max keeps both. *)
+                let peel_to = max curr_level n_at in
                 let outer_ty_num, inner_ty_num, is_dv =
                   let rec walk_ty curr_ty curr_l =
                     let lookup_array_ty curr_ty in_gr =
@@ -1051,10 +1067,15 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                               ^ " when constructing scatter node "
                               ^ string_of_int curr_ty))
                     in
-                    if curr_l = curr_level then lookup_array_ty curr_ty in_gr
-                    else
-                      let _, inner_ty_num, _ = lookup_array_ty curr_ty in_gr in
-                      walk_ty inner_ty_num (curr_l + 1)
+                    match If1.lookup_ty curr_ty in_gr with
+                    | If1.Array_dv ij -> (curr_ty, ij, true)
+                    | _ ->
+                        if curr_l >= peel_to then lookup_array_ty curr_ty in_gr
+                        else
+                          let _, inner_ty_num, _ =
+                            lookup_array_ty curr_ty in_gr
+                          in
+                          walk_ty inner_ty_num (curr_l + 1)
                   in
                   walk_ty t1 1
                 in
@@ -1062,7 +1083,11 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
                    Its output 0 is the per-iteration element (port 0); `at`
                    indices, if any, attach at ports >= 1 (see At_exp below). *)
                 let op = if is_dv then If1.DV_SCATTER else If1.ASCATTER in
-                let (scatter, _, _), in_gr = get_simple_unary 2 in_gr op in
+                (* one output for the element, then one per `at` index name:
+                   `at I,J,K` -> ports 0=E, 1=I, 2=J, 3=K on this ONE node *)
+                let (scatter, _, _), in_gr =
+                  get_simple_unary (1 + n_at) in_gr op
+                in
                 let in_gr = If1.add_edge e pi scatter 0 outer_ty_num in_gr in
                 ( ((scatter, 0, inner_ty_num), in_gr),
                   [ (if is_dv then `Dv (e, pi, t1) else `Plain (e, pi, t1)) ] )
@@ -1109,29 +1134,35 @@ and do_in_exp ?(curr_level = 1) ?(level = 0) in_gr = function
   (* `in_exp AT i, j, ...` : first lower the underlying in-exp, then bind each
      index name to the driver's next output port (def_port = bb + level). *)
   | Ast.At_exp (ie, vns) ->
+      let n_at = match vns with Value_names v -> List.length v in
       let ((aa, bb, cc), in_gr), dv_infos =
-        do_in_exp ~curr_level ~level in_gr ie
+        do_in_exp ~curr_level ~level ~n_at in_gr ie
       in
       let in_gr =
         let cs, ps = in_gr.If1.symtab in
         match vns with
         | Value_names v ->
-            {
-              in_gr with
-              If1.symtab =
-                (let vv = List.nth v (curr_level - 1) in
-                 ( If1.SM.add vv
-                     {
-                       If1.val_name = vv;
-                       If1.val_ty = If1.lookup_tyid If1.INTEGRAL;
-                       If1.val_def = aa;
-                       If1.def_port = bb + 1;
-                       (* LOCAL: generator at-index name *)
-                       If1.inherited = false;
-                     }
-                     cs,
-                   ps ));
-            }
+            (* EVERY index name binds to an OUTPUT PORT OF THE DRIVER NODE --
+               `I; (__1 : 1)`, `J; (__1 : 2)`, `K; (__1 : 3)` -- never to a
+               synthesised value.  Port 0 is the element, so name j sits at
+               bb + 1 + j. *)
+            let cs =
+              List.fold_left
+                (fun cs (j, vv) ->
+                  If1.SM.add vv
+                    {
+                      If1.val_name = vv;
+                      If1.val_ty = If1.lookup_tyid If1.INTEGRAL;
+                      If1.val_def = aa;
+                      If1.def_port = bb + 1 + j;
+                      (* LOCAL: generator at-index name *)
+                      If1.inherited = false;
+                    }
+                    cs)
+                cs
+                (List.mapi (fun j vv -> (j, vv)) v)
+            in
+            { in_gr with If1.symtab = (cs, ps) }
       in
       (* at-index is now in cs (val_def<>0, def_port=bb+1); build_gen_graph
          exports it to the generator boundary along with the other locals. *)
@@ -1413,6 +1444,26 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
   (* Keep the original AST around (stashed as a pragma on the FORALL node, used
      for diagnostics / array-dimension inference downstream). *)
   let fall = Ast.For_all (inexp, bodyexp, retexp) in
+  (* Is this `at` generator's source an array_dv?  Decides whether a multi-name
+     `at` is ONE axis (dv: rank is a runtime property, so one scatter carries
+     all k index ports) or k nested axes (plain array-of-array: one type layer
+     peeled per level).  The source is lowered into the graph purely to read its
+     type back and the resulting graph is DISCARDED, so nothing built here
+     survives -- only node-id counters move. *)
+  let at_source_is_dv inexp =
+    let rec base = function
+      | Ast.At_exp (ie, _) -> base ie
+      | Ast.In_exp (_, e) -> Some e
+      | _ -> None
+    in
+    match base inexp with
+    | Some (Ast.Exp [ hd ]) -> (
+        try
+          let (_, _, t), _ = do_simple_exp in_gr hd in
+          match If1.lookup_ty t in_gr with If1.Array_dv _ -> true | _ -> false
+        with _ -> false)
+    | _ -> false
+  in
   (* [get_cross_exp_lis inexp] flattens the generator expression into a list of
      (level, in_exp) pairs -- one entry per loop axis, outermost first -- so
      build_forloop can peel them one nest at a time. *)
@@ -1424,16 +1475,27 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
        NEW DESIGN: do_in_exp now builds the whole cross into ONE generator, so
        keep the cross expression as a SINGLE axis here -- it falls through to the
        single-axis `aie` case below. *)
-    (* `at` with several index names: one level per index name, the whole
-       At_exp repeated, with descending level tags. *)
+    (* `at` with several index names.
+
+       For an ARRAY_DV source this is ONE axis: rank is a runtime property, so
+       the type has a single layer whatever the rank, and one scatter carries
+       1 + k outputs (0 = element, 1..k = the indices), every name bound to a
+       port of that node.
+
+       For a PLAIN nested `array[array[T]]` it stays k axes -- the same At_exp
+       re-lowered at curr_level 1..k, each level peeling another layer, level 1
+       binding a row and level 2 an element.  That nesting is what those sources
+       mean, and collapsing it changes the rank of every gather beneath it. *)
     | Ast.At_exp (_, Value_names vns) ->
-        let _, oul =
-          List.fold_right
-            (fun _ (lev, re) -> (lev - 1, (lev, inexp) :: re))
-            vns
-            (List.length vns, [])
-        in
-        oul
+        if at_source_is_dv inexp then (1, inexp) :: retl
+        else
+          let _, oul =
+            List.fold_right
+              (fun _ (lev, re) -> (lev - 1, (lev, inexp) :: re))
+              vns
+              (List.length vns, [])
+          in
+          oul
     (* A single `dot`/range/element axis -- one nest level. *)
     | aie -> (1, aie) :: retl
   in

@@ -1,0 +1,86 @@
+% mmult2 -- matrix multiply via transpose and dot-product rows, from
+% test/unit/mmult2.sis.  Third of the rank-2 cluster.
+%
+% Worth having because it is INTEGER: gaussjnew_dv and newgaussj_dv both check
+% floating-point solvers against tolerances, so a small systematic indexing
+% error can hide inside a 1e-4 bound.  Here the reference is exact -- every
+% element of A*B must match to the integer -- so a transposed or off-by-one
+% read fails outright.
+%
+% DEVIATIONS, all the same cause: SCATTERING OVER A RANK-2 IS UNSUPPORTED, in
+% any form.  Not just rows:
+%     for Element in A at I,J      -- 2-D ELEMENT scatter, also rejected
+%     for Row     in A at I        -- row scatter
+%     for Col     in Transpose(B) at J
+% all give Sem_error("Array type expected when constructing scatter node").  So
+% Transpose became a CROSS forall over (I,J), and MatMult's two outer loops
+% became index loops with Row := A[I,..] and Col := Bt[J,..].  The inner
+% `for Aik in Row dot Bkj in Col` is a dot over two rank-1s and is kept as
+% written -- scatter over rank-1 is fine, it is only rank-2 that fails.
+%
+% Transpose(B) is recomputed inside the row loop, as in the original, rather
+% than hoisted.
+%
+% Reference: A and B against their closed form i + (j-1)*2, and C against an
+% independently computed product.  All exact.
+%
+% CROSS-CHECKED AGAINST OSC 13.0.3 on the unmodified original.  For N=3 it gives
+%     A = B = 1 3 5 / 2 4 6 / 3 5 7      C = 22 40 58 / 28 52 76 / 34 64 94
+% which is what this port and the closed-form reference both produce.
+%
+% NOTE FOR THE HARNESS: `A := B` in Main, so the first two results ALIAS THE
+% SAME BUFFER.  Freeing both is a double free (exit 133) -- the same trap as
+% life1_dv, where a zero-iteration result aliased its input.
+
+define Main
+type OneDim = array_dv[ integer ];
+type TwoDim = array_dv[ integer ];
+
+function Transpose( A: TwoDim
+returns		TwoDim)
+  for I in 1, array_size(A) cross J in 1, array_size(A)
+  returns array_dv of A[ J,I ]
+  end for
+end function % Transpose
+
+function MatMult( A, B: TwoDim
+returns		TwoDim)
+  for I in 1, array_size(A)
+   Row := A[I,..];
+   Bt  := Transpose(B);
+   NewRow :=
+     for J in 1, array_size(Bt)
+       Col := Bt[J,..];
+       S :=
+         for Aik in Row dot Bkj in Col
+	 returns value of sum Aik*Bkj
+         end for
+     returns array_dv of S
+     end for
+  returns array_dv of NewRow
+end for
+end function % MatMult
+
+function Array1( i,N: integer
+returns		OneDim )
+for j in 1,N
+  t := i + (j-1)*2
+returns array_dv of t
+end for
+end function % Array1
+
+function Main(	N: integer
+returns		TwoDim, TwoDim, TwoDim )
+let
+  B :=
+    for i in 1,N
+      t := array1( i, N )
+    returns array_dv of t
+    end for;
+  A := B
+in
+  A,
+  B,
+  MatMult( A, B )
+end let
+end function % main
