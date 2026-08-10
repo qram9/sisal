@@ -1799,8 +1799,20 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                 by_suffix "__forall_ub_" k ))
             cross_axes
         in
+        (* The `at` index names of a SINGLE axis.  A multi-index `at I,J,K` puts
+           k names on ONE axis, which returns_triples cannot express -- it holds
+           one index per axis -- so the gather is told them separately and gives
+           each its own Pr_index port. *)
+        let at_names =
+          match cross_axes with
+          | [ ax ] ->
+              (match ax with
+               | Ast.At_exp (_, Ast.Value_names v) -> v
+               | _ -> [])
+          | _ -> []
+        in
         let (rn, _, _), forall_gr, return_action_list =
-          add_ret ~nest_returns_levels ~returns_triples forall_gr
+          add_ret ~nest_returns_levels ~returns_triples ~at_names forall_gr
             return_action_list mask_ty_list
             (String.concat "\n" (List.map Ast.str_return_clause retexp))
         in
@@ -3804,7 +3816,8 @@ and organize_ret_info return_action_list mask_ty_list =
   in
   (return_action_list, mask_ty_list)
 
-and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
+and add_ret ?(nest_returns_levels = 0) ?(returns_triples = [])
+    ?(at_names = []) in_gr
     return_action_list mask_ty_list prag =
   (* Build Return-Signature To Provide To Outer
            Loop In Ord  er To Build Its Returns Graph. *)
@@ -3812,7 +3825,7 @@ and add_ret ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
     organize_ret_info return_action_list mask_ty_list
   in
   let for_gr = If1.get_a_new_graph in_gr in
-  add_return_gr ~nest_returns_levels ~returns_triples for_gr in_gr
+  add_return_gr ~nest_returns_levels ~returns_triples ~at_names for_gr in_gr
     return_action_list mask_ty_list prag
 
 and add_ret_for_initial ?(ext_srcs = []) decl_gr for_gr body_gr
@@ -10830,7 +10843,8 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
   in
   loop 0 out_gr
 
-and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
+and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = [])
+    ?(at_names = []) in_gr
     body_gr return_action_list mask_ty_list prag =
   to_if1_msg 3 "add_return_gr: count=%d" (List.length return_action_list);
   List.iteri
@@ -11011,19 +11025,43 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                  coordinate per port 3.. for a scatter, and -- for a masked bare
                  gather -- the boolean filter on port 3 (port 2 is the extent, so
                  unlike REDUCE the mask cannot share it). *)
+              (* A multi-index `at I,J,K` gives the gather ONE INDEX PORT PER
+                 RANK, mirroring the scatter that produced them.  Pr_index 0
+                 stays on port 0 -- the flat counter every existing consumer
+                 already reads -- and ranks 1.. are APPENDED past the fixed
+                 ports, so no existing lookup or its default moves. *)
+              let extra_at =
+                match at_names with _ :: rest -> rest | [] -> []
+              in
+              let base_ports =
+                3 + List.length plcs + (if masked then 1 else 0)
+              in
               let portmap =
                 If1.Portmap
                   ([ (If1.Pr_index 0, 0); (If1.Pr_value, 1); (If1.Pr_extent 0, 2) ]
                   @ List.mapi (fun j _ -> (If1.Pr_placement j, 3 + j)) plcs
-                  @ (if masked then [ (If1.Pr_mask, 3) ] else []))
+                  @ (if masked then [ (If1.Pr_mask, 3) ] else [])
+                  @ List.mapi
+                      (fun j _ -> (If1.Pr_index (j + 1), base_ports + j))
+                      extra_at)
               in
-              let nports =
-                3 + List.length plcs + (if masked then 1 else 0)
-              in
+              let nports = base_ports + List.length extra_at in
               let (dd, ee, _), out_gr =
                 If1.add_node_2
                   (`Simple (opcode, Array.make nports "", [| "" |], [ portmap ]))
                   out_gr
+              in
+              (* wire ranks 1.. from the boundary port each name was declared on
+                 (name -> port comes from this RETURNS graph's own symtab) *)
+              let out_gr =
+                List.fold_left
+                  (fun g (j, nm) ->
+                    match If1.SM.find_opt nm (fst g.If1.symtab) with
+                    | Some e when e.If1.def_port >= 0 ->
+                        If1.add_edge 0 e.If1.def_port dd (base_ports + j) 5 g
+                    | _ -> g)
+                  out_gr
+                  (List.mapi (fun j nm -> (j, nm)) extra_at)
               in
               (* Connect the forall mask to the gather's Pr_mask port (3). *)
               let out_gr =
