@@ -4560,18 +4560,37 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           (* a multi-index `at` iterates EVERY ELEMENT, so its bound is the flat
              size; a plain / single-index scatter over a rank > 1 keeps walking
              the leading axis and binding rows. *)
-          let multi_at =
-            List.exists
-              (fun (s, _) ->
-                SM.fold
-                  (fun _ v acc ->
-                    if v.val_def = s then max acc v.def_port else acc)
-                  (fst g.symtab) 0
-                > 1)
-              scatters
+          let n_at_max =
+            List.fold_left
+              (fun acc (s, _) ->
+                max acc
+                  (SM.fold
+                     (fun _ v acc ->
+                       if v.val_def = s then max acc v.def_port else acc)
+                     (fst g.symtab) 0))
+              0 scatters
           in
+          let multi_at = n_at_max > 1 in
           let limit_expr =
-            if (not multi_at) && rank_of_type_id env_loop.tm arr_tyid > 1 then
+            if multi_at then
+              (* PRODUCT OF THE DIMS, not `size`.  size is the buffer's element
+                 count and coincides with the product only for a dense array --
+                 the descriptor carries a (start, size, stride) triple per axis,
+                 so a strided view has size >= product(dims).  The allocation
+                 (one extent per rank) and the row-major decomposition of the
+                 counter both work off dims, so the bound must too, or the loop
+                 can outrun what was allocated. *)
+              List.fold_left
+                (fun acc j ->
+                  C.BinOp
+                    ( C.Mul,
+                      acc,
+                      C.Cast
+                        ( C.Basic "int32_t",
+                          C.Index (C.Member (parr, "dims"), C.LitInt j) ) ))
+                (C.LitInt 1)
+                (List.init n_at_max (fun j -> j))
+            else if rank_of_type_id env_loop.tm arr_tyid > 1 then
               C.Index (C.Member (parr, "dims"), C.LitInt 0)
             else C.Member (parr, "size")
           in
