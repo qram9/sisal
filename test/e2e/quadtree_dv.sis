@@ -1,0 +1,203 @@
+% quadtree -- matrix to quadtree, from test/unit/quadtree.sis.  The row-of-trees
+% intermediate is a CONS LIST, in the moldyn_nbrlist_dv idiom, because it cannot
+% be an array_dv.
+%
+% WHY THE LIST.  The original carries
+%     type OneDimBTree = array[ BTree ];      % BTree is a recursive union
+% and `array_dv[BTree]` is rejected outright:
+%     "array_dv element is not sizable: type `ONEDIMBTREE` places a directly
+%      (inline) recursive type in an array_dv, so its size fold does not
+%      terminate"
+% which is correct -- a flat dope needs a fixed element size.  So OneDimBTree
+% becomes BList = union[ empty: null; cons: record[ hd: BTree; tl: BList ] ],
+% exactly as moldyn_nbrlist_dv holds ragged rows, with Mt/Cons/Hd/Tl plus the
+% TakeB/DropB/AppendB/ReplB/LeftBranch/RightBranch this algorithm needs.
+%
+% DELIBERATE DEVIATION: AtoB and BtoQTree take index bounds (lo, hi) / a length
+% instead of slicing with array_adjust.  Same computation, and it avoids needing
+% a slice operator on a list.  Everything else -- the merge rules, the padding,
+% the quadrant recursion -- is the original.
+%
+% This file is also what exposed the tag-resolution bug fixed in b2027f0: BTree
+% and QTree deliberately share the tag names Scalar/NonScalar, and tag names
+% used to be resolved GLOBALLY across the typemap, so `Q.NE` picked up BTree's
+% record{L,R} arm and lowered as a float.  Types are equal only if they match
+% structurally; a shared tag name says nothing.
+%
+% THE ORACLE IS THE MERGE RULE, not a transcription.  BtoQTree collapses a node
+% only when NW = SE and NE = SW = 0 -- a sparse/diagonal condition, NOT "all
+% four equal".  So:
+%
+%     all zeros      Depth 0      collapses
+%     diagonal v     Depth 0      collapses (NW=SE=v, NE=SW=0) -- n a power of 2
+%     uniform v ~= 0 Depth Log2   does NOT collapse (NE=SW=v, not 0)
+%     all distinct   Depth Log2   does not collapse
+%
+% The middle two are the point: a test using only zeros-versus-distinct would
+% pass just as well against a wrong "merge if all four are equal" rule.
+% Log2 = ceil(log2(S)) and Pad = 2^Log2 - S are checked alongside, so the
+% padding path (a 3x3 rounding up to 4) is covered too -- and it is not merely
+% decorative: padding is PREPENDED (ColumnFiller || row, RowFill || rows), so a
+% 3x3 diagonal lands in the BOTTOM-RIGHT of the 4x4 as diag(0,7,7,7).  Its NW
+% quadrant [[0,0],[0,7]] is not a uniform scalar, DiagonalOK fails, and the
+% padded diagonal does NOT collapse -- Depth = Log2.  I expected 0 and the test
+% caught it; the code is right and the expectation was wrong.
+
+define Main
+
+type OneDimReal = array_dv[ real ];
+type TwoDimReal = array_dv[ real ];        % RANK 2 at runtime
+type BTree = union[ Scalar: real; NonScalar: record[ L, R: BTree ] ];
+type BList = union[ empty: null; cons: record[ hd: BTree; tl: BList ] ];
+type QTree = union[ Scalar: real; NonScalar: record[ NE, SE, SW, NW: QTree ] ];
+type QuadTree = record[ Order, Padding: integer; Body: QTree ];
+
+% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array[BTree] ----
+function Mt( returns BList ) union BList[ empty: nil ] end function
+function Cons( h: BTree; t: BList returns BList )
+  union BList[ cons: record[ hd: h; tl: t ] ]
+end function
+function Hd( l: BList returns BTree )
+  tagcase x := l tag empty: union BTree[ Scalar: 0.0 ] tag cons: x.hd end tagcase
+end function
+function Tl( l: BList returns BList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+function TakeB( l: BList; k: integer returns BList )
+  if k <= 0 then Mt() else Cons( Hd(l), TakeB( Tl(l), k-1 ) ) end if
+end function
+function DropB( l: BList; k: integer returns BList )
+  if k <= 0 then l else DropB( Tl(l), k-1 ) end if
+end function
+function AppendB( a, b: BList returns BList )
+  if is empty(a) then b else Cons( Hd(a), AppendB( Tl(a), b ) ) end if
+end function
+function ReplB( n: integer; v: BTree returns BList )
+  if n <= 0 then Mt() else Cons( v, ReplB( n-1, v ) ) end if
+end function
+function LeftBranch( l: BList returns BList )
+  if is empty(l) then Mt()
+  else Cons( tagcase b := Hd(l) tag Scalar: Hd(l) tag NonScalar: b.L end tagcase,
+             LeftBranch( Tl(l) ) )
+  end if
+end function
+function RightBranch( l: BList returns BList )
+  if is empty(l) then Mt()
+  else Cons( tagcase b := Hd(l) tag Scalar: Hd(l) tag NonScalar: b.R end tagcase,
+             RightBranch( Tl(l) ) )
+  end if
+end function
+
+function Depth( Input: QTree returns integer )
+  tagcase Q := Input
+  tag Scalar: 0
+  tag NonScalar:
+    max( max( Depth( Q.NE ), Depth( Q.SE ) ),
+         max( Depth( Q.SW ), Depth( Q.NW ) ) ) + 1
+  end tagcase
+end function
+
+function CeilingOfLog2( N: integer returns integer, integer )
+  for initial
+    Log := 0;
+    Power := 1
+  while Power < N repeat
+    Log := old Log + 1;
+    Power := old Power * 2
+  returns value of Log
+          value of Power
+  end for
+end function
+
+% AtoB over A[lo..hi] -- index bounds instead of array_adjust slicing
+function AtoB( A: OneDimReal; lo, hi: integer returns BTree )
+  if lo = hi then
+    union BTree[ Scalar: A[lo] ]
+  else
+    let
+      Mid := lo + (hi - lo + 1) / 2;
+      L := AtoB( A, lo, Mid-1 );
+      R := AtoB( A, Mid, hi );
+      Merge :=
+        tagcase L1 := L
+        tag NonScalar: false
+        tag Scalar:
+          tagcase R1 := R
+          tag NonScalar: false
+          tag Scalar: L1 = R1
+          end tagcase
+        end tagcase
+    in
+      if Merge then L else union BTree[ NonScalar: record[ L: L; R: R ] ] end if
+    end let
+  end if
+end function
+
+function BtoQTree( A: BList; n: integer returns QTree )
+  if n = 1 then
+    tagcase S := Hd( A )
+    tag Scalar: union QTree[ Scalar: S ]
+    tag NonScalar: error[ QTree ]
+    end tagcase
+  else
+    let
+      Mid   := n / 2;
+      Fst   := TakeB( A, Mid );
+      Snd   := DropB( A, Mid );
+      NE := BtoQTree( RightBranch( Fst ), Mid );
+      NW := BtoQTree( LeftBranch ( Fst ), Mid );
+      SW := BtoQTree( LeftBranch ( Snd ), n - Mid );
+      SE := BtoQTree( RightBranch( Snd ), n - Mid );
+      DiagonalOK :=
+        tagcase NW1 := NW
+        tag NonScalar: false
+        tag Scalar:
+          tagcase SE1 := SE
+          tag NonScalar: false
+          tag Scalar: NW1 = SE1
+          end tagcase
+        end tagcase;
+      Merge :=
+        if DiagonalOK then
+          tagcase NE1 := NE
+          tag NonScalar: false
+          tag Scalar:
+            tagcase SW1 := SW
+            tag NonScalar: false
+            tag Scalar: (NE1 = 0.0) & (SW1 = 0.0)
+            end tagcase
+          end tagcase
+        else false
+        end if
+    in
+      if Merge then NW
+      else union QTree[ NonScalar: record[ NE: NE; SE: SE; SW: SW; NW: NW ] ]
+      end if
+    end let
+  end if
+end function
+
+function Main( A: TwoDimReal returns integer, integer, integer )
+  let
+    S := array_size( A );
+    Log2, TwoToTheLog2 := CeilingOfLog2( S );
+    Pad := TwoToTheLog2 - S;
+    % one BTree per row, padded on the left with Pad zeros; consed descending so
+    % the list comes out in row order
+    Rows :=
+      for initial
+        i := S;
+        acc := Mt()
+      while i >= 1 repeat
+        i := old i - 1;
+        acc := Cons( AtoB( array_dv_fill(1, Pad, 0.0) || A[old i, ..],
+                           1, TwoToTheLog2 ),
+                     old acc )
+      returns value of acc
+      end for;
+    RowFill := ReplB( Pad, union BTree[ Scalar: 0.0 ] );
+    Body := BtoQTree( AppendB( RowFill, Rows ), TwoToTheLog2 )
+  in
+    Log2, Pad, Depth( Body )
+  end let
+end function
