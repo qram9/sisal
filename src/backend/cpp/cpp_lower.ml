@@ -86,6 +86,37 @@ let index_ports pragmas =
   ports_of_role pragmas (function Pr_index _ -> true | _ -> false)
   |> List.sort compare
 
+(* How many of a nested function's boundary inputs are its OWN declared formals,
+   as opposed to captures inherited from an enclosing scope.  The frontend marks
+   every symtab entry: `inherited` is false for a local definition (a declared
+   parameter) and true for a name imported from an outer scope.  Params occupy
+   the leading boundary ports, captures the trailing ones.
+
+   This replaces resolving the function's Function_ty and counting its Tuple_ty
+   chain.  A type id is meaningful only in the typemap of the graph that minted
+   it -- ids are PER-GRAPH counters and cpp.ml hands the lowering only the
+   top-level map -- so that chain could dangle, flatten stopped at the first
+   unresolvable id and counted it as ONE parameter, and the arity came out
+   short.  (Merging the maps is not the fix: ids collide across graphs.)
+
+   Returns None when no boundary name resolves, so callers keep their old
+   fallback. *)
+let declared_param_count g =
+  match NM.find_opt 0 g.nmap with
+  | Some (Boundary (ins, _, _, _)) ->
+      let cs, ps = g.symtab in
+      let own nm =
+        match SM.find_opt nm cs with
+        | Some v -> Some (not v.inherited)
+        | None -> (
+            match SM.find_opt nm ps with
+            | Some v -> Some (not v.inherited)
+            | None -> None)
+      in
+      let r = List.filter_map (fun (_, _, nm, _) -> own nm) ins in
+      if r = [] then None else Some (List.length (List.filter (fun b -> b) r))
+  | _ -> None
+
 (* The port index carrying [role] on node [nid] of graph [gr] (via that node's
    Portmap), or [default] when the node has no Portmap entry for the role. *)
 let node_port_of_role gr nid role default =
@@ -1925,9 +1956,12 @@ let init_boundary_ports env parent_gr compound_nid gr gid =
        unchanged. *)
     let n_params =
       match NM.find_opt compound_nid parent_gr.nmap with
-      | Some (Compound (_, _, _, pr, _, _))
+      | Some (Compound (_, _, _, pr, sub_gr, _))
         when get_compound_type pr = If1_procedure -> (
-          let sym_ty name (cs, ps) =
+          match declared_param_count sub_gr with
+          | Some n -> n
+          | None ->
+          (let sym_ty name (cs, ps) =
             match SM.find_opt name cs with
             | Some v -> Some v.val_ty
             | None -> (
@@ -1944,7 +1978,7 @@ let init_boundary_ports env parent_gr compound_nid gr gid =
                 | None -> sym_ty raw gr.symtab
               with
               | Some t -> List.length (get_function_param_types env.tm t)
-              | None -> 0))
+              | None -> 0)))
       | _ -> 0
     in
     IntMap.fold
@@ -2249,16 +2283,61 @@ and lower_node env gr nid node =
                 | Some v -> Some v.val_ty
                 | None -> None)
           in
-          match List.find_map (function Name nm -> Some nm | _ -> None) pr with
-          | None -> 0
-          | Some raw -> (
-              match
+          (* A type id is only meaningful in the TYPEMAP OF THE GRAPH whose
+             symtab produced it -- ids are per-graph counters, not global.  The
+             nested function registers its own Function_ty (and the Tuple_ty
+             chain of its parameter list) in ITS OWN graph, so resolving that id
+             against env.tm -- the top-level map cpp.ml hands down -- leaves the
+             chain dangling.  get_function_param_types then stops flattening at
+             the first unresolvable id and counts it as ONE parameter, so a
+             4-param nested function inside a 2-param function reported arity 3
+             and the emitted lambda dropped a parameter the call site passed.
+             (Merging the maps is NOT the fix: colliding ids across graphs then
+             resolve to the wrong entries.) *)
+          (* Count the boundary inputs that are the function's OWN formals.
+             The frontend marks every symtab entry with `inherited`: false for a
+             local definition (a declared parameter), true for a name imported
+             from an enclosing scope (a capture, handled by the `[=]` default).
+             That is a direct answer and needs no types.
+
+             It replaces resolving the function's Function_ty and counting its
+             Tuple_ty chain, which was wrong whenever the chain could not be
+             resolved: a type id is meaningful only in the typemap of the graph
+             that minted it, ids are PER-GRAPH counters, and cpp.ml hands the
+             lowering only the top-level map.  flatten then stopped at the first
+             unresolvable id and counted it as ONE parameter, so a 4-param
+             nested function inside a 2-param function reported arity 3 and the
+             emitted lambda dropped a parameter its call site passed.  (Merging
+             the maps is not the fix -- ids collide across graphs.)
+
+             Falls back to the type-based count if no boundary name resolves,
+             so anything that does not populate the symtab behaves as before. *)
+          let cs, ps = loop_gr.symtab in
+          let own_of nm =
+            match SM.find_opt nm cs with
+            | Some v -> Some (not v.inherited)
+            | None -> (
+                match SM.find_opt nm ps with
+                | Some v -> Some (not v.inherited)
+                | None -> None)
+          in
+          let resolved =
+            List.filter_map (fun (_, _, nm, _) -> own_of nm) boundary_ins
+          in
+          if resolved <> [] then List.length (List.filter (fun b -> b) resolved)
+          else
+            let tm_of (_, m, _) = m in
+            match List.find_map (function Name nm -> Some nm | _ -> None) pr with
+            | None -> 0
+            | Some raw -> (
                 match sym_ty raw loop_gr.symtab with
-                | Some t -> Some t
-                | None -> sym_ty raw gr.symtab
-              with
-              | Some t -> List.length (get_function_param_types env.tm t)
-              | None -> 0)
+                | Some t -> List.length (get_function_param_types (tm_of loop_gr.typemap) t)
+                | None -> (
+                    match sym_ty raw gr.symtab with
+                    | Some t ->
+                        List.length
+                          (get_function_param_types (tm_of gr.typemap) t)
+                    | None -> 0))
         in
         let name_of_pid pid =
           match List.find_opt (fun (_, _, _, p) -> p = pid) boundary_ins with
