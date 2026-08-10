@@ -1,0 +1,73 @@
+% outs -- quicksort by masked partition, from test/unit/outs.sis.
+%
+% Two things nothing else in the suite has:
+%
+%   * FOUR levels of nested functions -- MAIN > SPLIT > MOSHAN > MASHAN.  The
+%     inner two are never called (the original defines them and uses only
+%     SPLIT's own body), but they are still lowered, so this exercises the
+%     nested-function machinery deeper than quadrature_dv does.  Note SPLIT's
+%     formal DATA shadows MAIN's DATA at every level, which is the shape that
+%     broke quadrature: a capture copy-in overwriting a parameter.
+%   * a THREE-OUTPUT MASKED GATHER -- one forall returning
+%         array_dv of E when E < DATA[1]
+%         array_dv of E when E = DATA[1]
+%         array_dv of E when E > DATA[1]
+%     On the plain-`array` path only the FIRST output port gets declared (see
+%     docs/unit_to_e2e_status.md); the array_dv path wires all three, and this
+%     pins that.
+%
+% MAIN itself is top-level recursive, and the result is assembled with `||`.
+%
+% THE BASE CASE IS `size <= 2 RETURNS DATA UNCHANGED`, so this does NOT fully
+% sort.  That is the source's behaviour, not a defect, and it is pinned rather
+% than worked around:
+%
+%     [5,4,3,2,1] -> [2,1,3,4,5]
+%
+% derived by hand from the spec: pivot 5 gives L=[4,3,2,1]; pivot 4 gives
+% L=[3,2,1]; pivot 3 gives L=[2,1], which has size 2 and comes back UNCHANGED;
+% so the result is [2,1] || [3] || [4] || [5].  A test that only asserted
+% "sorted" would call that a failure and a test that only asserted "permutation"
+% would miss it entirely, so both are checked plus the exact expected array.
+%
+% The duplicate case is the reason for the middle bucket: `= DATA[1]` collects
+% equal keys, so [4,4,2,9,4] sorts to [2,4,4,4,9] with all three 4s preserved --
+% a partition that dropped the equal bucket would lose two of them and still
+% return something sorted.
+
+DEFINE MAIN
+TYPE INFO = array_dv[integer]
+FUNCTION MAIN (DATA:INFO RETURNS INFO)
+  FUNCTION SPLIT (DATA:INFO RETURNS INFO,INFO,INFO)
+    FUNCTION MOSHAN (DATA:INFO RETURNS INFO,INFO,INFO)
+      FUNCTION MASHAN (DATA:INFO RETURNS INFO,INFO,INFO)
+        FOR E IN DATA
+          RETURNS
+            array_dv of E WHEN E < DATA[1]
+            array_dv of E WHEN E = DATA[1]
+            array_dv of E WHEN E > DATA[1]
+        END FOR
+      END FUNCTION
+      FOR E IN DATA
+        RETURNS
+          array_dv of E WHEN E < DATA[1]
+          array_dv of E WHEN E = DATA[1]
+          array_dv of E WHEN E > DATA[1]
+      END FOR
+    END FUNCTION
+    FOR E IN DATA
+      RETURNS
+        array_dv of E WHEN E < DATA[1]
+        array_dv of E WHEN E = DATA[1]
+        array_dv of E WHEN E > DATA[1]
+    END FOR
+  END FUNCTION
+  IF ARRAY_SIZE(DATA) > 2 THEN
+    LET
+      L,MIDDLE,R := SPLIT(DATA)
+    IN
+      MAIN(L) || MIDDLE || MAIN(R)
+    END LET
+  ELSE DATA
+  END IF
+END FUNCTION
