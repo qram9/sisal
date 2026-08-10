@@ -4573,13 +4573,14 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
           let multi_at = n_at_max > 1 in
           let limit_expr =
             if multi_at then
-              (* PRODUCT OF THE DIMS, not `size`.  size is the buffer's element
-                 count and coincides with the product only for a dense array --
-                 the descriptor carries a (start, size, stride) triple per axis,
-                 so a strided view has size >= product(dims).  The allocation
-                 (one extent per rank) and the row-major decomposition of the
-                 counter both work off dims, so the bound must too, or the loop
-                 can outrun what was allocated. *)
+              (* PRODUCT OF THE DIMS, not `size`.  The extent of each rank is
+                 its DIMS entry in the dope -- that is where rank sizes live --
+                 whereas `size` is the buffer's element count and can exceed the
+                 product when the buffer is over-allocated.  The allocation (one
+                 extent per rank) and the row-major decomposition of the counter
+                 both work off dims, so the bound must too, or the loop outruns
+                 what was allocated.  No strides are involved: an `at` walks the
+                 shape the dope describes. *)
               List.fold_left
                 (fun acc j ->
                   C.BinOp

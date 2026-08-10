@@ -1740,11 +1740,11 @@ inline sisal_array_t sisal_dv_slice(sisal_array_t a, const int32_t* spec, int32_
 /* DV_RANK_REDUCE: zero-copy view fixing dimension 0 at 1-based index idx.
    Returns a sisal_array_t with rank-1 less, data pointer advanced to the slice. */
 /* Elements in one rank-(N-1) slab of `a`: the product of the TRAILING dims.
-   NOT size/dims[0] -- `size` is the buffer's element count and equals the
-   product of the dims only for a DENSE array, since the descriptor carries a
-   (start, size, stride) triple per axis.  An over-allocated or strided
-   descriptor made every slab too big and the subscript then read the wrong
-   element: size 54 with dims 3,3,3 gave a slab of 18 where 9 is right.
+   NOT size/dims[0].  The extent of each rank is its DIMS entry in the dope;
+   `size` is the buffer's element count and can exceed the product of the dims
+   when the buffer is over-allocated.  Deriving the slab from size then made
+   every slab too big and the subscript read the wrong element: size 54 with
+   dims 3,3,3 gave a slab of 18 where 9 is right.
    Falls back to size/dims[0] when the trailing dims are not populated, so
    rank-1 paths and descriptors built without them are unchanged. */
 inline uint64_t sisal_dv_slab_size(sisal_array_t a) {
