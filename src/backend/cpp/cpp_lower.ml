@@ -68,6 +68,24 @@ let is_stream_type cty =
 let port_of_role pragmas role =
   List.find_map (function Portmap m -> List.assoc_opt role m | _ -> None) pragmas
 
+(* All ports whose role satisfies [pred], in portmap order.  Per-rank roles
+   (Pr_index k / Pr_extent k / Pr_placement k) put SEVERAL entries in one
+   portmap, and `port_of_role` -- an assoc lookup -- can only ever return the
+   first.  This is the accessor for those: e.g. every index port of a
+   multi-index `at` scatter, in rank order. *)
+let ports_of_role pragmas pred =
+  List.concat_map
+    (function
+      | Portmap m ->
+          List.filter_map (fun (r, p) -> if pred r then Some p else None) m
+      | _ -> [])
+    pragmas
+
+(* The index ports of a node, in rank order: Pr_index 0, 1, 2, ... *)
+let index_ports pragmas =
+  ports_of_role pragmas (function Pr_index _ -> true | _ -> false)
+  |> List.sort compare
+
 (* The port index carrying [role] on node [nid] of graph [gr] (via that node's
    Portmap), or [default] when the node has no Portmap entry for the role. *)
 let node_port_of_role gr nid role default =
@@ -4943,7 +4961,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                                   match
                                     ES.fold
                                       (fun ((sn, _), (dn, dp), _) a ->
-                                        if dn = g && dp = node_port_of_role r_gr g Pr_extent 2 then Some sn else a)
+                                        if dn = g && dp = node_port_of_role r_gr g (Pr_extent 0) 2 then Some sn else a)
                                       r_gr.eset None
                                   with
                                   | Some m ->
@@ -5095,7 +5113,7 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                               let dope_src =
                                 ES.fold
                                   (fun ((sn, _), (dn, dp), _) a ->
-                                    if dn = g_nid && dp = node_port_of_role r_gr g_nid Pr_extent 2 then Some sn else a)
+                                    if dn = g_nid && dp = node_port_of_role r_gr g_nid (Pr_extent 0) 2 then Some sn else a)
                                   r_gr.eset None
                               in
                               match dope_src with
@@ -6358,7 +6376,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
                       let dope_src =
                         ES.fold
                           (fun ((sn, _), (dn, dp), _) a ->
-                            if dn = gnid && dp = node_port_of_role g_ret_gr gnid Pr_extent 2 then Some sn else a)
+                            if dn = gnid && dp = node_port_of_role g_ret_gr gnid (Pr_extent 0) 2 then Some sn else a)
                           g_ret_gr.eset None
                       in
                       match dope_src with

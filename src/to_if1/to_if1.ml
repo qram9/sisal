@@ -2047,14 +2047,25 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                  REDUCE node Portmaps already follow. *)
               let bmap = ref [] in
               let note lbl p =
+                (* placements and extents occur ONCE PER RANK, so each takes the
+                   next ordinal in its own family: the k-th `__plc_` label is
+                   Pr_placement k.  Counting what is already in bmap keeps that
+                   general -- no label-suffix parsing, any arity. *)
+                let nth_of pred =
+                  List.length (List.filter (fun (r, _) -> pred r) !bmap)
+                in
                 let role =
                   if is_body lbl then If1.Pr_value
                   else if String.length lbl >= 14
                           && String.sub lbl 0 14 = "__forall_mask_" then If1.Pr_mask
                   else if String.length lbl >= 6 && String.sub lbl 0 6 = "__plc_"
-                  then If1.Pr_placement
+                  then
+                    If1.Pr_placement
+                      (nth_of (function If1.Pr_placement _ -> true | _ -> false))
                   else if String.length lbl >= 6 && String.sub lbl 0 6 = "__ext_"
-                  then If1.Pr_extent
+                  then
+                    If1.Pr_extent
+                      (nth_of (function If1.Pr_extent _ -> true | _ -> false))
                   else If1.Pr_other lbl
                 in
                 bmap := !bmap @ [ (role, p) ]
@@ -10761,8 +10772,8 @@ and nest_sub_returns ?(is_dv = true) ?(out_is_array = []) ~triple ~rank
       in
       let portmap =
         If1.Portmap
-          ([ (If1.Pr_index, 0); (If1.Pr_value, 1) ]
-          @ (if is_dv then [ (If1.Pr_extent, 2) ] else [])
+          ([ (If1.Pr_index 0, 0); (If1.Pr_value, 1) ]
+          @ (if is_dv then [ (If1.Pr_extent 0, 2) ] else [])
           @ [ (If1.Pr_lower_bound, 3); (If1.Pr_upper_bound, 4) ])
       in
       let (g, ge, _), out_gr =
@@ -11002,8 +11013,8 @@ and add_return_gr ?(nest_returns_levels = 0) ?(returns_triples = []) in_gr
                  unlike REDUCE the mask cannot share it). *)
               let portmap =
                 If1.Portmap
-                  ([ (If1.Pr_index, 0); (If1.Pr_value, 1); (If1.Pr_extent, 2) ]
-                  @ List.mapi (fun j _ -> (If1.Pr_placement, 3 + j)) plcs
+                  ([ (If1.Pr_index 0, 0); (If1.Pr_value, 1); (If1.Pr_extent 0, 2) ]
+                  @ List.mapi (fun j _ -> (If1.Pr_placement j, 3 + j)) plcs
                   @ (if masked then [ (If1.Pr_mask, 3) ] else []))
               in
               let nports =
@@ -11685,8 +11696,8 @@ and add_return_gr_for_initial ?(ext_srcs = []) decl_gr in_gr body_gr
                  unlike REDUCE the mask cannot share it). *)
               let portmap =
                 If1.Portmap
-                  ([ (If1.Pr_index, 0); (If1.Pr_value, 1); (If1.Pr_extent, 2) ]
-                  @ List.mapi (fun j _ -> (If1.Pr_placement, 3 + j)) plcs
+                  ([ (If1.Pr_index 0, 0); (If1.Pr_value, 1); (If1.Pr_extent 0, 2) ]
+                  @ List.mapi (fun j _ -> (If1.Pr_placement j, 3 + j)) plcs
                   @ (if masked then [ (If1.Pr_mask, 3) ] else []))
               in
               let nports =

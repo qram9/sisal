@@ -389,14 +389,19 @@ type compound_node_of =
    that a bare gather does not.  A `Portmap` pragma (below) names each port by
    role so consumers can ask "which port is the mask?" instead of hard-coding an
    index. *)
+(* Roles that can occur ONCE PER RANK carry their ordinal, so a portmap can name
+   several of them and an assoc lookup still distinguishes them: `at I,J,K` puts
+   Pr_index 0/1/2 on three ports, a rank-3 shape has Pr_extent 0/1/2, and a
+   scatter has one Pr_placement per coordinate.  Ordinal 0 prints unadorned
+   ("index", "extent", "placement"), so rank-1 portmaps read exactly as before. *)
 type port_role =
-  | Pr_index (* the flat iteration counter *)
+  | Pr_index of int (* iteration counter for rank k (0 = the flat one) *)
   | Pr_value (* the value being gathered / reduced / streamed *)
-  | Pr_extent (* dope-vector / DV_DIMENSION shape triplet *)
+  | Pr_extent of int (* dope-vector / DV_DIMENSION shape triplet for rank k *)
   | Pr_lower_bound
   | Pr_upper_bound
   | Pr_mask (* a `when`/`unless` boolean filter *)
-  | Pr_placement (* a scatter destination coordinate *)
+  | Pr_placement of int (* a scatter destination coordinate, one per rank *)
   | Pr_reduce_fn (* the reduction operator name *)
   | Pr_other of string
 
@@ -427,14 +432,17 @@ exception Sem_error of string
 type ports = port array
 type pragmas = pragma list
 
-let string_of_port_role = function
-  | Pr_index -> "index"
+let string_of_port_role =
+  (* ordinal 0 prints bare, so existing rank-1 portmaps are byte-identical *)
+  let ord base k = if k = 0 then base else base ^ string_of_int k in
+  function
+  | Pr_index k -> ord "index" k
   | Pr_value -> "value"
-  | Pr_extent -> "extent"
+  | Pr_extent k -> ord "extent" k
   | Pr_lower_bound -> "lb"
   | Pr_upper_bound -> "ub"
   | Pr_mask -> "mask"
-  | Pr_placement -> "placement"
+  | Pr_placement k -> ord "placement" k
   | Pr_reduce_fn -> "reduce_fn"
   | Pr_other s -> s
 
