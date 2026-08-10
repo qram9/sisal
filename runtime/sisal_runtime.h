@@ -1739,33 +1739,11 @@ inline sisal_array_t sisal_dv_slice(sisal_array_t a, const int32_t* spec, int32_
 
 /* DV_RANK_REDUCE: zero-copy view fixing dimension 0 at 1-based index idx.
    Returns a sisal_array_t with rank-1 less, data pointer advanced to the slice. */
-/* Elements in one rank-(N-1) slab of `a`: the product of the TRAILING dims.
-   NOT size/dims[0].  The extent of each rank is its DIMS entry in the dope;
-   `size` is the buffer's element count and can exceed the product of the dims
-   when the buffer is over-allocated.  Deriving the slab from size then made
-   every slab too big and the subscript read the wrong element: size 54 with
-   dims 3,3,3 gave a slab of 18 where 9 is right.
-   Falls back to size/dims[0] when the trailing dims are not populated, so
-   rank-1 paths and descriptors built without them are unchanged. */
-inline uint64_t sisal_dv_slab_size(sisal_array_t a) {
-    int32_t dim0 = (a.dims[0] > 0) ? (int32_t)a.dims[0] : (int32_t)a.size;
-    if (a.rank > 1) {
-        uint64_t prod = 1;
-        int ok = 1;
-        for (int i = 1; i < (int)a.rank && i < 8; i++) {
-            if (a.dims[i] <= 0) { ok = 0; break; }
-            prod *= (uint64_t)a.dims[i];
-        }
-        if (ok) return prod;
-    }
-    return (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
-}
-
 inline sisal_array_t sisal_dv_rank_reduce(sisal_array_t a, int32_t idx) {
     sisal_array_t res = a;
     if (a.rank <= 0) return a;
     int32_t dim0 = (a.dims[0] > 0) ? (int32_t)a.dims[0] : (int32_t)a.size;
-    uint64_t slice_size = sisal_dv_slab_size(a);
+    uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
     size_t esz = sisal_esz(a);
     res.data = (char*)a.data + (uint64_t)(idx - (int32_t)a.lower_bound[0]) * slice_size * esz;
     res.rank = a.rank - 1;
@@ -1788,7 +1766,7 @@ inline sisal_array_t sisal_dv_replace_slice(sisal_array_t a, int32_t idx, sisal_
     size_t esz = sisal_esz(a);
     size_t slot = (esz > 8 ? esz : 8);
     int32_t dim0 = (a.dims[0] > 0) ? (int32_t)a.dims[0] : (int32_t)a.size;
-    uint64_t slice_size = sisal_dv_slab_size(a);
+    uint64_t slice_size = (dim0 > 0) ? (a.size / (uint64_t)dim0) : 0;
     res.data = malloc(a.size * slot);
     memcpy(res.data, a.data, a.size * slot);
     

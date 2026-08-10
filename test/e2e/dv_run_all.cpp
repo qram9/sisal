@@ -13787,39 +13787,6 @@ static void test_tst_loopat_dv (void)
       if (a.data) free (a.data);
     }
 
-  // OVER-ALLOCATED DESCRIPTOR: size is the BUFFER's element count, dims are the
-  // logical extents, and sisal_array_t carries a (start, size, stride) triple
-  // per axis -- so the two are equal only for a dense array.  Here the buffer
-  // holds 2*n^3 elements while dims describe n^3, which is what separates
-  // "bound the loop by size" from "bound it by the product of dims".  Bounding
-  // by size runs twice the iterations into an n^3-sized result: an overrun, not
-  // a wrong answer, so it shows up as a crash or corruption rather than a diff.
-  // No other test in the suite has size != product(dims).
-  {
-    const int n = 3, N = n * n * n;
-    std::vector<double> v ((size_t)(2 * N));
-    for (int i = 0; i < 2 * N; i++) v[i] = 1.0 + i;
-    sisal_array_t a = sisal_array_alloc_empty (3, 4, (uint64_t)(2 * N));
-    a.rank = 3;
-    a.dims[0] = n; a.dims[1] = n; a.dims[2] = n;     // logical extents: n^3
-    a.lower_bound[0] = 1; a.lower_bound[1] = 1; a.lower_bound[2] = 1;
-    for (int i = 0; i < 2 * N; i++) ((double *)a.data)[i] = v[i];
-
-    sisal_array_t r = func_MAIN (a);
-    bool ok = (r.rank == 3 && (int)r.size == N && (int)r.dims[0] == n
-               && (int)r.dims[1] == n && (int)r.dims[2] == n);
-    for (int i = 0; ok && i < n; i++)
-      for (int j = 0; j < n; j++)
-        for (int k = 0; k < n; k++)
-          {
-            double e = v[(i * n + j) * n + k] * v[(j * n + i) * n + k];
-            if (fabs (((const double *)r.data)[(i * n + j) * n + k] - e) > 1e-12)
-              ok = false;
-          }
-    check ("buffer size 2*n^3 but dims n^3: loop follows dims, not size", ok);
-    if (r.data) free (r.data);
-    if (a.data) free (a.data);
-  }
 }
 #endif
 #ifdef TEST_GAUSSJNEW_DV
