@@ -3409,17 +3409,54 @@ and new_graph_for_tag_case vn_opt t1 in_gr =
   in
   { a_new_gr with If1.symtab = (cs, ps); If1.typemap = tmm }
 
-and lookup_tag_nums tagn tm outs =
+(* Tag names are resolved WITHIN the union being matched, never globally.
+   find_matching_union_str folds the whole typemap for any Union(_,_,name) with
+   a matching name, so two unions that share a tag name -- e.g.
+
+     type B = union[ Scalar: real; NonScalar: record[ L, R: B ] ];
+     type Q = union[ Scalar: real; NonScalar: record[ NE,SE,SW,NW: Q ] ];
+
+   -- collide: `tagcase q := <a Q> tag NonScalar: q.NE` picked up B's arm
+   (whichever the fold reached first), so the arm was typed record{L,R}, the
+   RELEMENTS for NE found no such field, and the access fell back to the
+   scalar arm -- emitting `SISAL_CAST(float, q.NE)`.  Types are equal only if
+   they match structurally; a shared tag NAME says nothing.  Declaring B was
+   enough to break Q even though B is never used.
+
+   [union_ty] is the tagcase subject's own type, so walk ITS chain and match
+   the name there.  The global search stays as a fallback for the case where
+   the subject type is not a resolvable union chain, preserving old behaviour
+   wherever the scoped lookup cannot answer. *)
+and tag_num_in_union union_ty nm tm =
+  let rec chain id acc =
+    if List.mem id acc then List.rev acc
+    else
+      match If1.TM.find_opt id tm with
+      | Some (If1.Union (_, nxt, _)) ->
+          if nxt = 0 then List.rev (id :: acc) else chain nxt (id :: acc)
+      | _ -> List.rev acc
+  in
+  List.find_opt
+    (fun id ->
+      match If1.TM.find_opt id tm with
+      | Some (If1.Union (_, _, xx)) -> String.equal xx nm
+      | _ -> false)
+    (chain union_ty [])
+
+and lookup_tag_nums ?(union_ty = 0) tagn tm outs =
   match tagn with
   | [] -> outs
   | hdt :: tlt ->
       let looked_up_num hdt tm =
-        match find_matching_union_str hdt tm with
-        | If1.Emp ->
-            raise (If1.Node_not_found "Unknown tag type in an If1.union")
-        | If1.Som k -> k
+        match tag_num_in_union union_ty hdt tm with
+        | Some k -> k
+        | None -> (
+            match find_matching_union_str hdt tm with
+            | If1.Emp ->
+                raise (If1.Node_not_found "Unknown tag type in an If1.union")
+            | If1.Som k -> k)
       in
-      lookup_tag_nums tlt tm (looked_up_num hdt tm :: outs)
+      lookup_tag_nums ~union_ty tlt tm (looked_up_num hdt tm :: outs)
 
 and tag_typecheck_fail vn_n in_gr jj prev =
   raise
@@ -3479,7 +3516,7 @@ and tag_builder t1 wrapper_uport in_gr tagcase_g ex vn_opt prev_out_types
         match hde with
         | Ast.Tag_list (Tagnames tns, e) ->
             let tm = If1.get_typemap_tm tagcase_g in
-            let nums = lookup_tag_nums tns tm [] in
+            let nums = lookup_tag_nums ~union_ty:t1 tns tm [] in
             (* tag labels that are being matched *)
             let a_tag_ty =
               find_an_union_ty
