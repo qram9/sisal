@@ -4769,15 +4769,29 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                        result indices stay aligned (an lb=0 source must not
                        come back rebased to 1) *)
                     let src = resolve n 0 in
-                    [
-                      ( C.Cast
-                          ( C.Basic "int32_t",
-                            C.Index (C.Member (src, "dims"), C.LitInt 0) ),
-                        C.Cast
-                          ( C.Basic "int32_t",
-                            C.Index (C.Member (src, "lower_bound"), C.LitInt 0)
-                          ) );
-                    ])
+                    let dim j =
+                      C.Cast
+                        ( C.Basic "int32_t",
+                          C.Index (C.Member (src, "dims"), C.LitInt j) )
+                    in
+                    let lbd j =
+                      C.Cast
+                        ( C.Basic "int32_t",
+                          C.Index (C.Member (src, "lower_bound"), C.LitInt j) )
+                    in
+                    (* MULTI-INDEX `at I,J,K` walks every element, so the result
+                       takes ONE EXTENT PER RANK: count = product = the source's
+                       size, and rank = k.  With a single extent the loop ran
+                       size times while the gather allocated dims[0] slots --
+                       an overrun, not merely a wrong shape. *)
+                    let n_at =
+                      SM.fold
+                        (fun _ v acc ->
+                          if v.val_def = n then max acc v.def_port else acc)
+                        (fst g.symtab) 0
+                    in
+                    if n_at > 1 then List.init n_at (fun j -> (dim j, lbd j))
+                    else [ (dim 0, lbd 0) ])
             | None -> []
           in
           let rest =

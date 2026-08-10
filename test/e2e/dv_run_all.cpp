@@ -486,6 +486,9 @@ extern "C" sisal_array_t func_MAIN(int32_t nlev, int32_t nwave, int32_t nfax,
 #ifdef TEST_GAUSSJNEW_DV
 extern "C" sisal_array_t func_MAIN(int32_t n, sisal_array_t Ain, sisal_array_t Bin);
 #endif
+#ifdef TEST_TST_LOOPAT_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t Y);
+#endif
 #ifdef TEST_MMULT2_DV
 struct FUNC_MAIN_mm_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
 extern "C" struct FUNC_MAIN_mm_results func_MAIN(int32_t N);
@@ -13723,6 +13726,68 @@ static void test_newgaussj_dv (void)
     }
 }
 #endif
+#ifdef TEST_TST_LOOPAT_DV
+// tst_loopat_dv -- MULTI-INDEX `at` over a rank-3 array_dv.
+//
+// `for Elem in Y At I,J,K returns array_dv of Y[I,J,K] * Y[J,I,K]` is the whole
+// point: one scatter binding per rank, values only, going all the way to the
+// elements.  Until the multi-index `at` work this raised
+// Sem_error("Array type expected when constructing scatter node") -- the k-name
+// form expanded into k loop axes, each peeling an array layer, which a rank-k
+// array_dv (one type layer, rank in the dope) cannot satisfy.
+//
+// What it pins, none of which the single-index scatters reach:
+//   * one DV_SCATTER with ports 0=Elem, 1=I, 2=J, 3=K
+//   * DV_GATHER Portmap[index:0;value:1;extent:2;index1:3;index2:4], every
+//     index port actually WIRED from the boundary
+//   * the element loop over the FLAT size with row-major decomposition of the
+//     counter into I,J,K
+//   * one extent PER RANK, so the result is rank 3 sized n*n*n -- with a single
+//     extent the loop ran size times into a dims[0]-sized buffer, an overrun
+//
+// Y[I,J,K] * Y[J,I,K] is deliberately NOT symmetric in I and J elementwise, so
+// swapping the two index ports changes the answer rather than preserving it.
+static void test_tst_loopat_dv (void)
+{
+  printf ("\n=== Group: tst_loopat_dv (multi-index `at` on a rank-3 array_dv) ===\n");
+  for (int n = 2; n <= 4; n++)
+    {
+      const int N = n * n * n;
+      std::vector<double> v ((size_t)N);
+      for (int i = 0; i < N; i++) v[i] = 1.0 + i;  // all distinct
+      sisal_array_t a = sisal_array_alloc_empty (3, 4, (uint64_t)N);
+      a.rank = 3;
+      a.dims[0] = n; a.dims[1] = n; a.dims[2] = n;
+      a.lower_bound[0] = 1; a.lower_bound[1] = 1; a.lower_bound[2] = 1;
+      for (int i = 0; i < N; i++) ((double *)a.data)[i] = v[i];
+
+      sisal_array_t r = func_MAIN (a);
+      char msg[190];
+      snprintf (msg, sizeof msg,
+                "n=%d  result is rank 3, %dx%dx%d (one extent per rank)", n, n,
+                n, n);
+      check (msg, r.rank == 3 && (int)r.size == N && (int)r.dims[0] == n
+                      && (int)r.dims[1] == n && (int)r.dims[2] == n);
+
+      bool ok = ((int)r.size == N);
+      for (int i = 0; ok && i < n; i++)
+        for (int j = 0; j < n; j++)
+          for (int k = 0; k < n; k++)
+            {
+              double e = v[(i * n + j) * n + k] * v[(j * n + i) * n + k];
+              if (fabs (((const double *)r.data)[(i * n + j) * n + k] - e)
+                  > 1e-12)
+                ok = false;
+            }
+      snprintf (msg, sizeof msg,
+                "n=%d  every element == Y[I,J,K] * Y[J,I,K]", n);
+      check (msg, ok);
+
+      if (r.data) free (r.data);
+      if (a.data) free (a.data);
+    }
+}
+#endif
 #ifdef TEST_GAUSSJNEW_DV
 // gaussjnew -- Gauss-Jordan with full row pivoting (test/unit/gaussjnew.sis).
 // First of the Gauss/LU cluster and the file that sets the pattern for it.
@@ -16714,6 +16779,9 @@ main (void)
 #ifdef TEST_GAUSSJNEW_DV
   test_gaussjnew_dv ();
 #endif
+#ifdef TEST_TST_LOOPAT_DV
+  test_tst_loopat_dv ();
+#endif
 #ifdef TEST_NEWGAUSSJ_DV
   test_newgaussj_dv ();
 #endif
@@ -16937,7 +17005,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

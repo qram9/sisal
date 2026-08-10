@@ -2130,6 +2130,49 @@ and do_for_all ?(ext_srcs = []) inexp bodyexp retexp in_gr =
                  the positional ports, parent scope variables are appended strictly to the
                  end of the boundary inputs list, keeping positional indices correct. *)
               let rn_gr = If1.inherit_parent_syms forall_gr rn_gr in
+              (* MULTI-INDEX `at`: wire the gather's per-rank index ports.
+                 The first index is the axis, imported positionally at port 0.
+                 The rest (J, K, ...) are NOT in `imports` -- they arrive with
+                 inherit_parent_syms just above, appended past the frozen
+                 positional ports.  That is precisely why they cannot be wired
+                 where the gather is built, nor at the end of add_return_gr:
+                 until this point they are not in the RETURNS symtab at all.
+                 Here they are, so each resolves to the boundary port it landed
+                 on and the edge goes to the port its own Pr_index k names. *)
+              let rn_gr =
+                match at_names with
+                | _ :: (_ :: _ as extra) ->
+                    let bport nm =
+                      match If1.SM.find_opt nm (fst rn_gr.If1.symtab) with
+                      | Some e when e.If1.val_def = 0 -> Some e.If1.def_port
+                      | _ -> None
+                    in
+                    If1.NM.fold
+                      (fun nid node g ->
+                        match node with
+                        | If1.Simple
+                            (_, (If1.DV_GATHER | If1.DV_SCATTER_AT), _, _, prs)
+                          ->
+                            let want k =
+                              List.find_map
+                                (function
+                                  | If1.Portmap m ->
+                                      List.assoc_opt (If1.Pr_index k) m
+                                  | _ -> None)
+                                prs
+                            in
+                            List.fold_left
+                              (fun g (j, nm) ->
+                                match (want (j + 1), bport nm) with
+                                | Some dst, Some src ->
+                                    If1.add_edge 0 src nid dst 5 g
+                                | _ -> g)
+                              g
+                              (List.mapi (fun j nm -> (j, nm)) extra)
+                        | _ -> g)
+                      rn_gr.If1.nmap rn_gr
+                | _ -> rn_gr
+              in
               (* Record which RETURNS input ports carry body results, so the
                  range is identifiable downstream. *)
               let pl =
