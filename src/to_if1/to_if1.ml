@@ -7209,15 +7209,31 @@ and do_simple_exp_impl in_gr in_sim_ex =
         when the expected tag does not match with
         any of the tags of the If1.union ty- we will have
         to do this later on. *)
-      let tm = If1.get_typemap_tm in_gr in
-      let tn_ty =
-        match find_matching_union_str tag_nam tm with
-        | If1.Emp -> failwith "UNKNOWN TAG IN AN UNION"
-        | If1.Som k -> k
-      in
+      (* Lower the SUBJECT FIRST so its union type can scope the tag lookup.
+         This used to call find_matching_union_str, which folds the whole
+         typemap for any Union(_,_,name) with a matching name -- so `is T(x)`
+         accepted a tag belonging to a DIFFERENT union and emitted C++
+         referencing an undeclared `union_<other>_T`.  Same defect as the
+         tagcase path: a shared tag name says nothing about type identity. *)
       let (un_num, un_po, un_ty), in_gr = do_exp in_gr e in
       let un_num, un_po, un_ty =
         If1.find_incoming_regular_node (un_num, un_po, un_ty) in_gr
+      in
+      let tm = If1.get_typemap_tm in_gr in
+      let tn_ty =
+        match tag_num_in_union un_ty tag_nam tm with
+        | Some k -> k
+        | None -> (
+            (* not a tag of the subject's own union: fall back to the global
+               search only so an unrelated-but-existing name still reports the
+               clearer error below rather than a generic one *)
+            match find_matching_union_str tag_nam tm with
+            | If1.Som _ | If1.Emp ->
+                raise
+                  (If1.Sem_error
+                     (Printf.sprintf
+                        "`is %s` : %s is not a tag of the union being tested"
+                        tag_nam tag_nam)))
       in
       ignore tn_ty;
       (* IS_TAG(u) with the tag name on a pragma: an ordinary boolean-valued
