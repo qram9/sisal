@@ -538,6 +538,10 @@ extern "C" struct FUNC_MAIN_qt_results func_MAIN(sisal_array_t A);
 struct FUNC_MAIN_mm_results { sisal_array_t res_0; sisal_array_t res_1; sisal_array_t res_2; };
 extern "C" struct FUNC_MAIN_mm_results func_MAIN(int32_t N);
 #endif
+#ifdef TEST_CYK_DV
+struct FUNC_MAIN_cyk_results { bool res_0; sisal_array_t res_1; };
+extern "C" struct FUNC_MAIN_cyk_results func_MAIN(sisal_array_t X);
+#endif
 #ifdef TEST_NEWGAUSSJ_DV
 struct FUNC_MAIN_ngj_results { sisal_array_t res_0; sisal_array_t res_1; };
 extern "C" struct FUNC_MAIN_ngj_results func_MAIN(int32_t N, sisal_array_t A,
@@ -13632,6 +13636,155 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_CYK_DV
+// CYK recognition (test/unit/cyk.sis), on Hopcroft & Ullman's grammar
+//     S -> A B | B C     A -> B A | a
+//     B -> C C | b       C -> A B | a
+// with S=1 A=2 B=3 C=4 and a=1 b=2.  The unit test hard-codes the DEGENERATE
+// grammar NV=1, A -> a, A -> A A, which accepts every string -- an oracle that
+// cannot fail.  Here the grammar is real, so acceptance actually depends on the
+// split points the DP finds.
+//
+// The reference below is an independent CYK over the same productions, and both
+// sides are compared on EVERY string over {a,b} of length 1..6 (126 of them) --
+// accept bit AND the whole n x n table of "how many variables derive x[i..i+j-1]".
+// The table is what makes a wrong split point visible: a recurrence that pairs
+// V[k,i] with the wrong partner still gets the accept bit right on many strings.
+static const int cyk_NV = 4;
+static bool cyk_P1ref (int t, int A)
+{
+  return (t == 1 && A == 2) || (t == 1 && A == 4) || (t == 2 && A == 3);
+}
+static bool cyk_P2ref (int A, int B, int C)
+{
+  return (A == 1 && B == 2 && C == 3) || (A == 1 && B == 3 && C == 4)
+         || (A == 2 && B == 3 && C == 2) || (A == 3 && B == 4 && C == 4)
+         || (A == 4 && B == 2 && C == 3);
+}
+static bool cyk_ref (const std::vector<int> &x, std::vector<int> &cnt)
+{
+  const int n = (int)x.size ();
+  std::vector<char> V ((size_t)(n + 1) * (n + 1) * (cyk_NV + 1), 0);
+  auto at = [&] (int j, int i, int A) -> char & {
+    return V[((size_t)j * (n + 1) + i) * (cyk_NV + 1) + A];
+  };
+  for (int i = 1; i <= n; i++)
+    for (int A = 1; A <= cyk_NV; A++)
+      at (1, i, A) = cyk_P1ref (x[i - 1], A);
+  for (int j = 2; j <= n; j++)
+    for (int i = 1; i <= n - j + 1; i++)
+      for (int A = 1; A <= cyk_NV; A++)
+        {
+          bool any = false;
+          for (int k = 1; k <= j - 1 && !any; k++)
+            for (int B = 1; B <= cyk_NV && !any; B++)
+              for (int C = 1; C <= cyk_NV && !any; C++)
+                any = at (k, i, B) && at (j - k, i + k, C) && cyk_P2ref (A, B, C);
+          at (j, i, A) = any;
+        }
+  cnt.assign ((size_t)n * n, 0);
+  for (int j = 1; j <= n; j++)
+    for (int i = 1; i <= n; i++)
+      {
+        int c = 0;
+        if (i <= n - j + 1)
+          for (int A = 1; A <= cyk_NV; A++)
+            if (at (j, i, A)) c++;
+        cnt[(size_t)(j - 1) * n + (i - 1)] = c;
+      }
+  return at (n, 1, 1);
+}
+static void test_cyk_dv (void)
+{
+  printf ("\n=== Group: cyk_dv (CYK parsing; rank-3 boolean array_dv DP table) "
+          "===\n");
+
+  int n_acc_bad = 0, n_cnt_bad = 0, n_shape_bad = 0, n_yes = 0, n_no = 0;
+  for (int n = 1; n <= 6; n++)
+    for (int code = 0; code < (1 << n); code++)
+      {
+        std::vector<int> x (n);
+        for (int i = 0; i < n; i++)
+          x[i] = ((code >> i) & 1) ? 2 : 1;          // bit set = 'b'
+
+        std::vector<int> cnt;
+        const bool acc = cyk_ref (x, cnt);
+        (acc ? n_yes : n_no)++;
+
+        sisal_array_t X = sisal_array_alloc_empty (1, 6, (uint64_t)n);
+        for (int i = 0; i < n; i++)
+          ((int32_t *)X.data)[i] = x[i];
+        auto r = func_MAIN (X);
+
+        if (r.res_0 != acc) n_acc_bad++;
+        if (r.res_1.rank != 2 || (int)r.res_1.dims[0] != n
+            || (int)r.res_1.dims[1] != n || (int)r.res_1.size != n * n)
+          n_shape_bad++;
+        else
+          for (int t = 0; t < n * n; t++)
+            if (((const int32_t *)r.res_1.data)[t] != cnt[t]) { n_cnt_bad++; break; }
+
+        if (X.data) free (X.data);
+        if (r.res_1.data) free (r.res_1.data);
+      }
+
+  // The sweep is only meaningful if the grammar SPLITS the strings; if every
+  // one landed on the same side, matching the reference would prove nothing.
+  char msg[160];
+  snprintf (msg, sizeof msg,
+            "the 126 strings split both ways (%d accepted, %d rejected)",
+            n_yes, n_no);
+  check (msg, n_yes > 0 && n_no > 0);
+  check ("every accept bit matches the reference CYK", n_acc_bad == 0);
+  check ("every count table is n x n", n_shape_bad == 0);
+  check ("every count table matches cell for cell", n_cnt_bad == 0);
+
+  // The textbook run, spelled out: baaba, with the V sets of Hopcroft & Ullman
+  //   j=1  {B} {A,C} {A,C} {B} {A,C}          j=2  {S,A} {B} {S,C} {S,A}
+  //   j=3  {}  {B}   {B}                      j=4  {}    {S,A,C}
+  //   j=5  {S,A,C}   -> S is in it, so baaba is in the language.
+  {
+    const int32_t s[5] = { 2, 1, 1, 2, 1 };
+    sisal_array_t X = sisal_array_alloc_empty (1, 6, 5);
+    memcpy (X.data, s, sizeof s);
+    auto r = func_MAIN (X);
+    check ("baaba is in the language (S derives all five symbols)", r.res_0);
+
+    static const int want[25] = { 1, 2, 2, 1, 2,
+                                  2, 1, 2, 2, 0,
+                                  0, 1, 1, 0, 0,
+                                  0, 3, 0, 0, 0,
+                                  3, 0, 0, 0, 0 };
+    bool ok = r.res_1.size == 25;
+    for (int t = 0; ok && t < 25; t++)
+      ok = ((const int32_t *)r.res_1.data)[t] == want[t];
+    check ("baaba's V table is the textbook one", ok);
+    // the dead corner (i > n-j+1) must be carried as false, not read as garbage
+    bool corner = r.res_1.size == 25;
+    for (int j = 1; corner && j <= 5; j++)
+      for (int i = 6 - j + 1; corner && i <= 5; i++)
+        corner = ((const int32_t *)r.res_1.data)[(j - 1) * 5 + (i - 1)] == 0;
+    check ("the unreachable corner of the table stays empty", corner);
+
+    if (X.data) free (X.data);
+    if (r.res_1.data) free (r.res_1.data);
+  }
+
+  // A single 'a' is derived by A and C but not by S, so a one-symbol string is
+  // rejected while the table row is non-empty -- accept is not just "V is set".
+  {
+    const int32_t s[1] = { 1 };
+    sisal_array_t X = sisal_array_alloc_empty (1, 6, 1);
+    memcpy (X.data, s, sizeof s);
+    auto r = func_MAIN (X);           // n = 1: the while loop is ZERO-TRIP
+    check ("zero-trip (n=1): \"a\" rejected, but two variables derive it",
+           !r.res_0 && r.res_1.size == 1
+               && ((const int32_t *)r.res_1.data)[0] == 2);
+    if (X.data) free (X.data);
+    if (r.res_1.data) free (r.res_1.data);
+  }
+}
+#endif
 #ifdef TEST_MMULT2_DV
 // mmult2 -- matrix multiply via transpose and dot-product rows
 // (test/unit/mmult2.sis).  Third of the rank-2 cluster, and the only INTEGER
@@ -17416,6 +17569,9 @@ main (void)
 #ifdef TEST_MMULT2_DV
   test_mmult2_dv ();
 #endif
+#ifdef TEST_CYK_DV
+  test_cyk_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -17633,7 +17789,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

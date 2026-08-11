@@ -1,0 +1,132 @@
+% CYK -- Cocke-Younger-Kasami recognition, the dynamic-programming example of
+% test/unit/cyk.sis (Hopcroft & Ullman, Automata Theory, p.140), rewritten
+% under the array_dv model.
+%
+% WHY THIS STAYS DENSE, AND IS NOT A LIST.  The original types are
+%     type prod1 = array[array[boolean]] ;
+%     type prod2 = array[array[array[boolean]]] ;
+% and V itself is an array of arrays of arrays -- three levels of boxing.  Under
+% the dope-vector model all three are ONE flat array_dv whose rank is a runtime
+% property: P1 is rank-2 (terminal x variable), P2 and V are rank-3.
+%
+% V is genuinely ragged in the source: row j holds only n-j+1 cells, because a
+% substring of length j can start at n-j+1 different places (the original writes
+% `for i in 1, n-old j+1`).  But that extent is a function of j and n -- it is a
+% property of the LOOP, not of the data -- so per the standing rule the table
+% stays a full n x n x NV block and the unreachable corner is carried as false.
+% A list would be the wrong tool here; it is for raggedness a `when`/`unless`
+% mask creates, where the surviving count is unknown until the run.
+%
+% Carrying the dead corner is only safe because nothing ever reads it: the inner
+% recurrence for cell (j,i) touches V[k,i,B] and V[j-k,i+k,C] with 1 <= k < j,
+% so i+k <= i+j-1 <= n exactly when i <= n-j+1.  The guard `if i <= n-j+1` is
+% therefore load-bearing in two ways -- it keeps the corner false, AND it keeps
+% the reads in bounds (there is no runtime subscript check to catch it).
+%
+% The table is still grown a slab at a time, as the original does: array_addh of
+% a rank-2 (i x A) slab onto the rank-3 V raises the leading dim by one.  The
+% j=1 seed is built as a 1 x n x NV block so V is rank-3 from the start.
+%
+% Exercised here: rank-3 array_dv of BOOLEAN (the 1-byte element path) built by
+% a triple cross, three-subscript reads of it inside a triple-cross reduction,
+% array_addh growth of a rank-3 by rank-2 slabs, and a boolean `sum` reduction
+% (= disjunction) nested inside a gather.
+
+define main
+
+type Ints  = array_dv[integer];
+type Bools = array_dv[boolean];   % rank is a runtime property of the dope
+
+
+% ---- the recognition table --------------------------------------------------
+% V[j,i,A] = true iff variable A derives the length-j substring starting at x[i].
+% P1[t,A]   = true iff  A -> t        (t a terminal)
+% P2[A,B,C] = true iff  A -> B C      (Chomsky normal form)
+function CYK( x: Ints; NV: integer; P1, P2: Bools returns Bools )
+  let
+    n := array_size( x )
+  in
+    for initial
+      j := 2;
+      % j = 1: A derives x[i] directly.  Built as a 1 x n x NV block, so V is
+      % rank-3 before the first addh rather than after it.
+      V := for one in 1, 1 cross i in 1, n cross A in 1, NV
+           returns array_dv of P1[ x[i], A ]
+           end for
+    while j <= n repeat
+      newrow :=
+        for i in 1, n cross A in 1, NV
+          % A derives x[i..i+j-1] iff some split point k and some production
+          % A -> B C has B deriving the first k symbols and C the rest.
+          a_ji := if i <= n - old j + 1 then
+                    for k in 1, old j - 1
+                    cross B in 1, NV
+                    cross C in 1, NV
+                    returns value of sum
+                      old V[ k, i, B ] & old V[ old j - k, i + k, C ]
+                                       & P2[ A, B, C ]
+                    end for
+                  else
+                    false          % the dead corner; never read, see the header
+                  end if
+        returns array_dv of a_ji
+        end for;
+      V := array_addh( old V, newrow );
+      j := old j + 1
+    returns value of V
+    end for
+  end let
+end function
+
+
+% How many variables derive each substring.  Checking the whole table, rather
+% than just the accept bit, is what makes a wrong split point visible.
+function Counts( V: Bools; n, NV: integer returns Ints )
+  for j in 1, n cross i in 1, n
+    c := if i <= n - j + 1 then
+           for A in 1, NV
+           returns value of sum (if V[ j, i, A ] then 1 else 0 end if)
+           end for
+         else
+           0
+         end if
+  returns array_dv of c
+  end for
+end function
+
+
+% ---- the grammar ------------------------------------------------------------
+% Hopcroft & Ullman's example, in Chomsky normal form:
+%     S -> A B | B C        A -> B A | a
+%     B -> C C | b          C -> A B | a
+% Variables are numbered S=1, A=2, B=3, C=4; terminals a=1, b=2.  The goal
+% variable is 1, so the string is in the language iff V[n,1,1].
+function Grammar1( returns Bools )                    % P1[t,A]:  A -> t
+  for t in 1, 2 cross A in 1, 4
+  returns array_dv of ( (t = 1 & A = 2) |             % A -> a
+                        (t = 1 & A = 4) |             % C -> a
+                        (t = 2 & A = 3) )             % B -> b
+  end for
+end function
+
+function Grammar2( returns Bools )                    % P2[A,B,C]:  A -> B C
+  for A in 1, 4 cross B in 1, 4 cross C in 1, 4
+  returns array_dv of ( (A = 1 & B = 2 & C = 3) |     % S -> A B
+                        (A = 1 & B = 3 & C = 4) |     % S -> B C
+                        (A = 2 & B = 3 & C = 2) |     % A -> B A
+                        (A = 3 & B = 4 & C = 4) |     % B -> C C
+                        (A = 4 & B = 2 & C = 3) )     % C -> A B
+  end for
+end function
+
+
+function main( x: Ints returns boolean, Ints )
+  let
+    n  := array_size( x );
+    NV := 4;
+    V  := CYK( x, NV, Grammar1(), Grammar2() )
+  in
+    V[ n, 1, 1 ],                  % variable 1 (S) derives all of x
+    Counts( V, n, NV )
+  end let
+end function
