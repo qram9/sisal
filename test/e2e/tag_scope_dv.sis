@@ -1,0 +1,81 @@
+% TAG AND FIELD SCOPING -- regression test for b2027f0 and 5db4f55.
+%
+% Tag names used to be resolved GLOBALLY: lookup_tag_nums folded the entire
+% typemap for any Union(_,_,name) with a matching name, with no reference to the
+% union actually being matched.  So two unions sharing a tag name collided --
+% `tagcase q := <a TreeB> tag Node: q.NE` picked up TreeA's Node arm, the arm was
+% typed record{L,R}, RELEMENTS found no NE, and the access fell back to the
+% scalar arm and lowered as a float.  Declaring the other union was enough; it
+% need not be used.  `is <tag>` had the same defect and was worse: ANY tag of
+% ANY union was accepted for any subject, emitting a reference to an undeclared
+% union_<other>_TAG.
+%
+% Types are equal only if they match structurally.  A shared tag or field NAME
+% says nothing about identity, so both lookups are now scoped to the type in
+% hand.
+%
+% WHAT IS PINNED HERE.  Everything below shares names and differs in structure,
+% which is precisely the case that used to alias:
+%
+%   TreeA / TreeB   same tags Leaf and Node; Node payloads differ in ARITY
+%                   (record[L,R] vs record[NE,SE,SW,NW]) and in the recursive
+%                   type they close over
+%   PtI / PtR       same fields x, y; INTEGER versus REAL
+%   PtI3            same fields x, y plus a third -- a superset, so a lookup
+%                   that matched on "has x and y" would accept it too
+%
+% The sums are chosen so a wrong pick changes the answer rather than the shape:
+% SumA walks two children (1.5 + 2.5 = 4.0) and SumB four (1+2+3+4 = 10.0), so
+% reading TreeB through TreeA's arm cannot coincidentally agree.
+%
+% Verified live: built against the pre-fix compiler (b2027f0~1) this emits C++
+% that does not compile.
+
+define Main
+
+% Two unions with IDENTICAL tag names, differing only in the Node payload.
+type TreeA = union[ Leaf: real; Node: record[ L, R: TreeA ] ];
+type TreeB = union[ Leaf: real; Node: record[ NE, SE, SW, NW: TreeB ] ];
+
+% Three records sharing the field names x, y -- different types and arity.
+type PtI  = record[ x, y: integer ];
+type PtR  = record[ x, y: real ];
+type PtI3 = record[ x, y, z: integer ];
+
+function SumA( t: TreeA returns real )
+  tagcase q := t
+  tag Leaf: q
+  tag Node: SumA( q.L ) + SumA( q.R )
+  end tagcase
+end function
+
+function SumB( t: TreeB returns real )
+  tagcase q := t
+  tag Leaf: q
+  tag Node: SumB( q.NE ) + SumB( q.SE ) + SumB( q.SW ) + SumB( q.NW )
+  end tagcase
+end function
+
+function Main( n: integer
+               returns real, real, integer, real, integer, boolean, boolean )
+  let
+    la := union TreeA[ Leaf: 1.5 ];
+    ta := union TreeA[ Node: record[ L: la; R: union TreeA[ Leaf: 2.5 ] ] ];
+    lb := union TreeB[ Leaf: 1.0 ];
+    tb := union TreeB[ Node: record[ NE: lb;
+                                     SE: union TreeB[ Leaf: 2.0 ];
+                                     SW: union TreeB[ Leaf: 3.0 ];
+                                     NW: union TreeB[ Leaf: 4.0 ] ] ];
+    pi := record PtI [ x: 3; y: 4 ];
+    pr := record PtR [ x: 1.5; y: 2.5 ];
+    p3 := record PtI3[ x: 7; y: 8; z: 9 ]
+  in
+    SumA( ta ),
+    SumB( tb ),
+    pi.x + pi.y,
+    pr.x + pr.y,
+    p3.x + p3.y + p3.z,
+    is Leaf( la ),
+    is Node( ta )
+  end let
+end function
