@@ -1,0 +1,143 @@
+% stand_alone_gauss -- LU factorisation with forward/back substitution, from
+% test/unit/stand_alone_gauss.sis.
+%
+% THE RAGGED PART, and why it does NOT need a list.  The source shrinks the
+% working block every step: `reduce` returns array_setl(..., i+1) on BOTH axes,
+% so its rows are ragged AND offset -- row j starts at index j+1.  An earlier
+% attempt kept that shape and got inf/nan out: a flat rank-2 dope has ONE
+% lower_bound per axis, so per-row offsets cannot be represented, and every
+% index landed somewhere else.
+%
+% But the extents here are KNOWN (n-i per axis at step i), so no list is needed.
+% The block stays FULL n x n and the inactive region is carried through
+% untouched; every later step reads only indices > i, so the arithmetic is
+% identical.  Lists are for raggedness whose extent is a property of the DATA --
+% a `when`/`unless` gather -- not for a triangle whose shape is known from n.
+%
+% l and u come out as full n x n with the unused triangle carrying the original
+% values rather than zeros; that is harmless because solve_down reads l[j,i]
+% only for j < i and solve_up reads u[i,j] only for j >= i.
+%
+% THE ORACLE IS THE ROUND TRIP, and it is the sharpest available.  main solves
+% A x = A e_m for each unit vector e_m, so `Check` must come back as the
+% IDENTITY MATRIX -- factorisation, forward substitution and back substitution
+% all have to be right together, and any error in any of them moves a column off
+% the diagonal.  Alongside it: b must be the Vandermonde matrix j^(i-1), and
+% AMatrix -- the gathered A e_m -- must be b TRANSPOSED, since A e_m is column m.
+%
+% All three hold EXACTLY (0.0e+00) for n = 2..5.  Vandermonde is ill-conditioned,
+% so this is a real check on the elimination rather than a formality.
+
+define Main
+type RealVector = array_dv[real];
+type RealMatrix = array_dv[real];      % rank 2
+
+% One elimination step.  The source shrinks the working block each step --
+% array_setl(..., i+1) on both axes -- so its rows are ragged AND offset.  The
+% extents are known here (n-i per axis), so the block stays FULL n x n and the
+% inactive region is simply carried through untouched; every later step only
+% reads indices > i, so the result is identical.
+function reduce( n, i : integer; b : RealMatrix
+                 returns RealVector, RealVector, RealMatrix )
+let
+  piv  := b[i,i];
+  mult := for j in 1, n
+          returns array_dv of if j > i then b[j,i] / piv else 0.0 end if
+          end for;
+  row  := b[i,..];
+  next := for j in 1, n cross k in 1, n
+          returns array_dv of
+            if (j > i) & (k > i) then b[j,k] - mult[j] * row[k]
+            else b[j,k]
+            end if
+          end for
+in
+  row, mult, next
+end let
+end function
+
+function factor( b : RealMatrix; n : integer returns RealMatrix, RealMatrix )
+for initial
+  i := 1;
+  row, col, next := reduce( n, 1, b )
+repeat
+  i := old i + 1;
+  row, col, next := reduce( n, old i + 1, old next )
+until i >= n
+returns
+  array_dv of col
+  array_dv of row
+end for
+end function
+
+% forward substitution: L y = k  (L unit-lower, l[j,i] is the multiplier)
+function solve_down( l : RealMatrix; k : RealVector; n : integer
+                     returns RealVector )
+for initial
+  i := 1;
+  y := array_dv RealVector [ 1: k[1] ]
+repeat
+  i := old i + 1;
+  y := old y || array_dv RealVector [ 1 :
+         k[i] - for j in 1, old i
+                returns value of sum l[j,i] * (old y)[j]
+                end for ]
+until i = n
+returns value of y
+end for
+end function
+
+% back substitution: U x = y
+function solve_up( u : RealMatrix; y : RealVector; n : integer
+                   returns RealVector )
+for initial
+  i := n;
+  x := array_dv RealVector [ n: y[n] / u[n,n] ]
+repeat
+  i := old i - 1;
+  x := array_dv RealVector [ i :
+         (y[i] - for j in i+1, n
+                 returns value of sum u[i,j] * (old x)[j]
+                 end for) / u[i,i] ] || old x
+until i = 1
+returns value of x
+end for
+end function
+
+function FormA( n : integer returns RealMatrix )
+for i in 1, n cross j in 1, n
+returns array_dv of exp( real(j), i-1 )
+end for
+end function
+
+function AProd( n : integer; a : RealMatrix; v : RealVector
+                returns RealVector )
+for j in 1, n
+  row := for k in 1, n returns value of sum a[j,k] * v[k] end for
+returns array_dv of row
+end for
+end function
+
+function FormV( n, m : integer returns RealVector )
+for j in 1, n
+returns array_dv of if j = m then 1.0 else 0.0 end if
+end for
+end function
+
+function Main( n : integer returns RealMatrix, RealMatrix, RealMatrix )
+let
+  b    := FormA( n );
+  l, u := factor( b, n );
+  AMatrix, Check :=
+    for m in 1, n
+      v := FormV( n, m );
+      k := AProd( n, b, v );
+      y := solve_down( l, k, n );
+      x := solve_up( u, y, n )
+    returns array_dv of k
+            array_dv of x
+    end for
+in
+  b, AMatrix, Check
+end let
+end function
