@@ -1,0 +1,117 @@
+% zbuffer -- the z-buffer core of test/unit/zbuffer1.sis: per-triangle depth
+% maps merged into a frontmost buffer.
+%
+% SCOPE.  The source's `main` is a whole renderer -- 18 parameters, calling
+% transform_pt and compute_color, which live in common.sis (490 lines) with the
+% lights, surfaces, colours and transforms.  None of that is the z-buffer, so
+% this ports the three functions that are (build_triangle_depths, merge_tri and
+% the zbuffer fold) behind a Main that feeds triangles and points directly.
+%
+% RAGGED -> DENSE, because the extent is KNOWN.  The source returns a ragged
+% real_array2: one row per scan line, spanning up(xleft)..dn(xright), so rows
+% differ in length AND in lower bound.  That shape needs a list only when the
+% count is a property of the data; here it is not -- the raster is
+% (y_pixels+1) x (x_pixels+1) -- so the depth map stays a dense rank-2 and
+% pixels outside the span carry the NO-COVERAGE sentinel -1.0e10.  That is
+% exactly the empty buffer's depth, and the merge rule replaces only on a
+% STRICTLY greater depth, so an uncovered pixel can never displace anything:
+% the result is identical to walking only the spans.
+%
+% up()/dn() are replaced by real comparisons.  For INTEGER y,
+%     y >= ceil(v)  <=>  real(y) >= v        x <= floor(v) <=> real(x) <= v
+% so the coverage test is exactly equivalent.  (`up` also failed to lower here
+% -- "Unknown function: UP target prefix _SUP__F__" -- though it lowers fine in
+% isolation; not chased, since the comparisons are equivalent and clearer.)
+%
+% THE ORACLE IS THE PLANE EQUATION, not a second scanline walk.  Depth at a
+% pixel is -(x*a + y*b + d)/c in closed form, coverage is the span test above,
+% and the frontmost buffer is the greatest depth over triangles.  The harness
+% computes all three directly from the triangle data, so a wrong edge slope, a
+% wrong span or a wrong merge direction changes the answer.
+
+define Main
+
+type Reals    = array_dv[real];        % rank 1 or rank 2, per the dope
+type PtRec    = record[ xp, yp, zp : real ];
+type Pts      = array_dv[PtRec];
+type PlnEqn   = record[ a, b, c, d : real ];
+type TriRec   = record[ vhi, vmid, vlo,
+                        mid_scan_line, last_scan_line : integer;
+                        dxdy_lh, dxdy_lm, dxdy_mh     : real;
+                        screen_pln_eqn                : PlnEqn ];
+type Tris     = array_dv[TriRec];
+type DepthRec = record[ tri : integer; depth : real ];
+type Depths   = array_dv[DepthRec];    % rank 2: (y_pixels+1) x (x_pixels+1)
+
+% Depth map of ONE triangle over the whole raster.  The source returns a ragged
+% real_array2 -- one row per scan line, spanning up(xleft)..dn(xright) -- but
+% the extents here are known (scan lines, pixel width), so it stays a dense
+% rank-2 and pixels outside the span carry the NO-COVERAGE sentinel.
+function BuildTriangleDepths( tri : TriRec; pts : Pts;
+                              x_pixels, y_pixels : integer returns Reals )
+  let
+    lo_pt   := pts[tri.vlo];
+    mid_pt  := pts[tri.vmid];
+    pln_eqn := tri.screen_pln_eqn
+  in
+    for y in 0, y_pixels cross x in 0, x_pixels
+      yr      := real(y);
+      xl      := lo_pt.xp + tri.dxdy_lh * (yr - lo_pt.yp);
+      xs      := if y <= tri.mid_scan_line then
+                   lo_pt.xp  + tri.dxdy_lm * (yr - lo_pt.yp)
+                 else
+                   mid_pt.xp + tri.dxdy_mh * (yr - mid_pt.yp)
+                 end if;
+      xleft   := if xl <= xs then xl else xs end if;
+      xright  := if xl <= xs then xs else xl end if;
+      y_const := yr * pln_eqn.b + pln_eqn.d;
+      % up()/dn() replaced by real comparisons: for INTEGER y,
+      %   y >= ceil(v)  <=>  real(y) >= v      and  x <= floor(v) <=> real(x) <= v
+      inside  := (yr >= lo_pt.yp) & (y <= tri.last_scan_line)
+                 & (real(x) >= xleft) & (real(x) <= xright);
+      z       := if inside then
+                   -(real(x) * pln_eqn.a + y_const) / pln_eqn.c
+                 else
+                   -1.0e10
+                 end if
+    returns array_dv of z
+    end for
+  end let
+end function
+
+% Keep whichever of (current, candidate) is nearer.  The source's rule: replace
+% only when the candidate depth is GREATER than what is there.
+function MergeTri( tri_num, x_pixels, y_pixels : integer;
+                   tri_depths : Reals; curr : Depths returns Depths )
+  for y in 0, y_pixels cross x in 0, x_pixels
+    cand := tri_depths[y, x];
+    here := curr[y, x];
+    out  := if cand <= here.depth then
+              here
+            else
+              record DepthRec[ tri : tri_num; depth : cand ]
+            end if
+  returns array_dv of out
+  end for
+end function
+
+function Main( x_pixels, y_pixels : integer; pts : Pts; tris : Tris
+               returns Depths )
+  let
+    empty := record DepthRec[ tri : 0; depth : -1.0e10 ];
+    zero  := for y in 0, y_pixels cross x in 0, x_pixels
+             returns array_dv of empty
+             end for
+  in
+    for initial
+      t     := 0;
+      zbuff := zero
+    while t < array_size(tris) repeat
+      t     := old t + 1;
+      zbuff := MergeTri( t, x_pixels, y_pixels,
+                         BuildTriangleDepths( tris[t], pts, x_pixels, y_pixels ),
+                         old zbuff )
+    returns value of zbuff
+    end for
+  end let
+end function

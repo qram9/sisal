@@ -498,6 +498,15 @@ extern "C" sisal_array_t func_MAIN(sisal_array_t DATA);
 #ifdef TEST_NOISEDUMP_DV
 extern "C" sisal_generator<char> func_MAIN(sisal_array_t M);
 #endif
+#ifdef TEST_ZBUFFER_DV
+struct zb_PtRec   { float xp, yp, zp; };
+struct zb_PlnEqn  { float a, b, c, d; };
+struct zb_TriRec  { int32_t vhi, vmid, vlo, mid_scan_line, last_scan_line;
+                    float dxdy_lh, dxdy_lm, dxdy_mh; zb_PlnEqn pln; };
+struct zb_DepthRec { int32_t tri; float depth; };
+extern "C" sisal_array_t func_MAIN(int32_t x_pixels, int32_t y_pixels,
+                                   sisal_array_t pts, sisal_array_t tris);
+#endif
 #ifdef TEST_TAG_SCOPE_DV
 struct FUNC_MAIN_ts_results {
   float res_0; float res_1; int32_t res_2; float res_3; int32_t res_4;
@@ -13746,6 +13755,102 @@ static void test_newgaussj_dv (void)
     }
 }
 #endif
+#ifdef TEST_ZBUFFER_DV
+// zbuffer -- the z-buffer core of test/unit/zbuffer1.sis.  Per-triangle depth
+// maps merged into a frontmost buffer.  See the .sis header for the scope
+// (the source's `main` is a renderer needing common.sis) and for why the ragged
+// per-scanline rows become a dense rank-2 with a no-coverage sentinel.
+//
+// THE ORACLE IS THE PLANE EQUATION, not a second scanline walk: depth is
+// -(x*a + y*b + d)/c in closed form, coverage is the span test, and the
+// frontmost pixel is the GREATEST depth over triangles.  A wrong edge slope,
+// span or merge direction changes the answer.
+static void test_zbuffer_dv (void)
+{
+  printf ("\n=== Group: zbuffer_dv (per-triangle depth maps, frontmost merge) ===\n");
+  const int X = 6, Y = 6;
+
+  // screen points, indexed from 1
+  std::vector<zb_PtRec> pts = { { 0, 0, 0 }, { 1, 1, 0 }, { 5, 1, 0 },
+                                { 1, 5, 0 } };
+  auto mk_tri = [] (float depth, int lastscan) {
+    zb_TriRec t{};
+    t.vlo = 1; t.vmid = 2; t.vhi = 3;
+    t.mid_scan_line = 1; t.last_scan_line = lastscan;
+    t.dxdy_lh = 0.0f; t.dxdy_lm = 4.0f; t.dxdy_mh = -1.0f;
+    // plane z = depth  ->  a=0, b=0, c=-1, d=depth
+    t.pln = { 0.0f, 0.0f, -1.0f, depth };
+    return t;
+  };
+  // two overlapping triangles at different depths; the FARTHER one is added
+  // first, so a merge that replaced unconditionally would leave the wrong one
+  std::vector<zb_TriRec> tris = { mk_tri (10.0f, 5), mk_tri (20.0f, 3) };
+
+  sisal_array_t P = sisal_array_alloc_sized (1, 96, pts.size (),
+                                             sizeof (zb_PtRec));
+  P.lower_bound[0] = 0; P.dims[0] = (int64_t)pts.size ();
+  for (size_t i = 0; i < pts.size (); i++) ((zb_PtRec *)P.data)[i] = pts[i];
+
+  sisal_array_t T = sisal_array_alloc_sized (1, 97, tris.size (),
+                                             sizeof (zb_TriRec));
+  T.lower_bound[0] = 1; T.dims[0] = (int64_t)tris.size ();
+  for (size_t i = 0; i < tris.size (); i++) ((zb_TriRec *)T.data)[i] = tris[i];
+
+  sisal_array_t r = func_MAIN (X, Y, P, T);
+  check ("frontmost buffer is rank 2, (y_pixels+1) x (x_pixels+1)",
+         r.rank == 2 && (int)r.dims[0] == Y + 1 && (int)r.dims[1] == X + 1);
+
+  int covered = 0, bad_depth = 0, bad_tri = 0, bad_empty = 0;
+  for (int y = 0; y <= Y; y++)
+    for (int x = 0; x <= X; x++)
+      {
+        const zb_DepthRec d = ((const zb_DepthRec *)r.data)[y * (X + 1) + x];
+        // independent coverage + depth, per triangle
+        int best_tri = 0;
+        double best_depth = -1.0e10;
+        for (size_t k = 0; k < tris.size (); k++)
+          {
+            const zb_TriRec &t = tris[k];
+            double xl = pts[t.vlo].xp + t.dxdy_lh * ((double)y - pts[t.vlo].yp);
+            double xs = (y <= t.mid_scan_line)
+                            ? pts[t.vlo].xp
+                                  + t.dxdy_lm * ((double)y - pts[t.vlo].yp)
+                            : pts[t.vmid].xp
+                                  + t.dxdy_mh * ((double)y - pts[t.vmid].yp);
+            double lo = fmin (xl, xs), hi = fmax (xl, xs);
+            bool inside = ((double)y >= pts[t.vlo].yp)
+                          && (y <= t.last_scan_line) && ((double)x >= lo)
+                          && ((double)x <= hi);
+            if (!inside) continue;
+            double z = -((double)x * t.pln.a + (double)y * t.pln.b + t.pln.d)
+                       / t.pln.c;
+            if (z > best_depth) { best_depth = z; best_tri = (int)k + 1; }
+          }
+        if (best_tri != 0)
+          {
+            covered++;
+            if (d.tri != best_tri) bad_tri++;
+            if (fabs ((double)d.depth - best_depth) > 1e-4) bad_depth++;
+          }
+        else if (d.tri != 0)
+          bad_empty++;
+      }
+
+  char msg[190];
+  snprintf (msg, sizeof msg, "%d pixels covered by at least one triangle",
+            covered);
+  check (msg, covered > 0);
+  check ("every covered pixel names the FRONTMOST triangle", bad_tri == 0);
+  check ("every covered pixel's depth matches the plane equation",
+         bad_depth == 0);
+  check ("uncovered pixels keep tri = 0 (sentinel never displaces)",
+         bad_empty == 0);
+
+  if (r.data) free (r.data);
+  if (P.data) free (P.data);
+  if (T.data) free (T.data);
+}
+#endif
 #ifdef TEST_NOISEDUMP_DV
 // noisedump -- a 0/1 matrix rendered as a character picture
 // (test/unit/noisedump.sis).  Promoted for the OUTPUT TYPE: stream[character],
@@ -17071,6 +17176,9 @@ main (void)
 #ifdef TEST_NOISEDUMP_DV
   test_noisedump_dv ();
 #endif
+#ifdef TEST_ZBUFFER_DV
+  test_zbuffer_dv ();
+#endif
 #ifdef TEST_NEWGAUSSJ_DV
   test_newgaussj_dv ();
 #endif
@@ -17294,7 +17402,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
