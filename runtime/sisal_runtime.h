@@ -749,7 +749,7 @@ inline sisal_array_t sisal_array_addh_arr(sisal_array_t a, sisal_array_t b) {
         sisal_array_t res = sisal_array_alloc_sized(
             (b.rank == a.rank - 1) ? a.rank : b.rank, b.type_id, b.size, sisal_esz(b));
         if (b.rank == a.rank - 1) {
-            res.dims[0] = 1; res.lower_bound[0] = 0;
+            res.dims[0] = 1; res.lower_bound[0] = 1;   /* the created axis is 1-based */
             for (int k = 0; k < (int)b.rank; k++) {
                 res.dims[k + 1] = b.dims[k]; res.lower_bound[k + 1] = b.lower_bound[k];
             }
@@ -823,7 +823,14 @@ inline sisal_array_t sisal_array_addh_row(sisal_array_t a, sisal_array_t b) {
     int nd = (int)b.rank + 1;
     if (a.data == NULL || a.size == 0) {
         sisal_array_t res = sisal_array_alloc_sized(nd, b.type_id, b.size, esz);
-        res.dims[0] = 1; res.lower_bound[0] = 0;
+        /* The axis being CREATED here is 1-based, like every other array_dv
+           leading axis (alloc_sized defaults to 1, and a gather-built rank-k
+           comes out 1-based).  Seeding it 0-based made a table grown row by row
+           from an empty accumulator read one slab high ever after -- A[1,..]
+           returned row 2 and the last index ran off the buffer, silently, since
+           there is no runtime subscript check.  Only the INNER bounds travel
+           with the appended value. */
+        res.dims[0] = 1; res.lower_bound[0] = 1;
         for (int k = 0; k < (int)b.rank; k++) {
             res.dims[k + 1] = b.dims[k]; res.lower_bound[k + 1] = b.lower_bound[k];
         }
