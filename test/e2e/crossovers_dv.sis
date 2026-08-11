@@ -1,0 +1,241 @@
+% CROSSOVERS -- the crossed-edge geometry of the TSP simulated-annealing code
+% (test/unit/crossovers.sis, Feo/DeBoni/Osterbrock, LLNL 1991), rewritten under
+% the array_dv model.  It was on the deferred list for exactly one reason: every
+% function in it produces a MASKED GATHER, whose result length is a property of
+% the data.
+%
+% THE SHAPES.  From anneal.sish the original types nest four deep:
+%     type Edge_Type  = array [integer];          % 2 node indices
+%     type Cross_Type = array [Edge_type];        % the 2 edges that cross
+%     type Cross_List = array [Cross_type];
+% A crossing is a fixed 2 x 2 block of node indices, so a cross list is a
+% perfectly rectangular rank-3 array_dv (ncross x 2 x 2).  Only the COUNT is
+% data-dependent -- the shape is not ragged at all.
+%
+% TWO WAYS TO GET THAT COUNT, and this file deliberately uses both:
+%
+%   * Check_Crossed and Remove_Edge MAP THEN COMPACT.  Every candidate is built
+%     densely alongside a boolean mask, and COMPRESS keeps the surviving slabs.
+%     Nothing is ragged at any point; the compaction is one bulk operation.
+%     This is the shape a masked gather should be given whenever the candidate
+%     set is itself dense.
+%
+%   * Find_All_Crosses accumulates a LIST and packs once.  Its candidate set is
+%     the TRIANGLE J in I+2 .. n-1, which is not a dense rectangle, so there is
+%     no block to compress; the original writes it as an inner for-initial whose
+%     results are `catenate`d.  The list carries whole 2 x 2 array_dv crosses as
+%     payload, and array_addh stacks them back into a rank-3 at the end.
+%
+% Note what is NOT used: `returns array_dv(m) of E when P`.  The explicit-extent
+% escape hatch works for SCALAR elements, but a masked gather whose element is
+% itself an array does not compact -- the masked-out iterations contribute
+% zero-size elements and the gather aborts on conform.  Crosses are 2 x 2
+% blocks, so both routes here avoid that path.
+%
+% Consing reverses, so the pair scan runs BACKWARDS (I descending, J descending)
+% and the packed list comes out in the original's discovery order rather than
+% needing a reversing pass.
+%
+% Exercised here: rank-3 array_dv of fixed blocks, COMPRESS on a rank-3 (slabs,
+% not elements), a union list whose payload is an array_dv, array_addh growth of
+% a rank-3 from an empty seed, records inside a dope read as Nodes[i].x, and
+% array_size on a rank-3 (it is the LEADING extent).
+
+define main
+
+type Ints     = array_dv[integer];    % rank 1, 2 or 3 -- rank is a runtime property
+type Bools    = array_dv[boolean];
+type Node     = record[ x, y: integer ];
+type NodeList = array_dv[Node];
+
+% a cross list accumulated before its length is known
+type CList = union[ empty: null; cons: record[ hd: Ints; tl: CList ] ];
+
+function Mt( returns CList ) union CList[ empty: nil ] end function
+function Cons( h: Ints; t: CList returns CList )
+  union CList[ cons: record[ hd: h; tl: t ] ]
+end function
+function Hd( l: CList returns Ints )
+  tagcase x := l tag empty: array_dv Ints [] tag cons: x.hd end tagcase
+end function
+function Tl( l: CList returns CList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+
+% Stack the list's 2 x 2 blocks into a rank-3 (ncross x 2 x 2).  An empty list
+% packs to the empty seed, which is rank-1 size-0: with no element there is no
+% inner shape to learn.
+function Pack( l: CList returns Ints )
+  for initial
+    cur := l;
+    acc := array_dv Ints []
+  while ~is empty( cur ) repeat
+    acc := array_addh( old acc, Hd( old cur ) );
+    cur := Tl( old cur )
+  returns value of acc
+  end for
+end function
+
+
+% ---- edges and crosses ------------------------------------------------------
+% The itinerary's I'th edge joins the I'th and (I+1)'th nodes on the tour.
+function Edge( Itin: Ints; i: integer returns Ints )
+  for k in 1, 2
+  returns array_dv of Itin[ i + k - 1 ]
+  end for
+end function
+
+% one crossing, as the 2 x 2 block the original writes `array [1: E1, E2]`
+function MkCross( a, b: Ints returns Ints )
+  for r in 1, 2 cross c in 1, 2
+  returns array_dv of if r = 1 then a[c] else b[c] end if
+  end for
+end function
+
+
+%========================================================================
+%  Test for crossed edges -- the original's arithmetic, unchanged
+%========================================================================
+% Edges sharing a node cannot count as crossed, and that is settled on the node
+% INDICES before any geometry.  Otherwise DN is the determinant of the two
+% parametric equations; DN = 0 means parallel, which the original calls false
+% (so collinear overlap is not a crossing).  D3/DN and D4/DN are the two curve
+% parameters, and both must land in [0,1] -- written out as a sign-aware
+% comparison so it stays exact integer arithmetic.
+function Are_Crossed( a, b: Ints; Nodes: NodeList returns boolean )
+  if a[1] = b[2] | a[2] = b[1] | a[1] = b[1] | a[2] = b[2] then
+    false
+  else
+    let
+      x1, y1, x2, y2, x3, y3, x4, y4 :=
+        Nodes[ a[1] ].x, Nodes[ a[1] ].y,
+        Nodes[ a[2] ].x, Nodes[ a[2] ].y,
+        Nodes[ b[1] ].x, Nodes[ b[1] ].y,
+        Nodes[ b[2] ].x, Nodes[ b[2] ].y;
+
+      C1 := (x1 - x2);              % coefficients for slopes
+      C2 := (y1 - y2);              % and parametric equations
+      C3 := (x3 - x4);
+      C4 := (y3 - y4);
+
+      DN := C2 * C3 - C1 * C4;      % determinant of coefficients
+
+      P1 := if DN = 0 then
+              false
+            else
+              let
+                D3 := C4 * x3 - C3 * y3 + C3 * y1 - C4 * x1;
+                D4 := C2 * x3 - C1 * y3 + C1 * y1 - C2 * x1
+              in
+                if DN > 0 then
+                  D3 >= 0 & D3 <= DN & D4 >= 0 & D4 <= DN
+                else
+                  D3 <= 0 & D3 >= DN & D4 <= 0 & D4 >= DN
+                end if
+              end let
+            end if
+    in
+      P1
+    end let
+  end if
+end function
+
+
+%=========================================================================
+%  Find all crossed lines -- accumulated as a LIST
+%=========================================================================
+% The candidate set is the TRIANGLE {(I,J) : I+2 <= J <= n-1}, so there is no
+% dense block to compress and no extent to declare.  The original nests a
+% for-initial inside a forall and catenates; here the two loops carry one list
+% between them, which is the same computation without the intermediate arrays.
+% Both loops run DOWNWARD because consing reverses: walking backwards makes the
+% packed result come out in the original's (I ascending, J ascending) order.
+function ScanFrom( I: integer; Itin: Ints; Nodes: NodeList; acc: CList
+          returns CList )
+  for initial
+    J   := array_size( Itin ) - 1;
+    out := acc
+  while J >= I + 2 repeat
+    E1  := Edge( Itin, I );
+    E2  := Edge( Itin, old J );
+    out := if Are_Crossed( E1, E2, Nodes ) then Cons( MkCross( E1, E2 ), old out )
+           else old out
+           end if;
+    J   := old J - 1
+  returns value of out
+  end for
+end function
+
+function Find_All_Crosses( Itin: Ints; Nodes: NodeList returns Ints )
+  Pack( for initial
+          I   := array_size( Itin ) - 3;
+          acc := Mt()
+        while I >= 1 repeat
+          acc := ScanFrom( old I, Itin, Nodes, old acc );
+          I   := old I - 1
+        returns value of acc
+        end for )
+end function
+
+
+%==========================================================================
+%  Check a new edge for crossed edges -- MAP THEN COMPACT
+%==========================================================================
+% The original is `returns array of array [1:E, E2] when Are_Crossed(...)`.  The
+% candidate set here IS dense (one edge per itinerary position), so the mask
+% never has to create raggedness: build all n-1 candidate blocks and the mask
+% together, then COMPRESS the surviving slabs off the leading axis.
+function Check_Crossed( E: Ints; Itin: Ints; Nodes: NodeList returns Ints )
+  let
+    cand, hit :=
+      for I in 1, array_size( Itin ) - 1
+        E2 := Edge( Itin, I )
+      returns array_dv of MkCross( E, E2 )
+              array_dv of Are_Crossed( E, E2, Nodes )
+      end for
+  in
+    COMPRESS( hit, cand )
+  end let
+end function
+
+
+%===========================================================================
+%  Remove an edge from the cross list -- MAP THEN COMPACT
+%===========================================================================
+% `returns array of CE unless <CE mentions E>`.  CE is one 2 x 2 slab, so the
+% original's CE[1,1] / CE[2,2] become C[c,1,1] / C[c,2,2] on the rank-3 -- the
+% same two subscripts, with the slab index in front.  The mask is built over the
+% slabs and COMPRESS drops the ones the edge appears in.
+function Remove_Edge( C: Ints; E: Ints returns Ints )
+  let
+    keep :=
+      for k in 1, array_size( C )        % NOT `c`: names are case-insensitive,
+      returns array_dv of                % so `c` would shadow the array C
+        ~( ( C[k,1,1] = E[1] & C[k,1,2] = E[2] ) |
+           ( C[k,1,2] = E[1] & C[k,1,1] = E[2] ) |
+           ( C[k,2,1] = E[1] & C[k,2,2] = E[2] ) |
+           ( C[k,2,2] = E[1] & C[k,2,1] = E[2] ) )
+      end for
+  in
+    COMPRESS( keep, C )
+  end let
+end function
+
+
+% Coords arrives as the flat x,y,x,y,... pairs Init_Vars reads, so the harness
+% controls the geometry; Ex is the edge Check_Crossed tests and Remove_Edge
+% strips.
+function main( Coords: Ints; Itin: Ints; Ex: Ints
+      returns Ints, Ints, Ints )
+  let
+    Nodes := for I in 1, array_size( Coords ) / 2
+             returns array_dv of record Node[ x: Coords[ I*2 - 1 ];
+                                             y: Coords[ I*2     ] ]
+             end for;
+    all   := Find_All_Crosses( Itin, Nodes )
+  in
+    all,
+    Check_Crossed( Ex, Itin, Nodes ),
+    Remove_Edge( all, Ex )
+  end let
+end function

@@ -542,6 +542,12 @@ extern "C" struct FUNC_MAIN_mm_results func_MAIN(int32_t N);
 struct FUNC_MAIN_cyk_results { bool res_0; sisal_array_t res_1; };
 extern "C" struct FUNC_MAIN_cyk_results func_MAIN(sisal_array_t X);
 #endif
+#ifdef TEST_CROSSOVERS_DV
+struct FUNC_MAIN_xo_results { sisal_array_t all, chk, rem; };
+extern "C" struct FUNC_MAIN_xo_results func_MAIN(sisal_array_t Coords,
+                                                 sisal_array_t Itin,
+                                                 sisal_array_t Ex);
+#endif
 #ifdef TEST_NEWGAUSSJ_DV
 struct FUNC_MAIN_ngj_results { sisal_array_t res_0; sisal_array_t res_1; };
 extern "C" struct FUNC_MAIN_ngj_results func_MAIN(int32_t N, sisal_array_t A,
@@ -13636,6 +13642,174 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_CROSSOVERS_DV
+// crossovers -- the crossed-edge geometry of the TSP annealing code
+// (test/unit/crossovers.sis).  A crossing is a fixed 2 x 2 block of node
+// indices, so a cross list is a rank-3 array_dv (ncross x 2 x 2) whose COUNT is
+// data-dependent but whose shape is not ragged.  Find_All_Crosses builds it by
+// accumulating a LIST (its candidate set is a triangle) and packing with
+// array_addh; Check_Crossed and Remove_Edge build it dense-then-COMPRESS.
+//
+// The reference is an independent segment-intersection test: the Sisal side
+// solves the two parametric equations by Cramer (the original's arithmetic),
+// this side uses ORIENTATION predicates.  They agree exactly for non-parallel
+// segments, which is the only case either calls a crossing.
+//
+// This group also pins the array_addh leading-axis lower bound.  The packed
+// rank-3 is subscripted again by Remove_Edge (C[k,1,1] ...), so if the axis
+// created by the first append ever goes back to 0-based, `rem` reads one slab
+// high and this fails -- which is exactly how the bug was found.
+struct xo_pt { int x, y; };
+typedef std::array<int, 4> xo_cross;              // a1 a2 b1 b2
+static long long xo_orient (long long px, long long py, long long qx,
+                            long long qy, long long rx, long long ry)
+{
+  return (qx - px) * (ry - py) - (qy - py) * (rx - px);
+}
+static int xo_sgn (long long v) { return v > 0 ? 1 : (v < 0 ? -1 : 0); }
+static bool xo_crossed (int a1, int a2, int b1, int b2,
+                        const std::vector<xo_pt> &N)
+{
+  // edges sharing a node are settled on the INDICES, before any geometry
+  if (a1 == b2 || a2 == b1 || a1 == b1 || a2 == b2) return false;
+  const xo_pt &A = N[a1], &B = N[a2], &C = N[b1], &D = N[b2];
+  long long cr = (long long)(B.x - A.x) * (D.y - C.y)
+                 - (long long)(B.y - A.y) * (D.x - C.x);
+  if (cr == 0) return false;                      // parallel is not a crossing
+  int d1 = xo_sgn (xo_orient (A.x, A.y, B.x, B.y, C.x, C.y));
+  int d2 = xo_sgn (xo_orient (A.x, A.y, B.x, B.y, D.x, D.y));
+  int d3 = xo_sgn (xo_orient (C.x, C.y, D.x, D.y, A.x, A.y));
+  int d4 = xo_sgn (xo_orient (C.x, C.y, D.x, D.y, B.x, B.y));
+  return d1 * d2 <= 0 && d3 * d4 <= 0;            // closed: touching counts
+}
+static std::vector<xo_cross> xo_find_all (const std::vector<int> &it,
+                                          const std::vector<xo_pt> &N)
+{
+  std::vector<xo_cross> out;
+  const int L = (int)it.size ();
+  for (int I = 1; I <= L - 3; I++)
+    for (int J = I + 2; J <= L - 1; J++)
+      if (xo_crossed (it[I - 1], it[I], it[J - 1], it[J], N))
+        out.push_back ({ it[I - 1], it[I], it[J - 1], it[J] });
+  return out;
+}
+static std::vector<xo_cross> xo_check (const int E[2], const std::vector<int> &it,
+                                       const std::vector<xo_pt> &N)
+{
+  std::vector<xo_cross> out;
+  const int L = (int)it.size ();
+  for (int I = 1; I <= L - 1; I++)
+    if (xo_crossed (E[0], E[1], it[I - 1], it[I], N))
+      out.push_back ({ E[0], E[1], it[I - 1], it[I] });
+  return out;
+}
+static std::vector<xo_cross> xo_remove (const std::vector<xo_cross> &C,
+                                        const int E[2])
+{
+  std::vector<xo_cross> out;
+  for (const auto &c : C)
+    if (!((c[0] == E[0] && c[1] == E[1]) || (c[1] == E[0] && c[0] == E[1])
+          || (c[2] == E[0] && c[3] == E[1]) || (c[3] == E[0] && c[2] == E[1])))
+      out.push_back (c);
+  return out;
+}
+static bool xo_same (sisal_array_t a, const std::vector<xo_cross> &want)
+{
+  const int n = (int)want.size ();
+  if ((int)a.size != n * 4) return false;
+  // a non-empty cross list must be a genuine rank-3 n x 2 x 2 block; an empty
+  // one packs to the empty seed, which has no inner shape to report
+  if (n > 0
+      && (a.rank != 3 || (int)a.dims[0] != n || (int)a.dims[1] != 2
+          || (int)a.dims[2] != 2))
+    return false;
+  for (int i = 0; i < n; i++)
+    for (int k = 0; k < 4; k++)
+      if (((const int32_t *)a.data)[i * 4 + k] != want[i][k]) return false;
+  return true;
+}
+static void test_crossovers_dv (void)
+{
+  printf ("\n=== Group: crossovers_dv (cross lists: list-packed vs "
+          "COMPRESS-compacted) ===\n");
+
+  // 8 nodes on a box plus node 9 at the centre, so an edge can END on another
+  // edge's interior -- the closed-interval boundary the original's D3/D4 test
+  // accepts and a strict "proper intersection" test would reject.
+  const std::vector<xo_pt> N = { { 0, 0 },                        // index 0 unused
+                                 { 0, 0 }, { 4, 0 }, { 8, 0 }, { 8, 4 },
+                                 { 8, 8 }, { 4, 8 }, { 0, 8 }, { 0, 4 },
+                                 { 4, 4 } };
+  std::vector<int32_t> coords;
+  for (size_t i = 1; i < N.size (); i++)
+    { coords.push_back (N[i].x); coords.push_back (N[i].y); }
+
+  struct Case { std::vector<int32_t> it; int32_t E[2]; const char *nm; };
+  const std::vector<Case> cases = {
+    { { 1, 5, 3, 7, 2, 6, 4, 8, 1 }, { 1, 5 }, "star tour, many crossings" },
+    { { 1, 2, 3, 4, 5, 6, 7, 8, 1 }, { 1, 3 }, "convex octagon, none" },
+    { { 1, 3, 2, 4, 6, 5, 7, 8, 1 }, { 2, 4 }, "mixed tour" },
+    { { 1, 5, 9, 2, 7, 4, 1 },       { 9, 2 }, "edge ending on another edge" },
+    { { 1, 2, 3 },                   { 1, 3 }, "too short to hold a pair" },
+  };
+
+  int n_all_bad = 0, n_chk_bad = 0, n_rem_bad = 0;
+  int tot_all = 0, tot_removed = 0, n_empty = 0;
+  char msg[160];
+  for (const auto &c : cases)
+    {
+      const auto want_all = xo_find_all (c.it, N);
+      const auto want_chk = xo_check (c.E, c.it, N);
+      const auto want_rem = xo_remove (want_all, c.E);
+      tot_all += (int)want_all.size ();
+      tot_removed += (int)(want_all.size () - want_rem.size ());
+      if (want_all.empty ()) n_empty++;
+
+      sisal_array_t Co = sisal_array_alloc_empty (1, 6, coords.size ());
+      memcpy (Co.data, coords.data (), coords.size () * sizeof (int32_t));
+      sisal_array_t It = sisal_array_alloc_empty (1, 6, c.it.size ());
+      memcpy (It.data, c.it.data (), c.it.size () * sizeof (int32_t));
+      sisal_array_t Ex = sisal_array_alloc_empty (1, 6, 2);
+      memcpy (Ex.data, c.E, sizeof c.E);
+
+      auto r = func_MAIN (Co, It, Ex);
+
+      bool ok = xo_same (r.all, want_all);
+      if (!ok) n_all_bad++;
+      snprintf (msg, sizeof msg, "%-32s Find_All_Crosses == reference (%zu)",
+                c.nm, want_all.size ());
+      check (msg, ok);
+
+      ok = xo_same (r.chk, want_chk);
+      if (!ok) n_chk_bad++;
+      snprintf (msg, sizeof msg, "%-32s Check_Crossed == reference (%zu)", c.nm,
+                want_chk.size ());
+      check (msg, ok);
+
+      ok = xo_same (r.rem, want_rem);
+      if (!ok) n_rem_bad++;
+      snprintf (msg, sizeof msg, "%-32s Remove_Edge == reference (%zu)", c.nm,
+                want_rem.size ());
+      check (msg, ok);
+
+      if (Co.data) free (Co.data);
+      if (It.data) free (It.data);
+      if (Ex.data) free (Ex.data);
+      if (r.all.data) free (r.all.data);
+      if (r.chk.data) free (r.chk.data);
+      if (r.rem.data) free (r.rem.data);
+    }
+
+  // Matching the reference proves nothing if the geometry never crosses, or if
+  // Remove_Edge never had anything to drop.
+  snprintf (msg, sizeof msg,
+            "the tours actually cross (%d crossings, %d of them removed, "
+            "%d empty cases)", tot_all, tot_removed, n_empty);
+  check (msg, tot_all > 0 && tot_removed > 0 && n_empty > 0);
+  check ("no mismatches anywhere",
+         n_all_bad == 0 && n_chk_bad == 0 && n_rem_bad == 0);
+}
+#endif
 #ifdef TEST_CYK_DV
 // CYK recognition (test/unit/cyk.sis), on Hopcroft & Ullman's grammar
 //     S -> A B | B C     A -> B A | a
@@ -17572,6 +17746,9 @@ main (void)
 #ifdef TEST_CYK_DV
   test_cyk_dv ();
 #endif
+#ifdef TEST_CROSSOVERS_DV
+  test_crossovers_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -17789,7 +17966,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
