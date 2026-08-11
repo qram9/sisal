@@ -19,9 +19,19 @@
 %
 % up()/dn() are replaced by real comparisons.  For INTEGER y,
 %     y >= ceil(v)  <=>  real(y) >= v        x <= floor(v) <=> real(x) <= v
-% so the coverage test is exactly equivalent.  (`up` also failed to lower here
-% -- "Unknown function: UP target prefix _SUP__F__" -- though it lowers fine in
-% isolation; not chased, since the comparisons are equivalent and clearer.)
+% so the coverage test is exactly equivalent.
+%
+% They had to go: UP and DN ARE NOT IMPLEMENTED.  They are not keywords, not
+% tokens, and not special-cased anywhere -- an `up(x)` is an ordinary call
+% resolved against the intrinsic library by mangled prefix, and no _SUP__F__ is
+% registered.  is_intrinsic_unary (to_if1.ml) lists ABS EXP LOG LOG10 SQRT SIN
+% COS TAN ASIN ACOS ATAN SINH COSH TANH FLOOR TRUNC RADIANS DEGREES SQRTR
+% ETOTHE -- no UP, no DN.  Sisal 1.2's ceiling/floor-TO-INTEGER pair is simply
+% missing; FLOOR and TRUNC exist but return the argument's own type.
+%
+% (An earlier revision of this comment claimed up() lowers in isolation and
+% failed only inside the forall.  That was wrong -- it fails everywhere.  The
+% check behind it read `$?` after a printf rather than after the compiler.)
 %
 % THE ORACLE IS THE PLANE EQUATION, not a second scanline walk.  Depth at a
 % pixel is -(x*a + y*b + d)/c in closed form, coverage is the span test above,
