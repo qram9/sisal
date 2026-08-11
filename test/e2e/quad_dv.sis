@@ -1,0 +1,321 @@
+% quad -- ARITHMETIC on quadtrees (add, multiply, transpose), from
+% test/unit/quad.sis.  Companion to quadtree_dv, which only BUILDS the tree.
+%
+% Shares quadtree_dv's scaffolding: OneDimBTree cannot be an array_dv (BTree is
+% a recursive union, so it has no fixed element size), so the row-of-trees
+% intermediate is the BList cons list in the moldyn_nbrlist_dv idiom, and AtoB /
+% BtoQTree take index bounds instead of slicing with array_adjust.
+%
+% WHAT THE REPRESENTATION ACTUALLY IS, which QToMatrix gives away: a Scalar node
+% denotes c * I over its block -- NOT a uniform block.  That is exactly why
+% NormalizeQ collapses only on NW = SE with NE = SW = 0: equal diagonal blocks
+% and zero off-diagonal blocks ARE a scalar multiple of the identity.  It also
+% explains quadtree_dv's oracle after the fact: a diagonal matrix collapses to
+% depth 0 while a uniform non-zero one does not.
+%
+% DELIBERATE DEVIATION: QToMatrix is replaced by ElemAt, which reads element
+% (i,j) directly.  The source builds the matrix by catenating quadrant blocks,
+% which needs a row-wise `dot` over two rank-2 arrays; one element carries the
+% same information, lets the harness check every cell, and avoids a construct
+% the port would otherwise have to work around.
+%
+% THE ORACLE IS DENSE MATRIX ARITHMETIC, computed in the harness from the input
+% matrices: A+B elementwise, A*B by the triple loop, and A-transpose.  None of
+% it re-walks the quadtree, so a wrong quadrant in QMult's eight-term expansion
+% (NW*NE + NE*SE and so on) or a swapped pair in Transpose changes the answer.
+%
+% The cases are chosen to exercise the collapse: a 2x2 DIAGONAL pair collapses
+% to Scalar nodes on both sides, so the multiply runs entirely through the
+% Scalar x Scalar arm, while the dense cases run through NonScalar x NonScalar.
+% The 3x3 pads to 4x4 -- and padding is PREPENDED, so the original occupies the
+% BOTTOM-RIGHT block, which the reference mirrors.
+
+define Main
+
+define Main
+
+type OneDimReal = array_dv[ real ];
+type TwoDimReal = array_dv[ real ];        % RANK 2 at runtime
+type BTree = union[ Scalar: real; NonScalar: record[ L, R: BTree ] ];
+type BList = union[ empty: null; cons: record[ hd: BTree; tl: BList ] ];
+type QTree = union[ Scalar: real; NonScalar: record[ NE, SE, SW, NW: QTree ] ];
+type QuadTree = record[ Order, Padding: integer; Body: QTree ];
+
+% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array[BTree] ----
+function Mt( returns BList ) union BList[ empty: nil ] end function
+function Cons( h: BTree; t: BList returns BList )
+  union BList[ cons: record[ hd: h; tl: t ] ]
+end function
+function Hd( l: BList returns BTree )
+  tagcase x := l tag empty: union BTree[ Scalar: 0.0 ] tag cons: x.hd end tagcase
+end function
+function Tl( l: BList returns BList )
+  tagcase x := l tag empty: l tag cons: x.tl end tagcase
+end function
+function TakeB( l: BList; k: integer returns BList )
+  if k <= 0 then Mt() else Cons( Hd(l), TakeB( Tl(l), k-1 ) ) end if
+end function
+function DropB( l: BList; k: integer returns BList )
+  if k <= 0 then l else DropB( Tl(l), k-1 ) end if
+end function
+function AppendB( a, b: BList returns BList )
+  if is empty(a) then b else Cons( Hd(a), AppendB( Tl(a), b ) ) end if
+end function
+function ReplB( n: integer; v: BTree returns BList )
+  if n <= 0 then Mt() else Cons( v, ReplB( n-1, v ) ) end if
+end function
+function LeftBranch( l: BList returns BList )
+  if is empty(l) then Mt()
+  else Cons( tagcase b := Hd(l) tag Scalar: Hd(l) tag NonScalar: b.L end tagcase,
+             LeftBranch( Tl(l) ) )
+  end if
+end function
+function RightBranch( l: BList returns BList )
+  if is empty(l) then Mt()
+  else Cons( tagcase b := Hd(l) tag Scalar: Hd(l) tag NonScalar: b.R end tagcase,
+             RightBranch( Tl(l) ) )
+  end if
+end function
+
+function Depth( Input: QTree returns integer )
+  tagcase Q := Input
+  tag Scalar: 0
+  tag NonScalar:
+    max( max( Depth( Q.NE ), Depth( Q.SE ) ),
+         max( Depth( Q.SW ), Depth( Q.NW ) ) ) + 1
+  end tagcase
+end function
+
+function CeilingOfLog2( N: integer returns integer, integer )
+  for initial
+    Log := 0;
+    Power := 1
+  while Power < N repeat
+    Log := old Log + 1;
+    Power := old Power * 2
+  returns value of Log
+          value of Power
+  end for
+end function
+
+% AtoB over A[lo..hi] -- index bounds instead of array_adjust slicing
+function AtoB( A: OneDimReal; lo, hi: integer returns BTree )
+  if lo = hi then
+    union BTree[ Scalar: A[lo] ]
+  else
+    let
+      Mid := lo + (hi - lo + 1) / 2;
+      L := AtoB( A, lo, Mid-1 );
+      R := AtoB( A, Mid, hi );
+      Merge :=
+        tagcase L1 := L
+        tag NonScalar: false
+        tag Scalar:
+          tagcase R1 := R
+          tag NonScalar: false
+          tag Scalar: L1 = R1
+          end tagcase
+        end tagcase
+    in
+      if Merge then L else union BTree[ NonScalar: record[ L: L; R: R ] ] end if
+    end let
+  end if
+end function
+
+function BtoQTree( A: BList; n: integer returns QTree )
+  if n = 1 then
+    tagcase S := Hd( A )
+    tag Scalar: union QTree[ Scalar: S ]
+    tag NonScalar: error[ QTree ]
+    end tagcase
+  else
+    let
+      Mid   := n / 2;
+      Fst   := TakeB( A, Mid );
+      Snd   := DropB( A, Mid );
+      NE := BtoQTree( RightBranch( Fst ), Mid );
+      NW := BtoQTree( LeftBranch ( Fst ), Mid );
+      SW := BtoQTree( LeftBranch ( Snd ), n - Mid );
+      SE := BtoQTree( RightBranch( Snd ), n - Mid );
+      DiagonalOK :=
+        tagcase NW1 := NW
+        tag NonScalar: false
+        tag Scalar:
+          tagcase SE1 := SE
+          tag NonScalar: false
+          tag Scalar: NW1 = SE1
+          end tagcase
+        end tagcase;
+      Merge :=
+        if DiagonalOK then
+          tagcase NE1 := NE
+          tag NonScalar: false
+          tag Scalar:
+            tagcase SW1 := SW
+            tag NonScalar: false
+            tag Scalar: (NE1 = 0.0) & (SW1 = 0.0)
+            end tagcase
+          end tagcase
+        else false
+        end if
+    in
+      if Merge then NW
+      else union QTree[ NonScalar: record[ NE: NE; SE: SE; SW: SW; NW: NW ] ]
+      end if
+    end let
+  end if
+end function
+
+% ---- quadtree ARITHMETIC (test/unit/quad.sis) ----
+
+% A Scalar node denotes c * I over its block -- NOT a uniform block.  That is
+% why a node collapses only on NW = SE with NE = SW = 0: equal diagonal blocks
+% and zero off-diagonal blocks ARE a scalar multiple of the identity.
+function NormalizeQ( NE, SE, SW, NW: QTree returns QTree )
+  let
+    DiagonalOK :=
+      tagcase NW1 := NW
+      tag NonScalar: false
+      tag Scalar:
+        tagcase SE1 := SE
+        tag NonScalar: false
+        tag Scalar: NW1 = SE1
+        end tagcase
+      end tagcase;
+    Merge :=
+      if DiagonalOK then
+        tagcase NE1 := NE
+        tag NonScalar: false
+        tag Scalar:
+          tagcase SW1 := SW
+          tag NonScalar: false
+          tag Scalar: (NE1 = 0.0) & (SW1 = 0.0)
+          end tagcase
+        end tagcase
+      else false
+      end if
+  in
+    if Merge then NW
+    else union QTree[ NonScalar: record[ NE: NE; SE: SE; SW: SW; NW: NW ] ]
+    end if
+  end let
+end function
+
+function Transpose( Input: QTree returns QTree )
+  tagcase Q := Input
+  tag Scalar: Input
+  tag NonScalar:
+    union QTree[ NonScalar: record[ NE: Transpose( Q.SW );
+                                    SE: Transpose( Q.SE );
+                                    SW: Transpose( Q.NE );
+                                    NW: Transpose( Q.NW ) ] ]
+  end tagcase
+end function
+
+function QAdd( A, B: QTree returns QTree )
+  tagcase L := A
+  tag NonScalar:
+    tagcase R := B
+    tag NonScalar:
+      NormalizeQ( QAdd( L.NE, R.NE ), QAdd( L.SE, R.SE ),
+                  QAdd( L.SW, R.SW ), QAdd( L.NW, R.NW ) )
+    tag Scalar:
+      if R = 0.0 then A
+      else NormalizeQ( L.NE, QAdd( L.SE, B ), L.SW, QAdd( L.NW, B ) )
+      end if
+    end tagcase
+  tag Scalar:
+    tagcase R := B
+    tag Scalar: union QTree[ Scalar: L + R ]
+    tag NonScalar:
+      NormalizeQ( R.NE, QAdd( A, R.SE ), R.SW, QAdd( A, R.NW ) )
+    end tagcase
+  end tagcase
+end function
+
+function QMult( A, B: QTree returns QTree )
+  tagcase L := A
+  tag Scalar:
+    tagcase R := B
+    tag Scalar: union QTree[ Scalar: L * R ]
+    tag NonScalar:
+      NormalizeQ( QMult( A, R.NE ), QMult( A, R.SE ),
+                  QMult( A, R.SW ), QMult( A, R.NW ) )
+    end tagcase
+  tag NonScalar:
+    tagcase R := B
+    tag Scalar:
+      NormalizeQ( QMult( L.NE, B ), QMult( L.SE, B ),
+                  QMult( L.SW, B ), QMult( L.NW, B ) )
+    tag NonScalar:
+      NormalizeQ( QAdd( QMult( L.NW, R.NE ), QMult( L.NE, R.SE ) ),
+                  QAdd( QMult( L.SW, R.NE ), QMult( L.SE, R.SE ) ),
+                  QAdd( QMult( L.SW, R.NW ), QMult( L.SE, R.SW ) ),
+                  QAdd( QMult( L.NW, R.NW ), QMult( L.NE, R.SW ) ) )
+    end tagcase
+  end tagcase
+end function
+
+% Element (i,j) of the matrix a QTree denotes, 0-based, over a block of the
+% given SIZE.  Replaces QToMatrix: the source builds the matrix by catenating
+% quadrant blocks, which needs a row-wise dot over two rank-2s; reading one
+% element carries the same information and lets the harness check every cell.
+function ElemAt( Input: QTree; size, i, j: integer returns real )
+  tagcase Q := Input
+  tag Scalar:
+    if i = j then Q else 0.0 end if      % a Scalar node is Q * I
+  tag NonScalar:
+    let
+      h := size / 2
+    in
+      if (i < h) & (j < h) then ElemAt( Q.NW, h, i, j )
+      elseif i < h then ElemAt( Q.NE, h, i, j - h )
+      elseif j < h then ElemAt( Q.SW, h, i - h, j )
+      else ElemAt( Q.SE, h, i - h, j - h )
+      end if
+    end let
+  end tagcase
+end function
+
+% MatrixToQuad, factored so two matrices can be built.
+function BuildQ( A: TwoDimReal; S, N, Pad: integer returns QTree )
+  let
+    Rows :=
+      for initial
+        i := S;
+        acc := Mt()
+      while i >= 1 repeat
+        i := old i - 1;
+        acc := Cons( AtoB( array_dv_fill(1, Pad, 0.0) || A[old i, ..], 1, N ),
+                     old acc )
+      returns value of acc
+      end for;
+    RowFill := ReplB( Pad, union BTree[ Scalar: 0.0 ] )
+  in
+    BtoQTree( AppendB( RowFill, Rows ), N )
+  end let
+end function
+
+function Main( A, B: TwoDimReal returns TwoDimReal, TwoDimReal, TwoDimReal, integer )
+  let
+    S       := array_size( A );
+    Log2, N := CeilingOfLog2( S );
+    Pad     := N - S;
+    qa      := BuildQ( A, S, N, Pad );
+    qb      := BuildQ( B, S, N, Pad );
+    qsum    := QAdd( qa, qb );
+    qprod   := QMult( qa, qb );
+    qtr     := Transpose( qa );
+    Msum    := for i in 0, N-1 cross j in 0, N-1
+               returns array_dv of ElemAt( qsum, N, i, j )
+               end for;
+    Mprod   := for i in 0, N-1 cross j in 0, N-1
+               returns array_dv of ElemAt( qprod, N, i, j )
+               end for;
+    Mtr     := for i in 0, N-1 cross j in 0, N-1
+               returns array_dv of ElemAt( qtr, N, i, j )
+               end for
+  in
+    Msum, Mprod, Mtr, N
+  end let
+end function
