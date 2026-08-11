@@ -3051,7 +3051,14 @@ and lower_simple env gr nid sym pin pout pr =
     | SAPPEND ->
         C.Call ("sisal_stream_addl", [ e2; e1 ])
     | STRM_APPEND ->
-        C.Call ("sisal_stream_addh", [ e1; e2 ])
+        (* IF1 wires these VALUE-first: for `stream_append(S, v)` the value
+           lands on port 0 and the stream on port 1 (confirmed in the IF1 --
+           `__3:0 -> __1:0 [INTEGRAL]`, `__0:5 -> __1:1 [stream[INTEGRAL]]`).
+           The runtime helper takes (stream, value), so swap -- exactly as the
+           SAPPEND case above already does for sisal_stream_addl.  Emitting
+           them in port order produced sisal_stream_addh(value, stream), which
+           matches no overload. *)
+        C.Call ("sisal_stream_addh", [ e2; e1 ])
     | STRM_FIRST ->
         let elem_ty = get_final_ty env gid nid 0 `Out in
         C.Call ("sisal_stream_first<" ^ string_of_c_type elem_ty ^ ">", [ e1 ])

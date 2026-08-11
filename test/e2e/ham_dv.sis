@@ -1,0 +1,58 @@
+% ham -- Hamming / 5-smooth numbers by three-way stream merge, from
+% test/unit/ham.sis.  Ported UNCHANGED: no arrays, so nothing to convert.
+%
+% It needed a compiler fix, not a rewrite.  STREAM_APPEND is wired VALUE-FIRST
+% in IF1 -- for `stream_append(S, v)` the value lands on port 0 and the stream
+% on port 1 -- but the C lowering emitted the operands in port order, producing
+% sisal_stream_addh(value, stream) against a runtime helper that takes
+% (stream, value).  No overload matched, so it failed to compile.  The
+% neighbouring SAPPEND case already swapped for sisal_stream_addl; STRM_APPEND
+% was the one that had not.  NO e2e FILE USED stream_append, which is why it
+% went unnoticed.
+%
+% What it computes: the classic Hamming construction.  Three streams are kept in
+% step, each fed 2i, 3i and 5i, and `merge` takes the smaller head of two
+% streams, dropping duplicates when the heads are equal.  The result is the
+% 5-smooth numbers -- those with no prime factor above 5 -- in ascending order.
+%
+% THE ORACLE IS SMOOTHNESS, not a second merge network: a number belongs iff
+% dividing out all 2s, 3s and 5s leaves 1.  The harness generates the reference
+% that way, so a broken merge (a dropped duplicate, a wrong comparison) changes
+% which numbers appear rather than just their order.  7 is the discriminating
+% case -- it is the first integer the sequence must SKIP:
+%
+%     J=8  ->  1 2 3 4 5 6 8 9        (no 7)
+%
+% The trailing value exceeds J because a for-initial gathers the body value on
+% the iteration that fails the test as well (docs/loop_behavior_comparison.md),
+% so the stream ends with the first 5-smooth number greater than J.
+
+define main
+
+type intstr = stream[integer];
+
+function merge(x,y: intstr; returns integer, intstr, intstr)
+   if stream_first(x) < stream_first(y) then
+      stream_first(x), stream_rest(x), y
+   elseif stream_first(x) = stream_first(y) then
+      stream_first(x), stream_rest(x), stream_rest(y)
+   else stream_first(y), x, stream_rest(y)
+   end if
+end function %merge
+
+function main(J: integer; returns intstr)
+   for initial
+       i := 1;
+       t2 := stream intstr [];
+       t3 := stream intstr [];
+       t5 := stream intstr [];
+       m1 := stream intstr [];
+       while i <= J repeat
+          n, t2, t3 := merge(stream_append(old t2, 2 * old i),
+                             stream_append(old t3, 3 * old i));
+          i, m1, t5 := merge(stream_append(old m1, n),
+                             stream_append(old t5, 5 * old i))
+   returns stream of i
+   end for
+end function %hamming
+
