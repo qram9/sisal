@@ -843,8 +843,16 @@ let infer_types env gr gid =
            Lock SCALAR endpoints only: that is the clobbering class being
            cured (float ports read as "unknown"); array/record/union-tagged
            edges include protocol markers (the gather's lo-record, dope
-           payloads) that the per-op lowering types specially. *)
-        if tyid <> 0 && tyid <> 5 then
+           payloads) that the per-op lowering types specially.
+
+           ERROR edges are a SEPARATE CHANNEL (printed `::`) and carry no data
+           type: an ERROR maps to int32_t, and the panic edge reuses the port
+           NUMBERS of the data ports it runs alongside.  Typing a data port from
+           one therefore locks it to int32_t.  That is how a broadcast (`a + b`)
+           anywhere in a multi-return silently truncated result port 1 to
+           int32_t -- the BROADCAST_ERROR edge `__8::0 -> __0::1` landed on the
+           function's second result, whatever that result actually was. *)
+        if tyid <> 0 && tyid <> 5 && not (is_error_port tyid g) then
           let is_argmax_or_argmin =
             match NM.find_opt sn g.nmap with
             | Some (Compound (_, _, _, pr, sub, _)) ->
@@ -1111,6 +1119,11 @@ let infer_types env gr gid =
     let changed_edges =
       ES.fold
         (fun ((sn, sp), (dn, dp), ty_id) ch ->
+          (* same reason as in pass_edges: the ERROR channel shares port numbers
+             with the data ports, so propagating its int32_t along them would
+             retype whatever data port sits at the same index. *)
+          if is_error_port ty_id g then ch
+          else
           let sty = get_ty cur_gid sn sp `Out in
           let dty = get_ty cur_gid dn dp `In in
           (* Seed concrete types from edge type tags (e.g. INTEGRAL on DV_ELEMENT output edges).
