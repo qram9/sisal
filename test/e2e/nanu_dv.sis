@@ -1,0 +1,96 @@
+% NANU -- Dave Cann's A * B = C matrix multiply (test/unit/nanu.sis, LLNL 1991),
+% rewritten under the array_dv model.
+%
+% THE ARRAY REWRITE.  `type Twod = array[Oned]` becomes a flat rank-2 array_dv,
+% and the original's scatter over rows
+%     for E in array_fill(1,n,array_fill(1,n,0.0)) at I,J
+% becomes an index cross -- `for i in 1,n cross j in 1,n` -- which is the same
+% iteration space without materialising a dummy array to scatter over.  A dope
+% has no rows to scatter, and the fill it was iterating existed only to supply
+% the shape.
+%
+% THE ORIGINAL'S ORACLE IS TOO WEAK, and this is the interesting part.  Setupa
+% builds the IDENTITY, so C = A * B is just B, and Main returns the number of
+% cells where C differs from B -- i.e. 0.  But an inner loop that reads
+% Ain[I,J] * Bin[J,K] with a subscript transposed STILL returns B when A is the
+% identity, so the original's own check cannot see it.  It is a test that the
+% harness is wired up, not that the multiply is right.
+%
+% So the port keeps that self-check verbatim AND multiplies a second, decidedly
+% non-symmetric matrix G[i,j] = i*10 + j by the same B.  G * B has to match a
+% real matmul reference, and any transposed subscript moves it.
+%
+% Be's arithmetic is deliberately left as the original wrote it: s*i and (i-10)
+% are both INTEGER, so `s*i/(i-10)` is an INTEGER division that is then widened
+% by real(...) -- not a real division.  The i = 10 guard exists to dodge the
+% zero divisor.  Pinning that is worth more than tidying it, since it is where
+% a port would silently "fix" the program into computing something else.
+
+define main
+
+type Oned = array_dv[real];
+type Twod = array_dv[real];        % flat rank-2; rank is a runtime property
+
+% Be[i] = real( s*i / (i-10) ), INTEGER division, with i = 10 guarded to 1.
+function Be( n, s : integer returns Oned )
+  for i in 1, n
+  returns array_dv of real( s * i / if ((i - 10) = 0) then 1
+                                    else (i - 10) end if )
+  end for
+end function
+
+% the identity, as Setupa builds it
+function Setupa( n : integer returns Twod )
+  for i in 1, n cross j in 1, n
+  returns array_dv of if (i = j) then 1.0 else 0.0 end if
+  end for
+end function
+
+% every row of B is the same vector Be(n,s)
+function Setupb( n, s : integer returns Twod )
+  let
+    row := Be( n, s )
+  in
+    for i in 1, n cross j in 1, n
+    returns array_dv of row[j]
+    end for
+  end let
+end function
+
+% a NON-symmetric matrix, so that a transposed read cannot hide
+function Setupg( n : integer returns Twod )
+  for i in 1, n cross j in 1, n
+  returns array_dv of real( i * 10 + j )
+  end for
+end function
+
+% one cell of the product -- the original's inner reduction, unchanged
+function Compute( n, I, K : integer; Ain, Bin : Twod returns real )
+  for j in 1, n
+  returns value of sum Ain[I, j] * Bin[j, K]
+  end for
+end function
+
+function GetC( n : integer; A, B : Twod returns Twod )
+  for i in 1, n cross k in 1, n
+  returns array_dv of Compute( n, i, k, A, B )
+  end for
+end function
+
+function main( n, s : integer
+      returns Twod, Twod, Twod, Twod, integer )
+  let
+    A := Setupa( n );
+    B := Setupb( n, s );
+    G := Setupg( n );
+    C := GetC( n, A, B );          % identity * B -- must come back as B
+    D := GetC( n, G, B );          % the real multiply
+  in
+    B, C, D, G,
+    % the original's own check: how many cells of C differ from B
+    for i in 1, n cross j in 1, n
+      ncnt := if (C[i, j] = B[i, j]) then 0 else 1 end if
+    returns value of sum ncnt
+    end for
+  end let
+end function
