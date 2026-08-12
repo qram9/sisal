@@ -1,0 +1,29 @@
+% CONFORM ERROR -- the IF1 ERROR channel, exercised on the failing path.
+%
+% The frontend has always built a full apparatus for a non-conforming
+% elementwise operation: a per-element compatibility flag, an AND-fold of it,
+% and a NOT giving "this did not conform", handed to an ERROR node on a separate
+% `::` channel that ends at a PANIC boundary.  All of it survived into the
+% emitted C -- and then the ERROR node lowered to a CONSTANT, so the verdict was
+% computed and thrown away.  `a + b` with mismatched extents silently
+% zero-padded to the longer operand:
+%
+%     5 + 3  ->  [ 11 22 33 4 5 ]      b's missing tail read as 0
+%     3 + 5  ->  [ 11 22 33 40 50 ]    result grew to b's length
+%
+% Nothing covered that, because every group fed conforming inputs -- including
+% dv_agreement, the group named for this ("Error Monad" in positive.t), whose
+% driver only ever passed two length-3 arrays.
+%
+% This program exists to be run BOTH ways: its harness calls it once with equal
+% extents (which must compute) and once with unequal ones in a forked child
+% (which must abort).  A test that only ever takes the passing branch is what
+% let the gap survive.
+
+define main
+
+type Ints = array_dv[integer];
+
+function main( a, b : Ints returns Ints )
+  a + b
+end function

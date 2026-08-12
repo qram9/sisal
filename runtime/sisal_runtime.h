@@ -1479,6 +1479,24 @@ inline sisal_array_t sisal_array_slice(sisal_array_t a, int32_t lo, int32_t hi) 
     return res;
 }
 
+/* The IF1 ERROR channel, made real.  The frontend already builds the whole
+   apparatus for a non-conforming operation -- a per-element compatibility flag,
+   an AND-fold of it, and a NOT giving "this did not conform" -- and hands that
+   boolean to an ERROR node.  The backend used to lower that node to a constant,
+   so every part of the check ran and the verdict was discarded: `a + b` with
+   mismatched lengths silently zero-padded to the longer operand.
+
+   `failed` is that verdict.  The return value is the ERROR channel's own value,
+   which nothing consumes; it exists so this can be an expression in the slot the
+   constant used to fill. */
+inline int32_t sisal_raise_error(bool failed, const char* what) {
+    if (failed) {
+        fprintf(stderr, "SISAL runtime error: %s.\n", what);
+        abort();
+    }
+    return 0;
+}
+
 /* element i of `a` is non-zero?  (per the array's element type) */
 static inline bool sisal_elem_is_nonzero(sisal_array_t a, uint64_t i) {
     switch (a.type_id) {

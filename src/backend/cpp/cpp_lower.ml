@@ -2746,6 +2746,30 @@ and lower_simple env gr nid sym pin pout pr =
         if arm_is_boxed then
           C.UnaryOp (C.Deref, C.Member (e1, "val." ^ member))
         else C.Member (e1, "val." ^ member)
+    | ERROR_NODE when t_res = C.Basic "int32_t" ->
+        (* Port 0 is the "this did not conform" boolean, which the broadcast
+           diamond has already computed and folded.  Lowering this node to a
+           constant threw that verdict away, so a length mismatch silently
+           zero-padded to the longer operand.  Name the failure from the ERROR
+           type on the node's own out edge (BROADCAST_ERROR, ...) so the message
+           says which check fired. *)
+        let what =
+          ES.fold
+            (fun ((sn, _), _, ty) acc ->
+              if sn = nid then
+                match TM.find_opt ty (let _, tm, _ = gr.typemap in tm) with
+                | Some (ERROR s) -> s
+                | _ -> acc
+              else acc)
+            gr.eset "ERROR"
+        in
+        let msg =
+          match what with
+          | "BROADCAST_ERROR" ->
+              "array operands do not conform: an elementwise operation needs matching extents"
+          | other -> other
+        in
+        C.Call ("sisal_raise_error", [ e1; C.LitString msg ])
     | ERROR_NODE -> (
         match default_init_for t_res with Some e -> e | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)
