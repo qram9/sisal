@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <algorithm>   /* stable_sort: GRADE_UP/GRADE_DOWN, sort: SORT */
 #include <stdarg.h>
 #ifdef __APPLE__
 #  include <dispatch/dispatch.h>
@@ -1484,7 +1485,13 @@ static inline bool sisal_elem_is_nonzero(sisal_array_t a, uint64_t i) {
         case 4: return ((double*)a.data)[i] != 0.0;
         case 8: return ((float*)a.data)[i] != 0.0f;
         case 7: return ((int64_t*)a.data)[i] != 0;
-        default: return ((int32_t*)a.data)[i] != 0;   /* int / bool */
+        default:
+            /* A boolean array_dv element is ONE byte.  elem_bytes is the
+               authoritative width (set at allocation); the type_id table's
+               legacy default answers 4 for bool, which would read every 4th
+               byte and stride straight past the flags. */
+            if (sisal_esz(a) == 1) return ((unsigned char*)a.data)[i] != 0;
+            return ((int32_t*)a.data)[i] != 0;
     }
 }
 
@@ -1494,7 +1501,9 @@ static inline double sisal_elem_get_d(sisal_array_t a, uint64_t i) {
         case 4: return ((double*)a.data)[i];
         case 8: return ((float*)a.data)[i];
         case 7: return (double)((int64_t*)a.data)[i];
-        default: return (double)((int32_t*)a.data)[i];   /* int / bool */
+        default:
+            if (sisal_esz(a) == 1) return (double)((unsigned char*)a.data)[i];
+            return (double)((int32_t*)a.data)[i];
     }
 }
 
@@ -1517,6 +1526,168 @@ inline int32_t sisal_array_reduce_argmin(sisal_array_t a) {
     for (uint64_t i = 1; i < a.size; i++)
         if (sisal_elem_get_d(a, i) < sisal_elem_get_d(a, best)) best = i;
     return (int32_t)(best + a.lower_bound[0]);
+}
+
+/* write `fill` (a double, converted to the array's element type) into res[i] */
+static inline void sisal_elem_set_d(sisal_array_t res, int64_t i, double fill) {
+    switch (res.type_id) {
+        case 4: ((double*)res.data)[i] = fill; break;
+        case 8: ((float*)res.data)[i] = (float)fill; break;
+        case 7: ((int64_t*)res.data)[i] = (int64_t)fill; break;
+        default: ((int32_t*)res.data)[i] = (int32_t)fill; break;
+    }
+}
+
+/* ---- whole-array statistics --------------------------------------------
+   All computed in double whatever the element type; the caller casts to the
+   port's own type.  VARIANCE is the POPULATION variance (ddof = 0), which is
+   what numpy's var() returns by default, and STDDEV is its square root. */
+inline double sisal_array_mean(sisal_array_t a) {
+    if (a.size == 0) return 0.0;
+    double s = 0.0;
+    for (uint64_t i = 0; i < a.size; i++) s += sisal_elem_get_d(a, i);
+    return s / (double)a.size;
+}
+inline double sisal_array_variance(sisal_array_t a) {
+    if (a.size == 0) return 0.0;
+    double m = sisal_array_mean(a), s = 0.0;
+    for (uint64_t i = 0; i < a.size; i++) {
+        double d = sisal_elem_get_d(a, i) - m;
+        s += d * d;
+    }
+    return s / (double)a.size;
+}
+inline double sisal_array_stddev(sisal_array_t a) {
+    return sqrt(sisal_array_variance(a));
+}
+
+/* NORM(a, p): p = 1 the sum of absolute values, p = 2 the Euclidean norm,
+   p > 2 the general (sum |x|^p)^(1/p), p = 0 the count of non-zeros (the
+   conventional "L0").  A negative p has no agreed meaning here, so it is
+   rejected rather than guessed at. */
+inline double sisal_array_norm(sisal_array_t a, int32_t p) {
+    if (p < 0) {
+        fprintf(stderr, "SISAL runtime error: NORM(a, %d) -- the order must be "
+                        ">= 0 (1 = sum of |x|, 2 = Euclidean, 0 = count of "
+                        "non-zeros).\n", p);
+        abort();
+    }
+    if (p == 0) {
+        double n = 0;
+        for (uint64_t i = 0; i < a.size; i++) if (sisal_elem_is_nonzero(a, i)) n += 1.0;
+        return n;
+    }
+    double s = 0.0;
+    for (uint64_t i = 0; i < a.size; i++) {
+        double v = fabs(sisal_elem_get_d(a, i));
+        s += (p == 1) ? v : (p == 2) ? v * v : pow(v, (double)p);
+    }
+    return (p == 1) ? s : (p == 2) ? sqrt(s) : pow(s, 1.0 / (double)p);
+}
+
+/* ANY / ALL: the OR and AND folds.  An empty array gives each fold's IDENTITY
+   -- false for OR, true for ALL -- so `all` of nothing is vacuously true. */
+inline bool sisal_array_any(sisal_array_t a) {
+    for (uint64_t i = 0; i < a.size; i++) if (sisal_elem_is_nonzero(a, i)) return true;
+    return false;
+}
+inline bool sisal_array_all(sisal_array_t a) {
+    for (uint64_t i = 0; i < a.size; i++) if (!sisal_elem_is_nonzero(a, i)) return false;
+    return true;
+}
+
+/* CUMSUM / CUMPROD: INCLUSIVE running fold, same shape as the input --
+   out[i] = f(a[0..i]), so the last element is the whole-array total. */
+inline sisal_array_t sisal_array_cumsum(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size, sisal_esz(a));
+    for (int i = 0; i < 8; i++) { res.lower_bound[i] = a.lower_bound[i]; res.dims[i] = a.dims[i]; }
+    double acc = 0.0;
+    for (uint64_t i = 0; i < a.size; i++) { acc += sisal_elem_get_d(a, i); sisal_elem_set_d(res, i, acc); }
+    return res;
+}
+inline sisal_array_t sisal_array_cumprod(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_sized(a.rank, a.type_id, a.size, sisal_esz(a));
+    for (int i = 0; i < 8; i++) { res.lower_bound[i] = a.lower_bound[i]; res.dims[i] = a.dims[i]; }
+    double acc = 1.0;
+    for (uint64_t i = 0; i < a.size; i++) { acc *= sisal_elem_get_d(a, i); sisal_elem_set_d(res, i, acc); }
+    return res;
+}
+
+/* ---- shape ---------------------------------------------------------------
+   These COPY rather than alias.  A dope sharing another's buffer would need
+   the ref-counting that does not exist yet, and the always-copy invariant is
+   what keeps aliasing from being observable. */
+
+/* RAVEL(a): the same elements as one rank-1 array.  The flattened axis is
+   CREATED here, so it is 1-based like any other new leading axis. */
+inline sisal_array_t sisal_array_ravel(sisal_array_t a) {
+    sisal_array_t res = sisal_array_dup(a);
+    res.rank = 1;
+    res.dims[0] = (int64_t)a.size;
+    res.lower_bound[0] = 1;
+    for (int i = 1; i < 8; i++) { res.dims[i] = 0; res.lower_bound[i] = 1; }
+    return res;
+}
+
+/* SQUEEZE(a): drop every size-1 axis, keeping the others' own bounds.  If every
+   axis is size 1 the result stays rank 1 with one element rather than becoming
+   rank 0 -- there is no scalar array here for it to collapse to. */
+inline sisal_array_t sisal_array_squeeze(sisal_array_t a) {
+    sisal_array_t res = sisal_array_dup(a);
+    int r = 0;
+    for (int i = 0; i < (int)a.rank && i < 8; i++)
+        if (a.dims[i] != 1) {
+            res.dims[r] = a.dims[i];
+            res.lower_bound[r] = a.lower_bound[i];
+            r++;
+        }
+    if (r == 0) { r = 1; res.dims[0] = 1; res.lower_bound[0] = 1; }
+    for (int i = r; i < 8; i++) { res.dims[i] = 0; res.lower_bound[i] = 1; }
+    res.rank = r;
+    return res;
+}
+
+/* EXPAND(a, k): insert a size-1 axis at 0-BASED axis k -- the same axis
+   numbering PERMUTE uses.  k is clamped to [0, rank]. */
+inline sisal_array_t sisal_array_expand(sisal_array_t a, int32_t k) {
+    sisal_array_t res = sisal_array_dup(a);
+    if ((int)a.rank >= 8) return res;                 /* no room for another axis */
+    if (k < 0) k = 0;
+    if (k > (int32_t)a.rank) k = (int32_t)a.rank;
+    for (int i = (int)a.rank; i > k; i--) {
+        res.dims[i] = a.dims[i - 1];
+        res.lower_bound[i] = a.lower_bound[i - 1];
+    }
+    res.dims[k] = 1;
+    res.lower_bound[k] = 1;
+    res.rank = a.rank + 1;
+    return res;
+}
+
+/* GRADE_UP / GRADE_DOWN (APL's ⍋ / ⍒): the indices that would sort `a`, on the
+   array's own indexing base -- positions, like NONZERO and ARGMAX.  STABLE, so
+   equal elements keep their original relative order in both directions. */
+inline sisal_array_t sisal_array_grade_up(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, a.size);
+    res.lower_bound[0] = 1;
+    int32_t* out = (int32_t*)res.data;
+    int32_t lb = (int32_t)a.lower_bound[0];
+    for (uint64_t i = 0; i < a.size; i++) out[i] = (int32_t)i + lb;
+    std::stable_sort(out, out + a.size, [&](int32_t x, int32_t y) {
+        return sisal_elem_get_d(a, (uint64_t)(x - lb)) < sisal_elem_get_d(a, (uint64_t)(y - lb));
+    });
+    return res;
+}
+inline sisal_array_t sisal_array_grade_down(sisal_array_t a) {
+    sisal_array_t res = sisal_array_alloc_empty(1, 6, a.size);
+    res.lower_bound[0] = 1;
+    int32_t* out = (int32_t*)res.data;
+    int32_t lb = (int32_t)a.lower_bound[0];
+    for (uint64_t i = 0; i < a.size; i++) out[i] = (int32_t)i + lb;
+    std::stable_sort(out, out + a.size, [&](int32_t x, int32_t y) {
+        return sisal_elem_get_d(a, (uint64_t)(x - lb)) > sisal_elem_get_d(a, (uint64_t)(y - lb));
+    });
+    return res;
 }
 
 /* NONZERO(a): the 1-based indices (int array) of the non-zero elements of a. */
@@ -1545,15 +1716,6 @@ inline sisal_array_t sisal_array_where(sisal_array_t cond, sisal_array_t a, sisa
     return res;
 }
 
-/* write `fill` (a double, converted to the array's element type) into res[i] */
-static inline void sisal_elem_set_d(sisal_array_t res, int64_t i, double fill) {
-    switch (res.type_id) {
-        case 4: ((double*)res.data)[i] = fill; break;
-        case 8: ((float*)res.data)[i] = (float)fill; break;
-        case 7: ((int64_t*)res.data)[i] = (int64_t)fill; break;
-        default: ((int32_t*)res.data)[i] = (int32_t)fill; break;
-    }
-}
 
 /* PERMUTE(a, nperm, d0, d1, ...): reorder axes -- result axis k = source axis
    d[k] (0-based).  PERMUTE(A,2,1,0) transposes a rank-2 array.  Type-generic,

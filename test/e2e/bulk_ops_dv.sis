@@ -8,7 +8,7 @@
 % array_dv -- it needed a main and a reference.
 %
 % Measured before writing this: of the ~50 primitives the unit file names, 35
-% lower to C++ and compile.  All 35 are exercised here and agree with the
+% lower to C++ and compile.  All 48 are exercised here and agree with the
 % standard meaning of the operator.  Three did NOT when this file was first
 % written -- SCAN dropped the total (af35d42) and ARGMAX/ARGMIN answered 0 for
 % every input -- and were left out rather than pinned wrong until fixed.  What
@@ -56,7 +56,12 @@ function main( a, b : ai;              % rank-1 integers, equal length
         ai, ai, integer, integer,      % COMPRESS SORT ARGMAX ARGMIN
         ai, ar,                        % NONZERO WHERE
         ai, ai, ai, ai,                % CONCAT TILE PAD PAD-with-fill
-        ai, ar, ar )                   % STENCIL INNERPRODUCT PERMUTE
+        ai, ar, ar,                    % STENCIL INNERPRODUCT PERMUTE
+        real, real, real, real,        % MEAN VARIANCE STDDEV NORM
+        boolean, boolean, boolean, boolean,  % ANY ALL, and the two identities
+        ai, ai,                        % CUMSUM CUMPROD
+        ar, ar, ar,                    % RAVEL EXPAND SQUEEZE(EXPAND) round trip
+        ai, ai )                       % GRADE_UP GRADE_DOWN
   a + b,
   a - b,
   a * b,
@@ -92,16 +97,29 @@ function main( a, b : ai;              % rank-1 integers, equal length
   PAD(a, lo, hi, f),
   STENCIL(win_sum, a, 3),
   INNERPRODUCT(P, Q),
-  PERMUTE(M, 1, 0)
+  PERMUTE(M, 1, 0),
+  MEAN(x),
+  VARIANCE(x),                 % POPULATION variance (ddof 0), as numpy's var()
+  STDDEV(x),
+  NORM(x, n),                  % n varies per case, so p = 1, 2 and 3 all run
+  ANY(msk),
+  ALL(msk),
+  ALL(a = a),                  % all-true without needing another input
+  ANY(a < a),                  % all-false likewise
+  CUMSUM(a),
+  CUMPROD(a),
+  RAVEL(M),
+  EXPAND(x, 0),
+  SQUEEZE(EXPAND(x, 0)),       % round trip: must come back x's own shape
+  GRADE_UP(a),
+  GRADE_DOWN(a)
 end function
 
 % NOT COVERED -- no C lowering at all today ("Unsupported IF1 Simple node
 % symbol"), so they cannot be given a value test yet:
-%   ANY, ALL, MEAN, VARIANCE, STDDEV, NORM   -- statistical / boolean folds
-%   CUMSUM, CUMPROD                          -- cumulative
-%   GRADE_UP / GRADE_DOWN (= ARGSORT)        -- DV_GRADE_UP / DV_GRADE_DOWN
-%   RAVEL (= FLATTEN_DV), SQUEEZE, EXPAND    -- shape-changing
-%   SUM/PRODUCT/LEAST/GREATEST(a, axis)      -- REDUCE_AXIS
+%   SUM/PRODUCT/LEAST/GREATEST(a, axis), and the axis forms of MEAN/VARIANCE/
+%   STDDEV/ANY/ALL/ARGMAX/ARGMIN -- all REDUCE_AXIS, which reduces ALONG one
+%   axis and so returns an array rather than a scalar.
 % and OUTERPRODUCT, which fails differently: its function argument reaches the
 % backend as a FUNCTION_TYPE with no C mapping.  MAP, FOLDL, FOLDR, SCAN and
 % STENCIL also take function arguments and DO lower, so that gap is specific to

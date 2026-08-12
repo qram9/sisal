@@ -551,6 +551,11 @@ struct FUNC_MAIN_bulk_results {
   int32_t argmax, argmin;
   sisal_array_t nonzero, where;
   sisal_array_t concat, tile, pad, padf, stencil, inner, perm;
+  float mean, var, sd, norm;
+  bool any_m, all_m, all_true, any_false;
+  sisal_array_t cumsum, cumprod;
+  sisal_array_t ravel, expand, sq_round;
+  sisal_array_t gup, gdn;
 };
 extern "C" struct FUNC_MAIN_bulk_results
 func_MAIN (sisal_array_t a, sisal_array_t b, sisal_array_t msk, sisal_array_t x,
@@ -13671,7 +13676,7 @@ static void test_mdfftfreq_dv (void)
 // identified as wrong rather than absorbed: SCAN dropped the total (af35d42)
 // and ARGMAX/ARGMIN answered 0 for every input.  Both are fixed and covered
 // here; what remains uncovered has no lowering at all and is listed in the
-// .sis; all 35 now agree exactly.
+// .sis; all 48 now agree exactly.
 //
 // The elementwise eight could not even be RETURNED alongside the rest before
 // 34f06a7 (the BROADCAST_ERROR panic edge typed result port 1 as int32_t), so
@@ -13685,7 +13690,7 @@ struct bulk_case {
 };
 static void test_bulk_ops_dv (void)
 {
-  printf ("\n=== Group: bulk_ops_dv (35 whole-array primitives vs standard "
+  printf ("\n=== Group: bulk_ops_dv (48 whole-array primitives vs standard "
           "definitions) ===\n");
   const std::vector<bulk_case> cases = {
     { { 3, -1, 4, 0, 5 }, { 2, -1, 7, 0, 1 }, { 1, 0, 1, 0, 1 },
@@ -13828,7 +13833,55 @@ static void test_bulk_ops_dv (void)
           for (int j = 0; j < 3; j++) wf[j*2+i] = Mm[i*3+j];
         cf (r.perm, wf); }
 
-      snprintf (msg, sizeof msg, "%-34s all 35 primitives match", c.nm);
+      // ---- statistics, folds, cumulative and shape --------------------
+      { double mn = 0; for (int i = 0; i < N; i++) mn += c.X[i]; mn /= N;
+        double vr = 0; for (int i = 0; i < N; i++) vr += (c.X[i]-mn)*(c.X[i]-mn);
+        vr /= N;                                   // POPULATION variance
+        double nr = 0;
+        for (int i = 0; i < N; i++) {
+          double v = std::fabs ((double)c.X[i]);
+          nr += (c.n == 1) ? v : (c.n == 2) ? v*v : std::pow (v, (double)c.n);
+        }
+        nr = (c.n == 1) ? nr : (c.n == 2) ? std::sqrt (nr)
+                                          : std::pow (nr, 1.0/(double)c.n);
+        if (std::fabs (r.mean - mn) > 1e-4) local++;
+        if (std::fabs (r.var  - vr) > 1e-3) local++;
+        if (std::fabs (r.sd - std::sqrt (vr)) > 1e-4) local++;
+        if (std::fabs (r.norm - nr) > 1e-3) local++; }
+
+      { bool any = false, all = true;
+        for (int i = 0; i < N; i++) { if (c.Mk[i]) any = true; else all = false; }
+        if (r.any_m != any) local++;
+        if (r.all_m != all) local++;
+        if (r.all_true != true) local++;      // ALL(a = a)
+        if (r.any_false != false) local++; }  // ANY(a < a)
+
+      w.clear (); { int32_t s2 = 0; for (int i = 0; i < N; i++) { s2 += c.A[i]; w.push_back (s2); } }
+      ci (r.cumsum, w);
+      w.clear (); { int32_t s2 = 1; for (int i = 0; i < N; i++) { s2 *= c.A[i]; w.push_back (s2); } }
+      ci (r.cumprod, w);
+
+      // M is 2x3: RAVEL flattens it to 6 in row-major order
+      { std::vector<float> wf (Mm.begin (), Mm.end ()); cf (r.ravel, wf);
+        if (r.ravel.rank != 1 || (int)r.ravel.dims[0] != 6) local++; }
+      // EXPAND at axis 0 makes a 1 x N block; SQUEEZE must undo it exactly
+      if (r.expand.rank != 2 || (int)r.expand.dims[0] != 1
+          || (int)r.expand.dims[1] != N) local++;
+      if (r.sq_round.rank != 1 || (int)r.sq_round.dims[0] != N
+          || (int)r.sq_round.size != N) local++;
+      { std::vector<float> wf (c.X.begin (), c.X.end ()); cf (r.sq_round, wf); }
+
+      // GRADE_UP/GRADE_DOWN: the STABLE sorting permutation, 1-based
+      { std::vector<int32_t> idx (N); for (int i = 0; i < N; i++) idx[i] = i;
+        std::stable_sort (idx.begin (), idx.end (),
+                          [&] (int32_t p1, int32_t p2) { return c.A[p1] < c.A[p2]; });
+        w.clear (); for (int i : idx) w.push_back (i + 1); ci (r.gup, w); }
+      { std::vector<int32_t> idx (N); for (int i = 0; i < N; i++) idx[i] = i;
+        std::stable_sort (idx.begin (), idx.end (),
+                          [&] (int32_t p1, int32_t p2) { return c.A[p1] > c.A[p2]; });
+        w.clear (); for (int i : idx) w.push_back (i + 1); ci (r.gdn, w); }
+
+      snprintf (msg, sizeof msg, "%-34s all 48 primitives match", c.nm);
       check (msg, local == 0);
       bad += local;
     }

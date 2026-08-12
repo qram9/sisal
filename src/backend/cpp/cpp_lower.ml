@@ -2472,9 +2472,17 @@ and lower_node env gr nid node =
                   loop_gr
               in
               match
+                (* Skip the ERROR channel.  A result port carries BOTH its data
+                   edge and, for a broadcast, a BROADCAST_ERROR edge that reuses
+                   the same port number -- and this fold keeps the LAST match, so
+                   which one won depended on set order, i.e. on whose node id was
+                   larger.  `a + n` returned an empty dope once a program grew
+                   past ~41 results and the panic node overtook the data node. *)
                 ES.fold
-                  (fun (src, dst, _) acc ->
-                    if dst = (0, pid) then Some src else acc)
+                  (fun (src, dst, ty) acc ->
+                    if dst = (0, pid) && not (is_error_port ty loop_gr) then
+                      Some src
+                    else acc)
                   loop_gr.eset None
               with
               | Some (sn, sp) ->
@@ -3289,6 +3297,22 @@ and lower_simple env gr nid sym pin pout pr =
     | STENCIL_NODE -> C.Call ("sisal_array_stencil", [ e1; e2; get_in_expr 2 ])
     | WHERE_NODE -> C.Call ("sisal_array_where", [ e1; e2; get_in_expr 2 ])
     | NONZERO_NODE -> C.Call ("sisal_array_nonzero", [ e1 ])
+    (* whole-array statistics and folds.  The AXIS forms of these carry a second
+       operand and reduce to an ARRAY instead; they go through REDUCE_AXIS and
+       are not lowered yet. *)
+    | MEAN_NODE -> C.Call ("sisal_array_mean", [ e1 ])
+    | VARIANCE_NODE -> C.Call ("sisal_array_variance", [ e1 ])
+    | STDDEV_NODE -> C.Call ("sisal_array_stddev", [ e1 ])
+    | NORM_NODE -> C.Call ("sisal_array_norm", [ e1; e2 ])
+    | ANY_NODE -> C.Call ("sisal_array_any", [ e1 ])
+    | ALL_NODE -> C.Call ("sisal_array_all", [ e1 ])
+    | CUMSUM_NODE -> C.Call ("sisal_array_cumsum", [ e1 ])
+    | CUMPROD_NODE -> C.Call ("sisal_array_cumprod", [ e1 ])
+    | RAVEL_NODE -> C.Call ("sisal_array_ravel", [ e1 ])
+    | SQUEEZE_NODE -> C.Call ("sisal_array_squeeze", [ e1 ])
+    | EXPAND_NODE -> C.Call ("sisal_array_expand", [ e1; e2 ])
+    | DV_GRADE_UP -> C.Call ("sisal_array_grade_up", [ e1 ])
+    | DV_GRADE_DOWN -> C.Call ("sisal_array_grade_down", [ e1 ])
     | REDUCE_ALL ->
         let fname =
           List.find_map (function Name n -> Some n | _ -> None) pr
@@ -7463,9 +7487,13 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
                 sub_gr
             in
             match
+              (* same as above: the ERROR channel shares port numbers with the
+                 data ports, and this fold keeps the last match *)
               ES.fold
-                (fun (src, dst, _) acc ->
-                  if dst = (0, pid) then Some src else acc)
+                (fun (src, dst, ty) acc ->
+                  if dst = (0, pid) && not (is_error_port ty sub_gr) then
+                    Some src
+                  else acc)
                 sub_gr.eset None
             with
             | Some (sn, sp) ->
