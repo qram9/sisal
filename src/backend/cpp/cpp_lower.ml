@@ -2654,6 +2654,12 @@ and lower_simple env gr nid sym pin pout pr =
         else C.Call ("SISAL_CAST", [ C.Id (string_of_c_type ty); expr ])
     | None -> C.LitInt 0
   in
+  (* Is port p actually FED?  Several ops have an optional trailing operand
+     (MEAN(a) vs MEAN(a, axis)) and get_in_expr answers 0 for both, so the two
+     forms are told apart by whether the edge exists. *)
+  let has_in_port p =
+    ES.fold (fun (_, dst, _) acc -> acc || dst = (nid, p)) gr.eset false
+  in
   let e1 = get_in_expr 0 in
   let e2 = get_in_expr 1 in
   let t_res = get_final_ty env gid nid 0 `Out in
@@ -3297,15 +3303,57 @@ and lower_simple env gr nid sym pin pout pr =
     | STENCIL_NODE -> C.Call ("sisal_array_stencil", [ e1; e2; get_in_expr 2 ])
     | WHERE_NODE -> C.Call ("sisal_array_where", [ e1; e2; get_in_expr 2 ])
     | NONZERO_NODE -> C.Call ("sisal_array_nonzero", [ e1 ])
-    (* whole-array statistics and folds.  The AXIS forms of these carry a second
-       operand and reduce to an ARRAY instead; they go through REDUCE_AXIS and
-       are not lowered yet. *)
+    (* Whole-array statistics and folds.  Each of these ALSO has an axis form
+       carrying a second operand -- MEAN(a) vs MEAN(a, k) -- which reduces along
+       one axis and yields an ARRAY.  Dispatch on whether port 1 is actually fed:
+       ignoring it would silently answer the whole-array question instead. *)
+    | (MEAN_NODE | VARIANCE_NODE | STDDEV_NODE | ANY_NODE | ALL_NODE) when has_in_port 1
+      ->
+        let code =
+          match sym with
+          | MEAN_NODE -> 6
+          | VARIANCE_NODE -> 7
+          | STDDEV_NODE -> 8
+          | ANY_NODE -> 9
+          | _ -> 10
+        in
+        C.Call ("sisal_array_reduce_axis", [ e1; e2; C.LitInt code ])
     | MEAN_NODE -> C.Call ("sisal_array_mean", [ e1 ])
     | VARIANCE_NODE -> C.Call ("sisal_array_variance", [ e1 ])
     | STDDEV_NODE -> C.Call ("sisal_array_stddev", [ e1 ])
     | NORM_NODE -> C.Call ("sisal_array_norm", [ e1; e2 ])
     | ANY_NODE -> C.Call ("sisal_array_any", [ e1 ])
     | ALL_NODE -> C.Call ("sisal_array_all", [ e1 ])
+    (* REDUCE_AXIS(op_literal, arr, axis) -- SUM/PRODUCT/LEAST/GREATEST/ARGMAX/
+       ARGMIN along one axis.  The operator arrives as a CHARACTER literal on
+       port 0, so it is read from the GRAPH and turned into a code; it never
+       becomes a runtime value. *)
+    | REDUCE_AXIS ->
+        let opname =
+          ES.fold
+            (fun ((sn, _), (dn, dp), _) acc ->
+              if dn = nid && dp = 0 then
+                match NM.find_opt sn gr.nmap with
+                | Some (Literal (_, CHARACTER, v, _)) -> Some v
+                | _ -> acc
+              else acc)
+            gr.eset None
+        in
+        let code =
+          match Option.map String.lowercase_ascii opname with
+          | Some "sum" -> 0
+          | Some "product" -> 1
+          | Some "least" -> 2
+          | Some "greatest" -> 3
+          | Some "argmax" -> 4
+          | Some "argmin" -> 5
+          | other ->
+              failwith
+                (Printf.sprintf "REDUCE_AXIS: no C lowering for reduction %S"
+                   (Option.value other ~default:"<none>"))
+        in
+        C.Call
+          ("sisal_array_reduce_axis", [ e2; get_in_expr 2; C.LitInt code ])
     | CUMSUM_NODE -> C.Call ("sisal_array_cumsum", [ e1 ])
     | CUMPROD_NODE -> C.Call ("sisal_array_cumprod", [ e1 ])
     | RAVEL_NODE -> C.Call ("sisal_array_ravel", [ e1 ])

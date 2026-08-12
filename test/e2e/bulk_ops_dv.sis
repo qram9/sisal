@@ -8,7 +8,7 @@
 % array_dv -- it needed a main and a reference.
 %
 % Measured before writing this: of the ~50 primitives the unit file names, 35
-% lower to C++ and compile.  All 48 are exercised here and agree with the
+% lower to C++ and compile.  All 56 are exercised here and agree with the
 % standard meaning of the operator.  Three did NOT when this file was first
 % written -- SCAN dropped the total (af35d42) and ARGMAX/ARGMIN answered 0 for
 % every input -- and were left out rather than pinned wrong until fixed.  What
@@ -61,7 +61,8 @@ function main( a, b : ai;              % rank-1 integers, equal length
         boolean, boolean, boolean, boolean,  % ANY ALL, and the two identities
         ai, ai,                        % CUMSUM CUMPROD
         ar, ar, ar,                    % RAVEL EXPAND SQUEEZE(EXPAND) round trip
-        ai, ai )                       % GRADE_UP GRADE_DOWN
+        ai, ai,                        % GRADE_UP GRADE_DOWN
+        ar, ar, ar, ar, ar, ar, ar, ar )  % the AXIS reductions, both axes
   a + b,
   a - b,
   a * b,
@@ -112,15 +113,22 @@ function main( a, b : ai;              % rank-1 integers, equal length
   EXPAND(x, 0),
   SQUEEZE(EXPAND(x, 0)),       % round trip: must come back x's own shape
   GRADE_UP(a),
-  GRADE_DOWN(a)
+  GRADE_DOWN(a),
+  % REDUCE_AXIS: reduce a rank-2 ALONG one axis, giving rank 1.  The axis
+  % number is 0-BASED, the numbering PERMUTE and EXPAND use -- an axis number
+  % is not an element index.  M is 2 x 3, so axis 0 gives 3 results and axis 1
+  % gives 2, which is itself a check that the right axis went away.
+  SUM(M, 0),
+  SUM(M, 1),
+  PRODUCT(M, 1),
+  LEAST(M, 0),
+  GREATEST(M, 1),
+  MEAN(M, 0),
+  ARGMAX(M, 1),                % positions, on the REDUCED axis's own base
+  ARGMIN(M, 0)
 end function
 
-% NOT COVERED -- no C lowering at all today ("Unsupported IF1 Simple node
-% symbol"), so they cannot be given a value test yet:
-%   SUM/PRODUCT/LEAST/GREATEST(a, axis), and the axis forms of MEAN/VARIANCE/
-%   STDDEV/ANY/ALL/ARGMAX/ARGMIN -- all REDUCE_AXIS, which reduces ALONG one
-%   axis and so returns an array rather than a scalar.
-% and OUTERPRODUCT, which fails differently: its function argument reaches the
-% backend as a FUNCTION_TYPE with no C mapping.  MAP, FOLDL, FOLDR, SCAN and
-% STENCIL also take function arguments and DO lower, so that gap is specific to
-% OUTERPRODUCT's path, not to higher-order ops in general.
+% NOT COVERED -- OUTERPRODUCT alone.  Its function argument reaches the backend
+% as a FUNCTION_TYPE with no C mapping, the higher-order gap.  MAP, FOLDL,
+% FOLDR, SCAN and STENCIL also take function arguments and DO lower, so the gap
+% is specific to OUTERPRODUCT's path, not to higher-order ops in general.

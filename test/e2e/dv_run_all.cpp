@@ -556,6 +556,7 @@ struct FUNC_MAIN_bulk_results {
   sisal_array_t cumsum, cumprod;
   sisal_array_t ravel, expand, sq_round;
   sisal_array_t gup, gdn;
+  sisal_array_t ax_s0, ax_s1, ax_p1, ax_l0, ax_g1, ax_m0, ax_amax1, ax_amin0;
 };
 extern "C" struct FUNC_MAIN_bulk_results
 func_MAIN (sisal_array_t a, sisal_array_t b, sisal_array_t msk, sisal_array_t x,
@@ -13676,7 +13677,7 @@ static void test_mdfftfreq_dv (void)
 // identified as wrong rather than absorbed: SCAN dropped the total (af35d42)
 // and ARGMAX/ARGMIN answered 0 for every input.  Both are fixed and covered
 // here; what remains uncovered has no lowering at all and is listed in the
-// .sis; all 48 now agree exactly.
+// .sis; all 56 now agree exactly.
 //
 // The elementwise eight could not even be RETURNED alongside the rest before
 // 34f06a7 (the BROADCAST_ERROR panic edge typed result port 1 as int32_t), so
@@ -13690,7 +13691,7 @@ struct bulk_case {
 };
 static void test_bulk_ops_dv (void)
 {
-  printf ("\n=== Group: bulk_ops_dv (48 whole-array primitives vs standard "
+  printf ("\n=== Group: bulk_ops_dv (56 whole-array primitives vs standard "
           "definitions) ===\n");
   const std::vector<bulk_case> cases = {
     { { 3, -1, 4, 0, 5 }, { 2, -1, 7, 0, 1 }, { 1, 0, 1, 0, 1 },
@@ -13881,7 +13882,20 @@ static void test_bulk_ops_dv (void)
                           [&] (int32_t p1, int32_t p2) { return c.A[p1] > c.A[p2]; });
         w.clear (); for (int i : idx) w.push_back (i + 1); ci (r.gdn, w); }
 
-      snprintf (msg, sizeof msg, "%-34s all 48 primitives match", c.nm);
+      // ---- REDUCE_AXIS on the fixed 2x3 M = [1 2 3; 4 5 6] --------------
+      // axis 0 collapses the 2 ROWS (3 results), axis 1 the 3 COLUMNS (2), so
+      // the result LENGTH already says which axis went away.
+      { std::vector<float> w0 = {5,7,9}, w1 = {6,15};
+        cf (r.ax_s0, w0);                                  // SUM axis 0
+        cf (r.ax_s1, w1);                                  // SUM axis 1
+        std::vector<float> p1 = {6,120};   cf (r.ax_p1, p1);
+        std::vector<float> l0 = {1,2,3};   cf (r.ax_l0, l0);
+        std::vector<float> g1 = {3,6};     cf (r.ax_g1, g1);
+        std::vector<float> m0 = {2.5f,3.5f,4.5f}; cf (r.ax_m0, m0);
+        std::vector<float> mx = {3,3};     cf (r.ax_amax1, mx);   // 1-based
+        std::vector<float> mn = {1,1,1};   cf (r.ax_amin0, mn); }
+
+      snprintf (msg, sizeof msg, "%-34s all 56 primitives match", c.nm);
       check (msg, local == 0);
       bad += local;
     }

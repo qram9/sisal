@@ -1534,7 +1534,13 @@ static inline void sisal_elem_set_d(sisal_array_t res, int64_t i, double fill) {
         case 4: ((double*)res.data)[i] = fill; break;
         case 8: ((float*)res.data)[i] = (float)fill; break;
         case 7: ((int64_t*)res.data)[i] = (int64_t)fill; break;
-        default: ((int32_t*)res.data)[i] = (int32_t)fill; break;
+        default:
+            /* the WRITER needs the same one-byte case the readers have: a
+               boolean array_dv element is 1 byte, and writing it as int32
+               scribbles over the three flags that follow */
+            if (sisal_esz(res) == 1) ((unsigned char*)res.data)[i] = (fill != 0.0);
+            else ((int32_t*)res.data)[i] = (int32_t)fill;
+            break;
     }
 }
 
@@ -1687,6 +1693,99 @@ inline sisal_array_t sisal_array_grade_down(sisal_array_t a) {
     std::stable_sort(out, out + a.size, [&](int32_t x, int32_t y) {
         return sisal_elem_get_d(a, (uint64_t)(x - lb)) > sisal_elem_get_d(a, (uint64_t)(y - lb));
     });
+    return res;
+}
+
+/* ---- reduction along ONE axis -------------------------------------------
+   SUM/PRODUCT/LEAST/GREATEST/ARGMAX/ARGMIN/MEAN/VARIANCE/STDDEV/ANY/ALL of a
+   rank-N array along one axis, giving rank N-1.
+
+   THE AXIS NUMBER IS 0-BASED -- the numbering PERMUTE and EXPAND already use.
+   That is not in tension with arrays being 1-based: an axis number is not an
+   element index.  ARGMAX/ARGMIN along an axis DO report a position, and that
+   one follows the reduced axis's own lower_bound, like every other index.
+
+   The result keeps the INPUT's element type, because that is what the frontend
+   types the port as.  MEAN along an axis of an INTEGER array therefore
+   truncates, exactly as an integer-typed mean must. */
+enum {
+    SISAL_RAX_SUM = 0, SISAL_RAX_PRODUCT, SISAL_RAX_LEAST, SISAL_RAX_GREATEST,
+    SISAL_RAX_ARGMAX, SISAL_RAX_ARGMIN, SISAL_RAX_MEAN, SISAL_RAX_VARIANCE,
+    SISAL_RAX_STDDEV, SISAL_RAX_ANY, SISAL_RAX_ALL
+};
+inline sisal_array_t sisal_array_reduce_axis(sisal_array_t a, int32_t axis,
+                                             int32_t op) {
+    int nd = (int)a.rank;
+    if (nd <= 0) return a;
+    if (axis < 0 || axis >= nd) {
+        fprintf(stderr, "SISAL runtime error: reduction axis %d is out of range "
+                        "for a rank-%d array (axes are 0-based, so 0 .. %d).\n",
+                axis, nd, nd - 1);
+        abort();
+    }
+    int64_t d[8];
+    for (int i = 0; i < nd && i < 8; i++)
+        d[i] = (a.dims[i] > 0) ? a.dims[i] : (int64_t)a.size;
+
+    int64_t outer = 1, mid = d[axis], inner = 1;
+    for (int i = 0; i < axis; i++) outer *= d[i];
+    for (int i = axis + 1; i < nd; i++) inner *= d[i];
+    uint64_t rsize = (uint64_t)(outer * inner);
+
+    int rrank = (nd - 1 > 0) ? nd - 1 : 1;
+    sisal_array_t res = sisal_array_alloc_sized(rrank, a.type_id,
+                                                rsize ? rsize : 1, sisal_esz(a));
+    res.size = rsize;
+    int r = 0;
+    for (int i = 0; i < nd; i++)
+        if (i != axis) { res.dims[r] = d[i]; res.lower_bound[r] = a.lower_bound[i]; r++; }
+    if (r == 0) { res.dims[0] = 1; res.lower_bound[0] = 1; r = 1; }   /* rank-1 in, scalar out */
+    res.rank = r;
+    for (int i = r; i < 8; i++) { res.dims[i] = 0; res.lower_bound[i] = 1; }
+
+    for (int64_t o = 0; o < outer; o++)
+        for (int64_t i2 = 0; i2 < inner; i2++) {
+            double out = 0.0;
+            int64_t best = 0;
+            double acc = 0.0, acc2 = 0.0;
+            for (int64_t m = 0; m < mid; m++) {
+                double v = sisal_elem_get_d(a, (uint64_t)((o * mid + m) * inner + i2));
+                switch (op) {
+                    case SISAL_RAX_SUM: case SISAL_RAX_MEAN:
+                    case SISAL_RAX_VARIANCE: case SISAL_RAX_STDDEV:
+                        acc += v; acc2 += v * v; break;
+                    case SISAL_RAX_PRODUCT: acc = (m == 0) ? v : acc * v; break;
+                    case SISAL_RAX_LEAST:   if (m == 0 || v < acc) acc = v; break;
+                    case SISAL_RAX_GREATEST:if (m == 0 || v > acc) acc = v; break;
+                    case SISAL_RAX_ARGMAX:  if (m == 0 || v > acc) { acc = v; best = m; } break;
+                    case SISAL_RAX_ARGMIN:  if (m == 0 || v < acc) { acc = v; best = m; } break;
+                    case SISAL_RAX_ANY:     if (v != 0.0) acc = 1.0; break;
+                    case SISAL_RAX_ALL:     if (m == 0) acc = 1.0;
+                                            if (v == 0.0) acc = 0.0; break;
+                }
+            }
+            switch (op) {
+                case SISAL_RAX_MEAN:  out = (mid > 0) ? acc / (double)mid : 0.0; break;
+                case SISAL_RAX_VARIANCE: {
+                    double mu = (mid > 0) ? acc / (double)mid : 0.0;
+                    out = (mid > 0) ? acc2 / (double)mid - mu * mu : 0.0;
+                    if (out < 0) out = 0;               /* cancellation guard */
+                    break;
+                }
+                case SISAL_RAX_STDDEV: {
+                    double mu = (mid > 0) ? acc / (double)mid : 0.0;
+                    double vr = (mid > 0) ? acc2 / (double)mid - mu * mu : 0.0;
+                    out = sqrt(vr < 0 ? 0 : vr);
+                    break;
+                }
+                case SISAL_RAX_ARGMAX: case SISAL_RAX_ARGMIN:
+                    out = (double)(best + a.lower_bound[axis]); break;
+                case SISAL_RAX_ANY: case SISAL_RAX_ALL:
+                    out = (mid == 0) ? (op == SISAL_RAX_ALL ? 1.0 : 0.0) : acc; break;
+                default: out = (mid == 0 && op == SISAL_RAX_PRODUCT) ? 1.0 : acc; break;
+            }
+            sisal_elem_set_d(res, o * inner + i2, out);
+        }
     return res;
 }
 
