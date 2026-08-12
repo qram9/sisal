@@ -557,6 +557,7 @@ struct FUNC_MAIN_bulk_results {
   sisal_array_t ravel, expand, sq_round;
   sisal_array_t gup, gdn;
   sisal_array_t ax_s0, ax_s1, ax_p1, ax_l0, ax_g1, ax_m0, ax_amax1, ax_amin0;
+  sisal_array_t op_add, op_sub;
 };
 extern "C" struct FUNC_MAIN_bulk_results
 func_MAIN (sisal_array_t a, sisal_array_t b, sisal_array_t msk, sisal_array_t x,
@@ -13677,7 +13678,7 @@ static void test_mdfftfreq_dv (void)
 // identified as wrong rather than absorbed: SCAN dropped the total (af35d42)
 // and ARGMAX/ARGMIN answered 0 for every input.  Both are fixed and covered
 // here; what remains uncovered has no lowering at all and is listed in the
-// .sis; all 56 now agree exactly.
+// .sis; all 58 now agree exactly.
 //
 // The elementwise eight could not even be RETURNED alongside the rest before
 // 34f06a7 (the BROADCAST_ERROR panic edge typed result port 1 as int32_t), so
@@ -13691,7 +13692,7 @@ struct bulk_case {
 };
 static void test_bulk_ops_dv (void)
 {
-  printf ("\n=== Group: bulk_ops_dv (56 whole-array primitives vs standard "
+  printf ("\n=== Group: bulk_ops_dv (58 whole-array primitives vs standard "
           "definitions) ===\n");
   const std::vector<bulk_case> cases = {
     { { 3, -1, 4, 0, 5 }, { 2, -1, 7, 0, 1 }, { 1, 0, 1, 0, 1 },
@@ -13895,7 +13896,17 @@ static void test_bulk_ops_dv (void)
         std::vector<float> mx = {3,3};     cf (r.ax_amax1, mx);   // 1-based
         std::vector<float> mn = {1,1,1};   cf (r.ax_amin0, mn); }
 
-      snprintf (msg, sizeof msg, "%-34s all 56 primitives match", c.nm);
+      // OUTERPRODUCT: N x N of f(a[i], b[j]).  The subtracting one is what
+      // pins the OPERAND ORDER -- f(b[j], a[i]) would negate every cell.
+      { std::vector<int32_t> wa, ws;
+        for (int i = 0; i < N; i++)
+          for (int j = 0; j < N; j++)
+            { wa.push_back (c.A[i] + c.B[j]); ws.push_back (c.A[i] - c.B[j]); }
+        ci (r.op_add, wa); ci (r.op_sub, ws);
+        if (r.op_add.rank != 2 || (int)r.op_add.dims[0] != N
+            || (int)r.op_add.dims[1] != N) local++; }
+
+      snprintf (msg, sizeof msg, "%-34s all 58 primitives match", c.nm);
       check (msg, local == 0);
       bad += local;
     }

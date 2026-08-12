@@ -10061,24 +10061,94 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_gr = If1.add_edge mn mp rn 0 mt in_gr in
       let in_gr = If1.add_edge an ap rn 1 at in_gr in
       ((rn, rp, dv_ty), in_gr)
-  | Outerproduct_exp (f_exp, a, b) ->
-      (* DV_OUTERPRODUCT(f_ref, A, B) — rank-2 result; output type approximated as A's type *)
-      let (fn_, fp, ft), in_gr = do_simple_exp in_gr f_exp in
-      let fn_, fp, ft = If1.find_incoming_regular_node (fn_, fp, ft) in_gr in
-      let (an, ap, at), in_gr = do_simple_exp in_gr a in
-      let an, ap, at = If1.find_incoming_regular_node (an, ap, at) in_gr in
-      let (bn, bp, bt), in_gr = do_simple_exp in_gr b in
-      let bn, bp, bt = If1.find_incoming_regular_node (bn, bp, bt) in_gr in
-      let (rn, rp, _), in_gr =
-        If1.add_node_2
-          (`Simple
-             (If1.DV_OUTERPRODUCT, [| ""; ""; "" |], [| "" |], [ If1.No_pragma ]))
-          in_gr
+  | Outerproduct_exp (f_exp, a, b) -> (
+      (* APL's f∘. — OUTERPRODUCT(f, A, B)[i,j] = f(A[i], B[j]), a rank-2 result.
+
+         EXPANDED HERE into a cross forall that CALLS f, rather than emitted as a
+         DV_OUTERPRODUCT node with the function on a data edge.  That edge
+         carried a FUNCTION_TYPE, which reaches the backend with no C mapping
+         ("don't know how to map this IF1 type to a C type: FUNCTION_TYPE"), and
+         it was the only reason OUTERPRODUCT did not lower.  MAP, FOLDL, FOLDR,
+         SCAN and STENCIL take function arguments too and all work, because they
+         are expanded the same way -- the function name becomes an ordinary
+         INVOCATION and never a value. *)
+      let rec unwrap_pos = function Ast.Pos (_, e) -> unwrap_pos e | e -> e in
+      let fn_parts =
+        match unwrap_pos f_exp with
+        | Ast.Val (Ast.Value_name parts) -> Some parts
+        | _ -> None
       in
-      let in_gr = If1.add_edge fn_ fp rn 0 ft in_gr in
-      let in_gr = If1.add_edge an ap rn 1 at in_gr in
-      let in_gr = If1.add_edge bn bp rn 2 bt in_gr in
-      ((rn, rp, at), in_gr)
+      match fn_parts with
+      | None ->
+          (* not a plain name: bind it, then re-enter -- as SCAN does *)
+          do_simple_exp in_gr
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__OPF" ] ],
+                         Ast.Exp [ f_exp ] );
+                   ],
+                 Ast.Exp
+                   [
+                     Ast.Outerproduct_exp
+                       (Ast.Val (Ast.Value_name [ "__OPF" ]), a, b);
+                   ] ))
+      | Some fn_parts ->
+          let mk_inv fn args =
+            Ast.Invocation (Ast.Function_name fn, Ast.Arg (Ast.Exp args))
+          in
+          let a_ref = Ast.Val (Ast.Value_name [ "__OPA" ]) in
+          let b_ref = Ast.Val (Ast.Value_name [ "__OPB" ]) in
+          let i_ref = Ast.Val (Ast.Value_name [ "__OPI" ]) in
+          let j_ref = Ast.Val (Ast.Value_name [ "__OPJ" ]) in
+          (* each axis runs over its own operand's REAL bounds, so a non-1-based
+             operand outer-products correctly too *)
+          let body =
+            Ast.For_all
+              ( Ast.Cross
+                  ( Ast.In_exp
+                      ( Ast.Value_name [ "__OPI" ],
+                        Ast.Exp
+                          [
+                            mk_inv [ "ARRAY_LIML" ] [ a_ref ];
+                            mk_inv [ "ARRAY_LIMH" ] [ a_ref ];
+                          ] ),
+                    Ast.In_exp
+                      ( Ast.Value_name [ "__OPJ" ],
+                        Ast.Exp
+                          [
+                            mk_inv [ "ARRAY_LIML" ] [ b_ref ];
+                            mk_inv [ "ARRAY_LIMH" ] [ b_ref ];
+                          ] ) ),
+                Ast.Decldef_part [],
+                [
+                  Ast.Return_exp
+                    ( (* `array_dv of`, not `array of`: a cross gather of plain
+                         `array of` builds array[array[T]], and the result of an
+                         outer product is one FLAT rank-2 dope *)
+                      Ast.Dv_array_of
+                        ( 1,
+                          mk_inv fn_parts
+                            [
+                              Ast.Array_ref (a_ref, Ast.Exp [ i_ref ]);
+                              Ast.Array_ref (b_ref, Ast.Exp [ j_ref ]);
+                            ] ),
+                      Ast.No_mask );
+                ] )
+          in
+          do_simple_exp in_gr
+            (Ast.Let
+               ( Ast.Decldef_part
+                   [
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__OPA" ] ],
+                         Ast.Exp [ a ] );
+                     Ast.Decldef
+                       ( [ Ast.Decl_no_type [ Ast.Decl_name "__OPB" ] ],
+                         Ast.Exp [ b ] );
+                   ],
+                 Ast.Exp [ body ] )))
   | Grade_up_exp arr ->
       (* DV_GRADE_UP(arr) — ascending sort indices; output array[int] *)
       let (an, ap, at), in_gr = do_simple_exp in_gr arr in

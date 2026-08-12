@@ -8,7 +8,7 @@
 % array_dv -- it needed a main and a reference.
 %
 % Measured before writing this: of the ~50 primitives the unit file names, 35
-% lower to C++ and compile.  All 56 are exercised here and agree with the
+% lower to C++ and compile.  All 58 are exercised here and agree with the
 % standard meaning of the operator.  Three did NOT when this file was first
 % written -- SCAN dropped the total (af35d42) and ARGMAX/ARGMIN answered 0 for
 % every input -- and were left out rather than pinned wrong until fixed.  What
@@ -62,7 +62,8 @@ function main( a, b : ai;              % rank-1 integers, equal length
         ai, ai,                        % CUMSUM CUMPROD
         ar, ar, ar,                    % RAVEL EXPAND SQUEEZE(EXPAND) round trip
         ai, ai,                        % GRADE_UP GRADE_DOWN
-        ar, ar, ar, ar, ar, ar, ar, ar )  % the AXIS reductions, both axes
+        ar, ar, ar, ar, ar, ar, ar, ar,   % the AXIS reductions, both axes
+        ai, ai )                       % OUTERPRODUCT, incl. a non-commutative f
   a + b,
   a - b,
   a * b,
@@ -125,10 +126,9 @@ function main( a, b : ai;              % rank-1 integers, equal length
   GREATEST(M, 1),
   MEAN(M, 0),
   ARGMAX(M, 1),                % positions, on the REDUCED axis's own base
-  ARGMIN(M, 0)
+  ARGMIN(M, 0),
+  OUTERPRODUCT(add_i, a, b),
+  OUTERPRODUCT(sub_i, a, b)    % non-commutative: pins f(A[i], B[j]) operand order
 end function
 
-% NOT COVERED -- OUTERPRODUCT alone.  Its function argument reaches the backend
-% as a FUNCTION_TYPE with no C mapping, the higher-order gap.  MAP, FOLDL,
-% FOLDR, SCAN and STENCIL also take function arguments and DO lower, so the gap
-% is specific to OUTERPRODUCT's path, not to higher-order ops in general.
+% Nothing from the unit file is left uncovered.
