@@ -9635,8 +9635,23 @@ and do_simple_exp_impl in_gr in_sim_ex =
                              ( [ Ast.Decl_no_type [ Ast.Decl_name "__SCNOUT" ] ],
                                Ast.Exp
                                  [
+                                   (* append THIS iteration's accumulator, not
+                                      `old __SCNACC`.  Every `old X` in a
+                                      for-initial is the PREVIOUS iteration's
+                                      value, so appending the old one stored the
+                                      running total from before this step's
+                                      update -- which repeated the seed and
+                                      dropped the final total entirely
+                                      ([1,2,3,4] scanned to [1,1,3,6] instead of
+                                      [1,3,6,10]).  A plain name refers to the
+                                      value being defined in this iteration, and
+                                      __SCNACC is bound above, so this reads the
+                                      new one without recomputing f. *)
                                    mk_inv [ "ARRAY_ADDH" ]
-                                     [ mk_old "__SCNOUT"; mk_old "__SCNACC" ];
+                                     [
+                                       mk_old "__SCNOUT";
+                                       Ast.Val (Ast.Value_name [ "__SCNACC" ]);
+                                     ];
                                  ] );
                          ]) ),
                 [

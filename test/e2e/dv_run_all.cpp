@@ -546,7 +546,7 @@ extern "C" struct FUNC_MAIN_cyk_results func_MAIN(sisal_array_t X);
 struct FUNC_MAIN_bulk_results {
   sisal_array_t add, sub, mul, neg, eq, lt, adds, muls;
   int32_t sum, prod, least, greatest, sumr, leastr;
-  sisal_array_t map; int32_t foldl, foldr;
+  sisal_array_t map; int32_t foldl, foldr; sisal_array_t scan, scans;
   sisal_array_t take, drop, rot, rev, comp, sort, nonzero, where;
   sisal_array_t concat, tile, pad, padf, stencil, inner, perm;
 };
@@ -13666,9 +13666,10 @@ static void test_mdfftfreq_dv (void)
 //
 // Every reference below is the STANDARD meaning of the operator, written
 // independently -- not a snapshot.  That is what let three of the 35 be
-// identified as wrong rather than absorbed: SCAN drops the total, and
-// ARGMAX/ARGMIN always return 0.  Those are excluded and documented in the
-// .sis; the 32 here agree exactly.
+// identified as wrong rather than absorbed: SCAN dropped the total (fixed
+// here, and now covered) and ARGMAX/ARGMIN always return 0.  The latter is
+// excluded and documented in the
+// .sis; the 33 here agree exactly.
 //
 // The elementwise eight could not even be RETURNED alongside the rest before
 // 34f06a7 (the BROADCAST_ERROR panic edge typed result port 1 as int32_t), so
@@ -13682,7 +13683,7 @@ struct bulk_case {
 };
 static void test_bulk_ops_dv (void)
 {
-  printf ("\n=== Group: bulk_ops_dv (32 whole-array primitives vs standard "
+  printf ("\n=== Group: bulk_ops_dv (33 whole-array primitives vs standard "
           "definitions) ===\n");
   const std::vector<bulk_case> cases = {
     { { 3, -1, 4, 0, 5 }, { 2, -1, 7, 0, 1 }, { 1, 0, 1, 0, 1 },
@@ -13774,6 +13775,14 @@ static void test_bulk_ops_dv (void)
       w.clear (); for (int i = 0; i < N; i++) w.push_back (-c.A[i]); ci (r.map, w);
       { int s = c.z; for (int i = 0; i < N; i++) s += c.A[i];
         cs (r.foldl, s); cs (r.foldr, s); }   // + is associative: both fold the same
+      // inclusive scan: out[0] = a[0], out[i] = f(out[i-1], a[i])
+      w.clear (); { int s = 0; for (int i = 0; i < N; i++) { s += c.A[i]; w.push_back (s); } }
+      ci (r.scan, w);
+      // the same with a NON-COMMUTATIVE f, which is what pins LEFT association:
+      // right association would give a different sequence entirely
+      w.clear (); { int s = c.A[0]; w.push_back (s);
+                    for (int i = 1; i < N; i++) { s -= c.A[i]; w.push_back (s); } }
+      ci (r.scans, w);
 
       w.clear (); for (int i = 0; i < c.n; i++) w.push_back (c.A[i]);       ci (r.take, w);
       w.clear (); for (int i = c.n; i < N; i++) w.push_back (c.A[i]);       ci (r.drop, w);
@@ -13812,7 +13821,7 @@ static void test_bulk_ops_dv (void)
           for (int j = 0; j < 3; j++) wf[j*2+i] = Mm[i*3+j];
         cf (r.perm, wf); }
 
-      snprintf (msg, sizeof msg, "%-34s all 32 primitives match", c.nm);
+      snprintf (msg, sizeof msg, "%-34s all 33 primitives match", c.nm);
       check (msg, local == 0);
       bad += local;
     }

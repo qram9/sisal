@@ -8,8 +8,8 @@
 % array_dv -- it needed a main and a reference.
 %
 % Measured before writing this: of the ~50 primitives the unit file names, 35
-% lower to C++ and compile.  32 of those 35 are exercised here and agree with
-% the standard meaning of the operator.  The three that do NOT are left out
+% lower to C++ and compile.  33 of those 35 are exercised here and agree with
+% the standard meaning of the operator.  The two that do NOT are left out
 % rather than pinned wrong -- a test that asserts today's output would cement
 % the bug -- and every omission is listed at the bottom with its reason.
 %
@@ -33,6 +33,7 @@ type ab = array_dv[boolean];
 % the helpers the higher-order primitives take as their function argument
 function add_i (u, v : integer returns integer)  u + v   end function
 function neg_i (u    : integer returns integer)  0 - u   end function
+function sub_i (u, v : integer returns integer)  u - v   end function
 function win_sum (w : ai returns integer)        SUM(w)  end function
 
 function main( a, b : ai;              % rank-1 integers, equal length
@@ -49,7 +50,7 @@ function main( a, b : ai;              % rank-1 integers, equal length
         ai, ai,                        % scalar broadcast + *
         integer, integer, integer, integer,   % SUM PRODUCT LEAST GREATEST
         integer, integer,                     % ranged SUM, ranged LEAST
-        ai, integer, integer,          % MAP FOLDL FOLDR
+        ai, integer, integer, ai, ai,   % MAP FOLDL FOLDR SCAN SCAN(-)
         ai, ai, ai, ai,                % TAKE DROP ROTATE REVERSE
         ai, ai,                        % COMPRESS SORT
         ai, ar,                        % NONZERO WHERE
@@ -72,6 +73,8 @@ function main( a, b : ai;              % rank-1 integers, equal length
   MAP(neg_i, a),
   FOLDL(add_i, z, a),
   FOLDR(add_i, z, a),
+  SCAN(add_i, a),
+  SCAN(sub_i, a),      % non-commutative: pins LEFT association
   TAKE(a, n),
   DROP(a, n),
   ROTATE(a, k),
@@ -91,10 +94,6 @@ end function
 
 % NOT COVERED, GROUP 1 -- lowers, but COMPUTES THE WRONG ANSWER.  Left out so
 % this file does not cement it; fix, then add here.
-%   SCAN(f, a)  -- returns result[0] = a[0] and result[i] = inclusive[i-1],
-%                  i.e. the inclusive scan shifted right one with slot 0 filled
-%                  by a[0] and the TOTAL DROPPED.  [1,2,3,4] gives [1,1,3,6];
-%                  APL's `\` and numpy's cumsum both give [1,3,6,10].
 %   ARGMAX(a), ARGMIN(a) -- always 0, for every input, including a 1-element
 %                  array (so it is not a 0-vs-1-based convention).  The forall
 %                  reduction over an INDEX generator is fine
