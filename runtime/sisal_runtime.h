@@ -1488,6 +1488,37 @@ static inline bool sisal_elem_is_nonzero(sisal_array_t a, uint64_t i) {
     }
 }
 
+/* element i of `a` as a double (per the array's element type) */
+static inline double sisal_elem_get_d(sisal_array_t a, uint64_t i) {
+    switch (a.type_id) {
+        case 4: return ((double*)a.data)[i];
+        case 8: return ((float*)a.data)[i];
+        case 7: return (double)((int64_t*)a.data)[i];
+        default: return (double)((int32_t*)a.data)[i];   /* int / bool */
+    }
+}
+
+/* ARGMAX(a) / ARGMIN(a): the index of the FIRST maximum / minimum, on the
+   array's own indexing base -- like NONZERO, which also reports positions.
+   A strict comparison keeps the first of a tie, matching numpy.  Comparing as
+   double makes one helper serve every element type; the RESULT is an index, so
+   it is int32 regardless of what the array holds.  Empty input has no argmax:
+   0 is returned, which is outside a 1-based array. */
+inline int32_t sisal_array_reduce_argmax(sisal_array_t a) {
+    if (a.size == 0) return 0;
+    uint64_t best = 0;
+    for (uint64_t i = 1; i < a.size; i++)
+        if (sisal_elem_get_d(a, i) > sisal_elem_get_d(a, best)) best = i;
+    return (int32_t)(best + a.lower_bound[0]);
+}
+inline int32_t sisal_array_reduce_argmin(sisal_array_t a) {
+    if (a.size == 0) return 0;
+    uint64_t best = 0;
+    for (uint64_t i = 1; i < a.size; i++)
+        if (sisal_elem_get_d(a, i) < sisal_elem_get_d(a, best)) best = i;
+    return (int32_t)(best + a.lower_bound[0]);
+}
+
 /* NONZERO(a): the 1-based indices (int array) of the non-zero elements of a. */
 inline sisal_array_t sisal_array_nonzero(sisal_array_t a) {
     uint64_t count = 0;

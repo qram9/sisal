@@ -547,7 +547,9 @@ struct FUNC_MAIN_bulk_results {
   sisal_array_t add, sub, mul, neg, eq, lt, adds, muls;
   int32_t sum, prod, least, greatest, sumr, leastr;
   sisal_array_t map; int32_t foldl, foldr; sisal_array_t scan, scans;
-  sisal_array_t take, drop, rot, rev, comp, sort, nonzero, where;
+  sisal_array_t take, drop, rot, rev, comp, sort;
+  int32_t argmax, argmin;
+  sisal_array_t nonzero, where;
   sisal_array_t concat, tile, pad, padf, stencil, inner, perm;
 };
 extern "C" struct FUNC_MAIN_bulk_results
@@ -13666,10 +13668,10 @@ static void test_mdfftfreq_dv (void)
 //
 // Every reference below is the STANDARD meaning of the operator, written
 // independently -- not a snapshot.  That is what let three of the 35 be
-// identified as wrong rather than absorbed: SCAN dropped the total (fixed
-// here, and now covered) and ARGMAX/ARGMIN always return 0.  The latter is
-// excluded and documented in the
-// .sis; the 33 here agree exactly.
+// identified as wrong rather than absorbed: SCAN dropped the total (af35d42)
+// and ARGMAX/ARGMIN answered 0 for every input.  Both are fixed and covered
+// here; what remains uncovered has no lowering at all and is listed in the
+// .sis; all 35 now agree exactly.
 //
 // The elementwise eight could not even be RETURNED alongside the rest before
 // 34f06a7 (the BROADCAST_ERROR panic edge typed result port 1 as int32_t), so
@@ -13683,7 +13685,7 @@ struct bulk_case {
 };
 static void test_bulk_ops_dv (void)
 {
-  printf ("\n=== Group: bulk_ops_dv (33 whole-array primitives vs standard "
+  printf ("\n=== Group: bulk_ops_dv (35 whole-array primitives vs standard "
           "definitions) ===\n");
   const std::vector<bulk_case> cases = {
     { { 3, -1, 4, 0, 5 }, { 2, -1, 7, 0, 1 }, { 1, 0, 1, 0, 1 },
@@ -13790,6 +13792,11 @@ static void test_bulk_ops_dv (void)
       w.clear (); for (int i = N - 1; i >= 0; i--) w.push_back (c.A[i]);    ci (r.rev, w);
       w.clear (); for (int i = 0; i < N; i++) if (c.Mk[i]) w.push_back (c.A[i]); ci (r.comp, w);
       w = c.A; std::sort (w.begin (), w.end ());                            ci (r.sort, w);
+      // index of the FIRST extremum, on the array's own base (here 1-based)
+      { int mi = 0, ni = 0;
+        for (int i = 1; i < N; i++)
+          { if (c.A[i] > c.A[mi]) mi = i; if (c.A[i] < c.A[ni]) ni = i; }
+        cs (r.argmax, mi + 1); cs (r.argmin, ni + 1); }
       w.clear (); for (int i = 0; i < N; i++) if (c.A[i] != 0) w.push_back (i + 1);
       ci (r.nonzero, w);                        // 1-based INDICES, not values
       { std::vector<float> wf;
@@ -13821,7 +13828,7 @@ static void test_bulk_ops_dv (void)
           for (int j = 0; j < 3; j++) wf[j*2+i] = Mm[i*3+j];
         cf (r.perm, wf); }
 
-      snprintf (msg, sizeof msg, "%-34s all 33 primitives match", c.nm);
+      snprintf (msg, sizeof msg, "%-34s all 35 primitives match", c.nm);
       check (msg, local == 0);
       bad += local;
     }

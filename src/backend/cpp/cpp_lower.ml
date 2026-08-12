@@ -3309,7 +3309,23 @@ and lower_simple env gr nid sym pin pout pr =
           | "greatest", C.Basic "double" -> "sisal_array_reduce_double_greatest"
           | "greatest", C.Basic "float" -> "sisal_array_reduce_greatest"
           | "greatest", C.Basic "int32_t" -> "sisal_array_reduce_int_greatest"
-          | _ -> "sisal_array_reduce_double_sum"
+          (* argmax/argmin yield an INDEX, so the result type is int32_t
+             whatever the array holds -- they key off the name alone, and one
+             type-generic helper serves every element type. *)
+          | "argmax", _ -> "sisal_array_reduce_argmax"
+          | "argmin", _ -> "sisal_array_reduce_argmin"
+          (* A known fold whose element type is not in the table above still
+             has a meaningful widest form. *)
+          | ("sum" | "product" | "least" | "greatest"), _ ->
+              "sisal_array_reduce_double_" ^ fname
+          (* Anything else must NOT silently become a sum.  ARGMAX(a) did
+             exactly that -- it reached the old catch-all, ran
+             reduce_double_sum over an int32 array and cast the garbage back to
+             int32, which came out 0 for every input. *)
+          | _ ->
+              failwith
+                (Printf.sprintf "REDUCE_ALL: no C lowering for reduction %S"
+                   fname)
         in
         C.Call (reduce_fn, [ e1 ])
     | INVOCATION ->
@@ -4965,7 +4981,47 @@ and lower_forall env gr gid nid loop_gr sub_gid pr =
                 (C.Id
                    (get_c_name env.proc_map env.gid_name_map gen_gid n 0 `Out
                       gen_gr))
-          | None -> None
+          | None -> (
+              (* An ELEMENT SCATTER (`for x in A`) has no RANGEGEN, so this used
+                 to fall through to None -- and emit_reduction's `idx` then
+                 defaulted to the literal 0, which is why `for x in a returns
+                 value of argmax x` answered 0 for every input while the index
+                 form was right.  The scatter loop counts with __k_<gid> over
+                 [0, size), so the Sisal index is that plus the array's own
+                 lower bound, the same base NONZERO reports positions on. *)
+              match
+                List.find_opt
+                  (fun n ->
+                    match NM.find_opt n gen_gr.nmap with
+                    | Some (Simple (_, (DV_SCATTER | ASCATTER), _, _, _)) -> true
+                    | _ -> false)
+                  (topo_sort gen_gr)
+              with
+              | Some n ->
+                  (* the SOURCE of the edge into the scatter's port 0 is the
+                     array; the scatter's own output is one ELEMENT of it *)
+                  let arr =
+                    match
+                      ES.fold
+                        (fun ((sn, sp), (dn, dp), _) acc ->
+                          if dn = n && dp = 0 then Some (sn, sp) else acc)
+                        gen_gr.eset None
+                    with
+                    | Some (sn, sp) ->
+                        Some
+                          (C.Id
+                             (get_c_name env.proc_map env.gid_name_map gen_gid
+                                sn sp `Out gen_gr))
+                    | None -> None
+                  in
+                  Option.map
+                    (fun a ->
+                      C.BinOp
+                        ( C.Add,
+                          C.Id (Printf.sprintf "__k_%d" gen_gid),
+                          C.Index (C.Member (a, "lower_bound"), C.LitInt 0) ))
+                    arr
+              | None -> None)
         in
         (* (c) per forall OUTPUT PORT: a gather (alloc + store) or a reduction
            (init + accumulate).  All share one loop + one gather counter. *)

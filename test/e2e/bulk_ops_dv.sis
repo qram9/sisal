@@ -8,10 +8,11 @@
 % array_dv -- it needed a main and a reference.
 %
 % Measured before writing this: of the ~50 primitives the unit file names, 35
-% lower to C++ and compile.  33 of those 35 are exercised here and agree with
-% the standard meaning of the operator.  The two that do NOT are left out
-% rather than pinned wrong -- a test that asserts today's output would cement
-% the bug -- and every omission is listed at the bottom with its reason.
+% lower to C++ and compile.  All 35 are exercised here and agree with the
+% standard meaning of the operator.  Three did NOT when this file was first
+% written -- SCAN dropped the total (af35d42) and ARGMAX/ARGMIN answered 0 for
+% every input -- and were left out rather than pinned wrong until fixed.  What
+% is still missing has no C lowering at all and is listed at the bottom.
 %
 % Worth knowing: TAKE, DROP, TILE, CONCAT, MAP and SCAN do NOT lower to a named
 % runtime helper -- the backend generates a loop for each.  Their behaviour is
@@ -52,7 +53,7 @@ function main( a, b : ai;              % rank-1 integers, equal length
         integer, integer,                     % ranged SUM, ranged LEAST
         ai, integer, integer, ai, ai,   % MAP FOLDL FOLDR SCAN SCAN(-)
         ai, ai, ai, ai,                % TAKE DROP ROTATE REVERSE
-        ai, ai,                        % COMPRESS SORT
+        ai, ai, integer, integer,      % COMPRESS SORT ARGMAX ARGMIN
         ai, ar,                        % NONZERO WHERE
         ai, ai, ai, ai,                % CONCAT TILE PAD PAD-with-fill
         ai, ar, ar )                   % STENCIL INNERPRODUCT PERMUTE
@@ -81,6 +82,8 @@ function main( a, b : ai;              % rank-1 integers, equal length
   REVERSE(a),
   COMPRESS(msk, a),
   SORT(a),
+  ARGMAX(a),
+  ARGMIN(a),
   NONZERO(a),
   WHERE(msk, x, y),
   CONCAT(a, b),
@@ -92,17 +95,8 @@ function main( a, b : ai;              % rank-1 integers, equal length
   PERMUTE(M, 1, 0)
 end function
 
-% NOT COVERED, GROUP 1 -- lowers, but COMPUTES THE WRONG ANSWER.  Left out so
-% this file does not cement it; fix, then add here.
-%   ARGMAX(a), ARGMIN(a) -- always 0, for every input, including a 1-element
-%                  array (so it is not a 0-vs-1-based convention).  The forall
-%                  reduction over an INDEX generator is fine
-%                  (`for i in 1,n returns value of argmax a[i]` = 5), but the
-%                  SCATTER form `for x in a returns value of argmax x` is 0 too,
-%                  so the bulk op and the scatter reduction share the fault.
-%
-% NOT COVERED, GROUP 2 -- no C lowering at all today ("Unsupported IF1 Simple
-% node symbol"), so they cannot be given a value test yet:
+% NOT COVERED -- no C lowering at all today ("Unsupported IF1 Simple node
+% symbol"), so they cannot be given a value test yet:
 %   ANY, ALL, MEAN, VARIANCE, STDDEV, NORM   -- statistical / boolean folds
 %   CUMSUM, CUMPROD                          -- cumulative
 %   GRADE_UP / GRADE_DOWN (= ARGSORT)        -- DV_GRADE_UP / DV_GRADE_DOWN
