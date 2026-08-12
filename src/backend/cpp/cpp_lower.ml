@@ -2746,14 +2746,27 @@ and lower_simple env gr nid sym pin pout pr =
         if arm_is_boxed then
           C.UnaryOp (C.Deref, C.Member (e1, "val." ^ member))
         else C.Member (e1, "val." ^ member)
-    | ERROR_NODE when t_res = C.Basic "int32_t" ->
-        (* Port 0 is the "this did not conform" boolean, which the broadcast
-           diamond has already computed and folded.  Lowering this node to a
-           constant threw that verdict away, so a length mismatch silently
-           zero-padded to the longer operand.  Name the failure from the ERROR
-           type on the node's own out edge (BROADCAST_ERROR, ...) so the message
-           says which check fired. *)
-        let what =
+    | ERROR_NODE when t_res = C.Basic "int32_t" && has_in_port 0 ->
+        (* Two shapes reach here, and they say "failed" differently:
+
+           - the BROADCAST diamond feeds port 0 the "did not conform" boolean it
+             already computed and folded, so the node is only an error WHEN that
+             is true;
+           - an IF_CONFORM's ELSE arm holds a bare `ERROR [||]` with no
+             operands: arriving there IS the failure.
+
+           Only the FED form is trapped here.  The bare form is the error-monad
+           VALUE that the strict-dot-lengths ruling (53c0681) deliberately
+           settled on -- "a mismatch takes the ERROR arm (Typed_error result --
+           the established error-monad value)" -- and tst_loopat1_dv pins it,
+           expecting a mismatched dot to yield an empty result rather than to
+           abort.  Trapping it would overturn that ruling, which is a semantic
+           decision, not a bug fix; it keeps the old constant lowering below.
+
+           The fed form had no such semantics to preserve: it was not producing
+           an error value, it was silently zero-padding to the longer operand. *)
+        let failed = e1 in
+        let tag =
           ES.fold
             (fun ((sn, _), _, ty) acc ->
               if sn = nid then
@@ -2761,15 +2774,17 @@ and lower_simple env gr nid sym pin pout pr =
                 | Some (ERROR s) -> s
                 | _ -> acc
               else acc)
-            gr.eset "ERROR"
+            gr.eset ""
         in
         let msg =
-          match what with
+          match tag with
           | "BROADCAST_ERROR" ->
               "array operands do not conform: an elementwise operation needs matching extents"
+          | "" ->
+              "array operands do not conform: the generators must agree on their extents"
           | other -> other
         in
-        C.Call ("sisal_raise_error", [ e1; C.LitString msg ])
+        C.Call ("sisal_raise_error", [ failed; C.LitString msg ])
     | ERROR_NODE -> (
         match default_init_for t_res with Some e -> e | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)
