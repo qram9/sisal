@@ -1,0 +1,115 @@
+% BULK OPS -- the whole-array (APL-style) operator battery of
+% test/unit/bulk_ops.sis, given a driver and exact references.
+%
+% The unit file says of itself: "All functions are parse-only stubs; the bodies
+% just invoke the new primitives so the parser / AST builder get exercised."  So
+% it proved the operators PARSE and nothing about what they compute.  Nothing
+% needed rewriting for the dope-vector model -- it was already written in
+% array_dv -- it needed a main and a reference.
+%
+% Measured before writing this: of the ~50 primitives the unit file names, 35
+% lower to C++ and compile.  32 of those 35 are exercised here and agree with
+% the standard meaning of the operator.  The three that do NOT are left out
+% rather than pinned wrong -- a test that asserts today's output would cement
+% the bug -- and every omission is listed at the bottom with its reason.
+%
+% Worth knowing: TAKE, DROP, TILE, CONCAT, MAP and SCAN do NOT lower to a named
+% runtime helper -- the backend generates a loop for each.  Their behaviour is
+% therefore a property of the LOWERING, which is exactly what a value test pins
+% and a parse test cannot.
+%
+% The eight ELEMENTWISE forms below (a+b .. a*n) could not be returned from a
+% multi-output function until 34f06a7: the broadcast lowering's BROADCAST_ERROR
+% panic edge shares port numbers with the data ports, and infer_types typed
+% result port 1 from it, truncating a dope to int32_t at the ABI.  Keeping them
+% here alongside everything else is what pins that.
+
+define main
+
+type ai = array_dv[integer];
+type ar = array_dv[real];
+type ab = array_dv[boolean];
+
+% the helpers the higher-order primitives take as their function argument
+function add_i (u, v : integer returns integer)  u + v   end function
+function neg_i (u    : integer returns integer)  0 - u   end function
+function win_sum (w : ai returns integer)        SUM(w)  end function
+
+function main( a, b : ai;              % rank-1 integers, equal length
+               msk : ab;               % rank-1 mask, same length (NOT `m`:
+                                       % names are case-insensitive, so `m`
+                                       % would collide with the matrix `M`)
+               x, y : ar;              % rank-1 reals, same length
+               M : ar;                 % rank-2 reals, for PERMUTE
+               P, Q : ar;              % rank-2 reals, for INNERPRODUCT
+               n, lo, hi, k, z, f : integer
+      returns
+        ai, ai, ai, ai,                % elementwise + - * unary-
+        ab, ab,                        % elementwise = <
+        ai, ai,                        % scalar broadcast + *
+        integer, integer, integer, integer,   % SUM PRODUCT LEAST GREATEST
+        integer, integer,                     % ranged SUM, ranged LEAST
+        ai, integer, integer,          % MAP FOLDL FOLDR
+        ai, ai, ai, ai,                % TAKE DROP ROTATE REVERSE
+        ai, ai,                        % COMPRESS SORT
+        ai, ar,                        % NONZERO WHERE
+        ai, ai, ai, ai,                % CONCAT TILE PAD PAD-with-fill
+        ai, ar, ar )                   % STENCIL INNERPRODUCT PERMUTE
+  a + b,
+  a - b,
+  a * b,
+  -a,
+  a = b,
+  a < b,
+  a + n,
+  a * n,
+  SUM(a),
+  PRODUCT(a),
+  LEAST(a),
+  GREATEST(a),
+  SUM(a, lo, hi),
+  LEAST(a, lo, hi),
+  MAP(neg_i, a),
+  FOLDL(add_i, z, a),
+  FOLDR(add_i, z, a),
+  TAKE(a, n),
+  DROP(a, n),
+  ROTATE(a, k),
+  REVERSE(a),
+  COMPRESS(msk, a),
+  SORT(a),
+  NONZERO(a),
+  WHERE(msk, x, y),
+  CONCAT(a, b),
+  TILE(a, n),
+  PAD(a, lo, hi),
+  PAD(a, lo, hi, f),
+  STENCIL(win_sum, a, 3),
+  INNERPRODUCT(P, Q),
+  PERMUTE(M, 1, 0)
+end function
+
+% NOT COVERED, GROUP 1 -- lowers, but COMPUTES THE WRONG ANSWER.  Left out so
+% this file does not cement it; fix, then add here.
+%   SCAN(f, a)  -- returns result[0] = a[0] and result[i] = inclusive[i-1],
+%                  i.e. the inclusive scan shifted right one with slot 0 filled
+%                  by a[0] and the TOTAL DROPPED.  [1,2,3,4] gives [1,1,3,6];
+%                  APL's `\` and numpy's cumsum both give [1,3,6,10].
+%   ARGMAX(a), ARGMIN(a) -- always 0, for every input, including a 1-element
+%                  array (so it is not a 0-vs-1-based convention).  The forall
+%                  reduction over an INDEX generator is fine
+%                  (`for i in 1,n returns value of argmax a[i]` = 5), but the
+%                  SCATTER form `for x in a returns value of argmax x` is 0 too,
+%                  so the bulk op and the scatter reduction share the fault.
+%
+% NOT COVERED, GROUP 2 -- no C lowering at all today ("Unsupported IF1 Simple
+% node symbol"), so they cannot be given a value test yet:
+%   ANY, ALL, MEAN, VARIANCE, STDDEV, NORM   -- statistical / boolean folds
+%   CUMSUM, CUMPROD                          -- cumulative
+%   GRADE_UP / GRADE_DOWN (= ARGSORT)        -- DV_GRADE_UP / DV_GRADE_DOWN
+%   RAVEL (= FLATTEN_DV), SQUEEZE, EXPAND    -- shape-changing
+%   SUM/PRODUCT/LEAST/GREATEST(a, axis)      -- REDUCE_AXIS
+% and OUTERPRODUCT, which fails differently: its function argument reaches the
+% backend as a FUNCTION_TYPE with no C mapping.  MAP, FOLDL, FOLDR, SCAN and
+% STENCIL also take function arguments and DO lower, so that gap is specific to
+% OUTERPRODUCT's path, not to higher-order ops in general.
