@@ -1,0 +1,262 @@
+% UNSPLIT, part 6 of 8 -- the approximate Riemann solver, fluxev and its stages.
+%
+% fluxev solves a Riemann problem per interface and returns the four Euler
+% fluxes.  The stages, all rank-1 over the interface list lo..hi:
+%
+%   fluxev1  acoustic initial guess for the star pressure
+%   fluxev2  one Newton step on it (driven `niter` times by a for-initial)
+%   fluxev4  the remaining middle states: ustar, and the star densities
+%   fluxev5  sample the wave fan at speed xi to get the interface state
+%   fluxev6  turn that state into fluxes
+%
+% THE ARRAY REWRITE is purely notational here -- everything is rank 1, so
+% `array[double_real]` and OneDim both become array_dv[double_real] and the
+% gathers become `returns array_dv of`.  Nothing structural changes.  fluxev5's
+% six-way multi-bind from an `if` (ro, uo, vo, po, ri, vi := if ... then ...
+% else ... end if) ports unchanged.
+%
+% THE ORACLE.  Reimplementing an approximate Riemann solver would just be the
+% same algorithm typed twice, so the primary check is a PROPERTY that any
+% correct one must have:
+%
+%   CONSISTENCY.  If the left and right states are IDENTICAL, the Riemann
+%   problem is trivial -- the solution is that state everywhere -- so the flux
+%   must be the analytic Euler flux of it, for EVERY sampling speed xi:
+%
+%       f1 = rho*u                f3 = rho*u*v
+%       f2 = rho*u^2 + p          f4 = u*( gamma*p/(gamma-1) + rho*(u^2+v^2)/2 )
+%
+%   Following it through the stages shows why this is a real test rather than a
+%   tautology: fluxev1 must return pstar = p exactly (the wl*wr*(ul-ur) term has
+%   to vanish), the Newton step in fluxev2 must be a FIXED POINT there
+%   (ustarl - ustarr = 0), fluxev4 must give ustar = u and rstar = rho on both
+%   sides, and fluxev5 must return the same state whichever side of the fan xi
+%   falls on -- si and so coincide, so `frac` is 0 or 1 and BOTH must give the
+%   same answer.  An error in any stage breaks it.
+%
+%   SYMMETRY.  For a mirrored pair (same rho and p, ul = -ur) the star velocity
+%   must be exactly 0 by symmetry, whatever the Newton iteration does.
+%
+% A transcription of the chain runs alongside on an asymmetric pair, to catch a
+% mis-ported term the two properties leave undisturbed.
+
+define main
+
+type OneDim = array_dv[ double_real ];
+
+function sqr( x : double_real returns double_real )
+  x * x
+end function
+
+function sign( x, y : double_real returns double_real )
+  if y >= 0.0d0 then abs( x ) else -abs( x ) end if
+end function
+
+function fluxev1( lo, hi : integer; gamma : double_real;
+                  rl, ul, pl, rr, ur, pr, smallp : OneDim
+                  returns OneDim, integer )
+  let
+    pstar1 := for k in lo, hi
+                wl     := sqrt( gamma * rl[k] * pl[k] );
+                wr     := sqrt( gamma * rr[k] * pr[k] );
+                pstar2 := ( wr * pl[k] + wl * pr[k] +
+                            wl * wr * ( ul[k] - ur[k] ) ) / ( wl + wr );
+                pstar3 := max( smallp[k], pstar2 )
+              returns array_dv of pstar3
+              end for;
+    itno := 1
+  in
+    pstar1, itno
+  end let
+end function
+
+function fluxev2( lo, hi : integer; half, forth, one, gm1, gp1 : double_real;
+                  rl, rr, old_pstar1, pl, pr, ul, ur, smallp : OneDim
+                  returns OneDim )
+  let
+    pstar1 := for k in lo, hi
+                wl      := sqrt( half * rl[k] * ( gp1 * old_pstar1[k] +
+                                                  gm1 * pl[k] ) );
+                wlfrac  := one / wl;
+                dwl     := forth * rl[k] * gp1 * wlfrac;
+                ustarl  := ul[k] - wlfrac * ( old_pstar1[k] - pl[k] );
+                dustarl := wlfrac * ( wlfrac * dwl * ( old_pstar1[k] - pl[k] )
+                                      - one );
+
+                wr      := sqrt( half * rr[k] * ( gp1 * old_pstar1[k] +
+                                                  gm1 * pr[k] ) );
+                wrfrac  := one / wr;
+                dwr     := forth * rr[k] * gp1 * wrfrac;
+                ustarr  := ur[k] + wrfrac * ( old_pstar1[k] - pr[k] );
+                dustarr := wrfrac * ( one - wrfrac * dwr
+                                            * ( old_pstar1[k] - pr[k] ) );
+
+                pstar2  := old_pstar1[k]
+                           - ( ustarl - ustarr ) / ( dustarl - dustarr );
+                pstar3  := max( smallp[k], pstar2 )
+              returns array_dv of pstar3
+              end for
+  in
+    pstar1
+  end let
+end function
+
+function fluxev4( lo, hi : integer;
+                  half, gm1, gp1 : double_real;
+                  rl, rr, pstar, pl, pr, ul, ur : OneDim
+                  returns OneDim, OneDim, OneDim )
+  let
+    ustar, rstarl, rstarr :=
+      for k in lo, hi
+        wlsq    := half * rl[k] * ( gp1 * pstar[k] + gm1 * pl[k] );
+        wrsq    := half * rr[k] * ( gp1 * pstar[k] + gm1 * pr[k] );
+        wl      := -sqrt( wlsq );
+        wr      :=  sqrt( wrsq );
+        ustarl  := ul[k] + ( pstar[k] - pl[k] ) / wl;
+        ustarr  := ur[k] + ( pstar[k] - pr[k] ) / wr;
+        ustar1  := half * ( ustarl + ustarr );
+
+        rstarl1 := wlsq * rl[k] / ( wlsq - rl[k] * ( pstar[k] - pl[k] ) );
+        rstarr1 := wrsq * rr[k] / ( wrsq - rr[k] * ( pstar[k] - pr[k] ) )
+      returns array_dv of ustar1
+              array_dv of rstarl1
+              array_dv of rstarr1
+      end for
+  in
+    ustar, rstarl, rstarr
+  end let
+end function
+
+function fluxev5( lo, hi : integer;
+                  zero, half, one, xi, gamma, small, gm1, gp1 : double_real;
+                  rl, rr, vl, vr, pl, pr, ul, ur,
+                  pstar, ustar, rstarl, rstarr : OneDim
+                  returns OneDim, OneDim, OneDim, OneDim )
+  let
+    rg, ug, vg, pg :=
+      for k in lo, hi
+        chi := sign( one, xi - ustar[k] );
+        % which outer state, and which inner state
+        ro, uo, vo, po, ri, vi := if ( chi >= zero ) then
+                                    rr[k], ur[k], vr[k], pr[k], rstarr[k], vr[k]
+                                  else
+                                    rl[k], ul[k], vl[k], pl[k], rstarl[k], vl[k]
+                                  end if;
+        ui := ustar[k];
+        pi := pstar[k];
+
+        ci := sqrt( gamma * pi / ri );
+        co := sqrt( gamma * po / ro );
+
+        wo    := sqrt( half * ro * ( gp1 * pi + gm1 * po ) );
+        shock := chi * uo + wo / ro;
+        si, so := if ( pi - po < zero ) then
+                    chi * ui + ci, chi * uo + co
+                  else
+                    shock, shock
+                  end if;
+
+        sdenom := one / max( small, so - si );
+        frac1  := if ( chi * xi >= so ) then zero
+                  else ( so - xi * chi ) * sdenom end if;
+        frac   := if ( chi * xi < si ) then one else frac1 end if;
+
+        rg1 := ro + frac * ( ri - ro );
+        ug1 := uo + frac * ( ui - uo );
+        vg1 := vo + frac * ( vi - vo );
+        pg1 := po + frac * ( pi - po )
+      returns array_dv of rg1
+              array_dv of ug1
+              array_dv of vg1
+              array_dv of pg1
+      end for
+  in
+    rg, ug, vg, pg
+  end let
+end function
+
+function fluxev6( lo, hi : integer; half, gamma, gm1 : double_real;
+                  rg, ug, pg, vg : OneDim
+                  returns OneDim, OneDim, OneDim, OneDim )
+  let
+    f1, f2, f3, f4 :=
+      for k in lo, hi
+        f1a := rg[k] * ug[k];
+        f2a := rg[k] * sqr( ug[k] ) + pg[k];
+        f3a := rg[k] * ug[k] * vg[k];
+        f4a := ug[k] * ( gamma * pg[k] / gm1
+                         + half * rg[k] * ( sqr( ug[k] ) + sqr( vg[k] ) ) )
+      returns array_dv of f1a
+              array_dv of f2a
+              array_dv of f3a
+              array_dv of f4a
+      end for
+  in
+    f1, f2, f3, f4
+  end let
+end function
+
+function fluxev( rl, ul, vl, pl : OneDim;
+                 lo, hi, niter : integer;
+                 lnewton : boolean;
+                 gamma, xi : double_real;
+                 smallp, rr, ur, vr, pr : OneDim
+                 returns OneDim, OneDim, OneDim, OneDim )
+  let
+    one   := 1.0d0;
+    half  := 0.5d0;
+    forth := 0.25d0;
+    small := 1.0d-6;
+    zero  := 0.0d0;
+    gm1   := gamma - one;
+    gp1   := gamma + one;
+
+    pstar := for initial
+               pstar1, itno := fluxev1( lo, hi, gamma, rl, ul, pl, rr,
+                                        ur, pr, smallp )
+             while itno <= niter repeat
+               pstar1 := fluxev2( lo, hi, half, forth, one, gm1, gp1,
+                                  rl, rr, old pstar1, pl, pr, ul, ur,
+                                  smallp );
+               itno := old itno + 1
+             returns value of pstar1
+             end for;
+
+    ustar, rstarl, rstarr :=
+      fluxev4( lo, hi, half, gm1, gp1, rl, rr, pstar, pl, pr, ul, ur );
+
+    rg, ug, vg, pg :=
+      fluxev5( lo, hi, zero, half, one, xi, gamma, small, gm1, gp1,
+               rl, rr, vl, vr, pl, pr, ul, ur,
+               pstar, ustar, rstarl, rstarr );
+
+    f1, f2, f3, f4 := fluxev6( lo, hi, half, gamma, gm1, rg, ug, pg, vg )
+  in
+    f1, f2, f3, f4
+  end let
+end function
+
+% ustar is exposed as well, so the symmetry property can be checked directly
+function main( rl, ul, vl, pl, rr, ur, vr, pr, smallp : OneDim;
+               n, niter : integer; gamma, xi : double_real
+      returns OneDim, OneDim, OneDim, OneDim, OneDim )
+  let
+    one   := 1.0d0;
+    half  := 0.5d0;
+    gm1   := gamma - one;
+    gp1   := gamma + one;
+    f1, f2, f3, f4 := fluxev( rl, ul, vl, pl, 1, n, niter, true, gamma, xi,
+                              smallp, rr, ur, vr, pr );
+    pstar := for initial
+               p1, itno := fluxev1( 1, n, gamma, rl, ul, pl, rr, ur, pr, smallp )
+             while itno <= niter repeat
+               p1 := fluxev2( 1, n, half, 0.25d0, one, gm1, gp1,
+                              rl, rr, old p1, pl, pr, ul, ur, smallp );
+               itno := old itno + 1
+             returns value of p1
+             end for;
+    us, rsl, rsr := fluxev4( 1, n, half, gm1, gp1, rl, rr, pstar, pl, pr, ul, ur )
+  in
+    f1, f2, f3, f4, us
+  end let
+end function
