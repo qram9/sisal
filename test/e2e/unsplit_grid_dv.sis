@@ -1,0 +1,254 @@
+% UNSPLIT, part 2 of 7 -- initial conditions and the starting timestep.
+%
+% ProbInit / buildplane1 / buildplane2 / InitDt from test/unit/unsplit.sis (the
+% LLNL AMR hydro integrator).  Part 1 covered the scalar helpers; this is the
+% first part with real arrays in it.
+%
+% THE ARRAY REWRITE.  `type PlaneArray = array [ OneDim ]` -- an array of rows --
+% becomes ONE flat array_dv[double_real] that is rank-2 at runtime.  The nested
+% gather ports VERBATIM apart from the keyword:
+%
+%     for j in 1, ny returns array_dv of
+%       for i in 1, nx returns array_dv of <expr>  end for
+%     end for              % -> rank 2, dims (ny, nx), row-major flat
+%
+% and InitDt already reads U1[ J, I ], which is the rank-2 subscript unchanged.
+% Note the index ORDER the original fixes and every later part inherits: the
+% OUTER axis is J (the row / y direction) and the inner is I, so a plane is
+% dims (ny, nx) and is subscripted [j, i], not [i, j].
+%
+% xcen / ycen / distsq are EMBEDDED in ProbInit here, as in the original -- part
+% 1 exercised them lifted, this exercises them nested, which is the form that
+% has to keep working.
+%
+% `sqrt` is declared `global` in the original; math intrinsics are implicit, so
+% the declaration is dropped rather than becoming an unresolved extern.
+%
+% THE ORACLE.  Everything here is closed form:
+%   * buildplane1/2 pick one of three values per cell by a predicate on the cell
+%     centre -- left/below the shock, inside the cloud radius, or ambient.  The
+%     harness passes three distinguishable markers so which branch fired is
+%     visible, rather than passing physical values where two branches might
+%     coincide.
+%   * ProbInit's constants are the Rankine-Hugoniot shock relations, each an
+%     explicit formula.
+%   * InitDt is a CFL minimum over every cell.
+%   * and a symmetry property that needs no formula at all: buildplane2 differs
+%     from buildplane1 only in testing ycen instead of xcen, so on a square
+%     domain with xcld = ycld the two come out TRANSPOSES of each other.
+
+define main
+
+type Plane = array_dv[ double_real ];
+
+function sqr( x : double_real returns double_real )
+  x * x
+end function
+
+function ProbInit( nx, ny : integer;
+                   xlft, xrgt, ybot, ytop : double_real;
+                   nstep : integer;
+                   time, gamma, denfact, rmach, xcld, ycld,
+                        shockdir, shockpos, radius : double_real
+                   returns Plane, Plane, Plane, Plane )
+
+  % ---- embedded functions, as in the original ----
+  function xcen( xl, dx : double_real; i : integer returns double_real )
+    xl + dx * ( double_real( i ) - 0.5d0 )
+  end function
+
+  function ycen( yb, dy : double_real; j : integer returns double_real )
+    yb + dy * ( double_real( j ) - 0.5d0 )
+  end function
+
+  function distsq( xc, xcld, yc, ycld : double_real returns double_real )
+    sqr( xc - xcld ) + sqr( yc - ycld )
+  end function
+
+  function buildplane1( nx, ny : integer;
+                        xlft, dx, xcld, shockpos,
+                        ybot, dy, ycld, radius,
+                        val_x_left_of_shk, val_dist_le_radius,
+                        val_dist_gt_radius : double_real
+                        returns Plane )
+    for j in 1, ny
+    returns array_dv of
+      for i in 1, nx
+        xceni := xcen( xlft, dx, i )
+      returns array_dv of
+        if xceni < shockpos then
+          val_x_left_of_shk
+        elseif distsq( xceni, xcld, ycen( ybot, dy, j ), ycld )
+               <= sqr( radius ) then
+          val_dist_le_radius
+        else val_dist_gt_radius
+        end if
+      end for
+    end for
+  end function
+
+  function buildplane2( nx, ny : integer;
+                        xlft, dx, xcld, shockpos,
+                        ybot, dy, ycld, radius,
+                        val_y_below_shk, val_dist_le_radius,
+                        val_dist_gt_radius : double_real
+                        returns Plane )
+    for j in 1, ny
+    returns array_dv of
+      for i in 1, nx
+        ycenj := ycen( ybot, dy, j )
+      returns array_dv of
+        if ycenj < shockpos then
+          val_y_below_shk
+        elseif distsq( xcen( xlft, dx, i ), xcld, ycenj, ycld )
+               <= sqr( radius ) then
+          val_dist_le_radius
+        else val_dist_gt_radius
+        end if
+      end for
+    end for
+  end function
+
+  let
+    zero   := 0.0d0;
+    half   := 0.5d0;
+    one    := 1.0d0;
+    two    := 2.0d0;
+    gamm1  := gamma - one;
+    gamp1  := gamma + one;
+
+    rhoamb := one;
+    pamb   := one / gamma;
+    eambi  := pamb / ( gamm1 * rhoamb );
+    unamb  := zero;
+    utamb  := zero;
+    eamb   := rhoamb * eambi;
+
+    rhocld := rhoamb * denfact;
+    pcld   := pamb;
+    ecldi  := pcld / ( gamm1 * rhocld );
+    uncld  := zero;
+    utcld  := zero;
+    ecld   := rhocld * ecldi;
+
+    ashk   := sqrt( gamma * pamb / rhoamb );
+    ushk   := ashk * two * ( sqr( rmach ) - one ) / ( gamp1 * rmach );
+    rhoshk := rhoamb * ( gamp1 * sqr( rmach ) ) / ( gamm1 * sqr( rmach ) + two );
+    pshk   := pamb * ( one + ( two * gamma * ( sqr( rmach ) - one ) ) / gamp1 );
+    eshki  := pshk / ( gamm1 * rhoshk );
+    unshk  := rhoshk * ushk;
+    utshk  := zero;
+    eshk   := rhoshk * ( eshki + half * sqr( ushk ) );
+
+    dx     := ( xrgt - xlft ) / double_real( nx );
+    dy     := ( ytop - ybot ) / double_real( ny )
+  in
+    if shockdir > zero then
+      % shock in the first coordinate direction
+      buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, rhoshk, rhocld, rhoamb ),
+      buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, unshk, uncld, unamb ),
+      buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, utshk, utcld, utamb ),
+      buildplane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, eshk, ecld, eamb )
+    else
+      % shock in the second coordinate direction
+      buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, rhoshk, rhocld, rhoamb ),
+      buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, unshk, uncld, unamb ),
+      buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, utshk, utcld, utamb ),
+      buildplane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld,
+                   radius, eshk, ecld, eamb )
+    end if
+  end let
+end function
+
+function InitDt( U1, U2, U3, U4 : Plane;
+                 NX, NY : integer;
+                 Dx, Dy, Cfl, TimeFact, Gamma : double_real
+                 returns double_real )
+  let
+    dt := for J in 1, NY
+          returns value of least
+            for I in 1, NX
+              Rho  := U1[ J, I ];
+              Ux   := abs( U2[ J, I ] );
+              Uy   := abs( U3[ J, I ] );
+              Eng  := U4[ J, I ];
+              Usq  := ( sqr( Ux ) + sqr( Uy ) ) / Rho;
+              Eint := Eng - 0.5d0 * Usq;
+              P    := Eint * ( Gamma - 1.0d0 );
+              C    := sqrt( Gamma * P / Rho );
+              Dt1  := Dx / ( C + Ux / Rho );
+              Dt2  := Dy / ( C + Uy / Rho )
+            returns value of least min( Dt1, Dt2 )
+            end for
+          end for
+  in
+    dt * Cfl * TimeFact
+  end let
+end function
+
+% Standalone copies of the two plane builders, so each can be checked on its
+% own with MARKER values (1/2/3) instead of physical ones -- with physical
+% values two branches can coincide and hide which one fired.
+function ProbInit_plane1( nx, ny : integer;
+                          xlft, dx, xcld, shockpos, ybot, dy, ycld, radius,
+                          v1, v2, v3 : double_real returns Plane )
+  for j in 1, ny
+  returns array_dv of
+    for i in 1, nx
+      xceni := xlft + dx * ( double_real( i ) - 0.5d0 );
+      ycenj := ybot + dy * ( double_real( j ) - 0.5d0 )
+    returns array_dv of
+      if xceni < shockpos then v1
+      elseif sqr( xceni - xcld ) + sqr( ycenj - ycld ) <= sqr( radius ) then v2
+      else v3
+      end if
+    end for
+  end for
+end function
+
+function ProbInit_plane2( nx, ny : integer;
+                          xlft, dx, xcld, shockpos, ybot, dy, ycld, radius,
+                          v1, v2, v3 : double_real returns Plane )
+  for j in 1, ny
+  returns array_dv of
+    for i in 1, nx
+      xceni := xlft + dx * ( double_real( i ) - 0.5d0 );
+      ycenj := ybot + dy * ( double_real( j ) - 0.5d0 )
+    returns array_dv of
+      if ycenj < shockpos then v1
+      elseif sqr( xceni - xcld ) + sqr( ycenj - ycld ) <= sqr( radius ) then v2
+      else v3
+      end if
+    end for
+  end for
+end function
+
+function main( nx, ny : integer;
+               xlft, xrgt, ybot, ytop, gamma, denfact, rmach,
+               xcld, ycld, shockdir, shockpos, radius, cfl, timefact
+                 : double_real
+      returns Plane, Plane, Plane, Plane, double_real, Plane, Plane )
+  let
+    dx := ( xrgt - xlft ) / double_real( nx );
+    dy := ( ytop - ybot ) / double_real( ny );
+    U1, U2, U3, U4 := ProbInit( nx, ny, xlft, xrgt, ybot, ytop, 0,
+                                0.0d0, gamma, denfact, rmach, xcld, ycld,
+                                shockdir, shockpos, radius )
+  in
+    U1, U2, U3, U4,
+    InitDt( U1, U2, U3, U4, nx, ny, dx, dy, cfl, timefact, gamma ),
+    % the two builders on their own, with markers 1 / 2 / 3 so which branch
+    % fired in each cell is visible
+    ProbInit_plane1( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld, radius,
+                     1.0d0, 2.0d0, 3.0d0 ),
+    ProbInit_plane2( nx, ny, xlft, dx, xcld, shockpos, ybot, dy, ycld, radius,
+                     1.0d0, 2.0d0, 3.0d0 )
+  end let
+end function

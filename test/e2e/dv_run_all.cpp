@@ -542,6 +542,18 @@ extern "C" struct FUNC_MAIN_mm_results func_MAIN(int32_t N);
 struct FUNC_MAIN_cyk_results { bool res_0; sisal_array_t res_1; };
 extern "C" struct FUNC_MAIN_cyk_results func_MAIN(sisal_array_t X);
 #endif
+#ifdef TEST_UNSPLIT_GRID_DV
+struct FUNC_MAIN_ugr_results {
+  sisal_array_t U1, U2, U3, U4;
+  double dt;
+  sisal_array_t p1, p2;
+};
+extern "C" struct FUNC_MAIN_ugr_results
+func_MAIN (int32_t nx, int32_t ny, double xlft, double xrgt, double ybot,
+           double ytop, double gamma, double denfact, double rmach, double xcld,
+           double ycld, double shockdir, double shockpos, double radius,
+           double cfl, double timefact);
+#endif
 #ifdef TEST_STREAM_RECORD_DV
 struct sr_pt  { int32_t x, y; };
 struct sr_mix { int32_t n; double v; bool ok; };
@@ -13693,6 +13705,167 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_GRID_DV
+// unsplit, part 2 of 7 -- initial conditions (ProbInit / buildplane1 /
+// buildplane2) and the starting timestep (InitDt).
+//
+// A PlaneArray (array of rows) is one flat rank-2 array_dv, dims (ny, nx),
+// subscripted [j, i] -- the OUTER axis is J, the row/y direction, which is the
+// order the original fixes and every later part inherits.
+//
+// All closed form: the plane builders choose one of three values per cell by a
+// predicate on the cell centre, ProbInit's constants are the Rankine-Hugoniot
+// relations, and InitDt is a CFL minimum.  Plus one property that needs no
+// formula: buildplane2 differs from buildplane1 only in testing ycen instead of
+// xcen, so on a square domain with xcld = ycld the two are TRANSPOSES.
+static void test_unsplit_grid_dv (void)
+{
+  printf ("\n=== Group: unsplit_grid_dv (part 2/7: initial state + CFL dt) "
+          "===\n");
+  int bad = 0, cases = 0;
+  char msg[190];
+
+  struct Cfg { int nx, ny; double xl, xr, yb, yt, gam, den, mach,
+                      xc, yc, sdir, spos, rad; const char *nm; };
+  const Cfg cfgs[] = {
+    { 8,  6, 0.0, 1.0, 0.0, 1.0, 1.4, 10.0, 2.0, 0.5, 0.5,  1.0, 0.25, 0.2,
+      "x-shock, cloud inside" },
+    { 6,  8, 0.0, 1.0, 0.0, 1.0, 1.4, 10.0, 2.0, 0.5, 0.5, -1.0, 0.25, 0.2,
+      "y-shock (buildplane2 path)" },
+    { 5,  5, -1.0, 1.0, -1.0, 1.0, 1.6667, 4.0, 3.0, 0.0, 0.0, 1.0, -0.5, 0.6,
+      "centred cloud, wide radius" },
+    { 4,  4, 0.0, 1.0, 0.0, 1.0, 1.4, 1.0, 1.5, 9.0, 9.0, 1.0, -5.0, 0.1,
+      "shock left of everything, cloud far away" },
+    // A cell centre sitting EXACTLY on the radius: dx = 0.25 puts centres at
+    // 0.125/0.375/0.625/0.875, so with xcld = 0.125, ycld = 0.375 the cell
+    // (j=2,i=2) is at distance exactly 0.25.  All binary-exact, so `<=` vs `<`
+    // is decided rather than lost in rounding -- without this the boundary of
+    // the cloud test is untested (measured: flipping it changed nothing).
+    { 4,  4, 0.0, 1.0, 0.0, 1.0, 1.4, 3.0, 2.0, 0.125, 0.375, 1.0, -1.0, 0.25,
+      "cell centre exactly ON the cloud radius" },
+  };
+
+  for (const Cfg &c : cfgs)
+    {
+      const double dx = (c.xr - c.xl) / c.nx, dy = (c.yt - c.yb) / c.ny;
+      const double cfl = 0.4, tf = 0.75;
+      auto r = func_MAIN (c.nx, c.ny, c.xl, c.xr, c.yb, c.yt, c.gam, c.den,
+                          c.mach, c.xc, c.yc, c.sdir, c.spos, c.rad, cfl, tf);
+      cases++;
+
+      // ---- Rankine-Hugoniot constants, straight from the formulas ----
+      const double one = 1.0, two = 2.0, half = 0.5;
+      const double gamm1 = c.gam - one, gamp1 = c.gam + one;
+      const double rhoamb = one, pamb = one / c.gam;
+      const double eamb = rhoamb * (pamb / (gamm1 * rhoamb));
+      const double rhocld = rhoamb * c.den;
+      const double ecld = rhocld * (pamb / (gamm1 * rhocld));
+      const double ashk = sqrt (c.gam * pamb / rhoamb);
+      const double ushk = ashk * two * (c.mach * c.mach - one) / (gamp1 * c.mach);
+      const double rhoshk = rhoamb * (gamp1 * c.mach * c.mach)
+                            / (gamm1 * c.mach * c.mach + two);
+      const double pshk = pamb * (one + (two * c.gam * (c.mach * c.mach - one)) / gamp1);
+      const double eshk = rhoshk * (pshk / (gamm1 * rhoshk) + half * ushk * ushk);
+      const double unshk = rhoshk * ushk;
+
+      auto cell = [&] (int j, int i, double vshk, double vcld, double vamb) {
+        double xcen = c.xl + dx * ((double)i - 0.5);
+        double ycen = c.yb + dy * ((double)j - 0.5);
+        double test = (c.sdir > 0.0) ? xcen : ycen;      // plane1 vs plane2
+        if (test < c.spos) return vshk;
+        double d2 = (xcen - c.xc) * (xcen - c.xc) + (ycen - c.yc) * (ycen - c.yc);
+        return (d2 <= c.rad * c.rad) ? vcld : vamb;
+      };
+
+      auto planeok = [&] (sisal_array_t a, double vshk, double vcld, double vamb) {
+        if (a.rank != 2 || (int)a.dims[0] != c.ny || (int)a.dims[1] != c.nx
+            || (int)a.size != c.nx * c.ny)
+          return false;
+        for (int j = 1; j <= c.ny; j++)
+          for (int i = 1; i <= c.nx; i++)
+            if (((const double *)a.data)[(j - 1) * c.nx + (i - 1)]
+                != cell (j, i, vshk, vcld, vamb))
+              return false;
+        return true;
+      };
+
+      if (!planeok (r.U1, rhoshk, rhocld, rhoamb)) bad++;   // density
+      if (!planeok (r.U2, unshk, 0.0, 0.0)) bad++;          // normal momentum
+      if (!planeok (r.U3, 0.0, 0.0, 0.0)) bad++;            // transverse
+      if (!planeok (r.U4, eshk, ecld, eamb)) bad++;         // energy
+
+      // ---- InitDt: the CFL minimum over every cell ----
+      double best = 0;
+      bool first = true;
+      for (int j = 1; j <= c.ny; j++)
+        for (int i = 1; i <= c.nx; i++)
+          {
+            double rho = cell (j, i, rhoshk, rhocld, rhoamb);
+            double ux = fabs (cell (j, i, unshk, 0.0, 0.0));
+            double uy = 0.0;
+            double eng = cell (j, i, eshk, ecld, eamb);
+            double usq = (ux * ux + uy * uy) / rho;
+            double p = (eng - 0.5 * usq) * (c.gam - 1.0);
+            double cc = sqrt (c.gam * p / rho);
+            double d1 = dx / (cc + ux / rho), d2 = dy / (cc + uy / rho);
+            double m = d1 < d2 ? d1 : d2;
+            if (first || m < best) { best = m; first = false; }
+          }
+      if (fabs (r.dt - best * cfl * tf) > 1e-12 * fabs (best * cfl * tf) + 1e-15)
+        {
+          printf ("  %-34s dt %.17g want %.17g\n", c.nm, r.dt, best * cfl * tf);
+          bad++;
+        }
+
+      snprintf (msg, sizeof msg, "%-34s planes are %dx%d and match cell by cell",
+                c.nm, c.ny, c.nx);
+      check (msg, bad == 0);
+      bad = 0;
+
+      if (r.U1.data) free (r.U1.data);
+      if (r.U2.data) free (r.U2.data);
+      if (r.U3.data) free (r.U3.data);
+      if (r.U4.data) free (r.U4.data);
+      if (r.p1.data) free (r.p1.data);
+      if (r.p2.data) free (r.p2.data);
+    }
+
+  // ---- the transpose property, on a square domain with xcld == ycld ----
+  {
+    const int n = 7;
+    auto r = func_MAIN (n, n, -1.0, 1.0, -1.0, 1.0, 1.4, 8.0, 2.5, 0.25, 0.25,
+                        1.0, 0.1, 0.5, 0.4, 1.0);
+    bool ok = r.p1.rank == 2 && r.p2.rank == 2 && (int)r.p1.size == n * n
+              && (int)r.p2.size == n * n;
+    for (int j = 0; ok && j < n; j++)
+      for (int i = 0; i < n; i++)
+        if (((const double *)r.p1.data)[j * n + i]
+            != ((const double *)r.p2.data)[i * n + j])
+          { ok = false; break; }
+    check ("buildplane2 is buildplane1 transposed (square domain, xcld==ycld)",
+           ok);
+
+    // and the markers prove all three branches actually fire
+    bool saw[4] = { false, false, false, false };
+    for (int k = 0; k < n * n; k++)
+      {
+        int v = (int)((const double *)r.p1.data)[k];
+        if (v >= 1 && v <= 3) saw[v] = true;
+      }
+    check ("all three cell branches fire (shock / cloud / ambient)",
+           saw[1] && saw[2] && saw[3]);
+
+    if (r.U1.data) free (r.U1.data);
+    if (r.U2.data) free (r.U2.data);
+    if (r.U3.data) free (r.U3.data);
+    if (r.U4.data) free (r.U4.data);
+    if (r.p1.data) free (r.p1.data);
+    if (r.p2.data) free (r.p2.data);
+  }
+  snprintf (msg, sizeof msg, "%d configurations checked", cases);
+  check (msg, cases == 5);
+}
+#endif
 #ifdef TEST_STREAM_RECORD_DV
 // stream_record -- a stream whose element is a RECORD.  Every other stream test
 // carries a scalar; a record element came out `sisal_generator<sisal_array_t>`
@@ -18376,6 +18549,9 @@ main (void)
 #ifdef TEST_STREAM_RECORD_DV
   test_stream_record_dv ();
 #endif
+#ifdef TEST_UNSPLIT_GRID_DV
+  test_unsplit_grid_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -18593,7 +18769,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
