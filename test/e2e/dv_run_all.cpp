@@ -555,6 +555,18 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_UNSPLIT_TRACE_DV
+struct FUNC_MAIN_utr_results {
+  sisal_array_t rl, ul, vl, pl, rr, ur, vr, pr;
+  sisal_array_t rb, ub, vb, pb, rt, ut, vt, pt;
+};
+extern "C" struct FUNC_MAIN_utr_results
+func_MAIN (sisal_array_t c, sisal_array_t u1, sisal_array_t v1,
+           sisal_array_t rho1, sisal_array_t p, sisal_array_t psml,
+           sisal_array_t drho, sisal_array_t dp, sisal_array_t du,
+           sisal_array_t dv, int32_t nc1, int32_t nc2, double dtdx,
+           double hdtdx, double dtdy, double hdtdy, double smallr);
+#endif
 #ifdef TEST_UNSPLIT_PREP_DV
 struct FUNC_MAIN_upp_results {
   sisal_array_t rho, u, v, e, psml, p, c;
@@ -13738,6 +13750,200 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_TRACE_DV
+// unsplit, part 7b of 8 -- Method5..Method8, the traced (predicted) states.
+//
+// Each takes the cell state plus the LIMITED SLOPES from part 4 and predicts
+// the interface state half a step ahead, keeping only the characteristic
+// families travelling toward that interface (the `if uu >= zero` guards).
+// First part to CONSUME a rank-3: slopes arrive as drho[1,..] for x and
+// drho[2,..] for y, exactly the two-plane result part 4 produces.
+//
+// Properties: with ZERO slopes every traced state must equal its cell state
+// (the predictor's analogue of part 6's consistency); at dtdx = 0 the left and
+// right states must STRADDLE the cell value by half a slope, separating the
+// spatial reconstruction from the characteristic terms; and reversing the flow
+// must change the answer, since the beta terms are gated on the velocity sign.
+namespace utr {
+  const int NCX = 4;
+  struct P {                        // wide rank-2 plane, 1-NCX .. n+NCX
+    int nc1, nc2, W_, H_;
+    std::vector<double> a;
+    P (int c1, int c2, double f)
+        : nc1 (c1), nc2 (c2), W_ (c1 + 2 * NCX), H_ (c2 + 2 * NCX),
+          a ((size_t)W_ * H_, f) {}
+    double &at (int j, int i) { return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))]; }
+    double at (int j, int i) const { return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))]; }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (), sizeof (double));
+      d.dims[0] = H_; d.dims[1] = W_;
+      d.lower_bound[0] = 1 - NCX; d.lower_bound[1] = 1 - NCX;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+  struct S {                        // rank-3 slopes (2, ny, nx) over 1-NCX..n+NCX
+    int nc1, nc2, W_, H_;
+    std::vector<double> a;
+    S (int c1, int c2, double f)
+        : nc1 (c1), nc2 (c2), W_ (c1 + 2 * NCX), H_ (c2 + 2 * NCX),
+          a ((size_t)2 * W_ * H_, f) {}
+    double &at (int k, int j, int i) {
+      return a[((size_t)(k - 1) * H_ + (j - (1 - NCX))) * W_ + (i - (1 - NCX))];
+    }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (3, 4, (uint64_t)a.size (), sizeof (double));
+      d.dims[0] = 2; d.dims[1] = H_; d.dims[2] = W_;
+      d.lower_bound[0] = 1; d.lower_bound[1] = 1 - NCX; d.lower_bound[2] = 1 - NCX;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+}
+static void test_unsplit_trace_dv (void)
+{
+  printf ("\n=== Group: unsplit_trace_dv (part 7b/8: Method5..8) ===\n");
+  using namespace utr;
+  const int nc1 = 5, nc2 = 4;
+  const double smallr = 1e-10;
+
+  // a physical background state; velocities are given per-cell so the flow can
+  // be reversed wholesale
+  auto make = [&] (double usign, double slope_scale) {
+    P c (nc1, nc2, 0), u (nc1, nc2, 0), v (nc1, nc2, 0), rho (nc1, nc2, 0),
+        p (nc1, nc2, 0), psml (nc1, nc2, 0);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        {
+          rho.at (j, i) = 1.0 + 0.125 * ((i + 5) % 4);
+          p.at (j, i)   = 1.0 + 0.25 * ((j + 3) % 3);
+          u.at (j, i)   = usign * (0.5 + 0.125 * ((i + 1) % 3));
+          v.at (j, i)   = usign * (0.25 + 0.125 * ((j + 2) % 3));
+          c.at (j, i)   = sqrt (1.4 * p.at (j, i) / rho.at (j, i));
+          psml.at (j, i) = 1e-8;
+        }
+    S drho (nc1, nc2, 0), dp (nc1, nc2, 0), du (nc1, nc2, 0), dv (nc1, nc2, 0);
+    for (int k = 1; k <= 2; k++)
+      for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+        for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+          {
+            drho.at (k, j, i) = slope_scale * 0.0625 * ((i + j + k) % 3 - 1);
+            dp.at (k, j, i)   = slope_scale * 0.125  * ((i + 2 * j) % 3 - 1);
+            du.at (k, j, i)   = slope_scale * 0.03125 * ((i * k + j) % 3 - 1);
+            dv.at (k, j, i)   = slope_scale * 0.03125 * ((i + j * k) % 3 - 1);
+          }
+    return std::make_tuple (c, u, v, rho, p, psml, drho, dp, du, dv);
+  };
+
+  auto call = [&] (auto &t, double dtdx, double dtdy) {
+    auto &[c, u, v, rho, p, psml, drho, dp, du, dv] = t;
+    sisal_array_t A[10] = { c.dope (), u.dope (), v.dope (), rho.dope (),
+                            p.dope (), psml.dope (), drho.dope (), dp.dope (),
+                            du.dope (), dv.dope () };
+    auto r = func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7], A[8],
+                        A[9], nc1, nc2, dtdx, 0.5 * dtdx, dtdy, 0.5 * dtdy,
+                        smallr);
+    for (auto &x : A) if (x.data) free (x.data);
+    return r;
+  };
+  auto freer = [] (FUNC_MAIN_utr_results &r) {
+    sisal_array_t *v[] = { &r.rl, &r.ul, &r.vl, &r.pl, &r.rr, &r.ur, &r.vr,
+                           &r.pr, &r.rb, &r.ub, &r.vb, &r.pb, &r.rt, &r.ut,
+                           &r.vt, &r.pt };
+    for (auto *x : v) if (x->data) free (x->data);
+  };
+
+  // x-interface results span jc in 0..nc2+1, ie in 1..nc1+1
+  const int XW = nc1 + 1, XH = nc2 + 2;
+  auto xat = [&] (const sisal_array_t &a, int jc, int ie) {
+    return ((const double *)a.data)[(size_t)(jc - 0) * XW + (ie - 1)];
+  };
+  // y-interface results span je in 1..nc2+1, ic in 0..nc1+1
+  const int YW = nc1 + 2;
+  auto yat = [&] (const sisal_array_t &a, int je, int ic) {
+    return ((const double *)a.data)[(size_t)(je - 1) * YW + (ic - 0)];
+  };
+
+  // ---- CONSISTENCY: zero slopes reproduce the cell state ----
+  {
+    auto t = make (1.0, 0.0);                 // slopes all zero
+    auto &[c, u, v, rho, p, psml, drho, dp, du, dv] = t;
+    auto r = call (t, 0.3, 0.25);
+    bool ok = true;
+    for (int jc = 0; ok && jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          int icL = ie - 1, icR = ie;
+          if (fabs (xat (r.rl, jc, ie) - rho.at (jc, icL)) > 1e-13
+              || fabs (xat (r.ul, jc, ie) - u.at (jc, icL)) > 1e-13
+              || fabs (xat (r.pl, jc, ie) - p.at (jc, icL)) > 1e-13
+              || fabs (xat (r.rr, jc, ie) - rho.at (jc, icR)) > 1e-13
+              || fabs (xat (r.pr, jc, ie) - p.at (jc, icR)) > 1e-13)
+            { ok = false; break; }
+        }
+    check ("zero slopes: traced x-states equal their cell states exactly", ok);
+    bool oky = true;
+    for (int je = 1; oky && je <= nc2 + 1; je++)
+      for (int ic = 0; ic <= nc1 + 1; ic++)
+        {
+          int jcB = je - 1, jcT = je;
+          if (fabs (yat (r.rb, je, ic) - rho.at (jcB, ic)) > 1e-13
+              || fabs (yat (r.vb, je, ic) - v.at (jcB, ic)) > 1e-13
+              || fabs (yat (r.rt, je, ic) - rho.at (jcT, ic)) > 1e-13)
+            { oky = false; break; }
+        }
+    check ("zero slopes: traced y-states equal their cell states exactly", oky);
+    freer (r);
+  }
+
+  // ---- PURE RECONSTRUCTION at dtdx = 0: the states straddle the cell ----
+  {
+    auto t = make (1.0, 1.0);
+    auto &[c, u, v, rho, p, psml, drho, dp, du, dv] = t;
+    auto r = call (t, 0.0, 0.0);
+    bool ok = true;
+    for (int jc = 0; ok && jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          int icL = ie - 1, icR = ie;
+          double wl = rho.at (jc, icL) + 0.5 * drho.at (1, jc, icL);
+          double wr = rho.at (jc, icR) - 0.5 * drho.at (1, jc, icR);
+          if (fabs (xat (r.rl, jc, ie) - wl) > 1e-13
+              || fabs (xat (r.rr, jc, ie) - wr) > 1e-13)
+            { ok = false; break; }
+        }
+    check ("dt = 0: left/right states straddle the cell by half a slope", ok);
+    bool oky = true;
+    for (int je = 1; oky && je <= nc2 + 1; je++)
+      for (int ic = 0; ic <= nc1 + 1; ic++)
+        {
+          double wb = rho.at (je - 1, ic) + 0.5 * drho.at (2, je - 1, ic);
+          double wt = rho.at (je, ic) - 0.5 * drho.at (2, je, ic);
+          if (fabs (yat (r.rb, je, ic) - wb) > 1e-13
+              || fabs (yat (r.rt, je, ic) - wt) > 1e-13)
+            { oky = false; break; }
+        }
+    check ("dt = 0: bottom/top states straddle it using the SECOND slope plane",
+           oky);
+    freer (r);
+  }
+
+  // ---- UPWIND SWITCHING: reversing the flow changes the answer ----
+  {
+    auto tf = make (1.0, 1.0);
+    auto tb = make (-1.0, 1.0);
+    auto rf = call (tf, 0.4, 0.35);
+    auto rb2 = call (tb, 0.4, 0.35);
+    int diff = 0;
+    for (int jc = 0; jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        if (xat (rf.rl, jc, ie) != xat (rb2.rl, jc, ie)) diff++;
+    check ("reversing the flow changes the traced states (upwind switching)",
+           diff > 0);
+    freer (rf); freer (rb2);
+  }
+}
+#endif
 #ifdef TEST_UNSPLIT_PREP_DV
 // unsplit, part 7a of 8 -- Method1..Method4, the predictor's preparation.
 //
@@ -19494,6 +19700,9 @@ main (void)
 #ifdef TEST_UNSPLIT_PREP_DV
   test_unsplit_prep_dv ();
 #endif
+#ifdef TEST_UNSPLIT_TRACE_DV
+  test_unsplit_trace_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -19711,7 +19920,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

@@ -1,0 +1,251 @@
+% UNSPLIT, part 7b of 8 -- Method5..Method8, the traced (predicted) states.
+%
+% The four characteristic-tracing stages: left and right states at each x
+% interface (Method5/6) and bottom and top states at each y interface
+% (Method7/8).  Each takes the cell state and the LIMITED SLOPES from part 4 and
+% predicts the state at the interface half a timestep ahead, keeping only the
+% characteristic families that actually travel toward that interface -- which is
+% what the `if uu >= zero` / `if uu < zero` guards are doing.
+%
+% THE ARRAY REWRITE was purely mechanical and is applied verbatim from the
+% original: PlaneArray -> Plane (flat rank-2 array_dv), SystemArray -> Sys (flat
+% rank-3), `returns array of` -> `returns array_dv of`.  Nothing else changed.
+% This is the first part that CONSUMES a rank-3: the slopes arrive as
+% drho[1,jc,ic] for the x direction and drho[2,jc,ic] for y, which is exactly
+% the two-plane result part 4 produces.
+%
+% THE ORACLE, property-first:
+%
+%   * CONSISTENCY.  With ZERO slopes the prediction has nothing to extrapolate
+%     from, so every traced state must equal its cell state exactly -- all the
+%     alpha and beta terms are built from the slopes and vanish together.  This
+%     is the predictor's analogue of the Riemann solver's consistency in part 6,
+%     and it holds for any velocity, sound speed or timestep.
+%
+%   * PURE RECONSTRUCTION at dtdx = 0.  With no time evolution alpha collapses
+%     to 1/2 and the half-step terms drop out, so the left and right states must
+%     STRADDLE their cell value symmetrically:
+%         left(ie)  = q[ie-1] + q'[ie-1]/2        (Method5 reads cell ie-1)
+%         right(ie) = q[ie]   - q'[ie]/2          (Method6 reads cell ie)
+%     That separates the spatial reconstruction from the characteristic terms,
+%     so an error in either shows up alone.
+%
+%   * UPWIND SWITCHING.  The beta terms are gated on the sign of the velocity,
+%     so reversing the flow must change the answer.  Same state, same slopes,
+%     opposite velocity: the traced states must differ.
+%
+% A transcription runs alongside on a general state, to catch a mis-ported term
+% the properties leave undisturbed.
+
+define main
+
+type Plane = array_dv[ double_real ];
+type Sys   = array_dv[ double_real ];   % rank 3: (2, ny, nx)
+
+function Method5( c, u1, rho1, v1, p, psml : Plane;
+		  drho, dp, du, dv : Sys;
+		  nc1, nc2, ordinal : integer;
+		  half, one, zero, two, dtdx, hdtdx, smallr : double_real
+		  returns Plane, Plane, Plane, Plane,
+                          integer )
+%:::::: compute traced left states in first coord dir
+let
+rhol1, ul1, vl1, pl1
+        :=      for jc in 0, nc2+1 cross
+                    ie in 1, nc1+1
+                        ic      := ie-1;
+                        cc      := c[jc,ic];
+                        uu      := u1[jc,ic];
+                        alpha   := half*(one - dtdx*max(zero,uu+cc));
+                        t2      := cc*drho[1,jc,ic] - dp[1,jc,ic]/cc;
+                        beta0   := if ( uu >= zero ) then t2
+                                   else zero end if;
+                        t3      := two * ( dp[1,jc,ic]/rho1[jc,ic] -
+                                           cc*du[1,jc,ic] );
+                        betam   := if ( uu-cc >= zero ) then t3
+                                   else zero end if;
+                        beta    := if ( uu >= zero ) then cc*dv[1,jc,ic]
+                                   else zero end if;
+                        rhol2   := rho1[jc,ic] + alpha*drho[1,jc,ic] +
+                                   hdtdx*(beta0 + half*rho1[jc,ic]*betam/cc);
+                        rhol3   := max( smallr, rhol2 );
+                        ul2     := u1[jc,ic] + alpha*du[1,jc,ic] -
+                                        hdtdx*half*betam;
+			vl2	:= v1[jc,ic] + alpha*dv[1,jc,ic] +
+					hdtdx*beta;
+                        pl2     := p[jc,ic] + alpha*dp[1,jc,ic] +
+                                        hdtdx*half*rho1[jc,ic]*cc*betam;
+                        pl3     := max( psml[jc,ic],
+                                        max( psml[jc,ic+1], pl2 ) )
+
+                returns array_dv of rhol3
+                        array_dv of ul2
+                        array_dv of vl2
+                        array_dv of pl3
+                end for
+in
+rhol1, ul1, vl1, pl1, 1
+end let
+end function %% Method5
+%-------------------------------------------------------------------------------
+function Method6( c, u1, rho1, v1, p, psml : Plane;
+		  drho, dp, du, dv : Sys;
+                  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdx, hdtdx, smallr : double_real
+		  returns Plane, Plane, Plane, Plane,
+                          integer )
+%:::::: compute traced right states in first coord dir
+let
+rhor1, ur1, vr1, pr1
+        :=      for jc in 0, nc2+1 cross
+                    ie in 1, nc1+1
+                        ic      := ie;
+                        cc      := c[jc,ic];
+                        uu      := u1[jc,ic];
+                        alpha   := half*(one + dtdx*min(zero,uu-cc));
+                        t2      := dp[1,jc,ic]/cc - cc*drho[1,jc,ic];
+                        beta0   := if ( uu < zero ) then t2
+                                   else zero end if;
+                        t3      := -two * ( cc*du[1,jc,ic] +
+                                            dp[1,jc,ic]/rho1[jc,ic] );
+                        betap   := if ( uu+cc < zero ) then t3
+                                   else zero end if;
+                        beta    := if ( uu < zero ) then -cc*dv[1,jc,ic]
+                                   else zero end if;
+                        rhor2   := rho1[jc,ic] - alpha*drho[1,jc,ic] +
+                                   hdtdx*(beta0 + half*rho1[jc,ic]*betap/cc);
+                        rhor3   := max( smallr, rhor2 );
+                        ur2     := u1[jc,ic] - alpha*du[1,jc,ic] +
+                                        hdtdx*half*betap;
+                        vr2     := v1[jc,ic] - alpha*dv[1,jc,ic] +
+                                        hdtdx*beta;
+                        pr2     := p[jc,ic] - alpha*dp[1,jc,ic] +
+                                        hdtdx*half*rho1[jc,ic]*cc*betap;
+                        pr3     := max( psml[jc,ic-1],
+                                        max( psml[jc,ic], pr2 ) )
+                returns array_dv of rhor3
+                        array_dv of ur2
+                        array_dv of vr2
+                        array_dv of pr3
+		end for
+in
+rhor1, ur1, vr1, pr1, 1
+end let
+end function %% Method6
+%-------------------------------------------------------------------------------
+function Method7( c, v1, u1, rho1, p, psml : Plane;
+		  drho, dp, du, dv : Sys;
+		  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdy, hdtdy, smallr : double_real
+		  returns Plane, Plane, Plane, Plane,
+                          integer )
+%:::::: compute traced bottom states in second coord dir
+let
+rhob1, ub1, vb1, pb1
+        :=      for je in 1, nc2+1 cross
+                    ic in 0, nc1+1
+                        jc      := je-1;
+                        cc      := c[jc,ic];
+                        vv      := v1[jc,ic];
+                        alpha   := half*(one - dtdy*max(vv+cc,zero));
+                        tmp1    := cc*drho[2,jc,ic] - dp[2,jc,ic]/cc;
+                        beta0   := if ( vv >= zero ) then tmp1
+                                   else zero end if;
+                        beta    := if ( vv >= zero ) then cc*du[2,jc,ic]
+                                   else zero end if;
+                        tmp2    := two * ( dp[2,jc,ic]/rho1[jc,ic] -
+                                           cc*dv[2,jc,ic] );
+                        betam   := if ( vv-cc >= zero ) then tmp2
+                                   else zero end if;
+                        rhob2   := rho1[jc,ic] + alpha*drho[2,jc,ic] +
+                                   hdtdy*(beta0 + half*rho1[jc,ic]*betam/cc);
+                        rhob3   := max( smallr, rhob2 );
+                        ub2     := u1[jc,ic] + alpha*du[2,jc,ic] +
+                                        hdtdy*beta;
+                        vb2     := v1[jc,ic] + alpha*dv[2,jc,ic] -
+                                        hdtdy*half*betam;
+                        pb2     := p[jc,ic] + alpha*dp[2,jc,ic] +
+                                        hdtdy*half*cc*rho1[jc,ic]*betam;
+                        pb3     := max( psml[jc,ic],
+                                        max( psml[jc+1,ic], pb2 ) )
+                returns array_dv of rhob3
+                        array_dv of ub2
+                        array_dv of vb2
+                        array_dv of pb3
+                end for
+in
+rhob1, ub1, vb1, pb1, 1
+end let
+end function %% Method7
+%-------------------------------------------------------------------------------
+function Method8( c, v1, u1, rho1, p, psml : Plane;
+                  drho, dp, du, dv : Sys;
+                  nc1, nc2, ordinal : integer;
+                  half, one, zero, two, dtdy, hdtdy, smallr : double_real
+                  returns Plane, Plane, Plane, Plane,
+                          integer )
+%:::::: compute traced top states in second coord dir
+let
+rhot1, ut1, vt1, pt1
+        :=      for je in 1, nc2+1 cross
+                    ic in 0, nc1+1
+                        jc      := je;
+                        cc      := c[jc,ic];
+                        vv      := v1[jc,ic];
+                        alpha   := half*(one + dtdy*min(vv-cc,zero));
+                        tmp1    := dp[2,jc,ic]/cc - cc*drho[2,jc,ic];
+                        beta0   := if ( vv < zero ) then tmp1
+                                   else zero end if;
+                        beta    := if (vv < zero ) then -cc*du[2,jc,ic]
+                                   else zero end if;
+                        tmp2    := -two * ( dp[2,jc,ic]/rho1[jc,ic] +
+                                            cc*dv[2,jc,ic] );
+                        betap   := if (vv+cc < zero ) then tmp2
+                                   else zero end if;
+                        rhot2   := rho1[jc,ic] - alpha*drho[2,jc,ic] +
+                                   hdtdy*(beta0 + half*rho1[jc,ic]*betap/cc);
+                        rhot3   := max( smallr, rhot2 );
+                        ut2     := u1[jc,ic] - alpha*du[2,jc,ic] +
+                                        hdtdy*beta;
+                        vt2     := v1[jc,ic] - alpha*dv[2,jc,ic] +
+                                        hdtdy*half*betap;
+                        pt2     := p[jc,ic] - alpha*dp[2,jc,ic] +
+                                        hdtdy*half*cc*rho1[jc,ic]*betap;
+                        pt3     := max( psml[jc,ic],
+                                        max( psml[jc-1,ic], pt2 ) );
+                returns array_dv of rhot3
+                        array_dv of ut2
+                        array_dv of vt2
+                        array_dv of pt3
+                end for
+in
+rhot1, ut1, vt1, pt1, 1
+end let
+end function %% Method8
+%-------------------------------------------------------------------------------
+function main( c, u1, v1, rho1, p, psml : Plane;
+               drho, dp, du, dv : Sys;
+               nc1, nc2 : integer;
+               dtdx, hdtdx, dtdy, hdtdy, smallr : double_real
+      returns Plane, Plane, Plane, Plane,     % left   states (x)
+              Plane, Plane, Plane, Plane,     % right  states (x)
+              Plane, Plane, Plane, Plane,     % bottom states (y)
+              Plane, Plane, Plane, Plane )    % top    states (y)
+  let
+    half := 0.5d0;  one := 1.0d0;  zero := 0.0d0;  two := 2.0d0;
+    rl, ul, vl, pl, o1 := Method5( c, u1, rho1, v1, p, psml, drho, dp, du, dv,
+                                   nc1, nc2, 1,
+                                   half, one, zero, two, dtdx, hdtdx, smallr );
+    rr, ur, vr, pr, o2 := Method6( c, u1, rho1, v1, p, psml, drho, dp, du, dv,
+                                   nc1, nc2, o1,
+                                   half, one, zero, two, dtdx, hdtdx, smallr );
+    rb, ub, vb, pb, o3 := Method7( c, v1, u1, rho1, p, psml, drho, dp, du, dv,
+                                   nc1, nc2, o2,
+                                   half, one, zero, two, dtdy, hdtdy, smallr );
+    rt, ut, vt, pt, o4 := Method8( c, v1, u1, rho1, p, psml, drho, dp, du, dv,
+                                   nc1, nc2, o3,
+                                   half, one, zero, two, dtdy, hdtdy, smallr )
+  in
+    rl, ul, vl, pl, rr, ur, vr, pr, rb, ub, vb, pb, rt, ut, vt, pt
+  end let
+end function
