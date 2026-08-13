@@ -1,0 +1,67 @@
+% BMK11AD -- the destructive re-zeroing loop, the one thing it adds over BMK11A.
+%
+% bmk11ad.sis is bmk11a.sis with two differences and no others: nlop is 10
+% rather than 200, and the grids between the three mover loops are cleared
+% DESTRUCTIVELY -- a for-initial doing one element update per index -- where
+% bmk11a builds a fresh array with a gather.  Lines 1..813 of the two files are
+% byte-identical, so the movers themselves are already covered by
+% bmk11a_move_dv / bmk11a_boris_dv / bmk11a_rel_dv, and re-porting them here
+% would only duplicate.  What is NOT covered anywhere is the destructive form,
+% so that is what this tests, against the gather form as its oracle.
+%
+%   gather form (bmk11a):
+%     q2 := for kk in 1,l4
+%           returns array_dv of if kk <= upb then 0.0D0 else q1[kk] end if
+%           end for
+%
+%   destructive form (bmk11ad):
+%     q2 := for initial kk := 1; q2 := q1;
+%           while ( kk <= upb ) repeat
+%             kk := old kk + 1;
+%             q2 := old q2[old kk: 0.0D0];
+%           returns value of q2
+%           end for
+%
+% THE INDEXING IS WORTH CHECKING rather than assuming.  The increment precedes
+% the update, so the update's `old kk` is the PRE-increment value: iteration one
+% sets kk to 2 and zeroes index 1, and the pre-test `kk <= upb` then admits
+% exactly upb iterations.  So indices 1..upb are cleared and upb+1..l4 survive
+% -- the same set the gather clears, reached the other way round.  An off-by-one
+% here would clear one index too few or one too many, and since the tail is
+% carried through rather than rebuilt it would be silent.
+%
+% THE ARRAY REWRITE is `array` -> `array_dv` and the gather keyword, as in the
+% bmk11a parts.
+%
+% THE ORACLE: the two forms must agree ELEMENTWISE for every upb, including the
+% boundaries upb = 0 (nothing cleared, a zero-trip for the destructive loop),
+% upb = l4 (everything cleared) and upb = 1.  The tail must be preserved
+% exactly, which is what makes this more than a fill.
+
+define main
+
+type OneD = array_dv[double];
+
+% bmk11a's form: build a new array
+function zero_gather( q : OneD; upb, l4 : integer returns OneD )
+  for kk in 1,l4
+  returns array_dv of if ( kk <= upb ) then 0.0D0 else q[kk] end if
+  end for
+end function
+
+% bmk11ad's form: update in place, one index per iteration
+function zero_destructive( q : OneD; upb : integer returns OneD )
+  for initial
+    kk := 1;
+    q2 := q;
+  while ( kk <= upb ) repeat
+    kk := old kk + 1;
+    q2 := old q2[old kk: 0.0D0 ];
+  returns value of q2
+  end for
+end function
+
+function main( q : OneD; upb, l4 : integer returns OneD, OneD )
+  zero_gather( q, upb, l4 ),
+  zero_destructive( q, upb )
+end function
