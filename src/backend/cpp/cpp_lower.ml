@@ -2008,22 +2008,33 @@ let init_boundary_ports env parent_gr compound_nid gr gid =
             match FullPortMap.find_opt (pgid, psrcN, psrcP, `Out) e.var_map with
             | Some v -> Some v
             | None ->
-                (* Multi-level reference: source not found in immediate parent scope.
-                 Walk up ancestor envs (e.g. REDUCE_ALL in proc scope referenced
-                 from inside a FORALL body inside a LET body). *)
-                let rec search env_up =
-                  match env_up.parent_env with
-                  | None -> None
-                  | Some pe -> (
-                      match
-                        FullPortMap.find_opt
-                          (pe.curr_gid, psrcN, psrcP, `Out)
-                          e.var_map
-                      with
-                      | Some v -> Some v
-                      | None -> search pe)
+                (* Multi-level reference: source not found in immediate parent
+                   scope (e.g. a REDUCE_ALL in proc scope referenced from inside
+                   a FORALL body inside a LET body). *)
+                (* Walk the STRUCTURAL parent chain (parent_map), not the
+                   parent_env chain.  parent_env is an env-threading artifact:
+                   lowering sibling scopes in sequence leaves an already-lowered
+                   SIBLING in the chain, and IF1 node ids are unique only WITHIN
+                   a graph, so (psrcN, psrcP) then matches a completely
+                   unrelated node there and we emit a name that is out of scope.
+                   That is what broke two `repeat..while` loops in sibling IF
+                   arms: a post-test loop's preheader TEST pass reads BODY
+                   outputs that do not exist yet, so the direct lookup misses by
+                   construction and this fallback ran on every one of them. *)
+                let rec search_gid g seen =
+                  if List.mem g seen then None
+                  else
+                    match IntMap.find_opt g e.parent_map with
+                    | None -> None
+                    | Some (pg, _) -> (
+                        match
+                          FullPortMap.find_opt (pg, psrcN, psrcP, `Out)
+                            e.var_map
+                        with
+                        | Some v -> Some v
+                        | None -> search_gid pg (g :: seen))
                 in
-                search e
+                search_gid pgid []
         in
         let stmts, e' =
           match src_opt with
@@ -8226,6 +8237,50 @@ let lower_to_c tm gr filename =
   let math_wrappers = [] in
   (* now provided by sisal_runtime.h *)
 
+  (* MACRO HYGIENE.  Procedure parameters and record fields are emitted under
+     the user's own names, uppercased.  System headers define plenty of
+     uppercase macros -- <sys/param.h> has `#define PZERO 22` -- and a macro
+     expands inside our declarations as happily as anywhere else, so a Sisal
+     parameter named `pzero` was emitted as `double 22` and the translation unit
+     did not parse.  Emit a guarded #undef for every user-derived identifier we
+     are about to use, so no platform macro can capture one.  Guarded rather
+     than bare so this stays a no-op unless there really is a collision.  Our
+     own reserved prefixes are skipped -- the generated code depends on the
+     SISAL_ macros, and nothing we mint ourselves can collide anyway. *)
+  let undef_block =
+    let tbl = Hashtbl.create 64 in
+    Hashtbl.iter
+      (fun _ fields ->
+        List.iter (fun (n, _) -> Hashtbl.replace tbl n ()) fields)
+      Cpp_helpers.emitted_struct_fields;
+    List.iter
+      (fun (pr : C.procedure) ->
+        List.iter (fun (_, n) -> Hashtbl.replace tbl n ()) pr.params)
+      procedures;
+    let reserved n =
+      List.exists
+        (fun pfx ->
+          String.length n >= String.length pfx
+          && String.sub n 0 (String.length pfx) = pfx)
+        [ "v_"; "SISAL_"; "func_"; "struct_"; "union_" ]
+    in
+    let names =
+      Hashtbl.fold (fun n () acc -> if reserved n then acc else n :: acc) tbl []
+      |> List.sort_uniq compare
+    in
+    if names = [] then []
+    else
+      [
+        C.Raw
+          (String.concat "\n"
+             ("/* Macro hygiene: a platform macro must not capture a user \
+               identifier. */"
+             :: List.map
+                  (fun n -> Printf.sprintf "#ifdef %s\n#undef %s\n#endif" n n)
+                  names));
+      ]
+  in
+
   {
     C.filename;
     includes =
@@ -8241,7 +8296,7 @@ let lower_to_c tm gr filename =
         "sisal_runtime.h";
       ];
     globals =
-      math_wrappers @ all_record_decls @ result_struct_decls
+      undef_block @ math_wrappers @ all_record_decls @ result_struct_decls
       @ nested_result_struct_decls
       @ [ custom_elem_size_raw ]
       @ List.map (fun p -> C.Prototype p) procedures;
