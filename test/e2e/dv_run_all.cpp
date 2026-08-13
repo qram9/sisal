@@ -14543,6 +14543,9 @@ namespace utr {
     double &at (int k, int j, int i) {
       return a[((size_t)(k - 1) * H_ + (j - (1 - NCX))) * W_ + (i - (1 - NCX))];
     }
+    double at (int k, int j, int i) const {
+      return a[((size_t)(k - 1) * H_ + (j - (1 - NCX))) * W_ + (i - (1 - NCX))];
+    }
     sisal_array_t dope () const {
       sisal_array_t d = sisal_array_alloc_sized (3, 4, (uint64_t)a.size (), sizeof (double));
       d.dims[0] = 2; d.dims[1] = H_; d.dims[2] = W_;
@@ -14551,6 +14554,44 @@ namespace utr {
       return d;
     }
   };
+  // The formula for Method5 (traced LEFT states), transcribed.  The property
+  // checks above all use DEGENERATE configurations -- zero slopes, or dt = 0 --
+  // so a wrong coefficient that vanishes in both would survive them.  This runs
+  // the general case: non-zero dt AND non-zero slopes.
+  static void ref_method5 (const P &c, const P &u, const P &v, const P &rho,
+                           const P &p, const P &psml, const S &drho,
+                           const S &dp, const S &du, const S &dv, int nc1,
+                           int nc2, double dtdx, double hdtdx, double smallr,
+                           std::vector<double> &rl, std::vector<double> &ul_,
+                           std::vector<double> &vl_, std::vector<double> &pl_)
+  {
+    const int W = nc1 + 1;
+    rl.assign ((size_t)W * (nc2 + 2), 0.0);
+    ul_ = vl_ = pl_ = rl;
+    for (int jc = 0; jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          const int ic = ie - 1;
+          const double cc = c.at (jc, ic), uu = u.at (jc, ic);
+          const double alpha = 0.5 * (1.0 - dtdx * std::max (0.0, uu + cc));
+          const double t2 = cc * drho.at (1, jc, ic) - dp.at (1, jc, ic) / cc;
+          const double beta0 = (uu >= 0.0) ? t2 : 0.0;
+          const double t3 = 2.0 * (dp.at (1, jc, ic) / rho.at (jc, ic)
+                                   - cc * du.at (1, jc, ic));
+          const double betam = (uu - cc >= 0.0) ? t3 : 0.0;
+          const double beta = (uu >= 0.0) ? cc * dv.at (1, jc, ic) : 0.0;
+          const size_t k = (size_t)jc * W + (ie - 1);
+          double r2 = rho.at (jc, ic) + alpha * drho.at (1, jc, ic)
+                      + hdtdx * (beta0 + 0.5 * rho.at (jc, ic) * betam / cc);
+          rl[k]  = std::max (smallr, r2);
+          ul_[k] = u.at (jc, ic) + alpha * du.at (1, jc, ic) - hdtdx * 0.5 * betam;
+          vl_[k] = v.at (jc, ic) + alpha * dv.at (1, jc, ic) + hdtdx * beta;
+          double p2 = p.at (jc, ic) + alpha * dp.at (1, jc, ic)
+                      + hdtdx * 0.5 * rho.at (jc, ic) * cc * betam;
+          pl_[k] = std::max (psml.at (jc, ic),
+                             std::max (psml.at (jc, ic + 1), p2));
+        }
+  }
 }
 static void test_unsplit_trace_dv (void)
 {
@@ -14569,7 +14610,13 @@ static void test_unsplit_trace_dv (void)
         {
           rho.at (j, i) = 1.0 + 0.125 * ((i + 5) % 4);
           p.at (j, i)   = 1.0 + 0.25 * ((j + 3) % 3);
-          u.at (j, i)   = usign * (0.5 + 0.125 * ((i + 1) % 3));
+          // Velocities must span SUBSONIC and SUPERSONIC, both signs.  The
+          // characteristic guards are `uu >= 0` and `uu - cc >= 0` with
+          // cc = sqrt(1.4 p / rho) ~ 1.2 here, so an all-subsonic field (the
+          // first version of this test) left betam identically zero and the
+          // whole acoustic term untested -- a perturbation of its coefficient
+          // passed.  The coverage assertion below stops that returning.
+          u.at (j, i)   = usign * (2.0 * ((i + 1) % 5) - 3.0);
           v.at (j, i)   = usign * (0.25 + 0.125 * ((j + 2) % 3));
           c.at (j, i)   = sqrt (1.4 * p.at (j, i) / rho.at (j, i));
           psml.at (j, i) = 1e-8;
@@ -14677,6 +14724,50 @@ static void test_unsplit_trace_dv (void)
         }
     check ("dt = 0: bottom/top states straddle it using the SECOND slope plane",
            oky);
+    freer (r);
+  }
+
+  // ---- GENERAL CASE against the transcribed formula ----
+  {
+    auto t = make (1.0, 1.0);
+    auto &[c, u, v, rho, p, psml, drho, dp, du, dv] = t;
+    const double dtdx = 0.4, hdtdx = 0.2;
+    auto r = call (t, dtdx, 0.35);
+    std::vector<double> wr, wu, wv, wp;
+    ref_method5 (c, u, v, rho, p, psml, drho, dp, du, dv, nc1, nc2, dtdx,
+                 hdtdx, smallr, wr, wu, wv, wp);
+    bool ok = true;
+    for (int jc = 0; ok && jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          size_t k = (size_t)jc * (nc1 + 1) + (ie - 1);
+          if (fabs (xat (r.rl, jc, ie) - wr[k]) > 1e-12
+              || fabs (xat (r.ul, jc, ie) - wu[k]) > 1e-12
+              || fabs (xat (r.vl, jc, ie) - wv[k]) > 1e-12
+              || fabs (xat (r.pl, jc, ie) - wp[k]) > 1e-12)
+            { ok = false; break; }
+        }
+    check ("general case (dt and slopes both non-zero): traced left states "
+           "match the transcribed formula", ok);
+
+    // COVERAGE: the acoustic term is gated on uu - cc >= 0, so confirm the
+    // data actually reaches both sides of every guard -- otherwise the
+    // reference above is checking a formula whose branches never run.
+    int n_betam = 0, n_beta0 = 0, n_zero = 0;
+    for (int jc = 0; jc <= nc2 + 1; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          const int ic = ie - 1;
+          double cc = c.at (jc, ic), uu = u.at (jc, ic);
+          if (uu - cc >= 0.0) n_betam++;
+          if (uu >= 0.0) n_beta0++; else n_zero++;
+        }
+    char m[170];
+    snprintf (m, sizeof m,
+              "...and the data exercises both sides of both guards "
+              "(supersonic %d, forward %d, backward %d)",
+              n_betam, n_beta0, n_zero);
+    check (m, n_betam > 0 && n_beta0 > 0 && n_zero > 0);
     freer (r);
   }
 
