@@ -546,6 +546,10 @@ extern "C" struct FUNC_MAIN_cyk_results func_MAIN(sisal_array_t X);
 extern "C" sisal_array_t func_MAIN (sisal_array_t Up, int32_t nx, int32_t ny,
                                     bool xper, bool yper);
 #endif
+#ifdef TEST_UNSPLIT_SLOPE_DV
+extern "C" sisal_array_t func_MAIN (sisal_array_t q, sisal_array_t flatn,
+                                    int32_t nc1, int32_t nc2);
+#endif
 #ifdef TEST_UNSPLIT_GRID_DV
 struct FUNC_MAIN_ugr_results {
   sisal_array_t U1, U2, U3, U4;
@@ -13709,6 +13713,258 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_SLOPE_DV
+// unsplit, part 4 of 8 -- `slope`, the limited-slope reconstruction.
+//
+// The oracle is the limiter's DEFINING PROPERTIES, which hold whatever the
+// arithmetic looks like: linear data reconstructs its slope EXACTLY, a local
+// extremum zeroes the slope, constant data gives zero, the result is linear in
+// flatn, and data varying along one axis only must give zero slope on the
+// other (which is what catches a transposed subscript).  A straight
+// transcription of the formula runs alongside on non-symmetric data, to catch
+// a mis-ported index the properties might not disturb.
+//
+// Index span: q is read at [j, i+-2] over i in -1..nc1+2, so -3 .. nc1+4 --
+// exactly what PhysBnd produces with ncx = 4 (part 3).  The parts line up by
+// construction.
+namespace usl {
+  const int NCX = 4;
+  // wide plane: index (j,i) over 1-NCX .. n+NCX, stored row-major
+  struct W {
+    int nc1, nc2, W_, H_;
+    std::vector<double> a;
+    W (int c1, int c2) : nc1 (c1), nc2 (c2), W_ (c1 + 2 * NCX),
+                         H_ (c2 + 2 * NCX), a ((size_t)W_ * H_, 0.0) {}
+    double &at (int j, int i) {
+      return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))];
+    }
+    double at (int j, int i) const {
+      return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))];
+    }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (),
+                                                 sizeof (double));
+      d.dims[0] = H_; d.dims[1] = W_;
+      d.lower_bound[0] = 1 - NCX; d.lower_bound[1] = 1 - NCX;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+  static double sgn (double y) { return y >= 0.0 ? 1.0 : -1.0; }
+  // the formula, transcribed
+  static void ref_slope (const W &q, const W &fl, std::vector<double> &dx,
+                         std::vector<double> &dy)
+  {
+    const int nc1 = q.nc1, nc2 = q.nc2;
+    const int rw = nc1 + 2, rh = nc2 + 2;          // result spans 0..n+1
+    dx.assign ((size_t)rw * rh, 0.0);
+    dy.assign ((size_t)rw * rh, 0.0);
+    const double t3 = 2.0 / 3.0, s6 = 1.0 / 6.0;
+    for (int j = 0; j <= nc2 + 1; j++)
+      {
+        std::vector<double> df (nc1 + 6), ds (nc1 + 6), dl (nc1 + 6);
+        auto ix = [&] (int i) { return i + 2; };   // i runs -1 .. nc1+2
+        for (int i = -1; i <= nc1 + 2; i++)
+          {
+            double dcen = 0.5 * (q.at (j, i + 1) - q.at (j, i - 1));
+            double dlft = 2.0 * (q.at (j, i) - q.at (j, i - 1));
+            double drgt = 2.0 * (q.at (j, i + 1) - q.at (j, i));
+            double slop = std::min (fabs (dlft), std::min (fabs (drgt), fabs (dcen)));
+            double lim = (dlft * drgt >= 0.0) ? slop : 0.0;
+            ds[ix (i)] = sgn (dcen); dl[ix (i)] = lim;
+            df[ix (i)] = sgn (dcen) * lim;
+          }
+        for (int i = 0; i <= nc1 + 1; i++)
+          {
+            double d3 = t3 * (q.at (j, i + 1) - q.at (j, i - 1))
+                        - s6 * (df[ix (i + 1)] - df[ix (i - 1)]);
+            dx[(size_t)j * rw + i] = fl.at (j, i) * ds[ix (i)]
+                                     * std::min (dl[ix (i)], fabs (d3));
+          }
+      }
+    // y direction
+    std::vector<double> Xdf ((size_t)(nc2 + 6) * (nc1 + 2)),
+        Xds ((size_t)(nc2 + 6) * (nc1 + 2)), Xdl ((size_t)(nc2 + 6) * (nc1 + 2));
+    auto jx = [&] (int j, int i) { return (size_t)(j + 2) * (nc1 + 2) + i; };
+    for (int j = -1; j <= nc2 + 2; j++)
+      for (int i = 0; i <= nc1 + 1; i++)
+        {
+          double dcen = 0.5 * (q.at (j + 1, i) - q.at (j - 1, i));
+          double dlft = 2.0 * (q.at (j, i) - q.at (j - 1, i));
+          double drgt = 2.0 * (q.at (j + 1, i) - q.at (j, i));
+          double slop = std::min (fabs (dlft), std::min (fabs (drgt), fabs (dcen)));
+          double lim = (dlft * drgt >= 0.0) ? slop : 0.0;
+          Xds[jx (j, i)] = sgn (dcen); Xdl[jx (j, i)] = lim;
+          Xdf[jx (j, i)] = sgn (dcen) * lim;
+        }
+    for (int j = 0; j <= nc2 + 1; j++)
+      for (int i = 0; i <= nc1 + 1; i++)
+        {
+          double d4 = t3 * (q.at (j + 1, i) - q.at (j - 1, i))
+                      - s6 * (Xdf[jx (j + 1, i)] - Xdf[jx (j - 1, i)]);
+          dy[(size_t)j * rw + i] = fl.at (j, i) * Xds[jx (j, i)]
+                                   * std::min (Xdl[jx (j, i)], fabs (d4));
+        }
+  }
+}
+static void test_unsplit_slope_dv (void)
+{
+  printf ("\n=== Group: unsplit_slope_dv (part 4/8: the limiter) ===\n");
+  using namespace usl;
+  const int nc1 = 6, nc2 = 5;
+  const int rw = nc1 + 2;
+  char msg[190];
+
+  auto run = [&] (const W &q, const W &fl, std::vector<double> &dx,
+                  std::vector<double> &dy) {
+    sisal_array_t qq = q.dope (), ff = fl.dope ();
+    sisal_array_t r = func_MAIN (qq, ff, nc1, nc2);
+    bool shape = r.rank == 3 && (int)r.dims[0] == 2
+                 && (int)r.dims[1] == nc2 + 2 && (int)r.dims[2] == nc1 + 2;
+    dx.assign ((size_t)rw * (nc2 + 2), 0.0);
+    dy.assign ((size_t)rw * (nc2 + 2), 0.0);
+    if (shape)
+      {
+        const double *p = (const double *)r.data;
+        size_t plane = (size_t)(nc2 + 2) * rw;
+        for (size_t k = 0; k < plane; k++) { dx[k] = p[k]; dy[k] = p[plane + k]; }
+      }
+    if (qq.data) free (qq.data);
+    if (ff.data) free (ff.data);
+    if (r.data) free (r.data);
+    return shape;
+  };
+
+  W ones (nc1, nc2);
+  for (auto &v : ones.a) v = 1.0;
+
+  // ---- linear data reconstructs its slope EXACTLY ----
+  {
+    const double b = 0.375;                 // exact in binary
+    W q (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++) q.at (j, i) = 2.0 + b * i;
+    std::vector<double> dx, dy;
+    bool ok = run (q, ones, dx, dy);
+    for (int j = 0; ok && j <= nc2 + 1; j++)
+      for (int i = 0; i <= nc1 + 1; i++)
+        if (dx[(size_t)j * rw + i] != b || dy[(size_t)j * rw + i] != 0.0)
+          { ok = false; break; }
+    check ("linear in i: x-slope is exactly b, y-slope exactly 0", ok);
+  }
+  {
+    const double b = -0.25;
+    W q (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++) q.at (j, i) = 7.0 + b * j;
+    std::vector<double> dx, dy;
+    bool ok = run (q, ones, dx, dy);
+    for (int j = 0; ok && j <= nc2 + 1; j++)
+      for (int i = 0; i <= nc1 + 1; i++)
+        if (dy[(size_t)j * rw + i] != b || dx[(size_t)j * rw + i] != 0.0)
+          { ok = false; break; }
+    check ("linear in j: y-slope is exactly b, x-slope exactly 0", ok);
+  }
+
+  // ---- constant data gives zero everywhere ----
+  {
+    W q (nc1, nc2);
+    for (auto &v : q.a) v = 3.5;
+    std::vector<double> dx, dy;
+    bool ok = run (q, ones, dx, dy);
+    for (size_t k = 0; ok && k < dx.size (); k++)
+      if (dx[k] != 0.0 || dy[k] != 0.0) ok = false;
+    check ("constant data gives zero slope in both directions", ok);
+  }
+
+  // ---- a local extremum is clipped to zero ----
+  {
+    // A TENT: q rises to a peak at i = 3 and falls after.  At the peak the left
+    // and right differences disagree in sign, so the slope is clipped; on the
+    // ramps they agree and the slope survives.  (A single-cell SPIKE on a
+    // constant field would clip the whole row instead -- its neighbours have
+    // dlft or drgt exactly 0, and the limiter takes the smallest magnitude --
+    // which is correct but shows nothing about the ramp, so it is checked
+    // separately below.)
+    W q (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        q.at (j, i) = (double)(i <= 3 ? i : 6 - i);
+    std::vector<double> dx, dy;
+    bool ok = run (q, ones, dx, dy);
+    for (int j = 0; ok && j <= nc2 + 1; j++)
+      if (dx[(size_t)j * rw + 3] != 0.0) ok = false;
+    check ("tent: the peak cell has its slope clipped to zero", ok);
+    bool ramp = true;
+    for (int j = 0; ramp && j <= nc2 + 1; j++)
+      for (int i : { 1, 2 })
+        if (dx[(size_t)j * rw + i] == 0.0) ramp = false;
+    check ("tent: cells on the ramp keep a non-zero slope", ramp);
+  }
+
+  // ---- an isolated spike clips its neighbours too, by the min ----
+  {
+    W q (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        q.at (j, i) = (i == 3) ? 10.0 : 1.0;
+    std::vector<double> dx, dy;
+    bool ok = run (q, ones, dx, dy);
+    for (size_t k = 0; ok && k < dx.size (); k++)
+      if (dx[k] != 0.0) ok = false;
+    check ("isolated spike on a flat field: every x-slope is zero (min picks "
+           "the flat side)", ok);
+  }
+
+  // ---- linear in flatn ----
+  {
+    const double b = 0.5;
+    W q (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++) q.at (j, i) = b * i;
+    W half (nc1, nc2), zero (nc1, nc2);
+    for (auto &v : half.a) v = 0.5;
+    std::vector<double> d1x, d1y, dhx, dhy, dzx, dzy;
+    run (q, ones, d1x, d1y); run (q, half, dhx, dhy); run (q, zero, dzx, dzy);
+    bool ok = true;
+    for (size_t k = 0; ok && k < d1x.size (); k++)
+      ok = dhx[k] == 0.5 * d1x[k] && dzx[k] == 0.0;
+    check ("the slope is linear in flatn (half halves it, zero kills it)", ok);
+  }
+
+  // ---- and the transcribed formula, on non-symmetric data ----
+  {
+    W q (nc1, nc2), fl (nc1, nc2);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        {
+          q.at (j, i) = 0.125 * i * i - 0.25 * j + 0.5 * i * j;
+          fl.at (j, i) = 0.75;
+        }
+    std::vector<double> dx, dy, wx, wy;
+    bool ok = run (q, fl, dx, dy);
+    ref_slope (q, fl, wx, wy);
+    for (size_t k = 0; ok && k < dx.size (); k++)
+      if (fabs (dx[k] - wx[k]) > 1e-12 || fabs (dy[k] - wy[k]) > 1e-12)
+        ok = false;
+    check ("non-symmetric data matches the transcribed formula, both planes",
+           ok);
+  }
+
+  snprintf (msg, sizeof msg, "result is rank 3, (2, %d, %d)", nc2 + 2, nc1 + 2);
+  {
+    W q (nc1, nc2);
+    for (auto &v : q.a) v = 1.0;
+    sisal_array_t qq = q.dope (), ff = ones.dope ();
+    sisal_array_t r = func_MAIN (qq, ff, nc1, nc2);
+    check (msg, r.rank == 3 && (int)r.dims[0] == 2
+                    && (int)r.dims[1] == nc2 + 2 && (int)r.dims[2] == nc1 + 2);
+    if (qq.data) free (qq.data);
+    if (ff.data) free (ff.data);
+    if (r.data) free (r.data);
+  }
+}
+#endif
 #ifdef TEST_UNSPLIT_BND_DV
 // unsplit, part 3 of 7 -- PhysBnd: surround the nx x ny interior with ncx = 4
 // ghost cells, filled by WRAPPING (periodic) or CLAMPING to the edge cell, per
@@ -18669,6 +18925,9 @@ main (void)
 #ifdef TEST_UNSPLIT_BND_DV
   test_unsplit_bnd_dv ();
 #endif
+#ifdef TEST_UNSPLIT_SLOPE_DV
+  test_unsplit_slope_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -18886,7 +19145,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

@@ -1,0 +1,128 @@
+% UNSPLIT, part 4 of 8 -- `slope`, the limited-slope reconstruction.
+%
+% (The plan said 7 parts; `flaten` and `slope` are each substantial and fully
+% independent of one another -- slope takes flatn as a plain input -- so they
+% are one part each rather than one shared one.  flaten follows as part 5.)
+%
+% slope computes limited Fromm / fourth-order slopes in both coordinate
+% directions.  Per cell it takes the centred, left and right differences,
+% limits them to the smallest in magnitude, ZEROES the slope wherever the left
+% and right differences disagree in sign (a local extremum), and scales the
+% result by the flattening coefficient.
+%
+% THE ARRAY REWRITE.  PlaneArray -> flat rank-2 array_dv as before.  The new
+% one is the RESULT: `SystemArray = array[PlaneArray]` -- an array of planes --
+% is a flat rank-3 array_dv, built here by gathering the two direction planes,
+% which is the documented way to make rank k+1 out of rank-k elements.  The
+% original's `array SystemArray [ 1: dq1, dq2t ]` becomes that gather.
+%
+% INDEX RANGES, and why the input must be the WIDE array from part 3: q is read
+% at [j, i+-2] over i in -1..nc1+2 and at [j+-2, i] over j in -1..nc2+2, so the
+% furthest reads are -3 and n+4.  That is exactly the span PhysBnd produces with
+% ncx = 4 ghost cells (part 3 measured it as 1-ncx .. n+ncx).  The parts line up
+% by construction, not by coincidence.
+%
+% `sign( one, dcen )` is the Fortran SIGN pinned in part 1 -- magnitude of the
+% first argument, sign of the second -- so `sign(one, x)` is +1 for x >= 0 and
+% -1 otherwise, INCLUDING x = -0.0, which part 1 checks explicitly.
+%
+% THE ORACLE is the limiter's DEFINING PROPERTIES, which hold whatever the
+% arithmetic looks like:
+%
+%   * LINEAR data q = a + b*index reconstructs its slope EXACTLY.  Work it
+%     through: dcen = b, dlft = drgt = 2b, so the limiter picks |b|, df = b
+%     everywhere, the fourth-order term (2/3)(2b) - (1/6)(b-b) is 4b/3, and
+%     min(|b|, 4|b|/3) = |b| -- so dq = b, with flatn = 1.  A limiter that
+%     clipped linear data would be first-order accurate and useless.
+%   * a local EXTREMUM zeroes the slope: dlft and drgt have opposite signs
+%     there, so dlft*drgt < 0 and dlim is 0.  This is what stops over/undershoot.
+%   * CONSTANT data gives zero slope everywhere.
+%   * the result is LINEAR IN flatn, so flatn = 0 kills the slope.
+%   * DIRECTION SEPARATION: data varying only along i must give zero y-slopes
+%     and vice versa -- which is what catches a transposed subscript, the
+%     easiest thing to get wrong in this rewrite.
+%
+% The harness also carries a straight transcription of the formula and runs it
+% on non-symmetric data, to catch a mis-ported index that the properties above
+% might not disturb.
+
+define main
+
+type Plane = array_dv[ double_real ];
+type Sys   = array_dv[ double_real ];   % rank 3 at runtime: (2, ny, nx)
+
+function sign( x, y : double_real returns double_real )
+  if y >= 0.0d0 then abs( x ) else -abs( x ) end if
+end function
+
+function slope( q, flatn : Plane;
+                nc1, nc2 : integer
+                returns Sys )
+  let
+    half   := 0.5d0;
+    one    := 1.0d0;
+    two    := 2.0d0;
+    zero   := 0.0d0;
+    two3rd := 2.0d0 / 3.0d0;
+    sixth  := 1.0d0 / 6.0d0;
+
+    % ---- slopes in the first coordinate direction ----
+    dq1 := for j in 0, nc2+1
+             % Fromm slopes along this row
+             df1, dsgn1, dlim1 :=
+               for i in -1, nc1+2
+                 dcen  := half * ( q[j,i+1] - q[j,i-1] );
+                 dlft  := two * ( q[j,i]   - q[j,i-1] );
+                 drgt  := two * ( q[j,i+1] - q[j,i] );
+                 dsgn2 := sign( one, dcen );
+                 slop  := min( abs(dlft), min( abs(drgt), abs(dcen) ) );
+                 dlim2 := if ( dlft * drgt >= zero ) then slop else zero end if;
+                 df2   := dsgn2 * dlim2
+               returns array_dv of df2
+                       array_dv of dsgn2
+                       array_dv of dlim2
+               end for;
+
+             % limited fourth-order slopes
+             dq2 := for i in 0, nc1+1
+                      dq3 := two3rd * ( q[j,i+1] - q[j,i-1] )
+                             - sixth * ( df1[i+1] - df1[i-1] );
+                      dq4 := flatn[j,i] * dsgn1[i] * min( dlim1[i], abs(dq3) )
+                    returns array_dv of dq4
+                    end for
+           returns array_dv of dq2
+           end for;
+
+    % ---- slopes in the second coordinate direction ----
+    Xdf2, Xdsgn2, Xdlim2 :=
+      for j in -1, nc2+2 cross i in 0, nc1+1
+        dcen  := half * ( q[j+1,i] - q[j-1,i] );
+        dlft  := two * ( q[j,i]   - q[j-1,i] );
+        drgt  := two * ( q[j+1,i] - q[j,i] );
+        dsgn3 := sign( one, dcen );
+        slop  := min( abs(dlft), min( abs(drgt), abs(dcen) ) );
+        dlim3 := if ( dlft * drgt >= zero ) then slop else zero end if;
+        df3   := dsgn3 * dlim3
+      returns array_dv of df3
+              array_dv of dsgn3
+              array_dv of dlim3
+      end for;
+
+    dq2t := for j in 0, nc2+1 cross i in 0, nc1+1
+              dq4 := two3rd * ( q[j+1,i] - q[j-1,i] )
+                     - sixth * ( Xdf2[j+1,i] - Xdf2[j-1,i] );
+              dq5 := flatn[j,i] * Xdsgn2[j,i] * min( Xdlim2[j,i], abs(dq4) )
+            returns array_dv of dq5
+            end for
+  in
+    % `array SystemArray [ 1: dq1, dq2t ]` -- one rank-3 built by gathering the
+    % two direction planes
+    for k in 1, 2
+    returns array_dv of if k = 1 then dq1 else dq2t end if
+    end for
+  end let
+end function
+
+function main( q, flatn : Plane; nc1, nc2 : integer returns Sys )
+  slope( q, flatn, nc1, nc2 )
+end function
