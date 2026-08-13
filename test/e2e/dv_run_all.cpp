@@ -13816,6 +13816,58 @@ static void test_mdfftfreq_dv (void)
 // exactly (gather), and the deposited charge must total the particle charge
 // (scatter).
 namespace bmv {
+  // parmve transcribed, for particles that stay inside the domain (so BCND is
+  // not involved).  The property checks above all use degenerate inputs -- a
+  // uniform field, a zero field, dt = 0 -- so a wrong weight PAIRING would
+  // survive them: the partition of unity holds however the four weights are
+  // permuted among the four grid corners.  Only a NON-uniform field pins which
+  // weight goes with which corner.
+  struct Out { std::vector<double> x, y, vx, vy, q; };
+  static void ref_parmve (const std::vector<double> &X,
+                          const std::vector<double> &Y,
+                          const std::vector<double> &VX,
+                          const std::vector<double> &VY,
+                          const std::vector<double> &ex,
+                          const std::vector<double> &ey,
+                          const std::vector<double> &qin, int np, int nx2,
+                          double dt, double qmult, double wmult, double hxi,
+                          double hyi, Out &o)
+  {
+    const double h1 = dt * qmult / wmult;
+    o.x = X; o.y = Y; o.vx = VX; o.vy = VY; o.q = qin;
+    for (int l = 0; l < np; l++)
+      {
+        const double h = (X[l] < 0.0) ? 0.0 : h1;
+        const double rx = hxi * X[l] + 1.5, ry = hyi * Y[l] + 1.5;
+        const int i = (int)trunc (rx), j = (int)trunc (ry);
+        const double fx = rx - trunc (rx), fy = ry - trunc (ry);
+        const double fxc = 1.0 - fx, fyc = 1.0 - fy;
+        const int ij = i + nx2 * (j - 1);
+        const double w1 = fxc * fyc, w2 = fx * fyc, w3 = fxc * fy, w4 = fx * fy;
+        // 1-based grid indices
+        const double exa = w1 * ex[ij - 1] + w2 * ex[ij] + w3 * ex[ij + nx2 - 1]
+                           + w4 * ex[ij + nx2];
+        o.vx[l] = VX[l] + h * exa;
+        o.vy[l] = VY[l] + h * exa;          // the source uses exa for BOTH
+        const double h2 = (X[l] < 0.0) ? 0.0 : 1.0;
+        o.x[l] = X[l] + dt * o.vx[l] * h2;
+        o.y[l] = Y[l] + dt * o.vy[l] * h2;
+      }
+    // deposition, at the NEW positions
+    for (int l = 0; l < np; l++)
+      {
+        const double qm = (o.x[l] < 0.0) ? 0.0 : qmult;
+        const double rx = hxi * o.x[l] + 1.5, ry = hyi * o.y[l] + 1.5;
+        const int i = (int)trunc (rx), j = (int)trunc (ry);
+        const double fx = rx - trunc (rx), fy = ry - trunc (ry);
+        const double fxc = 1.0 - fx, fyc = 1.0 - fy;
+        const int ij = i + nx2 * (j - 1);
+        o.q[ij - 1]         += fxc * fyc * qm;
+        o.q[ij]             += fx * fyc * qm;
+        o.q[ij + nx2 - 1]   += fxc * fy * qm;
+        o.q[ij + nx2]       += fx * fy * qm;
+      }
+  }
   static sisal_array_t vec (const std::vector<double> &v) {
     sisal_array_t d = sisal_array_alloc_sized (1, 4, (uint64_t)v.size (),
                                                sizeof (double));
@@ -13934,6 +13986,32 @@ static void test_bmk11a_move_dv (void)
         ok = false;
     check ("dt = 0 is the identity on positions and velocities (bmk11a's own "
            "main runs this)", ok);
+    freer (r);
+  }
+
+  // ---- GENERAL CASE: a NON-UNIFORM field, against the transcription ----
+  {
+    const double dt = 0.05;
+    std::vector<double> exv ((size_t)ngrid), eyv ((size_t)ngrid, 0.0);
+    for (int k = 0; k < ngrid; k++)
+      exv[k] = 0.125 * ((k * 7) % 11) - 0.5;      // varies cell to cell
+    auto r = run (dt, exv, eyv, X, gzero);
+    Out w;
+    ref_parmve (X, Y, VX, VY, exv, eyv, gzero, np, nx2, dt, qmult, wmult, hxi,
+                hyi, w);
+    bool ok = true;
+    for (int l = 0; ok && l < np; l++)
+      if (fabs (((const double *)r.x1.data)[l] - w.x[l]) > 1e-12
+          || fabs (((const double *)r.vx1.data)[l] - w.vx[l]) > 1e-12
+          || fabs (((const double *)r.y1.data)[l] - w.y[l]) > 1e-12)
+        ok = false;
+    check ("non-uniform field: positions and velocities match the transcribed "
+           "mover (pins WHICH weight goes with which corner)", ok);
+    bool okq = (int)r.q1.size == ngrid;
+    for (int k = 0; okq && k < ngrid; k++)
+      if (fabs (((const double *)r.q1.data)[k] - w.q[k]) > 1e-12) okq = false;
+    check ("...and the deposited charge matches cell by cell, not just in "
+           "total", okq);
     freer (r);
   }
 
@@ -14164,6 +14242,7 @@ namespace ufs {
         : nc1 (c1), nc2 (c2), W_ (c1 + 2 * NCX), H_ (c2 + 2 * NCX),
           a ((size_t)W_ * H_, f) {}
     double &at (int j, int i) { return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))]; }
+    double at (int j, int i) const { return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))]; }
     sisal_array_t dope () const {
       sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (), sizeof (double));
       d.dims[0] = H_; d.dims[1] = W_;
@@ -14172,6 +14251,42 @@ namespace ufs {
       return d;
     }
   };
+  // Method11 transcribed: convert the traced left state to conservation form,
+  // subtract the transverse flux difference, convert back.  The two no-op
+  // properties (hdtdy = 0, uniform flux) both leave the correction term zero,
+  // so only this exercises it.
+  static void ref_method11 (const P &rhol, const P &ul, const P &vl,
+                            const P &pl, const P &f1, const P &f2, const P &f3,
+                            const P &f4, int nc1, int nc2, double hdtdy,
+                            double smallr, double gm1, double small,
+                            std::vector<double> &r, std::vector<double> &u,
+                            std::vector<double> &v, std::vector<double> &p)
+  {
+    const int W = nc1 + 1;
+    r.assign ((size_t)W * nc2, 0.0); u = v = p = r;
+    for (int jc = 1; jc <= nc2; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          const int ic = ie - 1;
+          const size_t k = (size_t)(jc - 1) * W + (ie - 1);
+          double rr = rhol.at (jc, ie);
+          double ru = rr * ul.at (jc, ie);
+          double rv = rr * vl.at (jc, ie);
+          double re = pl.at (jc, ie) / gm1
+                      + 0.5 * rr * (ul.at (jc, ie) * ul.at (jc, ie)
+                                    + vl.at (jc, ie) * vl.at (jc, ie));
+          double rn = rr - hdtdy * (f1.at (jc + 1, ic) - f1.at (jc, ic));
+          double un = ru - hdtdy * (f2.at (jc + 1, ic) - f2.at (jc, ic));
+          double vn = rv - hdtdy * (f3.at (jc + 1, ic) - f3.at (jc, ic));
+          double en = re - hdtdy * (f4.at (jc + 1, ic) - f4.at (jc, ic));
+          double r3 = std::max (smallr, rn);
+          double eken = 0.5 * (un * un + vn * vn) / r3;
+          r[k] = r3;
+          u[k] = un / r3;
+          v[k] = vn / r3;
+          p[k] = std::max (small * eken, gm1 * (en - eken));
+        }
+  }
 }
 static void test_unsplit_fluxstage_dv (void)
 {
@@ -14232,6 +14347,43 @@ static void test_unsplit_fluxstage_dv (void)
         for (auto &x : A) if (x.data) free (x.data);
         freer (r);
       }
+  }
+
+  // ---- GENERAL CASE: Method11 against the transcribed formula ----
+  {
+    P R (nc1, nc2, 0), U (nc1, nc2, 0), V (nc1, nc2, 0), PP (nc1, nc2, 0),
+        SM (nc1, nc2, 1e-8), F (nc1, nc2, 0);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        {
+          R.at (j, i)  = 1.0 + 0.125 * ((i + j) % 4);
+          U.at (j, i)  = 0.5 * ((i * 2 + j) % 3) - 0.5;
+          V.at (j, i)  = 0.25 * ((i + 3 * j) % 3);
+          PP.at (j, i) = 1.0 + 0.0625 * ((i + j) % 5);
+          F.at (j, i)  = 0.25 * ((i * 3 + j) % 5) - 0.5;   // varies, so the
+        }                                                  // difference is live
+    const double hdtdy = 0.3, gm1 = gamma - 1.0, small = 1e-6;
+    sisal_array_t A[17] = { R.dope (), V.dope (), U.dope (), PP.dope (),
+                            R.dope (), V.dope (), U.dope (), PP.dope (),
+                            SM.dope (), F.dope (), F.dope (), F.dope (),
+                            F.dope (), R.dope (), U.dope (), V.dope (),
+                            PP.dope () };
+    auto r = func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7], A[8],
+                        A[9], A[10], A[11], A[12], A[13], A[14], A[15], A[16],
+                        nc1, nc2, niter, gamma, 0.0, hdtdy, smallr);
+    std::vector<double> wr, wu, wv, wp;
+    ref_method11 (R, U, V, PP, F, F, F, F, nc1, nc2, hdtdy, smallr, gm1, small,
+                  wr, wu, wv, wp);
+    bool ok = (int)r.b1.size == (int)wr.size ();
+    for (size_t k = 0; ok && k < wr.size (); k++)
+      if (fabs (((const double *)r.b1.data)[k] - wr[k]) > 1e-11
+          || fabs (((const double *)r.b2.data)[k] - wu[k]) > 1e-11
+          || fabs (((const double *)r.b4.data)[k] - wp[k]) > 1e-11)
+        ok = false;
+    check ("general case: the transverse predictor matches the transcribed "
+           "formula (non-uniform flux, hdtdy /= 0)", ok);
+    for (auto &x : A) if (x.data) free (x.data);
+    freer (r);
   }
 
   // ---- the transverse predictor is a NO-OP when it should be ----
@@ -14314,6 +14466,68 @@ namespace uup {
       return d;
     }
   };
+  // Method17/18A/18B/19 transcribed.  The property checks (conservation, zero
+  // and uniform fluxes, expanding vs compressing) all hold for whole families
+  // of wrong coefficients, so the general case is checked against the formula
+  // too, with a compressing flow so the viscosity term is live.
+  struct Ref {
+    std::vector<double> div, g1, g2, w;
+  };
+  static void ref_update (const P &U, const P &velx, const P &vely, const P &f1,
+                          const P &f2, int nc1, int nc2, int ilo, double difmag,
+                          double dx, double dy, double dtdx, double dtdy,
+                          Ref &out, int *n_compress, int *n_expand)
+  {
+    // Method17: divergence over je in 1..nc2+1, ie in 1..nc1+1
+    const int DW = nc1 + 1;
+    out.div.assign ((size_t)DW * (nc2 + 1), 0.0);
+    for (int je = 1; je <= nc2 + 1; je++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          double ud = velx.at (je, ie) - velx.at (je, ie - 1)
+                      + velx.at (je - 1, ie) - velx.at (je - 1, ie - 1);
+          double vd = vely.at (je, ie) - vely.at (je, ie - 1)
+                      + vely.at (je - 1, ie) - vely.at (je - 1, ie - 1);
+          out.div[(size_t)(je - 1) * DW + (ie - 1)]
+              = difmag * 0.5 * (ud / dx + vd / dy);
+        }
+    auto D = [&] (int j, int i) {
+      return out.div[(size_t)(j - 1) * DW + (i - 1)];
+    };
+    // Method18A: x fluxes over jc in 1..nc2, ie in 1..nc1+1
+    out.g1.assign ((size_t)DW * nc2, 0.0);
+    for (int jc = 1; jc <= nc2; jc++)
+      for (int ie = 1; ie <= nc1 + 1; ie++)
+        {
+          double d1 = std::min (0.0, 0.5 * (D (jc, ie) + D (jc + 1, ie)));
+          if (d1 < 0.0) { if (n_compress) (*n_compress)++; }
+          else if (n_expand) (*n_expand)++;
+          out.g1[(size_t)(jc - 1) * DW + (ie - 1)]
+              = f1.at (jc, ie)
+                + dx * d1 * (U.at (jc, ilo + ie - 1) - U.at (jc, ilo + ie - 2));
+        }
+    // Method18B: y fluxes over je in 1..nc2+1, ic in 1..nc1
+    const int GW = nc1;
+    out.g2.assign ((size_t)GW * (nc2 + 1), 0.0);
+    for (int je = 1; je <= nc2 + 1; je++)
+      for (int ic = 1; ic <= nc1; ic++)
+        {
+          double d2 = std::min (0.0, 0.5 * (D (je, ic) + D (je, ic + 1)));
+          out.g2[(size_t)(je - 1) * GW + (ic - 1)]
+              = f2.at (je, ic)
+                + dy * d2 * (U.at (je, ilo + ic - 1) - U.at (je - 1, ilo + ic - 1));
+        }
+    // Method19: the conservative update over 1..nc2 x 1..nc1
+    out.w.assign ((size_t)nc1 * nc2, 0.0);
+    for (int j = 1; j <= nc2; j++)
+      for (int i = 1; i <= nc1; i++)
+        out.w[(size_t)(j - 1) * nc1 + (i - 1)]
+            = U.at (j, ilo + i - 1)
+              + dtdx * (out.g1[(size_t)(j - 1) * DW + (i - 1)]
+                        - out.g1[(size_t)(j - 1) * DW + i])
+              + dtdy * (out.g2[(size_t)(j - 1) * GW + (i - 1)]
+                        - out.g2[(size_t)j * GW + (i - 1)]);
+  }
 }
 static void test_unsplit_update_dv (void)
 {
@@ -14476,6 +14690,54 @@ static void test_unsplit_update_dv (void)
     check ("Method18: a COMPRESSING flow does alter them", changed_c > 0);
     (void)same;
     freer (re); freer (rc);
+  }
+
+  // ---- GENERAL CASE against the transcribed formulas ----
+  {
+    P U1 (nc1, nc2, pad, 0), U2 (nc1, nc2, pad, 0), U3 (nc1, nc2, pad, 0),
+        U4 (nc1, nc2, pad, 0), uu (nc1, nc2, pad, 0), vv (nc1, nc2, pad, 0),
+        F1 (nc1, nc2, pad, 0), F2 (nc1, nc2, pad, 0);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX + pad; i++)
+        {
+          U1.at (j, i) = 1.0 + 0.125 * ((i * 3 + j) % 5);
+          U2.at (j, i) = 0.25 * ((i + 2 * j) % 4) - 0.5;
+          U3.at (j, i) = 0.125 * ((i + j) % 3);
+          U4.at (j, i) = 2.0 + 0.0625 * ((i * j) % 7);
+          // V-shaped, so the divergence changes SIGN across the domain: a
+          // monotone velocity ramp compresses everywhere and leaves the
+          // min(0, div) branch half-untested (measured: 35 compressing cells,
+          // 0 expanding).
+          uu.at (j, i) = fabs ((double)(i - 3)) - 0.3 * j;
+          vv.at (j, i) = fabs ((double)(j - 2)) - 0.2 * i;
+          F1.at (j, i) = 0.5 + 0.125 * ((i + j) % 3);
+          F2.at (j, i) = 0.25 - 0.0625 * ((i * 2 + j) % 4);
+        }
+    const double difmag = 0.75;
+    auto r = call (U1, U2, U3, U4, uu, vv, F1, F1, F1, F1, F2, F2, F2, F2,
+                   difmag);
+    int ncomp = 0, nexp = 0;
+    Ref ref;
+    ref_update (U1, uu, vv, F1, F2, nc1, nc2, ilo, difmag, dx, dy, dtdx, dtdy,
+                ref, &ncomp, &nexp);
+    bool okd = (int)r.div.size == (int)ref.div.size();
+    for (size_t k = 0; okd && k < ref.div.size(); k++)
+      if (fabs (((const double *)r.div.data)[k] - ref.div[k]) > 1e-12) okd = false;
+    check ("general case: Method17 divergence matches the formula", okd);
+    bool okg = (int)r.g1a.size == (int)ref.g1.size();
+    for (size_t k = 0; okg && k < ref.g1.size(); k++)
+      if (fabs (((const double *)r.g1a.data)[k] - ref.g1[k]) > 1e-12) okg = false;
+    check ("general case: Method18A viscous x-flux matches the formula", okg);
+    bool okw = (int)r.w1.size == (int)ref.w.size();
+    for (size_t k = 0; okw && k < ref.w.size(); k++)
+      if (fabs (((const double *)r.w1.data)[k] - ref.w[k]) > 1e-12) okw = false;
+    check ("general case: Method19 update matches the formula", okw);
+    char m[150];
+    snprintf (m, sizeof m,
+              "...with the viscosity live on both sides (%d compressing, %d "
+              "expanding cells)", ncomp, nexp);
+    check (m, ncomp > 0 && nexp > 0);
+    freer (r);
   }
 
   // ---- Transpose is exactly invertible ----
@@ -14995,6 +15257,73 @@ static void test_unsplit_prep_dv (void)
 // SYMMETRY: for a mirrored pair (same rho and p, ul = -ur) the star velocity
 // must be exactly 0, whatever the Newton iteration does.
 namespace ufx {
+  // The fluxev chain, transcribed: acoustic guess, `niter` Newton steps, the
+  // middle states, sampling the fan at xi, then the fluxes.  The consistency
+  // property above deliberately exercises the DEGENERATE case (identical
+  // states), where most terms cancel; this runs genuinely asymmetric states so
+  // every term is live.  `guards` counts which branches were taken, so the data
+  // is known to reach both sides rather than assumed to.
+  struct Guards { int chi_pos = 0, chi_neg = 0, rarefaction = 0, shock = 0,
+                  frac_one = 0, frac_zero = 0, frac_mid = 0; };
+  static double fsign (double x, double y) { return y >= 0.0 ? fabs (x) : -fabs (x); }
+  static void ref_fluxev (double rl, double ul, double vl, double pl,
+                          double rr, double ur, double vr, double pr,
+                          double smallp, int niter, double gamma, double xi,
+                          double out[4], Guards *g)
+  {
+    const double one = 1.0, half = 0.5, forth = 0.25, small = 1e-6;
+    const double gm1 = gamma - one, gp1 = gamma + one;
+    // fluxev1: acoustic initial guess
+    double wl0 = sqrt (gamma * rl * pl), wr0 = sqrt (gamma * rr * pr);
+    double ps = (wr0 * pl + wl0 * pr + wl0 * wr0 * (ul - ur)) / (wl0 + wr0);
+    ps = std::max (smallp, ps);
+    // fluxev2: Newton, run niter times
+    for (int it = 1; it <= niter; it++)
+      {
+        double wl = sqrt (half * rl * (gp1 * ps + gm1 * pl));
+        double wlf = one / wl, dwl = forth * rl * gp1 * wlf;
+        double usl = ul - wlf * (ps - pl);
+        double dusl = wlf * (wlf * dwl * (ps - pl) - one);
+        double wr = sqrt (half * rr * (gp1 * ps + gm1 * pr));
+        double wrf = one / wr, dwr = forth * rr * gp1 * wrf;
+        double usr = ur + wrf * (ps - pr);
+        double dusr = wrf * (one - wrf * dwr * (ps - pr));
+        ps = std::max (smallp, ps - (usl - usr) / (dusl - dusr));
+      }
+    // fluxev4: middle states
+    double wlsq = half * rl * (gp1 * ps + gm1 * pl);
+    double wrsq = half * rr * (gp1 * ps + gm1 * pr);
+    double ustar = half * ((ul + (ps - pl) / -sqrt (wlsq))
+                           + (ur + (ps - pr) / sqrt (wrsq)));
+    double rstarl = wlsq * rl / (wlsq - rl * (ps - pl));
+    double rstarr = wrsq * rr / (wrsq - rr * (ps - pr));
+    // fluxev5: sample the fan
+    double chi = fsign (one, xi - ustar);
+    double ro, uo, vo, po, ri, vi;
+    if (chi >= 0.0) { ro = rr; uo = ur; vo = vr; po = pr; ri = rstarr; vi = vr;
+                      if (g) g->chi_pos++; }
+    else            { ro = rl; uo = ul; vo = vl; po = pl; ri = rstarl; vi = vl;
+                      if (g) g->chi_neg++; }
+    double ui = ustar, pi = ps;
+    double ci = sqrt (gamma * pi / ri), co = sqrt (gamma * po / ro);
+    double wo = sqrt (half * ro * (gp1 * pi + gm1 * po));
+    double shock = chi * uo + wo / ro, si, so;
+    if (pi - po < 0.0) { si = chi * ui + ci; so = chi * uo + co;
+                         if (g) g->rarefaction++; }
+    else              { si = so = shock; if (g) g->shock++; }
+    double sdenom = one / std::max (small, so - si);
+    double frac1 = (chi * xi >= so) ? 0.0 : (so - xi * chi) * sdenom;
+    double frac = (chi * xi < si) ? one : frac1;
+    if (g) { if (frac == one) g->frac_one++;
+             else if (frac == 0.0) g->frac_zero++; else g->frac_mid++; }
+    double rg = ro + frac * (ri - ro), ug = uo + frac * (ui - uo);
+    double vg = vo + frac * (vi - vo), pg = po + frac * (pi - po);
+    // fluxev6
+    out[0] = rg * ug;
+    out[1] = rg * ug * ug + pg;
+    out[2] = rg * ug * vg;
+    out[3] = ug * (gamma * pg / gm1 + half * rg * (ug * ug + vg * vg));
+  }
   static sisal_array_t vec (const std::vector<double> &v) {
     sisal_array_t d = sisal_array_alloc_sized (1, 4, (uint64_t)v.size (),
                                                sizeof (double));
@@ -15092,6 +15421,66 @@ static void test_unsplit_flux_dv (void)
               "symmetry: a mirrored pair has star velocity exactly 0 (%d runs)",
               ran);
     check (msg, bad == 0);
+  }
+
+  // ---- ASYMMETRIC states against the transcribed chain ----
+  {
+    struct LR { double rl, ul, vl, pl, rr, ur, vr, pr; };
+    const LR pairs[] = {
+      { 1.0,  0.0,  0.0, 1.0,   0.125, 0.0,  0.0, 0.1 },   // Sod
+      { 1.0,  0.75, 0.2, 1.0,   0.125, 0.0, -0.3, 0.1 },   // Sod, moving
+      { 5.0, -1.2,  0.4, 4.0,   0.5,   1.1,  0.7, 0.3 },   // strong collision
+      { 0.4,  2.0, -0.5, 0.2,   3.0,  -1.5,  0.9, 5.0 },   // reversed jump
+      { 1.0, -2.0,  0.0, 0.4,   1.0,   2.0,  0.0, 0.4 },   // double rarefaction
+    };
+    Guards g;
+    int bad = 0, ran = 0;
+    for (const LR &c : pairs)
+      for (double xi : { -4.0, -1.0, 0.0, 1.0, 4.0 })
+        for (int niter : { 1, 3, 6 })
+          {
+            const int n = 1;
+            std::vector<double> RL (n, c.rl), UL (n, c.ul), VL (n, c.vl),
+                PL (n, c.pl), RR (n, c.rr), UR (n, c.ur), VR (n, c.vr),
+                PR (n, c.pr), SM (n, 1e-6);
+            sisal_array_t A[9] = { vec (RL), vec (UL), vec (VL), vec (PL),
+                                   vec (RR), vec (UR), vec (VR), vec (PR),
+                                   vec (SM) };
+            auto r = func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7],
+                                A[8], n, niter, gamma, xi);
+            ran++;
+            double w[4];
+            ref_fluxev (c.rl, c.ul, c.vl, c.pl, c.rr, c.ur, c.vr, c.pr, 1e-6,
+                        niter, gamma, xi, w, &g);
+            const double *got[4] = { (const double *)r.f1.data,
+                                     (const double *)r.f2.data,
+                                     (const double *)r.f3.data,
+                                     (const double *)r.f4.data };
+            for (int q = 0; q < 4; q++)
+              if (fabs (got[q][0] - w[q]) > 1e-9 * std::max (1.0, fabs (w[q])))
+                { bad++; break; }
+            for (auto &x : A) if (x.data) free (x.data);
+            if (r.f1.data) free (r.f1.data);
+            if (r.f2.data) free (r.f2.data);
+            if (r.f3.data) free (r.f3.data);
+            if (r.f4.data) free (r.f4.data);
+            if (r.ustar.data) free (r.ustar.data);
+          }
+    snprintf (msg, sizeof msg,
+              "asymmetric states match the transcribed chain (%d runs: 5 "
+              "Riemann problems x 5 xi x 3 niter)", ran);
+    check (msg, bad == 0);
+    // COVERAGE: the chain branches on the sampling side, on shock vs
+    // rarefaction, and on where xi falls in the fan.  Assert the data reaches
+    // every side rather than assuming it -- an all-subsonic dataset once left
+    // a whole branch of unsplit's trace untested.
+    snprintf (msg, sizeof msg,
+              "...exercising both fan sides (%d/%d), shock AND rarefaction "
+              "(%d/%d), and frac at 1/0/interior (%d/%d/%d)",
+              g.chi_pos, g.chi_neg, g.shock, g.rarefaction, g.frac_one,
+              g.frac_zero, g.frac_mid);
+    check (msg, g.chi_pos && g.chi_neg && g.shock && g.rarefaction
+                    && g.frac_one && g.frac_zero && g.frac_mid);
   }
 
   // ---- a genuine shock tube: the solver must actually do something ----
