@@ -555,6 +555,19 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_UNSPLIT_FLUXSTAGE_DV
+struct FUNC_MAIN_ufs_results {
+  sisal_array_t a1, a2, a3, a4, b1, b2, b3, b4;
+};
+extern "C" struct FUNC_MAIN_ufs_results
+func_MAIN (sisal_array_t rhob, sisal_array_t vb, sisal_array_t ub,
+           sisal_array_t pb, sisal_array_t rhot, sisal_array_t vt,
+           sisal_array_t ut, sisal_array_t pt, sisal_array_t psml,
+           sisal_array_t f2b1, sisal_array_t f2b2, sisal_array_t f2b3,
+           sisal_array_t f2b4, sisal_array_t rhol, sisal_array_t ul,
+           sisal_array_t vl, sisal_array_t pl, int32_t nc1, int32_t nc2,
+           int32_t niter, double gamma, double xi, double hdtdy, double smallr);
+#endif
 #ifdef TEST_UNSPLIT_UPDATE_DV
 struct FUNC_MAIN_uup_results {
   sisal_array_t div;
@@ -13766,6 +13779,154 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_FLUXSTAGE_DV
+// unsplit, part 7d of 8 -- Method9..Method16, the flux machinery.
+//
+// Method9/10 strip a ROW of traced states and hand it to the Riemann solver of
+// part 6; Method11..14 add the transverse predictor to the traced states,
+// converting to conservation form and back; Method15/16 build the full fluxes.
+// The array rewrite needed the row-slice edit in 24 places -- rhob1[je] selects
+// an ELEMENT under array_dv, the row is rhob1[je, ..].
+//
+// Oracle: UNIFORM FLOW makes every interface Riemann problem trivial, so
+// Method9 must give the analytic Euler flux of that state across the whole
+// plane -- part 6's consistency, now driven through a plane rather than one
+// interface list, which is the point of having landed the solver separately.
+// And the transverse predictor must be a NO-OP both when the transverse flux is
+// uniform (its difference vanishes) and when hdtdy = 0 (the term is switched
+// off) -- in each case after a round trip through conservation form and back,
+// which is itself what is being checked.
+namespace ufs {
+  const int NCX = 4;
+  struct P {
+    int nc1, nc2, W_, H_;
+    std::vector<double> a;
+    P (int c1, int c2, double f)
+        : nc1 (c1), nc2 (c2), W_ (c1 + 2 * NCX), H_ (c2 + 2 * NCX),
+          a ((size_t)W_ * H_, f) {}
+    double &at (int j, int i) { return a[(size_t)(j - (1 - NCX)) * W_ + (i - (1 - NCX))]; }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (), sizeof (double));
+      d.dims[0] = H_; d.dims[1] = W_;
+      d.lower_bound[0] = 1 - NCX; d.lower_bound[1] = 1 - NCX;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+}
+static void test_unsplit_fluxstage_dv (void)
+{
+  printf ("\n=== Group: unsplit_fluxstage_dv (part 7d/8: Method9..16) ===\n");
+  using namespace ufs;
+  const int nc1 = 5, nc2 = 4, niter = 4;
+  const double gamma = 1.4, smallr = 1e-10;
+
+  auto freer = [] (FUNC_MAIN_ufs_results &r) {
+    sisal_array_t *v[] = { &r.a1, &r.a2, &r.a3, &r.a4,
+                           &r.b1, &r.b2, &r.b3, &r.b4 };
+    for (auto *x : v) if (x->data) free (x->data);
+  };
+
+  // ---- UNIFORM FLOW: Method9 must give the analytic Euler flux ----
+  {
+    // NOTE Method9's argument order: (rhob, vb, ub, pb, ...) -- the transverse
+    // stage passes v as the NORMAL velocity, so the flux is built from v.
+    const double rho = 1.25, u = 0.5, v = -0.375, p = 0.875;
+    P R (nc1, nc2, rho), U (nc1, nc2, u), V (nc1, nc2, v), PP (nc1, nc2, p),
+        SM (nc1, nc2, 1e-8), Z (nc1, nc2, 0.0);
+    for (double xi : { -2.0, 0.0, 2.0 })
+      {
+        sisal_array_t A[17] = { R.dope (), V.dope (), U.dope (), PP.dope (),
+                                R.dope (), V.dope (), U.dope (), PP.dope (),
+                                SM.dope (), Z.dope (), Z.dope (), Z.dope (),
+                                Z.dope (), R.dope (), U.dope (), V.dope (),
+                                PP.dope () };
+        auto r = func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7],
+                            A[8], A[9], A[10], A[11], A[12], A[13], A[14],
+                            A[15], A[16], nc1, nc2, niter, gamma, xi, 0.0,
+                            smallr);
+        // The normal velocity for this TRANSVERSE stage is v (Method9 is
+        // called with the arguments in (rho, v, u, p) order, so `uminus` is
+        // the v field).  And Method9 returns f1, F3, F2, f4 -- the two
+        // momentum fluxes SWAPPED -- because fluxev's normal-momentum flux is
+        // the caller's y-momentum here, so swapping restores the caller's
+        // (x, y) ordering.  Getting this backwards is invisible whenever
+        // u == v, which is why the test uses two different velocities.
+        const double w1 = rho * v;
+        const double w2 = rho * v * u;              // f3: transverse momentum
+        const double w3 = rho * v * v + p;          // f2: normal momentum
+        const double w4 = v * (gamma * p / (gamma - 1.0)
+                               + 0.5 * rho * (v * v + u * u));
+        auto ok1 = [&] (const sisal_array_t &a, double w) {
+          for (int k = 0; k < (int)a.size; k++)
+            if (fabs (((const double *)a.data)[k] - w)
+                > 1e-10 * std::max (1.0, fabs (w)))
+              return false;
+          return (int)a.size > 0;
+        };
+        char m[140];
+        snprintf (m, sizeof m,
+                  "uniform flow, xi=%+.1f: transverse fluxes are the analytic "
+                  "Euler flux", xi);
+        check (m, ok1 (r.a1, w1) && ok1 (r.a2, w2) && ok1 (r.a3, w3)
+                      && ok1 (r.a4, w4));
+        for (auto &x : A) if (x.data) free (x.data);
+        freer (r);
+      }
+  }
+
+  // ---- the transverse predictor is a NO-OP when it should be ----
+  {
+    P R (nc1, nc2, 0), U (nc1, nc2, 0), V (nc1, nc2, 0), PP (nc1, nc2, 0),
+        SM (nc1, nc2, 1e-8);
+    for (int j = 1 - NCX; j <= nc2 + NCX; j++)
+      for (int i = 1 - NCX; i <= nc1 + NCX; i++)
+        {
+          R.at (j, i)  = 1.0 + 0.125 * ((i + j) % 4);
+          U.at (j, i)  = 0.25 * ((i * 2 + j) % 3) - 0.25;
+          V.at (j, i)  = 0.125 * ((i + 3 * j) % 3);
+          PP.at (j, i) = 1.0 + 0.0625 * ((i + j) % 5);
+        }
+    struct Case { double hdtdy; double flux; const char *nm; };
+    const Case cases[] = {
+      { 0.0,  0.75, "hdtdy = 0 switches the predictor off" },
+      { 0.35, 2.5,  "a UNIFORM transverse flux has zero difference" },
+    };
+    for (const Case &c : cases)
+      {
+        P F (nc1, nc2, c.flux);
+        sisal_array_t A[17] = { R.dope (), V.dope (), U.dope (), PP.dope (),
+                                R.dope (), V.dope (), U.dope (), PP.dope (),
+                                SM.dope (), F.dope (), F.dope (), F.dope (),
+                                F.dope (), R.dope (), U.dope (), V.dope (),
+                                PP.dope () };
+        auto r = func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7],
+                            A[8], A[9], A[10], A[11], A[12], A[13], A[14],
+                            A[15], A[16], nc1, nc2, niter, gamma, 0.0,
+                            c.hdtdy, smallr);
+        // Method11 spans jc in 1..nc2, ie in 1..nc1+1
+        const int BW = nc1 + 1;
+        bool ok = (int)r.b1.size == BW * nc2;
+        for (int jc = 1; ok && jc <= nc2; jc++)
+          for (int ie = 1; ie <= nc1 + 1; ie++)
+            {
+              size_t k = (size_t)(jc - 1) * BW + (ie - 1);
+              if (fabs (((const double *)r.b1.data)[k] - R.at (jc, ie)) > 1e-11
+                  || fabs (((const double *)r.b2.data)[k] - U.at (jc, ie)) > 1e-11
+                  || fabs (((const double *)r.b4.data)[k] - PP.at (jc, ie)) > 1e-11)
+                { ok = false; break; }
+            }
+        char m[160];
+        snprintf (m, sizeof m,
+                  "%s: traced states survive the conservation round trip "
+                  "unchanged", c.nm);
+        check (m, ok);
+        for (auto &x : A) if (x.data) free (x.data);
+        freer (r);
+      }
+  }
+}
+#endif
 #ifdef TEST_UNSPLIT_UPDATE_DV
 // unsplit, part 7c of 8 -- Method17..Method19 and Transpose, the update tail.
 //
@@ -19938,6 +20099,9 @@ main (void)
 #ifdef TEST_UNSPLIT_UPDATE_DV
   test_unsplit_update_dv ();
 #endif
+#ifdef TEST_UNSPLIT_FLUXSTAGE_DV
+  test_unsplit_fluxstage_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -20155,7 +20319,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
