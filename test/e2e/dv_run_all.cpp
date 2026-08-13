@@ -555,6 +555,17 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_UNSPLIT_DV
+struct FUNC_MAIN_uall_results {
+  double courno;
+  sisal_array_t o1, o2, o3, o4;
+};
+extern "C" struct FUNC_MAIN_uall_results
+func_MAIN (sisal_array_t U1, sisal_array_t U2, sisal_array_t U3,
+           sisal_array_t U4, int32_t nx, int32_t ny, int32_t niter,
+           int32_t godorder, double gamma, double difmag, double dx, double dy,
+           double dt, bool xper, bool yper);
+#endif
 #ifdef TEST_UNSPLIT_FLUXSTAGE_DV
 struct FUNC_MAIN_ufs_results {
   sisal_array_t a1, a2, a3, a4, b1, b2, b3, b4;
@@ -13779,6 +13790,176 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_DV
+// unsplit, part 8 of 8 -- the INTEGRATED timestep.
+//
+// Everything parts 1..7 covered, wired as the original wires it: PhysBnd fills
+// the ghost cells, flaten and slope build the limited reconstruction,
+// Method1..19 and Transpose run the predictor / Riemann / corrector chain, and
+// Method returns one complete conservative step.
+//
+// The three properties a conservation-law integrator must have, none of which
+// needs the integrator reimplemented:
+//   CONSERVATION -- with periodic boundaries the i=1 and i=nc1+1 interfaces see
+//     identical states, so they carry identical fluxes and Method19's flux
+//     differences telescope to exactly zero.  Every stage is exercised at once:
+//     a slip anywhere shows up as mass, momentum or energy from nowhere.
+//   UNIFORM FLOW -- a constant state is an exact steady solution, so it must
+//     come back unchanged.  The classic upwind check: any inconsistency between
+//     the left and right reconstructions breaks it immediately.
+//   SYMMETRY -- a left-right symmetric state, periodic, must stay symmetric.
+namespace uall {
+  struct P {                       // interior-only plane, 1..nx by 1..ny
+    int nx, ny; std::vector<double> a;
+    P (int X, int Y) : nx (X), ny (Y), a ((size_t)X * Y, 0.0) {}
+    double &at (int j, int i) { return a[(size_t)(j - 1) * nx + (i - 1)]; }
+    double at (int j, int i) const { return a[(size_t)(j - 1) * nx + (i - 1)]; }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (), sizeof (double));
+      d.dims[0] = ny; d.dims[1] = nx;
+      d.lower_bound[0] = 1; d.lower_bound[1] = 1;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+}
+static void test_unsplit_dv (void)
+{
+  printf ("\n=== Group: unsplit_dv (part 8/8: one integrated timestep) ===\n");
+  using namespace uall;
+  const int nx = 8, ny = 6, niter = 4, god = 2;
+  const double gamma = 1.4, difmag = 0.1, dx = 0.125, dy = 0.25, dt = 0.002;
+
+  auto run = [&] (P &U1, P &U2, P &U3, P &U4) {
+    sisal_array_t A[4] = { U1.dope (), U2.dope (), U3.dope (), U4.dope () };
+    auto r = func_MAIN (A[0], A[1], A[2], A[3], nx, ny, niter, god, gamma,
+                        difmag, dx, dy, dt, true, true);
+    for (auto &x : A) if (x.data) free (x.data);
+    return r;
+  };
+  auto freer = [] (FUNC_MAIN_uall_results &r) {
+    sisal_array_t *v[] = { &r.o1, &r.o2, &r.o3, &r.o4 };
+    for (auto *x : v) if (x->data) free (x->data);
+  };
+  auto tot = [&] (const sisal_array_t &a) {
+    double s = 0;
+    for (int k = 0; k < (int)a.size; k++) s += ((const double *)a.data)[k];
+    return s;
+  };
+
+  // ---- CONSERVATION over one step, periodic in both directions ----
+  {
+    P U1 (nx, ny), U2 (nx, ny), U3 (nx, ny), U4 (nx, ny);
+    for (int j = 1; j <= ny; j++)
+      for (int i = 1; i <= nx; i++)
+        {
+          // a smooth periodic bump, so nothing is degenerate
+          double rho = 1.0 + 0.25 * sin (2 * M_PI * (i - 1) / nx)
+                       * cos (2 * M_PI * (j - 1) / ny);
+          double u = 0.15 * cos (2 * M_PI * (i - 1) / nx);
+          double v = -0.1 * sin (2 * M_PI * (j - 1) / ny);
+          double p = 1.0 + 0.1 * sin (2 * M_PI * (i - 1) / nx);
+          U1.at (j, i) = rho;
+          U2.at (j, i) = rho * u;
+          U3.at (j, i) = rho * v;
+          U4.at (j, i) = p / (gamma - 1.0) + 0.5 * rho * (u * u + v * v);
+        }
+    double b1 = 0, b2 = 0, b3 = 0, b4 = 0;
+    for (int k = 0; k < nx * ny; k++)
+      { b1 += U1.a[k]; b2 += U2.a[k]; b3 += U3.a[k]; b4 += U4.a[k]; }
+
+    auto r = run (U1, U2, U3, U4);
+    bool shape = r.o1.rank == 2 && (int)r.o1.dims[0] == ny
+                 && (int)r.o1.dims[1] == nx;
+    check ("one step returns the interior, ny x nx", shape);
+
+    const double a1 = tot (r.o1), a2 = tot (r.o2), a3 = tot (r.o3),
+                 a4 = tot (r.o4);
+    auto ok = [] (double before, double after) {
+      return fabs (after - before) <= 1e-11 * std::max (1.0, fabs (before));
+    };
+    if (!ok (b1, a1)) printf ("  mass     %.17g -> %.17g\n", b1, a1);
+    if (!ok (b4, a4)) printf ("  energy   %.17g -> %.17g\n", b4, a4);
+    check ("CONSERVATION: mass is unchanged across a full step",
+           shape && ok (b1, a1));
+    check ("CONSERVATION: both momenta are unchanged",
+           shape && ok (b2, a2) && ok (b3, a3));
+    check ("CONSERVATION: total energy is unchanged", shape && ok (b4, a4));
+    // VACUITY GUARD: conservation is trivially true if nothing moved, so the
+    // state must actually have changed.
+    int moved = 0;
+    for (int k = 0; k < nx * ny; k++)
+      if (((const double *)r.o1.data)[k] != U1.a[k]) moved++;
+    check ("the step actually did something (Courant number > 0)",
+           r.courno > 0.0);
+    {
+      char m[140];
+      snprintf (m, sizeof m,
+                "...and the state really changed: %d of %d cells moved", moved,
+                nx * ny);
+      check (m, moved > nx * ny / 2);
+    }
+    freer (r);
+  }
+
+  // ---- UNIFORM FLOW is preserved exactly ----
+  {
+    const double rho = 1.25, u = 0.3, v = -0.2, p = 0.9;
+    P U1 (nx, ny), U2 (nx, ny), U3 (nx, ny), U4 (nx, ny);
+    for (int k = 0; k < nx * ny; k++)
+      {
+        U1.a[k] = rho; U2.a[k] = rho * u; U3.a[k] = rho * v;
+        U4.a[k] = p / (gamma - 1.0) + 0.5 * rho * (u * u + v * v);
+      }
+    auto r = run (U1, U2, U3, U4);
+    bool ok = true;
+    for (int k = 0; ok && k < nx * ny; k++)
+      {
+        const double *o1 = (const double *)r.o1.data;
+        const double *o2 = (const double *)r.o2.data;
+        const double *o4 = (const double *)r.o4.data;
+        if (fabs (o1[k] - U1.a[k]) > 1e-12 || fabs (o2[k] - U2.a[k]) > 1e-12
+            || fabs (o4[k] - U4.a[k]) > 1e-12)
+          ok = false;
+      }
+    check ("UNIFORM FLOW is preserved exactly over a step", ok);
+    freer (r);
+  }
+
+  // ---- SYMMETRY: a mirror-symmetric state stays symmetric ----
+  {
+    P U1 (nx, ny), U2 (nx, ny), U3 (nx, ny), U4 (nx, ny);
+    for (int j = 1; j <= ny; j++)
+      for (int i = 1; i <= nx; i++)
+        {
+          // symmetric under i -> nx+1-i, with zero velocity so the mirror is exact
+          int d = std::min (i - 1, nx - i);
+          double rho = 1.0 + 0.1 * d;
+          U1.at (j, i) = rho;
+          U2.at (j, i) = 0.0;
+          U3.at (j, i) = 0.0;
+          U4.at (j, i) = 1.0 / (gamma - 1.0);
+        }
+    auto r = run (U1, U2, U3, U4);
+    bool ok = true;
+    const double *o1 = (const double *)r.o1.data;
+    const double *o2 = (const double *)r.o2.data;
+    for (int j = 1; ok && j <= ny; j++)
+      for (int i = 1; i <= nx / 2; i++)
+        {
+          int m = nx + 1 - i;
+          double a = o1[(size_t)(j - 1) * nx + (i - 1)];
+          double b = o1[(size_t)(j - 1) * nx + (m - 1)];
+          double ua = o2[(size_t)(j - 1) * nx + (i - 1)];
+          double ub = o2[(size_t)(j - 1) * nx + (m - 1)];
+          if (fabs (a - b) > 1e-12 || fabs (ua + ub) > 1e-12) { ok = false; break; }
+        }
+    check ("SYMMETRY: a mirrored state stays mirrored (density even, "
+           "momentum odd)", ok);
+    freer (r);
+  }
+}
+#endif
 #ifdef TEST_UNSPLIT_FLUXSTAGE_DV
 // unsplit, part 7d of 8 -- Method9..Method16, the flux machinery.
 //
@@ -20102,6 +20283,9 @@ main (void)
 #ifdef TEST_UNSPLIT_FLUXSTAGE_DV
   test_unsplit_fluxstage_dv ();
 #endif
+#ifdef TEST_UNSPLIT_DV
+  test_unsplit_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -20319,7 +20503,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

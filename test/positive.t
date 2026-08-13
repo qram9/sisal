@@ -342,6 +342,7 @@ BOXES the cycle-closing field, as OCaml/Haskell represent `Cons of 'a * 'a list`
   $ sisal e2e/unsplit_trace_dv.sis
   $ sisal e2e/unsplit_update_dv.sis
   $ sisal e2e/unsplit_fluxstage_dv.sis
+  $ sisal e2e/unsplit_dv.sis
   $ sisal e2e/ifg_2etc_dv.sis
   $ sisal e2e/ifg_3_dv.sis
   $ sisal e2e/ifg_4_dv.sis
