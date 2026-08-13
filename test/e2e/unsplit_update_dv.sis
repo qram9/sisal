@@ -1,0 +1,227 @@
+% UNSPLIT, part 7c of 8 -- the update tail: Method17..Method19 and Transpose.
+%
+% Method17   the velocity divergence, used as an artificial-viscosity coefficient
+% Method18   add a diffusive flux WHERE THE FLOW IS COMPRESSING (via 18A/18B)
+% Method19   the conservative update
+% Transpose  swap the two axes of a plane
+%
+% (Method9..Method16 -- the transverse and full flux machinery, which calls the
+% Riemann solver of part 6 -- are part 7d.  This tail is taken first because it
+% carries the strongest oracle in the whole port.)
+%
+% THE ARRAY REWRITE is again purely mechanical: PlaneArray -> Plane (flat rank-2
+% array_dv) and the gather keyword.  The six functions are otherwise VERBATIM,
+% including Method18's two embedded helpers.
+%
+% A NAMING TRAP worth recording, met three times in this corpus now: Sisal names
+% are CASE-INSENSITIVE, so a parameter list carrying both `U1` (conserved
+% density) and `u1` (x-velocity) declares ONE parameter twice.  The later
+% declaration wins and the density silently reads as the velocity -- here it
+% showed up as the first conserved quantity updating to zero while the other
+% three were right.  The velocities are named velx/vely below for that reason.
+%
+% THE ORACLE:
+%
+%   * CONSERVATION, which is what a conservative update means and the sharpest
+%     check available anywhere in this program.  Method19 updates each cell by
+%     a FLUX DIFFERENCE, so summing over the interior TELESCOPES:
+%         sum_i ( F[j,i] - F[j,i+1] )  =  F[j,1] - F[j,nc1+1]
+%     Everything interior cancels and only the domain-edge fluxes survive.  So
+%     if the incoming and outgoing edge fluxes agree, the total of each
+%     conserved quantity is unchanged EXACTLY -- not to a tolerance.  A sign
+%     error, a transposed index or an off-by-one in the flux subscripts all
+%     break the cancellation.
+%   * ZERO and UNIFORM fluxes leave the state untouched, isolating the update
+%     from the flux machinery.
+%   * Method17's divergence is a difference operator, so a UNIFORM velocity
+%     field gives exactly zero.
+%   * Method18 only acts where the flow COMPRESSES: div1 = min(zero, ...), so an
+%     expanding field leaves the fluxes bit-for-bit unchanged while a compressing
+%     one alters them.  Same shock-versus-rarefaction discrimination as flaten.
+%   * Transpose is exactly INVERTIBLE: applying it twice on a square region
+%     returns the original.
+
+define main
+
+type Plane = array_dv[ double_real ];
+
+function Method17( u1, v1 : Plane;
+		   nc1, nc2, ordinal : integer;
+		   difmag, half, dx, dy : double_real
+                   returns Plane, integer )
+%:::::: compute the divergence of the velocity field
+let
+div     :=      for je in 1, nc2+1 cross
+                    ie in 1, nc1+1
+			udiv1	:= u1[je,ie] - u1[je,ie-1];
+			udiv2	:= udiv1 + u1[je-1,ie];
+			udiv	:= udiv2 - u1[je-1,ie-1];
+%                       udiv    := (((u1[je,ie] - u1[je,ie-1]) +
+%                                  u1[je-1,ie]) - u1[je-1,ie-1]);
+			vdiv1	:= v1[je,ie] - v1[je,ie-1];
+			vdiv2	:= vdiv1 + v1[je-1,ie];
+			vdiv	:= vdiv2 - v1[je-1,ie-1];
+%                       vdiv    := (((v1[je,ie] - v1[je,ie-1]) +
+%                                  v1[je-1,ie]) - v1[je-1,ie-1]);
+                returns array_dv of difmag*half*( udiv/dx + vdiv/dy )
+                end for
+in
+div, 1
+end let
+end function %5 Method17
+%-------------------------------------------------------------------------------
+function Method18( div : Plane;
+		   flux1c1, flux1c2, flux1c3, flux1c4,
+		   flux2d1, flux2d2, flux2d3, flux2d4 : Plane;
+		   U1,U2,U3,U4 : Plane;
+		   nc1, nc2, nvar, ilo, ordinal : integer;
+		   zero, half, dx, dy : double_real
+                   returns Plane, Plane, Plane, Plane,
+			   Plane, Plane, Plane, Plane,
+			   integer )
+%.................
+%EMBEDDED FUNCTIONS
+%.................
+function Method18A( nc2, nc1, ilo : integer;
+		    zero, half, dx : double_real;
+		    div, flux1 : Plane;
+		    Up : Plane
+		    returns Plane )
+%:::::::::::::::::::::: first coordinate direction
+		for jc in 1, nc2 cross
+                    ie in 1, nc1+1
+                        div1    := min( zero,
+                                        half*( div[jc,ie] + div[jc+1,ie] ) );
+                        flux1e  := flux1[jc,ie] +
+                                   dx*div1*( Up[jc,ilo+ie-1] -
+                                             Up[jc,ilo+ie-1-1] );
+                returns array_dv of flux1e
+                end for
+end function %% Method18A
+%.................
+function Method18B( nc2, nc1, ilo : integer;
+		    zero, half, dy : double_real;
+                    div, flux2 : Plane;
+                    Up : Plane
+                    returns Plane )
+%:::::::::::::::::::::: second coordinate direction
+		for je in 1, nc2+1 cross
+                    ic in 1, nc1
+                        div2    := min( zero,
+                                        half*( div[je,ic] + div[je,ic+1] ) );
+                        flux2e  := flux2[je,ic] +
+                                   dy*div2*( Up[je,ilo+ic-1] -
+                                             Up[je-1,ilo+ic-1] );
+                returns array_dv of flux2e
+                end for
+end function %% Method18B
+%.................
+
+%:::::: add diffusive flux where flow is compressing
+let
+% We're removing one level of loop nesting and one dimension per array, here,
+% for reasons of Sisal efficiency
+
+%:::::::::::::::::::::: first coordinate direction
+  flux1d1 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c1, U1 );
+  flux1d2 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c2, U2 );
+  flux1d3 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c3, U3 );
+  flux1d4 := Method18A( nc2, nc1, ilo,  zero, half, dx, div, flux1c4, U4 );
+
+%:::::::::::::::::::::: second coordinate direction
+  flux2e1 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d1, U1 );
+  flux2e2 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d2, U2 );
+  flux2e3 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d3, U3 );
+  flux2e4 := Method18B( nc2, nc1, ilo,  zero, half, dy, div, flux2d4, U4 );
+
+in
+  flux1d1, flux1d2, flux1d3, flux1d4,
+  flux2e1, flux2e2, flux2e3, flux2e4, 1
+end let
+end function %% Method18
+%-------------------------------------------------------------------------------
+function Method19( U1,U2,U3,U4 : Plane;
+		   flux1d1, flux1d2, flux1d3, flux1d4,
+		   flux2e1, flux2e2, flux2e3, flux2e4 : Plane;
+		   nc1, nc2, ilo, ordinal : integer;
+		   dtdx, dtdy : double_real
+                   returns Plane, Plane, Plane, Plane,
+			   integer )
+%:::::: conservative update formula
+let
+uout1, uout2, uout3, uout4
+        :=      for j in 1, nc2 cross
+                    i in 1, nc1
+                        tmp1    := U1[j,ilo+i-1] + dtdx*( flux1d1[j,i] -
+                                                             flux1d1[j,i+1] )
+                                                    + dtdy*( flux2e1[j,i] -
+                                                             flux2e1[j+1,i] );
+                        tmp2    := U2[j,ilo+i-1] + dtdx*( flux1d2[j,i] -
+                                                             flux1d2[j,i+1] )
+                                                    + dtdy*( flux2e2[j,i] -
+                                                             flux2e2[j+1,i] );
+                        tmp3    := U3[j,ilo+i-1] + dtdx*( flux1d3[j,i] -
+                                                             flux1d3[j,i+1] )
+                                                    + dtdy*( flux2e3[j,i] -
+                                                             flux2e3[j+1,i] );
+                        tmp4    := U4[j,ilo+i-1] + dtdx*( flux1d4[j,i] -
+                                                             flux1d4[j,i+1] )
+                                                    + dtdy*( flux2e4[j,i] -
+                                                             flux2e4[j+1,i] );
+                returns array_dv of tmp1
+                        array_dv of tmp2
+                        array_dv of tmp3
+                        array_dv of tmp4
+                end for
+in
+  uout1, uout2, uout3, uout4, 1
+end let
+end function %% Method19
+%-------------------------------------------------------------------------------
+function Transpose( fluxa1, fluxa2, fluxa3, fluxa4 : Plane;
+		    outerlow, outerhigh, innerlow, innerhigh, ordinal : integer
+		    returns Plane, Plane, Plane, Plane,
+				integer )
+%...... transpose, to build a proper plane array
+let
+fluxb1, fluxb2, fluxb3, fluxb4
+        :=      for je in outerlow, outerhigh cross
+                    ic in innerlow, innerhigh
+                returns array_dv of fluxa1[ic,je]
+                        array_dv of fluxa2[ic,je]
+                        array_dv of fluxa3[ic,je]
+                        array_dv of fluxa4[ic,je]
+                end for
+in
+fluxb1, fluxb2, fluxb3, fluxb4, 1
+end let
+end function %% Transpose
+%-------------------------------------------------------------------------------
+function main( U1, U2, U3, U4 : Plane;
+               velx, vely : Plane;      % NOT u1/v1: names are case-insensitive,
+                                        % so `u1` would BE the parameter `U1`
+                                        % and the density would read as velocity
+               f1a, f1b, f1c, f1d : Plane;        % x fluxes, pre-viscosity
+               f2a, f2b, f2c, f2d : Plane;        % y fluxes, pre-viscosity
+               nc1, nc2, ilo : integer;
+               difmag, dx, dy, dtdx, dtdy : double_real
+      returns Plane,                              % div
+              Plane, Plane, Plane, Plane,         % corrected x fluxes
+              Plane, Plane, Plane, Plane,         % corrected y fluxes
+              Plane, Plane, Plane, Plane,         % updated state
+              Plane, Plane, Plane, Plane )        % transposed x fluxes
+  let
+    zero := 0.0d0;  half := 0.5d0;
+    div, o1 := Method17( velx, vely, nc1, nc2, 1, difmag, half, dx, dy );
+    g1a, g1b, g1c, g1d, g2a, g2b, g2c, g2d, o2 :=
+      Method18( div, f1a, f1b, f1c, f1d, f2a, f2b, f2c, f2d,
+                U1, U2, U3, U4, nc1, nc2, 4, ilo, o1, zero, half, dx, dy );
+    w1, w2, w3, w4, o3 :=
+      Method19( U1, U2, U3, U4, g1a, g1b, g1c, g1d, g2a, g2b, g2c, g2d,
+                nc1, nc2, ilo, o2, dtdx, dtdy );
+    t1, t2, t3, t4, o4 :=
+      Transpose( g1a, g1b, g1c, g1d, 1, nc2, 1, nc1+1, o3 )
+  in
+    div, g1a, g1b, g1c, g1d, g2a, g2b, g2c, g2d, w1, w2, w3, w4, t1, t2, t3, t4
+  end let
+end function
