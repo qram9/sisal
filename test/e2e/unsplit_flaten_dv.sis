@@ -1,0 +1,130 @@
+% UNSPLIT, part 5 of 8 -- `flaten`, the shock-flattening coefficient.
+%
+% flaten produces a coefficient in [0,1] per cell, which `slope` (part 4)
+% multiplies its slopes by.  It is 1 where the flow is smooth and falls toward 0
+% only where BOTH tests fire: a large relative pressure jump AND a COMPRESSIVE
+% velocity field.  Near a strong shock the reconstruction is flattened back
+% toward first order, which is what suppresses oscillation there.
+%
+% Per cell and direction the original computes
+%     dp    = p[i+1] - p[i-1]
+%     zeta  = |dp| / max(small, |p[i+2] - p[i-2]|)        local vs wider jump
+%     z     = clamp( (zeta - 0.75) / (0.85 - 0.75), 0, 1 ) ramp between the cuts
+%     tst   = 1 if u[i-1] >= u[i+1] else 0                 compressing?
+%     chi   = tst if |dp| / min(p[i+1], p[i-1]) > 0.33 else 0
+% and then flatn = 1 - max(chi*z over the three-cell neighbourhood), with the
+% two directions combined by min -- or identically zero when godorder /= 2.
+%
+% THE ARRAY REWRITE is the same shape as parts 2-4: PlaneArray -> flat rank-2
+% array_dv, `returns array of` -> `returns array_dv of`, no structural change.
+% The index span is again -3 .. n+4 (p is read at [j, i+-2] over i in
+% -1..nc1+2), matching PhysBnd's ghost cells exactly.
+%
+% THE ORACLE, all properties of what a flattener IS rather than of this
+% arithmetic:
+%   * SMOOTH data gives exactly 1 everywhere -- nothing to flatten.
+%   * godorder /= 2 gives exactly 0 everywhere, whatever the flow.
+%   * a strong COMPRESSIVE shock drives the coefficient to 0 at the shock.
+%   * the SAME pressure profile with an EXPANDING velocity field gives 1 -- the
+%     velocity test is what separates a shock from a rarefaction, and this pair
+%     differs in nothing else.
+%   * the result always lies in [0,1].
+%   * DIRECTION SEPARATION: a shock varying only in x is detected by the x pass
+%     while the y pass stays 1, so the min is the x answer -- a transposed
+%     subscript breaks this.
+% A transcription of the formula runs alongside on non-symmetric data.
+
+define main
+
+type Plane = array_dv[ double_real ];
+
+function flaten( p, u, v : Plane;
+                 nc1, nc2, godorder : integer
+                 returns Plane )
+  let
+    one    := 1.0d0;
+    small  := 1.0d-6;
+    smallp := 1.0d-6;
+    zero   := 0.0d0;
+
+    shktst := 0.33d0;
+    zcut1  := 0.75d0;
+    zcut2  := 0.85d0;
+
+    dzcut  := one / ( zcut2 - zcut1 );
+
+    % ---- x-direction flattening coefficient ----
+    flatn1 := for j in 0, nc2+1
+                chi1_z1_prod :=
+                  for i in -1, nc1+2
+                    dp    := p[j,i+1] - p[j,i-1];
+                    denom := max( small, abs( p[j,i+2] - p[j,i-2] ) );
+                    zeta  := abs(dp) / denom;
+                    z2    := min( one, max( zero, dzcut * ( zeta - zcut1 ) ) );
+                    tst   := if ( u[j,i-1] >= u[j,i+1] ) then one else zero
+                             end if;
+                    tmp   := min( p[j,i+1], p[j,i-1] );
+                    chi2  := if ( ( abs(dp) / tmp ) > shktst ) then tst
+                             else zero end if
+                  returns array_dv of chi2 * z2
+                  end for;
+
+                flatn2 :=
+                  for i in 0, nc1+1
+                  returns array_dv of
+                    one - max( chi1_z1_prod[i-1],
+                               max( chi1_z1_prod[i], chi1_z1_prod[i+1] ) )
+                  end for
+              returns array_dv of flatn2
+              end for;
+
+    % ---- y-direction flattening coefficient ----
+    chi2z2prod2d := for j in -1, nc2+2
+                      chi2_z2_prod :=
+                        for i in 0, nc1+1
+                          dp    := p[j+1,i] - p[j-1,i];
+                          denom := max( smallp, abs( p[j+2,i] - p[j-2,i] ) );
+                          zeta  := abs(dp) / denom;
+                          z3    := min( one,
+                                        max( zero, dzcut * ( zeta - zcut1 ) ) );
+                          tst   := if ( v[j-1,i] >= v[j+1,i] ) then one
+                                   else zero end if;
+                          tmp   := min( p[j+1,i], p[j-1,i] );
+                          chi3  := if ( ( abs(dp) / tmp ) > shktst ) then tst
+                                   else zero end if
+                        returns array_dv of chi3 * z3
+                        end for
+                    returns array_dv of chi2_z2_prod
+                    end for;
+
+    flaty2d := for j in 0, nc2+1
+                 flaty :=
+                   for i in 0, nc1+1
+                   returns array_dv of
+                     one - max( chi2z2prod2d[j-1,i],
+                                max( chi2z2prod2d[j,i],
+                                     chi2z2prod2d[j+1,i] ) )
+                   end for
+               returns array_dv of flaty
+               end for;
+
+    flatn32d := for j in 0, nc2+1
+                  flatn3 :=
+                    for i in 0, nc1+1
+                    returns array_dv of
+                      if godorder = 2 then
+                        min( flatn1[j,i], flaty2d[j,i] )
+                      else
+                        zero
+                      end if
+                    end for
+                returns array_dv of flatn3
+                end for
+  in
+    flatn32d
+  end let
+end function
+
+function main( p, u, v : Plane; nc1, nc2, godorder : integer returns Plane )
+  flaten( p, u, v, nc1, nc2, godorder )
+end function
