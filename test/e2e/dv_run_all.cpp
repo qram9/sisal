@@ -555,6 +555,16 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_BMK11A_DV
+struct FUNC_MAIN_bm4_results {
+  sisal_array_t y1, yh1, x1, xh1, vx1, vxh1, vy1;      // parmve
+  sisal_array_t y2, x2, vz2, vx2, vy2;                 // parmov
+  sisal_array_t y3, x3, vz3, vx3, vy3, cx3, cy3, cz3, q3;  // parmvr
+  double sumf1, sumf2, sumf3;
+};
+extern "C" struct FUNC_MAIN_bm4_results func_MAIN (int32_t nlop, int32_t l4,
+                                                   int32_t nx, double dt);
+#endif
 #ifdef TEST_BMK11A_REL_DV
 struct FUNC_MAIN_bmr_results {
   sisal_array_t y1, x1, vz1, vx1, vy1, cx1, cy1, cz1, q1;
@@ -13832,7 +13842,9 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
-#ifdef TEST_BMK11A_REL_DV
+// The part-3 reference is shared with part 4, which iterates it to check the
+// integrated loop, so it lives outside the part-3 guard.
+#if defined(TEST_BMK11A_REL_DV) || defined(TEST_BMK11A_DV)
 // bmk11a, part 3 of 4 -- parmvr, the relativistic push.
 //
 // parmvr is parmov with the Lorentz factor folded in.  The state is PROPER
@@ -13958,6 +13970,236 @@ namespace bmr {
     return d;
   }
 }
+#endif
+#ifdef TEST_BMK11A_DV
+// bmk11a, part 4 of 4 -- the integrated benchmark, all three movers in one
+// program driven over nlop timesteps.
+//
+// The published configuration is dt = 0 with zero fields, which makes the whole
+// push collapse: velocities come back unchanged and nothing moves.  That is a
+// genuine property worth pinning (it is a fixed point, and the grids accumulate
+// linearly in nlop), but it would also hold with most of the push miscompiled,
+// so `main` takes dt and nlop as parameters and the live case is exercised too.
+namespace bm4 {
+  // the original's initial conditions, which all three loops share
+  static void init_state (int l4, std::vector<double> &x, std::vector<double> &y)
+  {
+    x.resize (l4); y.resize (l4);
+    for (int l = 1; l <= l4; l++)
+      {
+        double v = 0.85 * 1.0 * (double)(l % 640) / 1250.0;
+        x[l - 1] = v; y[l - 1] = v;
+      }
+  }
+  static bool same (const sisal_array_t &a, const std::vector<double> &b,
+                    double tol = 0.0)
+  {
+    if ((int)a.size != (int)b.size ()) return false;
+    const double *p = (const double *)a.data;
+    for (size_t i = 0; i < b.size (); i++)
+      if (tol == 0.0 ? (p[i] != b[i]) : (fabs (p[i] - b[i]) > tol))
+        return false;
+    return true;
+  }
+  static std::vector<double> vecof (const sisal_array_t &a)
+  {
+    return std::vector<double> ((const double *)a.data,
+                                (const double *)a.data + a.size);
+  }
+  static void freeall (FUNC_MAIN_bm4_results &r)
+  {
+    sisal_array_t *v[] = { &r.y1, &r.yh1, &r.x1,  &r.xh1, &r.vx1, &r.vxh1,
+                           &r.vy1, &r.y2, &r.x2,  &r.vz2, &r.vx2, &r.vy2,
+                           &r.y3, &r.x3,  &r.vz3, &r.vx3, &r.vy3, &r.cx3,
+                           &r.cy3, &r.cz3, &r.q3 };
+    std::vector<void *> seen;
+    for (auto *p : v)
+      if (p->data
+          && std::find (seen.begin (), seen.end (), p->data) == seen.end ())
+        { seen.push_back (p->data); free (p->data); }
+  }
+}
+static void test_bmk11a_dv (void)
+{
+  printf ("\n=== Group: bmk11a_dv (part 4/4: the integrated benchmark) ===\n");
+  using namespace bm4;
+  // The published configuration is l4 = 2560, nlop = 200.  It does not run
+  // here: every `a[i: v]` update copies the whole array (ref-counting and
+  // copy elimination are unbuilt), the deposition loop does four of those per
+  // particle, and nothing is reclaimed between timesteps -- so the peak is
+  // O(nlop * l4^2).  Measured: 1.9 GB for a SINGLE step at l4 = 2560, 13 GB by
+  // nlop = 50, and the full 200 steps are killed.  l4 = 256 keeps the suite at
+  // a few hundred MB; the physics is independent of l4, since the initial
+  // conditions just repeat mod 640.
+  const int l4 = 256, nx = 16;
+  std::vector<double> x0, y0;
+  init_state (l4, x0, y0);
+  const std::vector<double> v0 ((size_t)l4, 0.1);
+
+  // ---- dt = 0 is a fixed point, at any nlop ----
+  {
+    bool ok = true;
+    for (int nlop : { 1, 7, 20 })
+      {
+        auto r = func_MAIN (nlop, l4, nx, 0.0);
+        ok = ok && same (r.x1, x0) && same (r.y1, y0) && same (r.vx1, v0)
+             && same (r.vy1, v0) && same (r.x2, x0) && same (r.y2, y0)
+             && same (r.vx2, v0) && same (r.vy2, v0) && same (r.vz2, v0)
+             && same (r.x3, x0) && same (r.y3, y0) && same (r.vx3, v0)
+             && same (r.vy3, v0) && same (r.vz3, v0);
+        freeall (r);
+      }
+    check ("dt = 0: all three movers are a bit-exact fixed point in position "
+           "and velocity, at nlop = 1, 7 and 20",
+           ok);
+  }
+
+  // ---- and the deposition grids accumulate linearly in nlop ----
+  {
+    auto r1 = func_MAIN (1, l4, nx, 0.0);
+    std::vector<double> q1 = vecof (r1.q3), cx1 = vecof (r1.cx3),
+                        cy1 = vecof (r1.cy3), cz1 = vecof (r1.cz3);
+    freeall (r1);
+    bool ok = true, nonzero = false;
+    for (double q : q1) if (q != 0.0) nonzero = true;
+    for (int n : { 2, 5, 20 })
+      {
+        auto r = func_MAIN (n, l4, nx, 0.0);
+        const double *q = (const double *)r.q3.data;
+        const double *cx = (const double *)r.cx3.data;
+        const double *cy = (const double *)r.cy3.data;
+        const double *cz = (const double *)r.cz3.data;
+        for (size_t i = 0; i < q1.size (); i++)
+          if (fabs (q[i] - n * q1[i]) > 1e-9 * std::max (1.0, fabs (n * q1[i]))
+              || fabs (cx[i] - n * cx1[i]) > 1e-9 * std::max (1.0, fabs (n * cx1[i]))
+              || fabs (cy[i] - n * cy1[i]) > 1e-9 * std::max (1.0, fabs (n * cy1[i]))
+              || fabs (cz[i] - n * cz1[i]) > 1e-9 * std::max (1.0, fabs (n * cz1[i])))
+            ok = false;
+        freeall (r);
+      }
+    check ("dt = 0: the deposition grids accumulate linearly -- n steps give "
+           "exactly n times one step (and one step is not zero)",
+           ok && nonzero);
+  }
+
+  // ---- zero trip ----
+  {
+    auto r = func_MAIN (0, l4, nx, 0.0);
+    bool ok = same (r.x1, x0) && same (r.vx1, v0) && same (r.x3, x0);
+    bool grids_clear = true;
+    for (const double *p = (const double *)r.q3.data;
+         p < (const double *)r.q3.data + r.q3.size; p++)
+      if (*p != 0.0) grids_clear = false;
+    check ("nlop = 0: the zero-trip case returns the initial state and empty "
+           "grids",
+           ok && grids_clear);
+    freeall (r);
+  }
+
+  // ---- with dt /= 0 the particles genuinely move, and the three movers
+  //      disagree with one another (they are different physics) ----
+  {
+    const double dt = 0.02;
+    auto r = func_MAIN (10, l4, nx, dt);
+    bool moved = false, all_finite = true;
+    const double *px1 = (const double *)r.x1.data;
+    const double *px2 = (const double *)r.x2.data;
+    const double *px3 = (const double *)r.x3.data;
+    for (int l = 0; l < l4; l++)
+      {
+        if (fabs (px1[l] - x0[l]) > 1e-9) moved = true;
+        if (!std::isfinite (px1[l]) || !std::isfinite (px2[l])
+            || !std::isfinite (px3[l]))
+          all_finite = false;
+      }
+    check ("dt /= 0: the particles actually move, and every position stays "
+           "finite",
+           moved && all_finite);
+
+    // parmve is electrostatic, parmov electromagnetic, parmvr relativistic --
+    // on identical initial data with zero fields they still differ, because
+    // parmvr's drift carries the 1/gamma factor the other two do not
+    bool rel_differs = false, ve_vo_agree = true;
+    for (int l = 0; l < l4; l++)
+      {
+        if (fabs (px3[l] - px2[l]) > 1e-12) rel_differs = true;
+        if (fabs (px1[l] - px2[l]) > 1e-12) ve_vo_agree = false;
+      }
+    check ("dt /= 0: parmvr's drift differs from parmov's (the 1/gamma factor) "
+           "while parmve and parmov agree on position",
+           rel_differs && ve_vo_agree);
+
+    // sumf sums the INPUT velocities of the last step, so with all velocities
+    // still at 0.1 in y and z it is exactly l4 * 0.1 there
+    check ("sumf2 and sumf3 sum the input velocities of the final step",
+           fabs (r.sumf2 - l4 * 0.1) < 1e-9 && fabs (r.sumf3 - l4 * 0.1) < 1e-9);
+    freeall (r);
+  }
+
+  // ---- iterating the single-step reference by hand reproduces the loop ----
+  // This is the check that carries the integrated path: parts 1-3 verified one
+  // step, so nlop steps must be that step composed with itself nlop times.
+  {
+    const double dt = 0.02, qmult = -1.0, wmult = 1.0;
+    const int nx2 = nx + 2;
+    const double hxi = (double)nx, hyi = (double)nx;   // xmax = ymax = 1
+    std::vector<double> X = x0, Y = y0, UX = v0, UY = v0, UZ = v0;
+    const std::vector<double> gz ((size_t)l4, 0.0);
+    bmr::Out w;
+    for (int it = 0; it < 4; it++)
+      {
+        bmr::ref_parmvr (X, Y, UX, UY, UZ, gz, gz, gz, gz, gz, gz, l4, nx2, dt,
+                         qmult, wmult, hxi, hyi, l4, w);
+        X = w.x; Y = w.y; UX = w.vx; UY = w.vy; UZ = w.vz;
+      }
+    auto r = func_MAIN (4, l4, nx, dt);
+    check ("nlop = 4 equals the part-3 single-step reference composed four "
+           "times",
+           same (r.x3, X, 1e-11) && same (r.y3, Y, 1e-11)
+               && same (r.vx3, UX, 1e-11) && same (r.vy3, UY, 1e-11));
+    freeall (r);
+  }
+
+  // ---- both sides of the `upb` cut between the loops ----
+  // Between the loops the grids are re-zeroed only up to upb = min(nx2*ny2,
+  // l4), and `nx` selects which side of that min is taken: at nx = 16,
+  // nx2*ny2 = 324 > l4 = 256 so upb = l4; at nx = 8 it is 100 < l4 so upb =
+  // nx2*ny2.  Note the cut can never leave a live tail either way -- a
+  // deposited index is at most nx2*ny2 and at most l4, so it is always below
+  // the min.  The guard is defensive, against a particle array shorter than
+  // the grid.  What IS observable is the consequence: each loop starts from a
+  // genuinely empty grid, which is exactly what makes the accumulation linear.
+  // So the linearity check is re-run on the other branch.
+  {
+    auto r1 = func_MAIN (1, l4, 8, 0.0);
+    std::vector<double> q1 = vecof (r1.q3);
+    freeall (r1);
+    bool nonzero = false;
+    for (double q : q1) if (q != 0.0) nonzero = true;
+    auto r3 = func_MAIN (3, l4, 8, 0.0);
+    const double *q = (const double *)r3.q3.data;
+    bool linear = true;
+    for (size_t i = 0; i < q1.size (); i++)
+      if (fabs (q[i] - 3 * q1[i]) > 1e-9 * std::max (1.0, fabs (3 * q1[i])))
+        linear = false;
+    check ("the other side of the upb cut (nx = 8, upb = nx2*ny2 < l4) also "
+           "starts each loop from an empty grid, so accumulation stays linear",
+           linear && nonzero);
+    freeall (r3);
+  }
+
+  // ---- extents survive the whole run ----
+  {
+    auto r = func_MAIN (3, l4, nx, 0.01);
+    check ("particle and grid extents are preserved end to end",
+           (int)r.x1.size == l4 && (int)r.x2.size == l4 && (int)r.x3.size == l4
+               && (int)r.q3.size == l4 && (int)r.cx3.size == l4
+               && r.x3.lower_bound[0] == 1);
+    freeall (r);
+  }
+}
+#endif
+#ifdef TEST_BMK11A_REL_DV
 static void test_bmk11a_rel_dv (void)
 {
   printf ("\n=== Group: bmk11a_rel_dv (part 3/4: relativistic push) ===\n");
@@ -21602,6 +21844,9 @@ main (void)
 #ifdef TEST_BMK11A_REL_DV
   test_bmk11a_rel_dv ();
 #endif
+#ifdef TEST_BMK11A_DV
+  test_bmk11a_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -21819,7 +22064,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV) && !defined(TEST_BMK11A_MOVE_DV) && !defined(TEST_BMK11A_BORIS_DV) && !defined(TEST_BMK11A_REL_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV) && !defined(TEST_BMK11A_MOVE_DV) && !defined(TEST_BMK11A_BORIS_DV) && !defined(TEST_BMK11A_REL_DV) && !defined(TEST_BMK11A_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

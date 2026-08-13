@@ -6,8 +6,9 @@
 % checks boundaries, then deposits CURRENT at the half positions and CHARGE at
 % the whole ones.
 %
-% THE ARRAY REWRITE is again just `array` -> `array_dv`, the gather keyword and
-% `array_fill` -> `array_dv_fill` -- bmk11a is rank-1 throughout.
+% THE ARRAY REWRITE is again just `array` -> `array_dv` and the gather keyword
+% -- bmk11a is rank-1 throughout.  (`array_fill` needs no change; it already
+% builds an array_dv.  Parts 1 and 2 originally claimed otherwise in passing.)
 %
 % Worth knowing before reading the velocity advance: `exp(x, y)` in this source
 % is POW, not the exponential -- `exp(bxa[l], 2.0D0)` is bxa squared.  It lowers

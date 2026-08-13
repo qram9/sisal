@@ -9,7 +9,8 @@
 % THE ARRAY REWRITE is the smallest of any port so far: bmk11a's types are RANK
 % 1 only (`array[double]`, `array[integer]`), with no array-of-array nesting
 % anywhere, so the rewrite is purely `array` -> `array_dv`, `returns array of`
-% -> `returns array_dv of` and `array_fill` -> `array_dv_fill`.  Nothing
+% -> `returns array_dv of`.  `array_fill` is unchanged -- it already builds an
+% array_dv.  Nothing
 % structural changes and no row slices are involved.  `global sqrt` is dropped
 % as an implicit intrinsic.
 %
