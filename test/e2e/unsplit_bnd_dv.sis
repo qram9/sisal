@@ -1,0 +1,113 @@
+% UNSPLIT, part 3 of 7 -- the physical boundary, PhysBnd with BndL / BndR.
+%
+% PhysBnd surrounds the nx x ny interior with ncx = 4 ghost cells on every side,
+% filling them either by WRAPPING (periodic) or by CLAMPING to the edge cell
+% (reflecting/outflow), independently per axis.
+%
+% THE ARRAY REWRITE, and the one line that matters.  The original takes a row
+% with `Up[k]` -- an array of rows indexed once.  Under array_dv a plane is ONE
+% flat rank-2 dope, so `Up[k]` selects an ELEMENT; the row is `Up[k, ..]`, where
+% the trailing `..` IS the rank reduction.  Getting this wrong is silent (the
+% shapes still typecheck and a wrong-sized thing flows on), so it is the single
+% most important edit in this part.
+%
+% TWO INDEXING FACTS THIS FUNCTION DEPENDS ON, both measured rather than assumed:
+%
+%   * a gather PRESERVES ITS GENERATOR'S ORIGIN (established in part 1), so
+%     `for i in 1-ncx, 0` produces an array indexed 1-ncx .. 0 -- lower_bound
+%     -3 for ncx = 4.  The ghost cells are genuinely negatively indexed.
+%   * `||` keeps the LEFT operand's origin.  So Lft || RowC || Rght spans
+%     1-ncx .. nx+ncx in one piece, which is exactly the wide-row layout the
+%     rest of the integrator indexes by.  Measured: lb -3, size nx + 2*ncx.
+%
+% Data_Record is reduced to the four fields PhysBnd actually reads, named
+% identically so the body is unchanged; the full record arrives with the
+% integrated part.
+%
+% THE ORACLE needs no arithmetic at all -- every output cell is a COPY of some
+% interior cell, and which one is fixed by the wrap/clamp rule:
+%
+%     j <= 0   ->  yperiod ? ny+j : 1        i <= 0   ->  xperiod ? nx+i : 1
+%     j >  ny  ->  yperiod ? j-ny : ny       i >  nx  ->  xperiod ? i-nx : nx
+%
+% so the harness fills the interior with distinct values and checks that every
+% one of the (ny+8) x (nx+8) cells is the value the rule names.  All four
+% period combinations are run, and the corners are covered by construction
+% because both rules apply there at once.
+%
+% A PRECONDITION this exposed, worth knowing before the later parts lean on it:
+% a PERIODIC axis must have at least ncx cells.  BndL wraps with Row[nx+i] for
+% i = 1-ncx .. 0, so nx < ncx drives that subscript to 0 or below -- outside the
+% row -- and with no runtime subscript checking it reads silently past the
+% buffer.  nx = 3 with ncx = 4 already does it.  The harness therefore keeps the
+% periodic sweep at or above ncx and exercises the small interiors (down to
+% 1 x 1) on the CLAMPING path, which has no such requirement.
+
+define main
+
+type OneDim = array_dv[ double_real ];
+type Plane  = array_dv[ double_real ];
+
+type Data_Record = record[ NXCell, NYCell : integer;
+                           XPeriod, YPeriod : boolean ];
+
+function acopy( A: OneDim; lo, hi: integer returns OneDim )
+  for i in lo, hi returns array_dv of A[i] end for
+end function
+
+function PhysBnd( Up: Plane; Data: Data_Record returns Plane )
+
+  function BndL( ncx, nx: integer; xperiod: boolean; Row: OneDim
+        returns OneDim )
+    for i in 1-ncx, 0
+    returns array_dv of if ( xperiod ) then Row[nx+i] else Row[1] end if
+    end for
+  end function
+
+  function BndR( ncx, nx: integer; xperiod: boolean; Row: OneDim
+        returns OneDim )
+    for i in 1, ncx
+    returns array_dv of if ( xperiod ) then Row[i] else Row[nx] end if
+    end for
+  end function
+
+  let
+    ny  := Data.NYCell;
+    nx  := Data.NXCell;
+    ncx := 4;
+
+    xperiod := Data.XPeriod;
+    yperiod := Data.YPeriod;
+
+    WideCore := for k in 1, ny
+                  Lft  := BndL( ncx, nx, xperiod, Up[k, ..] );
+                  RowC := acopy( Up[k, ..], 1, nx );
+                  Rght := BndR( ncx, nx, xperiod, Up[k, ..] )
+                returns array_dv of Lft || RowC || Rght
+                end for;
+
+    WideTop := for i in 1-ncx, 0
+                 Row  := if yperiod then Up[ny+i, ..] else Up[1, ..] end if;
+                 Lft  := BndL( ncx, nx, xperiod, Row );
+                 RowC := acopy( Row, 1, nx );
+                 Rght := BndR( ncx, nx, xperiod, Row )
+               returns array_dv of Lft || RowC || Rght
+               end for;
+
+    WideBottom := for i in 1, ncx
+                    Row  := if yperiod then Up[i, ..] else Up[ny, ..] end if;
+                    Lft  := BndL( ncx, nx, xperiod, Row );
+                    RowC := acopy( Row, 1, nx );
+                    Rght := BndR( ncx, nx, xperiod, Row )
+                  returns array_dv of Lft || RowC || Rght
+                  end for
+  in
+    WideTop || WideCore || WideBottom
+  end let
+end function
+
+function main( Up: Plane; nx, ny: integer; xper, yper: boolean
+      returns Plane )
+  PhysBnd( Up, record Data_Record[ NXCell: nx; NYCell: ny;
+                                   XPeriod: xper; YPeriod: yper ] )
+end function
