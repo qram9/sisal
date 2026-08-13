@@ -14064,6 +14064,7 @@ static void test_bmk11a_move_dv (void)
 //     come back unchanged.  The classic upwind check: any inconsistency between
 //     the left and right reconstructions breaks it immediately.
 //   SYMMETRY -- a left-right symmetric state, periodic, must stay symmetric.
+#include "unsplit_ref.h"
 namespace uall {
   struct P {                       // interior-only plane, 1..nx by 1..ny
     int nx, ny; std::vector<double> a;
@@ -14155,6 +14156,67 @@ static void test_unsplit_dv (void)
                 nx * ny);
       check (m, moved > nx * ny / 2);
     }
+    freer (r);
+  }
+
+  // ---- against the FULL-STEP REFERENCE (unsplit_ref.h) ----
+  // Every stage has its own reference in parts 1..7d; what this adds is the
+  // WIRING -- which stage feeds which, in what argument order -- which a
+  // per-stage reference cannot see.  The reference is an independent C++
+  // transcription of PhysBnd + Method1..19 + Transpose.
+  {
+    P U1 (nx, ny), U2 (nx, ny), U3 (nx, ny), U4 (nx, ny);
+    for (int j = 1; j <= ny; j++)
+      for (int i = 1; i <= nx; i++)
+        {
+          // asymmetric and non-smooth, so nothing cancels by accident
+          double rho = 1.0 + 0.25 * sin (2 * M_PI * (i - 1) / nx)
+                       + 0.1 * ((i * 3 + j) % 4);
+          double u = 0.35 * cos (2 * M_PI * (i - 1) / nx) - 0.1 * ((j + 1) % 3);
+          double v = -0.2 * sin (2 * M_PI * (j - 1) / ny) + 0.05 * (i % 3);
+          double pr = 1.0 + 0.2 * sin (2 * M_PI * (i - 1) / nx)
+                      + 0.05 * ((i + j) % 5);
+          U1.at (j, i) = rho;
+          U2.at (j, i) = rho * u;
+          U3.at (j, i) = rho * v;
+          U4.at (j, i) = pr / (gamma - 1.0) + 0.5 * rho * (u * u + v * v);
+        }
+    auto r = run (U1, U2, U3, U4);
+
+    uref::A2 i1 (1, ny, 1, nx), i2 (1, ny, 1, nx), i3 (1, ny, 1, nx),
+        i4 (1, ny, 1, nx);
+    for (int j = 1; j <= ny; j++)
+      for (int i = 1; i <= nx; i++)
+        { i1.at (j, i) = U1.at (j, i); i2.at (j, i) = U2.at (j, i);
+          i3.at (j, i) = U3.at (j, i); i4.at (j, i) = U4.at (j, i); }
+    uref::Step w = uref::ref_step (i1, i2, i3, i4, nx, ny, niter, god, gamma,
+                                   difmag, dx, dy, dt, true, true);
+
+    const sisal_array_t *got[4] = { &r.o1, &r.o2, &r.o3, &r.o4 };
+    const uref::A2 *want[4] = { &w.u1, &w.u2, &w.u3, &w.u4 };
+    const char *nm[4] = { "density", "x-momentum", "y-momentum", "energy" };
+    int bad = 0;
+    for (int q = 0; q < 4; q++)
+      {
+        double worst = 0;
+        int wj = 0, wi = 0;
+        for (int j = 1; j <= ny; j++)
+          for (int i = 1; i <= nx; i++)
+            {
+              double a = ((const double *)got[q]->data)[(size_t)(j - 1) * nx + (i - 1)];
+              double b = want[q]->at (j, i);
+              double d = fabs (a - b) / std::max (1.0, fabs (b));
+              if (d > worst) { worst = d; wj = j; wi = i; }
+            }
+        if (worst > 1e-10)
+          {
+            printf ("  %s: worst relative difference %.3g at (%d,%d)\n", nm[q],
+                    worst, wj, wi);
+            bad++;
+          }
+      }
+    check ("FULL STEP matches the independent C++ reference, cell by cell, "
+           "all four conserved quantities", bad == 0);
     freer (r);
   }
 
