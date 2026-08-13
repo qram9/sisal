@@ -1,0 +1,79 @@
+% UNSPLIT, part 1 of 7 -- the scalar and 1-D helper layer.
+%
+% test/unit/unsplit.sis is Michael Welcome's unsplit integrator from the LLNL
+% AMR hydrodynamics code (Colella's multidimensional upwind method for
+% hyperbolic conservation laws; Sisal version by DeBoni, Feo and Cann, 1990).
+% At 1935 lines and 46 functions it is the largest program in the corpus, so it
+% is being landed in parts, each with its own oracle, with the integrated whole
+% last.  This is the bottom layer: everything here is a closed form, so the
+% reference is the formula itself.
+%
+% THE ARRAY REWRITE.  The original stacks three array-of-array levels --
+%     type OneDim     = array [ double_real ];
+%     type PlaneArray = array [ OneDim ];
+%     type SystemArray = array [ PlaneArray ];
+% Under the dope-vector model all three are ONE flat array_dv[double_real] whose
+% RANK is a runtime property.  Only OneDim is needed at this layer; the other two
+% arrive with the later parts.  `returns array of` becomes `returns array_dv of`.
+%
+% Worth pinning here, because later parts depend on both and either could be
+% "tidied" into something subtly different:
+%
+%   * sign(x,y) is FORTRAN's SIGN -- the magnitude of x with the sign of y --
+%     written as `if y >= 0 then abs(x) else -abs(x)`.  It is NOT C's copysign
+%     on the boundary: IEEE says -0.0 >= 0.0 is TRUE, so sign(x, -0.0) yields
+%     +|x| here where copysign would give -|x|.  The reference below encodes the
+%     definition as written, and the harness feeds it -0.0 on purpose.
+%
+%   * acopy(A, lo, hi) PRESERVES THE ORIGIN.  `for i in lo,hi returns array_dv
+%     of A[i]` yields an array whose valid subscripts ARE lo..hi -- result[i]
+%     belongs to iteration i -- so its lower_bound comes back as lo, NOT 1.
+%     Measured: acopy(A,3,5) has lower_bound 3, acopy(A,5,8) has 5.  That is the
+%     right semantics for a gather (the generator's index IS the result's), and
+%     it matters downstream: callers index the slice by the original i, so
+%     re-basing it to 1 would silently shift every later stage by lo-1.
+
+define main
+
+type OneDim = array_dv[ double_real ];
+
+% ---- the two top-level helpers ---------------------------------------------
+function acopy( A: OneDim; lo, hi: integer returns OneDim )
+  for i in lo, hi returns array_dv of A[i] end for
+end function
+
+function sign( x, y : double_real returns double_real )
+  if y >= 0.0d0 then abs( x ) else -abs( x ) end if
+end function
+
+function sqr( x : double_real returns double_real )
+  x * x
+end function
+
+% ---- the cell-geometry helpers ---------------------------------------------
+% In the original these are EMBEDDED in ProbInit.  They capture nothing -- every
+% input is a parameter -- so they are exercised here at top level; part 2 covers
+% them in situ, where ProbInit's nesting is what is under test.
+function xcen( xl, dx : double_real; i : integer returns double_real )
+  xl + dx * ( double_real( i ) - 0.5d0 )
+end function
+
+function ycen( yb, dy : double_real; j : integer returns double_real )
+  yb + dy * ( double_real( j ) - 0.5d0 )
+end function
+
+function distsq( xc, xcld, yc, ycld : double_real returns double_real )
+  sqr( xc - xcld ) + sqr( yc - ycld )
+end function
+
+function main( A : OneDim; lo, hi, i, j : integer;
+               x, y, xl, dx, yb, dy, xc, xcld, yc, ycld : double_real
+      returns OneDim, double_real, double_real,
+              double_real, double_real, double_real )
+  acopy( A, lo, hi ),
+  sign( x, y ),
+  sqr( x ),
+  xcen( xl, dx, i ),
+  ycen( yb, dy, j ),
+  distsq( xc, xcld, yc, ycld )
+end function
