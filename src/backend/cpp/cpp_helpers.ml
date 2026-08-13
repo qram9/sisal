@@ -222,8 +222,23 @@ let rec c_type_of_if1_ty tm ty =
   | Basic b -> c_type_of_if1_basic b
   | Array_dv _ | Array_ty _ -> C.Basic "sisal_array_t"
   | Stream t ->
+      let scalar_alias n =
+        let s = String.lowercase_ascii n in
+        s = "int" || s = "integer" || s = "int32" || s = "double"
+        || s = "double_real" || s = "float" || s = "real" || s = "bool"
+        || s = "boolean"
+      in
       let elem_name =
         match TM.find_opt t tm with
+        (* A record/union element must be named `struct struct_rec_<its OWN id>`,
+           and this value-based mapper cannot do that -- it only sees the fields,
+           so it fell through to the sisal_array_t default and a stream of
+           records came out `sisal_generator<sisal_array_t>`.  The element's type
+           ID is in hand here, which is exactly what naming a record needs. *)
+        | Some (Record (_, _, name)) when not (scalar_alias name) ->
+            Printf.sprintf "struct struct_rec_%d" t
+        | Some (Union (_, _, name)) when not (scalar_alias name) ->
+            Printf.sprintf "struct union_un_%d" t
         | Some elem_ty -> (
             match c_type_of_if1_ty tm elem_ty with
             | C.Basic s -> s

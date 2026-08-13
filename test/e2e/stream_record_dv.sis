@@ -1,0 +1,80 @@
+% STREAM OF RECORDS -- a stream whose element is a record, not a scalar.
+%
+% Every other stream test carries a scalar (`stream[real]`, `stream[integer]`,
+% `stream[character]`).  A stream of RECORDS came out typed
+% `sisal_generator<sisal_array_t>` and then failed to compile: a record's C type
+% is `struct struct_rec_<its own typemap id>`, and the VALUE-based type mapper
+% cannot produce that -- it only sees the fields -- so it fell through to the
+% sisal_array_t default.  The element's type ID is in hand at that point, which
+% is all naming a record needs.
+%
+% This is the one feature that stops test/unit/unsplit.sis (the LLNL AMR hydro
+% integrator) from compiling: its PlotStreamType is `stream[Plot]`, a stream of
+% plot records.  It is also the ONLY thing in that 1935-line program the backend
+% lacked, which is why the part-by-part port meets it last rather than first.
+%
+% Covered: a record stream built from literals, one built lazily by a
+% for-initial `returns stream of`, reading fields back out of the elements, and
+% a record with MIXED field types -- so a wrong element type cannot hide behind
+% every field happening to be the same width.
+%
+% The lazy builders follow the documented for-initial stream-gather rules
+% (docs/loop_behavior_comparison.md): the SEED is always gathered, then every
+% body-computed value is, including the final out-of-bounds one -- so Chain(n)
+% yields n+1 elements, not n.
+%
+% (Naming trap: a stream type cannot be called `Is` -- `is` is the reserved
+% tag-test keyword and the parser rejects it as a type name.)
+
+define main
+
+type Pt   = record[ x, y : integer ];
+type Mix  = record[ n : integer; v : double_real; ok : boolean ];
+type Pts  = stream[ Pt ];
+type Mixs = stream[ Mix ];
+
+% a literal stream of records
+function Two( returns Pts )
+  stream[ record Pt[ x: 1; y: 2 ], record Pt[ x: 3; y: 4 ] ]
+end function
+
+% built lazily, so the element type has to survive the stream GATHER too
+function Chain( n : integer returns Pts )
+  for initial
+    i := 1
+  while i <= n repeat
+    i := old i + 1
+  returns stream of record Pt[ x: i; y: i * 10 ]
+  end for
+end function
+
+% mixed field widths in one element: integer, double and boolean together
+function Mixed( n : integer returns Mixs )
+  for initial
+    i := 1
+  while i <= n repeat
+    i := old i + 1
+  returns stream of record Mix[ n: i;
+                                v: double_real( i ) / 4.0d0;
+                                ok: mod( i, 2 ) = 0 ]
+  end for
+end function
+
+% consume a record stream -- proves the elements survive the round trip rather
+% than merely having the right shape
+function SumXY( s : Pts returns integer, integer )
+  for p in s
+  returns value of sum p.x
+          value of sum p.y
+  end for
+end function
+
+function main( n : integer
+      returns integer, integer, integer, integer, Mixs )
+  let
+    ax, ay := SumXY( Two() );
+    bx, by := SumXY( Chain( n ) )
+  in
+    ax, ay, bx, by, Mixed( n )
+  end let
+end function
