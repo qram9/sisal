@@ -555,6 +555,21 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_BMK11A_REL_DV
+struct FUNC_MAIN_bmr_results {
+  sisal_array_t y1, x1, vz1, vx1, vy1, cx1, cy1, cz1, q1;
+  double sumf1, sumf2, sumf3;
+};
+extern "C" struct FUNC_MAIN_bmr_results
+func_MAIN (sisal_array_t ex, sisal_array_t ey, sisal_array_t ez,
+           sisal_array_t bx, sisal_array_t by, sisal_array_t bz,
+           sisal_array_t vz, sisal_array_t y, sisal_array_t x,
+           sisal_array_t vx, sisal_array_t vy, sisal_array_t cx,
+           sisal_array_t cy, sisal_array_t cz, sisal_array_t q, int32_t l3,
+           int32_t l4, int32_t nx2, int32_t kbound, int32_t ibcdr,
+           int32_t ibcdl, double dt, double qmult, double wmult, double xmax,
+           double ymax, double xright, double xleft, double hxi, double hyi);
+#endif
 #ifdef TEST_BMK11A_BORIS_DV
 struct FUNC_MAIN_bmb_results {
   sisal_array_t y1, x1, vz1, vx1, vy1, cx1, cy1, cz1, q1;
@@ -13817,6 +13832,322 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_BMK11A_REL_DV
+// bmk11a, part 3 of 4 -- parmvr, the relativistic push.
+//
+// parmvr is parmov with the Lorentz factor folded in.  The state is PROPER
+// velocity u = gamma*v; the factor is recovered from u twice, once before the
+// kick and once after, and both are stored INVERTED (ga = 1/gamma).  That
+// inversion is the thing worth pinning: reading it as gamma still typechecks,
+// still runs, and gives plausible-looking numbers.
+//
+// Setting ga = 1 and c = 1 recovers parmov exactly, so the non-relativistic
+// limit is a real cross-check between the two ports rather than a restatement.
+namespace bmr {
+  struct Out {
+    std::vector<double> x, y, vx, vy, vz, cx, cy, cz, q;
+    double s1, s2, s3;
+  };
+  static void ref_parmvr (const std::vector<double> &X,
+                          const std::vector<double> &Y,
+                          const std::vector<double> &UX,
+                          const std::vector<double> &UY,
+                          const std::vector<double> &UZ,
+                          const std::vector<double> &ex,
+                          const std::vector<double> &ey,
+                          const std::vector<double> &ez,
+                          const std::vector<double> &bx,
+                          const std::vector<double> &by,
+                          const std::vector<double> &bz, int np, int nx2,
+                          double dt, double qmult, double wmult, double hxi,
+                          double hyi, int ngrid, Out &o, bool rel = true)
+  {
+    const double h1 = dt * qmult / wmult, hh = 0.5 * h1;
+    o.x = X; o.y = Y; o.vx = UX; o.vy = UY; o.vz = UZ;
+    o.cx.assign (ngrid, 0.0); o.cy.assign (ngrid, 0.0);
+    o.cz.assign (ngrid, 0.0); o.q.assign (ngrid, 0.0);
+    o.s1 = o.s2 = o.s3 = 0.0;
+    std::vector<double> xh (np), ga1 (np), qmlt (np);
+    std::vector<int> ij (np);
+    auto weights = [&] (double px, double py, int &ijo, double &a1, double &a2,
+                        double &a3, double &a4) {
+      double rx = hxi * px + 1.5, ry = hyi * py + 1.5;
+      int i = (int)trunc (rx), j = (int)trunc (ry);
+      double fx = rx - trunc (rx), fy = ry - trunc (ry);
+      ijo = i + nx2 * (j - 1);
+      a1 = (1 - fx) * (1 - fy); a2 = fx * (1 - fy);
+      a3 = (1 - fx) * fy;       a4 = fx * fy;
+    };
+    std::vector<double> yh (np);
+    for (int l = 0; l < np; l++)
+      {
+        const double h = (X[l] < 0.0) ? 0.0 : h1;
+        // ga is 1/gamma, from the OLD proper velocity
+        const double ga
+            = rel ? 1.0
+                        / sqrt (UX[l] * UX[l] + UY[l] * UY[l] + UZ[l] * UZ[l]
+                                + 1.0)
+                  : 1.0;
+        double u1, u2, u3, u4;
+        weights (X[l], Y[l], ij[l], u1, u2, u3, u4);
+        const int k = ij[l];
+        auto G = [&] (const std::vector<double> &f) {
+          return u1 * f[k - 1] + u2 * f[k] + u3 * f[k + nx2 - 1] + u4 * f[k + nx2];
+        };
+        const double exa = G (ex), eya = G (ey), eza = G (ez);
+        const double bxa = G (bx), bya = G (by), bza = G (bz);
+        const double hha = hh * ga, hhasq = hha * ga;
+        const double c
+            = rel ? ga * (1.0 - hhasq * (UX[l] * exa + UY[l] * eya
+                                         + UZ[l] * eza))
+                  : 1.0;
+        const double f
+            = 1.0 - h * hhasq * (bxa * bxa + bya * bya + bza * bza);
+        const double g = hhasq * (UX[l] * bxa + UY[l] * bya + UZ[l] * bza);
+        const double vxa = c * UX[l] + hha * exa;
+        const double vya = c * UY[l] + hha * eya;
+        const double vza = c * UZ[l] + hha * eza;
+        o.vx[l] = f * UX[l] + h * (exa + g * bxa + vya * bza - vza * bya);
+        o.vy[l] = f * UY[l] + h * (eya + g * bya + vza * bxa - vxa * bza);
+        o.vz[l] = f * UZ[l] + h * (eza + g * bza + vxa * bya - vya * bxa);
+        o.s1 += UX[l]; o.s2 += UY[l]; o.s3 += UZ[l];   // the INPUT velocities
+        // ga1 is 1/gamma from the NEW proper velocity: u/gamma is a velocity
+        ga1[l] = rel ? 1.0
+                           / sqrt (o.vx[l] * o.vx[l] + o.vy[l] * o.vy[l]
+                                   + o.vz[l] * o.vz[l] + 1.0)
+                     : 1.0;
+        const double dx = (X[l] < 0.0) ? 0.0 : ga1[l] * dt * o.vx[l];
+        const double dy = (X[l] < 0.0) ? 0.0 : ga1[l] * dt * o.vy[l];
+        xh[l] = X[l] + 0.5 * dx;  o.x[l] = X[l] + dx;
+        yh[l] = Y[l] + 0.5 * dy;  o.y[l] = Y[l] + dy;
+      }
+    // current: half-time weights, PRE-PUSH index, and mixed time levels in v
+    for (int l = 0; l < np; l++)
+      {
+        int ijh; double a1, a2, a3, a4;
+        weights (xh[l], yh[l], ijh, a1, a2, a3, a4);
+        qmlt[l] = (o.x[l] < 0.0) ? 0.0 : qmult;
+        const double qma = qmlt[l] * ga1[l];
+        const double xm = qma * o.vx[l];   // half-time vxh1 == vx here
+        const double ym = qma * o.vy[l], zm = qma * o.vz[l];
+        const int k = ij[l];
+        const int idx[4] = { k - 1, k, k + nx2 - 1, k + nx2 };
+        const double w[4] = { a1, a2, a3, a4 };
+        for (int t = 0; t < 4; t++)
+          {
+            o.cx[idx[t]] += xm * w[t];
+            o.cy[idx[t]] += ym * w[t];
+            o.cz[idx[t]] += zm * w[t];
+          }
+      }
+    // charge: whole-time weights and index
+    for (int l = 0; l < np; l++)
+      {
+        int ijw; double a1, a2, a3, a4;
+        weights (o.x[l], o.y[l], ijw, a1, a2, a3, a4);
+        const int idx[4] = { ijw - 1, ijw, ijw + nx2 - 1, ijw + nx2 };
+        const double w[4] = { a1, a2, a3, a4 };
+        for (int t = 0; t < 4; t++) o.q[idx[t]] += w[t] * qmlt[l];
+      }
+  }
+  static sisal_array_t vec (const std::vector<double> &v) {
+    sisal_array_t d = sisal_array_alloc_sized (1, 4, (uint64_t)v.size (),
+                                               sizeof (double));
+    d.lower_bound[0] = 1;
+    memcpy (d.data, v.data (), v.size () * sizeof (double));
+    return d;
+  }
+}
+static void test_bmk11a_rel_dv (void)
+{
+  printf ("\n=== Group: bmk11a_rel_dv (part 3/4: relativistic push) ===\n");
+  using namespace bmr;
+  const int nx = 8, ny = 8, nx2 = nx + 2, ngrid = nx2 * (ny + 2), np = 6;
+  const double xmax = 1.0, hxi = (double)nx / xmax, hyi = (double)ny / xmax;
+  const double qmult = -1.0, wmult = 1.0;
+  const std::vector<double> X = { 0.30, 0.5125, 0.1875, 0.72, 0.44, 0.6 };
+  const std::vector<double> Y = { 0.25, 0.4375, 0.6250, 0.11, 0.88, 0.5 };
+  const std::vector<double> gz ((size_t)ngrid, 0.0);
+
+  std::vector<void *> owned;
+  auto run = [&] (double dt, const std::vector<double> &ex,
+                  const std::vector<double> &ey, const std::vector<double> &ez,
+                  const std::vector<double> &bx, const std::vector<double> &by,
+                  const std::vector<double> &bz,
+                  const std::vector<double> &xin,
+                  const std::vector<double> &ux,
+                  const std::vector<double> &uy,
+                  const std::vector<double> &uz, double xleft = 0.0) {
+    sisal_array_t A[15] = { vec (ex), vec (ey), vec (ez), vec (bx), vec (by),
+                            vec (bz), vec (uz), vec (Y), vec (xin), vec (ux),
+                            vec (uy), vec (gz), vec (gz), vec (gz), vec (gz) };
+    for (auto &a : A) if (a.data) owned.push_back (a.data);
+    return func_MAIN (A[0], A[1], A[2], A[3], A[4], A[5], A[6], A[7], A[8],
+                      A[9], A[10], A[11], A[12], A[13], A[14], 1, np, nx2, 0,
+                      0, 0, dt, qmult, wmult, xmax, xmax, xmax, xleft, hxi,
+                      hyi);
+  };
+  auto freer = [&] (FUNC_MAIN_bmr_results &r) {
+    sisal_array_t *v[] = { &r.y1, &r.x1, &r.vz1, &r.vx1, &r.vy1, &r.cx1,
+                           &r.cy1, &r.cz1, &r.q1 };
+    for (auto *p : v)
+      if (p->data
+          && std::find (owned.begin (), owned.end (), p->data) == owned.end ())
+        free (p->data);
+  };
+
+  // ---- ga is 1/gamma, not gamma ----
+  // u.u = 3 gives gamma = 2 exactly, so a drift of ga1*dt*u must be dt*u/2.
+  {
+    // dt kept small enough that no particle reaches ymax, or BCND would
+    // reflect it and the drift would no longer be readable off x1
+    const double dt = 0.2, c3 = 1.0;   // u = (1,1,1): u.u = 3, gamma = 2
+    std::vector<double> ux (np, c3), uy (np, c3), uz (np, c3);
+    auto r = run (dt, gz, gz, gz, gz, gz, gz, X, ux, uy, uz);
+    bool ok = true;
+    for (int l = 0; ok && l < np; l++)
+      if (fabs (((const double *)r.x1.data)[l] - (X[l] + dt * c3 / 2.0)) > 1e-14)
+        ok = false;
+    check ("gamma is stored INVERTED: at gamma = 2 the drift is dt*u/2, "
+           "not 2*dt*u",
+           ok);
+    freer (r);
+  }
+
+  // ---- zero fields: no kick, but the drift is strictly sub-luminal ----
+  {
+    const double dt = 0.2;
+    std::vector<double> ux (np, 2.0), uy (np, 0.0), uz (np, 0.0);
+    auto r = run (dt, gz, gz, gz, gz, gz, gz, X, ux, uy, uz);
+    bool untouched = true, shorter = true;
+    for (int l = 0; l < np; l++)
+      {
+        if (((const double *)r.vx1.data)[l] != 2.0) untouched = false;
+        const double moved = ((const double *)r.x1.data)[l] - X[l];
+        if (!(moved > 0.0 && moved < dt * 2.0 - 1e-12)) shorter = false;
+      }
+    check ("zero fields: proper velocity untouched, and the drift is strictly "
+           "less than dt*u (unlike parmov)",
+           untouched && shorter);
+    freer (r);
+  }
+
+  // ---- the non-relativistic limit approaches parmov ----
+  // Same fields, same positions, velocities scaled down: the gap must shrink
+  // quadratically-ish in u.  This is what pins the gamma factors' PLACEMENT.
+  {
+    const double dt = 0.05;
+    std::vector<double> exv (ngrid), bzv (ngrid);
+    for (int k = 0; k < ngrid; k++)
+      {
+        exv[k] = 0.125 * ((k * 7) % 11) - 0.5;
+        bzv[k] = 0.25 * ((k * 3) % 5) - 0.5;
+      }
+    double prev = -1.0;
+    bool shrinking = true, big_at_one = false;
+    for (double sc : { 1.0, 0.1, 0.01, 0.001 })
+      {
+        std::vector<double> ux (np), uy (np), uz (np);
+        for (int l = 0; l < np; l++)
+          { ux[l] = sc * 0.9; uy[l] = sc * -0.6; uz[l] = sc * 0.3; }
+        auto r = run (dt, exv, gz, gz, gz, gz, bzv, X, ux, uy, uz);
+        // the SAME push with ga = c = 1 throughout -- which is parmov
+        Out nr;
+        ref_parmvr (X, Y, ux, uy, uz, exv, gz, gz, gz, gz, bzv, np, nx2, dt,
+                    qmult, wmult, hxi, hyi, ngrid, nr, false);
+        double gap = 0.0;
+        for (int l = 0; l < np; l++)
+          {
+            gap = std::max (gap,
+                            fabs (((const double *)r.vx1.data)[l] - nr.vx[l]));
+            gap = std::max (gap,
+                            fabs (((const double *)r.x1.data)[l] - nr.x[l]));
+          }
+        if (sc == 1.0 && gap > 1e-3) big_at_one = true;
+        if (prev >= 0.0 && gap >= prev) shrinking = false;
+        prev = gap;
+        freer (r);
+      }
+    check ("non-relativistic limit: the gap to the ga = 1 (parmov) form is "
+           "large at u ~ 1 and shrinks monotonically to nothing",
+           shrinking && big_at_one && prev < 1e-6);
+  }
+
+  // ---- the full push against the transcription ----
+  {
+    const double dt = 0.05;
+    std::vector<double> ux = { 0.9, -1.4, 0.35, 2.1, -0.75, 0.0 };
+    std::vector<double> uy = { -0.5, 0.8, 1.2, -0.3, 1.6, 0.0 };
+    std::vector<double> uz = { 1.1, 0.25, -0.6, 0.4, 0.0, -1.3 };
+    std::vector<double> exv (ngrid), eyv (ngrid), ezv (ngrid), bxv (ngrid),
+        byv (ngrid), bzv (ngrid);
+    for (int k = 0; k < ngrid; k++)
+      {
+        exv[k] = 0.125 * ((k * 7) % 11) - 0.5;
+        eyv[k] = 0.0625 * ((k * 5) % 13) - 0.4;
+        ezv[k] = 0.03125 * ((k * 3) % 7) - 0.1;
+        bxv[k] = 0.25 * ((k * 2) % 5) - 0.5;
+        byv[k] = 0.125 * ((k * 11) % 6) - 0.3;
+        bzv[k] = 0.5 * ((k * 13) % 4) - 0.75;
+      }
+    auto r = run (dt, exv, eyv, ezv, bxv, byv, bzv, X, ux, uy, uz);
+    Out w;
+    ref_parmvr (X, Y, ux, uy, uz, exv, eyv, ezv, bxv, byv, bzv, np, nx2, dt,
+                qmult, wmult, hxi, hyi, ngrid, w);
+    bool okv = true;
+    for (int l = 0; okv && l < np; l++)
+      if (fabs (((const double *)r.vx1.data)[l] - w.vx[l]) > 1e-12
+          || fabs (((const double *)r.vy1.data)[l] - w.vy[l]) > 1e-12
+          || fabs (((const double *)r.vz1.data)[l] - w.vz[l]) > 1e-12
+          || fabs (((const double *)r.x1.data)[l] - w.x[l]) > 1e-12
+          || fabs (((const double *)r.y1.data)[l] - w.y[l]) > 1e-12)
+        okv = false;
+    check ("full relativistic push: velocities and positions match the "
+           "transcribed reference", okv);
+    bool okd = (int)r.cx1.size == ngrid && (int)r.q1.size == ngrid;
+    for (int k = 0; okd && k < ngrid; k++)
+      if (fabs (((const double *)r.cx1.data)[k] - w.cx[k]) > 1e-12
+          || fabs (((const double *)r.cy1.data)[k] - w.cy[k]) > 1e-12
+          || fabs (((const double *)r.cz1.data)[k] - w.cz[k]) > 1e-12
+          || fabs (((const double *)r.q1.data)[k] - w.q[k]) > 1e-12)
+        okd = false;
+    check ("...and the deposited current and charge match cell by cell", okd);
+    check ("sumf1/2/3 sum the INPUT velocities, not the pushed ones",
+           fabs (r.sumf1 - w.s1) < 1e-12 && fabs (r.sumf2 - w.s2) < 1e-12
+               && fabs (r.sumf3 - w.s3) < 1e-12);
+
+    // the sums must be blind to the fields: perturb E, outputs move, sums do not
+    std::vector<double> e2 = exv;
+    for (auto &e : e2) e += 0.75;
+    auto r2 = run (dt, e2, eyv, ezv, bxv, byv, bzv, X, ux, uy, uz);
+    bool moved = false;
+    for (int l = 0; l < np; l++)
+      if (fabs (((const double *)r2.vx1.data)[l]
+                - ((const double *)r.vx1.data)[l]) > 1e-9)
+        moved = true;
+    check ("...so a change in E moves the velocities but leaves the sums fixed",
+           moved && fabs (r2.sumf1 - r.sumf1) < 1e-14
+               && fabs (r2.sumf2 - r.sumf2) < 1e-14
+               && fabs (r2.sumf3 - r.sumf3) < 1e-14);
+    freer (r); freer (r2);
+  }
+
+  // ---- inactive particle ----
+  {
+    const double dt = 0.05;
+    std::vector<double> exv ((size_t)ngrid, 2.0), bzv ((size_t)ngrid, 1.0);
+    std::vector<double> xin = X, ux (np, 0.5), uy (np, 0.3), uz (np, -0.2);
+    xin[2] = -0.5;
+    auto r = run (dt, exv, exv, exv, bzv, bzv, bzv, xin, ux, uy, uz, -1.0);
+    check ("x < 0: the particle neither moves nor is kicked",
+           ((const double *)r.x1.data)[2] == -0.5
+               && ((const double *)r.vx1.data)[2] == 0.5
+               && ((const double *)r.vz1.data)[2] == -0.2);
+    freer (r);
+  }
+  for (void *p : owned) free (p);
+}
+#endif
 #ifdef TEST_BMK11A_BORIS_DV
 // bmk11a, part 2 of 3 -- parmov, the electromagnetic (Boris) push.
 //
@@ -21268,6 +21599,9 @@ main (void)
 #ifdef TEST_BMK11A_BORIS_DV
   test_bmk11a_boris_dv ();
 #endif
+#ifdef TEST_BMK11A_REL_DV
+  test_bmk11a_rel_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -21485,7 +21819,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV) && !defined(TEST_BMK11A_MOVE_DV) && !defined(TEST_BMK11A_BORIS_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV) && !defined(TEST_BMK11A_MOVE_DV) && !defined(TEST_BMK11A_BORIS_DV) && !defined(TEST_BMK11A_REL_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;
