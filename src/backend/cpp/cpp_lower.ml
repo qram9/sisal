@@ -3548,7 +3548,18 @@ and lower_simple env gr nid sym pin pout pr =
      re-bound to the gather array afterwards.  DV_MAKE_DOPE (the shaped
      gather's dope source) likewise: its extent operands are read structurally
      off the RETURNS graph by the gather realization, never evaluated here. *)
-    | DV_GATHER | AGATHER | STREAM | DV_MAKE_DOPE | DV_SCATTER_AT -> e1
+    | DV_GATHER | AGATHER | STREAM | DV_MAKE_DOPE | DV_SCATTER_AT ->
+        (* The placeholder must be a DEFAULT OF THE RESULT TYPE, not e1.  e1 is
+           whatever sits on input port 0, which for a gather is the index /
+           control operand -- not a value of the result type at all.  Casting it
+           to an array is meaningless (the statement is dead once the RETURNS
+           port is re-bound to the gather array) and, when that operand happens
+           to be a RECORD, does not even compile: there is no conversion from a
+           struct to sisal_array_t.  That is what broke `returns array of
+           <record>` whenever a record import landed on boundary port 0 --
+           the two share a port number, so which one port 0 names depends on
+           the surrounding declarations. *)
+        if t_res = C.Basic "sisal_array_t" then C.Id "sisal_array_t{}" else e1
     (* REDUCE in a RETURNS subgraph is realized by the enclosing loop
        (forall: the per-port fold; for-initial: reduce_pre/reduce_store),
        so the node itself is a passthrough here -- same treatment as the
