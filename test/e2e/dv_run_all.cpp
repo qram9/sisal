@@ -555,6 +555,16 @@ extern "C" sisal_array_t func_MAIN (sisal_array_t p, sisal_array_t u,
                                     sisal_array_t v, int32_t nc1, int32_t nc2,
                                     int32_t godorder);
 #endif
+#ifdef TEST_UNSPLIT_PREP_DV
+struct FUNC_MAIN_upp_results {
+  sisal_array_t rho, u, v, e, psml, p, c;
+  double courmx, courmy;
+};
+extern "C" struct FUNC_MAIN_upp_results
+func_MAIN (sisal_array_t U1, sisal_array_t U2, sisal_array_t U3,
+           sisal_array_t U4, int32_t nc1, int32_t nc2, int32_t ncx, int32_t ilo,
+           double gamma, double half, double small, double gm1);
+#endif
 #ifdef TEST_UNSPLIT_FLUX_DV
 struct FUNC_MAIN_ufx_results {
   sisal_array_t f1, f2, f3, f4, ustar;
@@ -13728,6 +13738,194 @@ static void test_mdfftfreq_dv (void)
     }
 }
 #endif
+#ifdef TEST_UNSPLIT_PREP_DV
+// unsplit, part 7a of 8 -- Method1..Method4, the predictor's preparation.
+//
+// Method1..19 plus Transpose are ~800 lines, so part 7 splits along the
+// integrator's own phases: 7a prep, 7b traced states + transverse predictor,
+// 7c full fluxes + divergence + update + Transpose.
+//
+// Property-first oracle: Method1 is a change of variables so it must INVERT
+// (rho*u recovers the momentum); Method2 at rest reduces to p = gm1*rho*e and
+// with negative internal energy must return its FLOOR rather than a negative
+// pressure; Method3 must invert (c*c*rho/gamma recovers p); and Method4 must
+// IGNORE THE GHOST CELLS -- its generator runs 1..nc, so a spike planted
+// outside must not move it while the same spike inside must.
+namespace upp {
+  struct W {   // wide plane over 1-NCX .. n+NCX (+pad columns for the ilo shift)
+    int nc1, nc2, ncx, pad, W_, H_;
+    std::vector<double> a;
+    W (int c1, int c2, int cx, int pd, double fill)
+        : nc1 (c1), nc2 (c2), ncx (cx), pad (pd),
+          W_ (c1 + 2 * cx + pd), H_ (c2 + 2 * cx),
+          a ((size_t)W_ * H_, fill) {}
+    double &at (int j, int i) { return a[(size_t)(j - (1 - ncx)) * W_ + (i - (1 - ncx))]; }
+    double at (int j, int i) const { return a[(size_t)(j - (1 - ncx)) * W_ + (i - (1 - ncx))]; }
+    sisal_array_t dope () const {
+      sisal_array_t d = sisal_array_alloc_sized (2, 4, (uint64_t)a.size (), sizeof (double));
+      d.dims[0] = H_; d.dims[1] = W_;
+      d.lower_bound[0] = 1 - ncx; d.lower_bound[1] = 1 - ncx;
+      memcpy (d.data, a.data (), a.size () * sizeof (double));
+      return d;
+    }
+  };
+}
+static void test_unsplit_prep_dv (void)
+{
+  printf ("\n=== Group: unsplit_prep_dv (part 7a/8: Method1..4) ===\n");
+  using namespace upp;
+  const int nc1 = 5, nc2 = 4, ncx = 4, pad = 3;
+  const double gamma = 1.4, half = 0.5, small = 1e-6, gm1 = gamma - 1.0;
+  char msg[190];
+
+  auto build = [&] (int ilo, bool rest, bool negative_eint,
+                    double spike_in, double spike_out) {
+    W U1 (nc1, nc2, ncx, pad, 0), U2 (nc1, nc2, ncx, pad, 0),
+        U3 (nc1, nc2, ncx, pad, 0), U4 (nc1, nc2, ncx, pad, 0);
+    for (int j = 1 - ncx; j <= nc2 + ncx; j++)
+      for (int i = 1 - ncx; i <= nc1 + ncx + pad; i++)
+        {
+          double rho = 1.0 + 0.125 * ((i + 7) % 5) + 0.25 * ((j + 3) % 3);
+          double u = rest ? 0.0 : 0.5 - 0.25 * ((i + 2) % 4);
+          double v = rest ? 0.0 : 0.375 * ((j + 1) % 3) - 0.25;
+          double eint = negative_eint ? -1.0 : 2.0 + 0.5 * ((i + j) % 3);
+          double e = eint + 0.5 * (u * u + v * v);
+          U1.at (j, i) = rho;
+          U2.at (j, i) = rho * u;
+          U3.at (j, i) = rho * v;
+          U4.at (j, i) = rho * e;
+        }
+    // optional spikes, to probe Method4's range
+    if (spike_in != 0.0)  { U2.at (2, 2) = U1.at (2, 2) * spike_in; }
+    if (spike_out != 0.0) { U2.at (0, 0) = U1.at (0, 0) * spike_out;
+                            U2.at (nc2 + 1, nc1 + 1) = U1.at (nc2 + 1, nc1 + 1) * spike_out; }
+    return std::array<W, 4> { U1, U2, U3, U4 };
+  };
+
+  auto call = [&] (std::array<W, 4> &U, int ilo) {
+    sisal_array_t a[4] = { U[0].dope (), U[1].dope (), U[2].dope (), U[3].dope () };
+    auto r = func_MAIN (a[0], a[1], a[2], a[3], nc1, nc2, ncx, ilo, gamma,
+                        half, small, gm1);
+    for (auto &x : a) if (x.data) free (x.data);
+    return r;
+  };
+  auto freer = [] (FUNC_MAIN_upp_results &r) {
+    sisal_array_t *v[] = { &r.rho, &r.u, &r.v, &r.e, &r.psml, &r.p, &r.c };
+    for (auto *x : v) if (x->data) free (x->data);
+  };
+
+  // result planes from Method1/2 span 1-ncx .. n+ncx
+  const int RW = nc1 + 2 * ncx, RH = nc2 + 2 * ncx;
+  auto ridx = [&] (int j, int i) { return (size_t)(j - (1 - ncx)) * RW + (i - (1 - ncx)); };
+
+  // ---- Method1 inverts, and honours the ilo offset ----
+  for (int ilo : { 1, 2, 3 })
+    {
+      auto U = build (ilo, false, false, 0, 0);
+      auto r = call (U, ilo);
+      bool ok = r.rho.rank == 2 && (int)r.rho.dims[0] == RH
+                && (int)r.rho.dims[1] == RW;
+      for (int j = 1 - ncx; ok && j <= nc2 + ncx; j++)
+        for (int i = 1 - ncx; i <= nc1 + ncx; i++)
+          {
+            int ii = i + ilo - 1;                       // the source column
+            const double *R = (const double *)r.rho.data;
+            const double *Uu = (const double *)r.u.data;
+            const double *Ee = (const double *)r.e.data;
+            double rho = R[ridx (j, i)];
+            if (rho != U[0].at (j, ii)) { ok = false; break; }
+            // invert: rho*u must recover the momentum, rho*e the energy
+            if (fabs (rho * Uu[ridx (j, i)] - U[1].at (j, ii)) > 1e-12
+                || fabs (rho * Ee[ridx (j, i)] - U[3].at (j, ii)) > 1e-12)
+              { ok = false; break; }
+          }
+      snprintf (msg, sizeof msg,
+                "Method1 ilo=%d: inverts, and reads the shifted column", ilo);
+      check (msg, ok);
+      freer (r);
+    }
+
+  // ---- Method2 at rest reduces to the ideal-gas EOS ----
+  {
+    auto U = build (1, true, false, 0, 0);
+    auto r = call (U, 1);
+    bool ok = true;
+    const double *P = (const double *)r.p.data;
+    const double *S = (const double *)r.psml.data;
+    for (int j = 1 - ncx; ok && j <= nc2 + ncx; j++)
+      for (int i = 1 - ncx; i <= nc1 + ncx; i++)
+        {
+          double rho = U[0].at (j, i), e = U[3].at (j, i) / rho;
+          if (S[ridx (j, i)] != 0.0
+              || fabs (P[ridx (j, i)] - gm1 * rho * e) > 1e-12)
+            { ok = false; break; }
+        }
+    check ("Method2 at rest: no kinetic energy, so p = (gamma-1)*rho*e exactly",
+           ok);
+    freer (r);
+  }
+
+  // ---- Method2 floors the pressure when internal energy goes negative ----
+  {
+    auto U = build (1, false, true, 0, 0);
+    auto r = call (U, 1);
+    bool ok = true, floored = false;
+    const double *P = (const double *)r.p.data;
+    const double *S = (const double *)r.psml.data;
+    for (int j = 1 - ncx; ok && j <= nc2 + ncx; j++)
+      for (int i = 1 - ncx; i <= nc1 + ncx; i++)
+        {
+          if (P[ridx (j, i)] < 0.0) ok = false;
+          if (P[ridx (j, i)] == S[ridx (j, i)]) floored = true;
+        }
+    check ("Method2 with negative internal energy: pressure never goes negative",
+           ok);
+    check ("...and the floor is what is returned there", floored);
+    freer (r);
+  }
+
+  // ---- Method3 inverts ----
+  {
+    auto U = build (1, false, false, 0, 0);
+    auto r = call (U, 1);
+    const int CW = nc1 + 2, CH = nc2 + 2;
+    bool ok = r.c.rank == 2 && (int)r.c.dims[0] == CH && (int)r.c.dims[1] == CW;
+    const double *C = (const double *)r.c.data;
+    const double *P = (const double *)r.p.data;
+    const double *R = (const double *)r.rho.data;
+    for (int j = 0; ok && j <= nc2 + 1; j++)
+      for (int i = 0; i <= nc1 + 1; i++)
+        {
+          double c = C[(size_t)j * CW + i];
+          double want_p = c * c * R[ridx (j, i)] / gamma;
+          if (fabs (want_p - P[ridx (j, i)]) > 1e-10 * std::max (1.0, want_p))
+            { ok = false; break; }
+        }
+    check ("Method3 inverts: c*c*rho/gamma recovers the pressure", ok);
+    freer (r);
+  }
+
+  // ---- Method4 sees the interior only ----
+  {
+    auto Uplain = build (1, false, false, 0, 0);
+    auto rp = call (Uplain, 1);
+    double base = rp.courmx;
+    freer (rp);
+
+    auto Uout = build (1, false, false, 0, 500.0);      // spike in ghost cells
+    auto ro = call (Uout, 1);
+    check ("Method4 ignores a spike planted OUTSIDE the interior",
+           ro.courmx == base);
+    freer (ro);
+
+    auto Uin = build (1, false, false, 500.0, 0);       // spike inside
+    auto ri = call (Uin, 1);
+    check ("Method4 does see a spike planted INSIDE the interior",
+           ri.courmx > base);
+    freer (ri);
+  }
+}
+#endif
 #ifdef TEST_UNSPLIT_FLUX_DV
 // unsplit, part 6 of 8 -- the approximate Riemann solver (fluxev + stages).
 //
@@ -19293,6 +19491,9 @@ main (void)
 #ifdef TEST_UNSPLIT_FLUX_DV
   test_unsplit_flux_dv ();
 #endif
+#ifdef TEST_UNSPLIT_PREP_DV
+  test_unsplit_prep_dv ();
+#endif
 #ifdef TEST_IFM_4_DV
   test_ifm_4_dv ();
 #endif
@@ -19510,7 +19711,7 @@ main (void)
     && !defined(TEST_NEWTON_RAPHSON)                                          \
     && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
     && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV)
+    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_STAND_ALONE_GAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV)
   printf ("ERROR: No TEST_XXX macro defined.  Compile with e.g. "
           "-DTEST_ABS_DEMO\n");
   return 1;

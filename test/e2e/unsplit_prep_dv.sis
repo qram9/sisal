@@ -1,0 +1,123 @@
+% UNSPLIT, part 7a of 8 -- the predictor's preparation stages, Method1..Method4.
+%
+% Method1..Method19 plus Transpose are ~800 lines, so part 7 is itself split
+% along the integrator's own phases:
+%     7a  Method1..4    convert to primitive form, EOS, sound speed, Courant
+%     7b  Method5..14   traced states and the transverse predictor
+%     7c  Method15..19 + Transpose   full fluxes, divergence, update
+% This is 7a.
+%
+% Method1  U -> (rho, u, v, e), dividing the momenta and energy by density,
+%          with an `ilo` column offset applied to the source index.
+% Method2  pressure from the equation of state, with a positivity floor.
+% Method3  sound speed, on the interior plus one ring of boundary cells.
+% Method4  the Courant numbers -- maxima over the INTERIOR only.
+%
+% THE ARRAY REWRITE is the usual one: PlaneArray -> flat rank-2 array_dv,
+% `returns array of` -> `returns array_dv of`.  Note the three stages work over
+% THREE DIFFERENT index ranges -- Method1/2 over 1-ncx..nc+ncx (the full wide
+% array), Method3 over 0..nc+1, Method4 over 1..nc -- which is what the last
+% property below pins.
+%
+% THE ORACLE, property-first:
+%   * Method1 is a change of variables, so it must INVERT: rho*u recovers the
+%     x-momentum, rho*e the energy.  Checked as a round trip rather than by
+%     re-deriving the division.  The `ilo` offset is exercised with ilo /= 1,
+%     since an off-by-one there would be invisible at ilo = 1.
+%   * Method2 at REST (u = v = 0) has zero kinetic energy, so the floor term
+%     vanishes and the EOS reduces to p = (gamma-1)*rho*e exactly.
+%   * Method2 with NEGATIVE internal energy must return the floor, not a
+%     negative pressure -- that is what the max is for.
+%   * Method3 must INVERT: c*c*rho/gamma recovers p.
+%   * Method4 must IGNORE THE GHOST CELLS.  Its generator runs 1..nc, so a huge
+%     value planted at 0 or nc+1 must not change the answer, while the same
+%     value planted inside must.  That is the sharpest check available on a
+%     range that is easy to widen by one and never notice.
+
+define main
+
+type Plane = array_dv[ double_real ];
+
+function sqr( x : double_real returns double_real )
+  x * x
+end function
+
+function Method1( U1, U2, U3, U4 : Plane;
+                  nc1, nc2, ncx, ilo, ordinal : integer
+                  returns Plane, Plane, Plane, Plane, integer )
+  let
+    rho1, uu1, v1, e1 :=
+      for j in 1-ncx, nc2+ncx cross i in 1-ncx, nc1+ncx
+        ii    := i + ilo - 1;
+        rhoij := U1[j,ii]
+      returns array_dv of rhoij
+              array_dv of U2[j,ii] / rhoij
+              array_dv of U3[j,ii] / rhoij
+              array_dv of U4[j,ii] / rhoij
+      end for
+  in
+    rho1, uu1, v1, e1, 1
+  end let
+end function
+
+function Method2( u1, v1, e1, rho1 : Plane;
+                  nc1, nc2, ncx, ordinal : integer;
+                  half, small, gm1 : double_real
+                  returns Plane, Plane, integer )
+  let
+    psml, p := for j in 1-ncx, nc2+ncx cross i in 1-ncx, nc1+ncx
+                 eken := half * ( sqr( u1[j,i] ) + sqr( v1[j,i] ) );
+                 eint := e1[j,i] - eken
+               returns array_dv of small * rho1[j,i] * eken
+                       array_dv of max( small * rho1[j,i] * eken,
+                                        gm1 * rho1[j,i] * eint )
+               end for
+  in
+    psml, p, 1
+  end let
+end function
+
+function Method3( gamma : double_real;
+                  p, rho1 : Plane;
+                  nc1, nc2, ordinal : integer
+                  returns Plane, integer )
+  let
+    c := for j in 0, nc2+1 cross i in 0, nc1+1
+         returns array_dv of sqrt( gamma * p[j,i] / rho1[j,i] )
+         end for
+  in
+    c, 1
+  end let
+end function
+
+function Method4( c, u1, v1 : Plane;
+                  nc1, nc2, ordinal : integer
+                  returns double_real, double_real, integer )
+  let
+    courmx1, courmy1 :=
+      for j in 1, nc2 cross i in 1, nc1
+      returns value of greatest ( c[j,i] + abs( u1[j,i] ) )
+              value of greatest ( c[j,i] + abs( v1[j,i] ) )
+      end for
+  in
+    courmx1, courmy1, 1
+  end let
+end function
+
+function main( U1, U2, U3, U4 : Plane;
+               nc1, nc2, ncx, ilo : integer;
+               gamma, half, small, gm1 : double_real
+      returns Plane, Plane, Plane, Plane,   % rho, u, v, e
+              Plane, Plane,                 % psml, p
+              Plane,                        % c
+              double_real, double_real )    % courmx, courmy
+  let
+    rho1, uu1, v1, e1, o1 := Method1( U1, U2, U3, U4, nc1, nc2, ncx, ilo, 1 );
+    psml, p, o2 := Method2( uu1, v1, e1, rho1, nc1, nc2, ncx, o1,
+                            half, small, gm1 );
+    c, o3 := Method3( gamma, p, rho1, nc1, nc2, o2 );
+    cx, cy, o4 := Method4( c, uu1, v1, nc1, nc2, o3 )
+  in
+    rho1, uu1, v1, e1, psml, p, c, cx, cy
+  end let
+end function
