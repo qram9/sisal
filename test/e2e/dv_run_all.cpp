@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "dv_rank8_slices_harness.h"
+#include "kin16_ref.h"
 
 
 // ============================================================
@@ -5171,9 +5172,58 @@ test_forall_negate (void)
 static void
 test_newton_raphson (void)
 {
-  printf ("\n=== Group: newton_raphson (iterative sqrt, LoopA) ===\n");
-  check ("newton_raphson sqrt(25.0) == 5.0", fabs(func_MAIN(25.0f, 1e-4f) - 5.0f) < 1e-4f);
-  check ("newton_raphson sqrt(2.0) == 1.4142", fabs(func_MAIN(2.0f, 1e-4f) - 1.4142135f) < 1e-4f);
+  printf ("\n=== Group: newton_raphson (iterative sqrt, LoopA; vs C reference "
+          "and libm) ===\n");
+  // The .sis iterates Root := (X/Root + Root)/2 from X/2 until |X - Root^2| is
+  // under Eps on BOTH sides.  Two independent oracles: the same recurrence
+  // transcribed in C (pinning the iteration, including its post-test shape),
+  // and libm's sqrtf (pinning the ANSWER, so a recurrence that converged to
+  // the wrong thing would still be caught).
+  //
+  // INPUTS ARE BOUNDED DELIBERATELY.  The stopping rule is on the ABSOLUTE
+  // residual, and in float the residual cannot fall below about X * 1.2e-7 --
+  // so for X * 1.2e-7 >= Eps the loop never terminates.  X = 1e4 with
+  // Eps = 1e-6 hangs, in this reference and in the compiled Sisal alike; it is
+  // a property of the algorithm as written, not of the compiler.  Every pair
+  // below satisfies X < Eps / 2.4e-7 with margin.  The iteration cap is a
+  // backstop so a future edit that crosses the line FAILS rather than hangs.
+  auto ref_newton = [] (float X, float Eps, int *iters) {
+    float root = X / 2.0f;                 // repeat..until: the body runs first
+    int k = 0;
+    do
+      { root = (X / root + root) / 2.0f; k++; }
+    while (!((X - root * root < Eps) && (root * root - X < Eps)) && k < 10000);
+    *iters = k;
+    return root;
+  };
+  struct { float X, Eps; } cases[] = {
+    { 2.0f, 1e-4f },  { 4.0f, 1e-4f },   { 25.0f, 1e-4f }, { 0.25f, 1e-4f },
+    { 1.0f, 1e-4f },  { 100.0f, 1e-4f }, { 2.0f, 1e-6f },  { 0.25f, 1e-6f },
+    { 1.0f, 1e-6f },
+  };
+  bool vs_ref = true, vs_libm = true, converged = true;
+  int n = 0;
+  for (auto c : cases)
+    {
+      int iters = 0;
+      const float w = ref_newton (c.X, c.Eps, &iters);
+      if (iters >= 10000) converged = false;   // the bound above was violated
+      const float g = func_MAIN (c.X, c.Eps);
+      if (g != w) vs_ref = false;
+      if (!(fabsf (c.X - g * g) < c.Eps * 1.000001f)) vs_libm = false;
+      if (fabsf (g - sqrtf (c.X)) > 1e-3f * sqrtf (c.X)) vs_libm = false;
+      n++;
+    }
+  check ("every (X, Eps) pair terminates -- X < Eps/2.4e-7, the float residual "
+         "floor",
+         converged);
+  char msg[128];
+  snprintf (msg, sizeof msg,
+            "%d (X, Eps) pairs reproduce the C transcription bit for bit", n);
+  check (msg, vs_ref);
+  check ("...and every root meets the loop's own residual bound and agrees "
+         "with libm sqrtf",
+         vs_libm);
 }
 #endif
 
@@ -5312,19 +5362,57 @@ test_feo_fft (void)
 static void
 test_kin16_dv (void)
 {
-  printf ("\n=== Group: kin16_dv (Zone Electrophoresis) ===\n");
-  struct FUNC_MAIN_results r = func_MAIN(2, 10, 5);
-  check ("r.res_0.T == 0.0", fabs(r.res_0.T - 0.0) < 1e-7);
-  check ("r.res_0.YMEANM == 0.0014", fabs(r.res_0.YMEANM - 0.0014) < 1e-7);
-  check ("r.res_0.SIGSQM == 6.125e-07", fabs(r.res_0.SIGSQM - 6.125000000000004884e-07) < 1e-15);
-  check ("r.res_0.SIGM == 0.0007826238", fabs(r.res_0.SIGM - 0.0007826238) < 1e-7);
-  check ("r.res_0.SUM1M == 0.00002", fabs(r.res_0.SUM1M - 0.0000200000) < 1e-7);
-
-  check ("r.res_1.T == 1.0", fabs(r.res_1.T - 1.0) < 1e-7);
-  check ("r.res_1.YMEANM == 0.0020250719", fabs(r.res_1.YMEANM - 0.0020250719) < 1e-7);
-  check ("r.res_1.SIGSQM == 9.40361229e-07", fabs(r.res_1.SIGSQM - 9.403612285497708558e-07) < 1e-15);
-  check ("r.res_1.SIGM == 0.0009697222", fabs(r.res_1.SIGM - 0.0009697222) < 1e-7);
-  check ("r.res_1.SUM1M == 2.00002455e-05", fabs(r.res_1.SUM1M - 2.000024554863243377e-05) < 1e-15);
+  printf ("\n=== Group: kin16_dv (Zone Electrophoresis; vs C reference) ===\n");
+  // Was: ten checks against magic constants carrying 15+ significant digits,
+  // no provenance, landed in the same commit that changed the compiler -- a
+  // regression lock that could detect change but never wrongness, and it read
+  // only 5 of the 13 Edit fields at a single input.  kin16_ref.h now recomputes
+  // the whole thing from the algorithm; every field of both Edit records is
+  // compared, over several problem sizes.  (The reference agrees with those old
+  // constants, so they were right -- but that is now a derived fact, not an
+  // assumption.)
+  struct
+  {
+    int it, n, nseg;
+  } cases[] = { { 2, 10, 5 }, { 1, 10, 5 }, { 5, 16, 7 }, { 3, 12, 3 },
+                { 8, 20, 11 } };
+  int compared = 0;
+  bool all_ok = true, moved = false;
+  for (auto c : cases)
+    {
+      kin16ref::Edit wa, wb;
+      kin16ref::ref_kin16 (c.it, c.n, c.nseg, wa, wb);
+      struct FUNC_MAIN_results r = func_MAIN (c.it, c.n, c.nseg);
+      const double *g0 = (const double *)&r.res_0;
+      const double *g1 = (const double *)&r.res_1;
+      const double *w0 = (const double *)&wa;
+      const double *w1 = (const double *)&wb;
+      bool ok = true;
+      for (int f = 0; f < 13; f++)
+        {
+          // relative, because the fields span 1e-7 to 1e0
+          const double s0 = std::max (1e-300, fabs (w0[f]));
+          const double s1 = std::max (1e-300, fabs (w1[f]));
+          if (fabs (g0[f] - w0[f]) > 1e-9 * s0) ok = false;
+          if (fabs (g1[f] - w1[f]) > 1e-9 * s1) ok = false;
+          compared += 2;
+        }
+      // the state must actually evolve, or "matches" would be vacuous
+      if (fabs (wb.YMEANM - wa.YMEANM) > 1e-12) moved = true;
+      char msg[128];
+      snprintf (msg, sizeof msg,
+                "IT=%d N=%d NSEG=%d: all 13 Edit fields match the C reference, "
+                "at T=0 and T=%g",
+                c.it, c.n, c.nseg, c.it * 0.5);
+      check (msg, ok);
+      all_ok = all_ok && ok;
+    }
+  char msg[128];
+  snprintf (msg, sizeof msg, "%d field comparisons against the reference",
+            compared);
+  check (msg, all_ok && compared == 130);
+  check ("the concentration profile actually evolves (the match is not vacuous)",
+         moved);
 }
 #endif
 
