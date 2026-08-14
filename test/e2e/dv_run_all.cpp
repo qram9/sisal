@@ -3877,18 +3877,77 @@ test_complex_ops_e2e (void)
 static void
 test_bubble_e2e (void)
 {
-  printf ("\n=== Group: bubble_e2e ===\n");
-  int32_t a[] = { 5, 1, 4, 2, 8 };
-  int32_t exp[] = { 1, 2, 4, 5, 8 };
-  sisal_array_t va = make_int_arr (a, 5);
-  sisal_array_t r = func_BUBBLE (5, va);
-  check ("bubble[0] == 1", ai (r, 0) == exp[0]);
-  check ("bubble[1] == 2", ai (r, 1) == exp[1]);
-  check ("bubble[2] == 4", ai (r, 2) == exp[2]);
-  check ("bubble[3] == 5", ai (r, 3) == exp[3]);
-  check ("bubble[4] == 8", ai (r, 4) == exp[4]);
-  free (va.data);
-  free (r.data);
+  printf ("\n=== Group: bubble_e2e (bubble sort; vs std::sort) ===\n");
+  // Was: one 5-element array with five literal element checks -- no duplicates,
+  // no already-sorted or reversed input, no n = 0 or 1, and nothing that would
+  // catch a lost or duplicated element.  std::sort is the reference; the
+  // multiset check is separate from the ordering check because a sort can fail
+  // either by mis-ordering OR by dropping/duplicating a value, and comparing
+  // only against a sorted copy conflates the two.
+  //
+  // The .sis is `A1[j: old A1[j+1], old A1[j]]` -- a two-value replace at j,
+  // i.e. the swap.  n <= 1 must leave the input alone (the outer `while
+  // limit > 1` never trips).
+  struct Case { const char *nm; std::vector<int32_t> v; };
+  const std::vector<Case> cases = {
+    { "the original 5", { 5, 1, 4, 2, 8 } },
+    { "already sorted", { 1, 2, 3, 4, 5, 6 } },
+    { "reverse sorted", { 9, 7, 5, 3, 1 } },
+    { "all equal", { 4, 4, 4, 4 } },
+    { "duplicates either side of the pivot value", { 3, 1, 3, 2, 1, 3, 2 } },
+    { "negatives and zero", { 0, -3, 7, -1, 0, 2, -3 } },
+    { "single element", { 42 } },
+    { "two, out of order", { 2, 1 } },
+    { "two, in order", { 1, 2 } },
+    { "extremes", { 2147483647, -2147483647 - 1, 0 } },
+  };
+  bool ordered_ok = true, multiset_ok = true, n_ok = true;
+  int total = 0;
+  for (const auto &c : cases)
+    {
+      std::vector<int32_t> want = c.v;
+      std::sort (want.begin (), want.end ());
+      std::vector<int32_t> in = c.v;
+      sisal_array_t va = make_int_arr (in.data (), (int)in.size ());
+      sisal_array_t r = func_BUBBLE ((int32_t)in.size (), va);
+      if ((int)r.size != (int)in.size ()) { n_ok = false; }
+      else
+        {
+          std::vector<int32_t> got ((const int32_t *)r.data,
+                                    (const int32_t *)r.data + r.size);
+          if (got != want) ordered_ok = false;
+          // same elements with the same multiplicities, independent of order
+          std::vector<int32_t> gs = got, cs = c.v;
+          std::sort (gs.begin (), gs.end ());
+          std::sort (cs.begin (), cs.end ());
+          if (gs != cs) multiset_ok = false;
+          total += (int)got.size ();
+        }
+      // the sort may return its INPUT buffer unchanged (already-sorted, n = 1),
+      // so the result can alias the argument -- freeing both is a double free
+      if (r.data && r.data != va.data) free (r.data);
+      free (va.data);
+    }
+  char msg[128];
+  snprintf (msg, sizeof msg,
+            "%zu inputs (%d elements) sort exactly as std::sort does",
+            cases.size (), total);
+  check (msg, ordered_ok);
+  check ("...and every result is a permutation of its input -- nothing dropped "
+         "or duplicated",
+         multiset_ok);
+  check ("...with the length preserved throughout", n_ok);
+
+  // n = 0 and n = 1 never enter the outer loop
+  {
+    std::vector<int32_t> one = { 7 };
+    sisal_array_t va = make_int_arr (one.data (), 1);
+    sisal_array_t r = func_BUBBLE (1, va);
+    check ("n = 1 returns the input untouched (the outer while never trips)",
+           (int)r.size == 1 && ((const int32_t *)r.data)[0] == 7);
+    if (r.data && r.data != va.data) free (r.data);
+    free (va.data);
+  }
 }
 #endif
 #ifdef TEST_LEGPOLY_DV_E2E
