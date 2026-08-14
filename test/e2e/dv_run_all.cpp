@@ -18,6 +18,8 @@
 
 #include "dv_rank8_slices_harness.h"
 #include "kin16_ref.h"
+#include "legpoly_ref.h"
+#include "hilbert_ref.h"
 
 
 // ============================================================
@@ -3893,19 +3895,62 @@ test_bubble_e2e (void)
 static void
 test_legpoly_dv_e2e (void)
 {
-  printf ("\n=== Group: legpoly_dv_e2e ===\n");
-  sisal_array_t r = func_LEGENDREPOLYOF1STKIND (2, 4, 16, 0.5f, 0.8660254f, 1.04719755f);
-  check ("legpoly_dv size == 16", r.size == 16);
-  check ("legpoly_dv[0] check", fabs (((double*)r.data)[0] - 0.70710678) < 1e-5);
-  check ("legpoly_dv[1] check", fabs (((double*)r.data)[1] - 0.6123724) < 1e-5);
-  check ("legpoly_dv[2] check", fabs (((double*)r.data)[2] - -0.1976423) < 1e-5);
-  check ("legpoly_dv[3] check", fabs (((double*)r.data)[3] - -0.818488) < 1e-5);
-  check ("legpoly_dv[4] check", fabs (((double*)r.data)[4] - 0.75) < 1e-5);
-  check ("legpoly_dv[5] check", fabs (((double*)r.data)[5] - 0.838525) < 1e-5);
-  check ("legpoly_dv[6] check", fabs (((double*)r.data)[6] - 0.17539) < 1e-5);
-  check ("legpoly_dv[7] check", fabs (((double*)r.data)[7] - -0.641862) < 1e-5);
-  check ("legpoly_dv[8] check", ((double*)r.data)[8] == 0.0);
-  free (r.data);
+  printf ("\n=== Group: legpoly_dv_e2e (associated Legendre, 1st kind; vs C "
+          "reference) ===\n");
+  // Was: eight constants of 6-8 digits, no provenance, reading 9 of 16
+  // elements at ir = 2 -- which takes the `IF ir = 2 THEN pp` short-circuit,
+  // so the entire second nest (the ppp / p4 three-term recurrence, about half
+  // the program) never ran.  legpoly_ref.h covers both paths; every element is
+  // compared, and ir > 2 is exercised.
+  struct { int ir, irmax2, jxxmx; } cases[]
+      = { { 2, 4, 16 }, { 2, 5, 20 }, { 3, 4, 20 }, { 4, 4, 24 }, { 5, 3, 28 } };
+  const float coa = 0.5f, sia = 0.8660254f, delta = 1.04719755f;
+  int elems = 0;
+  bool ok = true, sized = true, second_nest_live = false;
+  for (auto c : cases)
+    {
+      // no runtime subscript checking: if the array is too short for these
+      // parameters the program writes past the end silently, so refuse to run
+      if (c.jxxmx < legpolyref::min_size (c.ir, c.irmax2)) { sized = false; continue; }
+      const std::vector<double> w
+          = legpolyref::ref_legpoly (c.ir, c.irmax2, c.jxxmx, coa, sia, delta);
+      sisal_array_t r = func_LEGENDREPOLYOF1STKIND (c.ir, c.irmax2, c.jxxmx,
+                                                    coa, sia, delta);
+      bool this_ok = ((int)r.size == c.jxxmx);
+      for (int k = 1; this_ok && k <= c.jxxmx; k++)
+        {
+          const double got = ((const double *)r.data)[k - 1];
+          const double scale = std::max (1.0, fabs (w[k]));
+          if (fabs (got - w[k]) > 1e-9 * scale) this_ok = false;
+          elems++;
+        }
+      if (c.ir > 2)
+        {
+          // the second nest must actually have written something, or "matches"
+          // proves nothing about the path it was added to cover
+          const int first_only = c.ir + 2 + c.irmax2;
+          for (int k = first_only + 1; k <= c.jxxmx; k++)
+            if (w[k] != 0.0) second_nest_live = true;
+        }
+      char msg[128];
+      snprintf (msg, sizeof msg,
+                "ir=%d irmax2=%d jxxmx=%d: all %d elements match the C "
+                "reference%s",
+                c.ir, c.irmax2, c.jxxmx, c.jxxmx,
+                c.ir == 2 ? "" : "  (second nest)");
+      check (msg, this_ok);
+      ok = ok && this_ok;
+      if (r.data) free (r.data);
+    }
+  check ("every case is large enough for its parameters (no silent overrun)",
+         sized);
+  check ("the ir > 2 cases really drive the ppp/p4 recurrence past the first "
+         "nest's last index",
+         second_nest_live);
+  char msg[96];
+  snprintf (msg, sizeof msg, "%d element comparisons against the reference",
+            elems);
+  check (msg, ok && elems > 100);
 }
 #endif
 #ifdef TEST_NESTED_INIT_MERGE_DV
@@ -5472,34 +5517,99 @@ extern "C" double func_MAIN(sisal_array_t HILBERT, sisal_array_t B);
 static void
 test_hilbert_dv (void)
 {
-  printf ("\n=== Group: hilbert_dv ===\n");
-  int n = 4;
-  // Allocate flat 2D array of rank 2 (element size = sizeof(double) = 8, type ID = 4, size = n * n elements)
-  sisal_array_t hilbert = sisal_array_alloc_sized(2, 4, n * n, sizeof(double));
-  hilbert.dims[0] = n;
-  hilbert.dims[1] = n;
-  hilbert.lower_bound[0] = 1;
-  hilbert.lower_bound[1] = 1;
-  
-  double* data = (double*)hilbert.data;
-  for (int i = 0; i < n; i++) {
-    for (int j = 0; j < n; j++) {
-      data[i * n + j] = 1.0 / (double)(i + 1 + j + 1 - 1);
+  printf ("\n=== Group: hilbert_dv (LU residual; vs C reference solve) ===\n");
+  // Was: one check, `resid < 1e-12`, at n = 4 only.  That bar is arbitrary --
+  // it holds at n = 4 and fails at n = 8 purely from the Hilbert condition
+  // number, not from any compiler fault -- and the rcond = 0 branch (-999) was
+  // never reached.  Now the bar comes from an independent LU solve on the same
+  // data, and both branches are covered.
+  auto mk_mat = [] (const std::vector<double> &v, int n) {
+    sisal_array_t a
+        = sisal_array_alloc_sized (2, 4, (uint64_t)n * n, sizeof (double));
+    a.dims[0] = n; a.dims[1] = n;
+    a.lower_bound[0] = 1; a.lower_bound[1] = 1;
+    memcpy (a.data, v.data (), v.size () * sizeof (double));
+    return a;
+  };
+  auto mk_vec = [] (const std::vector<double> &v) {
+    sisal_array_t a = sisal_array_alloc_empty (1, 4, v.size ());
+    a.lower_bound[0] = 1;
+    memcpy (a.data, v.data (), v.size () * sizeof (double));
+    return a;
+  };
+
+  bool hil_ok = true, exact_ok = true;
+  for (int n = 3; n <= 7; n++)
+    {
+      std::vector<double> H ((size_t)n * n), b ((size_t)n, 1.0);
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++) H[i * n + j] = 1.0 / (double)(i + j + 1);
+      const double want = hilbref::ref_resid (n, H, b);
+      sisal_array_t A = mk_mat (H, n), B = mk_vec (b);
+      const double got = func_MAIN (A, B);
+      // the reference says what is achievable here; allow a generous factor
+      // plus an absolute floor, since both residuals are near zero
+      if (!(got >= 0.0 && got <= 1e3 * want + 1e-10)) hil_ok = false;
+      free (A.data); free (B.data);
     }
+  check ("Hilbert n=3..7: the residual is no worse than an independent LU "
+         "solve achieves on the same system",
+         hil_ok);
+
+  // A well-conditioned system with a KNOWN exact solution: conditioning is no
+  // longer an excuse, so the residual must be at machine level.
+  for (int n = 3; n <= 6; n++)
+    {
+      std::vector<double> A ((size_t)n * n), x ((size_t)n), b ((size_t)n, 0.0);
+      for (int i = 0; i < n; i++)
+        {
+          x[i] = 1.0 + 0.5 * i;
+          for (int j = 0; j < n; j++)
+            A[i * n + j] = (i == j) ? 4.0 + i : 1.0 / (1.0 + i + 2.0 * j);
+        }
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++) b[i] += A[i * n + j] * x[j];
+      sisal_array_t Aa = mk_mat (A, n), Bb = mk_vec (b);
+      const double got = func_MAIN (Aa, Bb);
+      if (!(got >= 0.0 && got < 1e-12)) exact_ok = false;
+      free (Aa.data); free (Bb.data);
+    }
+  check ("well-conditioned system with a known exact solution: residual is at "
+         "machine level",
+         exact_ok);
+
+  // The -999 branch.  It is guarded by `rcond = 0.0d0`, and rcond is
+  // `if anorm = 0 then 0 else ynorm4/anorm` -- so it fires ONLY for the ZERO
+  // matrix, not for singular matrices generally.  Measured rather than assumed:
+  // a rank-1 matrix of ones divides by a zero pivot and comes back NaN, because
+  // this sgeco does not actually detect singularity, it only detects an
+  // all-zero norm.  Both behaviours are pinned so a future change to either is
+  // visible; the NaN is the algorithm's, not the compiler's.
+  {
+    const int n = 4;
+    std::vector<double> Z ((size_t)n * n, 0.0), b ((size_t)n, 1.0);
+    sisal_array_t A = mk_mat (Z, n), B = mk_vec (b);
+    check ("zero matrix (anorm = 0) takes the rcond = 0 branch and returns -999",
+           fabs (func_MAIN (A, B) - (-999.0)) < 1e-9);
+    free (A.data); free (B.data);
+
+    std::vector<double> S ((size_t)n * n, 1.0);
+    check ("the reference agrees a rank-1 matrix of ones is singular",
+           hilbref::ref_resid (n, S, b) < 0.0);
+    sisal_array_t A2 = mk_mat (S, n), B2 = mk_vec (b);
+    // NOTE: the suite compiles with -ffast-math, which implies
+    // -ffinite-math-only, so std::isnan() folds to a constant false and cannot
+    // be used here -- it passed at -O2 and failed in the suite.  Read the IEEE
+    // bit pattern instead, which no fast-math transform can rewrite.
+    const double got_sing = func_MAIN (A2, B2);
+    uint64_t bits;
+    memcpy (&bits, &got_sing, sizeof bits);
+    const bool is_nan = ((bits >> 52) & 0x7ff) == 0x7ff && (bits & 0xfffffffffffffULL);
+    check ("...but this sgeco does not detect it -- rcond is NaN, so the guard "
+           "is false and the residual comes back NaN",
+           is_nan && got_sing != -999.0);
+    free (A2.data); free (B2.data);
   }
-  
-  // Allocate B vector (array of double)
-  sisal_array_t b = sisal_array_alloc_empty(1, 4, n);
-  double* b_data = (double*)b.data;
-  for (int i = 0; i < n; i++) {
-    b_data[i] = 1.0;
-  }
-  
-  double resid = func_MAIN(hilbert, b);
-  check("Residual is small", resid > 0.0 && resid < 1e-12);
-  
-  if (hilbert.data) free(hilbert.data);
-  if (b.data) free(b.data);
 }
 #endif
 
