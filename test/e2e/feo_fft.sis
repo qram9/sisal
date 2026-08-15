@@ -33,13 +33,20 @@ function data( n: integer returns OneDim, OneDim )
   end for
 end function
 
-function W_n( n: integer
+function W_n( n, maxw: integer
               returns OneDim, OneDim, OneDim, OneDim, OneDim, OneDim )
   let
     pi   := 4.0d0 * atan(1.0d0);
     step := 2.0d0 * pi / double_real(n)
   in
-    for m in 0, n/4 - 2
+    % Rows are padded to `maxw` so the rank-2 W is RECTANGULAR.  W_n's natural
+    % length is n/4-1 and it GROWS with the level, so gathering rows as they
+    % come builds a ragged array -- which a flat rank-2 array_dv cannot hold.
+    % The gather silently truncated every row to the first row's width (W(64)
+    % came out dims [2,3] when its second row needs 15), which is what made the
+    % FFT wrong for n >= 64.  Entries past a row's natural length are never
+    % indexed.
+    for m in 0, maxw - 1
       angle        := double_real(m + 1) * step;
       w1re         :=  cos(angle);
       w1im         := -sin(angle);
@@ -55,11 +62,12 @@ end function
 function W( n: integer
             returns TwoDim, TwoDim, TwoDim, TwoDim, TwoDim, TwoDim )
   for initial
+    maxw                           := n/4 - 1;
     m                              := if mod(log2(n), 2) = 0 then 4 else 8 end if;
-    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m, maxw)
   while m < n repeat
     m                              := old m * 4;
-    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m)
+    w1re, w1im, w2re, w2im, w3re, w3im := W_n(m, maxw)
   returns array_dv(log2(n)/2 - 1) of w1re  array_dv(log2(n)/2 - 1) of w1im
           array_dv(log2(n)/2 - 1) of w2re  array_dv(log2(n)/2 - 1) of w2im
           array_dv(log2(n)/2 - 1) of w3re  array_dv(log2(n)/2 - 1) of w3im
@@ -296,22 +304,22 @@ function fft_4( n                                 : integer;
             old cards / 4,
             old packs * 4,
             levelA_i(old cards, old packs, old xre_i, old xim_i,
-                     w1re[i, ..], w1im[i, ..], w2re[i, ..], w2im[i, ..], w3re[i, ..], w3im[i, ..])
+                     w1re[i-1, ..], w1im[i-1, ..], w2re[i-1, ..], w2im[i-1, ..], w3re[i-1, ..], w3im[i-1, ..])
           elseif i = gap_i then
             old cards / 4,
             old packs * 4,
             levelA_g(old cards, old packs, old xre_i, old xim_i,
-                     w1re[i, ..], w1im[i, ..], w2re[i, ..], w2im[i, ..], w3re[i, ..], w3im[i, ..])
+                     w1re[i-1, ..], w1im[i-1, ..], w2re[i-1, ..], w2im[i-1, ..], w3re[i-1, ..], w3im[i-1, ..])
           elseif i = A_B_i then
             old packs * 4,
             old cards / 4,
             levelA_B(old cards, old packs, old xre_i, old xim_i,
-                     w1re[i, ..], w1im[i, ..], w2re[i, ..], w2im[i, ..], w3re[i, ..], w3im[i, ..])
+                     w1re[i-1, ..], w1im[i-1, ..], w2re[i-1, ..], w2im[i-1, ..], w3re[i-1, ..], w3im[i-1, ..])
           else
             old cards * 4,
             old packs / 4,
             levelB_i(n, old cards, old packs, old xre_i, old xim_i,
-                     w1re[i, ..], w1im[i, ..], w2re[i, ..], w2im[i, ..], w3re[i, ..], w3im[i, ..])
+                     w1re[i-1, ..], w1im[i-1, ..], w2re[i-1, ..], w2im[i-1, ..], w3re[i-1, ..], w3im[i-1, ..])
           end if
       returns value of xre_i
               value of xim_i

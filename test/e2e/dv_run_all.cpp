@@ -5445,28 +5445,32 @@ static void
 test_feo_fft_dv (void)
 {
   printf ("\n=== Group: feo_fft_dv (Full Radix-4 FFT; vs direct DFT) ===\n");
-  // Reference: a direct DFT (fft_ref.h).  The old check here was `size == 4`
-  // at the single input n = 4 -- and n = 4 is among the few sizes that work, so
-  // the group was green on a program that is wrong for larger inputs.  The same
-  // blind spot once hid garbage values in feo_fft_parts3.
+  // Reference: a direct DFT (fft_ref.h).  This group previously asserted only
+  // `size == 4` at the single input n = 4 -- one of the few sizes that worked --
+  // so it was green on a program wrong for most inputs.  Applying the reference
+  // found and fixed TWO source bugs (see feo_fft_dv.sis):
   //
-  // The input is cos(2*pi*i/n), whose spectrum must be n/2 at k = 1 and
-  // k = n-1 and zero everywhere else.
+  //   1. the twiddle ROW INDEX was off by one.  W(n) declares extent
+  //      log2(n)/2 - 1 = iters-1 rows at lower bound 1 and the level loop runs
+  //      i = 2..iters, so level i wants row i-1.  `w1re[i, ..]` read one row
+  //      PAST the end: W(16) is dims [1,3] and it asked for row 2.
+  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length is
+  //      n/4-1 and grows per level, so W(64) needs rows of 3 and 15; the rank-2
+  //      gather silently truncated to dims [2,3].  W_n now pads to a uniform
+  //      width.
   //
-  // WHAT IS SOLID: n = 2 and n = 4 are exact (error ~1e-16) and reproduce
-  // across builds and runs.  Both give iters = log2(n)/2 = 1, so fft_4 runs
-  // level_1 alone and never enters the multi-level `for initial`.
+  // Together these take every size from grossly wrong to machine precision in a
+  // standalone driver (n = 2..256, worst 2e-11).
   //
-  // WHAT IS BROKEN: n >= 16 enters that level loop and disagrees with the DFT
-  // by O(n) -- the energy is scattered across bins and scaled wrong.  Worse, it
-  // is NOT DETERMINISTIC: the same binary returned max error 6.61313 on five
-  // runs and 7.44155 on a sixth, and n = 8 measured 1.28e-12 in one build and 4
-  // in another built from identical sources and flags.  Values that change with
-  // memory layout mean uninitialised or out-of-bounds reads, which matches this
-  // program's history (a gather-origin mismatch previously drove xre[0] to
-  // data[-1] and returned 3.5e+64).  n = 8 is therefore NOT asserted either way
-  // -- it is not reliably correct, and pinning an accidental value would be
-  // worse than leaving it open.
+  // A THIRD BUG REMAINS, and this test does NOT claim otherwise.  Linked into
+  // this harness rather than a standalone driver, n = 8, 64 and 128 lose a
+  // spectral peak entirely (error exactly n/2) while 2, 4, 16, 32 and 256 are
+  // exact -- and which sizes fail changes with the binary.  Results that move
+  // with heap layout mean another out-of-bounds read.  So only n = 2 and 4 are
+  // asserted on VALUES here: they were correct in every build and flag
+  // combination tried.  The rest are checked for shape and determinism only.
+  // Do not add value assertions for them until the third bug is found -- ASAN
+  // over the generated .cpp is the tool, and it needs a long window.
   bool small_ok = true;
   for (int n : { 2, 4 })
     {
@@ -5476,29 +5480,38 @@ test_feo_fft_dv (void)
                                             (int)r.res_0.size);
       if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
       if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data) free (r.res_1.data);
+      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("n = 2, 4 match a direct DFT exactly (single-level: iters = 1)",
-         small_ok);
+  check ("n = 2, 4 match a direct DFT exactly", small_ok);
 
-  // KNOWN BUG, asserted in its current broken state so the gap stays visible
-  // rather than hiding behind a size check.  When the multi-level path is
-  // fixed this check FAILS -- that is deliberate: promote the sizes into the
-  // check above and delete this one.
-  bool still_broken = true;
-  for (int n : { 16, 32 })
+  // Shape must hold at every size regardless of the value bug.
+  bool shape_ok = true;
+  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
     {
       FUNC_MAIN_results r = func_MAIN (n);
-      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
-                                            (const double *)r.res_1.data,
-                                            (int)r.res_0.size);
-      if (e >= 0.0 && e < 1e-9) still_broken = false;
+      if ((int)r.res_0.size != n || (int)r.res_1.size != n) shape_ok = false;
       if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data) free (r.res_1.data);
+      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("KNOWN BUG: n >= 16 (the multi-level fft_4 path) does NOT match the "
-         "DFT -- expected to FAIL once fixed",
-         still_broken);
+  check ("every size from 2 to 256 returns two arrays of exactly n elements",
+         shape_ok);
+
+  // Within one process the answer must at least be reproducible.
+  {
+    FUNC_MAIN_results a = func_MAIN (64);
+    FUNC_MAIN_results b = func_MAIN (64);
+    bool same = (a.res_0.size == b.res_0.size);
+    for (uint64_t k = 0; same && k < a.res_0.size; k++)
+      if (((const double *)a.res_0.data)[k] != ((const double *)b.res_0.data)[k]
+          || ((const double *)a.res_1.data)[k]
+                 != ((const double *)b.res_1.data)[k])
+        same = false;
+    check ("repeated calls in one process agree bit for bit", same);
+    if (a.res_0.data) free (a.res_0.data);
+    if (a.res_1.data && a.res_1.data != a.res_0.data) free (a.res_1.data);
+    if (b.res_0.data) free (b.res_0.data);
+    if (b.res_1.data && b.res_1.data != b.res_0.data) free (b.res_1.data);
+  }
 }
 #endif
 
@@ -5507,28 +5520,32 @@ static void
 test_feo_fft (void)
 {
   printf ("\n=== Group: feo_fft (Full Radix-4 standard; vs direct DFT) ===\n");
-  // Reference: a direct DFT (fft_ref.h).  The old check here was `size == 4`
-  // at the single input n = 4 -- and n = 4 is among the few sizes that work, so
-  // the group was green on a program that is wrong for larger inputs.  The same
-  // blind spot once hid garbage values in feo_fft_parts3.
+  // Reference: a direct DFT (fft_ref.h).  This group previously asserted only
+  // `size == 4` at the single input n = 4 -- one of the few sizes that worked --
+  // so it was green on a program wrong for most inputs.  Applying the reference
+  // found and fixed TWO source bugs (see feo_fft_dv.sis):
   //
-  // The input is cos(2*pi*i/n), whose spectrum must be n/2 at k = 1 and
-  // k = n-1 and zero everywhere else.
+  //   1. the twiddle ROW INDEX was off by one.  W(n) declares extent
+  //      log2(n)/2 - 1 = iters-1 rows at lower bound 1 and the level loop runs
+  //      i = 2..iters, so level i wants row i-1.  `w1re[i, ..]` read one row
+  //      PAST the end: W(16) is dims [1,3] and it asked for row 2.
+  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length is
+  //      n/4-1 and grows per level, so W(64) needs rows of 3 and 15; the rank-2
+  //      gather silently truncated to dims [2,3].  W_n now pads to a uniform
+  //      width.
   //
-  // WHAT IS SOLID: n = 2 and n = 4 are exact (error ~1e-16) and reproduce
-  // across builds and runs.  Both give iters = log2(n)/2 = 1, so fft_4 runs
-  // level_1 alone and never enters the multi-level `for initial`.
+  // Together these take every size from grossly wrong to machine precision in a
+  // standalone driver (n = 2..256, worst 2e-11).
   //
-  // WHAT IS BROKEN: n >= 16 enters that level loop and disagrees with the DFT
-  // by O(n) -- the energy is scattered across bins and scaled wrong.  Worse, it
-  // is NOT DETERMINISTIC: the same binary returned max error 6.61313 on five
-  // runs and 7.44155 on a sixth, and n = 8 measured 1.28e-12 in one build and 4
-  // in another built from identical sources and flags.  Values that change with
-  // memory layout mean uninitialised or out-of-bounds reads, which matches this
-  // program's history (a gather-origin mismatch previously drove xre[0] to
-  // data[-1] and returned 3.5e+64).  n = 8 is therefore NOT asserted either way
-  // -- it is not reliably correct, and pinning an accidental value would be
-  // worse than leaving it open.
+  // A THIRD BUG REMAINS, and this test does NOT claim otherwise.  Linked into
+  // this harness rather than a standalone driver, n = 8, 64 and 128 lose a
+  // spectral peak entirely (error exactly n/2) while 2, 4, 16, 32 and 256 are
+  // exact -- and which sizes fail changes with the binary.  Results that move
+  // with heap layout mean another out-of-bounds read.  So only n = 2 and 4 are
+  // asserted on VALUES here: they were correct in every build and flag
+  // combination tried.  The rest are checked for shape and determinism only.
+  // Do not add value assertions for them until the third bug is found -- ASAN
+  // over the generated .cpp is the tool, and it needs a long window.
   bool small_ok = true;
   for (int n : { 2, 4 })
     {
@@ -5538,29 +5555,38 @@ test_feo_fft (void)
                                             (int)r.res_0.size);
       if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
       if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data) free (r.res_1.data);
+      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("n = 2, 4 match a direct DFT exactly (single-level: iters = 1)",
-         small_ok);
+  check ("n = 2, 4 match a direct DFT exactly", small_ok);
 
-  // KNOWN BUG, asserted in its current broken state so the gap stays visible
-  // rather than hiding behind a size check.  When the multi-level path is
-  // fixed this check FAILS -- that is deliberate: promote the sizes into the
-  // check above and delete this one.
-  bool still_broken = true;
-  for (int n : { 16, 32 })
+  // Shape must hold at every size regardless of the value bug.
+  bool shape_ok = true;
+  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
     {
       FUNC_MAIN_results r = func_MAIN (n);
-      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
-                                            (const double *)r.res_1.data,
-                                            (int)r.res_0.size);
-      if (e >= 0.0 && e < 1e-9) still_broken = false;
+      if ((int)r.res_0.size != n || (int)r.res_1.size != n) shape_ok = false;
       if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data) free (r.res_1.data);
+      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("KNOWN BUG: n >= 16 (the multi-level fft_4 path) does NOT match the "
-         "DFT -- expected to FAIL once fixed",
-         still_broken);
+  check ("every size from 2 to 256 returns two arrays of exactly n elements",
+         shape_ok);
+
+  // Within one process the answer must at least be reproducible.
+  {
+    FUNC_MAIN_results a = func_MAIN (64);
+    FUNC_MAIN_results b = func_MAIN (64);
+    bool same = (a.res_0.size == b.res_0.size);
+    for (uint64_t k = 0; same && k < a.res_0.size; k++)
+      if (((const double *)a.res_0.data)[k] != ((const double *)b.res_0.data)[k]
+          || ((const double *)a.res_1.data)[k]
+                 != ((const double *)b.res_1.data)[k])
+        same = false;
+    check ("repeated calls in one process agree bit for bit", same);
+    if (a.res_0.data) free (a.res_0.data);
+    if (a.res_1.data && a.res_1.data != a.res_0.data) free (a.res_1.data);
+    if (b.res_0.data) free (b.res_0.data);
+    if (b.res_1.data && b.res_1.data != b.res_0.data) free (b.res_1.data);
+  }
 }
 #endif
 
