@@ -20,6 +20,7 @@
 #include "kin16_ref.h"
 #include "legpoly_ref.h"
 #include "hilbert_ref.h"
+#include "fft_ref.h"
 
 
 // ============================================================
@@ -5443,11 +5444,61 @@ test_feo_fft_parts4 (void)
 static void
 test_feo_fft_dv (void)
 {
-  printf ("\n=== Group: feo_fft_dv (Full Radix-4 FFT) ===\n");
-  FUNC_MAIN_results r = func_MAIN(4);
-  printf("DEBUG size: %llu %llu\n", (unsigned long long)r.res_0.size, (unsigned long long)r.res_1.size);
-  check ("res_0 size == 4", r.res_0.size == 4);
-  check ("res_1 size == 4", r.res_1.size == 4);
+  printf ("\n=== Group: feo_fft_dv (Full Radix-4 FFT; vs direct DFT) ===\n");
+  // Reference: a direct DFT (fft_ref.h).  The old check here was `size == 4`
+  // at the single input n = 4 -- and n = 4 is among the few sizes that work, so
+  // the group was green on a program that is wrong for larger inputs.  The same
+  // blind spot once hid garbage values in feo_fft_parts3.
+  //
+  // The input is cos(2*pi*i/n), whose spectrum must be n/2 at k = 1 and
+  // k = n-1 and zero everywhere else.
+  //
+  // WHAT IS SOLID: n = 2 and n = 4 are exact (error ~1e-16) and reproduce
+  // across builds and runs.  Both give iters = log2(n)/2 = 1, so fft_4 runs
+  // level_1 alone and never enters the multi-level `for initial`.
+  //
+  // WHAT IS BROKEN: n >= 16 enters that level loop and disagrees with the DFT
+  // by O(n) -- the energy is scattered across bins and scaled wrong.  Worse, it
+  // is NOT DETERMINISTIC: the same binary returned max error 6.61313 on five
+  // runs and 7.44155 on a sixth, and n = 8 measured 1.28e-12 in one build and 4
+  // in another built from identical sources and flags.  Values that change with
+  // memory layout mean uninitialised or out-of-bounds reads, which matches this
+  // program's history (a gather-origin mismatch previously drove xre[0] to
+  // data[-1] and returned 3.5e+64).  n = 8 is therefore NOT asserted either way
+  // -- it is not reliably correct, and pinning an accidental value would be
+  // worse than leaving it open.
+  bool small_ok = true;
+  for (int n : { 2, 4 })
+    {
+      FUNC_MAIN_results r = func_MAIN (n);
+      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
+                                            (const double *)r.res_1.data,
+                                            (int)r.res_0.size);
+      if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
+      if (r.res_0.data) free (r.res_0.data);
+      if (r.res_1.data) free (r.res_1.data);
+    }
+  check ("n = 2, 4 match a direct DFT exactly (single-level: iters = 1)",
+         small_ok);
+
+  // KNOWN BUG, asserted in its current broken state so the gap stays visible
+  // rather than hiding behind a size check.  When the multi-level path is
+  // fixed this check FAILS -- that is deliberate: promote the sizes into the
+  // check above and delete this one.
+  bool still_broken = true;
+  for (int n : { 16, 32 })
+    {
+      FUNC_MAIN_results r = func_MAIN (n);
+      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
+                                            (const double *)r.res_1.data,
+                                            (int)r.res_0.size);
+      if (e >= 0.0 && e < 1e-9) still_broken = false;
+      if (r.res_0.data) free (r.res_0.data);
+      if (r.res_1.data) free (r.res_1.data);
+    }
+  check ("KNOWN BUG: n >= 16 (the multi-level fft_4 path) does NOT match the "
+         "DFT -- expected to FAIL once fixed",
+         still_broken);
 }
 #endif
 
@@ -5455,10 +5506,61 @@ test_feo_fft_dv (void)
 static void
 test_feo_fft (void)
 {
-  printf ("\n=== Group: feo_fft (Full Radix-4 standard) ===\n");
-  FUNC_MAIN_results r = func_MAIN(4);
-  check ("res_0 size == 4", r.res_0.size == 4);
-  check ("res_1 size == 4", r.res_1.size == 4);
+  printf ("\n=== Group: feo_fft (Full Radix-4 standard; vs direct DFT) ===\n");
+  // Reference: a direct DFT (fft_ref.h).  The old check here was `size == 4`
+  // at the single input n = 4 -- and n = 4 is among the few sizes that work, so
+  // the group was green on a program that is wrong for larger inputs.  The same
+  // blind spot once hid garbage values in feo_fft_parts3.
+  //
+  // The input is cos(2*pi*i/n), whose spectrum must be n/2 at k = 1 and
+  // k = n-1 and zero everywhere else.
+  //
+  // WHAT IS SOLID: n = 2 and n = 4 are exact (error ~1e-16) and reproduce
+  // across builds and runs.  Both give iters = log2(n)/2 = 1, so fft_4 runs
+  // level_1 alone and never enters the multi-level `for initial`.
+  //
+  // WHAT IS BROKEN: n >= 16 enters that level loop and disagrees with the DFT
+  // by O(n) -- the energy is scattered across bins and scaled wrong.  Worse, it
+  // is NOT DETERMINISTIC: the same binary returned max error 6.61313 on five
+  // runs and 7.44155 on a sixth, and n = 8 measured 1.28e-12 in one build and 4
+  // in another built from identical sources and flags.  Values that change with
+  // memory layout mean uninitialised or out-of-bounds reads, which matches this
+  // program's history (a gather-origin mismatch previously drove xre[0] to
+  // data[-1] and returned 3.5e+64).  n = 8 is therefore NOT asserted either way
+  // -- it is not reliably correct, and pinning an accidental value would be
+  // worse than leaving it open.
+  bool small_ok = true;
+  for (int n : { 2, 4 })
+    {
+      FUNC_MAIN_results r = func_MAIN (n);
+      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
+                                            (const double *)r.res_1.data,
+                                            (int)r.res_0.size);
+      if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
+      if (r.res_0.data) free (r.res_0.data);
+      if (r.res_1.data) free (r.res_1.data);
+    }
+  check ("n = 2, 4 match a direct DFT exactly (single-level: iters = 1)",
+         small_ok);
+
+  // KNOWN BUG, asserted in its current broken state so the gap stays visible
+  // rather than hiding behind a size check.  When the multi-level path is
+  // fixed this check FAILS -- that is deliberate: promote the sizes into the
+  // check above and delete this one.
+  bool still_broken = true;
+  for (int n : { 16, 32 })
+    {
+      FUNC_MAIN_results r = func_MAIN (n);
+      const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
+                                            (const double *)r.res_1.data,
+                                            (int)r.res_0.size);
+      if (e >= 0.0 && e < 1e-9) still_broken = false;
+      if (r.res_0.data) free (r.res_0.data);
+      if (r.res_1.data) free (r.res_1.data);
+    }
+  check ("KNOWN BUG: n >= 16 (the multi-level fft_4 path) does NOT match the "
+         "DFT -- expected to FAIL once fixed",
+         still_broken);
 }
 #endif
 
