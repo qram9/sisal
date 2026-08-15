@@ -5287,6 +5287,11 @@ test_newton_raphson (void)
   // and libm's sqrtf (pinning the ANSWER, so a recurrence that converged to
   // the wrong thing would still be caught).
   //
+  // X = 0 IS EXCLUDED AS A BAD INPUT.  It seeds Root := X/2 = 0 and the body
+  // then computes X/Root = 0/0 = NaN; every comparison against NaN is false, so
+  // the `until` can never be satisfied and the loop spins forever.  An input
+  // that drives a 0/0 gets changed, not guarded around.
+  //
   // INPUTS ARE BOUNDED DELIBERATELY.  The stopping rule is on the ABSOLUTE
   // residual, and in float the residual cannot fall below about X * 1.2e-7 --
   // so for X * 1.2e-7 >= Eps the loop never terminates.  X = 1e4 with
@@ -5621,6 +5626,10 @@ test_kin16_dv (void)
   // compared, over several problem sizes.  (The reference agrees with those old
   // constants, so they were right -- but that is now a derived fact, not an
   // assumption.)
+  // NSEG >= 2 throughout, deliberately.  OUT divides SUM2M/SUM1M with
+  // SUM1M = (NSEG-1)*GZERO, so NSEG <= 1 makes that 0/0 and every statistic
+  // comes back NaN.  NSEG = 1 is meaningless anyway (no zone to average over);
+  // it is excluded as a bad input rather than guarded against.
   struct
   {
     int it, n, nseg;
@@ -5783,37 +5792,31 @@ test_hilbert_dv (void)
          "machine level",
          exact_ok);
 
-  // The -999 branch.  It is guarded by `rcond = 0.0d0`, and rcond is
-  // `if anorm = 0 then 0 else ynorm4/anorm` -- so it fires ONLY for the ZERO
-  // matrix, not for singular matrices generally.  Measured rather than assumed:
-  // a rank-1 matrix of ones divides by a zero pivot and comes back NaN, because
-  // this sgeco does not actually detect singularity, it only detects an
-  // all-zero norm.  Both behaviours are pinned so a future change to either is
-  // visible; the NaN is the algorithm's, not the compiler's.
+  // The -999 branch, reached via the ZERO matrix.  It is guarded by
+  // `rcond = 0.0d0`, and rcond is `if anorm = 0 then 0 else ynorm4/anorm`, so
+  // anorm = 0 is what actually trips it.
+  //
+  // A rank-1 matrix of ones was tested here too, because sgeco does not detect
+  // it: the factorization hits a zero pivot, forms the multiplier 0/0 and
+  // returns NaN, and `NaN = 0.0` is false so the guard never fires.  That input
+  // is REMOVED rather than pinned -- an input that drives a 0/0 is a bad input,
+  // not a behaviour worth asserting.  The zero matrix reaches the same branch
+  // without dividing by anything (measured: U diagonal all zero, rcond exactly
+  // 0, no NaN).
   {
     const int n = 4;
     std::vector<double> Z ((size_t)n * n, 0.0), b ((size_t)n, 1.0);
     sisal_array_t A = mk_mat (Z, n), B = mk_vec (b);
+    const double got = func_MAIN (A, B);
     check ("zero matrix (anorm = 0) takes the rcond = 0 branch and returns -999",
-           fabs (func_MAIN (A, B) - (-999.0)) < 1e-9);
-    free (A.data); free (B.data);
-
-    std::vector<double> S ((size_t)n * n, 1.0);
-    check ("the reference agrees a rank-1 matrix of ones is singular",
-           hilbref::ref_resid (n, S, b) < 0.0);
-    sisal_array_t A2 = mk_mat (S, n), B2 = mk_vec (b);
-    // NOTE: the suite compiles with -ffast-math, which implies
-    // -ffinite-math-only, so std::isnan() folds to a constant false and cannot
-    // be used here -- it passed at -O2 and failed in the suite.  Read the IEEE
-    // bit pattern instead, which no fast-math transform can rewrite.
-    const double got_sing = func_MAIN (A2, B2);
+           fabs (got - (-999.0)) < 1e-9);
+    // and nothing in that path produced a NaN
     uint64_t bits;
-    memcpy (&bits, &got_sing, sizeof bits);
-    const bool is_nan = ((bits >> 52) & 0x7ff) == 0x7ff && (bits & 0xfffffffffffffULL);
-    check ("...but this sgeco does not detect it -- rcond is NaN, so the guard "
-           "is false and the residual comes back NaN",
-           is_nan && got_sing != -999.0);
-    free (A2.data); free (B2.data);
+    memcpy (&bits, &got, sizeof bits);
+    const bool is_nan
+        = ((bits >> 52) & 0x7ff) == 0x7ff && (bits & 0xfffffffffffffULL);
+    check ("...with no NaN produced along the way", !is_nan);
+    free (A.data); free (B.data);
   }
 }
 #endif
