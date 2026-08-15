@@ -5626,19 +5626,28 @@ test_mr2_init (void)
 {
   printf ("\n=== Group: mr2_init (for-initial returns two array_dv carries) "
           "===\n");
-  const int n = 3, sz = n * n;
-  struct MR2_results r = func_MAIN (n);
-  bool ok = (r.res_0.rank == 2) && ((int)r.res_0.dims[0] == n)
-            && ((int)r.res_0.dims[1] == n) && (r.res_1.rank == 2)
-            && ((int)r.res_1.dims[0] == n) && ((int)r.res_1.dims[1] == n);
-  for (int t = 0; ok && t < sz; t++)
-    ok = ok && (ai (r.res_0, t) == 10) && (ai (r.res_1, t) == 20);
-  check ("mr2_init res_0 all 10 (H) AND res_1 all 20 (P) -- distinct returns",
+  // The 10s and 20s are constants in the .sis, so they ARE the specification;
+  // what this group exists to check is that the two return slots stay distinct
+  // and neither is cross-wired to the other.  Swept over n, since the carries
+  // are rank-2 built by a cross forall and a size-dependent mis-wire would
+  // otherwise hide at the single n = 3 it used to run.
+  bool ok = true;
+  for (int n : { 1, 2, 3, 5 })
+    {
+      struct MR2_results r = func_MAIN (n);
+      const int sz = n * n;
+      ok = ok && (r.res_0.rank == 2) && ((int)r.res_0.dims[0] == n)
+           && ((int)r.res_0.dims[1] == n) && ((int)r.res_0.size == sz)
+           && (r.res_1.rank == 2) && ((int)r.res_1.dims[0] == n)
+           && ((int)r.res_1.dims[1] == n) && ((int)r.res_1.size == sz);
+      for (int t = 0; ok && t < sz; t++)
+        ok = (ai (r.res_0, t) == 10) && (ai (r.res_1, t) == 20);
+      if (r.res_0.data) free (r.res_0.data);
+      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
+    }
+  check ("both rank-2 carries return distinctly (H all 10, P all 20) for "
+         "n = 1, 2, 3, 5",
          ok);
-  if (r.res_0.data)
-    free (r.res_0.data);
-  if (r.res_1.data)
-    free (r.res_1.data);
 }
 #endif
 #ifdef TEST_LOOP16_DV
