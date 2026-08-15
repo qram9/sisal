@@ -1,9 +1,6 @@
 === dv_run_all test harness ===
 
 === Group: tst_loop1_dv (scatter for K in Y -> K+K) ===
-  PASS  hydro rank-1
-  PASS  hydro[0]=2
-  PASS  hydro[1]=4
-  PASS  hydro[2]=6
+  PASS  result == K + K elementwise (negatives and zero included)
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

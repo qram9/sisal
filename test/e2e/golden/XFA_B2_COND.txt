@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: xfa_b2_cond (if inside forall cross body) ===
-  PASS  xfa_b2_cond(2,3) == [1,1,1,1,2,2] 2x3
+=== Group: xfa_b2_cond (if inside a forall cross body; vs min) ===
+  PASS  body == min(i,j) over 12 shapes, both branches of the if taken
 
 --- Summary: 1 passed, 0 failed ---

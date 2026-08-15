@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: sub_matmul (matmul via 2-D subscripts) ===
-  PASS  sub_matmul(2)=8
+=== Group: sub_matmul (matmul via 2-D subscripts; vs C) ===
+  PASS  C[1,1] == sum_k (1+k)*k for n = 1..6
 
 --- Summary: 1 passed, 0 failed ---

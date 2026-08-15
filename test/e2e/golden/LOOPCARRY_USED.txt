@@ -1,9 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: loopcarry_used (double array carry, x2/iter) ===
-  PASS  lcu rank-1
-  PASS  lcu[0]=8
-  PASS  lcu[1]=16
-  PASS  lcu[2]=24
+=== Group: loopcarry_used (array carry doubled per iteration) ===
+  PASS  carry == a * 2^n for n = 1..5, with n == array_size(A)
+  PASS  n = 0 is the zero trip and returns the seed unchanged
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---

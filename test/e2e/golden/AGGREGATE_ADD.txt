@@ -1,9 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: aggregate_add (real vector add) ===
-  PASS  vadd rank-1
-  PASS  vadd[0]=11
-  PASS  vadd[1]=22
-  PASS  vadd[2]=33
+=== Group: aggregate_add (real vector add; vs a + b) ===
+  PASS  vadd == a[i] + b[i] over 9 elements incl. negatives
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

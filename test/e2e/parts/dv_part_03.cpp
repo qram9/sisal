@@ -85,16 +85,21 @@ test_let_seq_bind (void)
 static void
 test_xfa_b2_cond (void)
 {
-  printf ("\n=== Group: xfa_b2_cond (if inside forall cross body) ===\n");
-  sisal_array_t r = func_MAIN (2, 3);
-  // i=1: min(1,1..3)=[1,1,1]; i=2: min(2,1..3)=[1,2,2]
-  int32_t exp[] = { 1, 1, 1, 1, 2, 2 };
-  bool ok = (r.rank == 2) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 3);
-  for (int k = 0; ok && k < 6; k++)
-    ok = ok && (ai (r, k) == exp[k]);
-  check ("xfa_b2_cond(2,3) == [1,1,1,1,2,2] 2x3", ok);
-  if (r.data)
-    free (r.data);
+  printf ("\n=== Group: xfa_b2_cond (if inside a forall cross body; vs min) ===\n");
+  // the body is min(i, j) over i in 1..R cross j in 1..C; the expected 2x3
+  // table used to be written out
+  bool ok = true;
+  for (int R : { 1, 2, 4 })
+    for (int C = 1; C <= 4; C++)
+      {
+        sisal_array_t r = func_MAIN (R, C);
+        ok = ok && (r.rank == 2) && ((int)r.dims[0] == R) && ((int)r.dims[1] == C);
+        for (int i = 1; ok && i <= R; i++)
+          for (int j = 1; ok && j <= C; j++)
+            ok = (ai (r, (i - 1) * C + (j - 1)) == std::min (i, j));
+        if (r.data) free (r.data);
+      }
+  check ("body == min(i,j) over 12 shapes, both branches of the if taken", ok);
 }
 #endif
 
@@ -102,22 +107,15 @@ test_xfa_b2_cond (void)
 static void
 test_aggregate_add (void)
 {
-  printf ("\n=== Group: aggregate_add (real vector add) ===\n");
-  float a[] = { 1.0f, 2.0f, 3.0f };
-  float b[] = { 10.0f, 20.0f, 30.0f };
-  sisal_array_t A = make_float_arr (a, 3);
-  sisal_array_t B = make_float_arr (b, 3);
+  printf ("\n=== Group: aggregate_add (real vector add; vs a + b) ===\n");
+  std::vector<float> a, b;
+  for (int i = 0; i < 9; i++) { a.push_back (1.5f * i - 4.0f); b.push_back (10.0f - 2.5f * i); }
+  sisal_array_t A = ewref::mkf (a), B = ewref::mkf (b);
   sisal_array_t r = func_VECTORADD_CPU (A, B);
-  check ("vadd rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("vadd[0]=11", near_f (af (r, 0), 11.0f));
-  check ("vadd[1]=22", near_f (af (r, 1), 22.0f));
-  check ("vadd[2]=33", near_f (af (r, 2), 33.0f));
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
-  if (r.data)
-    free (r.data);
+  check ("vadd == a[i] + b[i] over 9 elements incl. negatives",
+         r.rank == 1 && ewref::binary_f (r, a, b, [] (float u, float v) { return u + v; }));
+  free (A.data); free (B.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -155,18 +153,44 @@ test_multidecl (void)
 static void
 test_loopcarry_used (void)
 {
-  printf ("\n=== Group: loopcarry_used (double array carry, x2/iter) ===\n");
-  double a[] = { 1.0, 2.0, 3.0 };
-  sisal_array_t A = make_double_arr (a, 3);
-  sisal_array_t r = func_MAIN (3, A); // x2 three times = x8
-  check ("lcu rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("lcu[0]=8", ad (r, 0) == 8.0);
-  check ("lcu[1]=16", ad (r, 1) == 16.0);
-  check ("lcu[2]=24", ad (r, 2) == 24.0);
-  if (A.data)
+  printf ("\n=== Group: loopcarry_used (array carry doubled per iteration) ===\n");
+  // The body is `A := for i in 1, n returns array_dv of old A[i] * 2.0`, so the
+  // inner forall is sized by N, NOT by array_size(A).  The program is therefore
+  // only well defined when n == array_size(Ain):
+  //     n < size   silently SHRINKS the carry (n = 1 on a 3-element input
+  //                returns a single element)
+  //     n > size   reads past the end -- measured [16,32,48,0] for n = 4 on a
+  //                3-element input, the 0 coming from off the end
+  // n > size is excluded as a bad input rather than pinned.  Where n == size
+  // the carry is a * 2^n, which is what is checked, and n = 0 is the zero trip
+  // that returns the seed untouched.
+  bool ok = true;
+  for (int n = 1; n <= 5; n++)
+    {
+      std::vector<double> a;
+      for (int k = 0; k < n; k++) a.push_back (1.0 + 0.5 * k);
+      double scale = 1.0;
+      for (int t = 0; t < n; t++) scale *= 2.0;
+      sisal_array_t A = ewref::mkd (a);
+      sisal_array_t r = func_MAIN (n, A);
+      ok = ok && (r.rank == 1) && ((int)r.size == n);
+      for (int k = 0; ok && k < n; k++) ok = near_d (ad (r, k), a[k] * scale);
+      free (A.data);
+      if (r.data && r.data != A.data) free (r.data);
+    }
+  check ("carry == a * 2^n for n = 1..5, with n == array_size(A)", ok);
+
+  // zero trip: the seed is body_0, so `value of A` is Ain untouched
+  {
+    const std::vector<double> a = { 1.0, -2.0, 3.5 };
+    sisal_array_t A = ewref::mkd (a);
+    sisal_array_t r = func_MAIN (0, A);
+    bool z = ((size_t)r.size == a.size ());
+    for (size_t k = 0; z && k < a.size (); k++) z = near_d (ad (r, (int)k), a[k]);
+    check ("n = 0 is the zero trip and returns the seed unchanged", z);
     free (A.data);
-  if (r.data)
-    free (r.data);
+    if (r.data && r.data != A.data) free (r.data);
+  }
 }
 #endif
 
@@ -176,19 +200,22 @@ static void
 test_loopcarry_identity (void)
 {
   printf ("\n=== Group: loopcarry_identity (parallel multi-carry -> B) ===\n");
-  double a[] = { 1.0, 2.0, 3.0 }, b[] = { 10.0, 20.0, 30.0 };
-  sisal_array_t A = make_double_arr (a, 3), B = make_double_arr (b, 3);
-  sisal_array_t r = func_MAIN (3, A, B);
-  check ("lci rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("lci[0]=10", ad (r, 0) == 10.0);
-  check ("lci[1]=20", ad (r, 1) == 20.0);
-  check ("lci[2]=30", ad (r, 2) == 30.0);
-  // Identity carry returns B unchanged, so r.data aliases B.data (no copy):
-  // free A and B only — freeing r too would double-free.
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
+  // the identity carry returns B unchanged; compared against B itself rather
+  // than a copy of B's literal values
+  const std::vector<double> a = { 1.0, 2.0, 3.0 }, b = { 10.0, -20.0, 30.5 };
+  bool ok = true;
+  for (int n : { 0, 1, 4 })
+    {
+      sisal_array_t A = ewref::mkd (a), B = ewref::mkd (b);
+      sisal_array_t r = func_MAIN (n, A, B);
+      ok = ok && (r.rank == 1) && ((size_t)r.size == b.size ());
+      for (size_t k = 0; ok && k < b.size (); k++) ok = near_d (ad (r, (int)k), b[k]);
+      // the result ALIASES B (no copy is made), so free B only via the alias
+      free (A.data);
+      if (r.data && r.data != B.data) { free (r.data); free (B.data); }
+      else free (B.data);
+    }
+  check ("identity carry returns B unchanged, for n = 0, 1, 4", ok);
 }
 #endif
 
@@ -196,9 +223,17 @@ test_loopcarry_identity (void)
 static void
 test_sub_matmul (void)
 {
-  printf ("\n=== Group: sub_matmul (matmul via 2-D subscripts) ===\n");
-  // A[i,k]=i+k, B[k,j]=k*j; C[1,1] = 2*1 + 3*2 = 8
-  check ("sub_matmul(2)=8", func_MAIN (2) == 8);
+  printf ("\n=== Group: sub_matmul (matmul via 2-D subscripts; vs C) ===\n");
+  // A[i,k] = i+k, B[k,j] = k*j, and the program returns C[1,1];
+  // the reference contracts the same way rather than asserting the n = 2 value
+  bool ok = true;
+  for (int n = 1; n <= 6; n++)
+    {
+      int32_t want = 0;
+      for (int k = 1; k <= n; k++) want += (1 + k) * (k * 1);
+      ok = ok && (func_MAIN (n) == want);
+    }
+  check ("C[1,1] == sum_k (1+k)*k for n = 1..6", ok);
 }
 #endif
 
@@ -238,20 +273,14 @@ static void
 test_tst_loop1_dv (void)
 {
   printf ("\n=== Group: tst_loop1_dv (scatter for K in Y -> K+K) ===\n");
-  double y[] = { 1.0, 2.0, 3.0 };
-  sisal_array_t Y = make_double_arr (y, 3);
-  sisal_array_t Z = make_double_arr (y, 3);
-  sisal_array_t r = func_MAIN (3, 0.0, 0.0, 0.0, Y, Z);
-  check ("hydro rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("hydro[0]=2", ad (r, 0) == 2.0);
-  check ("hydro[1]=4", ad (r, 1) == 4.0);
-  check ("hydro[2]=6", ad (r, 2) == 6.0);
-  if (Y.data)
-    free (Y.data);
-  if (Z.data)
-    free (Z.data);
-  if (r.data)
-    free (r.data);
+  const std::vector<double> y = { 1.0, -2.5, 3.0, 0.0, 7.25 };
+  sisal_array_t Y = ewref::mkd (y), Z = ewref::mkd (y);
+  sisal_array_t r = func_MAIN ((int)y.size (), 0.0, 0.0, 0.0, Y, Z);
+  bool ok = (r.rank == 1) && ((size_t)r.size == y.size ());
+  for (size_t k = 0; ok && k < y.size (); k++) ok = near_d (ad (r, (int)k), y[k] + y[k]);
+  check ("result == K + K elementwise (negatives and zero included)", ok);
+  free (Y.data); free (Z.data);
+  if (r.data) free (r.data);
 }
 #endif
 
