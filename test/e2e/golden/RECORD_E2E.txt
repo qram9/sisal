@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: record_e2e (flat record construct and replace) ===
+  PASS  val_x == 84
+  PASS  val_y == 3.0
+
+--- Summary: 2 passed, 0 failed ---

@@ -1,0 +1,57 @@
+=== dv_run_all test harness ===
+
+=== Group: firsttrue_dv (non-counted guard, zero-trip value of) ===
+  PASS  n=1  pos=1  first set flag is 1  (zero-trip: the seed)
+  PASS  n=1  pos=1  bounds are 1..1
+  PASS  n=2  pos=1  first set flag is 1  (zero-trip: the seed)
+  PASS  n=2  pos=1  bounds are 1..2
+  PASS  n=2  pos=2  first set flag is 2
+  PASS  n=2  pos=2  bounds are 1..2
+  PASS  n=6  pos=1  first set flag is 1  (zero-trip: the seed)
+  PASS  n=6  pos=1  bounds are 1..6
+  PASS  n=6  pos=2  first set flag is 2
+  PASS  n=6  pos=2  bounds are 1..6
+  PASS  n=6  pos=3  first set flag is 3
+  PASS  n=6  pos=3  bounds are 1..6
+  PASS  n=6  pos=4  first set flag is 4
+  PASS  n=6  pos=4  bounds are 1..6
+  PASS  n=6  pos=5  first set flag is 5
+  PASS  n=6  pos=5  bounds are 1..6
+  PASS  n=6  pos=6  first set flag is 6
+  PASS  n=6  pos=6  bounds are 1..6
+  PASS  n=17 pos=1  first set flag is 1  (zero-trip: the seed)
+  PASS  n=17 pos=1  bounds are 1..17
+  PASS  n=17 pos=2  first set flag is 2
+  PASS  n=17 pos=2  bounds are 1..17
+  PASS  n=17 pos=3  first set flag is 3
+  PASS  n=17 pos=3  bounds are 1..17
+  PASS  n=17 pos=4  first set flag is 4
+  PASS  n=17 pos=4  bounds are 1..17
+  PASS  n=17 pos=5  first set flag is 5
+  PASS  n=17 pos=5  bounds are 1..17
+  PASS  n=17 pos=6  first set flag is 6
+  PASS  n=17 pos=6  bounds are 1..17
+  PASS  n=17 pos=7  first set flag is 7
+  PASS  n=17 pos=7  bounds are 1..17
+  PASS  n=17 pos=8  first set flag is 8
+  PASS  n=17 pos=8  bounds are 1..17
+  PASS  n=17 pos=9  first set flag is 9
+  PASS  n=17 pos=9  bounds are 1..17
+  PASS  n=17 pos=10 first set flag is 10
+  PASS  n=17 pos=10 bounds are 1..17
+  PASS  n=17 pos=11 first set flag is 11
+  PASS  n=17 pos=11 bounds are 1..17
+  PASS  n=17 pos=12 first set flag is 12
+  PASS  n=17 pos=12 bounds are 1..17
+  PASS  n=17 pos=13 first set flag is 13
+  PASS  n=17 pos=13 bounds are 1..17
+  PASS  n=17 pos=14 first set flag is 14
+  PASS  n=17 pos=14 bounds are 1..17
+  PASS  n=17 pos=15 first set flag is 15
+  PASS  n=17 pos=15 bounds are 1..17
+  PASS  n=17 pos=16 first set flag is 16
+  PASS  n=17 pos=16 bounds are 1..17
+  PASS  n=17 pos=17 first set flag is 17
+  PASS  n=17 pos=17 bounds are 1..17
+
+--- Summary: 52 passed, 0 failed ---

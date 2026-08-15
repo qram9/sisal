@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop5_dv (tridiagonal for-initial gather, vs C reference) ===
+  PASS  loop5_dv gather [X1..Xn] incl. the seed matches C reference
+
+--- Summary: 1 passed, 0 failed ---

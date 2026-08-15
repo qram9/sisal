@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_gpu (negate gather Main_GPU; vs C reference) ===
+  PASS  rank 1, size n
+  PASS  -X elements match C reference
+
+--- Summary: 2 passed, 0 failed ---

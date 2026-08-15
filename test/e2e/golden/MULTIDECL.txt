@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: multidecl (mixed multi-result, reordered) ===
+  PASS  multidecl res_0 ~ 3.14159
+  PASS  multidecl res_1 = 10
+
+--- Summary: 2 passed, 0 failed ---

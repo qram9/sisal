@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop20_dv (for-initial recurrence + gather, vs C reference) ===
+  PASS  loop20_dv X gather (seed + i=2..n) matches C reference
+  PASS  loop20_dv XX (keep-last recurrence) matches C reference
+
+--- Summary: 2 passed, 0 failed ---

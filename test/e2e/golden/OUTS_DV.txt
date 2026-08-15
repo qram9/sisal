@@ -1,0 +1,23 @@
+=== dv_run_all test harness ===
+
+=== Group: outs_dv (quicksort; 4-deep nesting, 3-output masked gather) ===
+  PASS  sorts fully        result is a permutation of the input
+  PASS  sorts fully        exact expected array
+  PASS  sorts fully        sortedness is yes
+  PASS  already ordered    result is a permutation of the input
+  PASS  already ordered    exact expected array
+  PASS  already ordered    sortedness is yes
+  PASS  base case size<=2 leaves [2,1] unsorted result is a permutation of the input
+  PASS  base case size<=2 leaves [2,1] unsorted exact expected array
+  PASS  base case size<=2 leaves [2,1] unsorted sortedness is no (base case)
+  PASS  size 2 -> returned unchanged result is a permutation of the input
+  PASS  size 2 -> returned unchanged exact expected array
+  PASS  size 2 -> returned unchanged sortedness is no (base case)
+  PASS  singleton          result is a permutation of the input
+  PASS  singleton          exact expected array
+  PASS  singleton          sortedness is yes
+  PASS  equal-key bucket keeps all three 4s result is a permutation of the input
+  PASS  equal-key bucket keeps all three 4s exact expected array
+  PASS  equal-key bucket keeps all three 4s sortedness is yes
+
+--- Summary: 18 passed, 0 failed ---

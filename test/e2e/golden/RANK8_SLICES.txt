@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+  PASS  res_0 (A[1, .., 2, .., 1, .., 2, ..]) matches NumPy
+  PASS  res_1 (A[.., 2, 1, 2, 1, 2, 1, ..]) matches NumPy
+  PASS  res_2 (A[1,1,1,1,1,1,1,1]) scalar matches
+  PASS  res_3 (A[.., .., .., .., .., .., .., ..]) matches NumPy
+  PASS  res_4 (A[1, 2, 1, 2, .., .., .., ..]) matches NumPy
+  PASS  res_5 (A[.., .., .., .., 1, 2, 1, 2]) matches NumPy
+
+--- Summary: 6 passed, 0 failed ---

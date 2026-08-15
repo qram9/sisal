@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: tagcase_ii_dv (tagcase over union w/ array payload) ===
+  PASS  I=1
+  PASS  I=2
+  PASS  I=3
+  PASS  I=4
+
+--- Summary: 4 passed, 0 failed ---

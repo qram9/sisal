@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: cpxconv_dv (array_dv of flat record; complex pack/unpack) ===
+  PASS  Complexing reals->records
+  PASS  Decomplexing records->reals
+
+--- Summary: 2 passed, 0 failed ---

@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_reduce_dv (reductions in a for-initial) ===
+  PASS  gather history is the seed + each update (11 values)
+  PASS  sum == sum(gather over the same loop)
+  PASS  sum      == 66
+  PASS  product  == 11!
+  PASS  greatest == 11
+  PASS  least    == 1
+  PASS  sum of a BODY-computed value == 2
+
+--- Summary: 7 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: gaussj_perm_dv (Gauss-Jordan, permutation-free pivoting, float; vs C reference) ===
+  PASS  4x4 solve matches C reference (1e-4)
+
+--- Summary: 1 passed, 0 failed ---

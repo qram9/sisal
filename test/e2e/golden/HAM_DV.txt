@@ -1,0 +1,27 @@
+=== dv_run_all test harness ===
+
+=== Group: ham_dv (5-smooth numbers via stream merge) ===
+  PASS  J=1  yields 2 values
+  PASS  J=1  values are the 5-smooth numbers in order
+  PASS  J=1  every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=2  yields 3 values
+  PASS  J=2  values are the 5-smooth numbers in order
+  PASS  J=2  every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=3  yields 4 values
+  PASS  J=3  values are the 5-smooth numbers in order
+  PASS  J=3  every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=5  yields 6 values
+  PASS  J=5  values are the 5-smooth numbers in order
+  PASS  J=5  every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=8  yields 8 values
+  PASS  J=8  values are the 5-smooth numbers in order
+  PASS  J=8  every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=12 yields 11 values
+  PASS  J=12 values are the 5-smooth numbers in order
+  PASS  J=12 every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=20 yields 15 values
+  PASS  J=20 values are the 5-smooth numbers in order
+  PASS  J=20 every value is 5-smooth and strictly ascending (no duplicate survives the merge)
+  PASS  J=8 skips 7 (the first non-5-smooth integer)
+
+--- Summary: 22 passed, 0 failed ---

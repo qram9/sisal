@@ -1,0 +1,51 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_bnd_dv (part 3/7: ghost cells, wrap vs clamp) ===
+  PASS  nx=4 ny=4 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=4 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=4 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=4 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=6 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=6 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=6 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=6 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=9 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=9 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=9 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=4 ny=9 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=4 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=4 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=4 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=4 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=6 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=6 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=6 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=6 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=9 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=9 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=9 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=5 ny=9 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=4 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=4 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=4 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=4 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=6 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=6 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=6 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=6 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=9 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=9 xper=0 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=9 xper=1 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=7 ny=9 xper=1 yper=1  every ghost cell is the cell the rule names
+  PASS  nx=1 ny=1 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=1 ny=2 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=1 ny=3 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=2 ny=1 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=2 ny=2 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=2 ny=3 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=3 ny=1 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=3 ny=2 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  nx=3 ny=3 xper=0 yper=0  every ghost cell is the cell the rule names
+  PASS  45 combinations (periodic at/above ncx, clamp down to 1x1)
+
+--- Summary: 46 passed, 0 failed ---

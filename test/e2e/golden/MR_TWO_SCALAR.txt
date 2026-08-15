@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: mr_two_scalar (multi-result destructure) ===
+  PASS  mr(10,3)=20
+  PASS  mr(4,9)=8
+  PASS  mr(0,0)=0
+
+--- Summary: 3 passed, 0 failed ---

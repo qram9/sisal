@@ -28,6 +28,7 @@
 #include "legpoly_ref.h"
 #include "hilbert_ref.h"
 #include "fft_ref.h"
+#include "elementwise_ref.h"
 
 // ============================================================
 // Pass/fail accounting

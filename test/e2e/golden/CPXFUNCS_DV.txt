@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: cpxfuncs_dv (complex records BY VALUE across calls; vs C reference) ===
+  PASS  Cadd/Csub/Cmul/Cdiv/Conjg/Cneg/Cabs/CabsSqr match C reference
+
+--- Summary: 1 passed, 0 failed ---

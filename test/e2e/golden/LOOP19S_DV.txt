@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop19s_dv (general linear recurrence, vs C reference) ===
+  PASS  loop19s_dv general linear recurrence matches C reference
+
+--- Summary: 1 passed, 0 failed ---

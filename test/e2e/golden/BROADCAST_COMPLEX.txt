@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group G: dv_broadcast_complex (vs numpy broadcast rules) ===
+  PASS  vec+mat: out[i,j] == V[j] + M[i,j], shape [2,3]
+  PASS  unit axes: out[i,j] == A[i] + B[j], shape [2,3]
+  PASS  scalar+mat: out == M + 100 elementwise, shape preserved
+
+--- Summary: 3 passed, 0 failed ---

@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: tst_loopat_dv (multi-index `at` on a rank-3 array_dv) ===
+  PASS  n=2  result is rank 3, 2x2x2 (one extent per rank)
+  PASS  n=2  every element == Y[I,J,K] * Y[J,I,K]
+  PASS  n=3  result is rank 3, 3x3x3 (one extent per rank)
+  PASS  n=3  every element == Y[I,J,K] * Y[J,I,K]
+  PASS  n=4  result is rank 3, 4x4x4 (one extent per rank)
+  PASS  n=4  every element == Y[I,J,K] * Y[J,I,K]
+
+--- Summary: 6 passed, 0 failed ---

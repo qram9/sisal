@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: genarcs_dv (cross carrying gather + catenate) ===
+  PASS  updated Grid stays rank-2 (N, Q+1)
+  PASS  Grid (fired / leaf / Max.Val) == mirror
+  PASS  catenated Arcs length is the surviving count
+  PASS  Arcs content and cross order == mirror
+  PASS  the mask actually bites (some segment marked leaf)
+
+--- Summary: 5 passed, 0 failed ---

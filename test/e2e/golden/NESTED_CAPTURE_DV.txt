@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: nested_capture_dv (nested-fn outer-scope capture) ===
+  PASS  nested_capture n=3
+  PASS  nested_capture n=5
+  PASS  nested_capture n=0
+  PASS  nested_capture n=-4
+  PASS  nested_capture n=10
+  PASS  nested_capture n=100
+
+--- Summary: 6 passed, 0 failed ---

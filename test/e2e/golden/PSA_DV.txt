@@ -1,0 +1,19 @@
+=== dv_run_all test harness ===
+
+=== Group: psa_dv (whole program: annealing a timetable) ===
+  PASS  7 over 3: Init_Periods deals [3 2 2] -- `||` joins the two groups
+  PASS  periods start at lessons 1, 4, 6
+  PASS  that partition is already clash-free (cost 0)
+  PASS  one round proposes 3 moves and accepts 1
+  PASS  leaving sizes [4 1 2]
+  PASS  30 over 3: even partition [10 10 10]
+  PASS  periods start at lessons 1, 11, 21
+  PASS  initial cost 36
+  PASS  one round proposes 3 moves and accepts none
+  PASS  so the sizes are unchanged
+  PASS  it terminates and records at least one temperature
+  PASS  every lesson is still scheduled exactly once
+  PASS  no period overflows the capacity
+  PASS  the energy never goes negative
+
+--- Summary: 14 passed, 0 failed ---

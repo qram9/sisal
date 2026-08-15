@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: complex_features_e2e (combined conditional, tagcase, for-initial, and for-all) ===
+  PASS  sel=1 (for initial sum of 1..4) == 10.0
+  PASS  sel=2 (scalar payload * 2) == 6.28
+  PASS  sel=3 (for all array sum) == 12.56
+
+--- Summary: 3 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: zero_arrays (array literals per element type; vs C reference) ===
+  PASS  real/double/int literal arrays match C reference
+
+--- Summary: 1 passed, 0 failed ---

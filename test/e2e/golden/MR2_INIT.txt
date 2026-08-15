@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: mr2_init (for-initial returns two array_dv carries) ===
+  PASS  mr2_init res_0 all 10 (H) AND res_1 all 20 (P) -- distinct returns
+
+--- Summary: 1 passed, 0 failed ---

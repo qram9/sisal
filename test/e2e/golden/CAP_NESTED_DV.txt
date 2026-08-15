@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: cap_nested_dv (free-var capture, nested lets 3 deep) ===
+  PASS  cap_nested_dv a+b+c (a 3 levels deep) == 22
+
+--- Summary: 1 passed, 0 failed ---

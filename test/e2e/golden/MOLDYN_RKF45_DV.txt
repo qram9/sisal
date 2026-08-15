@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_rkf45_dv (recursive adaptive step) ===
+  PASS  inside tolerance: accepted step H == 0.01
+  PASS  inside tolerance: evolved state == mirror
+  PASS  inside tolerance: error estimate ~= mirror (cancellation-limited)
+  PASS  one retry: accepted step H == 0.005
+  PASS  one retry: evolved state == mirror
+  PASS  one retry: error estimate ~= mirror (cancellation-limited)
+  PASS  the retry branch was actually taken (mirror depth >= 1)
+  PASS  halving the step lowers the error estimate
+
+--- Summary: 8 passed, 0 failed ---

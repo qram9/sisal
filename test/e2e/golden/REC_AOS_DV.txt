@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: rec_aos_dv (array_dv of record-holding-array) ===
+  PASS  sum over build+addh of (r.w + r.v[2]) == 143
+
+--- Summary: 1 passed, 0 failed ---

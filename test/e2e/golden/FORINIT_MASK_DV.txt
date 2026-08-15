@@ -1,0 +1,16 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_mask_dv (when/unless on a sequential loop) ===
+  PASS  forall masked gather == [3,4,5] (was already right)
+  PASS  for-initial masked gather == [3,4,5]
+  PASS  forall masked reduce == 12 (was already right)
+  PASS  for-initial masked reduce == 12
+  PASS  zero-trip, mask TRUE at the seed == [10]
+  PASS  zero-trip, mask FALSE at the seed == [] (seed excluded)
+  PASS  unmasked control still the whole history == [1,2,3,4,5]
+  PASS  for-initial `unless` gather == [1,2]
+  PASS  for-initial `unless` reduction == 3
+  PASS  `when ~p` agrees with `unless p` (gather)
+  PASS  `when ~p` agrees with `unless p` (reduction)
+
+--- Summary: 11 passed, 0 failed ---

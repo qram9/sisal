@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: area (real Riemann sum) ===
+  PASS  area(1,2,100000) ~ 3.3333
+  PASS  area(0,1,10000)  ~ 1.3333
+
+--- Summary: 2 passed, 0 failed ---

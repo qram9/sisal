@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: interproc_provided_e2e (DPS provided-variant recurrence) ===
+  PASS  N=4 Steps=3 recurrence
+  PASS  N=1 Steps=5 (single element)
+  PASS  N=6 Steps=0 (seed only, INIT provided path)
+  PASS  N=5 Steps=4 (compounded)
+
+--- Summary: 4 passed, 0 failed ---

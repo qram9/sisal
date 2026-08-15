@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_solve_dv (pack, solve, nested-replace unpack) ===
+  PASS  TOUT advanced by exactly DELTA_T
+  PASS  CURRENT_STEP is the step RKF45 accepted
+  PASS  all six coordinate arrays unpacked from the flat state == mirror
+  PASS  ENSEMBLE_SIZE survived the nested replace untouched
+  PASS  TYPES survived the nested replace untouched
+  PASS  the isolated particle moved by velocity alone
+
+--- Summary: 6 passed, 0 failed ---

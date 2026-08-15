@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: 8queens_dv (rank-2 solution slab, COMPRESS + catenate; vs C reference) ===
+  PASS  n=4: 2 solutions match C reference
+  PASS  n=5: 10 solutions match C reference
+  PASS  n=6: 4 solutions match C reference
+  PASS  n=7: 40 solutions match C reference
+  PASS  n=8: 92 solutions match C reference
+
+--- Summary: 5 passed, 0 failed ---

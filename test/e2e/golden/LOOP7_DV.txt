@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop7_dv (equation of state, vs C reference) ===
+  PASS  loop7_dv eos matches C reference (n=6)
+
+--- Summary: 1 passed, 0 failed ---

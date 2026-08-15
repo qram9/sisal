@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop9_dv (integrate predictors, vs C reference) ===
+  PASS  loop9_dv integrate-predictors matches C reference (n=4)
+
+--- Summary: 1 passed, 0 failed ---

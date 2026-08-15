@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop22_dv (Planckian, vs C reference) ===
+  PASS  loop22_dv W (Planckian) matches C reference
+  PASS  loop22_dv Y (clamped ratio) matches C reference
+
+--- Summary: 2 passed, 0 failed ---

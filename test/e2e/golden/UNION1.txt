@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: union1 (until-loop Newton sqrt + is-tests) ===
+  PASS  newton-until sqrt(2) == mirrored float iteration
+
+--- Summary: 1 passed, 0 failed ---

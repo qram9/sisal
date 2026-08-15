@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: if_one (if/else -> min) ===
+  PASS  if_one(3,7)=3
+  PASS  if_one(7,3)=3
+  PASS  if_one(5,5)=5
+
+--- Summary: 3 passed, 0 failed ---

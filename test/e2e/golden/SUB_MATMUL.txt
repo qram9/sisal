@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_matmul (matmul via 2-D subscripts) ===
+  PASS  sub_matmul(2)=8
+
+--- Summary: 1 passed, 0 failed ---

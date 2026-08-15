@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_cells_dv (edge classification + volumes) ===
+  PASS  grid is still nzones x 5
+  PASS  itype / sqm / bom match the mirror at every slot
+  PASS  zone volumes match, with the shared faces excluded
+  PASS  no zone came out with zero volume
+
+--- Summary: 4 passed, 0 failed ---

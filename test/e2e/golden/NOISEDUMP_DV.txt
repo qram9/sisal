@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: noisedump_dv (stream[character] output) ===
+  PASS  2x3 picture is 8 chars (6 cells + 2 newlines)
+  PASS  2x3 characters match 1->'*' 0->' ' with newlines at row ends
+  PASS  1x4 picture is 5 chars (4 cells + 1 newlines)
+  PASS  1x4 characters match 1->'*' 0->' ' with newlines at row ends
+  PASS  3x1 picture is 6 chars (3 cells + 3 newlines)
+  PASS  3x1 characters match 1->'*' 0->' ' with newlines at row ends
+  PASS  2x2 picture is 6 chars (4 cells + 2 newlines)
+  PASS  2x2 characters match 1->'*' 0->' ' with newlines at row ends
+
+--- Summary: 8 passed, 0 failed ---

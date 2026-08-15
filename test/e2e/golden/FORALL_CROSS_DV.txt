@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_cross_dv (element-scatter cross, rank-2) ===
+  PASS  outer product [1,2,3] x [10,20] rank-2
+
+--- Summary: 1 passed, 0 failed ---

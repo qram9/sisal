@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: xfa_b4_reduce (cross-forall sum; vs C reference) ===
+  PASS  sum i*j over cross matches C reference
+
+--- Summary: 1 passed, 0 failed ---

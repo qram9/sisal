@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: cap_forinit_dv (grab array into for-initial RHS) ===
+  PASS  cap_forinit_dv sum(B[i]) == 600
+
+--- Summary: 1 passed, 0 failed ---

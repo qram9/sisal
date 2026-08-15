@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop24_dv (first-minimum location, vs C reference) ===
+  PASS  loop24_dv first-min location == 4
+
+--- Summary: 1 passed, 0 failed ---

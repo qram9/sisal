@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: nested_dv (minimal nested-fn capture) ===
+  PASS  Outer(5)
+  PASS  Outer(0)
+  PASS  Outer(-3)
+  PASS  Outer(100)
+  PASS  Outer(7)
+
+--- Summary: 5 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: xfa_c3_3axis (rank-3 cross i*j*k) ===
+  PASS  xfa_c3_3axis(2,2,2) == [1,2,2,4,2,4,4,8] 2x2x2
+
+--- Summary: 1 passed, 0 failed ---

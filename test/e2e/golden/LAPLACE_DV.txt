@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: laplace_dv (Laplace relaxation, flat 2-D array_dv) ===
+  PASS  laplace_dv(1,2,2) == relaxed 4x4 grid (vs python)
+
+--- Summary: 1 passed, 0 failed ---

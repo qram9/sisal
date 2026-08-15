@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: smooth_dv (rank-3 triple-cross stencil, 3 passes) ===
+  PASS  smooth(4): interior == S+1.8, boundary == S, dims (4,4,4)
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,30 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_integers_dv ===
+  PASS  Limit=30 size is 14
+  PASS  Limit=30 element 0 is 3
+  PASS  Limit=30 element 1 is 5
+  PASS  Limit=30 element 2 is 7
+  PASS  Limit=30 element 3 is 9
+  PASS  Limit=30 element 4 is 11
+  PASS  Limit=30 element 5 is 13
+  PASS  Limit=30 element 6 is 15
+  PASS  Limit=30 element 7 is 17
+  PASS  Limit=30 element 8 is 19
+  PASS  Limit=30 element 9 is 21
+  PASS  Limit=30 element 10 is 23
+  PASS  Limit=30 element 11 is 25
+  PASS  Limit=30 element 12 is 27
+  PASS  Limit=30 element 13 is 29
+  PASS  Limit=15 size is 7
+  PASS  Limit=15 element 0 is 3
+  PASS  Limit=15 element 1 is 5
+  PASS  Limit=15 element 2 is 7
+  PASS  Limit=15 element 3 is 9
+  PASS  Limit=15 element 4 is 11
+  PASS  Limit=15 element 5 is 13
+  PASS  Limit=15 element 6 is 15
+  PASS  Limit=4 size is 1
+  PASS  Limit=4 element 0 is 3
+
+--- Summary: 25 passed, 0 failed ---

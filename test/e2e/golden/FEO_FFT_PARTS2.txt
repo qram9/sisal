@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: feo_fft_parts2 ===
+  PASS  w1re is rank 2, dims (1,3)
+  PASS  w1re matches the radix-4 twiddle reference
+  PASS  w1im is rank 2, dims (1,3)
+  PASS  w1im matches the radix-4 twiddle reference
+  PASS  w2re is rank 2, dims (1,3)
+  PASS  w2re matches the radix-4 twiddle reference
+  PASS  w2im is rank 2, dims (1,3)
+  PASS  w2im matches the radix-4 twiddle reference
+  PASS  w3re is rank 2, dims (1,3)
+  PASS  w3re matches the radix-4 twiddle reference
+  PASS  w3im is rank 2, dims (1,3)
+  PASS  w3im matches the radix-4 twiddle reference
+
+--- Summary: 12 passed, 0 failed ---

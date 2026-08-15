@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: mutual_bug_e2e ===
+  PASS  swap_bug(1) == 20
+  PASS  swap_bug(2) == 10
+  PASS  swap_bug(3) == 20
+
+--- Summary: 3 passed, 0 failed ---

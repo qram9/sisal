@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop3_dv (inner product, vs C reference) ===
+  PASS  loop3_dv inner product == 55
+
+--- Summary: 1 passed, 0 failed ---

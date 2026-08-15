@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_interp_dv (rank-4 opacity table lookup) ===
+  PASS  temperature bracket straddles the target
+  PASS  density bracket straddles the target
+  PASS  the table stayed rank 4 (nd x nt x ne x nm)
+  PASS  all 13 group opacities match the mirror
+
+--- Summary: 4 passed, 0 failed ---

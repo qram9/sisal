@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: tuple_hash_tests_dv (#() tuple destructuring) ===
+  PASS  a=3 b=7 c=2
+  PASS  a=10 b=-4 c=5
+  PASS  a=0 b=0 c=0
+  PASS  a=-2 b=-8 c=100
+
+--- Summary: 4 passed, 0 failed ---

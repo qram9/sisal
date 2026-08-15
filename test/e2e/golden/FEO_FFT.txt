@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: feo_fft (Full Radix-4 standard; vs direct DFT) ===
+  PASS  n = 2..256 match a direct DFT (worst |err| = 2.05e-11)
+  PASS  n = 64: a pure cosine gives exactly n/2 at k = 1 and k = n-1, zero elsewhere
+  PASS  log2 is exact for every power of two (no float truncation under -ffast-math)
+
+--- Summary: 3 passed, 0 failed ---

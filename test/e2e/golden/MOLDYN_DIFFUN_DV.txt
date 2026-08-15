@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_diffun_dv (state derivative: v and F/mass) ===
+  PASS  S_DOT has one 6-slot chunk per particle
+  PASS  velocity half == the state vector's own v components
+  PASS  acceleration half == Morse force / MASS[TYPES[I]]
+  PASS  isolated particle has zero acceleration
+
+--- Summary: 4 passed, 0 failed ---

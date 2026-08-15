@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: nested_init_merge_dv ===
+  PASS  nested_init_merge_dv result size == 5
+
+--- Summary: 1 passed, 0 failed ---

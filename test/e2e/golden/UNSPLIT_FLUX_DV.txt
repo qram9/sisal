@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_flux_dv (part 6/8: Riemann solver) ===
+  PASS  consistency: identical states give the analytic Euler flux (60 runs, 4 states x 5 xi x 3 niter)
+  PASS  symmetry: a mirrored pair has star velocity exactly 0 (18 runs)
+  PASS  asymmetric states match the transcribed chain (75 runs: 5 Riemann problems x 5 xi x 3 niter)
+  PASS  ...exercising both fan sides (36/39), shock AND rarefaction (20/55), and frac at 1/0/interior (21/36/18)
+  PASS  Sod tube: star velocity moves into the low-pressure side
+  PASS  Sod tube: mass flux at the interface is positive
+
+--- Summary: 6 passed, 0 failed ---

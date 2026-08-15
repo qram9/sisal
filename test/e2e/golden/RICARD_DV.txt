@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: ricard_dv (chromatography benchmark, flat 2-D array_dv) ===
+  PASS  ricard_dv scalars (VOL, totals, PERML, JSTOR, STOR, PERCENT, HL) == reference C
+  PASS  ricard_dv CTM/CTL elution curves (350 pts) == reference C
+
+--- Summary: 2 passed, 0 failed ---

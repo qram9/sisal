@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: tuple_mixed (tuple literal as multi-result) ===
+  PASS  #(1, 2.0) returns (1, 2.0)
+
+--- Summary: 1 passed, 0 failed ---

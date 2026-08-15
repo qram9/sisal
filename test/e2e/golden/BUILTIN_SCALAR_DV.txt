@@ -1,0 +1,19 @@
+=== dv_run_all test harness ===
+
+=== Group: builtin_scalar_dv (scalar math intrinsics) ===
+  PASS  abs_int
+  PASS  abs_real
+  PASS  abs_double
+  PASS  max_int
+  PASS  min_int
+  PASS  max_real
+  PASS  min_real
+  PASS  mod_int
+  PASS  floor_real
+  PASS  floor_double
+  PASS  trunc_real
+  PASS  trunc_double
+  PASS  exp_real
+  PASS  exp_double
+
+--- Summary: 14 passed, 0 failed ---

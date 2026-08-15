@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: grow_nest_dv (rank grows 1->2->3, inner nest to outer) ===
+  PASS  plane(q) at [3-q] == rank-3 (2,2,3), planes reversed
+
+--- Summary: 1 passed, 0 failed ---

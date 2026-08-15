@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: member_dv (recursive union through array_dv; tagcase recursion) ===
+  PASS  AreEqualDot mask == 10 (P1=P1, P1!=P2, P2=P2b, P2!=P3)
+  PASS  AreEqualSeq mask == 10 (same, sequential walk)
+  PASS  IsMember(Set, P2b) == true
+  PASS  IsMember(Set, P3)  == false
+
+--- Summary: 4 passed, 0 failed ---

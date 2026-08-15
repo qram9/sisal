@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_dv (part 8/8: one integrated timestep) ===
+  PASS  one step returns the interior, ny x nx
+  PASS  CONSERVATION: mass is unchanged across a full step
+  PASS  CONSERVATION: both momenta are unchanged
+  PASS  CONSERVATION: total energy is unchanged
+  PASS  the step actually did something (Courant number > 0)
+  PASS  ...and the state really changed: 48 of 48 cells moved
+  PASS  FULL STEP matches the independent C++ reference, cell by cell, all four conserved quantities
+  PASS  UNIFORM FLOW is preserved exactly over a step
+  PASS  SYMMETRY: a mirrored state stays mirrored (density even, momentum odd)
+
+--- Summary: 9 passed, 0 failed ---

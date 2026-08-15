@@ -1,0 +1,16 @@
+=== dv_run_all test harness ===
+
+=== Group BP: A+B broadcast pieces (bottom-up) ===
+  PASS  bp_rank([3])=1
+  PASS  bp_rank([2x3])=2
+  PASS  bp_product([2,3])=6
+  PASS  bp_product([2,3,4])=24
+  PASS  bp_reshape rank/dims
+  PASS  bp_reshape data 1..6
+  PASS  bp_offset broadcast 0 1 2 0 1 2
+  PASS  bp_load(a,0)=10
+  PASS  bp_load(a,2)=30
+  PASS  bp_bcast_add same-shape -> 11 22 33
+  PASS  bp_bcast_add broadcast -> 11 22 33 14 25 36
+
+--- Summary: 11 passed, 0 failed ---

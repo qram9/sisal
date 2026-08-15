@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_loop_dv ===
+  PASS  size is 5
+  PASS  element 0 is 1
+  PASS  element 1 is 2
+  PASS  element 2 is 3
+  PASS  element 3 is 4
+  PASS  element 4 is 5
+
+--- Summary: 6 passed, 0 failed ---

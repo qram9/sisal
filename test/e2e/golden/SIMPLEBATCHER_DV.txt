@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: simplebatcher_dv (Batcher merge-exchange sort, 0-based dv) ===
+  PASS  sort 8 (power of two, negatives+dups) == qsort
+  PASS  sort 5 (non-power size, dups) == qsort
+
+--- Summary: 2 passed, 0 failed ---

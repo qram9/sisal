@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_force_dv (Morse force over ragged neighbours) ===
+  PASS  one force triple per particle
+  PASS  Morse forces == C mirror (all three components)
+  PASS  neighbour counts genuinely vary (2 3 3 2 0)
+  PASS  isolated particle gets exactly zero force (zero-trip sum)
+  PASS  X/Y/Z components differ, so a character mix-up would show
+
+--- Summary: 5 passed, 0 failed ---

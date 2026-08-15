@@ -1,0 +1,18 @@
+=== dv_run_all test harness ===
+
+=== Group GJ: gaussj component pieces ===
+  PASS  idfamax([1,-5,3])=2
+  PASS  idfmax([1,-5,3])=3
+  PASS  gp_two P[0]=11
+  PASS  gp_two P[2]=31
+  PASS  gp_two Q[0]=20
+  PASS  gp_two Q[2]=60
+  PASS  gp_aor rank=2
+  PASS  gp_aor size=4
+  PASS  gp_aor=11 12 21 22
+  PASS  GetPivot Icol=1
+  PASS  GetPivot Irow=2
+  PASS  Compute A'=1 2 0 1
+  PASS  Compute B'=1 2
+
+--- Summary: 13 passed, 0 failed ---

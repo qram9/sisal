@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: successor_dv (rank-2 `..` row slice + fold) ===
+  PASS  result is one flag per job (N)
+  PASS  per-row successor sums == C mirror
+  PASS  row 1 is in COMPLETE conflict (sum 0)
+  PASS  trailing flag for row N is 0
+
+--- Summary: 4 passed, 0 failed ---

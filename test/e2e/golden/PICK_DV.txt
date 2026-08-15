@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: pick_dv (if/elseif with array_dv results; vs C reference) ===
+  PASS  pick(0/1/2) matches C reference (identity/negate/double)
+
+--- Summary: 1 passed, 0 failed ---

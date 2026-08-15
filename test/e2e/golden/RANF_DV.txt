@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: ranf_dv (48-bit MCG, sequential recurrence) ===
+  PASS  n=1  gathers n numbers (slot 0 is the seed clause's)
+  PASS  n=1  sequence matches the C reference
+  PASS  n=1  final seed is the 1-th, digit for digit
+  PASS  n=2  gathers n numbers (slot 0 is the seed clause's)
+  PASS  n=2  sequence matches the C reference
+  PASS  n=2  final seed is the 2-th, digit for digit
+  PASS  n=5  gathers n numbers (slot 0 is the seed clause's)
+  PASS  n=5  sequence matches the C reference
+  PASS  n=5  final seed is the 5-th, digit for digit
+  PASS  n=40 gathers n numbers (slot 0 is the seed clause's)
+  PASS  n=40 sequence matches the C reference
+  PASS  n=40 final seed is the 40-th, digit for digit
+
+--- Summary: 12 passed, 0 failed ---

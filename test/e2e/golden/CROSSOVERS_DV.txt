@@ -1,0 +1,22 @@
+=== dv_run_all test harness ===
+
+=== Group: crossovers_dv (cross lists: list-packed vs COMPRESS-compacted) ===
+  PASS  star tour, many crossings        Find_All_Crosses == reference (11)
+  PASS  star tour, many crossings        Check_Crossed == reference (5)
+  PASS  star tour, many crossings        Remove_Edge == reference (6)
+  PASS  convex octagon, none             Find_All_Crosses == reference (0)
+  PASS  convex octagon, none             Check_Crossed == reference (0)
+  PASS  convex octagon, none             Remove_Edge == reference (0)
+  PASS  mixed tour                       Find_All_Crosses == reference (2)
+  PASS  mixed tour                       Check_Crossed == reference (1)
+  PASS  mixed tour                       Remove_Edge == reference (1)
+  PASS  edge ending on another edge      Find_All_Crosses == reference (6)
+  PASS  edge ending on another edge      Check_Crossed == reference (2)
+  PASS  edge ending on another edge      Remove_Edge == reference (4)
+  PASS  too short to hold a pair         Find_All_Crosses == reference (0)
+  PASS  too short to hold a pair         Check_Crossed == reference (0)
+  PASS  too short to hold a pair         Remove_Edge == reference (0)
+  PASS  the tours actually cross (19 crossings, 8 of them removed, 2 empty cases)
+  PASS  no mismatches anywhere
+
+--- Summary: 17 passed, 0 failed ---

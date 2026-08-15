@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_shaped_gather_dv (pre-allocated nested gather) ===
+  PASS  forall shaped gather pre-allocated flat rank-2
+
+--- Summary: 1 passed, 0 failed ---

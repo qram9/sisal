@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: let_nested_seq (nested let scoping) ===
+  PASS  let_nested_seq()=25
+
+--- Summary: 1 passed, 0 failed ---

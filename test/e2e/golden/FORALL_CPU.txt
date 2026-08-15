@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group J: forall_cpu (X = real(i), return -X) ===
+  PASS  forall_cpu[i] == -(i+1) for n = 1, 4, 9
+
+--- Summary: 1 passed, 0 failed ---

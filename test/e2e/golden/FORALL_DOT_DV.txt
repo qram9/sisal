@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_dot_dv (dot-zip inner product) ===
+  PASS  dot([1,2,3],[4,5,6]) == 32
+
+--- Summary: 1 passed, 0 failed ---

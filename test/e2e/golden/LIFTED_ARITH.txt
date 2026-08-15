@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group C: dv_lifted_arith (A*B+A; vs C reference) ===
+  PASS  lifted_arith == a*b + a over 8 elements incl. negatives and zero
+
+--- Summary: 1 passed, 0 failed ---

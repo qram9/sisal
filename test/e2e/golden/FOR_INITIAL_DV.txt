@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: for_initial_dv (array_dv loop-carry) ===
+  PASS  for_initial_dv(1) == [1]*1
+  PASS  for_initial_dv(2) == [1]*2
+  PASS  for_initial_dv(3) == [1]*3
+  PASS  for_initial_dv(4) == [1]*4
+  PASS  for_initial_dv(5) == [1]*5
+
+--- Summary: 5 passed, 0 failed ---

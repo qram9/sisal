@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: red_sum_cross (value of sum i*j over i cross j) ===
+  PASS  red_sum_cross(3,4)=60
+  PASS  red_sum_cross(2,2)=9
+  PASS  red_sum_cross(1,1)=1
+
+--- Summary: 3 passed, 0 failed ---

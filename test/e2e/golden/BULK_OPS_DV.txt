@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: bulk_ops_dv (58 whole-array primitives vs standard definitions) ===
+  PASS  mixed signs, a zero                all 58 primitives match
+  PASS  ascending, full-range reduction    all 58 primitives match
+  PASS  short, repeated minimum            all 58 primitives match
+  PASS  no mismatches across 3 input sets
+
+--- Summary: 4 passed, 0 failed ---

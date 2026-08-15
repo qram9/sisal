@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_grid_dv (part 2/7: initial state + CFL dt) ===
+  PASS  x-shock, cloud inside              planes are 6x8 and match cell by cell
+  PASS  y-shock (buildplane2 path)         planes are 8x6 and match cell by cell
+  PASS  centred cloud, wide radius         planes are 5x5 and match cell by cell
+  PASS  shock left of everything, cloud far away planes are 4x4 and match cell by cell
+  PASS  cell centre exactly ON the cloud radius planes are 4x4 and match cell by cell
+  PASS  buildplane2 is buildplane1 transposed (square domain, xcld==ycld)
+  PASS  all three cell branches fire (shock / cloud / ambient)
+  PASS  5 configurations checked
+
+--- Summary: 8 passed, 0 failed ---

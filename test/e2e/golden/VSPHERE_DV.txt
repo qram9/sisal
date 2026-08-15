@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: vsphere_dv (rank-3 grid products, 5 outputs) ===
+  PASS  eg  == ug^2+vg^2 (rank-3)
+  PASS  pug == pg*ug
+  PASS  pvg == pg*vg
+  PASS  zug == zg*ug
+  PASS  zvg == zg*vg
+
+--- Summary: 5 passed, 0 failed ---

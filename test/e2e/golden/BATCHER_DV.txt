@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: batcher_dv (record sort, array_dv[SortRec]) ===
+  PASS  n=8 records sorted on Val, Loc provenance
+  PASS  n=5 records sorted on Val, Loc provenance
+
+--- Summary: 2 passed, 0 failed ---

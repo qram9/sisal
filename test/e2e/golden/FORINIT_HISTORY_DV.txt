@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_history_dv (1.2 history: seed = body_0 of the gather; vs C reference) ===
+  PASS  n=13: gather = [10,11,12,13] (seed included)
+  PASS  n=10 zero-trip: gather = [seed]
+  PASS  value-of zero-trip = seed (42)
+  PASS  value-of n=3 = last body value
+
+--- Summary: 4 passed, 0 failed ---

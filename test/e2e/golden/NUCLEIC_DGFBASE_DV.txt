@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_dgfbase_dv (SoA dgf_base: typ dispatch + tfo2_combine) ===
+  PASS  SoA dgf_base (typ dispatch + tfo2_combine) == nucleic reference
+
+--- Summary: 1 passed, 0 failed ---

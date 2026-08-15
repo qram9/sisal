@@ -1,0 +1,19 @@
+=== dv_run_all test harness ===
+
+=== Group: quadrature_dv (nested + recursive fns; adaptive integration) ===
+  PASS  [ 0.00, 1.00] finite and within tolerance of the closed form
+  PASS  [ 0.00, 1.00] >= exact (trapezoid overestimates convex)
+  PASS  [ 0.00, 2.00] finite and within tolerance of the closed form
+  PASS  [ 0.00, 2.00] >= exact (trapezoid overestimates convex)
+  PASS  [-1.00, 1.00] finite and within tolerance of the closed form
+  PASS  [-1.00, 1.00] >= exact (trapezoid overestimates convex)
+  PASS  [ 1.00, 3.00] finite and within tolerance of the closed form
+  PASS  [ 1.00, 3.00] >= exact (trapezoid overestimates convex)
+  PASS  [-2.00, 2.00] finite and within tolerance of the closed form
+  PASS  [-2.00, 2.00] >= exact (trapezoid overestimates convex)
+  PASS  [ 0.00, 0.50] finite and within tolerance of the closed form
+  PASS  [ 0.00, 0.50] >= exact (trapezoid overestimates convex)
+  PASS  [ 2.00, 2.00] finite and within tolerance of the closed form
+  PASS  [ 2.00, 2.00] >= exact (trapezoid overestimates convex)
+
+--- Summary: 14 passed, 0 failed ---

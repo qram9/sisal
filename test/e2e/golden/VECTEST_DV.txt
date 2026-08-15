@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: vectest_dv (18 vector kernels: Tri/Sum scans + min/max indices) ===
+  PASS  n=3 (18 kernels)
+  PASS  n=5 (18 kernels)
+  PASS  n=8 (18 kernels)
+  PASS  n=12 (18 kernels)
+  PASS  n=20 (18 kernels)
+
+--- Summary: 5 passed, 0 failed ---

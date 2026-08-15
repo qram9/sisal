@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: record2 (record param field access) ===
+  PASS  Test({a:11, b:31}) == 42
+
+--- Summary: 1 passed, 0 failed ---

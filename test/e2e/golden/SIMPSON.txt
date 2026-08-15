@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: simpson (Simpson integration of sin) ===
+  PASS  simpson(0, pi, 64) == reference (~2.0)
+
+--- Summary: 1 passed, 0 failed ---

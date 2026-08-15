@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: arcgrid_dv (sort/group/expand fused to a dense fold) ===
+  PASS  per-cell arc counts == original pipeline
+  PASS  per-cell best Max == original pipeline
+  PASS  updated Grid (enable counts + folded Max) == original pipeline
+  PASS  cells with no arcs keep a zero Max and count
+  PASS  a cell with several arcs keeps the greatest Max.Val
+
+--- Summary: 5 passed, 0 failed ---

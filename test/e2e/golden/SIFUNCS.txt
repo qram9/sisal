@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: sifuncs (R-suffixed intrinsic wrappers) ===
+  PASS  ASINR
+  PASS  ACOSR
+  PASS  SQRTR
+  PASS  SINR
+  PASS  COSR
+  PASS  ATANR
+
+--- Summary: 6 passed, 0 failed ---

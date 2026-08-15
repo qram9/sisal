@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: tagcase_e2e (union match and tagcase selection) ===
+  PASS  sel=1, res_0 == 2.0
+  PASS  sel=1, res_1 == 4.0
+  PASS  sel=2, res_0 == 3.14
+  PASS  sel=2, res_1 == 3.14
+  PASS  sel=3, res_0 == 5.0
+  PASS  sel=3, res_1 == 3.0
+
+--- Summary: 6 passed, 0 failed ---

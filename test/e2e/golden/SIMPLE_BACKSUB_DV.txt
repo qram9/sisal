@@ -1,0 +1,20 @@
+=== dv_run_all test harness ===
+
+=== Group: simple_backsub_dv (array carry shadowing an outer name) ===
+  PASS  n=1   accumulated array has the right SIZE
+  PASS  n=1   back substitution matches the reference
+  PASS  n=1   exterior r untouched: still [-1.0], size 1
+  PASS  n=2   accumulated array has the right SIZE
+  PASS  n=2   back substitution matches the reference
+  PASS  n=2   exterior r untouched: still [-1.0], size 1
+  PASS  n=4   accumulated array has the right SIZE
+  PASS  n=4   back substitution matches the reference
+  PASS  n=4   exterior r untouched: still [-1.0], size 1
+  PASS  n=7   accumulated array has the right SIZE
+  PASS  n=7   back substitution matches the reference
+  PASS  n=7   exterior r untouched: still [-1.0], size 1
+  PASS  n=20  accumulated array has the right SIZE
+  PASS  n=20  back substitution matches the reference
+  PASS  n=20  exterior r untouched: still [-1.0], size 1
+
+--- Summary: 15 passed, 0 failed ---

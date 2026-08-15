@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: ip_dv (rank-poly innerproduct vs numpy np.dot) ===
+  PASS  ip_dv 1D.1D == np.dot (32)
+  PASS  ip_dv 2D(2,3).1D(3) == np.dot [6,15]
+  PASS  ip_dv 1D(3).2D(3,2) == np.dot [4,5]
+  PASS  ip_dv 2D(2,2).2D(2,2) == np.matmul [19,22,43,50]
+  PASS  ip_dv 3D(2,2,2).1D(2) == np.dot [[3,7],[11,15]]
+
+--- Summary: 5 passed, 0 failed ---

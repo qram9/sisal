@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: addh_row_dv (|| appends a conforming row) ===
+  PASS  3x5 || one row  -> 4x5 (np.vstack)
+  PASS  3x5 || 2x5      -> 5x5 (np.concatenate axis 0)
+  PASS  rows appended in a loop from a 1xN seed -> 4x5
+  PASS  row || row -> flat 10, not 2x5
+  PASS  m || empty is the identity
+  PASS  array_addh(3x5, row) -> 4x5
+  PASS  array_addh(empty, row) -> 1x5, not rank 1
+  PASS  rows added in a loop from an EMPTY seed -> 3x5, not flat 15
+
+--- Summary: 8 passed, 0 failed ---

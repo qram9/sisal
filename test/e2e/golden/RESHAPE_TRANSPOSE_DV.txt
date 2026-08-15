@@ -1,0 +1,53 @@
+=== dv_run_all test harness ===
+
+=== Group: reshape_transpose_dv (transpose, element by element) ===
+  PASS  n=1 m=1 A is 1x1, A[i,j] == i*100+j
+  PASS  n=1 m=1 B is 1x1 (transposed shape)
+  PASS  n=1 m=1 B[r,c] == c*100+r for every element
+  PASS  n=1 m=1 the flat forms carry the same buffers
+  PASS  n=1 m=3 A is 1x3, A[i,j] == i*100+j
+  PASS  n=1 m=3 B is 3x1 (transposed shape)
+  PASS  n=1 m=3 B[r,c] == c*100+r for every element
+  PASS  n=1 m=3 the flat forms carry the same buffers
+  PASS  n=1 m=4 A is 1x4, A[i,j] == i*100+j
+  PASS  n=1 m=4 B is 4x1 (transposed shape)
+  PASS  n=1 m=4 B[r,c] == c*100+r for every element
+  PASS  n=1 m=4 the flat forms carry the same buffers
+  PASS  n=2 m=1 A is 2x1, A[i,j] == i*100+j
+  PASS  n=2 m=1 B is 1x2 (transposed shape)
+  PASS  n=2 m=1 B[r,c] == c*100+r for every element
+  PASS  n=2 m=1 the flat forms carry the same buffers
+  PASS  n=2 m=3 A is 2x3, A[i,j] == i*100+j
+  PASS  n=2 m=3 B is 3x2 (transposed shape)
+  PASS  n=2 m=3 B[r,c] == c*100+r for every element
+  PASS  n=2 m=3 the flat forms carry the same buffers
+  PASS  n=2 m=4 A is 2x4, A[i,j] == i*100+j
+  PASS  n=2 m=4 B is 4x2 (transposed shape)
+  PASS  n=2 m=4 B[r,c] == c*100+r for every element
+  PASS  n=2 m=4 the flat forms carry the same buffers
+  PASS  n=3 m=1 A is 3x1, A[i,j] == i*100+j
+  PASS  n=3 m=1 B is 1x3 (transposed shape)
+  PASS  n=3 m=1 B[r,c] == c*100+r for every element
+  PASS  n=3 m=1 the flat forms carry the same buffers
+  PASS  n=3 m=3 A is 3x3, A[i,j] == i*100+j
+  PASS  n=3 m=3 B is 3x3 (transposed shape)
+  PASS  n=3 m=3 B[r,c] == c*100+r for every element
+  PASS  n=3 m=3 the flat forms carry the same buffers
+  PASS  n=3 m=4 A is 3x4, A[i,j] == i*100+j
+  PASS  n=3 m=4 B is 4x3 (transposed shape)
+  PASS  n=3 m=4 B[r,c] == c*100+r for every element
+  PASS  n=3 m=4 the flat forms carry the same buffers
+  PASS  n=5 m=1 A is 5x1, A[i,j] == i*100+j
+  PASS  n=5 m=1 B is 1x5 (transposed shape)
+  PASS  n=5 m=1 B[r,c] == c*100+r for every element
+  PASS  n=5 m=1 the flat forms carry the same buffers
+  PASS  n=5 m=3 A is 5x3, A[i,j] == i*100+j
+  PASS  n=5 m=3 B is 3x5 (transposed shape)
+  PASS  n=5 m=3 B[r,c] == c*100+r for every element
+  PASS  n=5 m=3 the flat forms carry the same buffers
+  PASS  n=5 m=4 A is 5x4, A[i,j] == i*100+j
+  PASS  n=5 m=4 B is 4x5 (transposed shape)
+  PASS  n=5 m=4 B[r,c] == c*100+r for every element
+  PASS  n=5 m=4 the flat forms carry the same buffers
+
+--- Summary: 48 passed, 0 failed ---

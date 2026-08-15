@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_prep_dv (part 7a/8: Method1..4) ===
+  PASS  Method1 ilo=1: inverts, and reads the shifted column
+  PASS  Method1 ilo=2: inverts, and reads the shifted column
+  PASS  Method1 ilo=3: inverts, and reads the shifted column
+  PASS  Method2 at rest: no kinetic energy, so p = (gamma-1)*rho*e exactly
+  PASS  Method2 with negative internal energy: pressure never goes negative
+  PASS  ...and the floor is what is returned there
+  PASS  Method3 inverts: c*c*rho/gamma recovers the pressure
+  PASS  Method4 ignores a spike planted OUTSIDE the interior
+  PASS  Method4 does see a spike planted INSIDE the interior
+
+--- Summary: 9 passed, 0 failed ---

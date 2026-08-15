@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: angmom_dv (complex-record diagnostics, array_dv[record]) ===
+  PASS  atot
+  PASS  atot_1
+  PASS  wtot
+  PASS  total
+  PASS  total1
+
+--- Summary: 5 passed, 0 failed ---

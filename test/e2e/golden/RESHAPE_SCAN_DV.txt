@@ -1,0 +1,85 @@
+=== dv_run_all test harness ===
+
+=== Group: reshape_scan_dv (diagonal of a reshaped matrix) ===
+  PASS  R=1 C=1 flat is the 1 triangular numbers
+  PASS  R=1 C=1 mat is rank 2 1x1, same buffer
+  PASS  R=1 C=1 sz == min(rows,cols) == 1
+  PASS  R=1 C=1 diagonal is the ROW-major mat[d,d]
+  PASS  R=1 C=1 rank-1 -> rank-1 reshape is an identity
+  PASS  R=1 C=3 flat is the 3 triangular numbers
+  PASS  R=1 C=3 mat is rank 2 1x3, same buffer
+  PASS  R=1 C=3 sz == min(rows,cols) == 1
+  PASS  R=1 C=3 diagonal is the ROW-major mat[d,d]
+  PASS  R=1 C=3 rank-1 -> rank-1 reshape is an identity
+  PASS  R=1 C=4 flat is the 4 triangular numbers
+  PASS  R=1 C=4 mat is rank 2 1x4, same buffer
+  PASS  R=1 C=4 sz == min(rows,cols) == 1
+  PASS  R=1 C=4 diagonal is the ROW-major mat[d,d]
+  PASS  R=1 C=4 rank-1 -> rank-1 reshape is an identity
+  PASS  R=1 C=6 flat is the 6 triangular numbers
+  PASS  R=1 C=6 mat is rank 2 1x6, same buffer
+  PASS  R=1 C=6 sz == min(rows,cols) == 1
+  PASS  R=1 C=6 diagonal is the ROW-major mat[d,d]
+  PASS  R=1 C=6 rank-1 -> rank-1 reshape is an identity
+  PASS  R=2 C=1 flat is the 2 triangular numbers
+  PASS  R=2 C=1 mat is rank 2 2x1, same buffer
+  PASS  R=2 C=1 sz == min(rows,cols) == 1
+  PASS  R=2 C=1 diagonal is the ROW-major mat[d,d]
+  PASS  R=2 C=1 rank-1 -> rank-1 reshape is an identity
+  PASS  R=2 C=3 flat is the 6 triangular numbers
+  PASS  R=2 C=3 mat is rank 2 2x3, same buffer
+  PASS  R=2 C=3 sz == min(rows,cols) == 2
+  PASS  R=2 C=3 diagonal is the ROW-major mat[d,d]
+  PASS  R=2 C=3 rank-1 -> rank-1 reshape is an identity
+  PASS  R=2 C=4 flat is the 8 triangular numbers
+  PASS  R=2 C=4 mat is rank 2 2x4, same buffer
+  PASS  R=2 C=4 sz == min(rows,cols) == 2
+  PASS  R=2 C=4 diagonal is the ROW-major mat[d,d]
+  PASS  R=2 C=4 rank-1 -> rank-1 reshape is an identity
+  PASS  R=2 C=6 flat is the 12 triangular numbers
+  PASS  R=2 C=6 mat is rank 2 2x6, same buffer
+  PASS  R=2 C=6 sz == min(rows,cols) == 2
+  PASS  R=2 C=6 diagonal is the ROW-major mat[d,d]
+  PASS  R=2 C=6 rank-1 -> rank-1 reshape is an identity
+  PASS  R=3 C=1 flat is the 3 triangular numbers
+  PASS  R=3 C=1 mat is rank 2 3x1, same buffer
+  PASS  R=3 C=1 sz == min(rows,cols) == 1
+  PASS  R=3 C=1 diagonal is the ROW-major mat[d,d]
+  PASS  R=3 C=1 rank-1 -> rank-1 reshape is an identity
+  PASS  R=3 C=3 flat is the 9 triangular numbers
+  PASS  R=3 C=3 mat is rank 2 3x3, same buffer
+  PASS  R=3 C=3 sz == min(rows,cols) == 3
+  PASS  R=3 C=3 diagonal is the ROW-major mat[d,d]
+  PASS  R=3 C=3 rank-1 -> rank-1 reshape is an identity
+  PASS  R=3 C=4 flat is the 12 triangular numbers
+  PASS  R=3 C=4 mat is rank 2 3x4, same buffer
+  PASS  R=3 C=4 sz == min(rows,cols) == 3
+  PASS  R=3 C=4 diagonal is the ROW-major mat[d,d]
+  PASS  R=3 C=4 rank-1 -> rank-1 reshape is an identity
+  PASS  R=3 C=6 flat is the 18 triangular numbers
+  PASS  R=3 C=6 mat is rank 2 3x6, same buffer
+  PASS  R=3 C=6 sz == min(rows,cols) == 3
+  PASS  R=3 C=6 diagonal is the ROW-major mat[d,d]
+  PASS  R=3 C=6 rank-1 -> rank-1 reshape is an identity
+  PASS  R=5 C=1 flat is the 5 triangular numbers
+  PASS  R=5 C=1 mat is rank 2 5x1, same buffer
+  PASS  R=5 C=1 sz == min(rows,cols) == 1
+  PASS  R=5 C=1 diagonal is the ROW-major mat[d,d]
+  PASS  R=5 C=1 rank-1 -> rank-1 reshape is an identity
+  PASS  R=5 C=3 flat is the 15 triangular numbers
+  PASS  R=5 C=3 mat is rank 2 5x3, same buffer
+  PASS  R=5 C=3 sz == min(rows,cols) == 3
+  PASS  R=5 C=3 diagonal is the ROW-major mat[d,d]
+  PASS  R=5 C=3 rank-1 -> rank-1 reshape is an identity
+  PASS  R=5 C=4 flat is the 20 triangular numbers
+  PASS  R=5 C=4 mat is rank 2 5x4, same buffer
+  PASS  R=5 C=4 sz == min(rows,cols) == 4
+  PASS  R=5 C=4 diagonal is the ROW-major mat[d,d]
+  PASS  R=5 C=4 rank-1 -> rank-1 reshape is an identity
+  PASS  R=5 C=6 flat is the 30 triangular numbers
+  PASS  R=5 C=6 mat is rank 2 5x6, same buffer
+  PASS  R=5 C=6 sz == min(rows,cols) == 5
+  PASS  R=5 C=6 diagonal is the ROW-major mat[d,d]
+  PASS  R=5 C=6 rank-1 -> rank-1 reshape is an identity
+
+--- Summary: 80 passed, 0 failed ---

@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_search_dv (pseudoknot_domains backtracking on the ML stack) ===
+  PASS  tight limit: only same-nucleotide chains survive
+  PASS  loose limit: every chain survives
+
+--- Summary: 2 passed, 0 failed ---

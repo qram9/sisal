@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: parpi1 (forall Leibniz pi) ===
+  PASS  parpi1(2000) ~ pi (vs mirrored series)
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,21 @@
+=== dv_run_all test harness ===
+
+=== Group: inital_dv (13-tuple, catenate over nested foralls) ===
+  PASS  ir=4 mx=3 jxx=7 scalars
+  PASS  ir=4 mx=3 two arrays from one forall
+  PASS  ir=4 ksq is j(j+1) for j=1..8
+  PASS  ir=4 mx=3 jxx=7 catenate gives 21 epsilons, [1] replaced
+  PASS  ir=2 mx=2 jxx=3 scalars
+  PASS  ir=2 mx=2 two arrays from one forall
+  PASS  ir=2 ksq is j(j+1) for j=1..4
+  PASS  ir=2 mx=2 jxx=3 catenate gives 6 epsilons, [1] replaced
+  PASS  ir=6 mx=4 jxx=8 scalars
+  PASS  ir=6 mx=4 two arrays from one forall
+  PASS  ir=6 ksq is j(j+1) for j=1..12
+  PASS  ir=6 mx=4 jxx=8 catenate gives 32 epsilons, [1] replaced
+  PASS  ir=1 mx=1 jxx=2 scalars
+  PASS  ir=1 mx=1 two arrays from one forall
+  PASS  ir=1 ksq is j(j+1) for j=1..2
+  PASS  ir=1 mx=1 jxx=2 catenate gives 2 epsilons, [1] replaced
+
+--- Summary: 16 passed, 0 failed ---

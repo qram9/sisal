@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group GJX: gaussj full solve (gaussj_dv_rr) ===
+  PASS  gaussj 2x2 swap x=[3,2]
+  PASS  gaussj 2x2 diag x=[2,3]
+  PASS  gaussj 3x3 dense x=[1,0,2]
+  PASS  gaussj 12x12 B=A*x round-trip (err<1e-9)
+
+--- Summary: 4 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: tst_loopx2_dv (rank-2, lb=2 inner axis) ===
+  PASS  Y*Y and Y-Y with lb (1,2)
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: specam_dv (spectral amplitudes, SQRTR) ===
+  PASS  ampk
+  PASS  ampvor
+  PASS  ampz
+
+--- Summary: 3 passed, 0 failed ---

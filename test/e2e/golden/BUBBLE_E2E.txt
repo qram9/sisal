@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: bubble_e2e (bubble sort; vs std::sort) ===
+  PASS  10 inputs (42 elements) sort exactly as std::sort does
+  PASS  ...and every result is a permutation of its input -- nothing dropped or duplicated
+  PASS  ...with the length preserved throughout
+  PASS  n = 1 returns the input untouched (the outer while never trips)
+
+--- Summary: 4 passed, 0 failed ---

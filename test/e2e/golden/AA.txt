@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: aa (array_dv fill) ===
+  PASS  dvfill rank-1
+  PASS  dvfill(1,5,7) == [7]*5
+
+--- Summary: 2 passed, 0 failed ---

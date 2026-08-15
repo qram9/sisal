@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: cyk_dv (CYK parsing; rank-3 boolean array_dv DP table) ===
+  PASS  the 126 strings split both ways (35 accepted, 91 rejected)
+  PASS  every accept bit matches the reference CYK
+  PASS  every count table is n x n
+  PASS  every count table matches cell for cell
+  PASS  baaba is in the language (S derives all five symbols)
+  PASS  baaba's V table is the textbook one
+  PASS  the unreachable corner of the table stays empty
+  PASS  zero-trip (n=1): "a" rejected, but two variables derive it
+
+--- Summary: 8 passed, 0 failed ---

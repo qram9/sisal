@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: red_ranks_dv (nested reduce/gather -> ranks 1,0,2) ===
+  PASS  red_ranks_dv reduce/gather alternation gives ranks 1,0,2
+
+--- Summary: 1 passed, 0 failed ---

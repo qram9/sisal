@@ -1,0 +1,131 @@
+=== dv_run_all test harness ===
+
+=== Group: reshape_3d_dv (rank-3 round trip, strides) ===
+  PASS  n=2 m=2 k=1 flat rank 1, 4 elems
+  PASS  n=2 m=2 k=1 vol is rank 3 2x2x1
+  PASS  n=2 m=2 k=1 back to rank 1 is exact
+  PASS  n=2 m=2 k=1 sum vol[1,1,*] == 1
+  PASS  n=2 m=2 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=2 m=2 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=2 m=2 k=1 outer stride m*k   ([2,1,1] == 3)
+  PASS  n=2 m=2 k=4 flat rank 1, 16 elems
+  PASS  n=2 m=2 k=4 vol is rank 3 2x2x4
+  PASS  n=2 m=2 k=4 back to rank 1 is exact
+  PASS  n=2 m=2 k=4 sum vol[1,1,*] == 10
+  PASS  n=2 m=2 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=2 m=2 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=2 m=2 k=4 outer stride m*k   ([2,1,1] == 9)
+  PASS  n=2 m=2 k=5 flat rank 1, 20 elems
+  PASS  n=2 m=2 k=5 vol is rank 3 2x2x5
+  PASS  n=2 m=2 k=5 back to rank 1 is exact
+  PASS  n=2 m=2 k=5 sum vol[1,1,*] == 15
+  PASS  n=2 m=2 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=2 m=2 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=2 m=2 k=5 outer stride m*k   ([2,1,1] == 11)
+  PASS  n=2 m=3 k=1 flat rank 1, 6 elems
+  PASS  n=2 m=3 k=1 vol is rank 3 2x3x1
+  PASS  n=2 m=3 k=1 back to rank 1 is exact
+  PASS  n=2 m=3 k=1 sum vol[1,1,*] == 1
+  PASS  n=2 m=3 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=2 m=3 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=2 m=3 k=1 outer stride m*k   ([2,1,1] == 4)
+  PASS  n=2 m=3 k=4 flat rank 1, 24 elems
+  PASS  n=2 m=3 k=4 vol is rank 3 2x3x4
+  PASS  n=2 m=3 k=4 back to rank 1 is exact
+  PASS  n=2 m=3 k=4 sum vol[1,1,*] == 10
+  PASS  n=2 m=3 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=2 m=3 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=2 m=3 k=4 outer stride m*k   ([2,1,1] == 13)
+  PASS  n=2 m=3 k=5 flat rank 1, 30 elems
+  PASS  n=2 m=3 k=5 vol is rank 3 2x3x5
+  PASS  n=2 m=3 k=5 back to rank 1 is exact
+  PASS  n=2 m=3 k=5 sum vol[1,1,*] == 15
+  PASS  n=2 m=3 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=2 m=3 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=2 m=3 k=5 outer stride m*k   ([2,1,1] == 16)
+  PASS  n=3 m=2 k=1 flat rank 1, 6 elems
+  PASS  n=3 m=2 k=1 vol is rank 3 3x2x1
+  PASS  n=3 m=2 k=1 back to rank 1 is exact
+  PASS  n=3 m=2 k=1 sum vol[1,1,*] == 1
+  PASS  n=3 m=2 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=3 m=2 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=3 m=2 k=1 outer stride m*k   ([2,1,1] == 3)
+  PASS  n=3 m=2 k=4 flat rank 1, 24 elems
+  PASS  n=3 m=2 k=4 vol is rank 3 3x2x4
+  PASS  n=3 m=2 k=4 back to rank 1 is exact
+  PASS  n=3 m=2 k=4 sum vol[1,1,*] == 10
+  PASS  n=3 m=2 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=3 m=2 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=3 m=2 k=4 outer stride m*k   ([2,1,1] == 9)
+  PASS  n=3 m=2 k=5 flat rank 1, 30 elems
+  PASS  n=3 m=2 k=5 vol is rank 3 3x2x5
+  PASS  n=3 m=2 k=5 back to rank 1 is exact
+  PASS  n=3 m=2 k=5 sum vol[1,1,*] == 15
+  PASS  n=3 m=2 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=3 m=2 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=3 m=2 k=5 outer stride m*k   ([2,1,1] == 11)
+  PASS  n=3 m=3 k=1 flat rank 1, 9 elems
+  PASS  n=3 m=3 k=1 vol is rank 3 3x3x1
+  PASS  n=3 m=3 k=1 back to rank 1 is exact
+  PASS  n=3 m=3 k=1 sum vol[1,1,*] == 1
+  PASS  n=3 m=3 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=3 m=3 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=3 m=3 k=1 outer stride m*k   ([2,1,1] == 4)
+  PASS  n=3 m=3 k=4 flat rank 1, 36 elems
+  PASS  n=3 m=3 k=4 vol is rank 3 3x3x4
+  PASS  n=3 m=3 k=4 back to rank 1 is exact
+  PASS  n=3 m=3 k=4 sum vol[1,1,*] == 10
+  PASS  n=3 m=3 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=3 m=3 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=3 m=3 k=4 outer stride m*k   ([2,1,1] == 13)
+  PASS  n=3 m=3 k=5 flat rank 1, 45 elems
+  PASS  n=3 m=3 k=5 vol is rank 3 3x3x5
+  PASS  n=3 m=3 k=5 back to rank 1 is exact
+  PASS  n=3 m=3 k=5 sum vol[1,1,*] == 15
+  PASS  n=3 m=3 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=3 m=3 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=3 m=3 k=5 outer stride m*k   ([2,1,1] == 16)
+  PASS  n=4 m=2 k=1 flat rank 1, 8 elems
+  PASS  n=4 m=2 k=1 vol is rank 3 4x2x1
+  PASS  n=4 m=2 k=1 back to rank 1 is exact
+  PASS  n=4 m=2 k=1 sum vol[1,1,*] == 1
+  PASS  n=4 m=2 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=4 m=2 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=4 m=2 k=1 outer stride m*k   ([2,1,1] == 3)
+  PASS  n=4 m=2 k=4 flat rank 1, 32 elems
+  PASS  n=4 m=2 k=4 vol is rank 3 4x2x4
+  PASS  n=4 m=2 k=4 back to rank 1 is exact
+  PASS  n=4 m=2 k=4 sum vol[1,1,*] == 10
+  PASS  n=4 m=2 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=4 m=2 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=4 m=2 k=4 outer stride m*k   ([2,1,1] == 9)
+  PASS  n=4 m=2 k=5 flat rank 1, 40 elems
+  PASS  n=4 m=2 k=5 vol is rank 3 4x2x5
+  PASS  n=4 m=2 k=5 back to rank 1 is exact
+  PASS  n=4 m=2 k=5 sum vol[1,1,*] == 15
+  PASS  n=4 m=2 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=4 m=2 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=4 m=2 k=5 outer stride m*k   ([2,1,1] == 11)
+  PASS  n=4 m=3 k=1 flat rank 1, 12 elems
+  PASS  n=4 m=3 k=1 vol is rank 3 4x3x1
+  PASS  n=4 m=3 k=1 back to rank 1 is exact
+  PASS  n=4 m=3 k=1 sum vol[1,1,*] == 1
+  PASS  n=4 m=3 k=1 last-axis stride 1  ([1,1,k] == 1)
+  PASS  n=4 m=3 k=1 middle stride k    ([1,2,1] == 2)
+  PASS  n=4 m=3 k=1 outer stride m*k   ([2,1,1] == 4)
+  PASS  n=4 m=3 k=4 flat rank 1, 48 elems
+  PASS  n=4 m=3 k=4 vol is rank 3 4x3x4
+  PASS  n=4 m=3 k=4 back to rank 1 is exact
+  PASS  n=4 m=3 k=4 sum vol[1,1,*] == 10
+  PASS  n=4 m=3 k=4 last-axis stride 1  ([1,1,k] == 4)
+  PASS  n=4 m=3 k=4 middle stride k    ([1,2,1] == 5)
+  PASS  n=4 m=3 k=4 outer stride m*k   ([2,1,1] == 13)
+  PASS  n=4 m=3 k=5 flat rank 1, 60 elems
+  PASS  n=4 m=3 k=5 vol is rank 3 4x3x5
+  PASS  n=4 m=3 k=5 back to rank 1 is exact
+  PASS  n=4 m=3 k=5 sum vol[1,1,*] == 15
+  PASS  n=4 m=3 k=5 last-axis stride 1  ([1,1,k] == 5)
+  PASS  n=4 m=3 k=5 middle stride k    ([1,2,1] == 6)
+  PASS  n=4 m=3 k=5 outer stride m*k   ([2,1,1] == 16)
+
+--- Summary: 126 passed, 0 failed ---

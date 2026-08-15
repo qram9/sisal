@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: nico2_dv (odd-prime sieve; boolean array_dv replace) ===
+  PASS  primes in [3,7] (N=3)
+  PASS  primes in [3,11] (N=5)
+  PASS  primes in [3,21] (N=10)
+  PASS  primes in [3,41] (N=20)
+  PASS  primes in [3,101] (N=50)
+
+--- Summary: 5 passed, 0 failed ---

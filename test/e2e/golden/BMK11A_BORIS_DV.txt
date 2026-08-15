@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: bmk11a_boris_dv (part 2/3: electromagnetic push) ===
+  PASS  zero fields: velocities untouched, positions drift by dt*v
+  PASS  pure E field: the kick is exactly h*E and the rotation vanishes
+  PASS  full E and B push: velocities and positions match the transcribed reference
+  PASS  ...and the deposited CURRENT matches cell by cell (half-time weights on the pre-push index)
+  PASS  ...and the deposited CHARGE matches cell by cell
+  PASS  total deposited x-current equals sum(q*vx) over particles
+  PASS  x < 0: the particle neither moves nor is kicked
+
+--- Summary: 7 passed, 0 failed ---

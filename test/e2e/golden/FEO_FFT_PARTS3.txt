@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: feo_fft_parts3 (radix-4 butterfly, values vs python DFT) ===
+  PASS  Pack_j are == 10
+  PASS  Pack_j aim == 0
+  PASS  Pack_j bre == -2
+  PASS  Pack_j bim == 0
+  PASS  Pack_j cre == -2
+  PASS  Pack_j cim == 2
+  PASS  Pack_j dre == -2
+  PASS  Pack_j dim == -2
+
+--- Summary: 8 passed, 0 failed ---

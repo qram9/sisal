@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group M: dv_forall_reduce (vs C loops) ===
+  PASS  sum_to_n == sum 1..n for n = 0..8 (n = 0 is the empty sum)
+  PASS  product_to_n == product 1..n for n = 0..8 (n = 0 is the identity)
+  PASS  min_to_n == 1 and max_to_n == n for n = 1..8
+
+--- Summary: 3 passed, 0 failed ---

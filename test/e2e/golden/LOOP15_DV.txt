@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop15_dv (nested forall + addh/fill, vs C reference) ===
+  PASS  loop15_dv VS [5 x n-1] matches C reference
+  PASS  loop15_dv VYc [6 x n-1] (row-append via DV_ARRAY_ADDH) matches C reference
+
+--- Summary: 2 passed, 0 failed ---

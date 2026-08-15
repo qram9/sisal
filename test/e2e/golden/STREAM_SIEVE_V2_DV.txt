@@ -1,0 +1,37 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_sieve_v2_dv ===
+  PASS  Limit=10 size is 4
+  PASS  Limit=10 prime 0 is 2
+  PASS  Limit=10 prime 1 is 3
+  PASS  Limit=10 prime 2 is 5
+  PASS  Limit=10 prime 3 is 7
+  PASS  Limit=30 size is 10
+  PASS  Limit=30 prime 0 is 2
+  PASS  Limit=30 prime 1 is 3
+  PASS  Limit=30 prime 2 is 5
+  PASS  Limit=30 prime 3 is 7
+  PASS  Limit=30 prime 4 is 11
+  PASS  Limit=30 prime 5 is 13
+  PASS  Limit=30 prime 6 is 17
+  PASS  Limit=30 prime 7 is 19
+  PASS  Limit=30 prime 8 is 23
+  PASS  Limit=30 prime 9 is 29
+  PASS  Limit=50 size is 15
+  PASS  Limit=50 prime 0 is 2
+  PASS  Limit=50 prime 1 is 3
+  PASS  Limit=50 prime 2 is 5
+  PASS  Limit=50 prime 3 is 7
+  PASS  Limit=50 prime 4 is 11
+  PASS  Limit=50 prime 5 is 13
+  PASS  Limit=50 prime 6 is 17
+  PASS  Limit=50 prime 7 is 19
+  PASS  Limit=50 prime 8 is 23
+  PASS  Limit=50 prime 9 is 29
+  PASS  Limit=50 prime 10 is 31
+  PASS  Limit=50 prime 11 is 37
+  PASS  Limit=50 prime 12 is 41
+  PASS  Limit=50 prime 13 is 43
+  PASS  Limit=50 prime 14 is 47
+
+--- Summary: 32 passed, 0 failed ---

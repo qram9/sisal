@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: xfa_c5_dep3 (3-deep dependent cross, Fortran-DO; vs C reference) ===
+  PASS  flat rank-1, size = C(n+2,3)
+  PASS  i+j+k elements match C reference
+
+--- Summary: 2 passed, 0 failed ---

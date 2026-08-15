@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: cap_2deep_dv (capture across two nested foralls) ===
+  PASS  cap_2deep_dv base captured 2 loops deep
+
+--- Summary: 1 passed, 0 failed ---

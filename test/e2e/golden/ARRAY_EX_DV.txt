@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: array_ex_dv (array_dv multi-replace + catenate) ===
+  PASS  size is 8
+  PASS  values [7.23,3.18,3.18,10.6,2.18,4.23,6.18,12.6]
+
+--- Summary: 2 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop17_dv (descending for-initial, 3 gathers, vs C reference) ===
+  PASS  loop17_dv 3 gathers (VXNE,VE3,VXND) incl. seeds match C reference
+
+--- Summary: 1 passed, 0 failed ---

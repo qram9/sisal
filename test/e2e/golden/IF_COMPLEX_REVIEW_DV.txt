@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: test_if_complex_review_dv (if/elseif -> int,array_dv,record) ===
+  PASS  sel=1 flag=T
+  PASS  sel=1 flag=F
+  PASS  sel=2
+  PASS  else (sel=9)
+
+--- Summary: 4 passed, 0 failed ---

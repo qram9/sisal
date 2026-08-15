@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: hilbert_dv (LU residual; vs C reference solve) ===
+  PASS  Hilbert n=3..7: the residual is no worse than an independent LU solve achieves on the same system
+  PASS  well-conditioned system with a known exact solution: residual is at machine level
+  PASS  zero matrix (anorm = 0) takes the rcond = 0 branch and returns -999
+  PASS  ...with no NaN produced along the way
+
+--- Summary: 4 passed, 0 failed ---

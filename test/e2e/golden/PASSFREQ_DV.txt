@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: passfreq_dv (FFT pass dispatch + parameter derivation) ===
+  PASS  n=16 ifac=2 la=1 -> radix 2, result is 400 reals
+  PASS  n=16 ifac=2 la=1 dispatch and parameters match
+  PASS  n=24 ifac=3 la=1 -> radix 3, result is 400 reals
+  PASS  n=24 ifac=3 la=1 dispatch and parameters match
+  PASS  n=32 ifac=4 la=1 -> radix 4, result is 400 reals
+  PASS  n=32 ifac=4 la=1 dispatch and parameters match
+  PASS  n=48 ifac=3 la=2 -> radix 3, result is 400 reals
+  PASS  n=48 ifac=3 la=2 dispatch and parameters match
+  PASS  n=64 ifac=4 la=2 -> radix 4, result is 400 reals
+  PASS  n=64 ifac=4 la=2 dispatch and parameters match
+  PASS  n=32 ifac=2 la=2 -> radix 2, result is 400 reals
+  PASS  n=32 ifac=2 la=2 dispatch and parameters match
+
+--- Summary: 12 passed, 0 failed ---

@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_flaten_dv (part 5/8: shock flattening) ===
+  PASS  smooth flow: coefficient is exactly 1 everywhere
+  PASS  godorder /= 2: coefficient is identically zero
+  PASS  compressive shock drives the coefficient to 0 somewhere
+  PASS  the SAME pressure jump, expanding, leaves it at 1 (shock vs rarefaction)
+  PASS  coefficient stays within [0,1]
+  PASS  x-only shock: every row of the coefficient is identical
+  PASS  y-only shock: every column of the coefficient is identical
+  PASS  x-shock and y-shock answers are non-trivial (some cell flattened)
+  PASS  non-symmetric flow matches the transcribed formula
+
+--- Summary: 9 passed, 0 failed ---

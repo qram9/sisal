@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sas_dv (Legendre hemisphere mirror, catenate gather) ===
+  PASS  alfa (2,ilath,jxxmx) == mirror with South sign flips
+
+--- Summary: 1 passed, 0 failed ---

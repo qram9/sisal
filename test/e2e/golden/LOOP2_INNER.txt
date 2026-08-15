@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop2_inner (for-initial array carry, vs C reference) ===
+  PASS  loop2_inner matches C reference (n=20, IPNT=2, IPNTP=8)
+  PASS  loop2_inner did update Xt[9..11]
+
+--- Summary: 2 passed, 0 failed ---

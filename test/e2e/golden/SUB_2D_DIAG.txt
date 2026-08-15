@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_2d_diag (A[1,1]+A[2,2]+A[3,3]) ===
+  PASS  sub_2d_diag(3)=66
+
+--- Summary: 1 passed, 0 failed ---

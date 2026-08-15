@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: bmk11a_move_dv (part 1/3: PIC mover, area weights) ===
+  PASS  GATHER: a uniform field gives every particle exactly dt*q/m*E
+  PASS  SCATTER: total deposited charge equals the particle charge (partition of unity, in reverse)
+  PASS  zero field: velocities untouched, positions drift by exactly dt*v
+  PASS  dt = 0 is the identity on positions and velocities (bmk11a's own main runs this)
+  PASS  non-uniform field: positions and velocities match the transcribed mover (pins WHICH weight goes with which corner)
+  PASS  ...and the deposited charge matches cell by cell, not just in total
+  PASS  a particle with x < 0 is inactive: it does not move even with a field
+  PASS  ...while the active ones still do
+  PASS  ...and deposits no charge, so the total drops by exactly one
+
+--- Summary: 9 passed, 0 failed ---

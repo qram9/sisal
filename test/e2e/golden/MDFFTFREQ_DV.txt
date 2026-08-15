@@ -1,0 +1,41 @@
+=== dv_run_all test harness ===
+
+=== Group: mdfftfreq_dv (multi-factor FFT driver vs naive DFT) ===
+  PASS  n=4  ifax product == n (valid factorisation)
+  PASS  n=4  nfax=1 nwave=2  -> 4 reals, rank 1
+  PASS  n=4  nfax=1 ifax=[4] spectrum matches naive DFT
+  PASS  n=4  nwave=2  tail [5..4] is zero-padded
+  PASS  n=8  ifax product == n (valid factorisation)
+  PASS  n=8  nfax=2 nwave=4  -> 8 reals, rank 1
+  PASS  n=8  nfax=2 ifax=[4,2] spectrum matches naive DFT
+  PASS  n=8  nwave=4  tail [9..8] is zero-padded
+  PASS  n=16 ifax product == n (valid factorisation)
+  PASS  n=16 nfax=2 nwave=8  -> 16 reals, rank 1
+  PASS  n=16 nfax=2 ifax=[4,4] spectrum matches naive DFT
+  PASS  n=16 nwave=8  tail [17..16] is zero-padded
+  PASS  n=12 ifax product == n (valid factorisation)
+  PASS  n=12 nfax=2 nwave=6  -> 12 reals, rank 1
+  PASS  n=12 nfax=2 ifax=[4,3] spectrum matches naive DFT
+  PASS  n=12 nwave=6  tail [13..12] is zero-padded
+  PASS  n=6  ifax product == n (valid factorisation)
+  PASS  n=6  nfax=2 nwave=3  -> 6 reals, rank 1
+  PASS  n=6  nfax=2 ifax=[2,3] spectrum matches naive DFT
+  PASS  n=6  nwave=3  tail [7..6] is zero-padded
+  PASS  n=32 ifax product == n (valid factorisation)
+  PASS  n=32 nfax=3 nwave=16 -> 32 reals, rank 1
+  PASS  n=32 nfax=3 ifax=[4,4,2] spectrum matches naive DFT
+  PASS  n=32 nwave=16 tail [33..32] is zero-padded
+  PASS  n=24 ifax product == n (valid factorisation)
+  PASS  n=24 nfax=3 nwave=12 -> 24 reals, rank 1
+  PASS  n=24 nfax=3 ifax=[4,2,3] spectrum matches naive DFT
+  PASS  n=24 nwave=12 tail [25..24] is zero-padded
+  PASS  n=8  ifax product == n (valid factorisation)
+  PASS  n=8  nfax=2 nwave=2  -> 8 reals, rank 1
+  PASS  n=8  nfax=2 ifax=[4,2] spectrum matches naive DFT
+  PASS  n=8  nwave=2  tail [5..8] is zero-padded
+  PASS  n=16 ifax product == n (valid factorisation)
+  PASS  n=16 nfax=2 nwave=3  -> 16 reals, rank 1
+  PASS  n=16 nfax=2 ifax=[4,4] spectrum matches naive DFT
+  PASS  n=16 nwave=3  tail [7..16] is zero-padded
+
+--- Summary: 36 passed, 0 failed ---

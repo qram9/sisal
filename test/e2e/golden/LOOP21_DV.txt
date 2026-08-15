@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop21_dv (matrix*matrix product, vs C reference) ===
+  PASS  loop21_dv matrix*matrix matches C reference (25x3)
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: slice_store (A[2, .. : Z] write-side slice) ===
+  PASS  slice_store(3) == [11,12,13,0,0,0,31,32,33]
+
+--- Summary: 1 passed, 0 failed ---

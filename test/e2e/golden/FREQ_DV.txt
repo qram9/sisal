@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: freq_dv (forward Legendre transform) ===
+  PASS  ctri
+  PASS  eri
+  PASS  ptri
+  PASS  ztri
+
+--- Summary: 4 passed, 0 failed ---

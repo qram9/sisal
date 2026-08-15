@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: reshape_dv (DV_RESHAPE: flat 1-D -> rank-2/3 dope) ===
+  PASS  reshape rank-2 + rank-3 indexed == 91
+
+--- Summary: 1 passed, 0 failed ---

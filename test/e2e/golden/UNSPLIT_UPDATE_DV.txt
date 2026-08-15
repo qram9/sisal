@@ -1,0 +1,16 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_update_dv (part 7c/8: divergence, viscosity, conservative update) ===
+  PASS  CONSERVATION: periodic edge fluxes leave every total unchanged
+  PASS  zero flux leaves the state bit-for-bit unchanged
+  PASS  uniform flux leaves the state bit-for-bit unchanged
+  PASS  Method17: a uniform velocity field has exactly zero divergence
+  PASS  Method18: an EXPANDING flow leaves the fluxes untouched
+  PASS  Method18: a COMPRESSING flow does alter them
+  PASS  general case: Method17 divergence matches the formula
+  PASS  general case: Method18A viscous x-flux matches the formula
+  PASS  general case: Method19 update matches the formula
+  PASS  ...with the viscosity live on both sides (15 compressing, 20 expanding cells)
+  PASS  Transpose reads [ic,je] -- the axes really are swapped
+
+--- Summary: 11 passed, 0 failed ---

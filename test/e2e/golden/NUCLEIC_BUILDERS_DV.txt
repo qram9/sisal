@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_builders_dv (try / pseudoknot_constraint / reference / wc_dumas) ===
+  PASS  constraint i=18 uses the 4.0 limit
+  PASS  constraint i=6  uses the 4.5 limit
+  PASS  every other i is unconstrained
+  PASS  reference + wc_dumas yield one complete placement
+  PASS  P_O3 enumerates 3 O3' rotamers -> 3 placements
+
+--- Summary: 5 passed, 0 failed ---

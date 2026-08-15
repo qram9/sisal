@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: insertion2_dv (early-exit insertion sort, doubles) ===
+  PASS  sort 8 doubles (dups) == qsort
+  PASS  sort 5 doubles (dups) == qsort
+
+--- Summary: 2 passed, 0 failed ---

@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: alphabeta_dv (rank-2 record result) ===
+  PASS  AB (jobs, Q+1) record matrix == mirror
+  PASS  Del vector == mirror
+
+--- Summary: 2 passed, 0 failed ---

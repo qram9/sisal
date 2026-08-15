@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_trace_dv (part 7b/8: Method5..8) ===
+  PASS  zero slopes: traced x-states equal their cell states exactly
+  PASS  zero slopes: traced y-states equal their cell states exactly
+  PASS  dt = 0: left/right states straddle the cell by half a slope
+  PASS  dt = 0: bottom/top states straddle it using the SECOND slope plane
+  PASS  general case (dt and slopes both non-zero): traced left states match the transcribed formula
+  PASS  ...and the data exercises both sides of both guards (supersonic 12, forward 18, backward 18)
+  PASS  reversing the flow changes the traced states (upwind switching)
+
+--- Summary: 7 passed, 0 failed ---

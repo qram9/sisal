@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_nbrlist_dv (ragged 2-D as a list of array_dv) ===
+  PASS  sparse: one list node per particle
+  PASS  sparse: row lengths == ragged mirror
+  PASS  sparse: each row is its OWN array_dv at its true length
+       rows hold 10 elements total; the padded rank-2 form would hold 30
+  PASS  dense: one list node per particle
+  PASS  dense: row lengths == ragged mirror
+  PASS  dense: each row is its OWN array_dv at its true length
+       rows hold 30 elements total; the padded rank-2 form would hold 30
+
+--- Summary: 6 passed, 0 failed ---

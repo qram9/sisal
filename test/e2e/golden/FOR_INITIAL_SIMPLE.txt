@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: for_initial_simple (sequential body scoping) ===
+  PASS  i := old i + s + 1; s := old s + old i + i (n=3..24)
+
+--- Summary: 1 passed, 0 failed ---

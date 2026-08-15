@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop12_dv (first difference, vs C reference) ===
+  PASS  loop12_dv first-difference matches C reference (2i+1)
+
+--- Summary: 1 passed, 0 failed ---

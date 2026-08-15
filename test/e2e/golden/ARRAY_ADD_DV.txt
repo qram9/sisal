@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: array_add_dv (element-wise add, 0-based indexing; vs C reference) ===
+  PASS  A + B matches C reference
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: xfa_scatter_expr_dv (scatter over an expression) ===
+  PASS  scatter directly over a row expression
+  PASS  binding the row to a name first gives the same
+  PASS  expression source feeding two MASKED reductions (the bracket)
+  PASS  a row that varies per outer iteration -- relay not loop-invariant
+
+--- Summary: 4 passed, 0 failed ---

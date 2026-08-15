@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_2d (2-D subscript A[2,3]) ===
+  PASS  sub_2d(3)=23
+  PASS  sub_2d(5)=23
+
+--- Summary: 2 passed, 0 failed ---

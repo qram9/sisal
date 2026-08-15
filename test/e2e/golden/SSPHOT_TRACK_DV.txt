@@ -1,0 +1,29 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_track_dv (nested sequential loops + catenate) ===
+  PASS  census on the first step   seed threads through every iteration
+  PASS  census on the first step   weights [wrr enesc wlost wabs wcen]
+  PASS  census on the first step   counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  census on the first step   ntrac agrees with the counts array
+  PASS  scatter then absorbed      seed threads through every iteration
+  PASS  scatter then absorbed      weights [wrr enesc wlost wabs wcen]
+  PASS  scatter then absorbed      counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  scatter then absorbed      ntrac agrees with the counts array
+  PASS  split, absorb, census      seed threads through every iteration
+  PASS  split, absorb, census      weights [wrr enesc wlost wabs wcen]
+  PASS  split, absorb, census      counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  split, absorb, census      ntrac agrees with the counts array
+  PASS  split, roulette, lost      seed threads through every iteration
+  PASS  split, roulette, lost      weights [wrr enesc wlost wabs wcen]
+  PASS  split, roulette, lost      counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  split, roulette, lost      ntrac agrees with the counts array
+  PASS  irr=2 (RRWeights) branch   seed threads through every iteration
+  PASS  irr=2 (RRWeights) branch   weights [wrr enesc wlost wabs wcen]
+  PASS  irr=2 (RRWeights) branch   counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  irr=2 (RRWeights) branch   ntrac agrees with the counts array
+  PASS  newgt=2 weight splitting   seed threads through every iteration
+  PASS  newgt=2 weight splitting   weights [wrr enesc wlost wabs wcen]
+  PASS  newgt=2 weight splitting   counts  [nrr nsplt nescgp nlost nabs nscat ncen ntrac]
+  PASS  newgt=2 weight splitting   ntrac agrees with the counts array
+
+--- Summary: 24 passed, 0 failed ---

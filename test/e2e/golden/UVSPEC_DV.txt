@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: uvspec_dv (U/V spectral, 9-value elseif multibind) ===
+  PASS  u (12 complex records)
+  PASS  v (12 complex records)
+
+--- Summary: 2 passed, 0 failed ---

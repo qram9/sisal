@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: newton_raphson (iterative sqrt, LoopA; vs C reference and libm) ===
+  PASS  every (X, Eps) pair terminates -- X < Eps/2.4e-7, the float residual floor
+  PASS  9 (X, Eps) pairs reproduce the C transcription bit for bit
+  PASS  ...and every root meets the loop's own residual bound and agrees with libm sqrtf
+
+--- Summary: 3 passed, 0 failed ---

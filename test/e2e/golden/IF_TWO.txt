@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: if_two (if/elseif/else) ===
+  PASS  if_two(3,7)=6
+  PASS  if_two(5,5)=8
+  PASS  if_two(7,3)=5
+
+--- Summary: 3 passed, 0 failed ---

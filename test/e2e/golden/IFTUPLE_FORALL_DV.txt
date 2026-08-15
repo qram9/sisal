@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: iftuple_forall_dv (if-tuple inside forall) ===
+  PASS  iftuple_forall_dv == [101,202,33,44]
+
+--- Summary: 1 passed, 0 failed ---

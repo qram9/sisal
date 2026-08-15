@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_getvar_dv (solution=array_dv[var]; get_var backward search) ===
+  PASS  get_var(20) returns the label-20 var (2120)
+
+--- Summary: 1 passed, 0 failed ---

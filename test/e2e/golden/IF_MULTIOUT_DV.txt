@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: if_multiout_dv (if-expression multi-output) ===
+  PASS  if_multiout_dv if(5)==(1,2) && if(-1)==(3,4)
+
+--- Summary: 1 passed, 0 failed ---

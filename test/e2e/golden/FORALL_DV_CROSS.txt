@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_dv_cross (x cross y -> x*y) ===
+  PASS  cross rank-2
+  PASS  cross dims 2x2
+  PASS  cross[0]=3
+  PASS  cross[1]=4
+  PASS  cross[2]=6
+  PASS  cross[3]=8
+
+--- Summary: 6 passed, 0 failed ---

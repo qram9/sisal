@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop14_dv (1-D PIC, vs C reference) ===
+  PASS  loop14_dv 1-D PIC results match C reference
+
+--- Summary: 1 passed, 0 failed ---

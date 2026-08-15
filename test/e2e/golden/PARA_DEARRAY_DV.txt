@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: para_dearray_dv (de-arrayed Radical + cons-list enumeration) ===
+  PASS  |Para(0)| == 1
+  PASS  |Para(1)| == 1
+  PASS  |Para(2)| == 1
+  PASS  |Para(3)| == 2
+  PASS  |Para(4)| == 4
+  PASS  |Para(5)| == 8
+  PASS  |Para(6)| == 17
+  PASS  |Para(7)| == 40
+
+--- Summary: 8 passed, 0 failed ---

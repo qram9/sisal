@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: sqrt_dv (Newton for-initial + external sqrt) ===
+  PASS  sqrt(2)
+  PASS  sqrt(4)
+  PASS  sqrt(100)
+  PASS  sqrt(0.25)
+  PASS  sqrt(1000)
+  PASS  sqrt(1)
+
+--- Summary: 6 passed, 0 failed ---

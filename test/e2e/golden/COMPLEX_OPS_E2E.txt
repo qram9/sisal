@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: complex_ops_e2e ===
+  PASS  Add real == 4.5
+  PASS  Add imag == -1.5
+  PASS  Mul real == 14.5
+  PASS  Mul imag == 1.5
+  PASS  Sum real == 6.0
+  PASS  Sum imag == 10.0
+
+--- Summary: 6 passed, 0 failed ---

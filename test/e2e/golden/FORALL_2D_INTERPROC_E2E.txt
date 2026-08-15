@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_2d_interproc_e2e (2D Forall stencil row-builder provided-variant) ===
+  PASS  Rows=3 Cols=4 forall 2D provided
+  PASS  Rows=5 Cols=5 forall 2D provided
+
+--- Summary: 2 passed, 0 failed ---

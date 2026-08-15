@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: tst_loop2_dv (scatter sum of 2K) ===
+  PASS  sum(K+K) over [1.5,-2,3.25,10]
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: zbuffer_dv (per-triangle depth maps, frontmost merge) ===
+  PASS  frontmost buffer is rank 2, (y_pixels+1) x (x_pixels+1)
+  PASS  11 pixels covered by at least one triangle
+  PASS  every covered pixel names the FRONTMOST triangle
+  PASS  every covered pixel's depth matches the plane equation
+  PASS  uncovered pixels keep tri = 0 (sentinel never displaces)
+
+--- Summary: 5 passed, 0 failed ---

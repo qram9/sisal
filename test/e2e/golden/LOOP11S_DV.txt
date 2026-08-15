@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop11s_dv (first-sum for-initial gather, vs C reference) ===
+  PASS  loop11s_dv prefix-sum gather [X1..Xn] incl. seed matches C reference
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,21 @@
+=== dv_run_all test harness ===
+
+=== Group: stand_alone_gauss_dv (LU + substitution, round trip) ===
+  PASS  n=2  all three results are finite
+  PASS  n=2  b is the Vandermonde j^(i-1)
+  PASS  n=2  AMatrix == b transposed (A e_m is column m)
+  PASS  n=2  ROUND TRIP: solving A x = A e_m returns the IDENTITY
+  PASS  n=3  all three results are finite
+  PASS  n=3  b is the Vandermonde j^(i-1)
+  PASS  n=3  AMatrix == b transposed (A e_m is column m)
+  PASS  n=3  ROUND TRIP: solving A x = A e_m returns the IDENTITY
+  PASS  n=4  all three results are finite
+  PASS  n=4  b is the Vandermonde j^(i-1)
+  PASS  n=4  AMatrix == b transposed (A e_m is column m)
+  PASS  n=4  ROUND TRIP: solving A x = A e_m returns the IDENTITY
+  PASS  n=5  all three results are finite
+  PASS  n=5  b is the Vandermonde j^(i-1)
+  PASS  n=5  AMatrix == b transposed (A e_m is column m)
+  PASS  n=5  ROUND TRIP: solving A x = A e_m returns the IDENTITY
+
+--- Summary: 16 passed, 0 failed ---

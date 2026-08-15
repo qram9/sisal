@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: gather_conform_dv (|| padding; gather is a stack) ===
+  PASS  padded rows are rank-2 with dims consistent with size
+  PASS  `a || Zeros(0)` reports length 5, not 6 (no phantom row)
+  PASS  rows read at dims[1] are correct when the FIRST needs no pad
+  PASS  rows are correct when the LAST needs no pad (always worked)
+
+--- Summary: 4 passed, 0 failed ---

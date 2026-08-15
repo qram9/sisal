@@ -1,0 +1,19 @@
+=== dv_run_all test harness ===
+
+=== Group: ifm_2etc_dv (FFT radix-2 pass, nested array carries) ===
+  PASS  n=16 la=1 inc1=2 inc2=1 result is 400 reals
+  PASS  n=16 la=1 inc1=2 inc2=1 butterfly matches the reference
+  PASS  n=32 la=2 inc1=2 inc2=1 result is 400 reals
+  PASS  n=32 la=2 inc1=2 inc2=1 butterfly matches the reference
+  PASS  n=16 la=2 inc1=1 inc2=1 result is 400 reals
+  PASS  n=16 la=2 inc1=1 inc2=1 butterfly matches the reference
+  PASS  n=24 la=1 inc1=3 inc2=1 result is 400 reals
+  PASS  n=24 la=1 inc1=3 inc2=1 butterfly matches the reference
+  PASS  n=32 la=1 inc1=2 inc2=2 result is 400 reals
+  PASS  n=32 la=1 inc1=2 inc2=2 butterfly matches the reference
+  PASS  n=40 la=2 inc1=3 inc2=1 result is 400 reals
+  PASS  n=40 la=2 inc1=3 inc2=1 butterfly matches the reference
+  PASS  n=16 la=4 inc1=1 inc2=1 result is 400 reals
+  PASS  n=16 la=4 inc1=1 inc2=1 butterfly matches the reference
+
+--- Summary: 14 passed, 0 failed ---

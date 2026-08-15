@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: job_dv (Job Shop Scheduler, end to end) ===
+  PASS  FinalPtrs is the rank-2 job x segment grid
+  PASS  FinalPtrs == the seven-stage mirror
+  PASS  job schedule (in ORIGINAL job numbers) == mirror
+  PASS  trace reached fixpoint (every segment fired)
+  PASS  the trace took several wavefronts
+  PASS  best path value is the sum of all four priorities (17)
+  PASS  schedule is a permutation of the four jobs
+
+--- Summary: 7 passed, 0 failed ---

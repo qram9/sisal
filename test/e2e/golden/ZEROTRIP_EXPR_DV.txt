@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: zerotrip_expr_dv (Rule 1 for expression payloads) ===
+  PASS  value of I           == 10  (bare, already worked)
+  PASS  value of I * 2       == 20  (OSC 13.0.3)
+  PASS  value of I * 3 + 1   == 31  (OSC 13.0.3)
+  PASS  array_dv of I        == [10] (bare)
+  PASS  array_dv of I * 2    == [20], and as INTEGRAL not double
+  PASS  value of sum I       == 10  (bare)
+  PASS  value of sum I * 2   == 20  (OSC 13.0.3)
+  PASS  non zero-trip keep-last still the last BODY value (8)
+
+--- Summary: 8 passed, 0 failed ---

@@ -1,0 +1,21 @@
+=== dv_run_all test harness ===
+
+=== Group: simple_fwdsweep_dv (two gathers, mutual carries) ===
+  PASS  n=1  both gathers size n+1 (slot 0 is the seed, as OSC)
+  PASS  n=1  alpha sweep matches the reference
+  PASS  n=1  beta sweep matches (reads old b AND denom)
+  PASS  n=1  `a` rebound to the array after the loop
+  PASS  n=2  both gathers size n+1 (slot 0 is the seed, as OSC)
+  PASS  n=2  alpha sweep matches the reference
+  PASS  n=2  beta sweep matches (reads old b AND denom)
+  PASS  n=2  `a` rebound to the array after the loop
+  PASS  n=4  both gathers size n+1 (slot 0 is the seed, as OSC)
+  PASS  n=4  alpha sweep matches the reference
+  PASS  n=4  beta sweep matches (reads old b AND denom)
+  PASS  n=4  `a` rebound to the array after the loop
+  PASS  n=9  both gathers size n+1 (slot 0 is the seed, as OSC)
+  PASS  n=9  alpha sweep matches the reference
+  PASS  n=9  beta sweep matches (reads old b AND denom)
+  PASS  n=9  `a` rebound to the array after the loop
+
+--- Summary: 16 passed, 0 failed ---

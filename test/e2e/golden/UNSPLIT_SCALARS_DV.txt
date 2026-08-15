@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_scalars_dv (part 1/7: scalar + 1-D helpers) ===
+  PASS  all helpers match their closed forms over 216 cases
+  PASS  sign(x, -0.0) is +|x| (y >= 0 is true for -0.0), not copysign
+  PASS  acopy(A,3,5) keeps its origin: 3 elements, lower_bound 3
+  PASS  sign(x, +0.0) is +|x| too
+
+--- Summary: 4 passed, 0 failed ---

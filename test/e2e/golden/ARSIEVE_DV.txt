@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: arsieve_dv (array sieve, nested array carries) ===
+  PASS  n=2   yields 1 primes
+  PASS  n=2   the primes match an independent sieve
+  PASS  n=3   yields 2 primes
+  PASS  n=3   the primes match an independent sieve
+  PASS  n=10  yields 4 primes
+  PASS  n=10  the primes match an independent sieve
+  PASS  n=30  yields 10 primes
+  PASS  n=30  the primes match an independent sieve
+  PASS  n=50  yields 15 primes
+  PASS  n=50  the primes match an independent sieve
+  PASS  n=97  yields 25 primes
+  PASS  n=97  the primes match an independent sieve
+
+--- Summary: 12 passed, 0 failed ---

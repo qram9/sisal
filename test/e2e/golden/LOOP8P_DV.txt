@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop8p_dv (ADI Integration, vs C reference) ===
+  PASS  loop8p_dv ADI integration matches C reference
+
+--- Summary: 1 passed, 0 failed ---

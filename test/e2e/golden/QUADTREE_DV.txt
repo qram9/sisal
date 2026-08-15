@@ -1,0 +1,20 @@
+=== dv_run_all test harness ===
+
+=== Group: quadtree_dv (recursive unions; rows as a cons list) ===
+  PASS  n=2  Log2 = ceil(log2(n)) = 1 and Pad = 2^Log2 - n = 0
+  PASS  n=2  all zeros collapse to Depth 0
+  PASS  n=2  diagonal collapses to Depth 0 (NW=SE, NE=SW=0)
+  PASS  n=2  UNIFORM 7 does NOT collapse: Depth = Log2 = 1 (merge is not 'all equal')
+  PASS  n=2  all distinct: Depth = Log2 = 1
+  PASS  n=3  Log2 = ceil(log2(n)) = 2 and Pad = 2^Log2 - n = 1
+  PASS  n=3  all zeros collapse to Depth 0
+  PASS  n=3  PADDED diagonal cannot collapse: shifted to the bottom-right, so Depth = Log2
+  PASS  n=3  UNIFORM 7 does NOT collapse: Depth = Log2 = 2 (merge is not 'all equal')
+  PASS  n=3  all distinct: Depth = Log2 = 2
+  PASS  n=4  Log2 = ceil(log2(n)) = 2 and Pad = 2^Log2 - n = 0
+  PASS  n=4  all zeros collapse to Depth 0
+  PASS  n=4  diagonal collapses to Depth 0 (NW=SE, NE=SW=0)
+  PASS  n=4  UNIFORM 7 does NOT collapse: Depth = Log2 = 2 (merge is not 'all equal')
+  PASS  n=4  all distinct: Depth = Log2 = 2
+
+--- Summary: 15 passed, 0 failed ---

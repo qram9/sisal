@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: psa_swap_dv (rejection sampling + Boltzmann) ===
+  PASS  Get_Swap: from 1 to 3, slot 2, Ea 2 Er 0, moving Subject 2
+  PASS  and the seed it leaves behind = [125 3914 1591 2084]
+  PASS  Get_Swap_P rejects this move (success 0)
+  PASS  a rejected move returns the zero swap
+  PASS  Boltzmann accepts delta 2 at T 1
+
+--- Summary: 5 passed, 0 failed ---

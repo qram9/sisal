@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: psa_rng_dv (psa's 48-bit LCG in 12-bit limbs) ===
+  PASS  ranf_k(5) = [3276 3276 3276 204], 0-based
+  PASS  its 48-bit expansion, 1-based
+  PASS  a**k mod 2**48 = [401 1026 1384 3243]
+  PASS  rans(5,12345): 5 x 4 seeds, rows 1-based and limbs 0-BASED
+  PASS  ranf(SS[1,..]) = 4.385825e-11 (not 1.796434e-07)
+  PASS  and the seed after it = [781 3527 3254 267]
+
+--- Summary: 6 passed, 0 failed ---

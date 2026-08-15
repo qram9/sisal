@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: tag_scope_dv (unions/records sharing names) ===
+  PASS  TreeA: tagcase reads L,R -- SumA == 4.0
+  PASS  TreeB: tagcase reads NE,SE,SW,NW (same tag names) -- SumB == 10.0
+  PASS  PtI: integer x,y -- 3 + 4 == 7
+  PASS  PtR: REAL x,y with the same names -- 1.5 + 2.5 == 4.0
+  PASS  PtI3: x,y plus z (a superset of PtI's names) -- 7+8+9 == 24
+  PASS  is Leaf(la) on TreeA
+  PASS  is Node(ta) on TreeA
+
+--- Summary: 7 passed, 0 failed ---

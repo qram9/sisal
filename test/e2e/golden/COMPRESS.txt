@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group H: dv_compress_test (vs C stream compaction) ===
+  PASS  compress keeps exactly the masked elements, in order
+  PASS  compress_dv_input(n) == the even numbers in 1..n, for n = 1, 6, 11
+  PASS  compress_chain == the number of set mask bits
+
+--- Summary: 3 passed, 0 failed ---

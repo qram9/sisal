@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: tuple_destructure (#() and tuple() binder forms) ===
+  PASS  #() swap (3,7) -> (7,3)
+  PASS  #() typed (3,7) -> (4,8)
+  PASS  #() chained sum3(3,7,10) == 20
+  PASS  tuple() swap (3,7) -> (7,3)
+  PASS  tuple() typed (3,7) -> (4,8)
+  PASS  tuple() chained (3,7,10) == 20
+
+--- Summary: 6 passed, 0 failed ---

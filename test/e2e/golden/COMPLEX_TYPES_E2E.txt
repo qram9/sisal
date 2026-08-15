@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: complex_types_e2e (complex records, SOA/AOS builders) ===
+  PASS  make/re/im roundtrip
+  PASS  SOA bundle (record of arrays)
+  PASS  AOS zip (array_dv[complex_float])
+
+--- Summary: 3 passed, 0 failed ---

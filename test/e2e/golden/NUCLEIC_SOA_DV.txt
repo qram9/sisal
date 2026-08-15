@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_soa_dv (SoA access: typ dispatch + row-threaded atom_pos) ===
+  PASS  SoA atom_pos + typ dispatch == nucleic c1_ reference
+
+--- Summary: 1 passed, 0 failed ---

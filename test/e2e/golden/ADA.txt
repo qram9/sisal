@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: ada (forall keep-last FinalValue) ===
+  PASS  value of local over 1..5 == [1..5]
+
+--- Summary: 1 passed, 0 failed ---

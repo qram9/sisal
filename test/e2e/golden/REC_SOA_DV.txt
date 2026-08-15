@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: rec_soa_dv (struct-of-arrays: record of dense rank-2 fields) ===
+  PASS  typ + dgf[k,j] + params[k,j] SoA reads == 1812
+
+--- Summary: 1 passed, 0 failed ---

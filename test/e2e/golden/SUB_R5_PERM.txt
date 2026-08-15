@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_r5_perm (rank-5 full index reverse; vs C reference) ===
+  PASS  a[1,2,3,1,2] == b[2,1,3,2,1]
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop23s_dv (2-D Implicit Hydrodynamics, vs C reference) ===
+  PASS  loop23s_dv 2-D implicit hydrodynamics matches C reference
+
+--- Summary: 1 passed, 0 failed ---

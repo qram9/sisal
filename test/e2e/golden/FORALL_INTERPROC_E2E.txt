@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_interproc_e2e (Forall interprocedural DPS provided-variant) ===
+  PASS  N=4 forall interprocedural provided
+  PASS  N=10 forall interprocedural provided
+
+--- Summary: 2 passed, 0 failed ---

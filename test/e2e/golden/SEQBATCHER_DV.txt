@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: seqbatcher_dv (exchange network vs C dataflow mirror) ===
+  PASS  n=8 == mirror
+  PASS  n=5 == mirror
+  PASS  n=16 == mirror
+
+--- Summary: 3 passed, 0 failed ---

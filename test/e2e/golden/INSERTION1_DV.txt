@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: insertion1_dv (insertion sort, dv swaps) ===
+  PASS  insertion1 sorts to C-reference order
+
+--- Summary: 1 passed, 0 failed ---

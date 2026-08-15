@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group B: dv_agreement (dot-product generator; vs a + b) ===
+  PASS  agreement == a[i] + b[i] over 9 elements incl. negatives
+
+--- Summary: 1 passed, 0 failed ---

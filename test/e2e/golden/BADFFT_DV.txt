@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: badfft_dv (Cooley-Tukey FFT over array_dv[complex record]; analytic reference) ===
+  PASS  m=4 (n=16): FFT peaks = n/2
+  PASS  m=5 (n=32): FFT peaks = n/2
+  PASS  m=6 (n=64): FFT peaks = n/2
+  PASS  m=7 (n=128): FFT peaks = n/2
+
+--- Summary: 4 passed, 0 failed ---

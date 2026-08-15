@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: list_iter_dv (for-initial carrying a cons-list) ===
+  PASS  sum 1..100 iteratively == 5050
+  PASS  length of the 100-list == 100
+  PASS  sum 1..50000 == 1250025000
+  PASS  length of the 50000-list == 50000
+
+--- Summary: 4 passed, 0 failed ---

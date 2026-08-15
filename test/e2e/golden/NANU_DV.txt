@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: nanu_dv (A*B=C; identity leg plus a non-symmetric multiply) ===
+  PASS  all four matrices match the reference over 15 (n,s) cases
+  PASS  identity leg: C == B, so the program's own mismatch count is 0
+  PASS  Be(5,5) is 0 -1 -2 -3 -5 (INTEGER division, truncating to zero)
+  PASS  the non-symmetric leg really multiplies (D != B)
+
+--- Summary: 4 passed, 0 failed ---

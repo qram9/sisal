@@ -1,0 +1,21 @@
+=== dv_run_all test harness ===
+
+=== Group: quad_dv (quadtree add / multiply / transpose) ===
+  PASS  2x2 dense                                  pads 2x2 to 2x2
+  PASS  2x2 dense                                  QAdd == A + B
+  PASS  2x2 dense                                  QMult == A * B
+  PASS  2x2 dense                                  Transpose == A^T
+  PASS  2x2 diagonal -- BOTH collapse to Scalar nodes pads 2x2 to 2x2
+  PASS  2x2 diagonal -- BOTH collapse to Scalar nodes QAdd == A + B
+  PASS  2x2 diagonal -- BOTH collapse to Scalar nodes QMult == A * B
+  PASS  2x2 diagonal -- BOTH collapse to Scalar nodes Transpose == A^T
+  PASS  4x4 dense x identity                       pads 4x4 to 4x4
+  PASS  4x4 dense x identity                       QAdd == A + B
+  PASS  4x4 dense x identity                       QMult == A * B
+  PASS  4x4 dense x identity                       Transpose == A^T
+  PASS  3x3 dense, pads to 4x4                     pads 3x3 to 4x4
+  PASS  3x3 dense, pads to 4x4                     QAdd == A + B
+  PASS  3x3 dense, pads to 4x4                     QMult == A * B
+  PASS  3x3 dense, pads to 4x4                     Transpose == A^T
+
+--- Summary: 16 passed, 0 failed ---

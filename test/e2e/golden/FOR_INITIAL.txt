@@ -1,0 +1,59 @@
+=== dv_run_all test harness ===
+
+=== Group FI: for_initial (LoopB) ===
+  PASS  fi_sum_10
+  PASS  fi_sum_1
+  PASS  fi_sum_0
+  PASS  fi_product_5
+  PASS  fi_product_1
+  PASS  fi_product_0
+  PASS  fi_final_i_5
+  PASS  fi_final_i_1
+  PASS  fi_final_i_0
+  PASS  fi_passthru_5
+  PASS  fi_passthru_1
+  PASS  fi_passthru_0
+  PASS  fi_swap_1
+  PASS  fi_swap_2
+  PASS  fi_swap_3
+  PASS  fi_swap_0
+  PASS  fi_fib_1
+  PASS  fi_fib_5
+  PASS  fi_fib_7
+  PASS  fi_fib_10
+  PASS  fi_fib_0
+  PASS  fi_fib_a_1
+  PASS  fi_fib_a_5
+  PASS  fi_fib_a_7
+  PASS  fi_fib_a_10
+  PASS  fi_fib_a_0
+  PASS  fi_param_identity rank=1
+  PASS  fi_param_identity size=3
+  PASS  fi_param_identity[0]=10
+  PASS  fi_param_identity[1]=20
+  PASS  fi_param_identity[2]=30
+  PASS  fi_param_identity_zero rank=1
+  PASS  fi_param_identity_zero size=3
+  PASS  fi_param_identity_zero[0]=10
+  PASS  fi_param_identity_zero[1]=20
+  PASS  fi_param_identity_zero[2]=30
+  PASS  fi_param_bump size=3
+  PASS  fi_param_bump[0]=13
+  PASS  fi_param_bump[1]=23
+  PASS  fi_param_bump[2]=33
+  PASS  fi_param_bump_zero size=3
+  PASS  fi_param_bump_zero[0]=10
+  PASS  fi_param_bump_zero[1]=20
+  PASS  fi_param_bump_zero[2]=30
+  PASS  fi_gather_zero size=1
+  PASS  fi_gather_zero[0]=1
+  PASS  fi_gather_one size=2
+  PASS  fi_gather_one[0]=1
+  PASS  fi_gather_one[1]=2
+  PASS  fi_gather_body_temp_zero size=1
+  PASS  fi_gather_body_temp_zero[0]=0
+  PASS  fi_gather_body_temp_one size=2
+  PASS  fi_gather_body_temp_one[0]=0
+  PASS  fi_gather_body_temp_one[1]=2
+
+--- Summary: 54 passed, 0 failed ---

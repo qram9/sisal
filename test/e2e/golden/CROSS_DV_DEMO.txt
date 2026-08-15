@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group CDD: cross_dv_demo (i*j cross) ===
+  PASS  cdd_size
+  PASS  cdd[0]
+  PASS  cdd[1]
+  PASS  cdd[2]
+  PASS  cdd[3]
+  PASS  cdd[4]
+  PASS  cdd[5]
+
+--- Summary: 7 passed, 0 failed ---

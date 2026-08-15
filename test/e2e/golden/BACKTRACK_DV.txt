@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: backtrack_dv (array_dv graph + list-accumulated trace) ===
+  PASS  trace length is the path length (3)
+  PASS  jobs in schedule order [1,2,3]
+  PASS  segs follow the same links [2,1,2]
+  PASS  leaf sweep collects both leaves [50,10]
+
+--- Summary: 4 passed, 0 failed ---

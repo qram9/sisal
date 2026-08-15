@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop10_dv (difference predictors, vs C reference) ===
+  PASS  loop10_dv difference-predictors matches C reference
+
+--- Summary: 1 passed, 0 failed ---

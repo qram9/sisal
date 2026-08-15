@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_r3_perm (rank-3 permuted subscript a[i,j,k]=b[k,j,i]; vs C reference) ===
+  PASS  a[1,2,3] == b[3,2,1]
+
+--- Summary: 1 passed, 0 failed ---

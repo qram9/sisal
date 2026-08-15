@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: bcast31_dv (rank-poly A+B, 3-D + 1-D vs numpy) ===
+  PASS  bcast31_dv (2,2,3)+(3) == numpy
+
+--- Summary: 1 passed, 0 failed ---

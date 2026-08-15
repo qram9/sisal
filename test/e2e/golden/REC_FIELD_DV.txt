@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: rec_field_dv (record-held array_dv, field subscript) ===
+  PASS  r.v[1]+r.v[2]+r.v[3]+r.w == 65
+
+--- Summary: 1 passed, 0 failed ---

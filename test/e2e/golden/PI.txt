@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: pi (Leibniz for-initial) ===
+  PASS  pi(100000) ~ 3.14159
+
+--- Summary: 1 passed, 0 failed ---

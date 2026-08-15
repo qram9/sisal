@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: array_swap_e2e (synthetic array swap test) ===
+Array 0 size=2: [100, 200]
+Array 1 size=3: [10, 20, 30]
+ARRAY_SWAP_E2E: SUCCESS
+
+--- Summary: 0 passed, 0 failed ---

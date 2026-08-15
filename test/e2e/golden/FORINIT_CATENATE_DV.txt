@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_catenate_dv (catenate on a sequential loop) ===
+  PASS  sequential catenate over rows 1..4, seed's row included
+  PASS  ZERO TRIP still yields the seed's row, not nothing
+  PASS  masked keeps only the surviving rows
+  PASS  the forall form gives the identical 10 elements
+  PASS  both loop forms agree on length
+
+--- Summary: 5 passed, 0 failed ---

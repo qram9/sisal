@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_maket_dv (SoA make_t: atom_pos row-slice -> tfo_align -> inv_ortho) ===
+  PASS  SoA make_t reference-frame == nucleic tfo pipeline
+
+--- Summary: 1 passed, 0 failed ---

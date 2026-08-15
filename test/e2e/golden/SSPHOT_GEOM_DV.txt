@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_geom_dv (cell geometry + generator) ===
+  PASS  nzones = nradl * naxl
+  PASS  the grid stayed rectangular: nzones x 5 slots
+  PASS  every corner coordinate matches the mirror
+  PASS  RandInit(12345) exact
+  PASS  the draw after it exact
+
+--- Summary: 5 passed, 0 failed ---

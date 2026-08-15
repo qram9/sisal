@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_sieve_dv ===
+  PASS  size is 8
+  PASS  prime 0 is 2
+  PASS  prime 1 is 3
+  PASS  prime 2 is 5
+  PASS  prime 3 is 7
+  PASS  prime 4 is 11
+  PASS  prime 5 is 13
+  PASS  prime 6 is 17
+  PASS  prime 7 is 19
+
+--- Summary: 9 passed, 0 failed ---

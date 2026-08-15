@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group I: dv_broadcast_numpy (trailing-axis broadcast, vs C reference) ===
+  PASS  broadcast_numpy [2,3]+[3] == A[i,j]+B[j] (vs C reference)
+
+--- Summary: 1 passed, 0 failed ---

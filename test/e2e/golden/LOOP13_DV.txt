@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: loop13_dv (2-D PIC, vs C reference) ===
+  PASS  loop13_dv H histogram matches C reference
+  PASS  loop13_dv P particles match C reference
+  PASS  loop13_dv H got the two particle hits (6,8)&(4,10)
+
+--- Summary: 3 passed, 0 failed ---

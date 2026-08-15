@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: bmk11a_dv (part 4/4: the integrated benchmark) ===
+  PASS  dt = 0: all three movers are a bit-exact fixed point in position and velocity, at nlop = 1, 7 and 20
+  PASS  dt = 0: the deposition grids accumulate linearly -- n steps give exactly n times one step (and one step is not zero)
+  PASS  nlop = 0: the zero-trip case returns the initial state and empty grids
+  PASS  dt /= 0: the particles actually move, and every position stays finite
+  PASS  dt /= 0: parmvr's drift differs from parmov's (the 1/gamma factor) while parmve and parmov agree on position
+  PASS  sumf2 and sumf3 sum the input velocities of the final step
+  PASS  nlop = 4 equals the part-3 single-step reference composed four times
+  PASS  the other side of the upb cut (nx = 8, upb = nx2*ny2 < l4) also starts each loop from an empty grid, so accumulation stays linear
+  PASS  particle and grid extents are preserved end to end
+
+--- Summary: 9 passed, 0 failed ---

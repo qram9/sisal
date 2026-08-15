@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: record1_reorder (field-order-swapped replace) ===
+  PASS  bb.S replaced to 1.23
+  PASS  bb.L.R replaced to 3.2
+
+--- Summary: 2 passed, 0 failed ---

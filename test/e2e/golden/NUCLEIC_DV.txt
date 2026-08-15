@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_dv (WHOLE Pseudoknot benchmark) ===
+    most distant atom = 33.797594891, solutions = 50
+  PASS  most distant atom == 33.797594891
+  PASS  50 solutions found
+
+--- Summary: 2 passed, 0 failed ---

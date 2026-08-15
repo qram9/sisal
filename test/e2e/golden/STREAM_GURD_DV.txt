@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_gurd_dv (stream sieve, stream `||`) ===
+  PASS  primes in [2,4] (N=2)
+  PASS  primes in [2,9] (N=3)
+  PASS  primes in [2,25] (N=5)
+  PASS  primes in [2,100] (N=10)
+  PASS  primes in [2,169] (N=13)
+
+--- Summary: 5 passed, 0 failed ---

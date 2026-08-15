@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: trace_dv (sentinel wavefront to fixpoint) ===
+  PASS  result is the rank-2 Grid
+  PASS  converged Grid == original staged pipeline
+  PASS  the sentinel loop ran to fixpoint (every segment fired)
+  PASS  terminal segments are marked leaf
+  PASS  longest-path value propagated: (2,1) = prio 21 + best incoming 11
+  PASS  longest-path value propagated: (3,2) = prio 32 + max(32,34)
+  PASS  mirror needed more than one wavefront
+
+--- Summary: 7 passed, 0 failed ---

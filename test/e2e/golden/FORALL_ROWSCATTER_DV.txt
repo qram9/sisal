@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_rowscatter_dv (whole arrays as tails at an index) ===
+  PASS  forall row(i) at [4-i] == reversed rows (3,4)
+
+--- Summary: 1 passed, 0 failed ---

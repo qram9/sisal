@@ -1,0 +1,15 @@
+=== dv_run_all test harness ===
+
+=== Group: gaussjnew_dv (Gauss-Jordan, checked by residual) ===
+  PASS  2x2                                            solution has 2 entries
+  PASS  2x2                                            max|Ax-b| < 1e-9
+  PASS  3x3 (x = 2,3,-1)                               solution has 3 entries
+  PASS  3x3 (x = 2,3,-1)                               max|Ax-b| < 1e-9
+  PASS  3x3 ZERO on the diagonal -- needs the pivot swap solution has 3 entries
+  PASS  3x3 ZERO on the diagonal -- needs the pivot swap max|Ax-b| < 1e-9
+  PASS  4x4 SPD (x = 1,1,1,1)                          solution has 4 entries
+  PASS  4x4 SPD (x = 1,1,1,1)                          max|Ax-b| < 1e-9
+  PASS  3x3 largest element OFF the diagonal           solution has 3 entries
+  PASS  3x3 largest element OFF the diagonal           max|Ax-b| < 1e-9
+
+--- Summary: 10 passed, 0 failed ---

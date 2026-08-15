@@ -1,0 +1,21 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_shadow_dv (a rebound name must become a carry) ===
+  PASS  `w := 0` rebinding a let-bound w accumulates
+  PASS  fresh name `q := 0` (control) agrees
+  PASS  shadowed and fresh give the SAME answer
+  PASS  `X := X` (6.1.2 copy-in, written out) accumulates
+  PASS  `A := X` alias carry (control) agrees
+  PASS  self-alias and fresh-name alias give the SAME answer
+  PASS  nested, inner reuses the outer carry name: last cnt
+  PASS  nested, inner reuses the outer carry name: sum w
+  PASS  nested, fresh inner name (control): last cnt
+  PASS  nested, fresh inner name (control): sum w
+  PASS  nested shadowed and nested fresh give the SAME answer
+  PASS  `while w < 3` where w is the shadowed carry terminates and is right
+  PASS  fresh guard name (control) agrees
+  PASS  guard shadowed and guard fresh give the SAME answer
+  PASS  the enclosing w is unchanged by the loop that shadowed it
+  PASS  ...and is NOT the carry's final value
+
+--- Summary: 16 passed, 0 failed ---

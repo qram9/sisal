@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: tag_dispatch_dv (nested tagcase scrutinee pinning) ===
+  PASS  Pick(A,B): outer A arm, inner B arm == 20
+  PASS  Pick(A,A): outer A arm, inner A arm == 10
+  PASS  Pick(B,A): outer B arm, inner A arm == 30
+  PASS  Pick(B,B): outer B arm, inner B arm == 40
+
+--- Summary: 4 passed, 0 failed ---

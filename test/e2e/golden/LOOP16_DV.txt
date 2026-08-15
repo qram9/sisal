@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop16_dv (Monte Carlo search, vs C reference) ===
+  PASS  loop16_dv v1 matches C reference
+  PASS  loop16_dv v2 matches C reference
+
+--- Summary: 2 passed, 0 failed ---

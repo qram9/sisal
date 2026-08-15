@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_simple_dv ===
+  PASS  size is 2
+  PASS  element 0 is 1.2
+  PASS  element 1 is 3.2
+
+--- Summary: 3 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: inverse_dv (Gauss-Jordan matrix inverse, full pivoting, rank-2 dv; vs C reference) ===
+  PASS  4x4 inverse matches C reference (1e-4, float)
+
+--- Summary: 1 passed, 0 failed ---

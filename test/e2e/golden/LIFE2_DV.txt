@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: life2_dv (game of life, flat rank-2) ===
+  PASS  life2(3 iterations, 6x6 core) == C reference grid
+
+--- Summary: 1 passed, 0 failed ---

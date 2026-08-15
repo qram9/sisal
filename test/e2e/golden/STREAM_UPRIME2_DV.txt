@@ -1,0 +1,44 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_uprime2_dv ===
+  PASS  Limit=20 size is 9
+  PASS  Limit=20 element 0 is 2
+  PASS  Limit=20 element 1 is 3
+  PASS  Limit=20 element 2 is 5
+  PASS  Limit=20 element 3 is 7
+  PASS  Limit=20 element 4 is 11
+  PASS  Limit=20 element 5 is 13
+  PASS  Limit=20 element 6 is 17
+  PASS  Limit=20 element 7 is 19
+  PASS  Limit=20 element 8 is 23
+  PASS  Limit=30 size is 11
+  PASS  Limit=30 element 0 is 2
+  PASS  Limit=30 element 1 is 3
+  PASS  Limit=30 element 2 is 5
+  PASS  Limit=30 element 3 is 7
+  PASS  Limit=30 element 4 is 11
+  PASS  Limit=30 element 5 is 13
+  PASS  Limit=30 element 6 is 17
+  PASS  Limit=30 element 7 is 19
+  PASS  Limit=30 element 8 is 23
+  PASS  Limit=30 element 9 is 29
+  PASS  Limit=30 element 10 is 31
+  PASS  Limit=48 size is 16
+  PASS  Limit=48 element 0 is 2
+  PASS  Limit=48 element 1 is 3
+  PASS  Limit=48 element 2 is 5
+  PASS  Limit=48 element 3 is 7
+  PASS  Limit=48 element 4 is 11
+  PASS  Limit=48 element 5 is 13
+  PASS  Limit=48 element 6 is 17
+  PASS  Limit=48 element 7 is 19
+  PASS  Limit=48 element 8 is 23
+  PASS  Limit=48 element 9 is 29
+  PASS  Limit=48 element 10 is 31
+  PASS  Limit=48 element 11 is 37
+  PASS  Limit=48 element 12 is 41
+  PASS  Limit=48 element 13 is 43
+  PASS  Limit=48 element 14 is 47
+  PASS  Limit=48 element 15 is 49
+
+--- Summary: 39 passed, 0 failed ---

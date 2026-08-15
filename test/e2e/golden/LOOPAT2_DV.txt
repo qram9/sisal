@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loopat2_dv (indexed square map) ===
+  PASS  Y[I]*Y[I] over 1..5
+
+--- Summary: 1 passed, 0 failed ---

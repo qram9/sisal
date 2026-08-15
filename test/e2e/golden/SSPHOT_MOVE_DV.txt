@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_move_dv (Russian roulette + move) ===
+  PASS  irr=0: plain move, one copy
+  PASS  escaped the problem (newid>nzones)
+  PASS  importance split 1->2 (2 copies at 1/3, as written)
+  PASS  importance r<1: continue, weight scaled up
+  PASS  same importance: untouched
+  PASS  weight roulette, light particle
+  PASS  weight in band (wmin .. 1/wmin)
+  PASS  weight roulette, heavy: splits 4 ways
+
+--- Summary: 8 passed, 0 failed ---

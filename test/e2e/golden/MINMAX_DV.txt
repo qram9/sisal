@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: minmax_dv (argmin/argmax first occurrence) ===
+  PASS  minmax imin == C reference
+  PASS  minmax iamin == C reference
+  PASS  minmax imax == C reference
+  PASS  minmax iamax == C reference
+
+--- Summary: 4 passed, 0 failed ---

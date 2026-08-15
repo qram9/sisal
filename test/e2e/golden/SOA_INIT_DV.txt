@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: soa_init_dv (nucleic init_A SoA: reshape flat -> rank-2 record fields) ===
+  PASS  SoA init_A six-probe sum == nucleic reference
+
+--- Summary: 1 passed, 0 failed ---

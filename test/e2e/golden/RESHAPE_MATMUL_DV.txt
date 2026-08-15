@@ -1,0 +1,113 @@
+=== dv_run_all test harness ===
+
+=== Group: reshape_matmul_dv (matmul over reshaped operands) ===
+  PASS  p=1 q=1 r=1 A is 1x1, A[i,j]=i*10+j
+  PASS  p=1 q=1 r=1 B is 1x1, B[j,k]=j+k
+  PASS  p=1 q=1 r=1 C is 1x1 and equals A*B
+  PASS  p=1 q=1 r=1 C_flat is the same buffer, rank 1
+  PASS  p=1 q=1 r=2 A is 1x1, A[i,j]=i*10+j
+  PASS  p=1 q=1 r=2 B is 1x2, B[j,k]=j+k
+  PASS  p=1 q=1 r=2 C is 1x2 and equals A*B
+  PASS  p=1 q=1 r=2 C_flat is the same buffer, rank 1
+  PASS  p=1 q=1 r=3 A is 1x1, A[i,j]=i*10+j
+  PASS  p=1 q=1 r=3 B is 1x3, B[j,k]=j+k
+  PASS  p=1 q=1 r=3 C is 1x3 and equals A*B
+  PASS  p=1 q=1 r=3 C_flat is the same buffer, rank 1
+  PASS  p=1 q=3 r=1 A is 1x3, A[i,j]=i*10+j
+  PASS  p=1 q=3 r=1 B is 3x1, B[j,k]=j+k
+  PASS  p=1 q=3 r=1 C is 1x1 and equals A*B
+  PASS  p=1 q=3 r=1 C_flat is the same buffer, rank 1
+  PASS  p=1 q=3 r=2 A is 1x3, A[i,j]=i*10+j
+  PASS  p=1 q=3 r=2 B is 3x2, B[j,k]=j+k
+  PASS  p=1 q=3 r=2 C is 1x2 and equals A*B
+  PASS  p=1 q=3 r=2 C_flat is the same buffer, rank 1
+  PASS  p=1 q=3 r=3 A is 1x3, A[i,j]=i*10+j
+  PASS  p=1 q=3 r=3 B is 3x3, B[j,k]=j+k
+  PASS  p=1 q=3 r=3 C is 1x3 and equals A*B
+  PASS  p=1 q=3 r=3 C_flat is the same buffer, rank 1
+  PASS  p=1 q=5 r=1 A is 1x5, A[i,j]=i*10+j
+  PASS  p=1 q=5 r=1 B is 5x1, B[j,k]=j+k
+  PASS  p=1 q=5 r=1 C is 1x1 and equals A*B
+  PASS  p=1 q=5 r=1 C_flat is the same buffer, rank 1
+  PASS  p=1 q=5 r=2 A is 1x5, A[i,j]=i*10+j
+  PASS  p=1 q=5 r=2 B is 5x2, B[j,k]=j+k
+  PASS  p=1 q=5 r=2 C is 1x2 and equals A*B
+  PASS  p=1 q=5 r=2 C_flat is the same buffer, rank 1
+  PASS  p=1 q=5 r=3 A is 1x5, A[i,j]=i*10+j
+  PASS  p=1 q=5 r=3 B is 5x3, B[j,k]=j+k
+  PASS  p=1 q=5 r=3 C is 1x3 and equals A*B
+  PASS  p=1 q=5 r=3 C_flat is the same buffer, rank 1
+  PASS  p=2 q=1 r=1 A is 2x1, A[i,j]=i*10+j
+  PASS  p=2 q=1 r=1 B is 1x1, B[j,k]=j+k
+  PASS  p=2 q=1 r=1 C is 2x1 and equals A*B
+  PASS  p=2 q=1 r=1 C_flat is the same buffer, rank 1
+  PASS  p=2 q=1 r=2 A is 2x1, A[i,j]=i*10+j
+  PASS  p=2 q=1 r=2 B is 1x2, B[j,k]=j+k
+  PASS  p=2 q=1 r=2 C is 2x2 and equals A*B
+  PASS  p=2 q=1 r=2 C_flat is the same buffer, rank 1
+  PASS  p=2 q=1 r=3 A is 2x1, A[i,j]=i*10+j
+  PASS  p=2 q=1 r=3 B is 1x3, B[j,k]=j+k
+  PASS  p=2 q=1 r=3 C is 2x3 and equals A*B
+  PASS  p=2 q=1 r=3 C_flat is the same buffer, rank 1
+  PASS  p=2 q=3 r=1 A is 2x3, A[i,j]=i*10+j
+  PASS  p=2 q=3 r=1 B is 3x1, B[j,k]=j+k
+  PASS  p=2 q=3 r=1 C is 2x1 and equals A*B
+  PASS  p=2 q=3 r=1 C_flat is the same buffer, rank 1
+  PASS  p=2 q=3 r=2 A is 2x3, A[i,j]=i*10+j
+  PASS  p=2 q=3 r=2 B is 3x2, B[j,k]=j+k
+  PASS  p=2 q=3 r=2 C is 2x2 and equals A*B
+  PASS  p=2 q=3 r=2 C_flat is the same buffer, rank 1
+  PASS  p=2 q=3 r=3 A is 2x3, A[i,j]=i*10+j
+  PASS  p=2 q=3 r=3 B is 3x3, B[j,k]=j+k
+  PASS  p=2 q=3 r=3 C is 2x3 and equals A*B
+  PASS  p=2 q=3 r=3 C_flat is the same buffer, rank 1
+  PASS  p=2 q=5 r=1 A is 2x5, A[i,j]=i*10+j
+  PASS  p=2 q=5 r=1 B is 5x1, B[j,k]=j+k
+  PASS  p=2 q=5 r=1 C is 2x1 and equals A*B
+  PASS  p=2 q=5 r=1 C_flat is the same buffer, rank 1
+  PASS  p=2 q=5 r=2 A is 2x5, A[i,j]=i*10+j
+  PASS  p=2 q=5 r=2 B is 5x2, B[j,k]=j+k
+  PASS  p=2 q=5 r=2 C is 2x2 and equals A*B
+  PASS  p=2 q=5 r=2 C_flat is the same buffer, rank 1
+  PASS  p=2 q=5 r=3 A is 2x5, A[i,j]=i*10+j
+  PASS  p=2 q=5 r=3 B is 5x3, B[j,k]=j+k
+  PASS  p=2 q=5 r=3 C is 2x3 and equals A*B
+  PASS  p=2 q=5 r=3 C_flat is the same buffer, rank 1
+  PASS  p=4 q=1 r=1 A is 4x1, A[i,j]=i*10+j
+  PASS  p=4 q=1 r=1 B is 1x1, B[j,k]=j+k
+  PASS  p=4 q=1 r=1 C is 4x1 and equals A*B
+  PASS  p=4 q=1 r=1 C_flat is the same buffer, rank 1
+  PASS  p=4 q=1 r=2 A is 4x1, A[i,j]=i*10+j
+  PASS  p=4 q=1 r=2 B is 1x2, B[j,k]=j+k
+  PASS  p=4 q=1 r=2 C is 4x2 and equals A*B
+  PASS  p=4 q=1 r=2 C_flat is the same buffer, rank 1
+  PASS  p=4 q=1 r=3 A is 4x1, A[i,j]=i*10+j
+  PASS  p=4 q=1 r=3 B is 1x3, B[j,k]=j+k
+  PASS  p=4 q=1 r=3 C is 4x3 and equals A*B
+  PASS  p=4 q=1 r=3 C_flat is the same buffer, rank 1
+  PASS  p=4 q=3 r=1 A is 4x3, A[i,j]=i*10+j
+  PASS  p=4 q=3 r=1 B is 3x1, B[j,k]=j+k
+  PASS  p=4 q=3 r=1 C is 4x1 and equals A*B
+  PASS  p=4 q=3 r=1 C_flat is the same buffer, rank 1
+  PASS  p=4 q=3 r=2 A is 4x3, A[i,j]=i*10+j
+  PASS  p=4 q=3 r=2 B is 3x2, B[j,k]=j+k
+  PASS  p=4 q=3 r=2 C is 4x2 and equals A*B
+  PASS  p=4 q=3 r=2 C_flat is the same buffer, rank 1
+  PASS  p=4 q=3 r=3 A is 4x3, A[i,j]=i*10+j
+  PASS  p=4 q=3 r=3 B is 3x3, B[j,k]=j+k
+  PASS  p=4 q=3 r=3 C is 4x3 and equals A*B
+  PASS  p=4 q=3 r=3 C_flat is the same buffer, rank 1
+  PASS  p=4 q=5 r=1 A is 4x5, A[i,j]=i*10+j
+  PASS  p=4 q=5 r=1 B is 5x1, B[j,k]=j+k
+  PASS  p=4 q=5 r=1 C is 4x1 and equals A*B
+  PASS  p=4 q=5 r=1 C_flat is the same buffer, rank 1
+  PASS  p=4 q=5 r=2 A is 4x5, A[i,j]=i*10+j
+  PASS  p=4 q=5 r=2 B is 5x2, B[j,k]=j+k
+  PASS  p=4 q=5 r=2 C is 4x2 and equals A*B
+  PASS  p=4 q=5 r=2 C_flat is the same buffer, rank 1
+  PASS  p=4 q=5 r=3 A is 4x5, A[i,j]=i*10+j
+  PASS  p=4 q=5 r=3 B is 5x3, B[j,k]=j+k
+  PASS  p=4 q=5 r=3 C is 4x3 and equals A*B
+  PASS  p=4 q=5 r=3 C_flat is the same buffer, rank 1
+
+--- Summary: 108 passed, 0 failed ---

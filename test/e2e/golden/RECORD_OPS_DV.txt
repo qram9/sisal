@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: record_ops_dv (nested records, chained reads, replace) ===
+  PASS  q: p.a+q.a, p.n.x+p.n.y, q.n.y == 47, 3, 2
+  PASS  s = p replace [n.x:9; a:50]: s.n.x+s.n.y, s.a == 11, 50
+  PASS  B = A || A: B[1].x+B[3].x, B[4].y == 2, 20
+
+--- Summary: 3 passed, 0 failed ---

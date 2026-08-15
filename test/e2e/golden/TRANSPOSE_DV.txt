@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: transpose_dv (rank-2 dv transpose by permuted read; vs C reference) ===
+  PASS  2x3 -> 3x2, elements a[i,j]=b[j,i]
+
+--- Summary: 1 passed, 0 failed ---

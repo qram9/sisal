@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: spec_dv (inverse Legendre transform, 4 rank-3 outputs) ===
+  PASS  pg
+  PASS  zg
+  PASS  ug
+  PASS  vg
+
+--- Summary: 4 passed, 0 failed ---

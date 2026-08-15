@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: red_ops_dv (product/greatest/least reductions) ===
+  PASS  red_ops_dv product/greatest/least gathered (rank 1)
+
+--- Summary: 1 passed, 0 failed ---

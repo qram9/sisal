@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: fncall_forall_dv (multi-output fn called in forall) ===
+  PASS  fncall_forall_dv a+b per i == [5,10,15]
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: parpi2 (two-sum forall pi) ===
+  PASS  parpi2(2000) == mirrored (a-b)*4
+
+--- Summary: 1 passed, 0 failed ---

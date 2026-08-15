@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: tagcase_bare_mixed_dv (mixed bare/bound nesting) ===
+  PASS  s=1
+  PASS  s=2
+  PASS  s=0
+  PASS  s=3
+
+--- Summary: 4 passed, 0 failed ---

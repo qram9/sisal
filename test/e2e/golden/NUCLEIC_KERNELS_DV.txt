@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_kernels_dv (distance, atom_pos_pt, tfo_combine) ===
+  PASS  distance(c1_) matches
+  PASS  atom_pos_pt through loose 12-scalar transform
+  PASS  tfo_combine 12-entry digest
+
+--- Summary: 3 passed, 0 failed ---

@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: ifg_3_dv (grid radix-3) ===
+  PASS  n=24 la=1 inc1=2 inc2=1 result is 400 reals
+  PASS  n=24 la=1 inc1=2 inc2=1 grid radix-3 matches reference
+  PASS  n=48 la=2 inc1=2 inc2=1 result is 400 reals
+  PASS  n=48 la=2 inc1=2 inc2=1 grid radix-3 matches reference
+  PASS  n=24 la=2 inc1=1 inc2=1 result is 400 reals
+  PASS  n=24 la=2 inc1=1 inc2=1 grid radix-3 matches reference
+  PASS  n=36 la=1 inc1=3 inc2=1 result is 400 reals
+  PASS  n=36 la=1 inc1=3 inc2=1 grid radix-3 matches reference
+  PASS  n=48 la=1 inc1=2 inc2=2 result is 400 reals
+  PASS  n=48 la=1 inc1=2 inc2=2 grid radix-3 matches reference
+  PASS  n=60 la=2 inc1=3 inc2=1 result is 400 reals
+  PASS  n=60 la=2 inc1=3 inc2=1 grid radix-3 matches reference
+
+--- Summary: 12 passed, 0 failed ---

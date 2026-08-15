@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: tst_loopat1_dv (strict dot-length diamond) ===
+  PASS  equal dot: Y[J,I] shifted diagonal (9 values)
+  PASS  mismatched dot (9 vs 10) yields the error value
+
+--- Summary: 2 passed, 0 failed ---

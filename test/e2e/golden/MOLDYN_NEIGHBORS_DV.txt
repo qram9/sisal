@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_neighbors_dv (building the ragged lists) ===
+  PASS  varied counts: NEIGHBORS is rectangular rank-2 (NP x MaxN)
+  PASS  varied counts: NCOUNT (from the packed masked gather) == mirror
+  PASS  varied counts: padded rows == mirror, zero-filled past the count
+  PASS  varied counts: `|| Zeros(..)` rows == independent scan
+  PASS  every particle maximal: NEIGHBORS is rectangular rank-2 (NP x MaxN)
+  PASS  every particle maximal: NCOUNT (from the packed masked gather) == mirror
+  PASS  every particle maximal: padded rows == mirror, zero-filled past the count
+  PASS  every particle maximal: `|| Zeros(..)` rows == independent scan
+
+--- Summary: 8 passed, 0 failed ---

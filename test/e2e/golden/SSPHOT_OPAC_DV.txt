@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: ssphot_opac_dv (cross-sections per material) ===
+  PASS  Thomson on, table opacities, per-group
+  PASS  Thomson OFF -- scrat must fall to zero
+  PASS  igroup pins every group to one energy
+  PASS  ixopec overrides the table entirely
+
+--- Summary: 4 passed, 0 failed ---

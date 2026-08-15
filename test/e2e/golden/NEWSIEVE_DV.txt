@@ -1,0 +1,41 @@
+=== dv_run_all test harness ===
+
+=== Group: newsieve_dv (sieve on array_dv[boolean], 1-byte elements) ===
+  PASS  n=10  flags are 5 booleans at 1 byte each
+  PASS  n=10  every flag matches primality of 2i+1
+  PASS  n=10  yields 5 primes (odds covered up to 11)
+  PASS  n=10  compacted list equals the primes, 2 prepended
+  PASS  n=11  flags are 5 booleans at 1 byte each
+  PASS  n=11  every flag matches primality of 2i+1
+  PASS  n=11  yields 5 primes (odds covered up to 11)
+  PASS  n=11  compacted list equals the primes, 2 prepended
+  PASS  n=20  flags are 10 booleans at 1 byte each
+  PASS  n=20  every flag matches primality of 2i+1
+  PASS  n=20  yields 8 primes (odds covered up to 21)
+  PASS  n=20  compacted list equals the primes, 2 prepended
+  PASS  n=25  flags are 12 booleans at 1 byte each
+  PASS  n=25  every flag matches primality of 2i+1
+  PASS  n=25  yields 9 primes (odds covered up to 25)
+  PASS  n=25  compacted list equals the primes, 2 prepended
+  PASS  n=30  flags are 15 booleans at 1 byte each
+  PASS  n=30  every flag matches primality of 2i+1
+  PASS  n=30  yields 11 primes (odds covered up to 31)
+  PASS  n=30  compacted list equals the primes, 2 prepended
+  PASS  n=49  flags are 24 booleans at 1 byte each
+  PASS  n=49  every flag matches primality of 2i+1
+  PASS  n=49  yields 15 primes (odds covered up to 49)
+  PASS  n=49  compacted list equals the primes, 2 prepended
+  PASS  n=50  flags are 25 booleans at 1 byte each
+  PASS  n=50  every flag matches primality of 2i+1
+  PASS  n=50  yields 15 primes (odds covered up to 51)
+  PASS  n=50  compacted list equals the primes, 2 prepended
+  PASS  n=100 flags are 50 booleans at 1 byte each
+  PASS  n=100 every flag matches primality of 2i+1
+  PASS  n=100 yields 26 primes (odds covered up to 101)
+  PASS  n=100 compacted list equals the primes, 2 prepended
+  PASS  n=101 flags are 50 booleans at 1 byte each
+  PASS  n=101 every flag matches primality of 2i+1
+  PASS  n=101 yields 26 primes (odds covered up to 101)
+  PASS  n=101 compacted list equals the primes, 2 prepended
+
+--- Summary: 36 passed, 0 failed ---

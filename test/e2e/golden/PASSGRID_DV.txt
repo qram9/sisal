@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: passgrid_dv (grid dispatch, transposed derivation) ===
+  PASS  n=16 ifac=2 la=1 -> grid radix 2, 400 reals
+  PASS  n=16 ifac=2 la=1 transposed derivation matches
+  PASS  n=24 ifac=3 la=1 -> grid radix 3, 400 reals
+  PASS  n=24 ifac=3 la=1 transposed derivation matches
+  PASS  n=32 ifac=4 la=1 -> grid radix 4, 400 reals
+  PASS  n=32 ifac=4 la=1 transposed derivation matches
+  PASS  n=48 ifac=3 la=2 -> grid radix 3, 400 reals
+  PASS  n=48 ifac=3 la=2 transposed derivation matches
+  PASS  n=64 ifac=4 la=2 -> grid radix 4, 400 reals
+  PASS  n=64 ifac=4 la=2 transposed derivation matches
+  PASS  n=32 ifac=2 la=2 -> grid radix 2, 400 reals
+  PASS  n=32 ifac=2 la=2 transposed derivation matches
+
+--- Summary: 12 passed, 0 failed ---

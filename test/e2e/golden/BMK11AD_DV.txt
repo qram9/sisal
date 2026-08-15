@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: bmk11ad_dv (destructive vs gather re-zeroing) ===
+  PASS  destructive re-zeroing agrees with the gather form elementwise, for every upb
+  PASS  ...clearing exactly indices 1..upb -- the increment precedes the update, so the pre-increment index is the one cleared
+  PASS  ...and carrying the tail above upb through untouched
+  PASS  both boundaries exercised: upb = 0 (zero trip) and upb = l4 (all)
+
+--- Summary: 4 passed, 0 failed ---

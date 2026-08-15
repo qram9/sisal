@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: energy_dv (complex-record energy diagnostics) ===
+  PASS  ptot
+  PASS  ktot
+  PASS  total
+
+--- Summary: 3 passed, 0 failed ---

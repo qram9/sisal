@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group SWAP: in-loop row swap (DV_RANK_REPLACE, aliasing) ===
+  PASS  swaploop n=1 -> 21 22 11 12
+  PASS  swaploop n=2 -> original (round-trip)
+
+--- Summary: 2 passed, 0 failed ---

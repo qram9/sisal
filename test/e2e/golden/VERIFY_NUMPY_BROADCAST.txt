@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: verify_numpy_broadcast (dv broadcasting rules) ===
+  PASS  [2,3] + [3] trailing-axis
+  PASS  [10,1] + [1,5] -> [10,5] unit expansion
+  PASS  scalar + [3,3]
+  PASS  (A+B)*2 - A multi-op lift
+
+--- Summary: 4 passed, 0 failed ---

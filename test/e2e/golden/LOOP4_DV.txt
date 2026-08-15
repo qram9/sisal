@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: loop4_dv (banded linear equations, vs C reference) ===
+  PASS  loop4_dv banded-linear matches C reference (n=20)
+  PASS  loop4_dv updated X[6],X[503],X[1000]
+
+--- Summary: 2 passed, 0 failed ---

@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: loopcarry_identity (parallel multi-carry -> B) ===
+  PASS  lci rank-1
+  PASS  lci[0]=10
+  PASS  lci[1]=20
+  PASS  lci[2]=30
+
+--- Summary: 4 passed, 0 failed ---

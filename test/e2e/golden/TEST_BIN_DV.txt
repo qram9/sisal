@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: test_bin_dv (nested-fn scalar arithmetic) ===
+  PASS  level=5
+  PASS  level=10
+  PASS  level=0
+  PASS  level=-3
+  PASS  level=7
+  PASS  level=100
+
+--- Summary: 6 passed, 0 failed ---

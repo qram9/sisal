@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: matmul_dv (nested forall) ===
+  PASS  matmul_dv rank
+  PASS  matmul_dv dims[0]
+  PASS  matmul_dv dims[1]
+  PASS  matmul_dv[0,0]=19
+  PASS  matmul_dv[0,1]=22
+  PASS  matmul_dv[1,0]=43
+  PASS  matmul_dv[1,1]=50
+  PASS  matmul_dv 3x3 * I3 == A
+
+--- Summary: 8 passed, 0 failed ---

@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: psa_cost_dv (energy over a padded schedule) ===
+  PASS  equal 3x3 periods: costs [1 1 1]
+  PASS  global cost 3
+  PASS  Member finds a tuple that is present
+  PASS  Member rejects one that is not
+  PASS  Period_Index locates it at slot 2
+  PASS  Period_Index returns the length when absent
+  PASS  ragged 4,2,3 held padded: costs [3 0 1]
+  PASS  its global cost 4 -- padding contributes nothing
+  PASS  live lengths [4 2 3]
+
+--- Summary: 9 passed, 0 failed ---

@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: bmk11a_rel_dv (part 3/4: relativistic push) ===
+  PASS  gamma is stored INVERTED: at gamma = 2 the drift is dt*u/2, not 2*dt*u
+  PASS  zero fields: proper velocity untouched, and the drift is strictly less than dt*u (unlike parmov)
+  PASS  non-relativistic limit: the gap to the ga = 1 (parmov) form is large at u ~ 1 and shrinks monotonically to nothing
+  PASS  full relativistic push: velocities and positions match the transcribed reference
+  PASS  ...and the deposited current and charge match cell by cell
+  PASS  sumf1/2/3 sum the INPUT velocities, not the pushed ones
+  PASS  ...so a change in E moves the velocities but leaves the sums fixed
+  PASS  x < 0: the particle neither moves nor is kicked
+
+--- Summary: 8 passed, 0 failed ---

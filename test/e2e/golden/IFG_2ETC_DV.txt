@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: ifg_2etc_dv (grid radix-2, transposed dual) ===
+  PASS  n=16 la=1 inc1=2 inc2=1 result is 400 reals
+  PASS  n=16 la=1 inc1=2 inc2=1 grid butterfly matches reference
+  PASS  n=32 la=2 inc1=2 inc2=1 result is 400 reals
+  PASS  n=32 la=2 inc1=2 inc2=1 grid butterfly matches reference
+  PASS  n=16 la=2 inc1=1 inc2=1 result is 400 reals
+  PASS  n=16 la=2 inc1=1 inc2=1 grid butterfly matches reference
+  PASS  n=24 la=1 inc1=3 inc2=1 result is 400 reals
+  PASS  n=24 la=1 inc1=3 inc2=1 grid butterfly matches reference
+  PASS  n=32 la=1 inc1=2 inc2=2 result is 400 reals
+  PASS  n=32 la=1 inc1=2 inc2=2 grid butterfly matches reference
+  PASS  n=40 la=2 inc1=3 inc2=1 result is 400 reals
+  PASS  n=40 la=2 inc1=3 inc2=1 grid butterfly matches reference
+
+--- Summary: 12 passed, 0 failed ---

@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: tuple_mixed3 (tuple destructure slots) ===
+  PASS  A + 1 == 11
+  PASS  B * 2.0 == 6.28 (slot-1 payload, not slot-0)
+
+--- Summary: 2 passed, 0 failed ---

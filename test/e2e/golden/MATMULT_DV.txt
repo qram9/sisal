@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: matmult_dv (rank-2 dv matmul across a call boundary; vs C reference) ===
+  PASS  2x3 * 3x2 matches C reference
+
+--- Summary: 1 passed, 0 failed ---

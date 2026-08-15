@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_dv (the whole simulation, end to end) ===
+  PASS  trajectory is rank-2, one [TOUT, X1] pair per step
+  PASS  whole trajectory == an independent seven-stage mirror
+  PASS  the seed state is entry 0 (1.2 history: initial is body_0)
+  PASS  final TOUT is the first past ENDTIME (Rule 2: out-of-bound gathered)
+  PASS  particle 1 actually moved under the force
+  PASS  ENSEMBLE_SIZE survived every step
+
+--- Summary: 6 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: transpose_at_dv (cross forall scatter, no loop interchange) ===
+  PASS  transpose(2x3) at [j,i] == 3x2
+
+--- Summary: 1 passed, 0 failed ---

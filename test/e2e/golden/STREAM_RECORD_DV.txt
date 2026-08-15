@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: stream_record_dv (stream[record], mixed field types) ===
+  PASS  record streams (literal, lazy, mixed fields) match the reference
+  PASS  fields survive the round trip: Two() sums to (4,6)
+  PASS  a mixed-width element keeps int, double and bool distinct
+
+--- Summary: 3 passed, 0 failed ---

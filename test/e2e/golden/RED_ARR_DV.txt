@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: red_arr_dv (array-VALUED reductions, elementwise) ===
+  PASS  red_arr_dv sum/product/greatest/least of arrays (1-D + 2-D)
+
+--- Summary: 1 passed, 0 failed ---

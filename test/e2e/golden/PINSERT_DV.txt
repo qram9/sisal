@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: pinsert_dv (per-row insertion sort of a matrix) ===
+  PASS  each row sorted == per-row qsort
+
+--- Summary: 1 passed, 0 failed ---

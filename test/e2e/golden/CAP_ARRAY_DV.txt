@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: cap_array_dv (grab arrays + multiple let binds) ===
+  PASS  cap_array_dv B[i]+C[i]+s == 2*A[i]+10
+
+--- Summary: 1 passed, 0 failed ---

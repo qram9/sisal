@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: moldyn_rk_dv (RKF45 stages; rank-2 without padding) ===
+  PASS  BETA is a flat rank-2 6 x 5 (formulaic, so no padding)
+  PASS  BETA == the published Fehlberg coefficients
+  PASS  K is a flat rank-2 SYSTEM_SIZE x 6
+  PASS  all six RK stages == an independent Fehlberg mirror
+  PASS  Sum_Gamma_Ks over every slot == mirror
+  PASS  stage 1 is H*Diffun(S) -- later stages differ, so the sequence is real
+
+--- Summary: 6 passed, 0 failed ---

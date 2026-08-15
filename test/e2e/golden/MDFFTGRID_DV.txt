@@ -1,0 +1,42 @@
+=== dv_run_all test harness ===
+
+=== Group: mdfftgrid_dv (multi-factor inverse FFT vs naive IDFT) ===
+  PASS  n=8  ifax product == n (valid factorisation)
+  PASS  n=8  nfax=2 nwave=4  -> (n+1)*2 = 18 reals, rank 1
+  PASS  n=8  nfax=2 nwave=4  reconstructs the signal (naive IDFT)
+  PASS  n=8  tail [9..18] past the grid is zero
+  PASS  n=12 ifax product == n (valid factorisation)
+  PASS  n=12 nfax=2 nwave=6  -> (n+1)*2 = 26 reals, rank 1
+  PASS  n=12 nfax=2 nwave=6  reconstructs the signal (naive IDFT)
+  PASS  n=12 tail [13..26] past the grid is zero
+  PASS  n=16 ifax product == n (valid factorisation)
+  PASS  n=16 nfax=2 nwave=8  -> (n+1)*2 = 34 reals, rank 1
+  PASS  n=16 nfax=2 nwave=8  reconstructs the signal (naive IDFT)
+  PASS  n=16 tail [17..34] past the grid is zero
+  PASS  n=6  ifax product == n (valid factorisation)
+  PASS  n=6  nfax=2 nwave=3  -> (n+1)*2 = 14 reals, rank 1
+  PASS  n=6  nfax=2 nwave=3  reconstructs the signal (naive IDFT)
+  PASS  n=6  tail [7..14] past the grid is zero
+  PASS  n=24 ifax product == n (valid factorisation)
+  PASS  n=24 nfax=3 nwave=12 -> (n+1)*2 = 50 reals, rank 1
+  PASS  n=24 nfax=3 nwave=12 reconstructs the signal (naive IDFT)
+  PASS  n=24 tail [25..50] past the grid is zero
+  PASS  n=32 ifax product == n (valid factorisation)
+  PASS  n=32 nfax=3 nwave=16 -> (n+1)*2 = 66 reals, rank 1
+  PASS  n=32 nfax=3 nwave=16 reconstructs the signal (naive IDFT)
+  PASS  n=32 tail [33..66] past the grid is zero
+  PASS  n=16 ifax product == n (valid factorisation)
+  PASS  n=16 nfax=2 nwave=3  -> (n+1)*2 = 34 reals, rank 1
+  PASS  n=16 nfax=2 nwave=3  reconstructs the signal (naive IDFT)
+  PASS  n=16 tail [17..34] past the grid is zero
+  PASS  n=12 ifax product == n (valid factorisation)
+  PASS  n=12 nfax=2 nwave=2  -> (n+1)*2 = 26 reals, rank 1
+  PASS  n=12 nfax=2 nwave=2  reconstructs the signal (naive IDFT)
+  PASS  n=12 tail [13..26] past the grid is zero
+  PASS  n=8  ifax product == n (valid factorisation)
+  PASS  n=8  nfax=2 nwave=2  -> (n+1)*2 = 18 reals, rank 1
+  PASS  n=8  nfax=2 nwave=2  reconstructs the signal (naive IDFT)
+  PASS  n=8  tail [9..18] past the grid is zero
+  PASS  nfax=1 returns the grid at STRIDE 2 (source bug: inc2=2 on the single pass, should be 1)
+
+--- Summary: 37 passed, 0 failed ---

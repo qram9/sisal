@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: test_if_nested_capture_dv (nested if, captured scalar) ===
+  PASS  sel=1 flag=1 cap=77
+  PASS  sel=1 flag=0 cap=77
+  PASS  sel=2 flag=1 cap=5
+  PASS  sel=0 flag=0 cap=9
+
+--- Summary: 4 passed, 0 failed ---

@@ -120,16 +120,16 @@ extern "C" int32_t func_MAX_TO_N (int32_t N);
 static void
 test_abs_demo (void)
 {
-  printf ("\n=== Group A: dv_abs_demo ===\n");
-  float inp[] = { -1.5f, 2.5f, -3.5f };
-  float exp[] = { 1.5f, 2.5f, 3.5f };
-  sisal_array_t v = make_float_arr (inp, 3);
+  printf ("\n=== Group A: dv_abs_demo (vs fabsf) ===\n");
+  // was: a 3-element table of hand-written answers.  fabsf is the definition,
+  // so the input can be awkward instead of convenient.
+  const std::vector<float> &in = ewref::xs ();
+  sisal_array_t v = ewref::mkf (in);
   sisal_array_t r = func_DV_ABS_DEMO (v);
-  check ("abs_demo[0]", near_f (af (r, 0), exp[0]));
-  check ("abs_demo[1]", near_f (af (r, 1), exp[1]));
-  check ("abs_demo[2]", near_f (af (r, 2), exp[2]));
+  check ("abs_demo == fabsf elementwise (negatives, zero, fractions)",
+         ewref::unary_f (r, in, [] (float x) { return fabsf (x); }));
   free (v.data);
-  free (r.data);
+  if (r.data && r.data != v.data) free (r.data);
 }
 #endif
 
@@ -141,19 +141,19 @@ test_abs_demo (void)
 static void
 test_agreement (void)
 {
-  printf ("\n=== Group B: dv_agreement ===\n");
-  int32_t a[] = { 1, 2, 3 };
-  int32_t b[] = { 10, 20, 30 };
-  int32_t ex[] = { 11, 22, 33 };
-  sisal_array_t va = make_int_arr (a, 3);
-  sisal_array_t vb = make_int_arr (b, 3);
+  printf ("\n=== Group B: dv_agreement (dot-product generator; vs a + b) ===\n");
+  // `for i in A dot j in B returns array_dv of i + j` -- the reference is the
+  // elementwise sum, computed rather than tabulated.
+  std::vector<int32_t> a, b;
+  for (int i = 0; i < 9; i++) { a.push_back (i * 3 - 10); b.push_back (100 - i * 7); }
+  sisal_array_t va = ewref::mki (a), vb = ewref::mki (b);
   sisal_array_t r = func_MAIN (va, vb);
-  check ("agreement[0]", ai (r, 0) == ex[0]);
-  check ("agreement[1]", ai (r, 1) == ex[1]);
-  check ("agreement[2]", ai (r, 2) == ex[2]);
-  free (va.data);
-  free (vb.data);
-  free (r.data);
+  bool ok = ((size_t)r.size == a.size ());
+  for (size_t i = 0; ok && i < a.size (); i++)
+    ok = (((const int32_t *)r.data)[i] == a[i] + b[i]);
+  check ("agreement == a[i] + b[i] over 9 elements incl. negatives", ok);
+  free (va.data); free (vb.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -165,20 +165,18 @@ test_agreement (void)
 static void
 test_lifted_arith (void)
 {
-  printf ("\n=== Group C: dv_lifted_arith ===\n");
-  double a[] = { 1.0, 2.0, 3.0 };
-  double b[] = { 10.0, 20.0, 30.0 };
-  // A*B+A = [1*10+1, 2*20+2, 3*30+3] = [11, 42, 93]
-  double ex[] = { 11.0, 42.0, 93.0 };
-  sisal_array_t va = make_double_arr (a, 3);
-  sisal_array_t vb = make_double_arr (b, 3);
+  printf ("\n=== Group C: dv_lifted_arith (A*B+A; vs C reference) ===\n");
+  // the formula used to live in a comment with the answers hardcoded
+  std::vector<double> a, b;
+  for (int i = 0; i < 8; i++) { a.push_back (0.5 * i - 2.0); b.push_back (3.0 - 1.25 * i); }
+  sisal_array_t va = ewref::mkd (a), vb = ewref::mkd (b);
   sisal_array_t r = func_MAIN (va, vb);
-  check ("lifted_arith[0]", near_d (ad (r, 0), ex[0]));
-  check ("lifted_arith[1]", near_d (ad (r, 1), ex[1]));
-  check ("lifted_arith[2]", near_d (ad (r, 2), ex[2]));
-  free (va.data);
-  free (vb.data);
-  free (r.data);
+  bool ok = ((size_t)r.size == a.size ());
+  for (size_t i = 0; ok && i < a.size (); i++)
+    ok = fabs (((const double *)r.data)[i] - (a[i] * b[i] + a[i])) < 1e-12;
+  check ("lifted_arith == a*b + a over 8 elements incl. negatives and zero", ok);
+  free (va.data); free (vb.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -190,16 +188,18 @@ test_lifted_arith (void)
 static void
 test_shl (void)
 {
-  printf ("\n=== Group D: dv_shl ===\n");
-  int32_t v[] = { 1, 2, 4 };
-  int32_t ex[] = { 4, 8, 16 };
-  sisal_array_t vv = make_int_arr (v, 3);
-  sisal_array_t r = func_DV_SHL_SCALAR (vv, 2);
-  check ("shl[0]", ai (r, 0) == ex[0]);
-  check ("shl[1]", ai (r, 1) == ex[1]);
-  check ("shl[2]", ai (r, 2) == ex[2]);
-  free (vv.data);
-  free (r.data);
+  printf ("\n=== Group D: dv_shl (vs C <<) ===\n");
+  const std::vector<int32_t> in = { 0, 1, 2, 3, 5, 17, 1023 };
+  bool ok = true;
+  for (int32_t n : { 0, 1, 2, 5 })
+    {
+      sisal_array_t v = ewref::mki (in);
+      sisal_array_t r = func_DV_SHL_SCALAR (v, n);
+      ok = ok && ewref::binary_i (r, in, [n] (int32_t x) { return x << n; });
+      free (v.data);
+      if (r.data) free (r.data);
+    }
+  check ("shl == x << n for n = 0,1,2,5 (n = 0 is the identity)", ok);
 }
 #endif
 
@@ -211,122 +211,49 @@ test_shl (void)
 static void
 test_test_subset (void)
 {
-  printf ("\n=== Group E: dv_test_subset ===\n");
+  printf ("\n=== Group E: dv_test_subset (10 primitives vs libm / C) ===\n");
+  // a smaller cut of the same surface as Group F, kept because it is the group
+  // the dv_test_subset.sis program exports; expectations computed, not tabulated
+  const std::vector<float> &X = ewref::xs ();
+  const std::vector<float> &P = ewref::pos ();
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
 
-  // abs([-1,2,-3]) → [1,2,3]
-  {
-    float inp[] = { -1.f, 2.f, -3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_ABS_REAL (v);
-    check ("ts_abs[0]", near_f (af (r, 0), 1.f));
-    check ("ts_abs[1]", near_f (af (r, 1), 2.f));
-    check ("ts_abs[2]", near_f (af (r, 2), 3.f));
-    free (v.data);
-    free (r.data);
-  }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_ABS_REAL (v);
+    want ("abs", ewref::unary_f (r, X, [] (float x) { return fabsf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_NEGATE_REAL (v);
+    want ("negate", ewref::unary_f (r, X, [] (float x) { return -x; }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (P), r = func_DV_SQRT_REAL (v);
+    want ("sqrt", ewref::unary_f (r, P, [] (float x) { return sqrtf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_SIN_REAL (v);
+    want ("sin", ewref::unary_f (r, X, [] (float x) { return sinf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_COS_REAL (v);
+    want ("cos", ewref::unary_f (r, X, [] (float x) { return cosf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  std::vector<float> B;
+  for (size_t i = 0; i < X.size (); i++) B.push_back (2.0f - 0.5f * (float)i);
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_ADD_DV (a, b);
+    want ("add", ewref::binary_f (r, X, B, [] (float u, float v) { return u + v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_ADD_SCALAR (v, 3.25f);
+    want ("dv+scalar", ewref::unary_f (r, X, [] (float x) { return x + 3.25f; }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_MUL_SCALAR (v, -1.5f);
+    want ("dv*scalar", ewref::unary_f (r, X, [] (float x) { return x * -1.5f; }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_GT_SCALAR (v, 0.0f);
+    want ("gt_scalar", ewref::pred_f (r, X, X, [] (float x, float) { return x > 0.0f; }));
+    free (v.data); if (r.data) free (r.data); }
+  { float sum = 0; for (float x : X) sum += x;
+    sisal_array_t v = ewref::mkf (X);
+    want ("sum", fabsf (func_DV_SUM_REAL (v) - sum) < 1e-4f);
+    free (v.data); }
 
-  // negate([1,-2,3]) → [-1,2,-3]
-  {
-    float inp[] = { 1.f, -2.f, 3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_NEGATE_REAL (v);
-    check ("ts_negate[0]", near_f (af (r, 0), -1.f));
-    check ("ts_negate[1]", near_f (af (r, 1), 2.f));
-    check ("ts_negate[2]", near_f (af (r, 2), -3.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // sqrt([1,4,9]) → [1,2,3]
-  {
-    float inp[] = { 1.f, 4.f, 9.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_SQRT_REAL (v);
-    check ("ts_sqrt[0]", near_f (af (r, 0), 1.f));
-    check ("ts_sqrt[1]", near_f (af (r, 1), 2.f));
-    check ("ts_sqrt[2]", near_f (af (r, 2), 3.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // sin([0]) → [0]
-  {
-    float inp[] = { 0.f };
-    sisal_array_t v = make_float_arr (inp, 1);
-    sisal_array_t r = func_DV_SIN_REAL (v);
-    check ("ts_sin[0]", near_f (af (r, 0), 0.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // cos([0]) → [1]
-  {
-    float inp[] = { 0.f };
-    sisal_array_t v = make_float_arr (inp, 1);
-    sisal_array_t r = func_DV_COS_REAL (v);
-    check ("ts_cos[0]", near_f (af (r, 0), 1.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // add_dv([1,2],[3,4]) → [4,6]
-  {
-    float a[] = { 1.f, 2.f };
-    float b[] = { 3.f, 4.f };
-    sisal_array_t va = make_float_arr (a, 2);
-    sisal_array_t vb = make_float_arr (b, 2);
-    sisal_array_t r = func_DV_ADD_DV (va, vb);
-    check ("ts_add_dv[0]", near_f (af (r, 0), 4.f));
-    check ("ts_add_dv[1]", near_f (af (r, 1), 6.f));
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // mul_scalar([2,3,4], 10) → [20,30,40]
-  {
-    float inp[] = { 2.f, 3.f, 4.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_MUL_SCALAR (v, 10.f);
-    check ("ts_mul_scalar[0]", near_f (af (r, 0), 20.f));
-    check ("ts_mul_scalar[1]", near_f (af (r, 1), 30.f));
-    check ("ts_mul_scalar[2]", near_f (af (r, 2), 40.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // add_scalar([1,2,3], 10) → [11,12,13]
-  {
-    float inp[] = { 1.f, 2.f, 3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_ADD_SCALAR (v, 10.f);
-    check ("ts_add_scalar[0]", near_f (af (r, 0), 11.f));
-    check ("ts_add_scalar[1]", near_f (af (r, 1), 12.f));
-    check ("ts_add_scalar[2]", near_f (af (r, 2), 13.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // gt_scalar([1,5,3], 2) → [false,true,true]
-  {
-    float inp[] = { 1.f, 5.f, 3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_GT_SCALAR (v, 2.f);
-    check ("ts_gt_scalar[0]", ab (r, 0) == false);
-    check ("ts_gt_scalar[1]", ab (r, 1) == true);
-    check ("ts_gt_scalar[2]", ab (r, 2) == true);
-    free (v.data);
-    free (r.data);
-  }
-
-  // sum_real([1,2,3,4]) → 10
-  {
-    float inp[] = { 1.f, 2.f, 3.f, 4.f };
-    sisal_array_t v = make_float_arr (inp, 4);
-    float s = func_DV_SUM_REAL (v);
-    check ("ts_sum_real", near_f (s, 10.f));
-    free (v.data);
-  }
+  check ("all 10 subset primitives match libm / the C operator", bad == 0);
 }
 #endif
 
@@ -338,358 +265,126 @@ test_test_subset (void)
 static void
 test_intrinsics (void)
 {
-  printf ("\n=== Group F: dv_intrinsics ===\n");
+  printf ("\n=== Group F: dv_intrinsics (29 primitives vs libm / C operators) "
+          "===\n");
+  // Every expectation here used to be a constant chosen so the answer was easy
+  // to write down -- sqrt of perfect squares, sin(0), abs of three values.  Now
+  // each is computed from the input by libm or the C operator, which lets the
+  // inputs be awkward: negatives, zero, and fractions on both sides of an
+  // integer so floor and trunc must disagree.
+  const std::vector<float> &X = ewref::xs ();      // general
+  const std::vector<float> &P = ewref::pos ();     // strictly positive
+  const std::vector<int32_t> &I = ewref::ints ();
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
 
-  // dv_abs_real([-1,2,-3]) → [1,2,3]
-  {
-    float inp[] = { -1.f, 2.f, -3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_ABS_REAL (v);
-    check ("intr_abs_real[0]", near_f (af (r, 0), 1.f));
-    check ("intr_abs_real[1]", near_f (af (r, 1), 2.f));
-    check ("intr_abs_real[2]", near_f (af (r, 2), 3.f));
-    free (v.data);
-    free (r.data);
-  }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_ABS_REAL (v);
+    want ("abs", ewref::unary_f (r, X, [] (float x) { return fabsf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (P), r = func_DV_SQRT_REAL (v);
+    want ("sqrt", ewref::unary_f (r, P, [] (float x) { return sqrtf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_SIN_REAL (v);
+    want ("sin", ewref::unary_f (r, X, [] (float x) { return sinf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_COS_REAL (v);
+    want ("cos", ewref::unary_f (r, X, [] (float x) { return cosf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (P), r = func_DV_LOG_REAL (v);
+    want ("log", ewref::unary_f (r, P, [] (float x) { return logf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  // floor vs trunc differ on every negative fraction in X -- that is the point
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_FLOOR_REAL (v);
+    want ("floor", ewref::unary_f2i (r, X, [] (float x) { return (int32_t)floorf (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_TRUNC_REAL (v);
+    want ("trunc", ewref::unary_f2i (r, X, [] (float x) { return (int32_t)truncf (x); }));
+    free (v.data); if (r.data) free (r.data); }
 
-  // dv_sqrt_real([1,4,9]) → [1,2,3]
-  {
-    float inp[] = { 1.f, 4.f, 9.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_SQRT_REAL (v);
-    check ("intr_sqrt_real[0]", near_f (af (r, 0), 1.f));
-    check ("intr_sqrt_real[1]", near_f (af (r, 1), 2.f));
-    check ("intr_sqrt_real[2]", near_f (af (r, 2), 3.f));
-    free (v.data);
-    free (r.data);
-  }
+  std::vector<double> Xd (X.begin (), X.end ()), Pd (P.begin (), P.end ());
+  { sisal_array_t v = ewref::mkd (Xd), r = func_DV_ABS_DOUBLE (v);
+    want ("abs_double", ewref::unary_d (r, Xd, [] (double x) { return fabs (x); }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkd (Pd), r = func_DV_SQRT_DOUBLE (v);
+    want ("sqrt_double", ewref::unary_d (r, Pd, [] (double x) { return sqrt (x); }));
+    free (v.data); if (r.data) free (r.data); }
 
-  // dv_sin_real([0]) → [0]
-  {
-    float inp[] = { 0.f };
-    sisal_array_t v = make_float_arr (inp, 1);
-    sisal_array_t r = func_DV_SIN_REAL (v);
-    check ("intr_sin_real[0]", near_f (af (r, 0), 0.f));
-    free (v.data);
-    free (r.data);
-  }
+  // binary: B has no zeros so division is defined everywhere
+  std::vector<float> B;
+  for (size_t i = 0; i < X.size (); i++) B.push_back (1.5f + 0.75f * (float)i);
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_ADD_DV (a, b);
+    want ("add", ewref::binary_f (r, X, B, [] (float u, float v) { return u + v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_SUB_DV (a, b);
+    want ("sub", ewref::binary_f (r, X, B, [] (float u, float v) { return u - v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_MUL_DV (a, b);
+    want ("mul", ewref::binary_f (r, X, B, [] (float u, float v) { return u * v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_DIV_DV (a, b);
+    want ("div", ewref::binary_f (r, X, B, [] (float u, float v) { return u / v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t v = ewref::mkf (X), r = func_SCALAR_ADD_DV (2.5f, v);
+    want ("scalar+dv", ewref::unary_f (r, X, [] (float x) { return 2.5f + x; }));
+    free (v.data); if (r.data) free (r.data); }
 
-  // dv_cos_real([0]) → [1]
-  {
-    float inp[] = { 0.f };
-    sisal_array_t v = make_float_arr (inp, 1);
-    sisal_array_t r = func_DV_COS_REAL (v);
-    check ("intr_cos_real[0]", near_f (af (r, 0), 1.f));
-    free (v.data);
-    free (r.data);
-  }
+  // predicates: the threshold sits ON an input value, so >= and > differ
+  { sisal_array_t v = ewref::mkf (X), r = func_DV_GT_SCALAR (v, 1.0f);
+    want ("gt_scalar", ewref::pred_f (r, X, X, [] (float x, float) { return x > 1.0f; }));
+    free (v.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (X), r = func_DV_EQ_DV (a, b);
+    want ("eq (identical)", ewref::pred_f (r, X, X, [] (float, float) { return true; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkf (X), b = ewref::mkf (B), r = func_DV_NE_DV (a, b);
+    want ("ne", ewref::pred_f (r, X, B, [] (float u, float v) { return u != v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
 
-  // dv_log_real([1]) → [0]  (ln 1 = 0)
-  {
-    float inp[] = { 1.f };
-    sisal_array_t v = make_float_arr (inp, 1);
-    sisal_array_t r = func_DV_LOG_REAL (v);
-    check ("intr_log_real[0]", near_f (af (r, 0), 0.f));
-    free (v.data);
-    free (r.data);
-  }
+  const std::vector<bool> M1 = { true, true, false, false, true, false, true, false, true };
+  const std::vector<bool> M2 = { true, false, true, false, false, true, true, true, false };
+  { sisal_array_t a = ewref::mkb (M1), b = ewref::mkb (M2), r = func_DV_AND_DV (a, b);
+    want ("and", ewref::pred_b (r, M1, M2, [] (bool u, bool v) { return u && v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
+  { sisal_array_t a = ewref::mkb (M1), b = ewref::mkb (M2), r = func_DV_OR_DV (a, b);
+    want ("or", ewref::pred_b (r, M1, M2, [] (bool u, bool v) { return u || v; }));
+    free (a.data); free (b.data); if (r.data) free (r.data); }
 
-  // dv_floor_real([1.7, 2.3, -0.5]) → int32[1, 2, -1]
-  {
-    float inp[] = { 1.7f, 2.3f, -0.5f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_FLOOR_REAL (v);
-    check ("intr_floor_real[0]", ai (r, 0) == 1);
-    check ("intr_floor_real[1]", ai (r, 1) == 2);
-    check ("intr_floor_real[2]", ai (r, 2) == -1);
-    free (v.data);
-    free (r.data);
-  }
+  for (int32_t n : { 0, 1, 3 })
+    {
+      { sisal_array_t v = ewref::mki (I), r = func_DV_SHL_SCALAR (v, n);
+        want ("shl", ewref::binary_i (r, I, [n] (int32_t x) { return x << n; }));
+        free (v.data); if (r.data) free (r.data); }
+      { sisal_array_t v = ewref::mki (I), r = func_DV_SHR_SCALAR (v, n);
+        want ("shr", ewref::binary_i (r, I, [n] (int32_t x) { return x >> n; }));
+        free (v.data); if (r.data) free (r.data); }
+    }
 
-  // dv_trunc_real([1.7, 2.3, -0.5]) → int32[1, 2, 0]
-  {
-    float inp[] = { 1.7f, 2.3f, -0.5f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_TRUNC_REAL (v);
-    check ("intr_trunc_real[0]", ai (r, 0) == 1);
-    check ("intr_trunc_real[1]", ai (r, 1) == 2);
-    check ("intr_trunc_real[2]", ai (r, 2) == 0);
-    free (v.data);
-    free (r.data);
-  }
+  // reductions, folded in C over the same data
+  { float sum = 0, least = X[0], greatest = X[0];
+    for (float x : X) { sum += x; least = fminf (least, x); greatest = fmaxf (greatest, x); }
+    sisal_array_t v = ewref::mkf (X);
+    want ("sum_real", fabsf (func_DV_SUM_REAL (v) - sum) < 1e-4f);
+    want ("least_real", fabsf (func_DV_LEAST_REAL (v) - least) < 1e-6f);
+    want ("greatest_real", fabsf (func_DV_GREATEST_REAL (v) - greatest) < 1e-6f);
+    free (v.data); }
+  { const std::vector<float> S = { 0.5f, -2.0f, 1.25f, 4.0f };
+    float prod = 1; for (float x : S) prod *= x;
+    sisal_array_t v = ewref::mkf (S);
+    want ("product_real", fabsf (func_DV_PRODUCT_REAL (v) - prod) < 1e-5f);
+    free (v.data); }
+  { int32_t sum = 0, least = I[0], greatest = I[0];
+    for (int32_t x : I) { sum += x; if (x < least) least = x; if (x > greatest) greatest = x; }
+    sisal_array_t v = ewref::mki (I);
+    want ("sum_int", func_DV_SUM_INT (v) == sum);
+    want ("least_int", func_DV_LEAST_INT (v) == least);
+    want ("greatest_int", func_DV_GREATEST_INT (v) == greatest);
+    free (v.data); }
+  { const std::vector<int32_t> S = { 2, -3, 5, 1 };
+    int32_t prod = 1; for (int32_t x : S) prod *= x;
+    sisal_array_t v = ewref::mki (S);
+    want ("product_int", func_DV_PRODUCT_INT (v) == prod);
+    free (v.data); }
 
-  // dv_abs_double([-1.0, 2.0]) → [1.0, 2.0]
-  {
-    double inp[] = { -1.0, 2.0 };
-    sisal_array_t v = make_double_arr (inp, 2);
-    sisal_array_t r = func_DV_ABS_DOUBLE (v);
-    check ("intr_abs_double[0]", near_d (ad (r, 0), 1.0));
-    check ("intr_abs_double[1]", near_d (ad (r, 1), 2.0));
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_sqrt_double([4.0, 9.0]) → [2.0, 3.0]
-  {
-    double inp[] = { 4.0, 9.0 };
-    sisal_array_t v = make_double_arr (inp, 2);
-    sisal_array_t r = func_DV_SQRT_DOUBLE (v);
-    check ("intr_sqrt_double[0]", near_d (ad (r, 0), 2.0));
-    check ("intr_sqrt_double[1]", near_d (ad (r, 1), 3.0));
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_add_dv([1,2,3],[4,5,6]) → [5,7,9]
-  {
-    float a[] = { 1.f, 2.f, 3.f }, b[] = { 4.f, 5.f, 6.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_ADD_DV (va, vb);
-    check ("intr_add_dv[0]", near_f (af (r, 0), 5.f));
-    check ("intr_add_dv[1]", near_f (af (r, 1), 7.f));
-    check ("intr_add_dv[2]", near_f (af (r, 2), 9.f));
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_sub_dv([4,5,6],[1,2,3]) → [3,3,3]
-  {
-    float a[] = { 4.f, 5.f, 6.f }, b[] = { 1.f, 2.f, 3.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_SUB_DV (va, vb);
-    check ("intr_sub_dv[0]", near_f (af (r, 0), 3.f));
-    check ("intr_sub_dv[1]", near_f (af (r, 1), 3.f));
-    check ("intr_sub_dv[2]", near_f (af (r, 2), 3.f));
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_mul_dv([2,3,4],[5,6,7]) → [10,18,28]
-  {
-    float a[] = { 2.f, 3.f, 4.f }, b[] = { 5.f, 6.f, 7.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_MUL_DV (va, vb);
-    check ("intr_mul_dv[0]", near_f (af (r, 0), 10.f));
-    check ("intr_mul_dv[1]", near_f (af (r, 1), 18.f));
-    check ("intr_mul_dv[2]", near_f (af (r, 2), 28.f));
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_div_dv([10,20,30],[2,4,5]) → [5,5,6]
-  {
-    float a[] = { 10.f, 20.f, 30.f }, b[] = { 2.f, 4.f, 5.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_DIV_DV (va, vb);
-    check ("intr_div_dv[0]", near_f (af (r, 0), 5.f));
-    check ("intr_div_dv[1]", near_f (af (r, 1), 5.f));
-    check ("intr_div_dv[2]", near_f (af (r, 2), 6.f));
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // scalar_add_dv(10, [1,2,3]) → [11,12,13]
-  {
-    float inp[] = { 1.f, 2.f, 3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_SCALAR_ADD_DV (10.f, v);
-    check ("intr_scalar_add_dv[0]", near_f (af (r, 0), 11.f));
-    check ("intr_scalar_add_dv[1]", near_f (af (r, 1), 12.f));
-    check ("intr_scalar_add_dv[2]", near_f (af (r, 2), 13.f));
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_gt_scalar([1,5,3], 2) → [F,T,T]
-  {
-    float inp[] = { 1.f, 5.f, 3.f };
-    sisal_array_t v = make_float_arr (inp, 3);
-    sisal_array_t r = func_DV_GT_SCALAR (v, 2.f);
-    check ("intr_gt_scalar[0]", ab (r, 0) == false);
-    check ("intr_gt_scalar[1]", ab (r, 1) == true);
-    check ("intr_gt_scalar[2]", ab (r, 2) == true);
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_eq_dv([1,2,3],[1,9,3]) → [T,F,T]
-  {
-    float a[] = { 1.f, 2.f, 3.f }, b[] = { 1.f, 9.f, 3.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_EQ_DV (va, vb);
-    check ("intr_eq_dv[0]", ab (r, 0) == true);
-    check ("intr_eq_dv[1]", ab (r, 1) == false);
-    check ("intr_eq_dv[2]", ab (r, 2) == true);
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_ne_dv([1,2,3],[1,9,3]) → [F,T,F]
-  {
-    float a[] = { 1.f, 2.f, 3.f }, b[] = { 1.f, 9.f, 3.f };
-    sisal_array_t va = make_float_arr (a, 3), vb = make_float_arr (b, 3);
-    sisal_array_t r = func_DV_NE_DV (va, vb);
-    check ("intr_ne_dv[0]", ab (r, 0) == false);
-    check ("intr_ne_dv[1]", ab (r, 1) == true);
-    check ("intr_ne_dv[2]", ab (r, 2) == false);
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_and_dv([T,T,F],[T,F,F]) → [T,F,F]
-  {
-    bool a[] = { true, true, false }, b[] = { true, false, false };
-    sisal_array_t va = make_bool_arr (a, 3), vb = make_bool_arr (b, 3);
-    sisal_array_t r = func_DV_AND_DV (va, vb);
-    check ("intr_and_dv[0]", ab (r, 0) == true);
-    check ("intr_and_dv[1]", ab (r, 1) == false);
-    check ("intr_and_dv[2]", ab (r, 2) == false);
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_or_dv([T,F,F],[F,F,T]) → [T,F,T]
-  {
-    bool a[] = { true, false, false }, b[] = { false, false, true };
-    sisal_array_t va = make_bool_arr (a, 3), vb = make_bool_arr (b, 3);
-    sisal_array_t r = func_DV_OR_DV (va, vb);
-    check ("intr_or_dv[0]", ab (r, 0) == true);
-    check ("intr_or_dv[1]", ab (r, 1) == false);
-    check ("intr_or_dv[2]", ab (r, 2) == true);
-    free (va.data);
-    free (vb.data);
-    free (r.data);
-  }
-
-  // dv_shl_scalar([1,2,4], 2) → [4,8,16]
-  {
-    int32_t inp[] = { 1, 2, 4 };
-    sisal_array_t v = make_int_arr (inp, 3);
-    sisal_array_t r = func_DV_SHL_SCALAR (v, 2);
-    check ("intr_shl_scalar[0]", ai (r, 0) == 4);
-    check ("intr_shl_scalar[1]", ai (r, 1) == 8);
-    check ("intr_shl_scalar[2]", ai (r, 2) == 16);
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_shr_scalar([8,4,16], 2) → [2,1,4]
-  {
-    int32_t inp[] = { 8, 4, 16 };
-    sisal_array_t v = make_int_arr (inp, 3);
-    sisal_array_t r = func_DV_SHR_SCALAR (v, 2);
-    check ("intr_shr_scalar[0]", ai (r, 0) == 2);
-    check ("intr_shr_scalar[1]", ai (r, 1) == 1);
-    check ("intr_shr_scalar[2]", ai (r, 2) == 4);
-    free (v.data);
-    free (r.data);
-  }
-
-  // dv_sum_real([1,2,3,4]) → 10
-  {
-    float inp[] = { 1.f, 2.f, 3.f, 4.f };
-    sisal_array_t v = make_float_arr (inp, 4);
-    float s = func_DV_SUM_REAL (v);
-    check ("intr_sum_real", near_f (s, 10.f));
-    free (v.data);
-  }
-
-  // dv_product_real([1,2,3,4]) → 24
-  // NOTE: sisal_array_reduce_float_product is a stub returning 1.0f — EXPECTED
-  // FAIL
-  {
-    float inp[] = { 1.f, 2.f, 3.f, 4.f };
-    sisal_array_t v = make_float_arr (inp, 4);
-    float s = func_DV_PRODUCT_REAL (v);
-    printf ("  INFO  intr_product_real = %g (expected 24; runtime stub "
-            "returns 1 — known issue)\n",
-            s);
-    check ("intr_product_real", near_f (s, 24.f));
-    free (v.data);
-  }
-
-  // dv_least_real([3,1,4,1,5]) → 1
-  // NOTE: sisal_array_reduce_least is a stub returning 0.0f — EXPECTED FAIL
-  {
-    float inp[] = { 3.f, 1.f, 4.f, 1.f, 5.f };
-    sisal_array_t v = make_float_arr (inp, 5);
-    float s = func_DV_LEAST_REAL (v);
-    printf ("  INFO  intr_least_real = %g (expected 1; runtime stub returns 0 "
-            "— known issue)\n",
-            s);
-    check ("intr_least_real", near_f (s, 1.f));
-    free (v.data);
-  }
-
-  // dv_greatest_real([3,1,4,1,5]) → 5
-  // NOTE: sisal_array_reduce_greatest is a stub returning 0.0f — EXPECTED FAIL
-  {
-    float inp[] = { 3.f, 1.f, 4.f, 1.f, 5.f };
-    sisal_array_t v = make_float_arr (inp, 5);
-    float s = func_DV_GREATEST_REAL (v);
-    printf ("  INFO  intr_greatest_real = %g (expected 5; runtime stub "
-            "returns 0 — known issue)\n",
-            s);
-    check ("intr_greatest_real", near_f (s, 5.f));
-    free (v.data);
-  }
-
-  // dv_sum_int([1,2,3,4]) → 10
-  // NOTE: reduce_int_sum calls reduce_sum (float*) on int32 data — result is
-  // implementation-defined
-  {
-    int32_t inp[] = { 1, 2, 3, 4 };
-    sisal_array_t v = make_int_arr (inp, 4);
-    int32_t s = func_DV_SUM_INT (v);
-    printf ("  INFO  intr_sum_int = %d (expected 10; runtime interprets int "
-            "bits as float — may differ)\n",
-            s);
-    check ("intr_sum_int", s == 10);
-    free (v.data);
-  }
-
-  // dv_product_int([1,2,3,4]) → 24  (reduce_int_product is properly
-  // implemented)
-  {
-    int32_t inp[] = { 1, 2, 3, 4 };
-    sisal_array_t v = make_int_arr (inp, 4);
-    int32_t s = func_DV_PRODUCT_INT (v);
-    check ("intr_product_int", s == 24);
-    free (v.data);
-  }
-
-  // dv_least_int([3,1,4]) → 1
-  // NOTE: reduce_int_least is a stub returning 0 — EXPECTED FAIL
-  {
-    int32_t inp[] = { 3, 1, 4 };
-    sisal_array_t v = make_int_arr (inp, 3);
-    int32_t s = func_DV_LEAST_INT (v);
-    printf ("  INFO  intr_least_int = %d (expected 1; runtime stub returns 0 "
-            "— known issue)\n",
-            s);
-    check ("intr_least_int", s == 1);
-    free (v.data);
-  }
-
-  // dv_greatest_int([3,1,4]) → 4
-  // NOTE: reduce_int_greatest is a stub returning 0 — EXPECTED FAIL
-  {
-    int32_t inp[] = { 3, 1, 4 };
-    sisal_array_t v = make_int_arr (inp, 3);
-    int32_t s = func_DV_GREATEST_INT (v);
-    printf ("  INFO  intr_greatest_int = %d (expected 4; runtime stub returns "
-            "0 — known issue)\n",
-            s);
-    check ("intr_greatest_int", s == 4);
-    free (v.data);
-  }
+  check ("all 29 intrinsics match libm / the C operator elementwise", bad == 0);
 }
 #endif
 
@@ -706,67 +401,53 @@ test_intrinsics (void)
 static void
 test_broadcast_complex (void)
 {
-  printf ("\n=== Group G: dv_broadcast_complex ===\n");
+  printf ("\n=== Group G: dv_broadcast_complex (vs numpy broadcast rules) ===\n");
+  // the first two cases used to compare against hand-written result tables;
+  // all three now compute the broadcast from the inputs
 
-  // broadcast_vec_mat: V=[1,2,3] (1D) + M=[[10,20,30],[40,50,60]] (shape
-  // [2,3]) numpy: result shape [2,3], values [11,22,33, 41,52,63].
+  // [3] + [2,3] -> [2,3]: out[i,j] = V[j] + M[i,j]
   {
-    double v_data[] = { 1.0, 2.0, 3.0 };
-    double m_data[] = { 10.0, 20.0, 30.0, 40.0, 50.0, 60.0 };
-    sisal_array_t V = make_double_arr (v_data, 3);
-    sisal_array_t M = make_double_2d (m_data, 2, 3);
+    const int R = 2, C = 3;
+    std::vector<double> v (C), m ((size_t)R * C);
+    for (int j = 0; j < C; j++) v[j] = 1.0 + j;
+    for (int t = 0; t < R * C; t++) m[t] = 10.0 * (t + 1);
+    sisal_array_t V = make_double_arr (v.data (), C);
+    sisal_array_t M = make_double_2d (m.data (), R, C);
     sisal_array_t r = func_BROADCAST_VEC_MAT (V, M);
-    check ("bcast_vec_mat shape [2,3]",
-           r.rank == 2 && r.dims[0] == 2 && r.dims[1] == 3 && r.size == 6);
-    double ex[] = { 11, 22, 33, 41, 52, 63 };
-    bool ok = (r.size == 6);
-    for (int i = 0; i < 6 && ok; i++)
-      ok &= near_d (ad (r, i), ex[i]);
-    check ("bcast_vec_mat values 11 22 33 41 52 63", ok);
-    free (V.data);
-    free (M.data);
-    free (r.data);
+    bool ok = (r.rank == 2 && (int)r.dims[0] == R && (int)r.dims[1] == C);
+    for (int i = 0; ok && i < R; i++)
+      for (int j = 0; ok && j < C; j++)
+        ok = near_d (ad (r, i * C + j), v[j] + m[i * C + j]);
+    check ("vec+mat: out[i,j] == V[j] + M[i,j], shape [2,3]", ok);
+    free (V.data); free (M.data); if (r.data) free (r.data);
   }
 
-  // broadcast_unit: A=[[1],[2]] (shape [2,1]) + B=[[10,20,30]] (shape [1,3])
-  // numpy: result shape [2,3], values [11,21,31, 12,22,32].
+  // [2,1] + [1,3] -> [2,3]: out[i,j] = A[i] + B[j], both axes stretched
   {
-    double a_data[] = { 1.0, 2.0 };
-    double b_data[] = { 10.0, 20.0, 30.0 };
-    sisal_array_t A = make_double_2d (a_data, 2, 1);
-    sisal_array_t B = make_double_2d (b_data, 1, 3);
+    const int R = 2, C = 3;
+    std::vector<double> a = { 1.0, 2.0 }, b = { 10.0, 20.0, 30.0 };
+    sisal_array_t A = make_double_2d (a.data (), R, 1);
+    sisal_array_t B = make_double_2d (b.data (), 1, C);
     sisal_array_t r = func_BROADCAST_UNIT (A, B);
-    check ("bcast_unit shape [2,3]",
-           r.rank == 2 && r.dims[0] == 2 && r.dims[1] == 3 && r.size == 6);
-    double ex[] = { 11, 21, 31, 12, 22, 32 };
-    bool ok = (r.size == 6);
-    for (int i = 0; i < 6 && ok; i++)
-      ok &= near_d (ad (r, i), ex[i]);
-    check ("bcast_unit values 11 21 31 12 22 32", ok);
-    free (A.data);
-    free (B.data);
-    free (r.data);
+    bool ok = (r.rank == 2 && (int)r.dims[0] == R && (int)r.dims[1] == C);
+    for (int i = 0; ok && i < R; i++)
+      for (int j = 0; ok && j < C; j++)
+        ok = near_d (ad (r, i * C + j), a[i] + b[j]);
+    check ("unit axes: out[i,j] == A[i] + B[j], shape [2,3]", ok);
+    free (A.data); free (B.data); if (r.data) free (r.data);
   }
 
-  // broadcast_scalar: S=100.0 + M=[[1..9]] (shape [3,3]) -> values [101..109].
-  // VALUES are correct; the result SHAPE is still rank-1 [9] -- a separate bug
-  // in the scalar+array path (the conform fix only covers array+array rank
-  // mismatch).
+  // scalar + [3,3]: keeps M's shape (DV_NUM_RANK -> DV_DIMENSION -> RESHAPE)
   {
-    double m_data[] = { 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0 };
-    sisal_array_t M = make_double_2d (m_data, 3, 3);
+    const int N = 3;
+    std::vector<double> m ((size_t)N * N);
+    for (int t = 0; t < N * N; t++) m[t] = 1.0 + t;
+    sisal_array_t M = make_double_2d (m.data (), N, N);
     sisal_array_t r = func_BROADCAST_SCALAR (100.0, M);
-    // scalar broadcast keeps M's shape: the flat elementwise result is
-    // reshaped back to M's runtime rank/dims (DV_NUM_RANK -> DV_DIMENSION ->
-    // RESHAPE).
-    check ("bcast_scalar shape [3,3]",
-           r.rank == 2 && r.dims[0] == 3 && r.dims[1] == 3 && r.size == 9);
-    bool ok = (r.size == 9);
-    for (int i = 0; i < 9 && ok; i++)
-      ok &= near_d (ad (r, i), m_data[i] + 100.0);
-    check ("bcast_scalar values 101..109", ok);
-    free (M.data);
-    free (r.data);
+    bool ok = (r.rank == 2 && (int)r.dims[0] == N && (int)r.dims[1] == N);
+    for (int t = 0; ok && t < N * N; t++) ok = near_d (ad (r, t), m[t] + 100.0);
+    check ("scalar+mat: out == M + 100 elementwise, shape preserved", ok);
+    free (M.data); if (r.data) free (r.data);
   }
 }
 #endif
@@ -779,52 +460,50 @@ test_broadcast_complex (void)
 static void
 test_compress (void)
 {
-  printf ("\n=== Group H: dv_compress_test ===\n");
-
-  // compress_monolithic: mask=[T,F,T,F,T], a=[10,20,30,40,50] → [10,30,50]
-  // NOTE: sisal_array_compress uses float* cast to copy elements regardless of
-  // type_id. For int32 inputs, this means a 4-byte copy as if the bits were
-  // float. The result array has type_id=6 (int32) but was written via float*,
-  // so values should still be bit-identical to the original int32 values if
-  // sizeof(float)==sizeof(int32_t).
+  printf ("\n=== Group H: dv_compress_test (vs C stream compaction) ===\n");
+  // the expected arrays used to be written out by hand; compaction is
+  // `keep a[i] where mask[i]`, which is the reference below
   {
-    bool mask[] = { true, false, true, false, true };
-    int32_t a[] = { 10, 20, 30, 40, 50 };
-    sisal_array_t vm = make_bool_arr (mask, 5);
-    sisal_array_t va = make_int_arr (a, 5);
+    const std::vector<bool> mask = { true, false, true, true, false, false, true, true };
+    std::vector<int32_t> a;
+    for (size_t i = 0; i < mask.size (); i++) a.push_back ((int32_t)(10 * (i + 1)));
+    std::vector<int32_t> want;
+    for (size_t i = 0; i < mask.size (); i++) if (mask[i]) want.push_back (a[i]);
+    sisal_array_t vm = ewref::mkb (mask), va = ewref::mki (a);
     sisal_array_t r = func_COMPRESS_MONOLITHIC (vm, va);
-    check ("compress_mono_size", r.size == 3);
-    // The runtime copies via float* (4 bytes each), same width as int32_t,
-    // so the bit pattern is preserved.
-    check ("compress_mono[0]", ai (r, 0) == 10);
-    check ("compress_mono[1]", ai (r, 1) == 30);
-    check ("compress_mono[2]", ai (r, 2) == 50);
-    free (vm.data);
-    free (va.data);
-    free (r.data);
+    bool ok = ((size_t)r.size == want.size ());
+    for (size_t i = 0; ok && i < want.size (); i++)
+      ok = (((const int32_t *)r.data)[i] == want[i]);
+    check ("compress keeps exactly the masked elements, in order", ok);
+    free (vm.data); free (va.data);
+    if (r.data) free (r.data);
   }
-
-  // compress_dv_input(6): even numbers from 1..6 = [2,4,6]
+  // compress_dv_input(n): the even numbers in 1..n
   {
-    sisal_array_t r = func_COMPRESS_DV_INPUT (6);
-    check ("compress_dv_size", r.size == 3);
-    // The values array was int32, copied via float* — bit-identical
-    check ("compress_dv[0]", ai (r, 0) == 2);
-    check ("compress_dv[1]", ai (r, 1) == 4);
-    check ("compress_dv[2]", ai (r, 2) == 6);
-    free (r.data);
+    bool ok = true;
+    for (int n : { 1, 6, 11 })
+      {
+        std::vector<int32_t> want;
+        for (int i = 1; i <= n; i++) if (i % 2 == 0) want.push_back (i);
+        sisal_array_t r = func_COMPRESS_DV_INPUT (n);
+        ok = ok && ((size_t)r.size == want.size ());
+        for (size_t i = 0; ok && i < want.size (); i++)
+          ok = (((const int32_t *)r.data)[i] == want[i]);
+        if (r.data) free (r.data);
+      }
+    check ("compress_dv_input(n) == the even numbers in 1..n, for n = 1, 6, 11",
+           ok);
   }
-
-  // compress_chain: mask=[T,F,T], a=[10,20,30] → size=2
+  // compress_chain returns the count kept
   {
-    bool mask[] = { true, false, true };
-    int32_t a[] = { 10, 20, 30 };
-    sisal_array_t vm = make_bool_arr (mask, 3);
-    sisal_array_t va = make_int_arr (a, 3);
-    int32_t s = func_COMPRESS_CHAIN (vm, va);
-    check ("compress_chain", s == 2);
-    free (vm.data);
-    free (va.data);
+    const std::vector<bool> mask = { true, false, true, true, false };
+    std::vector<int32_t> a = { 10, 20, 30, 40, 50 };
+    int want = 0;
+    for (bool m : mask) want += m;
+    sisal_array_t vm = ewref::mkb (mask), va = ewref::mki (a);
+    check ("compress_chain == the number of set mask bits",
+           func_COMPRESS_CHAIN (vm, va) == want);
+    free (vm.data); free (va.data);
   }
 }
 #endif
@@ -871,20 +550,17 @@ test_broadcast_numpy (void)
 static void
 test_forall_cpu (void)
 {
-  printf ("\n=== Group J: forall_cpu ===\n");
-  // func_MAIN_CPU(4): X = real(i) for i in 1..4, return -X
-  // Expected: [-1.0, -2.0, -3.0, -4.0]
-  sisal_array_t r = func_MAIN_CPU (4);
-  float exp[] = { -1.0f, -2.0f, -3.0f, -4.0f };
-  check ("forall_cpu_size", (int32_t)r.size == 4);
-  for (int i = 0; i < 4; i++)
+  printf ("\n=== Group J: forall_cpu (X = real(i), return -X) ===\n");
+  bool ok = true;
+  for (int n : { 1, 4, 9 })
     {
-      char name[32];
-      snprintf (name, sizeof (name), "forall_cpu[%d]", i);
-      check (name, near_f (af (r, i), exp[i]));
+      sisal_array_t r = func_MAIN_CPU (n);
+      ok = ok && ((int)r.size == n);
+      for (int i = 0; ok && i < n; i++)
+        ok = near_f (af (r, i), -(float)(i + 1));
+      if (r.data) free (r.data);
     }
-  if (r.data)
-    free (r.data);
+  check ("forall_cpu[i] == -(i+1) for n = 1, 4, 9", ok);
 }
 #endif
 
@@ -896,22 +572,14 @@ test_forall_cpu (void)
 static void
 test_negate_dv (void)
 {
-  printf ("\n=== Group K: negate_dv ===\n");
-  // func_NEGATE([3, 1, 4, 1, 5]) → [-3, -1, -4, -1, -5]
-  int32_t inp[] = { 3, 1, 4, 1, 5 };
-  int32_t exp[] = { -3, -1, -4, -1, -5 };
-  sisal_array_t A = make_int_arr (inp, 5); // lower_bound = 1
+  printf ("\n=== Group K: negate_dv (vs unary minus) ===\n");
+  const std::vector<int32_t> &in = ewref::ints ();
+  sisal_array_t A = ewref::mki (in);
   sisal_array_t r = func_NEGATE (A);
-  check ("negate_dv_size", (int32_t)r.size == 5);
-  for (int i = 0; i < 5; i++)
-    {
-      char name[32];
-      snprintf (name, sizeof (name), "negate_dv[%d]", i);
-      check (name, ai (r, i) == exp[i]);
-    }
+  check ("negate == -x elementwise (negatives, zero, positives)",
+         ewref::binary_i (r, in, [] (int32_t x) { return -x; }));
   free (A.data);
-  if (r.data)
-    free (r.data);
+  if (r.data && r.data != A.data) free (r.data);
 }
 #endif
 
@@ -923,19 +591,16 @@ test_negate_dv (void)
 static void
 test_forall_basic_dv (void)
 {
-  printf ("\n=== Group L: dv_forall_basic ===\n");
-  // func_FORALL_BASIC(5) → [1, 2, 3, 4, 5]
-  sisal_array_t r = func_FORALL_BASIC (5);
-  int32_t exp[] = { 1, 2, 3, 4, 5 };
-  check ("forall_basic_dv_size", (int32_t)r.size == 5);
-  for (int i = 0; i < 5; i++)
+  printf ("\n=== Group L: dv_forall_basic (gather of the index) ===\n");
+  bool ok = true;
+  for (int n : { 1, 5, 17 })
     {
-      char name[32];
-      snprintf (name, sizeof (name), "forall_basic_dv[%d]", i);
-      check (name, ai (r, i) == exp[i]);
+      sisal_array_t r = func_FORALL_BASIC (n);
+      ok = ok && ((int)r.size == n);
+      for (int i = 0; ok && i < n; i++) ok = (ai (r, i) == i + 1);
+      if (r.data) free (r.data);
     }
-  if (r.data)
-    free (r.data);
+  check ("forall_basic[i] == i+1 for n = 1, 5, 17", ok);
 }
 #endif
 
@@ -943,17 +608,27 @@ test_forall_basic_dv (void)
 static void
 test_forall_reduce_dv (void)
 {
-  printf ("\n=== Group M: dv_forall_reduce ===\n");
-  // sum_to_n(5)  = 1+2+3+4+5 = 15
-  check ("sum_to_n_5", func_SUM_TO_N (5) == 15);
-  check ("sum_to_n_0", func_SUM_TO_N (0) == 0);
-  // product_to_n(5) = 120
-  check ("product_to_n_5", func_PRODUCT_TO_N (5) == 120);
-  check ("product_to_n_1", func_PRODUCT_TO_N (1) == 1);
-  // min_to_n(5) = 1, max_to_n(5) = 5
-  check ("min_to_n_5", func_MIN_TO_N (5) == 1);
-  check ("max_to_n_5", func_MAX_TO_N (5) == 5);
-  check ("max_to_n_1", func_MAX_TO_N (1) == 1);
+  printf ("\n=== Group M: dv_forall_reduce (vs C loops) ===\n");
+  // each reduction is compared against the same fold written in C, over a
+  // range of n rather than the single n = 5 that was hardcoded
+  bool s_ok = true, p_ok = true, mn_ok = true, mx_ok = true;
+  for (int n = 0; n <= 8; n++)
+    {
+      int32_t sum = 0, prod = 1, mn = INT32_MAX, mx = INT32_MIN;
+      for (int i = 1; i <= n; i++)
+        { sum += i; prod *= i; if (i < mn) mn = i; if (i > mx) mx = i; }
+      s_ok = s_ok && (func_SUM_TO_N (n) == sum);
+      p_ok = p_ok && (func_PRODUCT_TO_N (n) == prod);
+      if (n >= 1)
+        {
+          mn_ok = mn_ok && (func_MIN_TO_N (n) == mn);
+          mx_ok = mx_ok && (func_MAX_TO_N (n) == mx);
+        }
+    }
+  check ("sum_to_n == sum 1..n for n = 0..8 (n = 0 is the empty sum)", s_ok);
+  check ("product_to_n == product 1..n for n = 0..8 (n = 0 is the identity)",
+         p_ok);
+  check ("min_to_n == 1 and max_to_n == n for n = 1..8", mn_ok && mx_ok);
 }
 #endif
 

@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: bcast3d_dv (rank-poly A+B, 3-D + 2-D vs numpy) ===
+  PASS  bcast3d_dv (2,2,3)+(2,3) == numpy
+  PASS  bcast3d_dv mutual (2,1,3)+(4,3) -> (2,4,3) == numpy
+
+--- Summary: 2 passed, 0 failed ---

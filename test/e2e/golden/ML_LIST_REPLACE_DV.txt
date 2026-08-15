@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: ml_list_replace_dv (replace on a boxed field; path copying) ===
+  PASS  SetHead: head replaced (99)
+  PASS  SetHead: tail SHARED, depth still 3
+  PASS  SetTail: head kept (3)
+  PASS  SetTail: boxed field replaced, depth 1
+  PASS  ORIGINAL untouched: top still 3
+  PASS  ORIGINAL untouched: depth still 3
+
+--- Summary: 6 passed, 0 failed ---

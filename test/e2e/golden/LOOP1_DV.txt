@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop1_dv (hydro fragment, vs C reference) ===
+  PASS  loop1_dv hydro matches C reference (n=8)
+
+--- Summary: 1 passed, 0 failed ---

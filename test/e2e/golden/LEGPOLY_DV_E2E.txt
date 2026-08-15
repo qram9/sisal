@@ -1,0 +1,13 @@
+=== dv_run_all test harness ===
+
+=== Group: legpoly_dv_e2e (associated Legendre, 1st kind; vs C reference) ===
+  PASS  ir=2 irmax2=4 jxxmx=16: all 16 elements match the C reference
+  PASS  ir=2 irmax2=5 jxxmx=20: all 20 elements match the C reference
+  PASS  ir=3 irmax2=4 jxxmx=20: all 20 elements match the C reference  (second nest)
+  PASS  ir=4 irmax2=4 jxxmx=24: all 24 elements match the C reference  (second nest)
+  PASS  ir=5 irmax2=3 jxxmx=28: all 28 elements match the C reference  (second nest)
+  PASS  every case is large enough for its parameters (no silent overrun)
+  PASS  the ir > 2 cases really drive the ppp/p4 recurrence past the first nest's last index
+  PASS  108 element comparisons against the reference
+
+--- Summary: 8 passed, 0 failed ---

@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group FN: forall_negate (-real(i)) ===
+  PASS  fn_size
+  PASS  fn[0]
+  PASS  fn[1]
+  PASS  fn[2]
+  PASS  fn[3]
+
+--- Summary: 5 passed, 0 failed ---

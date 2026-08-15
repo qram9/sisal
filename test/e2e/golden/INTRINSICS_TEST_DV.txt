@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: intrinsics_test_dv (elementwise arith + select + bool array) ===
+  PASS  flag=0
+  PASS  flag=1
+
+--- Summary: 2 passed, 0 failed ---

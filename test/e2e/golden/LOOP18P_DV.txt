@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop18p_dv (2-D Explicit Hydrodynamics, vs C reference) ===
+  PASS  loop18p_dv 2-D explicit hydrodynamics matches C reference
+
+--- Summary: 1 passed, 0 failed ---

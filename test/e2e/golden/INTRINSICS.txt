@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group F: dv_intrinsics (29 primitives vs libm / C operators) ===
+  PASS  all 29 intrinsics match libm / the C operator elementwise
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: kin16_dv (Zone Electrophoresis; vs C reference) ===
+  PASS  IT=2 N=10 NSEG=5: all 13 Edit fields match the C reference, at T=0 and T=1
+  PASS  IT=1 N=10 NSEG=5: all 13 Edit fields match the C reference, at T=0 and T=0.5
+  PASS  IT=5 N=16 NSEG=7: all 13 Edit fields match the C reference, at T=0 and T=2.5
+  PASS  IT=3 N=12 NSEG=3: all 13 Edit fields match the C reference, at T=0 and T=1.5
+  PASS  IT=8 N=20 NSEG=11: all 13 Edit fields match the C reference, at T=0 and T=4
+  PASS  130 field comparisons against the reference
+  PASS  the concentration profile actually evolves (the match is not vacuous)
+
+--- Summary: 7 passed, 0 failed ---

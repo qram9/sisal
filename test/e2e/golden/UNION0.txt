@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: union0 (is-tests over three union tags) ===
+  PASS  is a(union[a:x]) == true
+  PASS  is b(union[b:y]) == true
+  PASS  is d(union[d:z]) == true
+
+--- Summary: 3 passed, 0 failed ---

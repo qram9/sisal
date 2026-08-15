@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_fluxstage_dv (part 7d/8: Method9..16) ===
+  PASS  uniform flow, xi=-2.0: transverse fluxes are the analytic Euler flux
+  PASS  uniform flow, xi=+0.0: transverse fluxes are the analytic Euler flux
+  PASS  uniform flow, xi=+2.0: transverse fluxes are the analytic Euler flux
+  PASS  general case: the transverse predictor matches the transcribed formula (non-uniform flux, hdtdy /= 0)
+  PASS  hdtdy = 0 switches the predictor off: traced states survive the conservation round trip unchanged
+  PASS  a UNIFORM transverse flux has zero difference: traced states survive the conservation round trip unchanged
+
+--- Summary: 6 passed, 0 failed ---

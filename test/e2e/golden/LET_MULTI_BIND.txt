@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: let_multi_bind (parallel let) ===
+  PASS  10+20+30=60
+
+--- Summary: 1 passed, 0 failed ---

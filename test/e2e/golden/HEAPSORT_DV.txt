@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: heapsort_dv (nested-fn capture/param shadow) ===
+  PASS  heapsort 40 mixed +/- dups
+  PASS  heapsort 9 shuffled
+  PASS  heapsort duplicates
+  PASS  heapsort already sorted
+  PASS  heapsort reversed
+
+--- Summary: 5 passed, 0 failed ---

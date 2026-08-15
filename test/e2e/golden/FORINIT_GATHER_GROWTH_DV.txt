@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_gather_growth_dv (gather w/o a trip count) ===
+  PASS  `<` comparison still preallocates -> [1 2 3 4 5]
+  PASS  `~=` has no derivable count, appends -> [1 2 3 4 5]
+  PASS  `~F & (I < 5)` (psa's shape) -> [1 2 3 4]
+  PASS  masked append -> [3 4 5 6], no post-loop shrink
+  PASS  real element appends at the right stride -> [1 2 4 8]
+  PASS  boolean element appends 1 byte apart -> [F F T T T]
+
+--- Summary: 6 passed, 0 failed ---

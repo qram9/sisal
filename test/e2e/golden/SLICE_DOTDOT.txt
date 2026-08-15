@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: slice_dotdot (A[2, ..] row slice) ===
+  PASS  slice rank-1
+  PASS  slice[0]=21
+  PASS  slice[1]=22
+  PASS  slice[2]=23
+
+--- Summary: 4 passed, 0 failed ---

@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: red_argmax (value of argmax i*(N+1-i)) ===
+  PASS  red_argmax(5)=3
+  PASS  red_argmax(1)=1
+
+--- Summary: 2 passed, 0 failed ---

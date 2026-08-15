@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: crypto_dv (array_dv[char] equality: dot-zip + product) ===
+  PASS  crypto("hello","hello")
+  PASS  crypto("hello","world")
+  PASS  crypto("abc","ab")
+  PASS  crypto("a","a")
+  PASS  crypto("","")
+  PASS  crypto("abc","abd")
+  PASS  crypto("password","password")
+
+--- Summary: 7 passed, 0 failed ---

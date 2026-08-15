@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sp_dv (sparse matvec, 10 repeat-until iterations; vs C reference) ===
+  PASS  ncount=10 and final x matches C reference (rel 1e-3, float)
+
+--- Summary: 1 passed, 0 failed ---

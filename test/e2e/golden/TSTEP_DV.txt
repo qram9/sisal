@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: tstep_dv (9-output leapfrog step, 3 regimes) ===
+  PASS  leapfrog (ifirst=0, imp=1)
+  PASS  first step istart=0 (imp=0)
+  PASS  first step istart=1 (imp=1)
+
+--- Summary: 3 passed, 0 failed ---

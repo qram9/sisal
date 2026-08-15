@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: linear_dv (spectral linear terms, catenate) ===
+  PASS  pt (12 complex records)
+  PASS  ct (12 complex records)
+
+--- Summary: 2 passed, 0 failed ---

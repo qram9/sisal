@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: mr_forinit_dv (for-initial scalar + 1-D gather) ===
+  PASS  mr_forinit_dv (value of acc=6, gather=[0,1,3,6] incl. seed)
+
+--- Summary: 1 passed, 0 failed ---

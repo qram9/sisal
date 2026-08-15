@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: feo_fft_parts1 ===
+  PASS  log2(16) == 4
+  PASS  cmult real == -5.0
+  PASS  cmult imag == 10.0
+  PASS  data real size == 4
+  PASS  data imag size == 4
+
+--- Summary: 5 passed, 0 failed ---

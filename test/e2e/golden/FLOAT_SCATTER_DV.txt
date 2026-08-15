@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: float_scatter_dv (element scatter over array_dv[real]; vs C reference) ===
+  PASS  g(vel) + w[1] over float elements matches C reference
+
+--- Summary: 1 passed, 0 failed ---

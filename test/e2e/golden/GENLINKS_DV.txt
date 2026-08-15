@@ -1,0 +1,15 @@
+=== dv_run_all test harness ===
+
+=== Group: genlinks_dv (ragged layers as padded rank-3 + Depth) ===
+  PASS  padding only (Depth 4 3 2 1 1): Links is rank-3 (N, MaxD, Q+1)
+  PASS  padding only (Depth 4 3 2 1 1): Depth == ragged mirror
+  PASS  padding only (Depth 4 3 2 1 1): Links over the Depth-bounded region == mirror
+  PASS  padding only (Depth 4 3 2 1 1): Vs over the Depth-bounded region == mirror
+  PASS  padding only (Depth 4 3 2 1 1): Ptrs enable counts + priorities == mirror
+  PASS  shift active (Depth 3 2 1 1 1): Links is rank-3 (N, MaxD, Q+1)
+  PASS  shift active (Depth 3 2 1 1 1): Depth == ragged mirror
+  PASS  shift active (Depth 3 2 1 1 1): Links over the Depth-bounded region == mirror
+  PASS  shift active (Depth 3 2 1 1 1): Vs over the Depth-bounded region == mirror
+  PASS  shift active (Depth 3 2 1 1 1): Ptrs enable counts + priorities == mirror
+
+--- Summary: 10 passed, 0 failed ---

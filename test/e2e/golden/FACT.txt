@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: fact (scalar recursion) ===
+  PASS  fact(0)=1
+  PASS  fact(1)=1
+  PASS  fact(5)=120
+  PASS  fact(7)=5040
+
+--- Summary: 4 passed, 0 failed ---

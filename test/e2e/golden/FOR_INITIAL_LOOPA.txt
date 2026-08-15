@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: for_initial_loopa (repeat..while post-test) ===
+  PASS  post-test sum incl. n=0 (one mandatory trip)
+
+--- Summary: 1 passed, 0 failed ---

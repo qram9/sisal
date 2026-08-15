@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: scatter_at_dv (array_dv(n) of v at [..] -- shuffled placement) ===
+  PASS  scalar i*i at [4-i] == [9,4,1]
+  PASS  row(i) at [4-i] == reversed rows (3,4)
+
+--- Summary: 2 passed, 0 failed ---

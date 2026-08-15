@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: dft_dv (DFT; RECORDS (complex_double) in array_dv) ===
+  PASS  dft(const signal, N=4) == [(4,0), 0, 0, 0]
+
+--- Summary: 1 passed, 0 failed ---

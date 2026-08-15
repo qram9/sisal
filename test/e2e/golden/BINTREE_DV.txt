@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: bintree_dv (recursive union, two boxed fields) ===
+  PASS  [1,2,3,4] -> 4 leaves (nothing collapses)
+  PASS  [5,5]     -> 1 leaf   (equal pair collapses)
+  PASS  [2,2,2,2] -> 1 leaf   (collapses recursively)
+  PASS  [1,1,2,2] -> 2 leaves (pairs collapse, 1 != 2)
+  PASS  leaf values survive boxing (sum 10)
+
+--- Summary: 5 passed, 0 failed ---

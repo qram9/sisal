@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: xfa_dep_expr (dependent cross, expression bounds) ===
+  PASS  j in i, n     -- bare lower (worked before)
+  PASS  j in i + 1, n -- EXPRESSION: upper triangle
+  PASS  j in 1, i     -- bare upper
+  PASS  j in i, n - 1 -- dependent lower, expression upper
+  PASS  reduction over the same nest counts 3 pairs
+
+--- Summary: 5 passed, 0 failed ---

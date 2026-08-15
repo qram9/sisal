@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: wordcount_dv (for-initial reduction + char literals) ===
+  PASS  wordcount(the quick fox) == 3
+  PASS  wordcount(hello) == 1
+  PASS  wordcount(   ) == 0
+  PASS  wordcount(a b	c
+d) == 4
+  PASS  wordcount() == 0
+  PASS  wordcount(  spaced  out  ) == 2
+
+--- Summary: 6 passed, 0 failed ---

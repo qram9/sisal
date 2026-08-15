@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: tuple_mixed2 (all-literal tuple destructure) ===
+  PASS  #(A,B) := #(1, 2.0) gives (1, 2.0)
+
+--- Summary: 1 passed, 0 failed ---

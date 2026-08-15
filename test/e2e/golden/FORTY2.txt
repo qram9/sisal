@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: forty2 (if/elseif with arithmetic) ===
+  PASS  forty2(1,5,_)=213
+  PASS  forty2(5,1,_)=40
+  PASS  forty2(3,3,3)=11
+  PASS  forty2(3,3,5)=47
+
+--- Summary: 4 passed, 0 failed ---

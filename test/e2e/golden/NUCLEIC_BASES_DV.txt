@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: nucleic_bases_dv (init_A/C/G/U tables in SoA) ===
+  PASS  init_A table (typ 0, uniontype 24 wide)
+  PASS  init_C table (typ 1, uniontype 18 wide)
+  PASS  init_G table (typ 2, uniontype 27 wide)
+  PASS  init_U table (typ 3, uniontype 15 wide)
+  PASS  init_tfo: tfo_id[1,1] + a38_g37[7,12]
+  PASS  init_nucleotides: 6 groups in order (typ sum 11)
+
+--- Summary: 6 passed, 0 failed ---

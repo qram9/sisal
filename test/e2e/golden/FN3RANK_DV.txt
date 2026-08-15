@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: fn3rank_dv (function 3 mixed-rank outputs) ===
+  PASS  fn3rank_dv triple(2) == (2, [2,2], [[1,1],[2,2]])
+
+--- Summary: 1 passed, 0 failed ---

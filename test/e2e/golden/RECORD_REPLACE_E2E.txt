@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: record_replace_e2e (read-then-replace) ===
+  PASS  HOME.X == 4.2
+  PASS  HOME.Y == 8.4 (Origin.X * 2)
+
+--- Summary: 2 passed, 0 failed ---

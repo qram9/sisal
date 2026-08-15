@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: red_argmin (value of argmin i*i-6*i) ===
+  PASS  red_argmin(5)=3
+  PASS  red_argmin(2)=2
+
+--- Summary: 2 passed, 0 failed ---

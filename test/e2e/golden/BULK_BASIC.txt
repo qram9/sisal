@@ -1,0 +1,33 @@
+=== dv_run_all test harness ===
+
+=== Group N: dv_bulk_basic ===
+  PASS  arr_add[0]
+  PASS  arr_add[1]
+  PASS  arr_add[2]
+  PASS  arr_add[3]
+  PASS  arr_sub[0]
+  PASS  arr_sub[1]
+  PASS  arr_mul[0]
+  PASS  arr_mul[1]
+  PASS  arr_mul[2]
+  PASS  arr_neg[0]
+  PASS  arr_neg[3]
+  PASS  arr_add_scalar[0]
+  PASS  arr_add_scalar[3]
+  PASS  arr_mul_scalar[0]
+  PASS  arr_mul_scalar[3]
+  PASS  sum_1234
+  PASS  product_1234
+  PASS  least_1234
+  PASS  greatest_1234
+  PASS  compress_size
+  PASS  compress[0]
+  PASS  compress[1]
+  PASS  sort[0]
+  PASS  sort[1]
+  PASS  sort[2]
+  PASS  sort[3]
+  PASS  reverse[0]
+  PASS  reverse[3]
+
+--- Summary: 28 passed, 0 failed ---

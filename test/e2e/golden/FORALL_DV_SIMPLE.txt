@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group FDS: forall_dv_simple (i*i) ===
+  PASS  fds_size
+  PASS  fds[0]
+  PASS  fds[1]
+  PASS  fds[2]
+  PASS  fds[3]
+  PASS  fds[4]
+
+--- Summary: 6 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: mesort_dv (Batcher merge-exchange sort) ===
+  PASS  mesort(16 mixed ints) == qsort reference
+
+--- Summary: 1 passed, 0 failed ---

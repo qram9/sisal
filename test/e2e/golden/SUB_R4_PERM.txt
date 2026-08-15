@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: sub_r4_perm (rank-4 two-source permute; vs C reference) ===
+  PASS  a[1,2,1,2] == b[2,1,1,2] + c[1,2,2,1]
+
+--- Summary: 1 passed, 0 failed ---

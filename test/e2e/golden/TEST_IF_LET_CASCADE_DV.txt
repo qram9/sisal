@@ -1,0 +1,10 @@
+=== dv_run_all test harness ===
+
+=== Group: test_if_let_cascade_dv (let-bound if cascade) ===
+  PASS  sel=1 fl=1 v=60,5,9
+  PASS  sel=1 fl=0 v=60,5,9
+  PASS  sel=2 fl=1 v=60,5,9
+  PASS  sel=1 fl=1 v=10,5,9
+  PASS  sel=3 fl=0 v=99,1,51
+
+--- Summary: 5 passed, 0 failed ---

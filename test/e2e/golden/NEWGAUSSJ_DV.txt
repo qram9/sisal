@@ -1,0 +1,23 @@
+=== dv_run_all test harness ===
+
+=== Group: newgaussj_dv (Gauss-Jordan inverse + solution) ===
+  PASS  2x2                    inverse is rank 2, 2x2
+  PASS  2x2                    max|Ax-b| < 1e-4
+  PASS  2x2                    max|A*inv(A) - I| < 1e-4
+  PASS  3x3 (x = 2,3,-1)       inverse is rank 2, 3x3
+  PASS  3x3 (x = 2,3,-1)       max|Ax-b| < 1e-4
+  PASS  3x3 (x = 2,3,-1)       max|A*inv(A) - I| < 1e-4
+  PASS  3x3 SPD                inverse is rank 2, 3x3
+  PASS  3x3 SPD                max|Ax-b| < 1e-4
+  PASS  3x3 SPD                max|A*inv(A) - I| < 1e-4
+  PASS  3x3 diag dominant      inverse is rank 2, 3x3
+  PASS  3x3 diag dominant      max|Ax-b| < 1e-4
+  PASS  3x3 diag dominant      max|A*inv(A) - I| < 1e-4
+  PASS  4x4 tridiagonal        inverse is rank 2, 4x4
+  PASS  4x4 tridiagonal        max|Ax-b| < 1e-4
+  PASS  4x4 tridiagonal        max|A*inv(A) - I| < 1e-4
+  PASS  4x4 SPD                inverse is rank 2, 4x4
+  PASS  4x4 SPD                max|Ax-b| < 1e-4
+  PASS  4x4 SPD                max|A*inv(A) - I| < 1e-4
+
+--- Summary: 18 passed, 0 failed ---

@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group K: negate_dv (vs unary minus) ===
+  PASS  negate == -x elementwise (negatives, zero, positives)
+
+--- Summary: 1 passed, 0 failed ---

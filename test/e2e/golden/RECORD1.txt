@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: record1 (nested record replace) ===
+  PASS  bb.L.R replaced to 3.2
+  PASS  bb.S replaced to 1.23
+
+--- Summary: 2 passed, 0 failed ---

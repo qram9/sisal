@@ -1,0 +1,20 @@
+=== dv_run_all test harness ===
+
+=== Group: mmult2_dv (integer matrix multiply, exact) ===
+  PASS  N=2  A and B are rank 2, 2x2
+  PASS  N=2  A,B match i + (j-1)*2 exactly
+  PASS  N=2  C == A*B, every element exact
+  PASS  N=3  A and B are rank 2, 3x3
+  PASS  N=3  A,B match i + (j-1)*2 exactly
+  PASS  N=3  C == A*B, every element exact
+  PASS  N=4  A and B are rank 2, 4x4
+  PASS  N=4  A,B match i + (j-1)*2 exactly
+  PASS  N=4  C == A*B, every element exact
+  PASS  N=5  A and B are rank 2, 5x5
+  PASS  N=5  A,B match i + (j-1)*2 exactly
+  PASS  N=5  C == A*B, every element exact
+  PASS  N=6  A and B are rank 2, 6x6
+  PASS  N=6  A,B match i + (j-1)*2 exactly
+  PASS  N=6  C == A*B, every element exact
+
+--- Summary: 15 passed, 0 failed ---

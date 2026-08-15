@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: forinit_mat_gather_dv (bare gather of rank-2 elems, concat_grow rank) ===
+  PASS  bare array_dv of mat(m) == rank-3 (2,2,3)
+
+--- Summary: 1 passed, 0 failed ---

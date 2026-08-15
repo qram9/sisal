@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: noise_dv (5x5 despeckle stencil) ===
+  PASS  despeckled interior (4,5) == mirror
+
+--- Summary: 1 passed, 0 failed ---

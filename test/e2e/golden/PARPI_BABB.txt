@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: parpi_babb (midpoint-rule pi) ===
+  PASS  parpi_babb(1000) == mirrored series
+
+--- Summary: 1 passed, 0 failed ---

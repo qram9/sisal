@@ -1,0 +1,12 @@
+=== dv_run_all test harness ===
+
+=== Group: quicksort_dv (masked-gather Split + recursion) ===
+  PASS  quicksort 40 mixed +/- dups
+  PASS  quicksort 9 shuffled
+  PASS  quicksort singleton
+  PASS  quicksort pair
+  PASS  quicksort duplicates
+  PASS  quicksort already sorted
+  PASS  quicksort reversed
+
+--- Summary: 7 passed, 0 failed ---

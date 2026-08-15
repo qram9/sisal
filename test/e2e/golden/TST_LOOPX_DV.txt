@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: tst_loopx_dv (rank-3 permuted read, lb=4 axis) ===
+  PASS  Y[I,J,K]*w[K,J,I] (lb 4,1,1)
+  PASS  Y - u elementwise
+
+--- Summary: 2 passed, 0 failed ---

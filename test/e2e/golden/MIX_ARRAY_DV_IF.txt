@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: test_mix_array_dv_if (IF returning monolithic array + array_dv) ===
+  PASS  then-arm: array [1,2] and dv [10,20]
+  PASS  else-arm: array [0] and dv [0]
+
+--- Summary: 2 passed, 0 failed ---

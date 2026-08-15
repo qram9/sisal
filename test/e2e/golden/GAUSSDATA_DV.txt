@@ -1,0 +1,17 @@
+=== dv_run_all test harness ===
+
+=== Group: gaussdata_dv (cross forall, 2-arg exp is power) ===
+  PASS  n=1 passthrough and B = e_1
+  PASS  n=1 A is rank 2, dims (1,1)
+  PASS  n=1 A[i,j] == j^(i-1) (exp is POWER)
+  PASS  n=2 passthrough and B = e_1
+  PASS  n=2 A is rank 2, dims (2,2)
+  PASS  n=2 A[i,j] == j^(i-1) (exp is POWER)
+  PASS  n=4 passthrough and B = e_1
+  PASS  n=4 A is rank 2, dims (4,4)
+  PASS  n=4 A[i,j] == j^(i-1) (exp is POWER)
+  PASS  n=6 passthrough and B = e_1
+  PASS  n=6 A is rank 2, dims (6,6)
+  PASS  n=6 A[i,j] == j^(i-1) (exp is POWER)
+
+--- Summary: 12 passed, 0 failed ---

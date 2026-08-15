@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: red_sum (value of sum i) ===
+  PASS  red_sum(5)=15
+  PASS  red_sum(1)=1
+  PASS  red_sum(0)=0
+  PASS  red_sum(10)=55
+
+--- Summary: 4 passed, 0 failed ---

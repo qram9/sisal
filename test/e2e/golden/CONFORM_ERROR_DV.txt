@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: conform_error_dv (the ERROR channel, on its failing path) ===
+  PASS  conforming extents still compute a + b
+  PASS  longer LEFT operand aborts  (5 + 3)
+  PASS  longer RIGHT operand aborts (3 + 5)
+  PASS  a single extra element is caught (5 + 4)
+
+--- Summary: 4 passed, 0 failed ---

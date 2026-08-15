@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: loop2s_dv (ICCG excerpt, vs C reference) ===
+  PASS  loop2s_dv ICCG matches C reference (n=8)
+
+--- Summary: 1 passed, 0 failed ---

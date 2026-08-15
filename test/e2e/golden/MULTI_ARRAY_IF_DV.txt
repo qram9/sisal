@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: test_multi_array_if_dv (forall with IF body, dvd + dvi outputs; vs C reference) ===
+  PASS  dvd = i*1.5/i*0.5 and dvi = i*i match C reference
+
+--- Summary: 1 passed, 0 failed ---

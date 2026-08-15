@@ -1,0 +1,14 @@
+=== dv_run_all test harness ===
+
+=== Group: unsplit_slope_dv (part 4/8: the limiter) ===
+  PASS  linear in i: x-slope is exactly b, y-slope exactly 0
+  PASS  linear in j: y-slope is exactly b, x-slope exactly 0
+  PASS  constant data gives zero slope in both directions
+  PASS  tent: the peak cell has its slope clipped to zero
+  PASS  tent: cells on the ramp keep a non-zero slope
+  PASS  isolated spike on a flat field: every x-slope is zero (min picks the flat side)
+  PASS  the slope is linear in flatn (half halves it, zero kills it)
+  PASS  non-symmetric data matches the transcribed formula, both planes
+  PASS  result is rank 3, (2, 7, 8)
+
+--- Summary: 9 passed, 0 failed ---

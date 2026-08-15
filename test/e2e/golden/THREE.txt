@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: three (constant) ===
+  PASS  three()=3
+
+--- Summary: 1 passed, 0 failed ---

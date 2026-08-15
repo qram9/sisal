@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: for_all_argmax (argmax reduction) ===
+  PASS  argmax of (10 - i), i in 1..10 == 1
+
+--- Summary: 1 passed, 0 failed ---

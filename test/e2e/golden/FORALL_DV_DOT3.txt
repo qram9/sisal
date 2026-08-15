@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_dv_dot3 (x dot y dot z -> x+y+z) ===
+  PASS  dot3 rank-1
+  PASS  dot3[0]=111
+  PASS  dot3[1]=222
+
+--- Summary: 3 passed, 0 failed ---

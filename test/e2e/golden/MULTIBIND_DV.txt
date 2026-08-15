@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: multibind_dv (let multi-bind of separate exprs) ===
+  PASS  multibind a,b := x1||x2, y1||y2 binds each name to its own expr
+
+--- Summary: 1 passed, 0 failed ---

@@ -1,0 +1,11 @@
+=== dv_run_all test harness ===
+
+=== Group: traceutil_dv (masked run-boundary gather + FindMax) ===
+  PASS  run STARTS == mirror (one per run of equal keys)
+  PASS  run ENDS == mirror
+  PASS  both masked outputs have the same length
+  PASS  Diffs expansion deltas == mirror
+  PASS  UpdateSeg: enable count decremented
+  PASS  FindMax tie on .Val resolves to the LOWER .Job
+
+--- Summary: 6 passed, 0 failed ---

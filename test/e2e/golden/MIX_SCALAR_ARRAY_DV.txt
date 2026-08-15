@@ -1,0 +1,6 @@
+=== dv_run_all test harness ===
+
+=== Group: test_mix_scalar_array_dv (IF returning scalar + dv + real) ===
+  PASS  then (42,[1,2,3],3.14) / else (0,[0],0.0)
+
+--- Summary: 1 passed, 0 failed ---

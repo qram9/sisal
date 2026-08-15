@@ -1,0 +1,59 @@
+=== dv_run_all test harness ===
+
+=== Group: life1_dv (nested foralls, addl/addh at two ranks) ===
+  PASS  R=1 C=1 Num=0 shape is 3x3
+  PASS  R=1 C=1 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=1 C=1 Num=1 shape is 3x3
+  PASS  R=1 C=1 Num=1 matches the C reference
+  PASS  R=1 C=1 Num=3 shape is 3x3
+  PASS  R=1 C=1 Num=3 matches the C reference
+  PASS  R=1 C=4 Num=0 shape is 3x6
+  PASS  R=1 C=4 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=1 C=4 Num=1 shape is 3x6
+  PASS  R=1 C=4 Num=1 matches the C reference
+  PASS  R=1 C=4 Num=3 shape is 3x6
+  PASS  R=1 C=4 Num=3 matches the C reference
+  PASS  R=1 C=6 Num=0 shape is 3x8
+  PASS  R=1 C=6 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=1 C=6 Num=1 shape is 3x8
+  PASS  R=1 C=6 Num=1 matches the C reference
+  PASS  R=1 C=6 Num=3 shape is 3x8
+  PASS  R=1 C=6 Num=3 matches the C reference
+  PASS  R=3 C=1 Num=0 shape is 5x3
+  PASS  R=3 C=1 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=3 C=1 Num=1 shape is 5x3
+  PASS  R=3 C=1 Num=1 matches the C reference
+  PASS  R=3 C=1 Num=3 shape is 5x3
+  PASS  R=3 C=1 Num=3 matches the C reference
+  PASS  R=3 C=4 Num=0 shape is 5x6
+  PASS  R=3 C=4 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=3 C=4 Num=1 shape is 5x6
+  PASS  R=3 C=4 Num=1 matches the C reference
+  PASS  R=3 C=4 Num=3 shape is 5x6
+  PASS  R=3 C=4 Num=3 matches the C reference
+  PASS  R=3 C=6 Num=0 shape is 5x8
+  PASS  R=3 C=6 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=3 C=6 Num=1 shape is 5x8
+  PASS  R=3 C=6 Num=1 matches the C reference
+  PASS  R=3 C=6 Num=3 shape is 5x8
+  PASS  R=3 C=6 Num=3 matches the C reference
+  PASS  R=5 C=1 Num=0 shape is 7x3
+  PASS  R=5 C=1 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=5 C=1 Num=1 shape is 7x3
+  PASS  R=5 C=1 Num=1 matches the C reference
+  PASS  R=5 C=1 Num=3 shape is 7x3
+  PASS  R=5 C=1 Num=3 matches the C reference
+  PASS  R=5 C=4 Num=0 shape is 7x6
+  PASS  R=5 C=4 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=5 C=4 Num=1 shape is 7x6
+  PASS  R=5 C=4 Num=1 matches the C reference
+  PASS  R=5 C=4 Num=3 shape is 7x6
+  PASS  R=5 C=4 Num=3 matches the C reference
+  PASS  R=5 C=6 Num=0 shape is 7x8
+  PASS  R=5 C=6 Num=0 matches the C reference (zero-trip: the seed grid)
+  PASS  R=5 C=6 Num=1 shape is 7x8
+  PASS  R=5 C=6 Num=1 matches the C reference
+  PASS  R=5 C=6 Num=3 shape is 7x8
+  PASS  R=5 C=6 Num=3 matches the C reference
+
+--- Summary: 54 passed, 0 failed ---
