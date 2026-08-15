@@ -9,10 +9,20 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 SISAL="${REPO}/_build/install/default/bin/sisal"
 RUNTIME="${REPO}/runtime"
 HARNESS="${REPO}/test/e2e/dv_run_all.cpp"
+PARTS_INDEX="${REPO}/test/e2e/parts/parts.index"
+# MACRO -> part file (split_harness.py); falls back to the unsplit harness.
+harness_for() {
+    if [ -f "${PARTS_INDEX}" ]; then
+        local p
+        p=$(awk -v m="$1" '$1==m {print $2; exit}' "${PARTS_INDEX}")
+        if [ -n "${p}" ]; then echo "${REPO}/test/e2e/parts/${p}"; return; fi
+    fi
+    echo "${HARNESS}"
+}
 GENDIR="$(mktemp -d /tmp/sisal_e2e.XXXXXX)"
 trap 'rm -rf "$GENDIR"' EXIT
 
-CXX_BASE="clang++ -std=c++23 -O3 -ffast-math -I${RUNTIME} -framework Accelerate -DACCELERATE_NEW_LAPACK"
+CXX_BASE="clang++ -std=c++23 -O3 -ffast-math -I${RUNTIME} -I${REPO}/test/e2e -framework Accelerate -DACCELERATE_NEW_LAPACK"
 
 echo "=== Building compiler ==="
 (cd "${REPO}" && dune build)
@@ -49,7 +59,7 @@ run_group() {
     fi
 
     printf 'Building TEST_%-20s ' "${macro}..."
-    if ${CXX_BASE} -DTEST_${macro} "${HARNESS}" "${REPO}/test/e2e/numpy_verify.cpp" "${src}" -o "${bin}" \
+    if ${CXX_BASE} -DTEST_${macro} "$(harness_for ${macro})" "${REPO}/test/e2e/numpy_verify.cpp" "${src}" -o "${bin}" \
             2>/tmp/sisal_build_err_${macro}.txt; then
         echo -n "OK"
     else
