@@ -29,6 +29,7 @@
 #include "hilbert_ref.h"
 #include "fft_ref.h"
 #include "elementwise_ref.h"
+#include "linalg_ref.h"
 
 // ============================================================
 // Pass/fail accounting

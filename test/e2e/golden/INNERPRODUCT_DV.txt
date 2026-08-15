@@ -1,58 +1,9 @@
 === dv_run_all test harness ===
 
-=== Group O: dv_innerproduct ===
-  (innerproduct always returns sisal_array_t; caller reads [0] for scalar)
-  PASS  dot_f32 returns rank-1
-  PASS  dot_f32 returns size-1
-  PASS  dot_f32 [1,2,3].[4,5,6]=32
-  PASS  dot_i32 returns rank-1
-  PASS  dot_i32 returns size-1
-  PASS  dot_i32 [1,2,3].[4,5,6]=32
-  PASS  dot_f32 empty returns 0
-  PASS  matmul rank
-  PASS  matmul dims[0]
-  PASS  matmul dims[1]
-  PASS  matmul[0,0]=19
-  PASS  matmul[0,1]=22
-  PASS  matmul[1,0]=43
-  PASS  matmul[1,1]=50
-  PASS  matvec rank
-  PASS  matvec size=2
-  PASS  matvec[0]=-2
-  PASS  matvec[1]=-2
-  PASS  vecmat rank
-  PASS  vecmat size=3
-  PASS  vecmat[0]=9
-  PASS  vecmat[1]=12
-  PASS  vecmat[2]=15
-  PASS  dot_f64 rank
-  PASS  dot_f64 [1,2].[3,4]=11
-  PASS  rank3x1 result rank=2
-  PASS  rank3x1 dims[0]=2
-  PASS  rank3x1 dims[1]=3
-  PASS  rank3x1 [0,0]=0
-  PASS  rank3x1 [0,1]=4
-  PASS  rank3x1 [0,2]=8
-  PASS  rank3x1 [1,0]=12
-  PASS  rank3x1 [1,1]=16
-  PASS  rank3x1 [1,2]=20
-  PASS  rank3x2 result rank=3
-  PASS  rank3x2 dims[0]=2
-  PASS  rank3x2 dims[1]=3
-  PASS  rank3x2 dims[2]=5
-  PASS  rank3x2 [0,0,0]=0
-  PASS  rank3x2 [0,0,1]=1
-  PASS  rank3x2 [0,0,3]=3
-  PASS  rank3x2 [0,0,4]=0
-  PASS  rank3x2 [1,2,0]=20
-  PASS  rank3x2 [1,2,3]=23
-  PASS  rank3x2 [1,2,4]=0
-  PASS  mismatch returns empty
-  PASS  dot_f32 4D rank
-  PASS  dot_f32 4D size
-  PASS  dot_f32 4D dims[0]
-  PASS  dot_f32 4D dims[5]
-  PASS  dot_f32 4D [0]=1.23
-  PASS  dot_f32 4D [143]=4.93
+=== Group O: dv_innerproduct (np.dot; every element vs a C reference) ===
+  PASS  every np.dot shape combination matches the C reference elementwise
+  PASS  integer dot == sum a[i]*b[i]
+  PASS  empty dot == 0 (the empty sum)
+  PASS  axis mismatch returns an empty result
 
---- Summary: 52 passed, 0 failed ---
+--- Summary: 4 passed, 0 failed ---

@@ -1,8 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: if_one (if/else -> min) ===
-  PASS  if_one(3,7)=3
-  PASS  if_one(7,3)=3
-  PASS  if_one(5,5)=5
+=== Group: if_one (if/else -> min; vs std::min) ===
+  PASS  if_one(a,b) == min(a,b) over 49 pairs incl. a == b and negatives
 
---- Summary: 3 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

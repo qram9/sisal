@@ -2648,160 +2648,190 @@ extern "C" struct FUNC_MAIN_results func_MAIN(
 static void
 test_basic_dv (void)
 {
-  printf ("\n=== Group: basic_dv ===\n");
+  printf ("\n=== Group: basic_dv (Sisal 1.2 operator sections; vs C) ===\n");
+  // 68 results -- the manual's sections 5.3 (boolean), 5.4 (integer), 5.5
+  // (real and double), 5.7 (aggregate) and 5.11 (coercions) -- every one of
+  // which was checked against a written-out answer.  All are now folded in C
+  // from the same inputs.
+  //
+  // The divisors now contain a ZERO, so `if del = 0 then 0 else idiv(...)`
+  // and its real/double twins take their guarded arm; with the old inputs
+  // that branch never executed.
+  const std::vector<bool> A = { true, false, true, false };
+  const std::vector<bool> B = { true, true, false, false };
+  const std::vector<int32_t> C = { 10, -20, 30, 40 };
+  const std::vector<int32_t> D = { 3, 4, 0, -6 };
+  const std::vector<float> E = { 1.5f, -2.5f, 3.5f, 4.5f };
+  const std::vector<float> F = { 0.5f, 0.0f, -1.0f, 1.5f };
+  const std::vector<double> H = { 1.5, -2.5, 3.5, 4.5 };
+  const std::vector<double> I = { 0.5, 0.0, -1.0, 1.5 };
+  const std::vector<int32_t> M = { 100, 200, 300 };
+  const std::vector<int32_t> N = { 400, 500 };
+  const std::vector<float> V = { 1.2f, -2.7f, 3.5f };
+  const std::vector<double> W = { 1.2, -2.7, 3.5 };
+  const std::vector<int32_t> X = { 10, -20, 30 };
 
-  bool a_data[] = { true, false, true, false };
-  bool b_data[] = { true, true, false, false };
-  sisal_array_t a = make_bool_arr(a_data, 4);
-  sisal_array_t b = make_bool_arr(b_data, 4);
+  sisal_array_t a = ewref::mkb (A), b = ewref::mkb (B);
+  sisal_array_t c = ewref::mki (C), d = ewref::mki (D);
+  sisal_array_t e = ewref::mkf (E), f = ewref::mkf (F);
+  sisal_array_t h = ewref::mkd (H), i = ewref::mkd (I);
+  sisal_array_t m = ewref::mki (M), n = ewref::mki (N);
+  sisal_array_t v = ewref::mkf (V), w = ewref::mkd (W), x = ewref::mki (X);
 
-  int32_t c_data[] = { 10, -20, 30, 40 };
-  int32_t d_data[] = { 3, 4, -5, 6 };
-  sisal_array_t c = make_int_arr(c_data, 4);
-  sisal_array_t d = make_int_arr(d_data, 4);
+  struct FUNC_MAIN_results r
+      = func_MAIN (a, b, c, d, e, f, h, i, m, n, v, w, x, 777);
 
-  float e_data[] = { 1.5f, -2.5f, 3.5f, 4.5f };
-  float f_data[] = { 0.5f, 2.0f, -1.0f, 1.5f };
-  sisal_array_t e = make_float_arr(e_data, 4);
-  sisal_array_t f = make_float_arr(f_data, 4);
+  free (a.data); free (b.data); free (c.data); free (d.data);
+  free (e.data); free (f.data); free (h.data); free (i.data);
+  free (m.data); free (n.data); free (v.data); free (w.data); free (x.data);
 
-  double h_data[] = { 1.5, -2.5, 3.5, 4.5 };
-  double i_data[] = { 0.5, 2.0, -1.0, 1.5 };
-  sisal_array_t h = make_double_arr(h_data, 4);
-  sisal_array_t i = make_double_arr(i_data, 4);
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
+  auto BV = [&] (sisal_array_t s, const std::vector<bool> &g, const char *nm) {
+    bool ok = ((size_t)s.size == g.size ());
+    for (size_t k = 0; ok && k < g.size (); k++) ok = (ab (s, (int)k) == g[k]);
+    want (nm, ok); };
+  auto IV = [&] (sisal_array_t s, const std::vector<int32_t> &g, const char *nm) {
+    bool ok = ((size_t)s.size == g.size ());
+    for (size_t k = 0; ok && k < g.size (); k++) ok = (ai (s, (int)k) == g[k]);
+    want (nm, ok); };
+  auto FV = [&] (sisal_array_t s, const std::vector<float> &g, const char *nm) {
+    bool ok = ((size_t)s.size == g.size ());
+    for (size_t k = 0; ok && k < g.size (); k++) ok = near_f (af (s, (int)k), g[k]);
+    want (nm, ok); };
+  auto DV = [&] (sisal_array_t s, const std::vector<double> &g, const char *nm) {
+    bool ok = ((size_t)s.size == g.size ());
+    for (size_t k = 0; ok && k < g.size (); k++) ok = near_d (ad (s, (int)k), g[k]);
+    want (nm, ok); };
+  auto map2b = [] (const std::vector<bool> &u, const std::vector<bool> &t, bool (*fn) (bool, bool)) {
+    std::vector<bool> o; for (size_t k = 0; k < u.size (); k++) o.push_back (fn (u[k], t[k])); return o; };
 
-  int32_t m_data[] = { 100, 200, 300 };
-  int32_t n_data[] = { 400, 500 };
-  sisal_array_t m = make_int_arr(m_data, 3);
-  sisal_array_t n = make_int_arr(n_data, 2);
+  // 5.3 boolean
+  BV (r.res_0, map2b (A, B, [] (bool p, bool q) { return p && q; }), "bband");
+  BV (r.res_1, map2b (A, B, [] (bool p, bool q) { return p || q; }), "bbor");
+  { std::vector<bool> g; for (bool p : A) g.push_back (!p); BV (r.res_2, g, "bnot"); }
+  BV (r.res_3, map2b (A, B, [] (bool p, bool q) { return p == q; }), "bequal");
+  BV (r.res_4, map2b (A, B, [] (bool p, bool q) { return p != q; }), "bnotequal");
 
-  float v_data[] = { 1.2f, -2.7f, 3.5f };
-  sisal_array_t v = make_float_arr(v_data, 3);
+  // 5.4 integer
+  { std::vector<int32_t> add, sub, mul, dvd, mod, neg, ab_, mx, mn;
+    std::vector<bool> eq, ne, gt, lt, ge, le;
+    for (size_t k = 0; k < C.size (); k++) {
+      add.push_back (C[k] + D[k]); sub.push_back (C[k] - D[k]);
+      mul.push_back (C[k] * D[k]);
+      dvd.push_back (D[k] == 0 ? 0 : C[k] / D[k]);
+      mod.push_back (D[k] == 0 ? 0 : C[k] % D[k]);
+      neg.push_back (-C[k]); ab_.push_back (C[k] < 0 ? -C[k] : C[k]);
+      mx.push_back (std::max (C[k], D[k])); mn.push_back (std::min (C[k], D[k]));
+      eq.push_back (C[k] == D[k]); ne.push_back (C[k] != D[k]);
+      gt.push_back (C[k] > D[k]);  lt.push_back (C[k] < D[k]);
+      ge.push_back (C[k] >= D[k]); le.push_back (C[k] <= D[k]); }
+    IV (r.res_5, add, "iadd");   IV (r.res_6, sub, "isub");
+    IV (r.res_7, mul, "imul");   IV (r.res_8, dvd, "idiv (guarded)");
+    IV (r.res_9, mod, "imod (guarded)"); IV (r.res_10, neg, "ineg");
+    IV (r.res_11, ab_, "iabs");  IV (r.res_12, mx, "imax");
+    IV (r.res_13, mn, "imin");   BV (r.res_14, eq, "iequal");
+    BV (r.res_15, ne, "inotequal"); BV (r.res_16, gt, "igreater");
+    BV (r.res_17, lt, "iless");  BV (r.res_18, ge, "igreateq");
+    BV (r.res_19, le, "ilesseq"); }
 
-  double w_data[] = { 1.2, -2.7, 3.5 };
-  sisal_array_t w = make_double_arr(w_data, 3);
+  // 5.5 real
+  { std::vector<float> add, sub, mul, dvd, neg, ab_, mx, mn;
+    std::vector<bool> eq, ne, gt, lt, ge, le;
+    for (size_t k = 0; k < E.size (); k++) {
+      add.push_back (E[k] + F[k]); sub.push_back (E[k] - F[k]);
+      mul.push_back (E[k] * F[k]);
+      dvd.push_back (F[k] == 0.0f ? 0.0f : E[k] / F[k]);
+      neg.push_back (-E[k]); ab_.push_back (fabsf (E[k]));
+      mx.push_back (fmaxf (E[k], F[k])); mn.push_back (fminf (E[k], F[k]));
+      eq.push_back (E[k] == F[k]); ne.push_back (E[k] != F[k]);
+      gt.push_back (E[k] > F[k]);  lt.push_back (E[k] < F[k]);
+      ge.push_back (E[k] >= F[k]); le.push_back (E[k] <= F[k]); }
+    FV (r.res_20, add, "radd");  FV (r.res_21, sub, "rsub");
+    FV (r.res_22, mul, "rmul");  FV (r.res_23, dvd, "rdiv (guarded)");
+    FV (r.res_24, neg, "rneg");  FV (r.res_25, ab_, "rabs");
+    FV (r.res_26, mx, "rmax");   FV (r.res_27, mn, "rmin");
+    BV (r.res_28, eq, "requal"); BV (r.res_29, ne, "rnotequal");
+    BV (r.res_30, gt, "rgreater"); BV (r.res_31, lt, "rless");
+    BV (r.res_32, ge, "rgreateq"); BV (r.res_33, le, "rlesseq"); }
 
-  int32_t x_data[] = { 10, -20, 30 };
-  sisal_array_t x = make_int_arr(x_data, 3);
+  // 5.5 double
+  { std::vector<double> add, sub, mul, dvd, neg, ab_, mx, mn;
+    std::vector<bool> eq, ne, gt, lt, ge, le;
+    for (size_t k = 0; k < H.size (); k++) {
+      add.push_back (H[k] + I[k]); sub.push_back (H[k] - I[k]);
+      mul.push_back (H[k] * I[k]);
+      dvd.push_back (I[k] == 0.0 ? 0.0 : H[k] / I[k]);
+      neg.push_back (-H[k]); ab_.push_back (fabs (H[k]));
+      mx.push_back (std::max (H[k], I[k])); mn.push_back (std::min (H[k], I[k]));
+      eq.push_back (H[k] == I[k]); ne.push_back (H[k] != I[k]);
+      gt.push_back (H[k] > I[k]);  lt.push_back (H[k] < I[k]);
+      ge.push_back (H[k] >= I[k]); le.push_back (H[k] <= I[k]); }
+    DV (r.res_34, add, "dadd");  DV (r.res_35, sub, "dsub");
+    DV (r.res_36, mul, "dmul");  DV (r.res_37, dvd, "ddiv (guarded)");
+    DV (r.res_38, neg, "dneg");  DV (r.res_39, ab_, "dabs");
+    DV (r.res_40, mx, "dmax");   DV (r.res_41, mn, "dmin");
+    BV (r.res_42, eq, "dequal"); BV (r.res_43, ne, "dnotequal");
+    BV (r.res_44, gt, "dgreater"); BV (r.res_45, lt, "dless");
+    BV (r.res_46, ge, "dgreateq"); BV (r.res_47, le, "dlesseq"); }
 
-  struct FUNC_MAIN_results res = func_MAIN(a, b, c, d, e, f, h, i, m, n, v, w, x, 777);
+  // 5.7 aggregate -- arrays are 1-based, so liml(M) = 1 and limh(M) = size
+  { IV (r.res_48, std::vector<int32_t> (M.size (), 0), "dvfill");
+    want ("dvselect(m, liml)", r.res_49 == M[0]);
+    std::vector<int32_t> rep = M; rep[0] = 999;
+    IV (r.res_50, rep, "dvrepl");
+    std::vector<int32_t> cat = M; cat.insert (cat.end (), N.begin (), N.end ());
+    IV (r.res_51, cat, "dvconc");
+    want ("dvhigh", r.res_52 == (int32_t)M.size ());
+    want ("dvlow", r.res_53 == 1);
+    want ("dvsize", r.res_54 == (int32_t)M.size ());
+    std::vector<int32_t> ah = M; ah.push_back (42);
+    IV (r.res_55, ah, "dvaddh");
+    std::vector<int32_t> al = { 42 }; al.insert (al.end (), M.begin (), M.end ());
+    IV (r.res_56, al, "dvaddl");
+    IV (r.res_57, std::vector<int32_t> (M.begin (), M.end () - 1), "dvremh");
+    IV (r.res_58, std::vector<int32_t> (M.begin () + 1, M.end ()), "dvreml"); }
 
-  if (a.data) free(a.data); if (b.data) free(b.data);
-  if (c.data) free(c.data); if (d.data) free(d.data);
-  if (e.data) free(e.data); if (f.data) free(f.data);
-  if (h.data) free(h.data); if (i.data) free(i.data);
-  if (m.data) free(m.data); if (n.data) free(n.data);
-  if (v.data) free(v.data); if (w.data) free(w.data);
-  if (x.data) free(x.data);
+  // 5.11 coercions -- integer() truncates toward zero, so it agrees with
+  // trunc() and differs from floor() on every negative fraction
+  { std::vector<int32_t> flr, itg, trc;
+    for (float t : V) { flr.push_back ((int32_t)floorf (t));
+                        itg.push_back ((int32_t)t);
+                        trc.push_back ((int32_t)truncf (t)); }
+    IV (r.res_59, flr, "rfloor"); IV (r.res_60, itg, "rinteger");
+    IV (r.res_61, trc, "rtrunc"); }
+  { std::vector<int32_t> flr, itg, trc;
+    for (double t : W) { flr.push_back ((int32_t)floor (t));
+                         itg.push_back ((int32_t)t);
+                         trc.push_back ((int32_t)trunc (t)); }
+    IV (r.res_62, flr, "dfloor"); IV (r.res_63, itg, "dinteger");
+    IV (r.res_64, trc, "dtrunc"); }
+  { std::vector<float> rf; for (int32_t t : X) rf.push_back ((float)t);
+    FV (r.res_65, rf, "ireal");
+    std::vector<double> rd; for (int32_t t : X) rd.push_back ((double)t);
+    DV (r.res_66, rd, "idouble"); }
+  want ("pass-through", r.res_67 == 777);
 
-  check("basic_dv_res_0_size", res.res_0.size == 4);
-  check("basic_dv_res_0", ab(res.res_0, 0) == true && ab(res.res_0, 1) == false && ab(res.res_0, 2) == false && ab(res.res_0, 3) == false);
-  check("basic_dv_res_1", ab(res.res_1, 0) == true && ab(res.res_1, 1) == true && ab(res.res_1, 2) == true && ab(res.res_1, 3) == false);
-  check("basic_dv_res_2", ab(res.res_2, 0) == false && ab(res.res_2, 1) == true && ab(res.res_2, 2) == false && ab(res.res_2, 3) == true);
-  check("basic_dv_res_3", ab(res.res_3, 0) == true && ab(res.res_3, 1) == false && ab(res.res_3, 2) == false && ab(res.res_3, 3) == true);
-  check("basic_dv_res_4", ab(res.res_4, 0) == false && ab(res.res_4, 1) == true && ab(res.res_4, 2) == true && ab(res.res_4, 3) == false);
+  check ("all 68 operator results match the C fold", bad == 0);
+  // floor and trunc must actually disagree here, or 5.11 proves nothing
+  check ("the coercion inputs separate floor from trunc",
+         floorf (V[1]) != truncf (V[1]));
 
-  check("basic_dv_res_5", ai(res.res_5, 0) == 13 && ai(res.res_5, 1) == -16 && ai(res.res_5, 2) == 25 && ai(res.res_5, 3) == 46);
-  check("basic_dv_res_6", ai(res.res_6, 0) == 7 && ai(res.res_6, 1) == -24 && ai(res.res_6, 2) == 35 && ai(res.res_6, 3) == 34);
-  check("basic_dv_res_7", ai(res.res_7, 0) == 30 && ai(res.res_7, 1) == -80 && ai(res.res_7, 2) == -150 && ai(res.res_7, 3) == 240);
-  check("basic_dv_res_8", ai(res.res_8, 0) == 3 && ai(res.res_8, 1) == -5 && ai(res.res_8, 2) == -6 && ai(res.res_8, 3) == 6);
-  check("basic_dv_res_9", ai(res.res_9, 0) == 1 && ai(res.res_9, 1) == 0 && ai(res.res_9, 2) == 0 && ai(res.res_9, 3) == 4);
-  check("basic_dv_res_10", ai(res.res_10, 0) == -10 && ai(res.res_10, 1) == 20 && ai(res.res_10, 2) == -30 && ai(res.res_10, 3) == -40);
-  check("basic_dv_res_11", ai(res.res_11, 0) == 10 && ai(res.res_11, 1) == 20 && ai(res.res_11, 2) == 30 && ai(res.res_11, 3) == 40);
-  check("basic_dv_res_12", ai(res.res_12, 0) == 10 && ai(res.res_12, 1) == 4 && ai(res.res_12, 2) == 30 && ai(res.res_12, 3) == 40);
-  check("basic_dv_res_13", ai(res.res_13, 0) == 3 && ai(res.res_13, 1) == -20 && ai(res.res_13, 2) == -5 && ai(res.res_13, 3) == 6);
-  check("basic_dv_res_14", ab(res.res_14, 0) == false && ab(res.res_14, 1) == false && ab(res.res_14, 2) == false && ab(res.res_14, 3) == false);
-  check("basic_dv_res_15", ab(res.res_15, 0) == true && ab(res.res_15, 1) == true && ab(res.res_15, 2) == true && ab(res.res_15, 3) == true);
-  check("basic_dv_res_16", ab(res.res_16, 0) == true && ab(res.res_16, 1) == false && ab(res.res_16, 2) == true && ab(res.res_16, 3) == true);
-  check("basic_dv_res_17", ab(res.res_17, 0) == false && ab(res.res_17, 1) == true && ab(res.res_17, 2) == false && ab(res.res_17, 3) == false);
-  check("basic_dv_res_18", ab(res.res_18, 0) == true && ab(res.res_18, 1) == false && ab(res.res_18, 2) == true && ab(res.res_18, 3) == true);
-  check("basic_dv_res_19", ab(res.res_19, 0) == false && ab(res.res_19, 1) == true && ab(res.res_19, 2) == false && ab(res.res_19, 3) == false);
-
-  check("basic_dv_res_20", near_f(af(res.res_20, 0), 2.0f) && near_f(af(res.res_20, 1), -0.5f) && near_f(af(res.res_20, 2), 2.5f) && near_f(af(res.res_20, 3), 6.0f));
-  check("basic_dv_res_21", near_f(af(res.res_21, 0), 1.0f) && near_f(af(res.res_21, 1), -4.5f) && near_f(af(res.res_21, 2), 4.5f) && near_f(af(res.res_21, 3), 3.0f));
-  check("basic_dv_res_22", near_f(af(res.res_22, 0), 0.75f) && near_f(af(res.res_22, 1), -5.0f) && near_f(af(res.res_22, 2), -3.5f) && near_f(af(res.res_22, 3), 6.75f));
-  check("basic_dv_res_23", near_f(af(res.res_23, 0), 3.0f) && near_f(af(res.res_23, 1), -1.25f) && near_f(af(res.res_23, 2), -3.5f) && near_f(af(res.res_23, 3), 3.0f));
-  check("basic_dv_res_24", near_f(af(res.res_24, 0), -1.5f) && near_f(af(res.res_24, 1), 2.5f) && near_f(af(res.res_24, 2), -3.5f) && near_f(af(res.res_24, 3), -4.5f));
-  check("basic_dv_res_25", near_f(af(res.res_25, 0), 1.5f) && near_f(af(res.res_25, 1), 2.5f) && near_f(af(res.res_25, 2), 3.5f) && near_f(af(res.res_25, 3), 4.5f));
-  check("basic_dv_res_26", near_f(af(res.res_26, 0), 1.5f) && near_f(af(res.res_26, 1), 2.0f) && near_f(af(res.res_26, 2), 3.5f) && near_f(af(res.res_26, 3), 4.5f));
-  check("basic_dv_res_27", near_f(af(res.res_27, 0), 0.5f) && near_f(af(res.res_27, 1), -2.5f) && near_f(af(res.res_27, 2), -1.0f) && near_f(af(res.res_27, 3), 1.5f));
-  check("basic_dv_res_28", ab(res.res_28, 0) == false && ab(res.res_28, 1) == false && ab(res.res_28, 2) == false && ab(res.res_28, 3) == false);
-  check("basic_dv_res_29", ab(res.res_29, 0) == true && ab(res.res_29, 1) == true && ab(res.res_29, 2) == true && ab(res.res_29, 3) == true);
-  check("basic_dv_res_30", ab(res.res_30, 0) == true && ab(res.res_30, 1) == false && ab(res.res_30, 2) == true && ab(res.res_30, 3) == true);
-  check("basic_dv_res_31", ab(res.res_31, 0) == false && ab(res.res_31, 1) == true && ab(res.res_31, 2) == false && ab(res.res_31, 3) == false);
-  check("basic_dv_res_32", ab(res.res_32, 0) == true && ab(res.res_32, 1) == false && ab(res.res_32, 2) == true && ab(res.res_32, 3) == true);
-  check("basic_dv_res_33", ab(res.res_33, 0) == false && ab(res.res_33, 1) == true && ab(res.res_33, 2) == false && ab(res.res_33, 3) == false);
-
-  check("basic_dv_res_34", near_d(ad(res.res_34, 0), 2.0) && near_d(ad(res.res_34, 1), -0.5) && near_d(ad(res.res_34, 2), 2.5) && near_d(ad(res.res_34, 3), 6.0));
-  check("basic_dv_res_35", near_d(ad(res.res_35, 0), 1.0) && near_d(ad(res.res_35, 1), -4.5) && near_d(ad(res.res_35, 2), 4.5) && near_d(ad(res.res_35, 3), 3.0));
-  check("basic_dv_res_36", near_d(ad(res.res_36, 0), 0.75) && near_d(ad(res.res_36, 1), -5.0) && near_d(ad(res.res_36, 2), -3.5) && near_d(ad(res.res_36, 3), 6.75));
-  check("basic_dv_res_37", near_d(ad(res.res_37, 0), 3.0) && near_d(ad(res.res_37, 1), -1.25) && near_d(ad(res.res_37, 2), -3.5) && near_d(ad(res.res_37, 3), 3.0));
-  check("basic_dv_res_38", near_d(ad(res.res_38, 0), -1.5) && near_d(ad(res.res_38, 1), 2.5) && near_d(ad(res.res_38, 2), -3.5) && near_d(ad(res.res_38, 3), -4.5));
-  check("basic_dv_res_39", near_d(ad(res.res_39, 0), 1.5) && near_d(ad(res.res_39, 1), 2.5) && near_d(ad(res.res_39, 2), 3.5) && near_d(ad(res.res_39, 3), 4.5));
-  check("basic_dv_res_40", near_d(ad(res.res_40, 0), 1.5) && near_d(ad(res.res_40, 1), 2.0) && near_d(ad(res.res_40, 2), 3.5) && near_d(ad(res.res_40, 3), 4.5));
-  check("basic_dv_res_41", near_d(ad(res.res_41, 0), 0.5) && near_d(ad(res.res_41, 1), -2.5) && near_d(ad(res.res_41, 2), -1.0) && near_d(ad(res.res_41, 3), 1.5));
-  check("basic_dv_res_42", ab(res.res_42, 0) == false && ab(res.res_42, 1) == false && ab(res.res_42, 2) == false && ab(res.res_42, 3) == false);
-  check("basic_dv_res_43", ab(res.res_43, 0) == true && ab(res.res_43, 1) == true && ab(res.res_43, 2) == true && ab(res.res_43, 3) == true);
-  check("basic_dv_res_44", ab(res.res_44, 0) == true && ab(res.res_44, 1) == false && ab(res.res_44, 2) == true && ab(res.res_44, 3) == true);
-  check("basic_dv_res_45", ab(res.res_45, 0) == false && ab(res.res_45, 1) == true && ab(res.res_45, 2) == false && ab(res.res_45, 3) == false);
-  check("basic_dv_res_46", ab(res.res_46, 0) == true && ab(res.res_46, 1) == false && ab(res.res_46, 2) == true && ab(res.res_46, 3) == true);
-  check("basic_dv_res_47", ab(res.res_47, 0) == false && ab(res.res_47, 1) == true && ab(res.res_47, 2) == false && ab(res.res_47, 3) == false);
-
-  check("basic_dv_res_48", res.res_48.size == 3 && ai(res.res_48, 0) == 0 && ai(res.res_48, 1) == 0 && ai(res.res_48, 2) == 0);
-  check("basic_dv_res_49", res.res_49 == 100);
-  check("basic_dv_res_50", res.res_50.size == 3 && ai(res.res_50, 0) == 999 && ai(res.res_50, 1) == 200 && ai(res.res_50, 2) == 300);
-  check("basic_dv_res_51", res.res_51.size == 5 && ai(res.res_51, 0) == 100 && ai(res.res_51, 1) == 200 && ai(res.res_51, 2) == 300 && ai(res.res_51, 3) == 400 && ai(res.res_51, 4) == 500);
-  check("basic_dv_res_52", res.res_52 == 3);
-  check("basic_dv_res_53", res.res_53 == 1);
-  check("basic_dv_res_54", res.res_54 == 3);
-  check("basic_dv_res_55", res.res_55.size == 4 && ai(res.res_55, 0) == 100 && ai(res.res_55, 1) == 200 && ai(res.res_55, 2) == 300 && ai(res.res_55, 3) == 42);
-  check("basic_dv_res_56", res.res_56.size == 4 && ai(res.res_56, 0) == 42 && ai(res.res_56, 1) == 100 && ai(res.res_56, 2) == 200 && ai(res.res_56, 3) == 300);
-  check("basic_dv_res_57", res.res_57.size == 2 && ai(res.res_57, 0) == 100 && ai(res.res_57, 1) == 200);
-  check("basic_dv_res_58", res.res_58.size == 2 && ai(res.res_58, 0) == 200 && ai(res.res_58, 1) == 300);
-
-  check("basic_dv_res_59", res.res_59.size == 3 && ai(res.res_59, 0) == 1 && ai(res.res_59, 1) == -3 && ai(res.res_59, 2) == 3);
-  check("basic_dv_res_60", res.res_60.size == 3 && ai(res.res_60, 0) == 1 && ai(res.res_60, 1) == -2 && ai(res.res_60, 2) == 3);
-  check("basic_dv_res_61", res.res_61.size == 3 && ai(res.res_61, 0) == 1 && ai(res.res_61, 1) == -2 && ai(res.res_61, 2) == 3);
-  check("basic_dv_res_62", res.res_62.size == 3 && ai(res.res_62, 0) == 1 && ai(res.res_62, 1) == -3 && ai(res.res_62, 2) == 3);
-  check("basic_dv_res_63", res.res_63.size == 3 && ai(res.res_63, 0) == 1 && ai(res.res_63, 1) == -2 && ai(res.res_63, 2) == 3);
-  check("basic_dv_res_64", res.res_64.size == 3 && ai(res.res_64, 0) == 1 && ai(res.res_64, 1) == -2 && ai(res.res_64, 2) == 3);
-  check("basic_dv_res_65", res.res_65.size == 3 && near_f(af(res.res_65, 0), 10.0f) && near_f(af(res.res_65, 1), -20.0f) && near_f(af(res.res_65, 2), 30.0f));
-  check("basic_dv_res_66", res.res_66.size == 3 && near_d(ad(res.res_66, 0), 10.0) && near_d(ad(res.res_66, 1), -20.0) && near_d(ad(res.res_66, 2), 30.0));
-
-  check("basic_dv_res_67", res.res_67 == 777);
-
-  if (res.res_0.data) free(res.res_0.data); if (res.res_1.data) free(res.res_1.data);
-  if (res.res_2.data) free(res.res_2.data); if (res.res_3.data) free(res.res_3.data);
-  if (res.res_4.data) free(res.res_4.data); if (res.res_5.data) free(res.res_5.data);
-  if (res.res_6.data) free(res.res_6.data); if (res.res_7.data) free(res.res_7.data);
-  if (res.res_8.data) free(res.res_8.data); if (res.res_9.data) free(res.res_9.data);
-  if (res.res_10.data) free(res.res_10.data); if (res.res_11.data) free(res.res_11.data);
-  if (res.res_12.data) free(res.res_12.data); if (res.res_13.data) free(res.res_13.data);
-  if (res.res_14.data) free(res.res_14.data); if (res.res_15.data) free(res.res_15.data);
-  if (res.res_16.data) free(res.res_16.data); if (res.res_17.data) free(res.res_17.data);
-  if (res.res_18.data) free(res.res_18.data); if (res.res_19.data) free(res.res_19.data);
-  if (res.res_20.data) free(res.res_20.data); if (res.res_21.data) free(res.res_21.data);
-  if (res.res_22.data) free(res.res_22.data); if (res.res_23.data) free(res.res_23.data);
-  if (res.res_24.data) free(res.res_24.data); if (res.res_25.data) free(res.res_25.data);
-  if (res.res_26.data) free(res.res_26.data); if (res.res_27.data) free(res.res_27.data);
-  if (res.res_28.data) free(res.res_28.data); if (res.res_29.data) free(res.res_29.data);
-  if (res.res_30.data) free(res.res_30.data); if (res.res_31.data) free(res.res_31.data);
-  if (res.res_32.data) free(res.res_32.data); if (res.res_33.data) free(res.res_33.data);
-  if (res.res_34.data) free(res.res_34.data); if (res.res_35.data) free(res.res_35.data);
-  if (res.res_36.data) free(res.res_36.data); if (res.res_37.data) free(res.res_37.data);
-  if (res.res_38.data) free(res.res_38.data); if (res.res_39.data) free(res.res_39.data);
-  if (res.res_40.data) free(res.res_40.data); if (res.res_41.data) free(res.res_41.data);
-  if (res.res_42.data) free(res.res_42.data); if (res.res_43.data) free(res.res_43.data);
-  if (res.res_44.data) free(res.res_44.data); if (res.res_45.data) free(res.res_45.data);
-  if (res.res_46.data) free(res.res_46.data); if (res.res_47.data) free(res.res_47.data);
-  if (res.res_48.data) free(res.res_48.data);
-  if (res.res_50.data) free(res.res_50.data); if (res.res_51.data) free(res.res_51.data);
-  if (res.res_55.data) free(res.res_55.data); if (res.res_56.data) free(res.res_56.data);
-  if (res.res_57.data) free(res.res_57.data); if (res.res_58.data) free(res.res_58.data);
-  if (res.res_59.data) free(res.res_59.data); if (res.res_60.data) free(res.res_60.data);
-  if (res.res_61.data) free(res.res_61.data); if (res.res_62.data) free(res.res_62.data);
-  if (res.res_63.data) free(res.res_63.data); if (res.res_64.data) free(res.res_64.data);
-  if (res.res_65.data) free(res.res_65.data); if (res.res_66.data) free(res.res_66.data);
+  sisal_array_t *outs[] = { &r.res_0, &r.res_1, &r.res_2, &r.res_3, &r.res_4,
+    &r.res_5, &r.res_6, &r.res_7, &r.res_8, &r.res_9, &r.res_10, &r.res_11,
+    &r.res_12, &r.res_13, &r.res_14, &r.res_15, &r.res_16, &r.res_17,
+    &r.res_18, &r.res_19, &r.res_20, &r.res_21, &r.res_22, &r.res_23,
+    &r.res_24, &r.res_25, &r.res_26, &r.res_27, &r.res_28, &r.res_29,
+    &r.res_30, &r.res_31, &r.res_32, &r.res_33, &r.res_34, &r.res_35,
+    &r.res_36, &r.res_37, &r.res_38, &r.res_39, &r.res_40, &r.res_41,
+    &r.res_42, &r.res_43, &r.res_44, &r.res_45, &r.res_46, &r.res_47,
+    &r.res_48, &r.res_50, &r.res_51, &r.res_55, &r.res_56, &r.res_57,
+    &r.res_58, &r.res_59, &r.res_60, &r.res_61, &r.res_62, &r.res_63,
+    &r.res_64, &r.res_65, &r.res_66 };
+  std::vector<void *> seen;
+  for (auto *o : outs)
+    if (o->data && std::find (seen.begin (), seen.end (), o->data) == seen.end ())
+      { seen.push_back (o->data); free (o->data); }
 }
 #endif
 
@@ -2925,231 +2955,80 @@ test_for_initial (void)
 static void
 test_innerproduct_dv (void)
 {
-  printf ("\n=== Group O: dv_innerproduct ===\n");
-  printf ("  (innerproduct always returns sisal_array_t; caller reads [0] for "
-          "scalar)\n");
+  printf ("\n=== Group O: dv_innerproduct (np.dot; every element vs a C "
+          "reference) ===\n");
+  // Every shape combination here used to be checked at a handful of positions
+  // -- 7 of 30 elements for rank3 x rank2, 2 of 144 for 4D x 4D.  Spot checks
+  // that thin will pass a contraction that transposed an axis.  Each case now
+  // compares EVERY element against laref::ref_tensordot.
+  // Build an N-D float array with the given dims, filled with a spread of
+  // signed values so a wrong axis order cannot coincide with the right one.
+  auto mkN = [] (const std::vector<int> &dims) {
+    size_t n = 1; for (int t : dims) n *= (size_t)t;
+    sisal_array_t a = sisal_array_alloc_empty ((int)dims.size (), 8, n);
+    for (size_t k = 0; k < dims.size (); k++)
+      { a.dims[k] = dims[k]; a.lower_bound[k] = 1; }
+    for (size_t k = 0; k < n; k++)
+      ((float *)a.data)[k] = (float)((int)(k * 7 % 13) - 6) * 0.5f;
+    return a; };
+  auto flat = [] (sisal_array_t a) {
+    return std::vector<float> ((const float *)a.data,
+                               (const float *)a.data + a.size); };
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
 
-  // --- 1D float dot via Sisal wrapper: [1,2,3].[4,5,6] = 32 ---
-  float fa[] = { 1.0f, 2.0f, 3.0f };
-  float fb[] = { 4.0f, 5.0f, 6.0f };
-  sisal_array_t va = make_float_arr (fa, 3);
-  sisal_array_t vb = make_float_arr (fb, 3);
-  sisal_array_t dr = func_IP_F32 (va, vb);
-  check ("dot_f32 returns rank-1", dr.rank == 1);
-  check ("dot_f32 returns size-1", (int)dr.size == 1);
-  check ("dot_f32 [1,2,3].[4,5,6]=32", af (dr, 0) == 32.0f);
-  if (dr.data)
-    free (dr.data);
-  if (va.data)
-    free (va.data);
-  if (vb.data)
-    free (vb.data);
+  struct Case { const char *nm; std::vector<int> da, db; };
+  const std::vector<Case> cases = {
+    { "1D . 1D  (scalar)",      { 5 },       { 5 } },
+    { "2D . 2D  (matmul)",      { 2, 3 },    { 3, 4 } },
+    { "2D . 1D  (matvec)",      { 3, 4 },    { 4 } },
+    { "1D . 2D  (vecmat)",      { 3 },       { 3, 4 } },
+    { "3D . 1D",                { 2, 3, 4 }, { 4 } },
+    { "3D . 2D",                { 2, 3, 4 }, { 4, 5 } },
+    { "4D . 4D",                { 2, 3, 2, 4 }, { 2, 2, 4, 3 } },
+  };
+  for (const auto &cs : cases)
+    {
+      sisal_array_t A = mkN (cs.da), B = mkN (cs.db);
+      std::vector<int> want_dims;
+      std::vector<float> w
+          = laref::ref_tensordot (flat (A), cs.da, flat (B), cs.db, want_dims);
+      sisal_array_t R = func_IP_F32 (A, B);
+      // a rank-1 size-1 result is how a scalar contraction comes back
+      const bool scalar = (want_dims.size () == 0 || (want_dims.size () == 1 && want_dims[0] == 1));
+      bool ok = ((size_t)R.size == w.size ());
+      if (ok && !scalar)
+        {
+          ok = ((size_t)R.rank == want_dims.size ());
+          for (size_t k = 0; ok && k < want_dims.size (); k++)
+            ok = ((int)R.dims[k] == want_dims[k]);
+        }
+      for (size_t k = 0; ok && k < w.size (); k++)
+        ok = fabsf (af (R, (int)k) - w[k]) < 1e-4f;
+      want (cs.nm, ok);
+      free (A.data); free (B.data); if (R.data) free (R.data);
+    }
+  check ("every np.dot shape combination matches the C reference elementwise",
+         bad == 0);
 
-  // --- 1D int dot via Sisal wrapper: [1,2,3].[4,5,6] = 32 ---
-  int32_t ia[] = { 1, 2, 3 };
-  int32_t ib[] = { 4, 5, 6 };
-  sisal_array_t vai = make_int_arr (ia, 3);
-  sisal_array_t vbi = make_int_arr (ib, 3);
-  sisal_array_t ir = func_IP_I32 (vai, vbi);
-  check ("dot_i32 returns rank-1", ir.rank == 1);
-  check ("dot_i32 returns size-1", (int)ir.size == 1);
-  check ("dot_i32 [1,2,3].[4,5,6]=32", ai (ir, 0) == 32);
-  if (ir.data)
-    free (ir.data);
-  if (vai.data)
-    free (vai.data);
-  if (vbi.data)
-    free (vbi.data);
+  // integer contraction, same reference
+  { const std::vector<int32_t> ia = { 1, -2, 3, 4 }, ib = { 4, 5, -6, 2 };
+    int32_t w = 0; for (size_t k = 0; k < ia.size (); k++) w += ia[k] * ib[k];
+    sisal_array_t A = ewref::mki (ia), B = ewref::mki (ib);
+    sisal_array_t R = func_IP_I32 (A, B);
+    check ("integer dot == sum a[i]*b[i]", (int)R.size == 1 && ai (R, 0) == w);
+    free (A.data); free (B.data); if (R.data) free (R.data); }
 
-  // --- 1D empty dot ---
-  sisal_array_t ve = make_float_arr (NULL, 0);
-  sisal_array_t er = func_IP_F32 (ve, ve);
-  check ("dot_f32 empty returns 0", af (er, 0) == 0.0f);
-  if (er.data)
-    free (er.data);
-  if (ve.data)
-    free (ve.data);
+  // the empty dot is the empty sum
+  { sisal_array_t e = make_float_arr (NULL, 0), R = func_IP_F32 (e, e);
+    check ("empty dot == 0 (the empty sum)", af (R, 0) == 0.0f);
+    if (e.data) free (e.data); if (R.data) free (R.data); }
 
-  // --- 2D x 2D float matmul via Sisal wrapper ---
-  // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
-  float ma[] = { 1, 2, 3, 4 };
-  float mb[] = { 5, 6, 7, 8 };
-  sisal_array_t A2 = make_float_2d (ma, 2, 2);
-  sisal_array_t B2 = make_float_2d (mb, 2, 2);
-  sisal_array_t C2 = func_IP_F32 (A2, B2);
-  check ("matmul rank", C2.rank == 2);
-  check ("matmul dims[0]", (int)C2.dims[0] == 2);
-  check ("matmul dims[1]", (int)C2.dims[1] == 2);
-  check ("matmul[0,0]=19", af (C2, 0) == 19.0f);
-  check ("matmul[0,1]=22", af (C2, 1) == 22.0f);
-  check ("matmul[1,0]=43", af (C2, 2) == 43.0f);
-  check ("matmul[1,1]=50", af (C2, 3) == 50.0f);
-  if (A2.data)
-    free (A2.data);
-  if (B2.data)
-    free (B2.data);
-  if (C2.data)
-    free (C2.data);
-
-  // --- 2D x 1D matvec via Sisal wrapper ---
-  // A=[[1,2,3],[4,5,6]]  x=[1,0,-1]  r=[-2,-2]
-  float mav[] = { 1, 2, 3, 4, 5, 6 };
-  float vx[] = { 1.0f, 0.0f, -1.0f };
-  sisal_array_t Amv = make_float_2d (mav, 2, 3);
-  sisal_array_t xv = make_float_arr (vx, 3);
-  sisal_array_t rv = func_IP_F32 (Amv, xv);
-  check ("matvec rank", rv.rank == 1);
-  check ("matvec size=2", (int)rv.size == 2);
-  check ("matvec[0]=-2", af (rv, 0) == -2.0f);
-  check ("matvec[1]=-2", af (rv, 1) == -2.0f);
-  if (Amv.data)
-    free (Amv.data);
-  if (xv.data)
-    free (xv.data);
-  if (rv.data)
-    free (rv.data);
-
-  // --- 1D x 2D vecmat via Sisal wrapper ---
-  // y=[1,2]  B=[[1,2,3],[4,5,6]]  r=[9,12,15]
-  float vy[] = { 1.0f, 2.0f };
-  float mbv[] = { 1, 2, 3, 4, 5, 6 };
-  sisal_array_t yv = make_float_arr (vy, 2);
-  sisal_array_t Bvm = make_float_2d (mbv, 2, 3);
-  sisal_array_t rvm = func_IP_F32 (yv, Bvm);
-  check ("vecmat rank", rvm.rank == 1);
-  check ("vecmat size=3", (int)rvm.size == 3);
-  check ("vecmat[0]=9", af (rvm, 0) == 9.0f);
-  check ("vecmat[1]=12", af (rvm, 1) == 12.0f);
-  check ("vecmat[2]=15", af (rvm, 2) == 15.0f);
-  if (yv.data)
-    free (yv.data);
-  if (Bvm.data)
-    free (Bvm.data);
-  if (rvm.data)
-    free (rvm.data);
-
-  // --- 1D double dot (direct runtime) ---
-  // [1,2].[3,4] = 11
-  double da[] = { 1.0, 2.0 };
-  double db[] = { 3.0, 4.0 };
-  sisal_array_t dva = make_double_arr (da, 2);
-  sisal_array_t dvb = make_double_arr (db, 2);
-  sisal_array_t dvr = sisal_array_innerproduct (dva, dvb);
-  check ("dot_f64 rank", dvr.rank == 1);
-  check ("dot_f64 [1,2].[3,4]=11", ((double *)dvr.data)[0] == 11.0);
-  if (dva.data)
-    free (dva.data);
-  if (dvb.data)
-    free (dvb.data);
-  if (dvr.data)
-    free (dvr.data);
-
-  // --- rank-3 x rank-1: A(2,3,4) @ b(4) -> r(2,3) ---
-  // A has 24 elements [0..23], b = [1,0,0,0] so result = A[:,:,0]
-  float a3[24];
-  for (int i = 0; i < 24; i++)
-    a3[i] = (float)i;
-  float b1[] = { 1.0f, 0.0f, 0.0f, 0.0f };
-  sisal_array_t A3 = sisal_array_alloc_empty (3, 8, 24);
-  A3.dims[0] = 2;
-  A3.dims[1] = 3;
-  A3.dims[2] = 4;
-  memcpy (A3.data, a3, 24 * sizeof (float));
-  sisal_array_t B1 = make_float_arr (b1, 4);
-  sisal_array_t R31 = sisal_array_innerproduct (A3, B1);
-  // numpy: np.dot(A3,b1) shape=(2,3), values = A3[:,:,0] = [0,4,8,12,16,20]
-  check ("rank3x1 result rank=2", R31.rank == 2);
-  check ("rank3x1 dims[0]=2", (int)R31.dims[0] == 2);
-  check ("rank3x1 dims[1]=3", (int)R31.dims[1] == 3);
-  check ("rank3x1 [0,0]=0", af (R31, 0) == 0.0f);
-  check ("rank3x1 [0,1]=4", af (R31, 1) == 4.0f);
-  check ("rank3x1 [0,2]=8", af (R31, 2) == 8.0f);
-  check ("rank3x1 [1,0]=12", af (R31, 3) == 12.0f);
-  check ("rank3x1 [1,1]=16", af (R31, 4) == 16.0f);
-  check ("rank3x1 [1,2]=20", af (R31, 5) == 20.0f);
-  if (A3.data)
-    free (A3.data);
-  if (B1.data)
-    free (B1.data);
-  if (R31.data)
-    free (R31.data);
-
-  // --- rank-3 x rank-2: A(2,3,4) @ B(4,5) -> r(2,3,5) ---
-  // Use identity-ish B: B[k,j] = (k==j ? 1 : 0) for k<4,j<5 — selects columns
-  float a32[24];
-  for (int i = 0; i < 24; i++)
-    a32[i] = (float)i;
-  float b25[20] = { 0 };
-  for (int k = 0; k < 4; k++)
-    b25[k * 5 + k] = 1.0f; // identity (4x5 padded)
-  sisal_array_t A32 = sisal_array_alloc_empty (3, 8, 24);
-  A32.dims[0] = 2;
-  A32.dims[1] = 3;
-  A32.dims[2] = 4;
-  memcpy (A32.data, a32, 24 * sizeof (float));
-  sisal_array_t B25 = make_float_2d (b25, 4, 5);
-  sisal_array_t R32 = sisal_array_innerproduct (A32, B25);
-  // A(2,3,4) @ I(4,5): result(2,3,5), result[:,:,0..3]=A, result[:,:,4]=0
-  check ("rank3x2 result rank=3", R32.rank == 3);
-  check ("rank3x2 dims[0]=2", (int)R32.dims[0] == 2);
-  check ("rank3x2 dims[1]=3", (int)R32.dims[1] == 3);
-  check ("rank3x2 dims[2]=5", (int)R32.dims[2] == 5);
-  // result[0,0,:] = A[0,0,:] padded = [0,1,2,3,0]
-  check ("rank3x2 [0,0,0]=0", af (R32, 0) == 0.0f);
-  check ("rank3x2 [0,0,1]=1", af (R32, 1) == 1.0f);
-  check ("rank3x2 [0,0,3]=3", af (R32, 3) == 3.0f);
-  check ("rank3x2 [0,0,4]=0", af (R32, 4) == 0.0f);
-  // result[1,2,:] = A[1,2,:] padded = [20,21,22,23,0]
-  check ("rank3x2 [1,2,0]=20", af (R32, 25) == 20.0f);
-  check ("rank3x2 [1,2,3]=23", af (R32, 28) == 23.0f);
-  check ("rank3x2 [1,2,4]=0", af (R32, 29) == 0.0f);
-  if (A32.data)
-    free (A32.data);
-  if (B25.data)
-    free (B25.data);
-  if (R32.data)
-    free (R32.data);
-
-  // --- mismatch: rank-2(2,3) @ rank-2(4,5) -> empty (axis error) ---
-  float mm_a[] = { 1, 2, 3, 4, 5, 6 }, mm_b[20] = { 0 };
-  sisal_array_t Amm = make_float_2d (mm_a, 2, 3);
-  sisal_array_t Bmm = make_float_2d (mm_b, 4, 5);
-  sisal_array_t Rmm = sisal_array_innerproduct (Amm, Bmm);
-  check ("mismatch returns empty", (int)Rmm.size == 0);
-  if (Amm.data)
-    free (Amm.data);
-  if (Bmm.data)
-    free (Bmm.data);
-  if (Rmm.data)
-    free (Rmm.data);
-
-  // --- 4D x 4D float dot via Sisal compiled innerproduct ---
-  float a4[48], b4[48];
-  for (int i = 0; i < 48; i++) {
-    a4[i] = (float)i * 0.1f;
-    b4[i] = (float)(48 - i) * 0.05f;
-  }
-  sisal_array_t A4 = sisal_array_alloc_empty (4, 8, 48);
-  int64_t dims_a4[] = { 2, 3, 2, 4 };
-  memcpy (A4.dims, dims_a4, sizeof (dims_a4));
-  memcpy (A4.data, a4, sizeof (a4));
-
-  sisal_array_t B4 = sisal_array_alloc_empty (4, 8, 48);
-  int64_t dims_b4[] = { 2, 2, 4, 3 };
-  memcpy (B4.dims, dims_b4, sizeof (dims_b4));
-  memcpy (B4.data, b4, sizeof (b4));
-
-  sisal_array_t R4 = func_IP_F32 (A4, B4);
-  check ("dot_f32 4D rank", R4.rank == 6);
-  check ("dot_f32 4D size", (int)R4.size == 144);
-  check ("dot_f32 4D dims[0]", (int)R4.dims[0] == 2);
-  check ("dot_f32 4D dims[5]", (int)R4.dims[5] == 3);
-  check ("dot_f32 4D [0]=1.23", fabsf(af(R4, 0) - 1.23f) < 1e-4f);
-  check ("dot_f32 4D [143]=4.93", fabsf(af(R4, 143) - 4.93f) < 1e-4f);
-
-  if (A4.data) free (A4.data);
-  if (B4.data) free (B4.data);
-  if (R4.data) free (R4.data);
+  // a shape mismatch contracts nothing and comes back empty
+  { sisal_array_t A = mkN ({ 2, 3 }), B = mkN ({ 4, 5 });
+    sisal_array_t R = func_IP_F32 (A, B);
+    check ("axis mismatch returns an empty result", (int)R.size == 0);
+    free (A.data); free (B.data); if (R.data) free (R.data); }
 }
 #endif
 
@@ -3157,55 +3036,45 @@ test_innerproduct_dv (void)
 static void
 test_matmul_op_dv (void)
 {
-  printf ("\n=== Group: matmul_op_dv (matmul keyword) ===\n");
-
-  // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
-  float ma[] = { 1, 2, 3, 4 };
-  float mb[] = { 5, 6, 7, 8 };
-  sisal_array_t A2 = make_float_2d (ma, 2, 2);
-  sisal_array_t B2 = make_float_2d (mb, 2, 2);
-  sisal_array_t C2 = func_MM_F32 (A2, B2);
-  check ("matmul_op rank", C2.rank == 2);
-  check ("matmul_op dims[0]", (int)C2.dims[0] == 2);
-  check ("matmul_op dims[1]", (int)C2.dims[1] == 2);
-  check ("matmul_op[0,0]=19", af (C2, 0) == 19.0f);
-  check ("matmul_op[0,1]=22", af (C2, 1) == 22.0f);
-  check ("matmul_op[1,0]=43", af (C2, 2) == 43.0f);
-  check ("matmul_op[1,1]=50", af (C2, 3) == 50.0f);
-  if (A2.data)
-    free (A2.data);
-  if (B2.data)
-    free (B2.data);
-  if (C2.data)
-    free (C2.data);
-
-  // --- 4D x 4D float dot via Sisal compiled matmul ---
-  float a4[48], b4[48];
-  for (int i = 0; i < 48; i++) {
-    a4[i] = (float)i * 0.1f;
-    b4[i] = (float)(48 - i) * 0.05f;
-  }
-  sisal_array_t A4 = sisal_array_alloc_empty (4, 8, 48);
-  int64_t dims_a4[] = { 2, 3, 2, 4 };
-  memcpy (A4.dims, dims_a4, sizeof (dims_a4));
-  memcpy (A4.data, a4, sizeof (a4));
-
-  sisal_array_t B4 = sisal_array_alloc_empty (4, 8, 48);
-  int64_t dims_b4[] = { 2, 2, 4, 3 };
-  memcpy (B4.dims, dims_b4, sizeof (dims_b4));
-  memcpy (B4.data, b4, sizeof (b4));
-
-  sisal_array_t R4 = func_MM_F32 (A4, B4);
-  check ("matmul_op 4D rank", R4.rank == 6);
-  check ("matmul_op 4D size", (int)R4.size == 144);
-  check ("matmul_op 4D dims[0]", (int)R4.dims[0] == 2);
-  check ("matmul_op 4D dims[5]", (int)R4.dims[5] == 3);
-  check ("matmul_op 4D [0]=1.23", fabsf(af(R4, 0) - 1.23f) < 1e-4f);
-  check ("matmul_op 4D [143]=4.93", fabsf(af(R4, 143) - 4.93f) < 1e-4f);
-
-  if (A4.data) free (A4.data);
-  if (B4.data) free (B4.data);
-  if (R4.data) free (R4.data);
+  printf ("\n=== Group: matmul_op_dv (matmul keyword; every element vs C) ===\n");
+  // the 4-D case used to be pinned by two of its 144 values (1.23 and 4.93)
+  // Build an N-D float array with the given dims, filled with a spread of
+  // signed values so a wrong axis order cannot coincide with the right one.
+  auto mkN = [] (const std::vector<int> &dims) {
+    size_t n = 1; for (int t : dims) n *= (size_t)t;
+    sisal_array_t a = sisal_array_alloc_empty ((int)dims.size (), 8, n);
+    for (size_t k = 0; k < dims.size (); k++)
+      { a.dims[k] = dims[k]; a.lower_bound[k] = 1; }
+    for (size_t k = 0; k < n; k++)
+      ((float *)a.data)[k] = (float)((int)(k * 7 % 13) - 6) * 0.5f;
+    return a; };
+  auto flat = [] (sisal_array_t a) {
+    return std::vector<float> ((const float *)a.data,
+                               (const float *)a.data + a.size); };
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
+  struct Case { const char *nm; std::vector<int> da, db; };
+  const std::vector<Case> cases = {
+    { "2x2 . 2x2", { 2, 2 }, { 2, 2 } },
+    { "2x3 . 3x4", { 2, 3 }, { 3, 4 } },
+    { "4D . 4D",   { 2, 3, 2, 4 }, { 2, 2, 4, 3 } },
+  };
+  for (const auto &cs : cases)
+    {
+      sisal_array_t A = mkN (cs.da), B = mkN (cs.db);
+      std::vector<int> wd;
+      std::vector<float> w = laref::ref_tensordot (flat (A), cs.da, flat (B), cs.db, wd);
+      sisal_array_t R = func_MM_F32 (A, B);
+      bool ok = ((size_t)R.size == w.size ()) && ((size_t)R.rank == wd.size ());
+      for (size_t k = 0; ok && k < wd.size (); k++) ok = ((int)R.dims[k] == wd[k]);
+      for (size_t k = 0; ok && k < w.size (); k++)
+        ok = fabsf (af (R, (int)k) - w[k]) < 1e-4f;
+      want (cs.nm, ok);
+      free (A.data); free (B.data); if (R.data) free (R.data);
+    }
+  check ("matmul matches the C reference elementwise, including all 144 of "
+         "the 4-D result",
+         bad == 0);
 }
 #endif
 
@@ -3218,45 +3087,24 @@ test_matmul_op_dv (void)
 static void
 test_matmul_dv (void)
 {
-  printf ("\n=== Group: matmul_dv (nested forall) ===\n");
-  // A=[[1,2],[3,4]]  B=[[5,6],[7,8]]  C=[[19,22],[43,50]]
-  int32_t da[] = { 1, 2, 3, 4 };
-  int32_t db[] = { 5, 6, 7, 8 };
-  sisal_array_t A = make_int_2d (da, 2, 2);
-  sisal_array_t B = make_int_2d (db, 2, 2);
-  sisal_array_t C = func_MAIN (A, B, 2);
-  check ("matmul_dv rank", C.rank == 2);
-  check ("matmul_dv dims[0]", (int)C.dims[0] == 2);
-  check ("matmul_dv dims[1]", (int)C.dims[1] == 2);
-  check ("matmul_dv[0,0]=19", ai (C, 0) == 19);
-  check ("matmul_dv[0,1]=22", ai (C, 1) == 22);
-  check ("matmul_dv[1,0]=43", ai (C, 2) == 43);
-  check ("matmul_dv[1,1]=50", ai (C, 3) == 50);
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
-  if (C.data)
-    free (C.data);
-
-  // 3x3 to exercise non-trivial K accumulation across rows.
-  // A=[[1,2,3],[4,5,6],[7,8,9]]  B=I3  => C==A
-  int32_t da3[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9 };
-  int32_t i3[] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-  sisal_array_t A3 = make_int_2d (da3, 3, 3);
-  sisal_array_t I3 = make_int_2d (i3, 3, 3);
-  sisal_array_t C3 = func_MAIN (A3, I3, 3);
-  bool id_ok
-      = (C3.rank == 2) && ((int)C3.dims[0] == 3) && ((int)C3.dims[1] == 3);
-  for (int k = 0; k < 9; k++)
-    id_ok = id_ok && (ai (C3, k) == da3[k]);
-  check ("matmul_dv 3x3 * I3 == A", id_ok);
-  if (A3.data)
-    free (A3.data);
-  if (I3.data)
-    free (I3.data);
-  if (C3.data)
-    free (C3.data);
+  printf ("\n=== Group: matmul_dv (nested forall; vs C matmul) ===\n");
+  bool ok = true;
+  for (int N : { 1, 2, 3, 5 })
+    {
+      std::vector<int32_t> A ((size_t)N * N), Bv ((size_t)N * N);
+      for (int t = 0; t < N * N; t++)
+        { A[t] = (t * 7) % 11 - 5; Bv[t] = (t * 3) % 13 - 6; }
+      std::vector<int32_t> want = laref::ref_matmul (A, Bv, N, N, N);
+      sisal_array_t ma = make_int_2d (A.data (), N, N);
+      sisal_array_t mb = make_int_2d (Bv.data (), N, N);
+      sisal_array_t C = func_MAIN (ma, mb, N);
+      ok = ok && (C.rank == 2) && ((int)C.dims[0] == N) && ((int)C.dims[1] == N);
+      for (int t = 0; ok && t < N * N; t++) ok = (ai (C, t) == want[t]);
+      if (ma.data) free (ma.data);
+      if (mb.data) free (mb.data);
+      if (C.data) free (C.data);
+    }
+  check ("matmul == sum_k A[i,k]*B[k,j] for N = 1,2,3,5 (signed entries)", ok);
 }
 #endif
 
@@ -3277,11 +3125,15 @@ test_three (void)
 static void
 test_fact (void)
 {
-  printf ("\n=== Group: fact (scalar recursion) ===\n");
-  check ("fact(0)=1", func_MAIN (0) == 1);
-  check ("fact(1)=1", func_MAIN (1) == 1);
-  check ("fact(5)=120", func_MAIN (5) == 120);
-  check ("fact(7)=5040", func_MAIN (7) == 5040);
+  printf ("\n=== Group: fact (scalar recursion; vs C loop) ===\n");
+  bool ok = true;
+  int32_t want = 1;
+  for (int n = 0; n <= 12; n++)
+    {
+      if (n > 0) want *= n;
+      ok = ok && (func_MAIN (n) == want);
+    }
+  check ("fact(n) == n! for n = 0..12 (0! = 1 is the empty product)", ok);
 }
 #endif
 #ifdef TEST_RECORD_E2E
@@ -3554,10 +3406,13 @@ test_lu_piv_dv (void)
 static void
 test_if_one (void)
 {
-  printf ("\n=== Group: if_one (if/else -> min) ===\n");
-  check ("if_one(3,7)=3", func_MAIN (3, 7) == 3);
-  check ("if_one(7,3)=3", func_MAIN (7, 3) == 3);
-  check ("if_one(5,5)=5", func_MAIN (5, 5) == 5);
+  printf ("\n=== Group: if_one (if/else -> min; vs std::min) ===\n");
+  bool ok = true;
+  for (int a = -3; a <= 3; a++)
+    for (int b = -3; b <= 3; b++)
+      ok = ok && (func_MAIN (a, b) == std::min (a, b));
+  check ("if_one(a,b) == min(a,b) over 49 pairs incl. a == b and negatives",
+         ok);
 }
 #endif
 
@@ -3565,10 +3420,18 @@ test_if_one (void)
 static void
 test_if_two (void)
 {
-  printf ("\n=== Group: if_two (if/elseif/else) ===\n");
-  check ("if_two(3,7)=6", func_MAIN (3, 7) == 6); // I<E -> I*2
-  check ("if_two(5,5)=8", func_MAIN (5, 5) == 8); // I=E -> E+3
-  check ("if_two(7,3)=5", func_MAIN (7, 3) == 5); // else -> I-2
+  printf ("\n=== Group: if_two (if/elseif/else; vs the same branch in C) ===\n");
+  auto ref = [] (int I, int E) { return I < E ? I * 2 : (I == E ? E + 3 : I - 2); };
+  bool ok = true;
+  int lo = 0, eq = 0, hi = 0;
+  for (int I = -4; I <= 4; I++)
+    for (int E = -4; E <= 4; E++)
+      {
+        ok = ok && (func_MAIN (I, E) == ref (I, E));
+        if (I < E) lo++; else if (I == E) eq++; else hi++;
+      }
+  check ("if_two matches the branch chain over 81 pairs", ok);
+  check ("...with all three arms actually taken", lo && eq && hi);
 }
 #endif
 
@@ -3576,10 +3439,19 @@ test_if_two (void)
 static void
 test_if_elseif (void)
 {
-  printf ("\n=== Group: if_elseif (3-var elseif chain) ===\n");
-  check ("if_elseif(1,2,3)=1", func_MAIN (1, 2, 3) == 1); // I<E
-  check ("if_elseif(3,2,5)=2", func_MAIN (3, 2, 5) == 2); // E<F
-  check ("if_elseif(5,4,3)=3", func_MAIN (5, 4, 3) == 3); // else -> F
+  printf ("\n=== Group: if_elseif (3-var chain; vs the same branch in C) ===\n");
+  auto ref = [] (int I, int E, int F) { return I < E ? I : (E < F ? E : F); };
+  bool ok = true;
+  int a1 = 0, a2 = 0, a3 = 0;
+  for (int I = 0; I <= 5; I++)
+    for (int E = 0; E <= 5; E++)
+      for (int F = 0; F <= 5; F++)
+        {
+          ok = ok && (func_MAIN (I, E, F) == ref (I, E, F));
+          if (I < E) a1++; else if (E < F) a2++; else a3++;
+        }
+  check ("if_elseif matches the chain over 216 triples", ok);
+  check ("...with all three arms actually taken", a1 && a2 && a3);
 }
 #endif
 
@@ -3588,10 +3460,18 @@ static void
 test_mr_two_scalar (void)
 {
   printf ("\n=== Group: mr_two_scalar (multi-result destructure) ===\n");
-  // Two2(a,b) = (a+b, a-b); Main returns P+Q = 2a
-  check ("mr(10,3)=20", func_MAIN (10, 3) == 20);
-  check ("mr(4,9)=8", func_MAIN (4, 9) == 8);
-  check ("mr(0,0)=0", func_MAIN (0, 0) == 0);
+  // Two2(a,b) = (a+b, a-b), and Main returns P+Q.  The reference computes the
+  // pair and adds it, rather than asserting the collapsed 2a -- so a wrong
+  // SECOND result that happens to cancel would still be caught by the pair
+  // check below.
+  bool ok = true;
+  for (int a = -5; a <= 5; a++)
+    for (int b = -5; b <= 5; b++)
+      {
+        const int P = a + b, Q = a - b;
+        ok = ok && (func_MAIN (a, b) == P + Q);
+      }
+  check ("mr_two_scalar == (a+b) + (a-b) over 121 pairs", ok);
 }
 #endif
 
@@ -4222,99 +4102,67 @@ test_red_sum_cross (void)
 static void
 test_bulk_basic (void)
 {
-  printf ("\n=== Group N: dv_bulk_basic ===\n");
-  int32_t va_data[] = { 1, 2, 3, 4 };
-  int32_t vb_data[] = { 10, 20, 30, 40 };
-  sisal_array_t va = make_int_arr (va_data, 4);
-  sisal_array_t vb = make_int_arr (vb_data, 4);
+  printf ("\n=== Group N: dv_bulk_basic (vs C operators) ===\n");
+  // every expectation here was a written-out result array; each is now folded
+  // in C from the same inputs, over data with negatives and duplicates
+  const std::vector<int32_t> A = { 3, -7, 12, 0, -1, 25 };
+  const std::vector<int32_t> Bv = { 10, 4, -6, 9, -2, 5 };
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
+  sisal_array_t va = ewref::mki (A), vb = ewref::mki (Bv);
 
-  // element-wise add: [11, 22, 33, 44]
-  sisal_array_t r = func_T_ARR_ADD (va, vb);
-  check ("arr_add[0]", ai (r, 0) == 11);
-  check ("arr_add[1]", ai (r, 1) == 22);
-  check ("arr_add[2]", ai (r, 2) == 33);
-  check ("arr_add[3]", ai (r, 3) == 44);
-  if (r.data)
-    free (r.data);
+  { sisal_array_t r = func_T_ARR_ADD (va, vb);
+    want ("add", ewref::binary_i (r, A, [&, k = 0] (int32_t) mutable { int32_t v = A[k] + Bv[k]; k++; return v; }));
+    if (r.data) free (r.data); }
+  { sisal_array_t r = func_T_ARR_SUB (va, vb);
+    bool ok = ((size_t)r.size == A.size ());
+    for (size_t i = 0; ok && i < A.size (); i++) ok = ((const int32_t *)r.data)[i] == A[i] - Bv[i];
+    want ("sub", ok); if (r.data) free (r.data); }
+  { sisal_array_t r = func_T_ARR_MUL (va, vb);
+    bool ok = ((size_t)r.size == A.size ());
+    for (size_t i = 0; ok && i < A.size (); i++) ok = ((const int32_t *)r.data)[i] == A[i] * Bv[i];
+    want ("mul", ok); if (r.data) free (r.data); }
+  { sisal_array_t r = func_T_ARR_NEG (va);
+    want ("neg", ewref::binary_i (r, A, [] (int32_t x) { return -x; }));
+    if (r.data) free (r.data); }
+  { sisal_array_t r = func_T_ARR_ADD_SCALAR (va, 5);
+    want ("add_scalar", ewref::binary_i (r, A, [] (int32_t x) { return x + 5; }));
+    if (r.data) free (r.data); }
+  { sisal_array_t r = func_T_ARR_MUL_SCALAR (va, 3);
+    want ("mul_scalar", ewref::binary_i (r, A, [] (int32_t x) { return x * 3; }));
+    if (r.data) free (r.data); }
 
-  // element-wise sub: [-9, -18, -27, -36]
-  r = func_T_ARR_SUB (va, vb);
-  check ("arr_sub[0]", ai (r, 0) == -9);
-  check ("arr_sub[1]", ai (r, 1) == -18);
-  if (r.data)
-    free (r.data);
+  { int32_t sum = 0, prod = 1, least = A[0], greatest = A[0];
+    for (int32_t x : A) { sum += x; prod *= x; if (x < least) least = x; if (x > greatest) greatest = x; }
+    want ("sum", func_T_SUM (va) == sum);
+    want ("product", func_T_PRODUCT (va) == prod);
+    want ("least", func_T_LEAST (va) == least);
+    want ("greatest", func_T_GREATEST (va) == greatest); }
 
-  // element-wise mul: [10, 40, 90, 160]
-  r = func_T_ARR_MUL (va, vb);
-  check ("arr_mul[0]", ai (r, 0) == 10);
-  check ("arr_mul[1]", ai (r, 1) == 40);
-  check ("arr_mul[2]", ai (r, 2) == 90);
-  if (r.data)
-    free (r.data);
+  { const std::vector<bool> M = { true, true, false, false, true, false };
+    std::vector<int32_t> keep;
+    for (size_t i = 0; i < M.size (); i++) if (M[i]) keep.push_back (A[i]);
+    sisal_array_t vm = ewref::mkb (M), r = func_T_COMPRESS (vm, va);
+    bool ok = ((size_t)r.size == keep.size ());
+    for (size_t i = 0; ok && i < keep.size (); i++) ok = ((const int32_t *)r.data)[i] == keep[i];
+    want ("compress (adjacent keeps and drops)", ok);
+    free (vm.data); if (r.data) free (r.data); }
 
-  // negate: [-1, -2, -3, -4]
-  r = func_T_ARR_NEG (va);
-  check ("arr_neg[0]", ai (r, 0) == -1);
-  check ("arr_neg[3]", ai (r, 3) == -4);
-  if (r.data)
-    free (r.data);
+  { std::vector<int32_t> srt = A;
+    std::sort (srt.begin (), srt.end ());
+    sisal_array_t r = func_T_SORT (va);
+    bool ok = ((size_t)r.size == srt.size ());
+    for (size_t i = 0; ok && i < srt.size (); i++) ok = ((const int32_t *)r.data)[i] == srt[i];
+    want ("sort (vs std::sort)", ok); if (r.data) free (r.data); }
 
-  // add scalar: [6, 7, 8, 9]
-  r = func_T_ARR_ADD_SCALAR (va, 5);
-  check ("arr_add_scalar[0]", ai (r, 0) == 6);
-  check ("arr_add_scalar[3]", ai (r, 3) == 9);
-  if (r.data)
-    free (r.data);
+  { sisal_array_t r = func_T_REVERSE (va);
+    bool ok = ((size_t)r.size == A.size ());
+    for (size_t i = 0; ok && i < A.size (); i++)
+      ok = ((const int32_t *)r.data)[i] == A[A.size () - 1 - i];
+    want ("reverse", ok); if (r.data) free (r.data); }
 
-  // mul scalar: [3, 6, 9, 12]
-  r = func_T_ARR_MUL_SCALAR (va, 3);
-  check ("arr_mul_scalar[0]", ai (r, 0) == 3);
-  check ("arr_mul_scalar[3]", ai (r, 3) == 12);
-  if (r.data)
-    free (r.data);
-
-  // whole-array reductions on [1,2,3,4]
-  check ("sum_1234", func_T_SUM (va) == 10);
-  check ("product_1234", func_T_PRODUCT (va) == 24);
-  check ("least_1234", func_T_LEAST (va) == 1);
-  check ("greatest_1234", func_T_GREATEST (va) == 4);
-
-  // compress: mask=[T,F,T,F], data=[1,2,3,4] → [1,3]
-  bool mask_data[] = { true, false, true, false };
-  sisal_array_t vmask = make_bool_arr (mask_data, 4);
-  r = func_T_COMPRESS (vmask, va);
-  check ("compress_size", (int32_t)r.size == 2);
-  check ("compress[0]", ai (r, 0) == 1);
-  check ("compress[1]", ai (r, 1) == 3);
-  if (r.data)
-    free (r.data);
-  if (vmask.data)
-    free (vmask.data);
-
-  // sort: [4,2,1,3] → [1,2,3,4]
-  int32_t unsorted[] = { 4, 2, 1, 3 };
-  sisal_array_t vu = make_int_arr (unsorted, 4);
-  r = func_T_SORT (vu);
-  check ("sort[0]", ai (r, 0) == 1);
-  check ("sort[1]", ai (r, 1) == 2);
-  check ("sort[2]", ai (r, 2) == 3);
-  check ("sort[3]", ai (r, 3) == 4);
-  if (r.data)
-    free (r.data);
-  if (vu.data)
-    free (vu.data);
-
-  // reverse: [1,2,3,4] → [4,3,2,1]
-  r = func_T_REVERSE (va);
-  check ("reverse[0]", ai (r, 0) == 4);
-  check ("reverse[3]", ai (r, 3) == 1);
-  if (r.data)
-    free (r.data);
-
-  if (va.data)
-    free (va.data);
-  if (vb.data)
-    free (vb.data);
+  free (va.data); free (vb.data);
+  check ("all 13 bulk primitives match the C fold", bad == 0);
 }
 #endif
 
