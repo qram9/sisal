@@ -1182,6 +1182,7 @@ struct FUNC_MAIN_results {
   sisal_array_t res_1;
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+extern "C" int32_t func_LOG2(int32_t N);
 #endif
 
 #ifdef TEST_FEO_FFT
@@ -1190,6 +1191,7 @@ struct FUNC_MAIN_results {
   sisal_array_t res_1;
 };
 extern "C" struct FUNC_MAIN_results func_MAIN(int32_t N);
+extern "C" int32_t func_LOG2(int32_t N);
 #endif
 
 #ifdef TEST_KIN16_DV
@@ -5445,72 +5447,80 @@ static void
 test_feo_fft_dv (void)
 {
   printf ("\n=== Group: feo_fft_dv (Full Radix-4 FFT; vs direct DFT) ===\n");
-  // Reference: a direct DFT (fft_ref.h).  This group previously asserted only
-  // `size == 4` at the single input n = 4 -- one of the few sizes that worked --
-  // so it was green on a program wrong for most inputs.  Applying the reference
-  // found and fixed TWO source bugs (see feo_fft_dv.sis):
+  // Reference: a direct DFT (fft_ref.h).  This group once asserted only
+  // `size == 4` at the single input n = 4.  Applying the reference found THREE
+  // source bugs, all now fixed (see feo_fft_dv.sis):
   //
-  //   1. the twiddle ROW INDEX was off by one.  W(n) declares extent
-  //      log2(n)/2 - 1 = iters-1 rows at lower bound 1 and the level loop runs
-  //      i = 2..iters, so level i wants row i-1.  `w1re[i, ..]` read one row
-  //      PAST the end: W(16) is dims [1,3] and it asked for row 2.
-  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length is
-  //      n/4-1 and grows per level, so W(64) needs rows of 3 and 15; the rank-2
-  //      gather silently truncated to dims [2,3].  W_n now pads to a uniform
-  //      width.
+  //   1. the twiddle ROW INDEX was off by one.  W(n) has iters-1 rows at lower
+  //      bound 1 and the level loop runs i = 2..iters, so level i takes row
+  //      i-1; `w1re[i, ..]` read one row PAST the end.  W(16) is dims [1,3] and
+  //      it asked for row 2 -- a genuine out-of-bounds read, and the reason
+  //      results moved between runs.
+  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length
+  //      grows per level, so W(64) needs rows of 3 and 15 and the gather
+  //      silently truncated to dims [2,3].  W_n now pads to a uniform width.
+  //   3. log2 was `integer(log10(n)/log10(2.0))`.  That quotient lands exactly
+  //      ON an integer for every power of two and `integer(...)` truncates, so
+  //      one ulp drops it to the integer below.  THE SUITE COMPILES WITH
+  //      -ffast-math, which permits reciprocal multiplication and does exactly
+  //      that: log2 gave 2 for 8, 5 for 64 and 6 for 128, and the FFT then took
+  //      the wrong branch of level_1 and the wrong iteration count.  At -O2 the
+  //      same source was correct, which is what disguised it as a memory bug.
+  //      Now exact integer shifting.
   //
-  // Together these take every size from grossly wrong to machine precision in a
-  // standalone driver (n = 2..256, worst 2e-11).
-  //
-  // A THIRD BUG REMAINS, and this test does NOT claim otherwise.  Linked into
-  // this harness rather than a standalone driver, n = 8, 64 and 128 lose a
-  // spectral peak entirely (error exactly n/2) while 2, 4, 16, 32 and 256 are
-  // exact -- and which sizes fail changes with the binary.  Results that move
-  // with heap layout mean another out-of-bounds read.  So only n = 2 and 4 are
-  // asserted on VALUES here: they were correct in every build and flag
-  // combination tried.  The rest are checked for shape and determinism only.
-  // Do not add value assertions for them until the third bug is found -- ASAN
-  // over the generated .cpp is the tool, and it needs a long window.
-  bool small_ok = true;
-  for (int n : { 2, 4 })
+  // Sizes below straddle every boundary that matters: n <= 8 runs level_1
+  // alone, n >= 16 enters the multi-level loop, n >= 64 has twiddle rows of
+  // differing natural length, and 8 / 64 / 128 are exactly the sizes the log2
+  // truncation used to corrupt.
+  bool ok = true;
+  double worst = 0.0;
+  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
     {
       FUNC_MAIN_results r = func_MAIN (n);
       const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
                                             (const double *)r.res_1.data,
                                             (int)r.res_0.size);
-      if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
+      if (!(e >= 0.0 && e < 1e-9 * (double)n)) ok = false;
+      if (e > worst) worst = e;
       if (r.res_0.data) free (r.res_0.data);
       if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("n = 2, 4 match a direct DFT exactly", small_ok);
+  char msg[128];
+  snprintf (msg, sizeof msg,
+            "n = 2..256 match a direct DFT (worst |err| = %.3g)", worst);
+  check (msg, ok);
 
-  // Shape must hold at every size regardless of the value bug.
-  bool shape_ok = true;
-  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
-    {
-      FUNC_MAIN_results r = func_MAIN (n);
-      if ((int)r.res_0.size != n || (int)r.res_1.size != n) shape_ok = false;
-      if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
-    }
-  check ("every size from 2 to 256 returns two arrays of exactly n elements",
-         shape_ok);
-
-  // Within one process the answer must at least be reproducible.
+  // Stated independently of the DFT loop, so a reference that was itself wrong
+  // could not make this pass: the input is a pure cosine, so the spectrum is
+  // n/2 at k = 1 and k = n-1 and zero everywhere else.
   {
-    FUNC_MAIN_results a = func_MAIN (64);
-    FUNC_MAIN_results b = func_MAIN (64);
-    bool same = (a.res_0.size == b.res_0.size);
-    for (uint64_t k = 0; same && k < a.res_0.size; k++)
-      if (((const double *)a.res_0.data)[k] != ((const double *)b.res_0.data)[k]
-          || ((const double *)a.res_1.data)[k]
-                 != ((const double *)b.res_1.data)[k])
-        same = false;
-    check ("repeated calls in one process agree bit for bit", same);
-    if (a.res_0.data) free (a.res_0.data);
-    if (a.res_1.data && a.res_1.data != a.res_0.data) free (a.res_1.data);
-    if (b.res_0.data) free (b.res_0.data);
-    if (b.res_1.data && b.res_1.data != b.res_0.data) free (b.res_1.data);
+    const int n = 64;
+    FUNC_MAIN_results r = func_MAIN (n);
+    bool spec = ((int)r.res_0.size == n);
+    for (int k = 0; spec && k < n; k++)
+      {
+        const double want = (k == 1 || k == n - 1) ? (double)n / 2.0 : 0.0;
+        if (fabs (((const double *)r.res_0.data)[k] - want) > 1e-9 * (double)n
+            || fabs (((const double *)r.res_1.data)[k]) > 1e-9 * (double)n)
+          spec = false;
+      }
+    check ("n = 64: a pure cosine gives exactly n/2 at k = 1 and k = n-1, zero "
+           "elsewhere",
+           spec);
+    if (r.res_0.data) free (r.res_0.data);
+    if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
+  }
+
+  // log2 must be exact at every power of two -- this is the check that would
+  // have caught bug 3 on its own, and it is cheap.
+  {
+    bool lg = true;
+    int e = 1;
+    for (int n = 2; n <= 256; n *= 2, e++)
+      if (func_LOG2 (n) != e) lg = false;
+    check ("log2 is exact for every power of two (no float truncation under "
+           "-ffast-math)",
+           lg);
   }
 }
 #endif
@@ -5520,72 +5530,80 @@ static void
 test_feo_fft (void)
 {
   printf ("\n=== Group: feo_fft (Full Radix-4 standard; vs direct DFT) ===\n");
-  // Reference: a direct DFT (fft_ref.h).  This group previously asserted only
-  // `size == 4` at the single input n = 4 -- one of the few sizes that worked --
-  // so it was green on a program wrong for most inputs.  Applying the reference
-  // found and fixed TWO source bugs (see feo_fft_dv.sis):
+  // Reference: a direct DFT (fft_ref.h).  This group once asserted only
+  // `size == 4` at the single input n = 4.  Applying the reference found THREE
+  // source bugs, all now fixed (see feo_fft_dv.sis):
   //
-  //   1. the twiddle ROW INDEX was off by one.  W(n) declares extent
-  //      log2(n)/2 - 1 = iters-1 rows at lower bound 1 and the level loop runs
-  //      i = 2..iters, so level i wants row i-1.  `w1re[i, ..]` read one row
-  //      PAST the end: W(16) is dims [1,3] and it asked for row 2.
-  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length is
-  //      n/4-1 and grows per level, so W(64) needs rows of 3 and 15; the rank-2
-  //      gather silently truncated to dims [2,3].  W_n now pads to a uniform
-  //      width.
+  //   1. the twiddle ROW INDEX was off by one.  W(n) has iters-1 rows at lower
+  //      bound 1 and the level loop runs i = 2..iters, so level i takes row
+  //      i-1; `w1re[i, ..]` read one row PAST the end.  W(16) is dims [1,3] and
+  //      it asked for row 2 -- a genuine out-of-bounds read, and the reason
+  //      results moved between runs.
+  //   2. W gathered RAGGED rows into a flat rank-2 array_dv.  W_n's length
+  //      grows per level, so W(64) needs rows of 3 and 15 and the gather
+  //      silently truncated to dims [2,3].  W_n now pads to a uniform width.
+  //   3. log2 was `integer(log10(n)/log10(2.0))`.  That quotient lands exactly
+  //      ON an integer for every power of two and `integer(...)` truncates, so
+  //      one ulp drops it to the integer below.  THE SUITE COMPILES WITH
+  //      -ffast-math, which permits reciprocal multiplication and does exactly
+  //      that: log2 gave 2 for 8, 5 for 64 and 6 for 128, and the FFT then took
+  //      the wrong branch of level_1 and the wrong iteration count.  At -O2 the
+  //      same source was correct, which is what disguised it as a memory bug.
+  //      Now exact integer shifting.
   //
-  // Together these take every size from grossly wrong to machine precision in a
-  // standalone driver (n = 2..256, worst 2e-11).
-  //
-  // A THIRD BUG REMAINS, and this test does NOT claim otherwise.  Linked into
-  // this harness rather than a standalone driver, n = 8, 64 and 128 lose a
-  // spectral peak entirely (error exactly n/2) while 2, 4, 16, 32 and 256 are
-  // exact -- and which sizes fail changes with the binary.  Results that move
-  // with heap layout mean another out-of-bounds read.  So only n = 2 and 4 are
-  // asserted on VALUES here: they were correct in every build and flag
-  // combination tried.  The rest are checked for shape and determinism only.
-  // Do not add value assertions for them until the third bug is found -- ASAN
-  // over the generated .cpp is the tool, and it needs a long window.
-  bool small_ok = true;
-  for (int n : { 2, 4 })
+  // Sizes below straddle every boundary that matters: n <= 8 runs level_1
+  // alone, n >= 16 enters the multi-level loop, n >= 64 has twiddle rows of
+  // differing natural length, and 8 / 64 / 128 are exactly the sizes the log2
+  // truncation used to corrupt.
+  bool ok = true;
+  double worst = 0.0;
+  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
     {
       FUNC_MAIN_results r = func_MAIN (n);
       const double e = fftref::ref_max_err (n, (const double *)r.res_0.data,
                                             (const double *)r.res_1.data,
                                             (int)r.res_0.size);
-      if (!(e >= 0.0 && e < 1e-9)) small_ok = false;
+      if (!(e >= 0.0 && e < 1e-9 * (double)n)) ok = false;
+      if (e > worst) worst = e;
       if (r.res_0.data) free (r.res_0.data);
       if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
     }
-  check ("n = 2, 4 match a direct DFT exactly", small_ok);
+  char msg[128];
+  snprintf (msg, sizeof msg,
+            "n = 2..256 match a direct DFT (worst |err| = %.3g)", worst);
+  check (msg, ok);
 
-  // Shape must hold at every size regardless of the value bug.
-  bool shape_ok = true;
-  for (int n : { 2, 4, 8, 16, 32, 64, 128, 256 })
-    {
-      FUNC_MAIN_results r = func_MAIN (n);
-      if ((int)r.res_0.size != n || (int)r.res_1.size != n) shape_ok = false;
-      if (r.res_0.data) free (r.res_0.data);
-      if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
-    }
-  check ("every size from 2 to 256 returns two arrays of exactly n elements",
-         shape_ok);
-
-  // Within one process the answer must at least be reproducible.
+  // Stated independently of the DFT loop, so a reference that was itself wrong
+  // could not make this pass: the input is a pure cosine, so the spectrum is
+  // n/2 at k = 1 and k = n-1 and zero everywhere else.
   {
-    FUNC_MAIN_results a = func_MAIN (64);
-    FUNC_MAIN_results b = func_MAIN (64);
-    bool same = (a.res_0.size == b.res_0.size);
-    for (uint64_t k = 0; same && k < a.res_0.size; k++)
-      if (((const double *)a.res_0.data)[k] != ((const double *)b.res_0.data)[k]
-          || ((const double *)a.res_1.data)[k]
-                 != ((const double *)b.res_1.data)[k])
-        same = false;
-    check ("repeated calls in one process agree bit for bit", same);
-    if (a.res_0.data) free (a.res_0.data);
-    if (a.res_1.data && a.res_1.data != a.res_0.data) free (a.res_1.data);
-    if (b.res_0.data) free (b.res_0.data);
-    if (b.res_1.data && b.res_1.data != b.res_0.data) free (b.res_1.data);
+    const int n = 64;
+    FUNC_MAIN_results r = func_MAIN (n);
+    bool spec = ((int)r.res_0.size == n);
+    for (int k = 0; spec && k < n; k++)
+      {
+        const double want = (k == 1 || k == n - 1) ? (double)n / 2.0 : 0.0;
+        if (fabs (((const double *)r.res_0.data)[k] - want) > 1e-9 * (double)n
+            || fabs (((const double *)r.res_1.data)[k]) > 1e-9 * (double)n)
+          spec = false;
+      }
+    check ("n = 64: a pure cosine gives exactly n/2 at k = 1 and k = n-1, zero "
+           "elsewhere",
+           spec);
+    if (r.res_0.data) free (r.res_0.data);
+    if (r.res_1.data && r.res_1.data != r.res_0.data) free (r.res_1.data);
+  }
+
+  // log2 must be exact at every power of two -- this is the check that would
+  // have caught bug 3 on its own, and it is cheap.
+  {
+    bool lg = true;
+    int e = 1;
+    for (int n = 2; n <= 256; n *= 2, e++)
+      if (func_LOG2 (n) != e) lg = false;
+    check ("log2 is exact for every power of two (no float truncation under "
+           "-ffast-math)",
+           lg);
   }
 }
 #endif

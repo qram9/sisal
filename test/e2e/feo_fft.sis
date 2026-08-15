@@ -13,8 +13,24 @@ function singleton( v: double returns OneDim )
   for dummy in 1, 1 returns array_dv of v end for
 end function
 
+% EXACT integer log2.  This was `integer(log10(n)/log10(2.0))`, which is
+% fragile in a way that bit hard: the quotient lands exactly ON an integer for
+% every power of two, `integer(...)` TRUNCATES, and so a one-ulp perturbation
+% drops the answer to the integer below.  The e2e suite compiles with
+% -ffast-math, which permits reciprocal multiplication and reassociation and
+% does exactly that -- log2 returned 2 for 8, 5 for 64 and 6 for 128, so the
+% FFT chose level_1's wrong branch and the wrong iteration count and produced a
+% wrong spectrum.  At -O2 the same source was correct, which is what made it
+% look like a memory bug.  Integer shifting has no rounding to perturb.
 function log2( n: integer returns integer )
-  integer( log10(double_real(n)) / log10(2.0d0) )
+  for initial
+    k := 0;
+    m := n
+  while m > 1 repeat
+    k := old k + 1;
+    m := old m / 2
+  returns value of k
+  end for
 end function
 
 function cadd( re1, im1, re2, im2: double returns double, double )
