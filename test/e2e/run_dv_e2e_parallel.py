@@ -63,6 +63,17 @@ def run_single_test(args):
 
     # 3. Run test binary
     res_run = subprocess.run([bin_out], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    # GOLDEN capture: with SISAL_GOLDEN=<dir> set, record each group's stdout.
+    # The harness split (docs/e2e_harness_split_plan.md) is verified by these
+    # being byte-identical before and after -- a pass COUNT would not notice a
+    # check that silently stopped running.
+    golden = os.environ.get("SISAL_GOLDEN")
+    if golden:
+        os.makedirs(golden, exist_ok=True)
+        with open(os.path.join(golden, f"{macro}.txt"), "w") as fh:
+            fh.write(res_run.stdout)
+
     if res_run.returncode != 0:
         return macro, False, "RUN", res_run.stdout + res_run.stderr
 
