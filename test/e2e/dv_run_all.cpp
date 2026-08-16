@@ -6152,16 +6152,16 @@ test_loop22_dv (void)
 static void
 test_buildfill_dv (void)
 {
-  printf ("\n=== Group: buildfill_dv (empty DV_ARRAY_BUILD + DV_ARRAY_FILL "
-          "keep-last) ===\n");
-  const int n = 4;
-  sisal_array_t r = func_MAIN (n);
-  bool ok = (r.rank == 1) && ((int)r.size == n) && ((int)r.dims[0] == n);
-  for (int k = 0; ok && k < n; k++)
-    ok = ok && (ad (r, k) == 2.0);
-  check ("buildfill_dv = fill(1,n,2.0) (n twos)", ok);
-  if (r.data)
-    free (r.data);
+  printf ("\n=== Group: buildfill_dv (fill(1,n,2.0)) ===\n");
+  bool ok = true;
+  for (int n : { 1, 3, 7 })
+    {
+      sisal_array_t r = func_MAIN (n);
+      ok = ok && ((int)r.size == n);
+      for (int k = 0; ok && k < n; k++) ok = near_d (ad (r, k), 2.0);
+      if (r.data) free (r.data);
+    }
+  check ("fill(1,n,2.0) is n twos, for n = 1, 3, 7", ok);
 }
 #endif
 #ifdef TEST_LOOP20_DV
@@ -6766,155 +6766,278 @@ static void test_cap_array_dv(void) {
 }
 #endif
 #ifdef TEST_CAP_FORINIT_DV
-static void test_cap_forinit_dv(void) {
-    printf("\n=== Group: cap_forinit_dv (grab array into for-initial RHS) ===\n");
-    int32_t A[3] = { 100, 200, 300 };
-    sisal_array_t Aa = make_int_arr(A, 3);
-    check("cap_forinit_dv sum(B[i]) == 600", func_MAIN(Aa) == 600);
-    if (Aa.data) free(Aa.data);
+static void
+test_cap_forinit_dv (void)
+{
+  printf ("\n=== Group: cap_forinit_dv (grab an array into a for-initial) ===\n");
+  // acc := sum B[i] for i = 1..3, where B is the captured A
+  bool ok = true;
+  for (int base : { 100, -5, 0 })
+    {
+      std::vector<int32_t> a = { base, base * 2, base * 3, 999 };
+      int32_t want = a[0] + a[1] + a[2];   // only the first three are summed
+      sisal_array_t A = ewref::mki (a);
+      ok = ok && (func_MAIN (A) == want);
+      free (A.data);
+    }
+  check ("captured array: acc == A[1]+A[2]+A[3], for three input sets", ok);
 }
 #endif
 #ifdef TEST_MR_FORALL_DV
-static void test_mr_forall_dv(void) {
-    printf("\n=== Group: mr_forall_dv (forall scalar + 1-D) ===\n");
-    struct MRFA_results r = func_MAIN();
-    bool ok = (r.res_0 == 30) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==10 && ai(r.res_1,1)==20 && ai(r.res_1,2)==30;
-    check("mr_forall_dv (value of x=30, array of x=[10,20,30])", ok);
-    if (r.res_1.data) free(r.res_1.data);
+static void
+test_mr_forall_dv (void)
+{
+  printf ("\n=== Group: mr_forall_dv (value of + array of, same body) ===\n");
+  // x := i*10 over i = 1..3; `value of x` keeps the last, `array of x` gathers
+  struct MRFA_results r = func_MAIN ();
+  bool ok = (r.res_0 == 3 * 10) && ((int)r.res_1.size == 3);
+  for (int i = 1; ok && i <= 3; i++) ok = (ai (r.res_1, i - 1) == i * 10);
+  check ("value of x == the last x, array of x == every x", ok);
+  if (r.res_1.data) free (r.res_1.data);
 }
 #endif
 #ifdef TEST_MR_FORINIT_DV
-static void test_mr_forinit_dv(void) {
-    printf("\n=== Group: mr_forinit_dv (for-initial scalar + 1-D gather) ===\n");
-    struct MRFI_results r = func_MAIN();
-    // slot 0 is the seed (acc := 0), then the body values 1, 3, 6
-    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 4) && ai(r.res_1,0)==0
-              && ai(r.res_1,1)==1 && ai(r.res_1,2)==3 && ai(r.res_1,3)==6;
-    check("mr_forinit_dv (value of acc=6, gather=[0,1,3,6] incl. seed)", ok);
-    if (r.res_1.data) free(r.res_1.data);
+static void
+test_mr_forinit_dv (void)
+{
+  printf ("\n=== Group: mr_forinit_dv (value of + declared-extent gather) ===\n");
+  // acc := old acc + i over i = 1..3 from a seed of 0.  The declared extent is
+  // a SIZE DESCRIPTOR, so slot 0 is the seed and the gather is [0,1,3,6].
+  int32_t acc = 0;
+  std::vector<int32_t> hist = { acc };
+  for (int i = 1; i <= 3; i++) { acc += i; hist.push_back (acc); }
+  struct MRFI_results r = func_MAIN ();
+  bool ok = (r.res_0 == acc) && ((size_t)r.res_1.size == hist.size ());
+  for (size_t k = 0; ok && k < hist.size (); k++) ok = (ai (r.res_1, (int)k) == hist[k]);
+  check ("value of acc == 6 and the gather is the whole history incl. the seed",
+         ok);
+  if (r.res_1.data) free (r.res_1.data);
 }
 #endif
 #ifdef TEST_MR_1D2D_DV
-static void test_mr_1d2d_dv(void) {
-    printf("\n=== Group: mr_1d2d_dv (forall 1-D + 2-D) ===\n");
-    struct MR12_results r = func_MAIN();
-    bool ok = (r.res_0.rank==1) && ((int)r.res_0.size==3) && ai(r.res_0,0)==10 && ai(r.res_0,2)==30;
-    int exp2[6] = {1,1,2,2,3,3};
-    ok = ok && (r.res_1.rank==2) && ((int)r.res_1.dims[0]==3) && ((int)r.res_1.dims[1]==2);
-    for (int k=0; ok && k<6; k++) ok = ok && (ai(r.res_1,k) == exp2[k]);
-    check("mr_1d2d_dv (1-D [10,20,30], 2-D [3,2]=1 1 2 2 3 3)", ok);
-    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data);
+static void
+test_mr_1d2d_dv (void)
+{
+  printf ("\n=== Group: mr_1d2d_dv (rank-1 and rank-2 from one forall) ===\n");
+  // x := i*10 gathered rank-1; row := fill(1,2,i) gathered rank-2 [3,2]
+  struct MR12_results r = func_MAIN ();
+  bool ok1 = ((int)r.res_0.size == 3);
+  for (int i = 1; ok1 && i <= 3; i++) ok1 = (ai (r.res_0, i - 1) == i * 10);
+  bool ok2 = ((int)r.res_1.size == 6);
+  for (int i = 1; ok2 && i <= 3; i++)
+    for (int j = 0; ok2 && j < 2; j++)
+      ok2 = (ai (r.res_1, (i - 1) * 2 + j) == i);
+  check ("rank-1 is i*10 and rank-2 rows are fill(1,2,i)", ok1 && ok2);
+  if (r.res_0.data) free (r.res_0.data);
+  if (r.res_1.data) free (r.res_1.data);
 }
 #endif
 #ifdef TEST_FN_MULTIOUT_DV
-static void test_fn_multiout_dv(void) {
-    printf("\n=== Group: fn_multiout_dv (function multi-output, scalar + array) ===\n");
-    struct FNMO_results r = func_MAIN();
-    bool ok = (r.res_0 == 6) && ((int)r.res_1.size == 3) && ai(r.res_1,0)==3 && ai(r.res_1,1)==3 && ai(r.res_1,2)==3;
-    check("fn_multiout_dv pair(3) == (6, [3,3,3])", ok);
-    if (r.res_1.data) free(r.res_1.data);
+static void
+test_fn_multiout_dv (void)
+{
+  printf ("\n=== Group: fn_multiout_dv (scalar + array from one function) ===\n");
+  // pair(n) = (n*2, fill(1,n,n))
+  const int n = 3;
+  struct FNMO_results r = func_MAIN ();
+  bool ok = (r.res_0 == n * 2) && ((int)r.res_1.size == n);
+  for (int k = 0; ok && k < n; k++) ok = (ai (r.res_1, k) == n);
+  check ("pair(3) == (n*2, fill(1,n,n))", ok);
+  if (r.res_1.data) free (r.res_1.data);
 }
 #endif
 #ifdef TEST_IF_MULTIOUT_DV
-static void test_if_multiout_dv(void) {
-    printf("\n=== Group: if_multiout_dv (if-expression multi-output) ===\n");
-    struct IFMO_results r1 = func_MAIN(5), r2 = func_MAIN(-1);
-    check("if_multiout_dv if(5)==(1,2) && if(-1)==(3,4)",
-          r1.res_0==1 && r1.res_1==2 && r2.res_0==3 && r2.res_1==4);
+static void
+test_if_multiout_dv (void)
+{
+  printf ("\n=== Group: if_multiout_dv (both arms return a pair) ===\n");
+  // if c > 0 then (1,2) else (3,4) -- swept across the boundary at c = 0
+  bool ok = true;
+  int taken_then = 0, taken_else = 0;
+  for (int c = -3; c <= 3; c++)
+    {
+      struct IFMO_results r = func_MAIN (c);
+      const int w0 = c > 0 ? 1 : 3, w1 = c > 0 ? 2 : 4;
+      ok = ok && (r.res_0 == w0) && (r.res_1 == w1);
+      if (c > 0) taken_then++; else taken_else++;
+    }
+  check ("both pair arms match, swept over c = -3..3", ok);
+  check ("...with both arms taken, including c = 0 on the else side",
+         taken_then && taken_else);
 }
 #endif
 #ifdef TEST_FNCALL_FORALL_DV
-static void test_fncall_forall_dv(void) {
-    printf("\n=== Group: fncall_forall_dv (multi-output fn called in forall) ===\n");
-    sisal_array_t r = func_MAIN();
-    bool ok = ((int)r.size==3) && ai(r,0)==5 && ai(r,1)==10 && ai(r,2)==15;
-    check("fncall_forall_dv a+b per i == [5,10,15]", ok);
-    if (r.data) free(r.data);
+static void
+test_fncall_forall_dv (void)
+{
+  printf ("\n=== Group: fncall_forall_dv (multi-output fn inside a forall) ===\n");
+  // pair(i) = (i*2, i*3); the body gathers a + b = i*5
+  sisal_array_t r = func_MAIN ();
+  bool ok = ((int)r.size == 3);
+  for (int i = 1; ok && i <= 3; i++) ok = (ai (r, i - 1) == i * 2 + i * 3);
+  check ("gathered a+b == i*2 + i*3 for i = 1..3", ok);
+  if (r.data) free (r.data);
 }
 #endif
 #ifdef TEST_NESTED_FORALL_DV
-static void test_nested_forall_dv(void) {
-    printf("\n=== Group: nested_forall_dv (nested forall -> 2-D) ===\n");
-    sisal_array_t r = func_MAIN();
-    int exp[6] = {11,12,13,21,22,23};
-    bool ok = (r.rank==2) && ((int)r.dims[0]==2) && ((int)r.dims[1]==3);
-    for (int k=0; ok && k<6; k++) ok = ok && (ai(r,k)==exp[k]);
-    check("nested_forall_dv 2-D == [[11,12,13],[21,22,23]]", ok);
-    if (r.data) free(r.data);
+static void
+test_nested_forall_dv (void)
+{
+  printf ("\n=== Group: nested_forall_dv (rank-2 from nested gathers) ===\n");
+  sisal_array_t r = func_MAIN ();
+  bool ok = ((int)r.size == 6);
+  for (int i = 1; ok && i <= 2; i++)
+    for (int j = 1; ok && j <= 3; j++)
+      ok = (ai (r, (i - 1) * 3 + (j - 1)) == i * 10 + j);
+  check ("element [i,j] == i*10 + j", ok);
+  if (r.data) free (r.data);
 }
 #endif
 #ifdef TEST_CAP_2DEEP_DV
-static void test_cap_2deep_dv(void) {
-    printf("\n=== Group: cap_2deep_dv (capture across two nested foralls) ===\n");
-    sisal_array_t r = func_MAIN();
-    int exp[6] = {1011,1012,1013,1021,1022,1023};
-    bool ok = (r.rank==2) && ((int)r.dims[0]==2) && ((int)r.dims[1]==3);
-    for (int k=0; ok && k<6; k++) ok = ok && (ai(r,k)==exp[k]);
-    check("cap_2deep_dv base captured 2 loops deep", ok);
-    if (r.data) free(r.data);
+static void
+test_cap_2deep_dv (void)
+{
+  printf ("\n=== Group: cap_2deep_dv (capture across two nested foralls) ===\n");
+  // base = 1000 is captured from the enclosing let, two loops deep
+  const int base = 1000;
+  sisal_array_t r = func_MAIN ();
+  bool ok = (r.rank == 2) && ((int)r.dims[0] == 2) && ((int)r.dims[1] == 3);
+  for (int i = 1; ok && i <= 2; i++)
+    for (int j = 1; ok && j <= 3; j++)
+      ok = (ai (r, (i - 1) * 3 + (j - 1)) == base + i * 10 + j);
+  check ("element [i,j] == base + i*10 + j, base captured 2 loops deep", ok);
+  if (r.data) free (r.data);
 }
 #endif
 #ifdef TEST_FN3RANK_DV
-static void test_fn3rank_dv(void) {
-    printf("\n=== Group: fn3rank_dv (function 3 mixed-rank outputs) ===\n");
-    struct FN3_results r = func_MAIN();
-    int exp2[4] = {1,1,2,2};
-    bool ok = (r.res_0==2) && ((int)r.res_1.size==2) && ai(r.res_1,0)==2 && ai(r.res_1,1)==2;
-    ok = ok && (r.res_2.rank==2) && ((int)r.res_2.dims[0]==2) && ((int)r.res_2.dims[1]==2);
-    for (int k=0; ok && k<4; k++) ok = ok && (ai(r.res_2,k)==exp2[k]);
-    check("fn3rank_dv triple(2) == (2, [2,2], [[1,1],[2,2]])", ok);
-    if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
+static void
+test_fn3rank_dv (void)
+{
+  printf ("\n=== Group: fn3rank_dv (scalar + rank-1 + rank-2 from one fn) ===\n");
+  // triple(n) = (n, fill(1,n,n), rank-2 whose row i is fill(1,2,i))
+  const int n = 2;
+  struct FN3_results r = func_MAIN ();
+  bool ok = (r.res_0 == n) && ((int)r.res_1.size == n);
+  for (int k = 0; ok && k < n; k++) ok = (ai (r.res_1, k) == n);
+  ok = ok && (r.res_2.rank == 2) && ((int)r.res_2.dims[0] == n)
+       && ((int)r.res_2.dims[1] == 2);
+  for (int i = 1; ok && i <= n; i++)
+    for (int j = 0; ok && j < 2; j++)
+      ok = (ai (r.res_2, (i - 1) * 2 + j) == i);
+  check ("triple(2) == (n, fill(1,n,n), rows fill(1,2,i))", ok);
+  if (r.res_1.data) free (r.res_1.data);
+  if (r.res_2.data) free (r.res_2.data);
 }
 #endif
 #ifdef TEST_IFTUPLE_FORALL_DV
-static void test_iftuple_forall_dv(void) {
-    printf("\n=== Group: iftuple_forall_dv (if-tuple inside forall) ===\n");
-    sisal_array_t r = func_MAIN();
-    int exp[4] = {101,202,33,44};
-    bool ok = ((int)r.size==4);
-    for (int k=0; ok && k<4; k++) ok = ok && (ai(r,k)==exp[k]);
-    check("iftuple_forall_dv == [101,202,33,44]", ok);
-    if (r.data) free(r.data);
+static void
+test_iftuple_forall_dv (void)
+{
+  printf ("\n=== Group: iftuple_forall_dv (if returning a pair, in a forall) ===\n");
+  // a,b := if i > 2 then (i, i*10) else (i*100, i); the body gathers a+b
+  sisal_array_t r = func_MAIN ();
+  bool ok = ((int)r.size == 4);
+  int hi = 0, lo = 0;
+  for (int i = 1; ok && i <= 4; i++)
+    {
+      const int want = (i > 2) ? (i + i * 10) : (i * 100 + i);
+      ok = (ai (r, i - 1) == want);
+      if (i > 2) hi++; else lo++;
+    }
+  check ("gathered a+b matches the branch taken at each i", ok);
+  check ("...with both arms of the tuple-valued if exercised", hi && lo);
+  if (r.data) free (r.data);
 }
 #endif
 #ifdef TEST_RED_RANKS_DV
-static void test_red_ranks_dv(void) {
-    printf("\n=== Group: red_ranks_dv (nested reduce/gather -> ranks 1,0,2) ===\n");
-    struct RRK_results r = func_MAIN();
-    bool gok = (r.res_0.rank==1) && ((int)r.res_0.size==3) && ai(r.res_0,0)==10 && ai(r.res_0,1)==20 && ai(r.res_0,2)==30;
-    bool rok = (r.res_1 == 60);
-    int m[12] = {1,2,3,4,2,4,6,8,3,6,9,12};
-    bool mok = (r.res_2.rank==2) && ((int)r.res_2.dims[0]==3) && ((int)r.res_2.dims[1]==4);
-    for (int k=0; mok && k<12; k++) mok = mok && (ai(r.res_2,k)==m[k]);
-    check("red_ranks_dv reduce/gather alternation gives ranks 1,0,2", gok && rok && mok);
-    if (r.res_0.data) free(r.res_0.data); if (r.res_2.data) free(r.res_2.data);
+static void
+test_red_ranks_dv (void)
+{
+  printf ("\n=== Group: red_ranks_dv (reduce/gather alternation) ===\n");
+  // g[i]  = sum_j i*j        (rank 1)
+  // r     = sum_i sum_j i*j  (rank 0)
+  // m[i,j]= i*j              (rank 2)
+  std::vector<int32_t> g;
+  int32_t rr = 0;
+  for (int i = 1; i <= 3; i++)
+    { int32_t sj = 0; for (int j = 1; j <= 4; j++) sj += i * j; g.push_back (sj); rr += sj; }
+  struct RRK_results res = func_MAIN ();
+  bool gok = ((int)res.res_0.size == 3);
+  for (int i = 0; gok && i < 3; i++) gok = (ai (res.res_0, i) == g[i]);
+  bool rok = (res.res_1 == rr);
+  bool mok = ((int)res.res_2.size == 12) && (res.res_2.rank == 2);
+  for (int i = 1; mok && i <= 3; i++)
+    for (int j = 1; mok && j <= 4; j++)
+      mok = (ai (res.res_2, (i - 1) * 4 + (j - 1)) == i * j);
+  check ("gather-of-reduce, reduce-of-reduce and gather-of-gather all match "
+         "the C folds (ranks 1, 0, 2)",
+         gok && rok && mok);
+  if (res.res_0.data) free (res.res_0.data);
+  if (res.res_2.data) free (res.res_2.data);
 }
 #endif
 #ifdef TEST_RED_OPS_DV
-static void test_red_ops_dv(void) {
-    printf("\n=== Group: red_ops_dv (product/greatest/least reductions) ===\n");
-    struct ROP_results r = func_MAIN();
-    int p[3]={24,384,1944}, g[3]={4,8,12}, l[3]={1,2,3};
-    bool ok = (r.res_0.rank==1) && (r.res_1.rank==1) && (r.res_2.rank==1);
-    for (int k=0; ok && k<3; k++) ok = ok && ai(r.res_0,k)==p[k] && ai(r.res_1,k)==g[k] && ai(r.res_2,k)==l[k];
-    check("red_ops_dv product/greatest/least gathered (rank 1)", ok);
-    if (r.res_0.data) free(r.res_0.data); if (r.res_1.data) free(r.res_1.data); if (r.res_2.data) free(r.res_2.data);
+static void
+test_red_ops_dv (void)
+{
+  printf ("\n=== Group: red_ops_dv (product / greatest / least) ===\n");
+  std::vector<int32_t> pp, gg, ll;
+  for (int i = 1; i <= 3; i++)
+    {
+      int32_t p = 1, g = i * 1, l = i * 1;
+      for (int j = 1; j <= 4; j++)
+        { p *= i * j; g = std::max (g, i * j); l = std::min (l, i * j); }
+      pp.push_back (p); gg.push_back (g); ll.push_back (l);
+    }
+  struct ROP_results r = func_MAIN ();
+  bool ok = ((int)r.res_0.size == 3) && ((int)r.res_1.size == 3)
+            && ((int)r.res_2.size == 3);
+  for (int i = 0; ok && i < 3; i++)
+    ok = (ai (r.res_0, i) == pp[i]) && (ai (r.res_1, i) == gg[i])
+         && (ai (r.res_2, i) == ll[i]);
+  check ("product / greatest / least per row match the C folds", ok);
+  if (r.res_0.data) free (r.res_0.data);
+  if (r.res_1.data) free (r.res_1.data);
+  if (r.res_2.data) free (r.res_2.data);
 }
 #endif
 #ifdef TEST_RED_ARR_DV
-static void test_red_arr_dv(void) {
-    printf("\n=== Group: red_arr_dv (array-VALUED reductions, elementwise) ===\n");
-    struct RAR_results r = func_MAIN();
-    int s[4]={6,12,18,24}, p[4]={6,48,162,384}, g[4]={3,6,9,12}, l[4]={1,2,3,4};
-    int m[6]={322,324,326,342,344,346};
-    bool ok = (r.s.rank==1) && (r.p.rank==1) && (r.g.rank==1) && (r.l.rank==1);
-    for (int k=0; ok && k<4; k++)
-        ok = ok && ai(r.s,k)==s[k] && ai(r.p,k)==p[k] && ai(r.g,k)==g[k] && ai(r.l,k)==l[k];
-    ok = ok && (r.m.rank==2) && ((int)r.m.dims[0]==2) && ((int)r.m.dims[1]==3);
-    for (int k=0; ok && k<6; k++) ok = ok && (ai(r.m,k)==m[k]);
-    check("red_arr_dv sum/product/greatest/least of arrays (1-D + 2-D)", ok);
-    if (r.s.data) free(r.s.data); if (r.p.data) free(r.p.data); if (r.g.data) free(r.g.data);
-    if (r.l.data) free(r.l.data); if (r.m.data) free(r.m.data);
+static void
+test_red_arr_dv (void)
+{
+  printf ("\n=== Group: red_arr_dv (ARRAY-valued reductions) ===\n");
+  // Each row is row[j] = i*j for j = 1..4, and the reduction folds ROWS
+  // elementwise -- so the result is a row, not a scalar.  The last case folds
+  // rank-2 matrices the same way.
+  std::vector<int32_t> ws (4, 0), wp (4, 1), wg (4, INT32_MIN), wl (4, INT32_MAX);
+  for (int i = 1; i <= 3; i++)
+    for (int j = 1; j <= 4; j++)
+      {
+        const int32_t v = i * j;
+        ws[j - 1] += v; wp[j - 1] *= v;
+        wg[j - 1] = std::max (wg[j - 1], v);
+        wl[j - 1] = std::min (wl[j - 1], v);
+      }
+  std::vector<int32_t> wm (2 * 3, 0);
+  for (int i = 1; i <= 2; i++)
+    for (int r0 = 1; r0 <= 2; r0++)
+      for (int c = 1; c <= 3; c++)
+        wm[(r0 - 1) * 3 + (c - 1)] += i * 100 + r0 * 10 + c;
+
+  struct RAR_results r = func_MAIN ();
+  auto eq = [] (sisal_array_t a, const std::vector<int32_t> &g) {
+    if ((size_t)a.size != g.size ()) return false;
+    for (size_t k = 0; k < g.size (); k++) if (ai (a, (int)k) != g[k]) return false;
+    return true; };
+  check ("elementwise sum / product / greatest / least of rows match the C fold",
+         eq (r.s, ws) && eq (r.p, wp) && eq (r.g, wg) && eq (r.l, wl));
+  check ("the rank-2 elementwise sum matches too, and stays rank 2",
+         r.m.rank == 2 && eq (r.m, wm));
+  sisal_array_t *o[] = { &r.s, &r.p, &r.g, &r.l, &r.m };
+  std::vector<void *> seen;
+  for (auto *q : o)
+    if (q->data && std::find (seen.begin (), seen.end (), q->data) == seen.end ())
+      { seen.push_back (q->data); free (q->data); }
 }
 #endif
 #ifdef TEST_BCAST3D_DV
@@ -6978,16 +7101,36 @@ static void test_ip_dv(void) {
 }
 #endif
 #ifdef TEST_CONV_DV
-static void test_conv_dv(void) {
-    printf("\n=== Group: conv_dv (convolution Y[i]=sum_j A[j]*X[i+j-1]) ===\n");
-    // Main builds A=[1..M], X=[1..M*Cycles]; M=3,Cycles=2 -> A=[1,2,3], X=[1..6].
-    // Y[i] = sum_{j=1..3} A[j]*X[i+j-1], i=1..4  ->  [14,20,26,32] (hand/numpy verified)
-    sisal_array_t r = func_MAIN(3, 2);
-    double ex[4] = { 14, 20, 26, 32 };
-    bool ok = ((int)r.size == 4);
-    for (int k = 0; ok && k < 4; k++) ok = ok && (fabs(((double*)r.data)[k] - ex[k]) < 1e-9);
-    check("conv_dv(3,2) == [14,20,26,32]", ok);
-    if (r.data) free(r.data);
+static void
+test_conv_dv (void)
+{
+  printf ("\n=== Group: conv_dv (1-D convolution; vs C reference) ===\n");
+  // Main builds A = [1..M] and X = [1..M*Cycles], then
+  //   Y[i] = sum_{j=1..M} A[j] * X[i+j-1],  i = 1..N-M+1
+  // which used to be asserted as the single hand-computed [14,20,26,32].
+  bool ok = true;
+  for (int M : { 1, 2, 3, 4 })
+    for (int Cycles : { 1, 2, 3 })
+      {
+        const int N = M * Cycles;
+        if (N - M + 1 <= 0) continue;
+        std::vector<double> A (M), X (N);
+        for (int k = 0; k < M; k++) A[k] = k + 1;
+        for (int k = 0; k < N; k++) X[k] = k + 1;
+        std::vector<double> want;
+        for (int i = 1; i <= N - M + 1; i++)
+          {
+            double sum = 0;
+            for (int j = 1; j <= M; j++) sum += A[j - 1] * X[i + j - 2];
+            want.push_back (sum);
+          }
+        sisal_array_t r = func_MAIN (M, Cycles);
+        ok = ok && ((size_t)r.size == want.size ());
+        for (size_t k = 0; ok && k < want.size (); k++)
+          ok = near_d (ad (r, (int)k), want[k]);
+        if (r.data) free (r.data);
+      }
+  check ("Y[i] == sum_j A[j]*X[i+j-1] over 12 (M, Cycles) combinations", ok);
 }
 #endif
 #ifdef TEST_LAPLACE_DV
@@ -7165,9 +7308,17 @@ static void test_life2_dv(void) {
 #endif
 #ifdef TEST_FOR_ALL_ARGMAX
 // argmax reduction: val = 10 - i over i in 1..10 maximizes at i = 1.
-static void test_for_all_argmax(void) {
-    printf("\n=== Group: for_all_argmax (argmax reduction) ===\n");
-    check("argmax of (10 - i), i in 1..10 == 1", func_MAIN(0) == 1);
+static void
+test_for_all_argmax (void)
+{
+  printf ("\n=== Group: for_all_argmax (argmax reduction) ===\n");
+  // the body is 10 - i over i = 1..10, so the maximum is at i = 1; the
+  // reference scans for the first maximum rather than asserting the answer
+  int want = 1, best = 10 - 1;
+  for (int i = 2; i <= 10; i++)
+    if (10 - i > best) { best = 10 - i; want = i; }
+  check ("argmax of (10 - i) over i = 1..10 == the first maximum",
+         func_MAIN (0) == want);
 }
 #endif
 #ifdef TEST_TUPLE_MIXED3
@@ -7225,26 +7376,30 @@ static void test_union0(void) {
 #endif
 #ifdef TEST_TUPLE_ADD_DV
 // broadcasting elementwise add: equal sizes zip; a 1-element side splats.
-static void test_tuple_add_dv(void) {
-    printf("\n=== Group: tuple_add_dv (broadcasting elementwise add) ===\n");
-    float av[3] = { 1, 2, 3 }, bv[3] = { 10, 20, 30 }, s1[1] = { 5 };
-    sisal_array_t A = sisal_array_alloc_empty(1, 8, 3);
-    sisal_array_t B = sisal_array_alloc_empty(1, 8, 3);
-    sisal_array_t S = sisal_array_alloc_empty(1, 8, 1);
-    for (int i = 0; i < 3; i++) { ((float*)A.data)[i] = av[i]; ((float*)B.data)[i] = bv[i]; }
-    ((float*)S.data)[0] = s1[0];
-    sisal_array_t r1 = func_TUPLE_ADD(A, B);
-    sisal_array_t r2 = func_TUPLE_ADD(S, B);
-    sisal_array_t r3 = func_TUPLE_ADD(A, S);
-    bool ok1 = (int)r1.size == 3, ok2 = (int)r2.size == 3, ok3 = (int)r3.size == 3;
-    for (int i = 0; i < 3 && ok1; i++) ok1 = fabs(((float*)r1.data)[i] - (av[i] + bv[i])) < 1e-6;
-    for (int i = 0; i < 3 && ok2; i++) ok2 = fabs(((float*)r2.data)[i] - (5 + bv[i])) < 1e-6;
-    for (int i = 0; i < 3 && ok3; i++) ok3 = fabs(((float*)r3.data)[i] - (av[i] + 5)) < 1e-6;
-    check("equal sizes: [1,2,3]+[10,20,30]", ok1);
-    check("splat left: 5+[10,20,30]", ok2);
-    check("splat right: [1,2,3]+5", ok3);
-    free(A.data); free(B.data); free(S.data);
-    if (r1.data) free(r1.data); if (r2.data) free(r2.data); if (r3.data) free(r3.data);
+static void
+test_tuple_add_dv (void)
+{
+  printf ("\n=== Group: tuple_add_dv (elementwise add with splat) ===\n");
+  // equal sizes add elementwise; a size-1 operand on either side splats
+  auto run = [&] (const std::vector<float> &a, const std::vector<float> &b) {
+    sisal_array_t A = ewref::mkf (a), B = ewref::mkf (b);
+    sisal_array_t r = func_TUPLE_ADD (A, B);
+    const size_t n = std::max (a.size (), b.size ());
+    bool ok = ((size_t)r.size == n);
+    for (size_t k = 0; ok && k < n; k++)
+      {
+        const float u = a.size () == 1 ? a[0] : a[k];
+        const float v = b.size () == 1 ? b[0] : b[k];
+        ok = near_f (af (r, (int)k), u + v);
+      }
+    free (A.data); free (B.data); if (r.data) free (r.data);
+    return ok; };
+  check ("equal sizes add elementwise",
+         run ({ 1, 2, 3, -4 }, { 10, 20, 30, 0.5f }));
+  check ("size-1 LEFT operand splats across the right",
+         run ({ 5 }, { 10, 20, 30, -1 }));
+  check ("size-1 RIGHT operand splats across the left",
+         run ({ 1, 2, 3, -4 }, { 5 }));
 }
 #endif
 #ifdef TEST_IDIV
@@ -7265,24 +7420,35 @@ static sisal_array_t mk_i32v(const int32_t* v, int n) {
 }
 #endif
 #ifdef TEST_FORALL_SIMPLE_DV
-static void test_forall_simple_dv(void) {
-    printf("\n=== Group: forall_simple_dv (scatter map x*2) ===\n");
-    int32_t v[4] = { 1, 5, -3, 7 };
-    sisal_array_t A = mk_i32v(v, 4);
-    sisal_array_t r = func_MAIN(A);
-    bool ok = (int)r.size == 4;
-    for (int i = 0; ok && i < 4; i++) ok = (((int32_t*)r.data)[i] == v[i] * 2);
-    check("map x*2 over [1,5,-3,7]", ok);
-    free(A.data); if (r.data && r.data != A.data) free(r.data);
+static void
+test_forall_simple_dv (void)
+{
+  printf ("\n=== Group: forall_simple_dv (map x*2) ===\n");
+  const std::vector<int32_t> a = { 1, 5, -3, 7, 0, -12 };
+  sisal_array_t A = ewref::mki (a);
+  sisal_array_t r = func_MAIN (A);
+  check ("map == x*2 elementwise (negatives and zero included)",
+         ewref::binary_i (r, a, [] (int32_t x) { return x * 2; }));
+  free (A.data);
+  if (r.data && r.data != A.data) free (r.data);
 }
 #endif
 #ifdef TEST_FORALL_DOT_DV
-static void test_forall_dot_dv(void) {
-    printf("\n=== Group: forall_dot_dv (dot-zip inner product) ===\n");
-    int32_t av[3] = { 1, 2, 3 }, bv[3] = { 4, 5, 6 };
-    sisal_array_t A = mk_i32v(av, 3), B = mk_i32v(bv, 3);
-    check("dot([1,2,3],[4,5,6]) == 32", func_MAIN(A, B) == 32);
-    free(A.data); free(B.data);
+static void
+test_forall_dot_dv (void)
+{
+  printf ("\n=== Group: forall_dot_dv (dot generator + sum reduction) ===\n");
+  bool ok = true;
+  for (int n : { 1, 3, 6 })
+    {
+      std::vector<int32_t> a, b;
+      for (int i = 0; i < n; i++) { a.push_back (i * 2 - 3); b.push_back (5 - i); }
+      const int32_t want = laref::ref_dot (a, b);
+      sisal_array_t A = ewref::mki (a), B = ewref::mki (b);
+      ok = ok && (func_MAIN (A, B) == want);
+      free (A.data); free (B.data);
+    }
+  check ("dot == sum a[i]*b[i] for n = 1, 3, 6 with signed entries", ok);
 }
 #endif
 #ifdef TEST_TUPLE_MIXED

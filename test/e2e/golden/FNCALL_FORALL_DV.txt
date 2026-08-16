@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: fncall_forall_dv (multi-output fn called in forall) ===
-  PASS  fncall_forall_dv a+b per i == [5,10,15]
+=== Group: fncall_forall_dv (multi-output fn inside a forall) ===
+  PASS  gathered a+b == i*2 + i*3 for i = 1..3
 
 --- Summary: 1 passed, 0 failed ---

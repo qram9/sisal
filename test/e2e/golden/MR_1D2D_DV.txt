@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: mr_1d2d_dv (forall 1-D + 2-D) ===
-  PASS  mr_1d2d_dv (1-D [10,20,30], 2-D [3,2]=1 1 2 2 3 3)
+=== Group: mr_1d2d_dv (rank-1 and rank-2 from one forall) ===
+  PASS  rank-1 is i*10 and rank-2 rows are fill(1,2,i)
 
 --- Summary: 1 passed, 0 failed ---

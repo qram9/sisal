@@ -112,26 +112,30 @@ static void test_union0(void) {
 #endif
 #ifdef TEST_TUPLE_ADD_DV
 // broadcasting elementwise add: equal sizes zip; a 1-element side splats.
-static void test_tuple_add_dv(void) {
-    printf("\n=== Group: tuple_add_dv (broadcasting elementwise add) ===\n");
-    float av[3] = { 1, 2, 3 }, bv[3] = { 10, 20, 30 }, s1[1] = { 5 };
-    sisal_array_t A = sisal_array_alloc_empty(1, 8, 3);
-    sisal_array_t B = sisal_array_alloc_empty(1, 8, 3);
-    sisal_array_t S = sisal_array_alloc_empty(1, 8, 1);
-    for (int i = 0; i < 3; i++) { ((float*)A.data)[i] = av[i]; ((float*)B.data)[i] = bv[i]; }
-    ((float*)S.data)[0] = s1[0];
-    sisal_array_t r1 = func_TUPLE_ADD(A, B);
-    sisal_array_t r2 = func_TUPLE_ADD(S, B);
-    sisal_array_t r3 = func_TUPLE_ADD(A, S);
-    bool ok1 = (int)r1.size == 3, ok2 = (int)r2.size == 3, ok3 = (int)r3.size == 3;
-    for (int i = 0; i < 3 && ok1; i++) ok1 = fabs(((float*)r1.data)[i] - (av[i] + bv[i])) < 1e-6;
-    for (int i = 0; i < 3 && ok2; i++) ok2 = fabs(((float*)r2.data)[i] - (5 + bv[i])) < 1e-6;
-    for (int i = 0; i < 3 && ok3; i++) ok3 = fabs(((float*)r3.data)[i] - (av[i] + 5)) < 1e-6;
-    check("equal sizes: [1,2,3]+[10,20,30]", ok1);
-    check("splat left: 5+[10,20,30]", ok2);
-    check("splat right: [1,2,3]+5", ok3);
-    free(A.data); free(B.data); free(S.data);
-    if (r1.data) free(r1.data); if (r2.data) free(r2.data); if (r3.data) free(r3.data);
+static void
+test_tuple_add_dv (void)
+{
+  printf ("\n=== Group: tuple_add_dv (elementwise add with splat) ===\n");
+  // equal sizes add elementwise; a size-1 operand on either side splats
+  auto run = [&] (const std::vector<float> &a, const std::vector<float> &b) {
+    sisal_array_t A = ewref::mkf (a), B = ewref::mkf (b);
+    sisal_array_t r = func_TUPLE_ADD (A, B);
+    const size_t n = std::max (a.size (), b.size ());
+    bool ok = ((size_t)r.size == n);
+    for (size_t k = 0; ok && k < n; k++)
+      {
+        const float u = a.size () == 1 ? a[0] : a[k];
+        const float v = b.size () == 1 ? b[0] : b[k];
+        ok = near_f (af (r, (int)k), u + v);
+      }
+    free (A.data); free (B.data); if (r.data) free (r.data);
+    return ok; };
+  check ("equal sizes add elementwise",
+         run ({ 1, 2, 3, -4 }, { 10, 20, 30, 0.5f }));
+  check ("size-1 LEFT operand splats across the right",
+         run ({ 5 }, { 10, 20, 30, -1 }));
+  check ("size-1 RIGHT operand splats across the left",
+         run ({ 1, 2, 3, -4 }, { 5 }));
 }
 #endif
 #ifdef TEST_IDIV
@@ -152,24 +156,35 @@ static sisal_array_t mk_i32v(const int32_t* v, int n) {
 }
 #endif
 #ifdef TEST_FORALL_SIMPLE_DV
-static void test_forall_simple_dv(void) {
-    printf("\n=== Group: forall_simple_dv (scatter map x*2) ===\n");
-    int32_t v[4] = { 1, 5, -3, 7 };
-    sisal_array_t A = mk_i32v(v, 4);
-    sisal_array_t r = func_MAIN(A);
-    bool ok = (int)r.size == 4;
-    for (int i = 0; ok && i < 4; i++) ok = (((int32_t*)r.data)[i] == v[i] * 2);
-    check("map x*2 over [1,5,-3,7]", ok);
-    free(A.data); if (r.data && r.data != A.data) free(r.data);
+static void
+test_forall_simple_dv (void)
+{
+  printf ("\n=== Group: forall_simple_dv (map x*2) ===\n");
+  const std::vector<int32_t> a = { 1, 5, -3, 7, 0, -12 };
+  sisal_array_t A = ewref::mki (a);
+  sisal_array_t r = func_MAIN (A);
+  check ("map == x*2 elementwise (negatives and zero included)",
+         ewref::binary_i (r, a, [] (int32_t x) { return x * 2; }));
+  free (A.data);
+  if (r.data && r.data != A.data) free (r.data);
 }
 #endif
 #ifdef TEST_FORALL_DOT_DV
-static void test_forall_dot_dv(void) {
-    printf("\n=== Group: forall_dot_dv (dot-zip inner product) ===\n");
-    int32_t av[3] = { 1, 2, 3 }, bv[3] = { 4, 5, 6 };
-    sisal_array_t A = mk_i32v(av, 3), B = mk_i32v(bv, 3);
-    check("dot([1,2,3],[4,5,6]) == 32", func_MAIN(A, B) == 32);
-    free(A.data); free(B.data);
+static void
+test_forall_dot_dv (void)
+{
+  printf ("\n=== Group: forall_dot_dv (dot generator + sum reduction) ===\n");
+  bool ok = true;
+  for (int n : { 1, 3, 6 })
+    {
+      std::vector<int32_t> a, b;
+      for (int i = 0; i < n; i++) { a.push_back (i * 2 - 3); b.push_back (5 - i); }
+      const int32_t want = laref::ref_dot (a, b);
+      sisal_array_t A = ewref::mki (a), B = ewref::mki (b);
+      ok = ok && (func_MAIN (A, B) == want);
+      free (A.data); free (B.data);
+    }
+  check ("dot == sum a[i]*b[i] for n = 1, 3, 6 with signed entries", ok);
 }
 #endif
 #ifdef TEST_TUPLE_MIXED

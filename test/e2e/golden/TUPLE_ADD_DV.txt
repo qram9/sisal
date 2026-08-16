@@ -1,8 +1,8 @@
 === dv_run_all test harness ===
 
-=== Group: tuple_add_dv (broadcasting elementwise add) ===
-  PASS  equal sizes: [1,2,3]+[10,20,30]
-  PASS  splat left: 5+[10,20,30]
-  PASS  splat right: [1,2,3]+5
+=== Group: tuple_add_dv (elementwise add with splat) ===
+  PASS  equal sizes add elementwise
+  PASS  size-1 LEFT operand splats across the right
+  PASS  size-1 RIGHT operand splats across the left
 
 --- Summary: 3 passed, 0 failed ---

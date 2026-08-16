@@ -1,6 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: if_multiout_dv (if-expression multi-output) ===
-  PASS  if_multiout_dv if(5)==(1,2) && if(-1)==(3,4)
+=== Group: if_multiout_dv (both arms return a pair) ===
+  PASS  both pair arms match, swept over c = -3..3
+  PASS  ...with both arms taken, including c = 0 on the else side
 
---- Summary: 1 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---

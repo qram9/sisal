@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: fn_multiout_dv (function multi-output, scalar + array) ===
-  PASS  fn_multiout_dv pair(3) == (6, [3,3,3])
+=== Group: fn_multiout_dv (scalar + array from one function) ===
+  PASS  pair(3) == (n*2, fill(1,n,n))
 
 --- Summary: 1 passed, 0 failed ---

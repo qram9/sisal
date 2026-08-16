@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: forall_simple_dv (scatter map x*2) ===
-  PASS  map x*2 over [1,5,-3,7]
+=== Group: forall_simple_dv (map x*2) ===
+  PASS  map == x*2 elementwise (negatives and zero included)
 
 --- Summary: 1 passed, 0 failed ---

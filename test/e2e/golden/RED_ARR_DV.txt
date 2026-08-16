@@ -1,6 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: red_arr_dv (array-VALUED reductions, elementwise) ===
-  PASS  red_arr_dv sum/product/greatest/least of arrays (1-D + 2-D)
+=== Group: red_arr_dv (ARRAY-valued reductions) ===
+  PASS  elementwise sum / product / greatest / least of rows match the C fold
+  PASS  the rank-2 elementwise sum matches too, and stays rank 2
 
---- Summary: 1 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---

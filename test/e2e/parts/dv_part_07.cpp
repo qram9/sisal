@@ -86,19 +86,42 @@ static bool dv_eq(sisal_array_t r, int rank, int d0, int d1, int d2, const doubl
 }
 #endif
 #ifdef TEST_RED_ARR_DV
-static void test_red_arr_dv(void) {
-    printf("\n=== Group: red_arr_dv (array-VALUED reductions, elementwise) ===\n");
-    struct RAR_results r = func_MAIN();
-    int s[4]={6,12,18,24}, p[4]={6,48,162,384}, g[4]={3,6,9,12}, l[4]={1,2,3,4};
-    int m[6]={322,324,326,342,344,346};
-    bool ok = (r.s.rank==1) && (r.p.rank==1) && (r.g.rank==1) && (r.l.rank==1);
-    for (int k=0; ok && k<4; k++)
-        ok = ok && ai(r.s,k)==s[k] && ai(r.p,k)==p[k] && ai(r.g,k)==g[k] && ai(r.l,k)==l[k];
-    ok = ok && (r.m.rank==2) && ((int)r.m.dims[0]==2) && ((int)r.m.dims[1]==3);
-    for (int k=0; ok && k<6; k++) ok = ok && (ai(r.m,k)==m[k]);
-    check("red_arr_dv sum/product/greatest/least of arrays (1-D + 2-D)", ok);
-    if (r.s.data) free(r.s.data); if (r.p.data) free(r.p.data); if (r.g.data) free(r.g.data);
-    if (r.l.data) free(r.l.data); if (r.m.data) free(r.m.data);
+static void
+test_red_arr_dv (void)
+{
+  printf ("\n=== Group: red_arr_dv (ARRAY-valued reductions) ===\n");
+  // Each row is row[j] = i*j for j = 1..4, and the reduction folds ROWS
+  // elementwise -- so the result is a row, not a scalar.  The last case folds
+  // rank-2 matrices the same way.
+  std::vector<int32_t> ws (4, 0), wp (4, 1), wg (4, INT32_MIN), wl (4, INT32_MAX);
+  for (int i = 1; i <= 3; i++)
+    for (int j = 1; j <= 4; j++)
+      {
+        const int32_t v = i * j;
+        ws[j - 1] += v; wp[j - 1] *= v;
+        wg[j - 1] = std::max (wg[j - 1], v);
+        wl[j - 1] = std::min (wl[j - 1], v);
+      }
+  std::vector<int32_t> wm (2 * 3, 0);
+  for (int i = 1; i <= 2; i++)
+    for (int r0 = 1; r0 <= 2; r0++)
+      for (int c = 1; c <= 3; c++)
+        wm[(r0 - 1) * 3 + (c - 1)] += i * 100 + r0 * 10 + c;
+
+  struct RAR_results r = func_MAIN ();
+  auto eq = [] (sisal_array_t a, const std::vector<int32_t> &g) {
+    if ((size_t)a.size != g.size ()) return false;
+    for (size_t k = 0; k < g.size (); k++) if (ai (a, (int)k) != g[k]) return false;
+    return true; };
+  check ("elementwise sum / product / greatest / least of rows match the C fold",
+         eq (r.s, ws) && eq (r.p, wp) && eq (r.g, wg) && eq (r.l, wl));
+  check ("the rank-2 elementwise sum matches too, and stays rank 2",
+         r.m.rank == 2 && eq (r.m, wm));
+  sisal_array_t *o[] = { &r.s, &r.p, &r.g, &r.l, &r.m };
+  std::vector<void *> seen;
+  for (auto *q : o)
+    if (q->data && std::find (seen.begin (), seen.end (), q->data) == seen.end ())
+      { seen.push_back (q->data); free (q->data); }
 }
 #endif
 #ifdef TEST_BCAST3D_DV
@@ -162,16 +185,36 @@ static void test_ip_dv(void) {
 }
 #endif
 #ifdef TEST_CONV_DV
-static void test_conv_dv(void) {
-    printf("\n=== Group: conv_dv (convolution Y[i]=sum_j A[j]*X[i+j-1]) ===\n");
-    // Main builds A=[1..M], X=[1..M*Cycles]; M=3,Cycles=2 -> A=[1,2,3], X=[1..6].
-    // Y[i] = sum_{j=1..3} A[j]*X[i+j-1], i=1..4  ->  [14,20,26,32] (hand/numpy verified)
-    sisal_array_t r = func_MAIN(3, 2);
-    double ex[4] = { 14, 20, 26, 32 };
-    bool ok = ((int)r.size == 4);
-    for (int k = 0; ok && k < 4; k++) ok = ok && (fabs(((double*)r.data)[k] - ex[k]) < 1e-9);
-    check("conv_dv(3,2) == [14,20,26,32]", ok);
-    if (r.data) free(r.data);
+static void
+test_conv_dv (void)
+{
+  printf ("\n=== Group: conv_dv (1-D convolution; vs C reference) ===\n");
+  // Main builds A = [1..M] and X = [1..M*Cycles], then
+  //   Y[i] = sum_{j=1..M} A[j] * X[i+j-1],  i = 1..N-M+1
+  // which used to be asserted as the single hand-computed [14,20,26,32].
+  bool ok = true;
+  for (int M : { 1, 2, 3, 4 })
+    for (int Cycles : { 1, 2, 3 })
+      {
+        const int N = M * Cycles;
+        if (N - M + 1 <= 0) continue;
+        std::vector<double> A (M), X (N);
+        for (int k = 0; k < M; k++) A[k] = k + 1;
+        for (int k = 0; k < N; k++) X[k] = k + 1;
+        std::vector<double> want;
+        for (int i = 1; i <= N - M + 1; i++)
+          {
+            double sum = 0;
+            for (int j = 1; j <= M; j++) sum += A[j - 1] * X[i + j - 2];
+            want.push_back (sum);
+          }
+        sisal_array_t r = func_MAIN (M, Cycles);
+        ok = ok && ((size_t)r.size == want.size ());
+        for (size_t k = 0; ok && k < want.size (); k++)
+          ok = near_d (ad (r, (int)k), want[k]);
+        if (r.data) free (r.data);
+      }
+  check ("Y[i] == sum_j A[j]*X[i+j-1] over 12 (M, Cycles) combinations", ok);
 }
 #endif
 #ifdef TEST_LAPLACE_DV
@@ -314,9 +357,17 @@ static void test_mesort_dv(void) {
 #endif
 #ifdef TEST_FOR_ALL_ARGMAX
 // argmax reduction: val = 10 - i over i in 1..10 maximizes at i = 1.
-static void test_for_all_argmax(void) {
-    printf("\n=== Group: for_all_argmax (argmax reduction) ===\n");
-    check("argmax of (10 - i), i in 1..10 == 1", func_MAIN(0) == 1);
+static void
+test_for_all_argmax (void)
+{
+  printf ("\n=== Group: for_all_argmax (argmax reduction) ===\n");
+  // the body is 10 - i over i = 1..10, so the maximum is at i = 1; the
+  // reference scans for the first maximum rather than asserting the answer
+  int want = 1, best = 10 - 1;
+  for (int i = 2; i <= 10; i++)
+    if (10 - i > best) { best = 10 - i; want = i; }
+  check ("argmax of (10 - i) over i = 1..10 == the first maximum",
+         func_MAIN (0) == want);
 }
 #endif
 

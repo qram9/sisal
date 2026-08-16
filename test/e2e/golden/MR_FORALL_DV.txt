@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: mr_forall_dv (forall scalar + 1-D) ===
-  PASS  mr_forall_dv (value of x=30, array of x=[10,20,30])
+=== Group: mr_forall_dv (value of + array of, same body) ===
+  PASS  value of x == the last x, array of x == every x
 
 --- Summary: 1 passed, 0 failed ---

@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: nested_forall_dv (nested forall -> 2-D) ===
-  PASS  nested_forall_dv 2-D == [[11,12,13],[21,22,23]]
+=== Group: nested_forall_dv (rank-2 from nested gathers) ===
+  PASS  element [i,j] == i*10 + j
 
 --- Summary: 1 passed, 0 failed ---

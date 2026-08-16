@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: red_ops_dv (product/greatest/least reductions) ===
-  PASS  red_ops_dv product/greatest/least gathered (rank 1)
+=== Group: red_ops_dv (product / greatest / least) ===
+  PASS  product / greatest / least per row match the C folds
 
 --- Summary: 1 passed, 0 failed ---

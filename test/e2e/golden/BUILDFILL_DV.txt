@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: buildfill_dv (empty DV_ARRAY_BUILD + DV_ARRAY_FILL keep-last) ===
-  PASS  buildfill_dv = fill(1,n,2.0) (n twos)
+=== Group: buildfill_dv (fill(1,n,2.0)) ===
+  PASS  fill(1,n,2.0) is n twos, for n = 1, 3, 7
 
 --- Summary: 1 passed, 0 failed ---

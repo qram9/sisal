@@ -397,16 +397,16 @@ test_loop22_dv (void)
 static void
 test_buildfill_dv (void)
 {
-  printf ("\n=== Group: buildfill_dv (empty DV_ARRAY_BUILD + DV_ARRAY_FILL "
-          "keep-last) ===\n");
-  const int n = 4;
-  sisal_array_t r = func_MAIN (n);
-  bool ok = (r.rank == 1) && ((int)r.size == n) && ((int)r.dims[0] == n);
-  for (int k = 0; ok && k < n; k++)
-    ok = ok && (ad (r, k) == 2.0);
-  check ("buildfill_dv = fill(1,n,2.0) (n twos)", ok);
-  if (r.data)
-    free (r.data);
+  printf ("\n=== Group: buildfill_dv (fill(1,n,2.0)) ===\n");
+  bool ok = true;
+  for (int n : { 1, 3, 7 })
+    {
+      sisal_array_t r = func_MAIN (n);
+      ok = ok && ((int)r.size == n);
+      for (int k = 0; ok && k < n; k++) ok = near_d (ad (r, k), 2.0);
+      if (r.data) free (r.data);
+    }
+  check ("fill(1,n,2.0) is n twos, for n = 1, 3, 7", ok);
 }
 #endif
 #ifdef TEST_LOOP20_DV

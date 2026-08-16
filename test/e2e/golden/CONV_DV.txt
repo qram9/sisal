@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: conv_dv (convolution Y[i]=sum_j A[j]*X[i+j-1]) ===
-  PASS  conv_dv(3,2) == [14,20,26,32]
+=== Group: conv_dv (1-D convolution; vs C reference) ===
+  PASS  Y[i] == sum_j A[j]*X[i+j-1] over 12 (M, Cycles) combinations
 
 --- Summary: 1 passed, 0 failed ---

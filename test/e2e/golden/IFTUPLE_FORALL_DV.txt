@@ -1,6 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: iftuple_forall_dv (if-tuple inside forall) ===
-  PASS  iftuple_forall_dv == [101,202,33,44]
+=== Group: iftuple_forall_dv (if returning a pair, in a forall) ===
+  PASS  gathered a+b matches the branch taken at each i
+  PASS  ...with both arms of the tuple-valued if exercised
 
---- Summary: 1 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---

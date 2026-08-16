@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: forall_dot_dv (dot-zip inner product) ===
-  PASS  dot([1,2,3],[4,5,6]) == 32
+=== Group: forall_dot_dv (dot generator + sum reduction) ===
+  PASS  dot == sum a[i]*b[i] for n = 1, 3, 6 with signed entries
 
 --- Summary: 1 passed, 0 failed ---
