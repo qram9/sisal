@@ -7610,9 +7610,27 @@ static void test_tst_loop2_dv(void) {
 // The unmasked bug returned 20 (all i, with ARM64 100/0 = 0) — this value
 // pins the mask being honored.  (Body still evaluates 100/(i-5) at i=5;
 // benign on ARM64 where integer div-by-zero does not trap.)
-static void test_for_all_reduce(void) {
-    printf("\n=== Group: for_all_reduce (masked sum reduction) ===\n");
-    check("sum 100/(i-5) when i>5 == 228", func_MAIN(0) == 228);
+static void
+test_for_all_reduce (void)
+{
+  printf ("\n=== Group: for_all_reduce (masked sum reduction) ===\n");
+  // `val := 100 / (i - 5); returns value of sum val when i > 5` over i = 1..10.
+  // The mask matters twice over: it selects which terms are summed, AND it is
+  // what keeps i = 5 -- where the divisor is zero -- out of the sum.  The
+  // reference therefore only evaluates val where the mask holds, exactly as the
+  // guarded arm does; evaluating it unguarded would divide by zero at i = 5.
+  int32_t want = 0;
+  int masked_in = 0, masked_out = 0;
+  for (int i = 1; i <= 10; i++)
+    {
+      if (i > 5) { want += 100 / (i - 5); masked_in++; }
+      else masked_out++;
+    }
+  check ("masked sum == sum of 100/(i-5) over the terms the mask admits",
+         func_MAIN (0) == want);
+  check ("...with the mask both admitting and excluding terms, i = 5 (divisor "
+         "zero) among the excluded",
+         masked_in == 5 && masked_out == 5);
 }
 #endif
 #ifdef TEST_SIMPLEBATCHER_DV

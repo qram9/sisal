@@ -1,6 +1,7 @@
 === dv_run_all test harness ===
 
 === Group: for_all_reduce (masked sum reduction) ===
-  PASS  sum 100/(i-5) when i>5 == 228
+  PASS  masked sum == sum of 100/(i-5) over the terms the mask admits
+  PASS  ...with the mask both admitting and excluding terms, i = 5 (divisor zero) among the excluded
 
---- Summary: 1 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---
