@@ -70,7 +70,7 @@ can be written from a definition rather than from our own output.
 
 | test | lines | blocker | reference |
 |---|---|---|---|
-| `newgauss` | 228 | `array[RealVector]` -> rank-2 `array_dv`; `factor` accumulates variable-length rows; exports `factor`/`solve_down`/`solve_up`, no `main` | `hilbref::lu_solve`; check `A*x == b` |
+| `newgauss` | 228 | only `factor` — see below; `reduce` is PROVEN to port | `hilbref::lu_solve`; check `A*x == b` |
 | `gaussj` | 166 | same array-of-arrays rewrite | residual check |
 | `lu` | 41 | array-of-arrays | reconstruct `L*U == A` |
 | `fft` | 37 | array-of-arrays; math globals are fine | `fftref::` |
@@ -83,6 +83,43 @@ can be written from a definition rather than from our own output.
 `newgauss` was the intended third promotion of this batch and was deferred, not
 rejected: the port is real work, and rushing it would produce a test whose
 reference was fitted to whatever the compiler emitted.
+
+## newgauss: array_dv suffices, no lists (measured 2026-08-15)
+
+`reduce`, the core of the program, was transliterated to plain `array_dv` and run
+against a C reference for one elimination step on a 4x4. Result: **values match,
+and the origins are exactly what the shrinking-block formulation needs** —
+
+```
+row  : rank=1 dims=4    lb=1
+mult : rank=1 dims=3    lb=2
+next : rank=2 dims=3x3  lb=[2,2]        (i = 1)
+```
+
+So both things the port depends on hold: a rank-2 gather `for j in i+1,n /
+for k in i+1,n` carries `lower_bound = [i+1, i+1]` per dimension through to C,
+and the row slice `b[i, ..]` works on it. All four `array_setl` calls in the
+original are therefore unnecessary.
+
+**The one function that is not a transliteration is `factor`.** It gathers
+`array of col` / `array of row` across iterations, and those rows have different
+lengths at each step (`n-i` and `n-i+1`) — a ragged gather, which is exactly what
+`array_dv` will not express. The fix is NOT a list; it is to pad to the dense L/U
+layout so every row has length `n`:
+
+```
+next[j,k] := if j > i and k > i then b[j,k] - mult[j]*row[k] else b[j,k] end if
+```
+
+with `mult` and `row` generated over `1, n` and zero outside the active range.
+Every gather is then uniform, `factor` returns two clean rank-2 `array_dv`s, and
+the layout matches `hilbref::lu_solve` so the reference compares directly. That
+is an algorithm-shape change (shrinking block -> full matrix), not a translation,
+and it is the whole of the remaining work.
+
+Note when writing the harness: `real` lowers to **`float`** (4 bytes, type_id 8),
+not `double`. Feeding `double` gives uninitialised garbage that looks like a
+compiler bug and is not one.
 
 ## Rules that apply to every promotion
 
