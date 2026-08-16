@@ -2,9 +2,9 @@
 
 === Group: bintree_dv (recursive union, two boxed fields) ===
   PASS  [1,2,3,4] -> 4 leaves (nothing collapses)
-  PASS  [5,5]     -> 1 leaf   (equal pair collapses)
-  PASS  [2,2,2,2] -> 1 leaf   (collapses recursively)
-  PASS  [1,1,2,2] -> 2 leaves (pairs collapse, 1 != 2)
-  PASS  leaf values survive boxing (sum 10)
+  PASS  [5,5] -> 1 leaf (the equal pair collapses)
+  PASS  [2,2,2,2] -> 1 leaf (collapses all the way up)
+  PASS  [1,1,2,2] -> 2 leaves (each pair collapses, then 1 /= 2)
+  PASS  LeafSum == the sum of the input values
 
 --- Summary: 5 passed, 0 failed ---

@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <functional>
 #include <vector>
 
 #include "dv_rank8_slices_harness.h"

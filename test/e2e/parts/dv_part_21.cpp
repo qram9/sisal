@@ -136,14 +136,41 @@ static void test_nucleic_dv() {
 // (record[L, R: BTree]) -- both boxed.  Build folds an array into a balanced
 // tree, collapsing a pair of EQUAL leaves into one, so the shape depends on the
 // data and the leaf count is a real check on the recursion.
-static void test_bintree_dv() {
-  printf("\n=== Group: bintree_dv (recursive union, two boxed fields) ===\n");
-  auto r = func_MAIN();
-  check("[1,2,3,4] -> 4 leaves (nothing collapses)", r.res_0 == 4);
-  check("[5,5]     -> 1 leaf   (equal pair collapses)", r.res_1 == 1);
-  check("[2,2,2,2] -> 1 leaf   (collapses recursively)", r.res_2 == 1);
-  check("[1,1,2,2] -> 2 leaves (pairs collapse, 1 != 2)", r.res_3 == 2);
-  check("leaf values survive boxing (sum 10)", r.res_4 == 10);
+static void
+test_bintree_dv (void)
+{
+  printf ("\n=== Group: bintree_dv (recursive union, two boxed fields) ===\n");
+  // Build pairs adjacent elements into a tree and collapses a NonData node
+  // whose two children are equal Data leaves.  The reference does the same
+  // fold, so the leaf counts are derived rather than tabulated.
+  std::function<std::pair<int, bool> (std::vector<int>)> build
+      = [&] (std::vector<int> v) -> std::pair<int, bool> {
+    // returns (leaf count, "is a single Data leaf of this value" flag as value)
+    if (v.size () == 1) return { 1, true };
+    std::vector<int> next;
+    int leaves = 0;
+    bool all_leaf = true;
+    for (size_t i = 0; i + 1 < v.size (); i += 2)
+      {
+        if (v[i] == v[i + 1]) { next.push_back (v[i]); leaves += 1; }
+        else { next.push_back (INT32_MIN); leaves += 2; all_leaf = false; }
+      }
+    if (next.size () == 1) return { leaves, all_leaf };
+    auto up = build (next);
+    return { all_leaf ? up.first : leaves, false }; };
+
+  struct BINTREE_results r = func_MAIN ();
+  check ("[1,2,3,4] -> 4 leaves (nothing collapses)",
+         r.res_0 == build ({ 1, 2, 3, 4 }).first);
+  check ("[5,5] -> 1 leaf (the equal pair collapses)",
+         r.res_1 == build ({ 5, 5 }).first);
+  check ("[2,2,2,2] -> 1 leaf (collapses all the way up)",
+         r.res_2 == build ({ 2, 2, 2, 2 }).first);
+  check ("[1,1,2,2] -> 2 leaves (each pair collapses, then 1 /= 2)",
+         r.res_3 == build ({ 1, 1, 2, 2 }).first);
+  // LeafSum is independent of the collapsing: it sums the original values
+  { int32_t sum = 0; for (int v : { 1, 2, 3, 4 }) sum += v;
+    check ("LeafSum == the sum of the input values", r.res_4 == sum); }
 }
 #endif
 #ifdef TEST_PARA_DEARRAY_DV
@@ -179,13 +206,21 @@ static void test_para_dearray_dv() {
 // union/record was declared sisal_array_t and the body failed on `.tag`, so
 // list traversal had to be tagcase+recursion and depth bounded the length.
 // No recursion here, so it is constant-stack whatever the C optimiser does.
-static void test_list_iter_dv() {
-  printf("\n=== Group: list_iter_dv (for-initial carrying a cons-list) ===\n");
-  auto r = func_MAIN();
-  check("sum 1..100 iteratively == 5050",        r.s1 == 5050);
-  check("length of the 100-list == 100",         r.l1 == 100);
-  check("sum 1..50000 == 1250025000",            r.s2 == 1250025000);
-  check("length of the 50000-list == 50000",     r.l2 == 50000);
+static void
+test_list_iter_dv (void)
+{
+  printf ("\n=== Group: list_iter_dv (cons list built and folded iteratively) ===\n");
+  // UptoIter(n) conses 1..n; SumIter and LenIter fold it.  The expected values
+  // were written out (5050, 1250025000); they are now the closed forms, which
+  // also documents WHY 1250025000 is right -- it is n(n+1)/2 at n = 50000, and
+  // it fits in int32 only just (1.25e9 < 2.15e9).
+  auto tri = [] (long long n) { return n * (n + 1) / 2; };
+  struct LIST_ITER_results r = func_MAIN ();
+  check ("sum of the 100-list == n(n+1)/2", r.s1 == (int32_t)tri (100));
+  check ("length of the 100-list == n", r.l1 == 100);
+  check ("sum of the 50000-list == n(n+1)/2, still inside int32",
+         r.s2 == (int32_t)tri (50000) && tri (50000) < 2147483647LL);
+  check ("length of the 50000-list == n", r.l2 == 50000);
 }
 #endif
 #ifdef TEST_FORINIT_REDUCE_DV

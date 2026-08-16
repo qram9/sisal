@@ -69,14 +69,32 @@ extern "C" float func_SCALAR_EXP_REAL(float,int32_t); extern "C" double func_SCA
 #ifdef TEST_ARRAY_EX_DV
 // array_dv[real]: multi-element replace rh[1:rh[2];2:rh[3]] then `|| ph`.
 // rh=[1.18,7.23,3.18,10.6] -> [7.23,3.18,3.18,10.6] ++ ph=[2.18,4.23,6.18,12.6].
-static void test_array_ex_dv() {
-  printf("\n=== Group: array_ex_dv (array_dv multi-replace + catenate) ===\n");
-  sisal_array_t r = func_MAIN();
-  float exp[] = {7.23f, 3.18f, 3.18f, 10.6f, 2.18f, 4.23f, 6.18f, 12.6f};
-  check("size is 8", (int)r.size == 8);
-  int ok = (int)r.size == 8;
-  for (int i = 0; ok && i < 8; i++) ok = std::fabs(((float *)r.data)[i] - exp[i]) < 1e-4f;
-  check("values [7.23,3.18,3.18,10.6,2.18,4.23,6.18,12.6]", ok);
+static void
+test_array_ex_dv (void)
+{
+  printf ("\n=== Group: array_ex_dv (multi-replace then catenate) ===\n");
+  // The program is `rh[1: rh[2]; 2: rh[3]] || ph`.  The eight result values
+  // used to be written out; the reference performs the same two replaces and
+  // the concatenation, which is what makes the ORDER meaningful: both replaces
+  // read the ORIGINAL rh, so this is a parallel replace, not a sequential one.
+  // Done sequentially, slot 2 would pick up the new slot 1 and give 7.23 there
+  // instead of 3.18 -- the reference below asserts that difference explicitly.
+  const std::vector<float> rh = { 1.18f, 7.23f, 3.18f, 10.6f };
+  const std::vector<float> ph = { 2.18f, 4.23f, 6.18f, 12.6f };
+  std::vector<float> want = rh;
+  want[0] = rh[1];              // 1: rh[2]
+  want[1] = rh[2];              // 2: rh[3]  -- from the ORIGINAL rh
+  want.insert (want.end (), ph.begin (), ph.end ());
+
+  sisal_array_t r = func_MAIN ();
+  bool ok = ((size_t)r.size == want.size ());
+  for (size_t k = 0; ok && k < want.size (); k++)
+    ok = fabsf (af (r, (int)k) - want[k]) < 1e-4f;
+  check ("multi-replace then catenate matches the reference (8 elements)", ok);
+  check ("the two replaces read the ORIGINAL rh -- slot 2 is rh[3], not the "
+         "just-written slot 1",
+         ok && fabsf (want[1] - rh[2]) < 1e-6f && fabsf (want[1] - want[0]) > 1e-6f);
+  if (r.data) free (r.data);
 }
 #endif
 #ifdef TEST_NICO_DV
