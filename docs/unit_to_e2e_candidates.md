@@ -112,10 +112,20 @@ next[j,k] := if j > i and k > i then b[j,k] - mult[j]*row[k] else b[j,k] end if
 ```
 
 with `mult` and `row` generated over `1, n` and zero outside the active range.
-Every gather is then uniform, `factor` returns two clean rank-2 `array_dv`s, and
-the layout matches `hilbref::lu_solve` so the reference compares directly. That
-is an algorithm-shape change (shrinking block -> full matrix), not a translation,
-and it is the whole of the remaining work.
+The padding is not a workaround: L is unit lower triangular and U is upper
+triangular, so those zeros are the true values, and n-by-n triangular factors are
+how the mathematics presents them anyway. The ragged form was the optimisation.
+
+**Pad only what `factor` gathers.** `col` and `row` need it; the block `next`
+does NOT — it is uniformly square `(n-i)x(n-i)` at every step and is already
+array_dv-clean. Keep it shrinking, with its non-1 origins. Flattening it to full
+size as well would be slightly easier to write but would discard the only case in
+the suite exercising a rank-2 `array_dv` with a non-1 lower bound on BOTH
+dimensions, which the probe above proved works and which nothing else covers.
+
+So: `factor` returns two n-by-n `array_dv`s laid out exactly like
+`hilbref::lu_solve` (direct element-for-element comparison, no repacking), while
+`reduce` keeps the shrinking block. That is the whole of the remaining work.
 
 Note when writing the harness: `real` lowers to **`float`** (4 bytes, type_id 8),
 not `double`. Feeding `double` gives uninitialised garbage that looks like a
