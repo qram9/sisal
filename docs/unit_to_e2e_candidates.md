@@ -34,7 +34,14 @@ These exist to be *parsed*; several are deliberately malformed or are a grab bag
 of unrelated fragments. `positive.t` already covers what they are for. There is
 no single answer to check.
 
-**Already covered in substance.** `newgauss_dv` vs `newgauss`, `lu` / `lu.piv` /
+**A `_dv` suffix does not mean it is ported.** `newgauss_dv` declares
+`RealMatrix = array[RealVector]` — a plain array of DV rows. Plain `array` is not
+allowed at all; the target is `array_dv` throughout, with the cons-list/union
+idiom reserved for data that genuinely cannot share one rectangle. So
+`newgauss_dv` is not a shortcut to promoting `newgauss`, even though it compiles
+clean. Check the type declarations, not the filename.
+
+**Already covered in substance.** `lu` / `lu.piv` /
 `lu.npiv`, `gaussj` / `gaussj_1`, `sieve` / `sieve_v2`, `uprime1` / `uprime2`,
 `queens` / `newqueens`, `zbuffer1` / `zbuffer2`, `scan1` / `scan2`,
 `simple` / `simple2a` — pick one of each pair, not both.
@@ -63,7 +70,7 @@ can be written from a definition rather than from our own output.
 
 | test | lines | blocker | reference |
 |---|---|---|---|
-| `newgauss` | 228 | `array[RealVector]` -> rank-2; `array_setl` re-basing throughout; exports `factor`/`solve_down`/`solve_up`, no `main` | `hilbref::lu_solve`; check `A*x == b` |
+| `newgauss` | 228 | `array[RealVector]` -> rank-2 `array_dv`; `factor` accumulates variable-length rows; exports `factor`/`solve_down`/`solve_up`, no `main` | `hilbref::lu_solve`; check `A*x == b` |
 | `gaussj` | 166 | same array-of-arrays rewrite | residual check |
 | `lu` | 41 | array-of-arrays | reconstruct `L*U == A` |
 | `fft` | 37 | array-of-arrays; math globals are fine | `fftref::` |
@@ -79,8 +86,18 @@ reference was fitted to whatever the compiler emitted.
 
 ## Rules that apply to every promotion
 
-1. Rewrite to `array_dv` **first**. If `array_dv` genuinely does not fit, that is
-   a discussion, not a workaround.
+1. Rewrite to `array_dv` **first**, everywhere. Plain `array` is not acceptable,
+   including as an outer container holding `array_dv` rows. Rank is a runtime
+   property of the dope vector, so a rank-2 matrix is declared by its ELEMENT
+   type (`type Matrix = array_dv[real]`) and the rank comes from nesting the
+   gathers — see `test/e2e/matmul_dv.sis`.
+   Only when the data genuinely cannot share one rectangle does the
+   cons-list/union idiom apply (see the Mt/Cons/Hd/Tl examples in e2e).
+   Triangular shapes such as the L/U factors are NOT such a case: they pack into
+   a dense square with the unused corner left zero.
+   `array_setl` calls usually vanish in the port — a gather preserves its
+   generator's origin, so `for j in i+1, n` already yields `lower_bound = i+1`,
+   per dimension.
 2. A reference written from the operation's definition, in C where practical, so
    it doubles later as a performance baseline. Never a constant copied out of our
    own output.
