@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: stand_alone_gauss_dv (LU + substitution, round trip) ===
+=== Group: newgauss_dv (LU + substitution, round trip) ===
   PASS  n=2  all three results are finite
   PASS  n=2  b is the Vandermonde j^(i-1)
   PASS  n=2  AMatrix == b transposed (A e_m is column m)

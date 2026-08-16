@@ -1,5 +1,11 @@
-% stand_alone_gauss -- LU factorisation with forward/back substitution, from
-% test/unit/stand_alone_gauss.sis.
+% newgauss -- LU factorisation with forward/back substitution.
+%
+% Named for test/unit/newgauss.sis; test/unit/stand_alone_gauss.sis is the same
+% program (identical function set: reduce, factor, solve_down, solve_up, FormA,
+% AProd, FormV) with a Main added, and this file was originally ported from it.
+% Both unit files are therefore covered by this one group -- the duplicate name
+% is why a filename-based coverage survey reports newgauss as unported when it
+% is not.
 %
 % THE RAGGED PART, and why it does NOT need a list.  The source shrinks the
 % working block every step: `reduce` returns array_setl(..., i+1) on BOTH axes,

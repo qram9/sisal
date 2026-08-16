@@ -219,6 +219,7 @@ NESTED_DV dv_part_29.cpp
 NESTED_FORALL_DV dv_part_06.cpp
 NESTED_INIT_MERGE_DV dv_part_15.cpp
 NEWGAUSSJ_DV dv_part_26.cpp
+NEWGAUSS_DV dv_part_26.cpp
 NEWSIEVE_DV dv_part_25.cpp
 NEWTON_RAPHSON dv_part_18.cpp
 NICO2_DV dv_part_29.cpp
@@ -307,7 +308,6 @@ SSPHOT_INTERP_DV dv_part_23.cpp
 SSPHOT_MOVE_DV dv_part_23.cpp
 SSPHOT_OPAC_DV dv_part_23.cpp
 SSPHOT_TRACK_DV dv_part_28.cpp
-STAND_ALONE_GAUSS_DV dv_part_26.cpp
 STREAM_GURD_DV dv_part_19.cpp
 STREAM_INTEGERS_DV dv_part_30.cpp
 STREAM_LOOP_DV dv_part_30.cpp
