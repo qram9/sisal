@@ -1,9 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: lu_npiv_dv ===
-  PASS  lu_npiv_dv result size == 3
-  PASS  lu_npiv_dv x[0] == 2.0
-  PASS  lu_npiv_dv x[1] == 3.0
-  PASS  lu_npiv_dv x[2] == -1.0
+=== Group: lu_npiv_dv (linear solve; vs an independent LU) ===
+  PASS  x matches an independent LU solve on four systems
+  PASS  ...and the solutions are not trivially zero
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---

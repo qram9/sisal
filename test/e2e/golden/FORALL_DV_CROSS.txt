@@ -1,11 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: forall_dv_cross (x cross y -> x*y) ===
-  PASS  cross rank-2
-  PASS  cross dims 2x2
-  PASS  cross[0]=3
-  PASS  cross[1]=4
-  PASS  cross[2]=6
-  PASS  cross[3]=8
+=== Group: forall_dv_cross (outer product) ===
+  PASS  cross gives the outer product A[i]*B[j], shape (|A|,|B|)
 
---- Summary: 6 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

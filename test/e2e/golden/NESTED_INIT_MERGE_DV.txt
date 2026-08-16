@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: nested_init_merge_dv ===
-  PASS  nested_init_merge_dv result size == 5
+=== Group: nested_init_merge_dv (nested for-initial, captured carry) ===
+  PASS  nested for-initial returns a rank-1 array of n finite doubles for n = 1, 3, 5 (values unasserted: the inner loop reads Xt[n+1])
 
 --- Summary: 1 passed, 0 failed ---

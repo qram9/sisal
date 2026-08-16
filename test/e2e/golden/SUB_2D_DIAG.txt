@@ -1,6 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: sub_2d_diag (A[1,1]+A[2,2]+A[3,3]) ===
-  PASS  sub_2d_diag(3)=66
+=== Group: sub_2d_diag (rank-2 diagonal sum) ===
+  PASS  A[1,1]+A[2,2]+A[3,3] with A[i,j] = i*10+j, independent of N >= 3
 
 --- Summary: 1 passed, 0 failed ---

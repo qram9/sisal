@@ -1,9 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: forall_dv_at (for x in A at i -> x+i) ===
-  PASS  at rank-1
-  PASS  at[0]=11
-  PASS  at[1]=22
-  PASS  at[2]=33
+=== Group: forall_dv_at (`for x in A at i`) ===
+  PASS  element == A[i] + i, with i the 1-based index
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

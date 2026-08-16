@@ -1,7 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: sub_3d (3-D subscript A[2,3,1]) ===
-  PASS  sub_3d(3)=231
-  PASS  sub_3d(4)=231
+=== Group: sub_3d (rank-3 element subscript) ===
+  PASS  A[2,3,1] == 2*100+3*10+1, independent of N >= 3
 
---- Summary: 2 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

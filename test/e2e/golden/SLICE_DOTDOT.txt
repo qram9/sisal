@@ -1,9 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: slice_dotdot (A[2, ..] row slice) ===
-  PASS  slice rank-1
-  PASS  slice[0]=21
-  PASS  slice[1]=22
-  PASS  slice[2]=23
+=== Group: slice_dotdot (row slice A[2, ..]) ===
+  PASS  A[2, ..] == row 2 of A[i,j] = i*10+j, for N = 3 and 5
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

@@ -3336,13 +3336,41 @@ test_legpoly_dv_e2e (void)
 static void
 test_nested_init_merge_dv (void)
 {
-  printf ("\n=== Group: nested_init_merge_dv ===\n");
-  double d[] = { 1.0, 2.0, 3.0, 4.0, 5.0 };
-  sisal_array_t X = make_double_arr (d, 5);
-  sisal_array_t r = func_MAIN (3, X);
-  check ("nested_init_merge_dv result size == 5", r.size == 5);
-  free (X.data);
-  free (r.data);
+  printf ("\n=== Group: nested_init_merge_dv (nested for-initial, captured "
+          "carry) ===\n");
+  // THE VALUES ARE NOT ASSERTED, DELIBERATELY.  The inner loop is
+  //
+  //     for initial k := p; i := 0; Xt := old A;
+  //     while ( k <= n ) repeat
+  //       k := old k + 1; i := old i + 1;
+  //       Xt := old Xt[i: old Xt[k] + 1.0d0];
+  //
+  // pre-test on k, with k incremented BEFORE it is used as a subscript.  The
+  // last admitted test is k = n, and the body then indexes Xt[n+1] -- one past
+  // the end, on every inner loop, for every p and every n.  There is no runtime
+  // subscript checking, so that read returns whatever follows the buffer.
+  //
+  // Worked by hand for n = 3 on [1,3,5] the result is [1,1,1], and the program
+  // does return [1,1,1] -- but only because the out-of-bounds read yields 0.
+  // Pinning that would be pinning undefined behaviour, so this checks only what
+  // is well defined: the shape, and that the nest ran without trapping.  Not
+  // fixable by choosing a different input; the overrun is in the program.
+  bool ok = true;
+  for (int n : { 1, 3, 5 })
+    {
+      std::vector<double> x;
+      for (int k = 0; k < n; k++) x.push_back (1.0 + 2.0 * k);
+      sisal_array_t X = ewref::mkd (x);
+      sisal_array_t r = func_MAIN (n, X);
+      ok = ok && (r.rank == 1) && ((int)r.size == n);
+      for (int k = 0; ok && k < n; k++)
+        ok = std::isfinite (ad (r, k));   // finite, but not a pinned value
+      free (X.data);
+      if (r.data && r.data != X.data) free (r.data);
+    }
+  check ("nested for-initial returns a rank-1 array of n finite doubles for "
+         "n = 1, 3, 5 (values unasserted: the inner loop reads Xt[n+1])",
+         ok);
 }
 #endif
 #ifdef TEST_MUTUAL_BUG_E2E
@@ -3359,46 +3387,76 @@ test_mutual_bug_e2e (void)
 static void
 test_lu_npiv_dv (void)
 {
-  printf ("\n=== Group: lu_npiv_dv ===\n");
-  double flat_A[9] = {
-    2.0,  1.0, -1.0,
-   -3.0, -1.0,  2.0,
-   -2.0,  1.0,  2.0
+  printf ("\n=== Group: lu_npiv_dv (linear solve; vs an independent LU) ===\n");
+  // was: x pinned to [2,3,-1] for one 3x3 system, with no derivation shown.
+  // hilbref::lu_solve is an independent LU with partial pivoting, so the
+  // reference is the SOLUTION of whatever system is handed in -- which lets
+  // several systems be tried instead of the one whose answer was known.
+  struct Sys { const char *nm; int n; std::vector<double> A, b; };
+  const std::vector<Sys> systems = {
+    { "the original 3x3", 3,
+      { 2, 1, -1, -3, -1, 2, -2, 1, 2 }, { 8, -11, -3 } },
+    { "identity", 3, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 4, -2, 7 } },
+    { "needs a pivot swap (zero in the corner)", 3,
+      { 0, 2, 1, 1, 1, 1, 2, 1, 3 }, { 5, 6, 13 } },
+    { "4x4 diagonally dominant", 4,
+      { 4, 1, 0, 1, 1, 5, 1, 0, 0, 1, 6, 1, 1, 0, 1, 7 }, { 6, 7, 8, 9 } },
   };
-  double flat_B[3] = { 8.0, -11.0, -3.0 };
-  sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
-  sisal_array_t Bin = make_double_arr (flat_B, 3);
-  sisal_array_t r = func_MAIN (3, Ain, Bin);
-  check ("lu_npiv_dv result size == 3", r.size == 3);
-  check ("lu_npiv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
-  check ("lu_npiv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
-  check ("lu_npiv_dv x[2] == -1.0", fabs (((double*)r.data)[2] - -1.0) < 1e-5);
-  free (Ain.data);
-  free (Bin.data);
-  free (r.data);
+  bool ok = true, moved = false;
+  for (const auto &sy : systems)
+    {
+      std::vector<double> want;
+      if (!hilbref::lu_solve (sy.n, sy.A, sy.b, want)) { ok = false; continue; }
+      sisal_array_t A = make_double_2d ((double *)sy.A.data (), sy.n, sy.n);
+      sisal_array_t B = make_double_arr ((double *)sy.b.data (), sy.n);
+      sisal_array_t r = func_MAIN (sy.n, A, B);
+      ok = ok && ((int)r.size == sy.n);
+      for (int k = 0; ok && k < sy.n; k++)
+        ok = fabs (((const double *)r.data)[k] - want[k]) < 1e-6;
+      for (int k = 0; k < sy.n; k++) if (fabs (want[k]) > 1e-9) moved = true;
+      free (A.data); free (B.data);
+      if (r.data) free (r.data);
+    }
+  check ("x matches an independent LU solve on four systems", ok);
+  check ("...and the solutions are not trivially zero", moved);
 }
 #endif
 #ifdef TEST_LU_PIV_DV
 static void
 test_lu_piv_dv (void)
 {
-  printf ("\n=== Group: lu_piv_dv ===\n");
-  double flat_A[9] = {
-    2.0,  1.0, -1.0,
-   -3.0, -1.0,  2.0,
-   -2.0,  1.0,  2.0
+  printf ("\n=== Group: lu_piv_dv (linear solve; vs an independent LU) ===\n");
+  // was: x pinned to [2,3,-1] for one 3x3 system, with no derivation shown.
+  // hilbref::lu_solve is an independent LU with partial pivoting, so the
+  // reference is the SOLUTION of whatever system is handed in -- which lets
+  // several systems be tried instead of the one whose answer was known.
+  struct Sys { const char *nm; int n; std::vector<double> A, b; };
+  const std::vector<Sys> systems = {
+    { "the original 3x3", 3,
+      { 2, 1, -1, -3, -1, 2, -2, 1, 2 }, { 8, -11, -3 } },
+    { "identity", 3, { 1, 0, 0, 0, 1, 0, 0, 0, 1 }, { 4, -2, 7 } },
+    { "needs a pivot swap (zero in the corner)", 3,
+      { 0, 2, 1, 1, 1, 1, 2, 1, 3 }, { 5, 6, 13 } },
+    { "4x4 diagonally dominant", 4,
+      { 4, 1, 0, 1, 1, 5, 1, 0, 0, 1, 6, 1, 1, 0, 1, 7 }, { 6, 7, 8, 9 } },
   };
-  double flat_B[3] = { 8.0, -11.0, -3.0 };
-  sisal_array_t Ain = make_double_2d (flat_A, 3, 3);
-  sisal_array_t Bin = make_double_arr (flat_B, 3);
-  sisal_array_t r = func_MAIN (3, Ain, Bin);
-  check ("lu_piv_dv result size == 3", r.size == 3);
-  check ("lu_piv_dv x[0] == 2.0", fabs (((double*)r.data)[0] - 2.0) < 1e-5);
-  check ("lu_piv_dv x[1] == 3.0", fabs (((double*)r.data)[1] - 3.0) < 1e-5);
-  check ("lu_piv_dv x[2] == -1.0", fabs (((double*)r.data)[2] - -1.0) < 1e-5);
-  free (Ain.data);
-  free (Bin.data);
-  free (r.data);
+  bool ok = true, moved = false;
+  for (const auto &sy : systems)
+    {
+      std::vector<double> want;
+      if (!hilbref::lu_solve (sy.n, sy.A, sy.b, want)) { ok = false; continue; }
+      sisal_array_t A = make_double_2d ((double *)sy.A.data (), sy.n, sy.n);
+      sisal_array_t B = make_double_arr ((double *)sy.b.data (), sy.n);
+      sisal_array_t r = func_MAIN (sy.n, A, B);
+      ok = ok && ((int)r.size == sy.n);
+      for (int k = 0; ok && k < sy.n; k++)
+        ok = fabs (((const double *)r.data)[k] - want[k]) < 1e-6;
+      for (int k = 0; k < sy.n; k++) if (fabs (want[k]) > 1e-9) moved = true;
+      free (A.data); free (B.data);
+      if (r.data) free (r.data);
+    }
+  check ("x matches an independent LU solve on four systems", ok);
+  check ("...and the solutions are not trivially zero", moved);
 }
 #endif
 
@@ -3761,8 +3819,14 @@ test_loop2_inner (void)
 static void
 test_sub_2d_diag (void)
 {
-  printf ("\n=== Group: sub_2d_diag (A[1,1]+A[2,2]+A[3,3]) ===\n");
-  check ("sub_2d_diag(3)=66", func_MAIN (3) == 66); // 11+22+33
+  printf ("\n=== Group: sub_2d_diag (rank-2 diagonal sum) ===\n");
+  // A[i,j] = i*10 + j; the program sums A[1,1] + A[2,2] + A[3,3]
+  int32_t want = 0;
+  for (int i = 1; i <= 3; i++) want += i * 10 + i;
+  bool ok = true;
+  for (int n : { 3, 4, 6 }) ok = ok && (func_MAIN (n) == want);
+  check ("A[1,1]+A[2,2]+A[3,3] with A[i,j] = i*10+j, independent of N >= 3",
+         ok);
 }
 #endif
 
@@ -3780,11 +3844,24 @@ test_let_nested_seq (void)
 static void
 test_forty2 (void)
 {
-  printf ("\n=== Group: forty2 (if/elseif with arithmetic) ===\n");
-  check ("forty2(1,5,_)=213", func_MAIN (1, 5, 0) == 213); // X<Y -> 3+42*5
-  check ("forty2(5,1,_)=40", func_MAIN (5, 1, 0) == 40);   // X>Y -> 3+42-5
-  check ("forty2(3,3,3)=11", func_MAIN (3, 3, 3) == 11);   // Z=Y -> 3+42/5
-  check ("forty2(3,3,5)=47", func_MAIN (3, 3, 5) == 47);   // else -> 5+42
+  printf ("\n=== Group: forty2 (four-arm if/elseif chain) ===\n");
+  // x<y -> 3+42*5 ; x>y -> 3+42-5 ; z=y -> 3+42/5 ; else -> 5+42
+  auto ref = [] (int x, int y, int z) {
+    if (x < y) return 3 + 42 * 5;
+    if (x > y) return 3 + 42 - 5;
+    if (z == y) return 3 + 42 / 5;
+    return 5 + 42; };
+  bool ok = true;
+  int a1 = 0, a2 = 0, a3 = 0, a4 = 0;
+  for (int x = 1; x <= 5; x++)
+    for (int y = 1; y <= 5; y++)
+      for (int z = 1; z <= 5; z++)
+        {
+          ok = ok && (func_MAIN (x, y, z) == ref (x, y, z));
+          if (x < y) a1++; else if (x > y) a2++; else if (z == y) a3++; else a4++;
+        }
+  check ("matches the four-arm chain over 125 triples", ok);
+  check ("...with all four arms taken", a1 && a2 && a3 && a4);
 }
 #endif
 
@@ -3841,18 +3918,24 @@ test_slice_store (void)
 static void
 test_mr_two_array (void)
 {
-  printf ("\n=== Group: mr_two_array (multi-array destructure -> P) ===\n");
-  double a[] = { 1.0, 2.0, 3.0 };
-  sisal_array_t A = make_double_arr (a, 3);
-  sisal_array_t r = func_MAIN (3, A); // P = A[i]+1 = [2,3,4]
-  check ("mr_two_array rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("mr_two_array[0]=2", ad (r, 0) == 2.0);
-  check ("mr_two_array[1]=3", ad (r, 1) == 3.0);
-  check ("mr_two_array[2]=4", ad (r, 2) == 4.0);
-  if (A.data)
-    free (A.data);
-  if (r.data)
-    free (r.data);
+  printf ("\n=== Group: mr_two_array (two array results, first taken) ===\n");
+  // Two(n,A) = (A[i]+1, A[i]*2); Main binds both and returns P, the FIRST.
+  // The reference computes both so a swap of the two result slots is visible
+  // as P coming back as A[i]*2.
+  const std::vector<double> a = { 1.0, 2.0, 3.0, -1.5 };
+  sisal_array_t A = ewref::mkd (a);
+  sisal_array_t r = func_MAIN ((int)a.size (), A);
+  bool ok = (r.rank == 1) && ((size_t)r.size == a.size ());
+  bool would_be_q = ok;
+  for (size_t k = 0; k < a.size () && ok; k++)
+    ok = near_d (ad (r, (int)k), a[k] + 1.0);
+  for (size_t k = 0; k < a.size () && would_be_q; k++)
+    would_be_q = near_d (ad (r, (int)k), a[k] * 2.0);
+  check ("P == A[i] + 1.0 (the first of the two results)", ok);
+  check ("...and it is not Q == A[i] * 2.0, so the slots are not swapped",
+         !would_be_q);
+  free (A.data);
+  if (r.data && r.data != A.data) free (r.data);
 }
 #endif
 
@@ -3876,9 +3959,12 @@ test_aa (void)
 static void
 test_sub_2d (void)
 {
-  printf ("\n=== Group: sub_2d (2-D subscript A[2,3]) ===\n");
-  check ("sub_2d(3)=23", func_MAIN (3) == 23); // 2*10+3
-  check ("sub_2d(5)=23", func_MAIN (5) == 23);
+  printf ("\n=== Group: sub_2d (rank-2 element subscript) ===\n");
+  // A[i,j] = i*10 + j; the program reads A[2,3], so N must be >= 3
+  const int32_t want = 2 * 10 + 3;
+  bool ok = true;
+  for (int n : { 3, 5, 8 }) ok = ok && (func_MAIN (n) == want);
+  check ("A[2,3] == 2*10+3, independent of N >= 3", ok);
 }
 #endif
 
@@ -3886,9 +3972,12 @@ test_sub_2d (void)
 static void
 test_sub_3d (void)
 {
-  printf ("\n=== Group: sub_3d (3-D subscript A[2,3,1]) ===\n");
-  check ("sub_3d(3)=231", func_MAIN (3) == 231); // 2*100+3*10+1
-  check ("sub_3d(4)=231", func_MAIN (4) == 231);
+  printf ("\n=== Group: sub_3d (rank-3 element subscript) ===\n");
+  // A[i,j,k] = i*100 + j*10 + k; the program reads A[2,3,1]
+  const int32_t want = 2 * 100 + 3 * 10 + 1;
+  bool ok = true;
+  for (int n : { 3, 4, 5 }) ok = ok && (func_MAIN (n) == want);
+  check ("A[2,3,1] == 2*100+3*10+1, independent of N >= 3", ok);
 }
 #endif
 
@@ -3896,12 +3985,19 @@ test_sub_3d (void)
 static void
 test_slice_dotdot (void)
 {
-  printf ("\n=== Group: slice_dotdot (A[2, ..] row slice) ===\n");
-  sisal_array_t r = func_MAIN (3); // row 2 of A[i,j]=i*10+j -> [21,22,23]
-  check ("slice rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("slice[0]=21", ai (r, 0) == 21);
-  check ("slice[1]=22", ai (r, 1) == 22);
-  check ("slice[2]=23", ai (r, 2) == 23);
+  printf ("\n=== Group: slice_dotdot (row slice A[2, ..]) ===\n");
+  // A[i,j] = i*10 + j; A[2, ..] is row 2, so element j is 2*10 + j
+  bool ok = true;
+  for (int n : { 3, 5 })
+    {
+      sisal_array_t r = func_MAIN (n);
+      ok = ok && (r.rank == 1) && ((int)r.size == n);
+      for (int j = 1; ok && j <= n; j++) ok = (ai (r, j - 1) == 2 * 10 + j);
+      // NOT freed: a row slice is a descriptor pointing INTO its parent's
+      // buffer at an offset, so the pointer is not a malloc block start and
+      // free() traps on it.
+    }
+  check ("A[2, ..] == row 2 of A[i,j] = i*10+j, for N = 3 and 5", ok);
 }
 #endif
 
@@ -3932,18 +4028,17 @@ test_test_multi_array_if (void)
 static void
 test_forall_dv_at (void)
 {
-  printf ("\n=== Group: forall_dv_at (for x in A at i -> x+i) ===\n");
-  int32_t d[] = { 10, 20, 30 };
-  sisal_array_t A = make_int_arr (d, 3);
+  printf ("\n=== Group: forall_dv_at (`for x in A at i`) ===\n");
+  // the body is x + i, with i the 1-based position
+  const std::vector<int32_t> a = { 10, 20, 30, -5, 0 };
+  sisal_array_t A = ewref::mki (a);
   sisal_array_t r = func_MAIN (A);
-  check ("at rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("at[0]=11", ai (r, 0) == 11);
-  check ("at[1]=22", ai (r, 1) == 22);
-  check ("at[2]=33", ai (r, 2) == 33);
-  if (A.data)
-    free (A.data);
-  if (r.data)
-    free (r.data);
+  bool ok = (r.rank == 1) && ((size_t)r.size == a.size ());
+  for (size_t k = 0; ok && k < a.size (); k++)
+    ok = (ai (r, (int)k) == a[k] + (int32_t)(k + 1));
+  check ("element == A[i] + i, with i the 1-based index", ok);
+  free (A.data);
+  if (r.data && r.data != A.data) free (r.data);
 }
 #endif
 
@@ -3952,22 +4047,18 @@ test_forall_dv_at (void)
 static void
 test_forall_dv_cross (void)
 {
-  printf ("\n=== Group: forall_dv_cross (x cross y -> x*y) ===\n");
-  int32_t da[] = { 1, 2 }, db[] = { 3, 4 };
-  sisal_array_t A = make_int_arr (da, 2), B = make_int_arr (db, 2);
+  printf ("\n=== Group: forall_dv_cross (outer product) ===\n");
+  const std::vector<int32_t> a = { 1, 2, -3 }, b = { 3, 4, 5, 0 };
+  sisal_array_t A = ewref::mki (a), B = ewref::mki (b);
   sisal_array_t r = func_MAIN (A, B);
-  check ("cross rank-2", r.rank == 2);
-  check ("cross dims 2x2", (int)r.dims[0] == 2 && (int)r.dims[1] == 2);
-  check ("cross[0]=3", ai (r, 0) == 3); // 1*3
-  check ("cross[1]=4", ai (r, 1) == 4); // 1*4
-  check ("cross[2]=6", ai (r, 2) == 6); // 2*3
-  check ("cross[3]=8", ai (r, 3) == 8); // 2*4
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
-  if (r.data)
-    free (r.data);
+  bool ok = (r.rank == 2) && ((size_t)r.dims[0] == a.size ())
+            && ((size_t)r.dims[1] == b.size ());
+  for (size_t i = 0; ok && i < a.size (); i++)
+    for (size_t j = 0; ok && j < b.size (); j++)
+      ok = (ai (r, (int)(i * b.size () + j)) == a[i] * b[j]);
+  check ("cross gives the outer product A[i]*B[j], shape (|A|,|B|)", ok);
+  free (A.data); free (B.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -3976,20 +4067,17 @@ test_forall_dv_cross (void)
 static void
 test_forall_dv_dot (void)
 {
-  printf ("\n=== Group: forall_dv_dot (x dot y -> x+y) ===\n");
-  int32_t da[] = { 10, 20, 30 }, db[] = { 1, 2, 3 };
-  sisal_array_t A = make_int_arr (da, 3), B = make_int_arr (db, 3);
+  printf ("\n=== Group: forall_dv_dot (zip generator) ===\n");
+  // `dot` zips: element k is A[k] + B[k], NOT a contraction
+  const std::vector<int32_t> a = { 1, 2, 3, -4 }, b = { 10, 20, 30, 5 };
+  sisal_array_t A = ewref::mki (a), B = ewref::mki (b);
   sisal_array_t r = func_MAIN (A, B);
-  check ("dot rank-1", r.rank == 1 && (int)r.size == 3);
-  check ("dot[0]=11", ai (r, 0) == 11);
-  check ("dot[1]=22", ai (r, 1) == 22);
-  check ("dot[2]=33", ai (r, 2) == 33);
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
-  if (r.data)
-    free (r.data);
+  bool ok = (r.rank == 1) && ((size_t)r.size == a.size ());
+  for (size_t k = 0; ok && k < a.size (); k++)
+    ok = (ai (r, (int)k) == a[k] + b[k]);
+  check ("dot zips: element k == A[k] + B[k]", ok);
+  free (A.data); free (B.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -3998,22 +4086,16 @@ test_forall_dv_dot (void)
 static void
 test_forall_dv_dot3 (void)
 {
-  printf ("\n=== Group: forall_dv_dot3 (x dot y dot z -> x+y+z) ===\n");
-  int32_t da[] = { 1, 2 }, db[] = { 10, 20 }, dc[] = { 100, 200 };
-  sisal_array_t A = make_int_arr (da, 2), B = make_int_arr (db, 2),
-                C = make_int_arr (dc, 2);
+  printf ("\n=== Group: forall_dv_dot3 (three-way zip) ===\n");
+  const std::vector<int32_t> a = { 1, 2, -3 }, b = { 10, 20, 30 }, c = { 100, 200, 0 };
+  sisal_array_t A = ewref::mki (a), B = ewref::mki (b), C = ewref::mki (c);
   sisal_array_t r = func_MAIN (A, B, C);
-  check ("dot3 rank-1", r.rank == 1 && (int)r.size == 2);
-  check ("dot3[0]=111", ai (r, 0) == 111);
-  check ("dot3[1]=222", ai (r, 1) == 222);
-  if (A.data)
-    free (A.data);
-  if (B.data)
-    free (B.data);
-  if (C.data)
-    free (C.data);
-  if (r.data)
-    free (r.data);
+  bool ok = (r.rank == 1) && ((size_t)r.size == a.size ());
+  for (size_t k = 0; ok && k < a.size (); k++)
+    ok = (ai (r, (int)k) == a[k] + b[k] + c[k]);
+  check ("three-way dot: element k == A[k] + B[k] + C[k]", ok);
+  free (A.data); free (B.data); free (C.data);
+  if (r.data) free (r.data);
 }
 #endif
 
@@ -4045,10 +4127,14 @@ static void
 test_red_sum (void)
 {
   printf ("\n=== Group: red_sum (value of sum i) ===\n");
-  check ("red_sum(5)=15", func_MAIN (5) == 15);
-  check ("red_sum(1)=1", func_MAIN (1) == 1);
-  check ("red_sum(0)=0", func_MAIN (0) == 0); // empty range -> identity 0
-  check ("red_sum(10)=55", func_MAIN (10) == 55);
+  bool ok = true;
+  for (int n = 0; n <= 12; n++)
+    {
+      int32_t want = 0;
+      for (int i = 1; i <= n; i++) want += i;
+      ok = ok && (func_MAIN (n) == want);
+    }
+  check ("sum 1..n for n = 0..12 (n = 0 is the empty sum, identity 0)", ok);
 }
 #endif
 
@@ -4057,10 +4143,15 @@ static void
 test_red_product (void)
 {
   printf ("\n=== Group: red_product (value of product i) ===\n");
-  check ("red_product(5)=120", func_MAIN (5) == 120);
-  check ("red_product(1)=1", func_MAIN (1) == 1);
-  check ("red_product(0)=1", func_MAIN (0) == 1); // empty range -> identity 1
-  check ("red_product(4)=24", func_MAIN (4) == 24);
+  bool ok = true;
+  for (int n = 0; n <= 10; n++)
+    {
+      int32_t want = 1;
+      for (int i = 1; i <= n; i++) want *= i;
+      ok = ok && (func_MAIN (n) == want);
+    }
+  check ("product 1..n for n = 0..10 (n = 0 is the empty product, identity 1)",
+         ok);
 }
 #endif
 

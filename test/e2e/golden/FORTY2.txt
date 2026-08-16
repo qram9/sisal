@@ -1,9 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: forty2 (if/elseif with arithmetic) ===
-  PASS  forty2(1,5,_)=213
-  PASS  forty2(5,1,_)=40
-  PASS  forty2(3,3,3)=11
-  PASS  forty2(3,3,5)=47
+=== Group: forty2 (four-arm if/elseif chain) ===
+  PASS  matches the four-arm chain over 125 triples
+  PASS  ...with all four arms taken
 
---- Summary: 4 passed, 0 failed ---
+--- Summary: 2 passed, 0 failed ---
