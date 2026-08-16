@@ -13,6 +13,15 @@
 extern "C" sisal_array_t func_DV_ABS_DEMO (sisal_array_t V);
 #endif
 
+#ifdef TEST_QS_DV
+extern "C" sisal_array_t func_MAIN (sisal_array_t A);
+#endif
+
+#ifdef TEST_FORALL_MATMUL_DV
+extern "C" sisal_array_t func_MAIN (sisal_array_t A, sisal_array_t B, int32_t N);
+#endif
+
+
 #ifdef TEST_AGREEMENT
 extern "C" sisal_array_t func_MAIN (sisal_array_t A,
                                     sisal_array_t B); // dv_agreement
@@ -2049,6 +2058,97 @@ extern "C" sisal_array_t func_T_REVERSE (sisal_array_t A);
 // ============================================================
 // GROUP A — dv_abs_demo
 // ============================================================
+
+#ifdef TEST_QS_DV
+// Hoare-partition quicksort promoted from test/unit/qs.sis.  std::sort is the
+// reference.  Ordering and the multiset are checked SEPARATELY: a sort can fail
+// by mis-ordering or by dropping/duplicating an element, and comparing only
+// against a sorted copy cannot tell those apart.
+static void
+test_qs_dv (void)
+{
+  printf ("\n=== Group: qs_dv (Hoare-partition quicksort; vs std::sort) ===\n");
+  struct Case { const char *nm; std::vector<int32_t> v; };
+  const std::vector<Case> cases = {
+    { "empty", {} },
+    { "single", { 42 } },
+    { "two, out of order", { 2, 1 } },
+    { "two, in order", { 1, 2 } },
+    { "already sorted", { 1, 2, 3, 4, 5, 6 } },
+    { "reverse sorted", { 9, 7, 5, 3, 1 } },
+    { "all equal (every element is the pivot)", { 4, 4, 4, 4, 4 } },
+    { "duplicates either side of the pivot", { 3, 1, 3, 2, 1, 3, 2 } },
+    { "negatives and zero", { 0, -3, 7, -1, 0, 2, -3 } },
+    { "pivot is the minimum (worst-case partition)", { 1, 9, 8, 7, 6, 5 } },
+    { "pivot is the maximum", { 9, 1, 2, 3, 4, 5 } },
+    { "extremes", { 2147483647, -2147483647 - 1, 0 } },
+  };
+  bool ordered = true, multiset = true, sized = true;
+  int total = 0;
+  for (const auto &c : cases)
+    {
+      std::vector<int32_t> want = c.v;
+      std::sort (want.begin (), want.end ());
+      std::vector<int32_t> in = c.v;
+      sisal_array_t A = ewref::mki (in);
+      sisal_array_t r = func_MAIN (A);
+      if ((size_t)r.size != in.size ()) sized = false;
+      else
+        {
+          std::vector<int32_t> got;
+          for (size_t k = 0; k < in.size (); k++) got.push_back (ai (r, (int)k));
+          if (got != want) ordered = false;
+          std::vector<int32_t> gs = got, cs = c.v;
+          std::sort (gs.begin (), gs.end ());
+          std::sort (cs.begin (), cs.end ());
+          if (gs != cs) multiset = false;
+          total += (int)got.size ();
+        }
+      // the result may alias the input when nothing moves (size <= 1)
+      if (r.data && r.data != A.data) free (r.data);
+      free (A.data);
+    }
+  char msg[128];
+  snprintf (msg, sizeof msg,
+            "%zu inputs (%d elements) sort exactly as std::sort does",
+            cases.size (), total);
+  check (msg, ordered);
+  check ("...and every result is a permutation of its input", multiset);
+  check ("...with the length preserved, including the empty and single cases",
+         sized);
+}
+#endif
+
+#ifdef TEST_FORALL_MATMUL_DV
+// Three-deep nest -- gather over i, gather over j, reduce over k -- promoted
+// from test/unit/test_forall_matmul.sis.  Same reference as matmul_dv and
+// matmul_op_dv, so all three spellings are held to one definition.
+static void
+test_forall_matmul_dv (void)
+{
+  printf ("\n=== Group: forall_matmul_dv (3-deep nest; vs C matmul) ===\n");
+  bool ok = true, nontrivial = false;
+  for (int N : { 1, 2, 3, 5, 8 })
+    {
+      std::vector<int32_t> A ((size_t)N * N), B ((size_t)N * N);
+      for (int t = 0; t < N * N; t++)
+        { A[t] = (t * 7) % 11 - 5; B[t] = (t * 5) % 13 - 6; }
+      const std::vector<int32_t> want = laref::ref_matmul (A, B, N, N, N);
+      sisal_array_t ma = make_int_2d (A.data (), N, N);
+      sisal_array_t mb = make_int_2d (B.data (), N, N);
+      sisal_array_t C = func_MAIN (ma, mb, N);
+      ok = ok && (C.rank == 2) && ((int)C.dims[0] == N) && ((int)C.dims[1] == N);
+      for (int t = 0; ok && t < N * N; t++) ok = (ai (C, t) == want[t]);
+      for (int t = 0; t < N * N; t++) if (want[t] != 0) nontrivial = true;
+      if (ma.data) free (ma.data);
+      if (mb.data) free (mb.data);
+      if (C.data) free (C.data);
+    }
+  check ("C[i,j] == sum_k A[i,k]*B[k,j] for N = 1,2,3,5,8 with signed entries",
+         ok);
+  check ("...and the products are not all zero", nontrivial);
+}
+#endif
 
 #ifdef TEST_ABS_DEMO
 static void
@@ -21050,6 +21150,12 @@ void
 run_active_test (void)
 {
 
+#ifdef TEST_QS_DV
+  test_qs_dv ();
+#endif
+#ifdef TEST_FORALL_MATMUL_DV
+  test_forall_matmul_dv ();
+#endif
 #ifdef TEST_ABS_DEMO
   test_abs_demo ();
 #endif

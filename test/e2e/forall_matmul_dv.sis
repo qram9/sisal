@@ -1,0 +1,27 @@
+% Nested-forall matrix multiply, promoted from test/unit/test_forall_matmul.sis.
+%
+% ARRAY REWRITE: `array[array[integer]]` (an array of rows) becomes a flat
+% rank-2 array_dv, so A[i,k] is a single rank-2 subscript rather than two
+% chained ones, and the result is built by a rank-2 gather of rank-1 rows.
+%
+% This is the THREE-DEEP nest -- gather over i, gather over j, reduce over k --
+% which is what distinguishes it from matmul_dv (two-deep with an inner
+% reduction written differently) and from the matmul KEYWORD in matmul_op_dv.
+% All three should agree with the same C reference, and the harness checks this
+% one against laref::ref_matmul over several shapes.
+
+define main
+
+type TwoD = array_dv[integer];
+
+function main( A, B: TwoD; N: integer returns TwoD )
+  for i in 1, N
+    row := for j in 1, N
+             val := for k in 1, N
+                    returns value of sum A[i, k] * B[k, j]
+                    end for
+           returns array_dv of val
+           end for
+  returns array_dv of row
+  end for
+end function

@@ -1,0 +1,8 @@
+=== dv_run_all test harness ===
+
+=== Group: qs_dv (Hoare-partition quicksort; vs std::sort) ===
+  PASS  12 inputs (50 elements) sort exactly as std::sort does
+  PASS  ...and every result is a permutation of its input
+  PASS  ...with the length preserved, including the empty and single cases
+
+--- Summary: 3 passed, 0 failed ---

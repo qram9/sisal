@@ -1,0 +1,71 @@
+% Hoare-partition quicksort, promoted from test/unit/qs.sis.
+%
+% Distinct from quicksort_dv (which partitions with masked gathers) and from the
+% batcher/insertion families: this is the classic two-pointer scan with an
+% in-place swap, expressed as nested for-initials --
+%
+%   L scans right while A[I1] <= Pivot,  R scans left while A[J1] > Pivot,
+%   and when they have not crossed, B swaps B[L] and B[R] via a two-value
+%   replace, then recurses on array_adjust(B, first, J-1) and (B, J+1, last).
+%
+% ARRAY REWRITE: `array[integer]` -> `array_dv[integer]`, and the singleton
+% `array [1: Pivot]` -> `array_dv OneDim [1: Pivot]`.  array_adjust and `||`
+% carry over unchanged.
+%
+% The recursion re-bases through array_adjust, so this also exercises subranges
+% whose lower bound is not 1 -- worth having given how many origin bugs this
+% suite has turned up.
+%
+% REFERENCE: std::sort.  The harness checks ORDERING and the MULTISET
+% separately, because a sort can fail by mis-ordering or by losing an element
+% and comparing only against a sorted copy conflates the two.
+define Main
+
+type OneDim = array_dv[ integer ];
+
+function Main( A: OneDim returns OneDim )
+% This is a version of the QuickSort algorithm.
+  if array_size( A ) <=1 then
+    A
+  else
+    let
+      first := array_liml( A );
+      last := array_limh( A );
+      Pivot := A[ first ];
+      J, B:=
+      for initial
+        I := first;
+        J := last;
+	B := A
+      while I<=J repeat
+        L :=
+	  for initial
+	    I1 := old I
+	  while ( I1<= old J ) & ( A[ I1 ] <= Pivot ) repeat
+	    I1 := old I1 + 1
+	  returns value of I1
+	  end for;
+        R :=
+	  for initial
+	    J1 := old J
+	  while ( J1 > old I ) & ( A[ J1 ] > Pivot ) repeat
+	    J1 := old J1 - 1
+	  returns value of J1
+	  end for;
+        I, J, B :=
+	  if L>R then
+	    L, R, old B
+	  else
+	    L+1, R-1, old B[ L:old B[R]; R:old B[L] ]
+          end if
+      returns
+        value of J
+        value of B[ first: B[J] ]
+      end for
+    in
+      Main( array_adjust( B, first, J-1 ) ) ||
+      array_dv OneDim [ 1: Pivot ] ||
+      Main( array_adjust( B, J+1, last ) )
+    end let
+  end if
+end function % Main

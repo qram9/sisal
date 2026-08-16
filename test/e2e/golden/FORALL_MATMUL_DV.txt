@@ -1,0 +1,7 @@
+=== dv_run_all test harness ===
+
+=== Group: forall_matmul_dv (3-deep nest; vs C matmul) ===
+  PASS  C[i,j] == sum_k A[i,k]*B[k,j] for N = 1,2,3,5,8 with signed entries
+  PASS  ...and the products are not all zero
+
+--- Summary: 2 passed, 0 failed ---
