@@ -215,13 +215,33 @@ test_newton_raphson (void)
 static void
 test_feo_fft_parts1 (void)
 {
-  printf ("\n=== Group: feo_fft_parts1 ===\n");
-  FUNC_MAIN_results r = func_MAIN();
-  check ("log2(16) == 4", r.res_0 == 4);
-  check ("cmult real == -5.0", fabs(r.res_1 - (-5.0)) < 1e-9);
-  check ("cmult imag == 10.0", fabs(r.res_2 - 10.0) < 1e-9);
-  check ("data real size == 4", r.res_3.size == 4);
-  check ("data imag size == 4", r.res_4.size == 4);
+  printf ("\n=== Group: feo_fft_parts1 (log2, cmult, data) ===\n");
+  // The array clauses used to be checked for SIZE only.  data(n) builds
+  // cos(2*pi*i/n) with a zero imaginary part, so both are now compared
+  // elementwise; log2 is checked against exact integer arithmetic, which is
+  // where the -ffast-math truncation bug lived (see feo_fft_dv).
+  FUNC_MAIN_results r = func_MAIN ();
+  check ("log2(16) == 4 exactly", r.res_0 == 4);
+  // cmult((1,2),(3,4)) = (1*3 - 2*4, 1*4 + 2*3) = (-5, 10)
+  {
+    const double ar = 1, ai_ = 2, br = 3, bi = 4;
+    check ("cmult real == ar*br - ai*bi",
+           fabs (r.res_1 - (ar * br - ai_ * bi)) < 1e-9);
+    check ("cmult imag == ar*bi + ai*br",
+           fabs (r.res_2 - (ar * bi + ai_ * br)) < 1e-9);
+  }
+  {
+    const int n = 4;
+    const double tt = 8.0 * atan (1.0) / (double)n;
+    bool ok = ((int)r.res_3.size == n) && ((int)r.res_4.size == n);
+    for (int i = 0; ok && i < n; i++)
+      ok = fabs (ad (r.res_3, i) - cos (tt * (double)i)) < 1e-12
+           && fabs (ad (r.res_4, i)) < 1e-12;
+    check ("data(4) == cos(2*pi*i/4) with a zero imaginary part, elementwise",
+           ok);
+  }
+  if (r.res_3.data) free (r.res_3.data);
+  if (r.res_4.data) free (r.res_4.data);
 }
 #endif
 
@@ -309,13 +329,29 @@ test_feo_fft_parts3 (void)
 static void
 test_feo_fft_parts4 (void)
 {
-  printf ("\n=== Group: feo_fft_parts4 ===\n");
-  FUNC_MAIN_results r = func_MAIN();
-  check ("level_1: i == 1", r.res_0 == 1);
-  check ("level_1: cards == 1", r.res_1 == 1);
-  check ("level_1: packs == 4", r.res_2 == 4);
-  check ("level_1: xre size == 4", r.res_3.size == 4);
-  check ("level_1: xim size == 4", r.res_4.size == 4);
+  printf ("\n=== Group: feo_fft_parts4 (level_1 on a 4-point input) ===\n");
+  // Was: the three scalars plus SIZE for the two arrays -- so the values
+  // level_1 actually produces went unchecked.  For n = 4, log2 is even, so
+  // level_1 takes the radix-4 branch: one Pack_j with unit twiddles over the
+  // whole input, then A||C||B||D.  At four points that concatenation lands in
+  // natural DFT order, so a direct transform is the reference.
+  FUNC_MAIN_results r = func_MAIN ();
+  check ("level_1 returns i = 1", r.res_0 == 1);
+  check ("level_1 returns cards = n/4 = 1", r.res_1 == 1);
+  check ("level_1 returns packs = 4", r.res_2 == 4);
+
+  // parts4 feeds x = [1,2,3,4] with a zero imaginary part -- NOT the cosine
+  // signal the full program uses -- so the reference DFT is of that input.
+  const int n = 4;
+  std::vector<double> xr = { 1, 2, 3, 4 }, xi (n, 0.0), yr, yi;
+  fftref::ref_dft (xr, xi, yr, yi);
+  bool ok = ((int)r.res_3.size == n) && ((int)r.res_4.size == n);
+  for (int k = 0; ok && k < n; k++)
+    ok = fabs (ad (r.res_3, k) - yr[k]) < 1e-9
+         && fabs (ad (r.res_4, k) - yi[k]) < 1e-9;
+  check ("level_1 on 4 points is the 4-point DFT, elementwise vs fft_ref", ok);
+  if (r.res_3.data) free (r.res_3.data);
+  if (r.res_4.data) free (r.res_4.data);
 }
 #endif
 

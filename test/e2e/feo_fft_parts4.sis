@@ -233,8 +233,12 @@ end function
 
 function main(returns integer, integer, integer, OneDim, OneDim)
   let
-    xre := for i in 1, 4 returns array_dv of double_real(i) end for;
-    xim := for i in 1, 4 returns array_dv of 0.0d0 end for
+    % 0-BASED, like data(n) in the full program.  Pack_j indexes xre[k+p0]
+    % with p0 = 0, so a 1-based fixture makes it read one BEFORE the start:
+    % with `for i in 1, 4` the DC bin came back 6 instead of 10, the missing 4
+    % being x[0] read off the front of the buffer.  Values are still 1..4.
+    xre := for i in 0, 3 returns array_dv of double_real(i + 1) end for;
+    xim := for i in 0, 3 returns array_dv of 0.0d0 end for
   in
     level_1(4, xre, xim)
   end let

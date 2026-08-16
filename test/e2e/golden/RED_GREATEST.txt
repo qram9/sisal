@@ -1,8 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: red_greatest (value of greatest i*(N+1-i)) ===
-  PASS  red_greatest(5)=9
-  PASS  red_greatest(1)=1
-  PASS  red_greatest(4)=6
+=== Group: red_greatest (value of greatest) ===
+  PASS  greatest of i*(N+1-i) for N = 1..12
 
---- Summary: 3 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

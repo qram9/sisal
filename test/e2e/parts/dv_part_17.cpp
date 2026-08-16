@@ -37,115 +37,137 @@ extern "C" int32_t func_MAIN (int32_t N,
 static void
 test_for_initial (void)
 {
-  printf ("\n=== Group FI: for_initial (LoopB) ===\n");
-  // single self-recurrences
-  check ("fi_sum_10", func_FI_SUM (10) == 55); // 1+..+10
-  check ("fi_sum_1", func_FI_SUM (1) == 1);
-  check ("fi_sum_0", func_FI_SUM (0) == 0); // zero iterations -> returns initial s (0)
-  check ("fi_product_5", func_FI_PRODUCT (5) == 120); // 5!
-  check ("fi_product_1", func_FI_PRODUCT (1) == 1);
-  check ("fi_product_0", func_FI_PRODUCT (0) == 1); // zero iterations -> returns initial p (1)
-  check ("fi_final_i_5",
-         func_FI_FINAL_I (5) == 6); // i runs 1..n, stops at n+1
-  check ("fi_final_i_1", func_FI_FINAL_I (1) == 2);
-  check ("fi_final_i_0", func_FI_FINAL_I (0) == 1); // zero iterations -> returns initial i (1)
-  // identity-recurrence carry (k := old k) — needs the MERGE-filter fix
-  check ("fi_passthru_5", func_FI_PASSTHRU (5) == 42);
-  check ("fi_passthru_1", func_FI_PASSTHRU (1) == 42);
-  check ("fi_passthru_0", func_FI_PASSTHRU (0) == 42); // zero iterations -> returns initial k (42)
-  // mutual old-references — needs the get_symbol_id_old carry-in fix
-  check ("fi_swap_1", func_FI_SWAP (1) == 20); // a,b exchange each iter
-  check ("fi_swap_2", func_FI_SWAP (2) == 10);
-  check ("fi_swap_3", func_FI_SWAP (3) == 20);
-  check ("fi_swap_0", func_FI_SWAP (0) == 10); // zero iterations -> returns initial a (10)
-  check ("fi_fib_1", func_FI_FIB (1) == 1); // Fibonacci
-  check ("fi_fib_5", func_FI_FIB (5) == 5);
-  check ("fi_fib_7", func_FI_FIB (7) == 13);
-  check ("fi_fib_10", func_FI_FIB (10) == 55);
-  check ("fi_fib_0", func_FI_FIB (0) == 0); // zero iterations -> returns initial a (0)
-  // LoopA (post-test repeat..until) Fibonacci — same recurrence via the other
-  // loop block
-  check ("fi_fib_a_1", func_FI_FIB_A (1) == 1);
-  check ("fi_fib_a_5", func_FI_FIB_A (5) == 5);
-  check ("fi_fib_a_7", func_FI_FIB_A (7) == 13);
-  check ("fi_fib_a_10", func_FI_FIB_A (10) == 55);
-  check ("fi_fib_a_0", func_FI_FIB_A (0) == 1); // LoopA post-test runs at least once
+  printf ("\n=== Group: for_initial (loop-carry semantics; vs C mirrors) ===\n");
+  // Fifty-four checks against constants, each with its derivation in a comment.
+  // Every one is now a C mirror of the same loop, swept over n so the zero-trip
+  // case is one point on a curve rather than a special-cased literal.
+  //
+  // The mirrors follow the .sis exactly, including that the body increments i
+  // FIRST and then reads `old i` -- fi_sum accumulates old s + old i, which is
+  // why it sums 1..n and not 0..n-1.
+  int bad = 0;
+  auto want = [&] (const char *nm, bool ok) { if (!ok) { bad++; printf ("    (failed: %s)\n", nm); } };
 
-  // Regression: array-PARAMETER-seeded carry (A := Ain) — needs the to_if1
-  // INIT-seed MERGE fix (a pass-through alias must still become a loop carry).
-  int32_t seed[] = { 10, 20, 30 };
-  sisal_array_t s1 = make_int_arr (seed, 3);
-  sisal_array_t id
-      = func_FI_PARAM_IDENTITY (3, s1); // identity carry -> unchanged
-  check ("fi_param_identity rank=1", id.rank == 1);
-  check ("fi_param_identity size=3", (int)id.size == 3);
-  check ("fi_param_identity[0]=10", ai (id, 0) == 10);
-  check ("fi_param_identity[1]=20", ai (id, 1) == 20);
-  check ("fi_param_identity[2]=30", ai (id, 2) == 30);
-  // identity carry returns the same buffer as the input (id.data == s1.data),
-  // so free it only once.
-  if (s1.data)
-    free (s1.data);
+  for (int n = 0; n <= 12; n++)
+    {
+      { int i = 1, sum = 0;
+        while (i <= n) { const int oi = i; i = oi + 1; sum = sum + oi; }
+        want ("fi_sum", func_FI_SUM (n) == sum); }
+      { int i = 1, p = 1;
+        while (i <= n) { const int oi = i; i = oi + 1; p = p * oi; }
+        want ("fi_product", func_FI_PRODUCT (n) == p); }
+      { int i = 1;
+        while (i <= n) i = i + 1;
+        want ("fi_final_i", func_FI_FINAL_I (n) == i); }
+      { int i = 1, k = 42;
+        while (i <= n) { i = i + 1; k = k; }
+        want ("fi_passthru", func_FI_PASSTHRU (n) == k); }
+      // parallel carries: a and b exchange, so a alternates 10, 20, 10, ...
+      { int i = 1, a = 10, b = 20;
+        while (i <= n) { const int oa = a, ob = b; i = i + 1; a = ob; b = oa; }
+        want ("fi_swap", func_FI_SWAP (n) == a); }
+      { int i = 1, a = 0, b = 1;
+        while (i <= n) { const int oa = a, ob = b; i = i + 1; a = ob; b = oa + ob; }
+        want ("fi_fib", func_FI_FIB (n) == a); }
+      // fi_fib_a is the POST-TEST form: its body runs at least once, so n = 0
+      // gives the first body value rather than the seed
+      { int i = 1, a = 0, b = 1;
+        do { const int oa = a, ob = b; i = i + 1; a = ob; b = oa + ob; }
+        while (i <= n);
+        want ("fi_fib_a (post-test: one mandatory trip)", func_FI_FIB_A (n) == a); }
+    }
+  check ("seven scalar carry forms match their C mirrors for n = 0..12, "
+         "zero trip included",
+         bad == 0);
 
-  sisal_array_t s1_zero = make_int_arr (seed, 3);
-  sisal_array_t id_zero = func_FI_PARAM_IDENTITY (0, s1_zero); // zero iterations -> unchanged
-  check ("fi_param_identity_zero rank=1", id_zero.rank == 1);
-  check ("fi_param_identity_zero size=3", (int)id_zero.size == 3);
-  check ("fi_param_identity_zero[0]=10", ai (id_zero, 0) == 10);
-  check ("fi_param_identity_zero[1]=20", ai (id_zero, 1) == 20);
-  check ("fi_param_identity_zero[2]=30", ai (id_zero, 2) == 30);
-  if (s1_zero.data)
-    free (s1_zero.data);
+  // array-valued carries, with and without a body update
+  {
+    const std::vector<int32_t> a = { 10, 20, 30 };
+    bool ok = true;
+    for (int n : { 0, 1, 3 })
+      {
+        sisal_array_t A = ewref::mki (a);
+        sisal_array_t id = func_FI_PARAM_IDENTITY (n, A);
+        ok = ok && ((size_t)id.size == a.size ());
+        for (size_t k = 0; ok && k < a.size (); k++) ok = (ai (id, (int)k) == a[k]);
+        free (A.data);
+        if (id.data && id.data != A.data) free (id.data);
+      }
+    check ("identity array carry returns the input for n = 0, 1, 3", ok);
+  }
+  {
+    // fi_param_bump's body is `for j in 1, n ... old A[j] + 1`, so the inner
+    // forall is sized by N and not by array_size(A) -- the same coupling as
+    // loopcarry_used.  It is well defined only when n == array_size(Ain):
+    //     n < size   shrinks the carry (n = 1 on a 3-element input gives [11])
+    //     n > size   reads past the end (n = 4 gives [14,24,34,4], the 4 from
+    //                off the end)
+    // n > size is excluded as a bad input.  Where they agree, each trip adds
+    // one to every element, so the result is a[k] + n.
+    bool ok = true;
+    for (int n = 1; n <= 5; n++)
+      {
+        std::vector<int32_t> a;
+        for (int k = 0; k < n; k++) a.push_back (10 * (k + 1));
+        sisal_array_t A = ewref::mki (a);
+        sisal_array_t bp = func_FI_PARAM_BUMP (n, A);
+        ok = ok && ((int)bp.size == n);
+        for (int k = 0; ok && k < n; k++) ok = (ai (bp, k) == a[k] + n);
+        free (A.data);
+        if (bp.data && bp.data != A.data) free (bp.data);
+      }
+    check ("bumping carry adds one per trip, for n = 1..5 with n == size(A)",
+           ok);
+    // the zero trip returns the seed untouched, at whatever size it came in
+    {
+      const std::vector<int32_t> a = { 10, 20, 30 };
+      sisal_array_t A = ewref::mki (a);
+      sisal_array_t bp = func_FI_PARAM_BUMP (0, A);
+      bool z = ((size_t)bp.size == a.size ());
+      for (size_t k = 0; z && k < a.size (); k++) z = (ai (bp, (int)k) == a[k]);
+      check ("n = 0 is the zero trip and returns the seed unchanged", z);
+      free (A.data);
+      if (bp.data && bp.data != A.data) free (bp.data);
+    }
+  }
 
-  sisal_array_t s2 = make_int_arr (seed, 3);
-  sisal_array_t bp = func_FI_PARAM_BUMP (3, s2); // +1 per elem, 3 iters
-  check ("fi_param_bump size=3", (int)bp.size == 3);
-  check ("fi_param_bump[0]=13", ai (bp, 0) == 13);
-  check ("fi_param_bump[1]=23", ai (bp, 1) == 23);
-  check ("fi_param_bump[2]=33", ai (bp, 2) == 33);
-  if (bp.data)
-    free (bp.data);
-  if (s2.data && s2.data != bp.data)
-    free (s2.data);
-
-  sisal_array_t s2_zero = make_int_arr (seed, 3);
-  sisal_array_t bp_zero = func_FI_PARAM_BUMP (0, s2_zero); // zero iterations -> unchanged
-  check ("fi_param_bump_zero size=3", (int)bp_zero.size == 3);
-  check ("fi_param_bump_zero[0]=10", ai (bp_zero, 0) == 10);
-  check ("fi_param_bump_zero[1]=20", ai (bp_zero, 1) == 20);
-  check ("fi_param_bump_zero[2]=30", ai (bp_zero, 2) == 30);
-  if (bp_zero.data)
-    free (bp_zero.data);
-  if (s2_zero.data && s2_zero.data != bp_zero.data)
-    free (s2_zero.data);
-
-  // gather loop variable starting at 1 with zero iterations
-  sisal_array_t g_zero = func_FI_GATHER_ZERO (0);
-  check ("fi_gather_zero size=1", (int)g_zero.size == 1);
-  check ("fi_gather_zero[0]=1", ai (g_zero, 0) == 1);
-  if (g_zero.data)
-    free (g_zero.data);
-
-  sisal_array_t g_one = func_FI_GATHER_ZERO (1);
-  check ("fi_gather_one size=2", (int)g_one.size == 2);
-  check ("fi_gather_one[0]=1", ai (g_one, 0) == 1);
-  check ("fi_gather_one[1]=2", ai (g_one, 1) == 2);
-  if (g_one.data)
-    free (g_one.data);
-
-  // gather loop variable k initialized in INIT but assigned in body
-  sisal_array_t k_zero = func_FI_GATHER_BODY_TEMP (0);
-  check ("fi_gather_body_temp_zero size=1", (int)k_zero.size == 1);
-  check ("fi_gather_body_temp_zero[0]=0", ai (k_zero, 0) == 0);
-  if (k_zero.data)
-    free (k_zero.data);
-
-  sisal_array_t k_one = func_FI_GATHER_BODY_TEMP (1);
-  check ("fi_gather_body_temp_one size=2", (int)k_one.size == 2);
-  check ("fi_gather_body_temp_one[0]=0", ai (k_one, 0) == 0);
-  check ("fi_gather_body_temp_one[1]=2", ai (k_one, 1) == 2);
-  if (k_one.data)
-    free (k_one.data);
+  // gathers: the seed is body_0, so a carry gather is [seed, then each body
+  // value] and a zero trip is [seed] alone -- see
+  // docs/for_initial_seed_semantics.md
+  {
+    bool ok = true;
+    for (int n = 0; n <= 4; n++)
+      {
+        std::vector<int32_t> hist = { 1 };     // the seed i := 1
+        int i = 1;
+        while (i <= n) { i = i + 1; hist.push_back (i); }
+        sisal_array_t g = func_FI_GATHER_ZERO (n);
+        ok = ok && ((size_t)g.size == hist.size ());
+        for (size_t k = 0; ok && k < hist.size (); k++)
+          ok = (ai (g, (int)k) == hist[k]);
+        if (g.data) free (g.data);
+      }
+    check ("carry gather == [seed, then each body value], for n = 0..4", ok);
+  }
+  {
+    // k is seeded in INIT and assigned in the body, so it is a CARRY too and
+    // its history starts at its own seed (0), not at the first body value
+    bool ok = true;
+    for (int n = 0; n <= 4; n++)
+      {
+        std::vector<int32_t> hist = { 0 };     // the seed k := 0
+        int i = 1;
+        while (i <= n) { i = i + 1; hist.push_back (i); }
+        sisal_array_t g = func_FI_GATHER_BODY_TEMP (n);
+        ok = ok && ((size_t)g.size == hist.size ());
+        for (size_t k = 0; ok && k < hist.size (); k++)
+          ok = (ai (g, (int)k) == hist[k]);
+        if (g.data) free (g.data);
+      }
+    check ("a carry seeded in INIT and assigned in the body gathers from ITS "
+           "seed (0), not from the first body value",
+           ok);
+  }
 }
 #endif
 
@@ -153,13 +175,16 @@ test_for_initial (void)
 static void
 test_red_greatest (void)
 {
-  printf ("\n=== Group: red_greatest (value of greatest i*(N+1-i)) ===\n");
-  // N=5: {5,8,9,8,5} -> 9
-  check ("red_greatest(5)=9", func_MAIN (5) == 9);
-  // N=1: {1*1}=1
-  check ("red_greatest(1)=1", func_MAIN (1) == 1);
-  // N=4: {4,6,6,4} -> 6
-  check ("red_greatest(4)=6", func_MAIN (4) == 6);
+  printf ("\n=== Group: red_greatest (value of greatest) ===\n");
+  // body is i*(N+1-i), a parabola peaking in the middle
+  bool ok = true;
+  for (int N = 1; N <= 12; N++)
+    {
+      int32_t want = INT32_MIN;
+      for (int i = 1; i <= N; i++) want = std::max (want, i * (N + 1 - i));
+      ok = ok && (func_MAIN (N) == want);
+    }
+  check ("greatest of i*(N+1-i) for N = 1..12", ok);
 }
 #endif
 
@@ -167,11 +192,18 @@ test_red_greatest (void)
 static void
 test_red_least (void)
 {
-  printf ("\n=== Group: red_least (value of least (i-3)*(i-3)) ===\n");
-  // N=5: {4,1,0,1,4} -> 0
-  check ("red_least(5)=0", func_MAIN (5) == 0);
-  // N=2: {4,1} -> 1
-  check ("red_least(2)=1", func_MAIN (2) == 1);
+  printf ("\n=== Group: red_least (value of least) ===\n");
+  // body is (i-3)^2, whose minimum sits at i = 3 when N >= 3
+  bool ok = true;
+  for (int N = 1; N <= 12; N++)
+    {
+      int32_t want = INT32_MAX;
+      for (int i = 1; i <= N; i++) want = std::min (want, (i - 3) * (i - 3));
+      ok = ok && (func_MAIN (N) == want);
+    }
+  check ("least of (i-3)^2 for N = 1..12 (minimum inside the range only once "
+         "N >= 3)",
+         ok);
 }
 #endif
 
@@ -179,11 +211,26 @@ test_red_least (void)
 static void
 test_red_argmax (void)
 {
-  printf ("\n=== Group: red_argmax (value of argmax i*(N+1-i)) ===\n");
-  // N=5: {5,8,9,8,5}, peak at i=3
-  check ("red_argmax(5)=3", func_MAIN (5) == 3);
-  // N=1: only i=1
-  check ("red_argmax(1)=1", func_MAIN (1) == 1);
+  printf ("\n=== Group: red_argmax (value of argmax) ===\n");
+  // argmax returns the INDEX; ties must resolve to the FIRST maximum, which
+  // i*(N+1-i) produces whenever N is odd
+  bool ok = true;
+  int ties = 0;
+  for (int N = 1; N <= 12; N++)
+    {
+      int32_t best = INT32_MIN, want = 1, seen = 0;
+      for (int i = 1; i <= N; i++)
+        {
+          const int32_t v = i * (N + 1 - i);
+          if (v > best) { best = v; want = i; seen = 1; }
+          else if (v == best) seen++;
+        }
+      if (seen > 1) ties++;
+      ok = ok && (func_MAIN (N) == want);
+    }
+  check ("argmax of i*(N+1-i) is the FIRST maximum, for N = 1..12", ok);
+  check ("...and the sweep includes ties, where first-vs-last would differ",
+         ties > 0);
 }
 #endif
 
@@ -191,11 +238,17 @@ test_red_argmax (void)
 static void
 test_red_argmin (void)
 {
-  printf ("\n=== Group: red_argmin (value of argmin i*i-6*i) ===\n");
-  // N=5: {-5,-8,-9,-8,-5}, min at i=3
-  check ("red_argmin(5)=3", func_MAIN (5) == 3);
-  // N=2: {-5,-8}, min at i=2
-  check ("red_argmin(2)=2", func_MAIN (2) == 2);
+  printf ("\n=== Group: red_argmin (value of argmin) ===\n");
+  // body is i^2 - 6i, minimised at i = 3
+  bool ok = true;
+  for (int N = 1; N <= 12; N++)
+    {
+      int32_t best = INT32_MAX, want = 1;
+      for (int i = 1; i <= N; i++)
+        { const int32_t v = i * i - 6 * i; if (v < best) { best = v; want = i; } }
+      ok = ok && (func_MAIN (N) == want);
+    }
+  check ("argmin of i^2-6i is the FIRST minimum, for N = 1..12", ok);
 }
 #endif
 
@@ -203,12 +256,17 @@ test_red_argmin (void)
 static void
 test_red_sum_cross (void)
 {
-  printf (
-      "\n=== Group: red_sum_cross (value of sum i*j over i cross j) ===\n");
-  // (sum_{1..N} i)*(sum_{1..M} j)
-  check ("red_sum_cross(3,4)=60", func_MAIN (3, 4) == 60); // 6*10
-  check ("red_sum_cross(2,2)=9", func_MAIN (2, 2) == 9);   // 3*3
-  check ("red_sum_cross(1,1)=1", func_MAIN (1, 1) == 1);
+  printf ("\n=== Group: red_sum_cross (reduction over a cross) ===\n");
+  bool ok = true;
+  for (int N = 1; N <= 6; N++)
+    for (int M = 1; M <= 6; M++)
+      {
+        int32_t want = 0;
+        for (int i = 1; i <= N; i++)
+          for (int j = 1; j <= M; j++) want += i * j;
+        ok = ok && (func_MAIN (N, M) == want);
+      }
+  check ("sum of i*j over the full cross, for 36 (N,M) shapes", ok);
 }
 #endif
 
@@ -541,24 +599,35 @@ extern "C" int32_t func_IFDEEP (int32_t x);
 static void
 test_if_cond (void)
 {
-  printf ("\n=== Group IF: if / elseif / else chains ===\n");
-  // simple if/else = min
-  check ("ifmin(3,5)=3", func_IFMIN (3, 5) == 3);
-  check ("ifmin(5,3)=3", func_IFMIN (5, 3) == 3);
-  // one elseif: i<e -> i*2 ; i=e -> e+3 ; else -> i-2
-  check ("if3(2,5)=4 (i<e)", func_IF3 (2, 5) == 4);
-  check ("if3(5,5)=8 (i=e)", func_IF3 (5, 5) == 8);
-  check ("if3(7,5)=5 (else)", func_IF3 (7, 5) == 5);
-  // elseif over 3 vars: i<e -> i ; e<f -> e ; else -> f
-  check ("if3v(1,5,9)=1 (i<e)", func_IF3V (1, 5, 9) == 1);
-  check ("if3v(5,3,9)=3 (e<f)", func_IF3V (5, 3, 9) == 3);
-  check ("if3v(5,3,1)=1 (else f)", func_IF3V (5, 3, 1) == 1);
-  // deep 6-branch chain
-  check ("ifdeep(0)=10", func_IFDEEP (0) == 10);
-  check ("ifdeep(2)=30", func_IFDEEP (2) == 30);
-  check ("ifdeep(4)=50", func_IFDEEP (4) == 50);
-  check ("ifdeep(5)=60", func_IFDEEP (5) == 60);
-  check ("ifdeep(9)=60", func_IFDEEP (9) == 60);
+  printf ("\n=== Group: if_cond (branch chains; vs the same chains in C) ===\n");
+  bool mn = true, i3 = true, i3v = true, dp = true;
+  int a1 = 0, a2 = 0, a3 = 0;
+  for (int a = -4; a <= 4; a++)
+    for (int b = -4; b <= 4; b++)
+      {
+        mn = mn && (func_IFMIN (a, b) == std::min (a, b));
+        const int w3 = a < b ? a * 2 : (a == b ? b + 3 : a - 2);
+        i3 = i3 && (func_IF3 (a, b) == w3);
+        if (a < b) a1++; else if (a == b) a2++; else a3++;
+      }
+  for (int i = -3; i <= 3; i++)
+    for (int e = -3; e <= 3; e++)
+      for (int f = -3; f <= 3; f++)
+        {
+          const int w = i < e ? i : (e < f ? e : f);
+          i3v = i3v && (func_IF3V (i, e, f) == w);
+        }
+  // ifdeep is a ladder: 10,20,...  capped at 60
+  for (int k = 0; k <= 9; k++)
+    {
+      const int w = (k >= 5) ? 60 : (k + 1) * 10;
+      dp = dp && (func_IFDEEP (k) == w);
+    }
+  check ("ifmin == min over 81 pairs", mn);
+  check ("if3 matches its three-arm chain, all arms taken",
+         i3 && a1 && a2 && a3);
+  check ("if3v matches its three-variable chain over 343 triples", i3v);
+  check ("ifdeep matches the ladder over k = 0..9, including past the cap", dp);
 }
 #endif
 

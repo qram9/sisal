@@ -1,18 +1,9 @@
 === dv_run_all test harness ===
 
-=== Group IF: if / elseif / else chains ===
-  PASS  ifmin(3,5)=3
-  PASS  ifmin(5,3)=3
-  PASS  if3(2,5)=4 (i<e)
-  PASS  if3(5,5)=8 (i=e)
-  PASS  if3(7,5)=5 (else)
-  PASS  if3v(1,5,9)=1 (i<e)
-  PASS  if3v(5,3,9)=3 (e<f)
-  PASS  if3v(5,3,1)=1 (else f)
-  PASS  ifdeep(0)=10
-  PASS  ifdeep(2)=30
-  PASS  ifdeep(4)=50
-  PASS  ifdeep(5)=60
-  PASS  ifdeep(9)=60
+=== Group: if_cond (branch chains; vs the same chains in C) ===
+  PASS  ifmin == min over 81 pairs
+  PASS  if3 matches its three-arm chain, all arms taken
+  PASS  if3v matches its three-variable chain over 343 triples
+  PASS  ifdeep matches the ladder over k = 0..9, including past the cap
 
---- Summary: 13 passed, 0 failed ---
+--- Summary: 4 passed, 0 failed ---

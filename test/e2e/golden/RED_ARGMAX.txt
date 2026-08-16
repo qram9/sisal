@@ -1,7 +1,7 @@
 === dv_run_all test harness ===
 
-=== Group: red_argmax (value of argmax i*(N+1-i)) ===
-  PASS  red_argmax(5)=3
-  PASS  red_argmax(1)=1
+=== Group: red_argmax (value of argmax) ===
+  PASS  argmax of i*(N+1-i) is the FIRST maximum, for N = 1..12
+  PASS  ...and the sweep includes ties, where first-vs-last would differ
 
 --- Summary: 2 passed, 0 failed ---

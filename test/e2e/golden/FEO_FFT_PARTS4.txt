@@ -1,10 +1,9 @@
 === dv_run_all test harness ===
 
-=== Group: feo_fft_parts4 ===
-  PASS  level_1: i == 1
-  PASS  level_1: cards == 1
-  PASS  level_1: packs == 4
-  PASS  level_1: xre size == 4
-  PASS  level_1: xim size == 4
+=== Group: feo_fft_parts4 (level_1 on a 4-point input) ===
+  PASS  level_1 returns i = 1
+  PASS  level_1 returns cards = n/4 = 1
+  PASS  level_1 returns packs = 4
+  PASS  level_1 on 4 points is the 4-point DFT, elementwise vs fft_ref
 
---- Summary: 5 passed, 0 failed ---
+--- Summary: 4 passed, 0 failed ---

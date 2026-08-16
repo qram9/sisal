@@ -1,7 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: red_least (value of least (i-3)*(i-3)) ===
-  PASS  red_least(5)=0
-  PASS  red_least(2)=1
+=== Group: red_least (value of least) ===
+  PASS  least of (i-3)^2 for N = 1..12 (minimum inside the range only once N >= 3)
 
---- Summary: 2 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---

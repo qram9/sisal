@@ -1,7 +1,6 @@
 === dv_run_all test harness ===
 
-=== Group: red_argmin (value of argmin i*i-6*i) ===
-  PASS  red_argmin(5)=3
-  PASS  red_argmin(2)=2
+=== Group: red_argmin (value of argmin) ===
+  PASS  argmin of i^2-6i is the FIRST minimum, for N = 1..12
 
---- Summary: 2 passed, 0 failed ---
+--- Summary: 1 passed, 0 failed ---
