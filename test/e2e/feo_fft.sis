@@ -62,8 +62,14 @@ function W_n( n, maxw: integer
     % came out dims [2,3] when its second row needs 15), which is what made the
     % FFT wrong for n >= 64.  Entries past a row's natural length are never
     % indexed.
-    for m in 0, maxw - 1
-      angle        := double_real(m + 1) * step;
+    % 0-BASED AND COMPLETE: entry m is the twiddle for angle m*step, so entry 0
+    % is W^0 = 1.  It used to start at (m+1)*step, leaving no j = 0 entry, and
+    % the consumers (`for j in 0, packs-1 ... w1re[j]`) papered over that by
+    % relying on the row being stored 1-based -- which made w1re[0] read
+    % data[-1], one element BEFORE the buffer.  That read was usually harmless
+    % heap and occasionally a SIGBUS when the buffer began on a page boundary.
+    for m in 0, maxw
+      angle        := double_real(m) * step;
       w1re         :=  cos(angle);
       w1im         := -sin(angle);
       w2re, w2im   := cmult(w1re, w1im, w1re, w1im);

@@ -462,7 +462,17 @@ inline sisal_array_t sisal_array_shaped_store(sisal_array_t acc, sisal_array_t v
         uint64_t total = (uint64_t)(ext > 0 ? ext : 0) * val.size;
         acc = sisal_array_alloc_sized(val.rank + 1, val.type_id, total, sisal_esz(val));
         acc.dims[0] = ext;
-        for (int i = 0; i < (int)val.rank && i < 7; i++) acc.dims[i + 1] = val.dims[i];
+        for (int i = 0; i < (int)val.rank && i < 7; i++) {
+            acc.dims[i + 1] = val.dims[i];
+            /* The ELEMENT's origin must travel with its extent.  Copying dims
+               but not lower_bound silently re-bases every stored element to 1:
+               feo_fft's W_n builds its rows with `for m in 0, maxw-1` (origin
+               0), the gather stored them as origin 1, and levelA_g then read
+               w1re[0] as data[0-1] = data[-1] -- one element BEFORE the buffer.
+               That is a real read, and when the buffer happened to start on a
+               page boundary it was a SIGBUS. */
+            acc.lower_bound[i + 1] = val.lower_bound[i];
+        }
     }
     if (idx >= 0 && idx < acc.dims[0] && val.size)
         memcpy((char*)acc.data + (size_t)idx * (size_t)val.size * esz,
