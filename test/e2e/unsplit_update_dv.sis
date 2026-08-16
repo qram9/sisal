@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 7c of 8 -- the update tail: Method17..Method19 and Transpose.
 %
 % Method17   the velocity divergence, used as an artificial-viscosity coefficient

@@ -1,3 +1,6 @@
+% Origin: test/unit/data.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 type dvi = array_dv[integer]
 function dvfill  (lo, hi, v : integer returns dvi)
   for i in lo, hi returns array_dv of v end for

@@ -1,17 +1,20 @@
+% Origin: test/unit/gaussjnew.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % gaussjnew -- Gauss-Jordan elimination with full row pivoting, from
 % test/unit/gaussjnew.sis.  First of the Gauss/LU cluster, and the file that
 % establishes how that whole cluster gets ported.
 %
 % THE RANK-2 REWRITE.  The original is
-%     type Oned = array[double];
-%     type Twod = array[Oned];        % array OF arrays
+%     type Oned = array_dv[double];
+%     type Twod = array_dv[Oned];        % array_dv of arrays
 % and the point is that RANK IS A RUNTIME PROPERTY: OneD and TwoD are BOTH
 % `array_dv[double]` and differ only in the dope.  Elements are A[i,j]; a row is
 % A[i,..].
 %
 % Building rank 2 by GATHERING ROWS is legal and is what the original already
 % does -- a nested `for ... returns array_dv of (for ... returns array_dv of ...)`
-% yields a rank-2 array_dv (dims (n,n), row-major), NOT an array of arrays.  That
+% yields a rank-2 array_dv (dims (n,n), row-major), NOT an array_dv of arrays.  That
 % holds when the row is bound first and gathered by name, which is the original's
 % shape:
 %     Arow := if ... then for x in Ain[i,..] returns array_dv of ... end for

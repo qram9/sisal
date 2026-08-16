@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % nucleic pure-math kernels: distance, atom_pos_pt, tfo_combine.
 % These are representation-neutral (scalars + 12-vec tfos), so they port
 % VERBATIM from nucleic.sis -- only the array indices shift +1 (1-based).

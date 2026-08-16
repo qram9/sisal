@@ -1,3 +1,6 @@
+% Origin: test/unit/red_argmin.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Reduction: argmin of i*i - 6*i  ( = (i-3)^2 - 9 )  -> the index i at the minimum.
 % N=5 -> values {-5,-8,-9,-8,-5}, min=-9 at i=3 -> argmin = 3
 % NB: the fold expr must NOT start with '(' -- `argmin (...)` parses as the ARGMIN

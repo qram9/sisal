@@ -1,3 +1,6 @@
+% Origin: test/unit/psa.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PSA_SWAP -- psa's move selection: pick a lesson and a destination period at
 % random, price the move, and let the Boltzmann criterion accept or reject it.
 % Layer 3 of the port, on top of psa_rng_dv (the generator) and psa_cost_dv

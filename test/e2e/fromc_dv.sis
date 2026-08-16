@@ -1,0 +1,15 @@
+% Origin: test/unit/fromC.sis
+% Port Note: Tests calling Sisal entrypoint functions directly from C ABI (Patrick Miller, 2001).
+%
+% C Interop Entrypoint Test.
+% Exports foo(n) returning n * 7 + 3 called via extern "C" C++ harness.
+%
+define Main, foo
+
+function foo(n: integer returns integer)
+  n * 7 + 3
+end function
+
+function Main(n: integer returns integer)
+  foo(n)
+end function

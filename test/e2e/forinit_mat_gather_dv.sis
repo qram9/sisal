@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % forinit_mat_gather_dv.sis — bare for-initial gather of RANK-2 elements.
 % Exposes the sisal_array_concat_grow rank bug: it hardcoded res.rank = 2 and
 % dims[1] = val.size, flattening the element's own dims -- gathering a 2x3

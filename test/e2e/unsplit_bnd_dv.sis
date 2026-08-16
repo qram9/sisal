@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 3 of 7 -- the physical boundary, PhysBnd with BndL / BndR.
 %
 % PhysBnd surrounds the nx x ny interior with ncx = 4 ghost cells on every side,
@@ -5,7 +8,7 @@
 % (reflecting/outflow), independently per axis.
 %
 % THE ARRAY REWRITE, and the one line that matters.  The original takes a row
-% with `Up[k]` -- an array of rows indexed once.  Under array_dv a plane is ONE
+% with `Up[k]` -- an array_dv of rows indexed once.  Under array_dv a plane is ONE
 % flat rank-2 dope, so `Up[k]` selects an ELEMENT; the row is `Up[k, ..]`, where
 % the trailing `..` IS the rank reduction.  Getting this wrong is silent (the
 % shapes still typecheck and a wrong-sized thing flows on), so it is the single

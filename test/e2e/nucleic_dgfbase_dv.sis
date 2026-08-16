@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % nucleic dgf_base on the SoA: the base-frame builder.
 %   dgf_base = tfo2_combine(n[1], t, tfo_inv_ortho(tfo_align(atom_pos x3)))
 % where the 3 atoms are chosen by nucleotide type (ref.nuc[0,0]) and read from

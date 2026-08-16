@@ -1,3 +1,6 @@
+% Origin: test/unit/for_all_reduce.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % dv_forall_reduce.sis — forall scalar reductions (returns value of sum/product/least/greatest)
 % These compile the REDUCE node inside a forall RETURNS subgraph,
 % which is distinct from REDUCE_ALL (bulk post-hoc reduction on an existing array).

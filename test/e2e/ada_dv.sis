@@ -1,0 +1,16 @@
+% Origin: test/unit/ada.sis
+% Port Note: Ada-style nested loop value reduction benchmark ported to rank-polymorphic array_dv[integer].
+%
+define Main
+
+type answer = array_dv[integer];
+
+function Main( returns answer )
+   for I in 1, 5
+      x := for J in 1, 100
+             local := I;
+           returns value of local
+           end for;
+   returns array_dv of x
+   end for
+end function

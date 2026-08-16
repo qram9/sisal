@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % A name REBOUND in a `for initial` clause -- one an enclosing scope also binds
 % -- must become a real loop carry, not stay a capture of the outer binding.
 % Sisal 2.0 Ch6 6.1: "the value name may be re-established within the

@@ -1,3 +1,6 @@
+% Origin: test/unit/test_if_nested_capture.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
 function Main(

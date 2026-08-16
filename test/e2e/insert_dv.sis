@@ -1,3 +1,6 @@
+% Origin: test/unit/insert.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % INSERT — DV variant of unit/insert.sis (classic shift-and-insert insertion
 % sort: save Y := A[K], shift the sorted prefix up while Y < X[I], insert Y
 % once at the hole).  OneDim -> array_dv[double_real]; the original declared

@@ -1,3 +1,6 @@
+% Origin: test/unit/red_least.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Reduction: least of (i-3)*(i-3) for i in 1..N  =>  min at i=3 -> 0.   N=5 -> 0
 define main
 function main(N: integer returns integer)

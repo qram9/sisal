@@ -1,3 +1,6 @@
+% Origin: test/unit/reshape_scan.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Triangular numbers reshaped to a matrix, diagonal extracted, flattened back --
 % from test/unit/reshape_scan.sis.
 %

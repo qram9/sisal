@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 4 of 8 -- `slope`, the limited-slope reconstruction.
 %
 % (The plan said 7 parts; `flaten` and `slope` are each substantial and fully
@@ -11,10 +14,10 @@
 % result by the flattening coefficient.
 %
 % THE ARRAY REWRITE.  PlaneArray -> flat rank-2 array_dv as before.  The new
-% one is the RESULT: `SystemArray = array[PlaneArray]` -- an array of planes --
+% one is the RESULT: `SystemArray = array_dv[PlaneArray]` -- an array_dv of planes --
 % is a flat rank-3 array_dv, built here by gathering the two direction planes,
 % which is the documented way to make rank k+1 out of rank-k elements.  The
-% original's `array SystemArray [ 1: dq1, dq2t ]` becomes that gather.
+% original's `array_dv SystemArray [ 1: dq1, dq2t ]` becomes that gather.
 %
 % INDEX RANGES, and why the input must be the WIDE array from part 3: q is read
 % at [j, i+-2] over i in -1..nc1+2 and at [j+-2, i] over j in -1..nc2+2, so the
@@ -115,7 +118,7 @@ function slope( q, flatn : Plane;
             returns array_dv of dq5
             end for
   in
-    % `array SystemArray [ 1: dq1, dq2t ]` -- one rank-3 built by gathering the
+    % `array_dv SystemArray [ 1: dq1, dq2t ]` -- one rank-3 built by gathering the
     % two direction planes
     for k in 1, 2
     returns array_dv of if k = 1 then dq1 else dq2t end if

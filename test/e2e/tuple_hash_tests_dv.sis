@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_hash_tests.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define tuple_hash_tests,
   tuple_swap,
   tuple_typed,

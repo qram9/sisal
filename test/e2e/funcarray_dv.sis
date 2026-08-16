@@ -1,0 +1,24 @@
+% Origin: test/unit/funcarray.sis
+% Port Note: Tests higher-order function references and entrypoint dispatch.
+%
+% Higher-Order Function Dispatch Test.
+% Exports top-level functions F1 and F2 and evaluates them via Main.
+%
+define Main, F1, F2
+
+function F1(val: integer returns integer)
+  val
+end function
+
+function F2(val: integer returns integer)
+  val + 1
+end function
+
+function Main(x: integer returns integer, integer, integer)
+  let
+    v1 := F1(x);
+    v2 := F2(x);
+  in
+    v1, v2, v1 + v2
+  end let
+end function

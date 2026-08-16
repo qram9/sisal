@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 1 of 7 -- the scalar and 1-D helper layer.
 %
 % test/unit/unsplit.sis is Michael Welcome's unsplit integrator from the LLNL
@@ -9,12 +12,12 @@
 % reference is the formula itself.
 %
 % THE ARRAY REWRITE.  The original stacks three array-of-array levels --
-%     type OneDim     = array [ double_real ];
-%     type PlaneArray = array [ OneDim ];
-%     type SystemArray = array [ PlaneArray ];
+%     type OneDim     = array_dv[ double_real ];
+%     type PlaneArray = array_dv[ OneDim ];
+%     type SystemArray = array_dv[ PlaneArray ];
 % Under the dope-vector model all three are ONE flat array_dv[double_real] whose
 % RANK is a runtime property.  Only OneDim is needed at this layer; the other two
-% arrive with the later parts.  `returns array of` becomes `returns array_dv of`.
+% arrive with the later parts.  `returns array_dv of` becomes `returns array_dv of`.
 %
 % Worth pinning here, because later parts depend on both and either could be
 % "tidied" into something subtly different:

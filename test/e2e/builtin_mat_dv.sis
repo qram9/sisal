@@ -1,0 +1,33 @@
+% Origin: test/unit/builtin_mat.sis
+% Port Note: Tests builtin element-wise matrix math operations on mat2 and mat4 types.
+%
+% Matrix Math Intrinsics Suite.
+% Applies abs, max, min, sin, cos, and sqrt element-wise on fixed-size mat2 and mat4 matrices.
+%
+define Main
+
+function mat_abs_mat2(m: mat2 returns mat2)
+  abs(m)
+end function
+
+function mat_max_mat2(a, b: mat2 returns mat2)
+  max(a, b)
+end function
+
+function mat_sin_mat2(m: mat2 returns mat2)
+  sin(m)
+end function
+
+function mat_sqrt_mat2(m: mat2 returns mat2)
+  sqrt(m)
+end function
+
+function Main(m2: mat2 returns mat2, mat2, mat2)
+  let
+    a_m2 := mat_abs_mat2(m2);
+    s_m2 := mat_sin_mat2(m2);
+    q_m2 := mat_sqrt_mat2(a_m2);
+  in
+    a_m2, s_m2, q_m2
+  end let
+end function

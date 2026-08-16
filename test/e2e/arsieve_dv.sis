@@ -1,3 +1,6 @@
+% Origin: test/unit/arsieve.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Sieve of Eratosthenes over a flag array, from test/unit/arsieve.sis.  The
 % suite's other sieves are all STREAM formulations (stream_sieve_dv,
 % stream_sieve_v2_dv, stream_uprime2_dv); this is the array one, and a different

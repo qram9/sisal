@@ -1,3 +1,6 @@
+% Origin: test/unit/bmk11a.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % BMK11A, part 3 of 4 -- `parmvr`, the RELATIVISTIC particle push.
 %
 % (The plan said three parts.  Reading the whole file for part 2 turned up a

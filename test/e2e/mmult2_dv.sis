@@ -1,3 +1,6 @@
+% Origin: test/unit/mmult2.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % mmult2 -- matrix multiply via transpose and dot-product rows, from
 % test/unit/mmult2.sis.  Third of the rank-2 cluster.
 %

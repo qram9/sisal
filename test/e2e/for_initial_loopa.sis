@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 function Main( n: integer returns integer )
   for initial
     i := 0;

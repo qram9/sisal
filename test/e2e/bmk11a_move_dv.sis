@@ -1,3 +1,6 @@
+% Origin: test/unit/bmk11a.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % BMK11A, part 1 of 3 -- the particle mover `parmve` and its boundary conditions.
 %
 % test/unit/bmk11a.sis is a particle-in-cell plasma benchmark: 2560 particles
@@ -7,8 +10,8 @@
 % are the whole particle-push loop.
 %
 % THE ARRAY REWRITE is the smallest of any port so far: bmk11a's types are RANK
-% 1 only (`array[double]`, `array[integer]`), with no array-of-array nesting
-% anywhere, so the rewrite is purely `array` -> `array_dv`, `returns array of`
+% 1 only (`array_dv[double]`, `array_dv[integer]`), with no array-of-array nesting
+% anywhere, so the rewrite is purely `array` -> `array_dv`, `returns array_dv of`
 % -> `returns array_dv of`.  `array_fill` is unchanged -- it already builds an
 % array_dv.  Nothing
 % structural changes and no row slices are involved.  `global sqrt` is dropped

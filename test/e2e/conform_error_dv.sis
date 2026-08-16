@@ -1,3 +1,6 @@
+% Origin: test/unit/replace_wrong_type.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % CONFORM ERROR -- the IF1 ERROR channel, exercised on the failing path.
 %
 % The frontend has always built a full apparatus for a non-conforming

@@ -1,3 +1,6 @@
+% Origin: test/unit/sqrt.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define main
 
 global sqrt ( x:double_real returns double_real )

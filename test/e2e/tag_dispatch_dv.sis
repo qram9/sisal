@@ -1,3 +1,6 @@
+% Origin: test/unit/tagcase.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % tag_dispatch_dv — regression pin: a NESTED tagcase must dispatch on ITS
 % OWN scrutinee, not the enclosing one.  The inner compound receives TWO
 % union-typed inputs of the same type (its scrutinee V plus the outer's U

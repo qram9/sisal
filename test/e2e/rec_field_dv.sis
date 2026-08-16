@@ -1,3 +1,6 @@
+% Origin: test/unit/record.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Record holding an array_dv field.  Field-access yields the whole dope
 % vector (r.v), and subscripting that field must RANK-REDUCE to a scalar
 % (r.v[i] : double) exactly like a plain a[i].  Before the fix, the

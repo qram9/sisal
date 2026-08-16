@@ -1,3 +1,6 @@
+% Origin: test/unit/hilbert.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % HILBERT MATRIX RESIDUAL — DV variant (based on hilbert.sis)
 %
 % DV changes (all arrays are array_dv — no array-of-arrays):

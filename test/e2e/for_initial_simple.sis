@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Sequential loop-body semantics pin (ruling: `;` = let-in nesting).
 % Statement 1 reads plain s = the CARRY (s not yet redefined); statement 2
 % reads old i = the CARRY and plain i = statement 1's NEW value — three

@@ -1,3 +1,6 @@
+% Origin: test/unit/test_if_multi_array.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define Main
 
 type dvi = array_dv[integer]
@@ -5,8 +8,8 @@ type dvd = array_dv[double_real]
 
 function Main(flag: boolean returns dvi, dvd)
     if flag then
-        array dvi [1: 1, 2, 3], array dvd [1: 1.1d0, 2.2d0, 3.3d0]
+        array_dv dvi [1: 1, 2, 3], array_dv dvd [1: 1.1d0, 2.2d0, 3.3d0]
     else
-        array dvi [1: 10, 20], array dvd [1: 10.1d0, 20.2d0]
+        array_dv dvi [1: 10, 20], array_dv dvd [1: 10.1d0, 20.2d0]
     end if
 end function

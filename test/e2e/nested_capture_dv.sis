@@ -1,3 +1,6 @@
+% Origin: test/unit/nested.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
 % Exercises nested functions capturing OUTER-SCOPE values (not their own args):

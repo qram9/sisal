@@ -1,3 +1,6 @@
+% Origin: test/unit/masked_cross_gather.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % forall_rowscatter_dv.sis -- forall scatter of WHOLE ARRAYS: the element's
 % dims become the TAIL of the shape at its slot (one memcpy per iteration,
 % element size/rank read off its dope at runtime).  Rows land reversed.

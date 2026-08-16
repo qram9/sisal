@@ -1,0 +1,110 @@
+% Origin: test/unit/cdf.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for Candis NetCDF-like dataset records.
+%
+% Candis / NetCDF Dataset Record Operations.
+% Creates dataset headers, appends comments, parameters, dimensions, and data fields,
+% and performs string lookup on parameters and dimension metadata.
+%
+define Main
+
+type cdf_cline = array_dv[character];
+type cdf_clist = array_dv[cdf_cline];
+type cdf_param = record[pname: cdf_cline; pval: real];
+type cdf_plist = array_dv[cdf_param];
+type cdf_dim   = record[dname: cdf_cline; dsize: integer; start_val: real; increment: real];
+type cdf_dlist = array_dv[cdf_dim];
+type cdf_field = record[fname: cdf_cline; num_dims: integer; cdf_dhandles: array_dv[integer]; tsize: integer; fdata: array_dv[real]];
+type cdf_flist = array_dv[cdf_field];
+
+type cdf = record[
+  name: cdf_cline;
+  instance: integer;
+  comments: cdf_clist;
+  params: cdf_plist;
+  dims: cdf_dlist;
+  fields: cdf_flist
+];
+
+function cdfcreate(file_name: cdf_cline; instance: integer returns cdf)
+  let
+    nullcom := array_dv cdf_clist [];
+    nullpar := array_dv cdf_plist [];
+    nulldim := array_dv cdf_dlist [];
+    nullfld := array_dv cdf_flist [];
+  in
+    record cdf [
+      name: file_name;
+      instance: instance;
+      comments: nullcom;
+      params: nullpar;
+      dims: nulldim;
+      fields: nullfld
+    ]
+  end let
+end function
+
+function cdfcomment(cdf_record: cdf; comment: cdf_cline returns cdf)
+  cdf_record replace [comments: array_addh(cdf_record.comments, comment)]
+end function
+
+function cdfparam(cdf_record: cdf; pname: cdf_cline; pval: real returns cdf)
+  let
+    parameter := record cdf_param [pname: pname; pval: pval];
+  in
+    cdf_record replace [params: array_addh(cdf_record.params, parameter)]
+  end let
+end function
+
+function cdfdim(cdf_record: cdf; dim_name: cdf_cline; dim_size: integer; start_val, increment: real returns cdf, integer)
+  let
+    dim_record := record cdf_dim [dname: dim_name; dsize: dim_size; start_val: start_val; increment: increment];
+    new_cdf_record := cdf_record replace [dims: array_addh(cdf_record.dims, dim_record)];
+    dhandle := array_size(new_cdf_record.dims);
+  in
+    new_cdf_record, dhandle - 1
+  end let
+end function
+
+function streq(a, b: cdf_cline returns boolean)
+  if array_size(a) ~= array_size(b) then
+    false
+  else
+    for initial
+      i := 1;
+      match := true;
+    while i <= array_size(a) & match repeat
+      idx_a := array_liml(a) + old i - 1;
+      idx_b := array_liml(b) + old i - 1;
+      match := a[idx_a] = b[idx_b];
+      i := old i + 1;
+    returns value of match
+    end for
+  end if
+end function
+
+function cdfgetpar(cdf_record: cdf; pname: cdf_cline returns real)
+  for initial
+    i := 1;
+    val := 0;
+  while i <= array_size(cdf_record.params) repeat
+    oi := old i;
+    oval := old val;
+    val := if streq(pname, cdf_record.params[oi].pname) then oi else oval end if;
+    i := oi + 1;
+  returns
+    value of if val > 0 then cdf_record.params[val].pval else 0.0 end if
+  end for
+end function
+
+function Main(file_name, param_name, dim_name: cdf_cline returns real, integer, integer)
+  let
+    rec0 := cdfcreate(file_name, 100);
+    rec1 := cdfparam(rec0, param_name, 42.5);
+    rec2, dhand := cdfdim(rec1, dim_name, 10, 0.0, 1.0);
+    p_val := cdfgetpar(rec2, param_name);
+    num_params := array_size(rec2.params);
+    num_dims := array_size(rec2.dims);
+  in
+    p_val, num_params, num_dims
+  end let
+end function

@@ -1,3 +1,6 @@
+% Origin: test/unit/switch.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 DEFINE MAIN
 FUNCTION MAIN(I,E : INTEGER RETURNS INTEGER)
   if I < E then I*2

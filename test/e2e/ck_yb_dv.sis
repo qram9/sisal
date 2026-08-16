@@ -1,10 +1,13 @@
+% Origin: test/unit/ck_yb.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % ck_yb -- Y-bucket statistics for the scan-conversion picture analysis, from
 % test/unit/ck_yb.sis.  The last of the ragged-array holdouts, ported by the
 % house rule that RAGGED ARRAYS ARE REWRITTEN WITH LISTS (see backtrack_dv.sis,
 % ml_list_dv.sis).
 %
 % The original input is
-%     type int_array2 = array[int_array1]      % array OF arrays
+%     type int_array2 = array_dv[int_array1]      % array_dv of arrays
 % i.e. a Y bucket whose rows are the triangles falling on each scan line, so row
 % lengths vary with the picture.  That is genuinely ragged and cannot be a flat
 % array_dv.

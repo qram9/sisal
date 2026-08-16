@@ -1,3 +1,6 @@
+% Origin: test/unit/stream.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
 function Main(N: integer returns stream[integer])

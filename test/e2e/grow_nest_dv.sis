@@ -1,3 +1,6 @@
+% Origin: test/unit/nested.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % rank grows inner -> outer: 1 -> 2 -> 3.  Each level declares ONLY the dim it
 % contributes; the element's dims append implicitly (runtime dope prepend).
 define main

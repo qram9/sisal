@@ -1,3 +1,6 @@
+% Origin: test/unit/newgaussj.sis, test/unit/newgaussj_dv.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % newgaussj -- Gauss-Jordan returning both the INVERSE and the solution, from
 % test/unit/newgaussj.sis.  Second of the Gauss/LU cluster, and the one that adds
 % a property gaussjnew_dv cannot check: A * inv(A) = I.

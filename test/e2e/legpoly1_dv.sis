@@ -1,3 +1,6 @@
+% Origin: test/unit/LegPoly.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 DEFINE LegendrePolyOf1stKind
 
 type ArrDreal1 = array_dv[Double_real]

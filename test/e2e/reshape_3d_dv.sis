@@ -1,3 +1,6 @@
+% Origin: test/unit/reshape_3d.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Round-trip reshape 1-D -> 3-D -> 1-D, from test/unit/reshape_3d.sis.
 %
 % The unit original returns `back[1] + row_sum`, a single double: a wrong stride

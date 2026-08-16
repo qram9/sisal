@@ -1,3 +1,6 @@
+% Origin: test/unit/driver.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % interproc_provided_e2e — DPS / provided-variant correctness stress.
 %
 % An array-returning helper is called every iteration of a for-initial loop

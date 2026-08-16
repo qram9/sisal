@@ -1,3 +1,6 @@
+% Origin: test/unit/qs.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Hoare-partition quicksort, promoted from test/unit/qs.sis.
 %
 % Distinct from quicksort_dv (which partitions with masked gathers) and from the
@@ -8,8 +11,8 @@
 %   and when they have not crossed, B swaps B[L] and B[R] via a two-value
 %   replace, then recurses on array_adjust(B, first, J-1) and (B, J+1, last).
 %
-% ARRAY REWRITE: `array[integer]` -> `array_dv[integer]`, and the singleton
-% `array [1: Pivot]` -> `array_dv OneDim [1: Pivot]`.  array_adjust and `||`
+% ARRAY REWRITE: `array_dv[integer]` -> `array_dv[integer]`, and the singleton
+% `array_dv[1: Pivot]` -> `array_dv OneDim [1: Pivot]`.  array_adjust and `||`
 % carry over unchanged.
 %
 % The recursion re-bases through array_adjust, so this also exercises subranges

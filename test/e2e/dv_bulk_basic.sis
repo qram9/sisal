@@ -1,3 +1,6 @@
+% Origin: test/unit/bulk_ops.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define dv_bulk_basic,
   t_arr_add, t_arr_sub, t_arr_mul, t_arr_neg,
   t_arr_eq, t_arr_lt,

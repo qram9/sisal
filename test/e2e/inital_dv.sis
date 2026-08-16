@@ -1,3 +1,6 @@
+% Origin: test/unit/Inital.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Inital -- spectral shallow-water model initialisation, from
 % test/unit/Inital.sis.  Thirteen return values in one function, covering four
 % shapes the suite has little of together:

@@ -1,0 +1,27 @@
+% Origin: test/unit/choose.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for Simulated Annealing 2-Opt Edge Swap Cost Evaluator.
+%
+% Simulated Annealing 2-Opt Edge Swap Cost Evaluator.
+% Computes Delta E cost difference for swapping edge pair (e1_u, e1_v) and (e2_u, e2_v)
+% against 2D distance matrix dist.
+%
+define Main
+
+type DistMatrix = array_dv[real];
+
+function Cost_Change(e1_u, e1_v, e2_u, e2_v: integer; dist: DistMatrix returns real)
+  let
+    idx1 := (e1_u - 1) * 4 + e1_v;
+    idx2 := (e2_u - 1) * 4 + e2_v;
+    idx3 := (e1_u - 1) * 4 + e2_u;
+    idx4 := (e1_v - 1) * 4 + e2_v;
+    old_cost := dist[idx1] + dist[idx2];
+    new_cost := dist[idx3] + dist[idx4];
+  in
+    new_cost - old_cost
+  end let
+end function
+
+function Main(e1_u, e1_v, e2_u, e2_v: integer; dist: DistMatrix returns real)
+  Cost_Change(e1_u, e1_v, e2_u, e2_v, dist)
+end function

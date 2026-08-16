@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 7a of 8 -- the predictor's preparation stages, Method1..Method4.
 %
 % Method1..Method19 plus Transpose are ~800 lines, so part 7 is itself split
@@ -14,7 +17,7 @@
 % Method4  the Courant numbers -- maxima over the INTERIOR only.
 %
 % THE ARRAY REWRITE is the usual one: PlaneArray -> flat rank-2 array_dv,
-% `returns array of` -> `returns array_dv of`.  Note the three stages work over
+% `returns array_dv of` -> `returns array_dv of`.  Note the three stages work over
 % THREE DIFFERENT index ranges -- Method1/2 over 1-ncx..nc+ncx (the full wide
 % array), Method3 over 0..nc+1, Method4 over 1..nc -- which is what the last
 % property below pins.

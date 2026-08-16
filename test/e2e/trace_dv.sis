@@ -1,3 +1,6 @@
+% Origin: test/unit/trace.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % TRACE — DV variant of Trace from unit/trace.sis (Job Shop Scheduler), and
 % the last function in that file.  Runs the whole wavefront to fixpoint: fan
 % out arcs from every enabled, unfired segment, fold them back into the Grid

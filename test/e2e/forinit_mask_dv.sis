@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % `when`/`unless` MASKS on a for-initial RETURNS.
 %
 % These were dropped on the floor: masked gathers and masked reductions on a

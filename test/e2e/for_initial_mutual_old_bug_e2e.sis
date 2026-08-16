@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial_mutual_old_bug.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % for_initial_mutual_old_bug.sis
 % ---------------------------------------------------------------------------
 % MINIMAL case that gets INCORRECT IF1 lowering.

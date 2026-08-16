@@ -1,3 +1,6 @@
+% Origin: test/unit/stream.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % stream_integers_dv — for-initial `returns stream of I` over a while loop.
 %
 % Exercises the Sisal `for initial` stream-gather semantics documented in

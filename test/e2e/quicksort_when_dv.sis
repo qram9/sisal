@@ -1,0 +1,34 @@
+% Origin: test/unit/bad.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for functional QuickSort with WHEN filtering clauses.
+%
+% Functional QuickSort with WHEN Filtering Clauses — DV Variant.
+% Recursively partitions data into less, equal, and greater sub-arrays using parallel WHEN stream filters.
+%
+define Main
+
+type Info = array_dv[integer];
+
+function Split(Data: Info returns Info, Info, Info)
+  let
+    pivot := Data[1];
+  in
+    for E in Data
+    returns
+      array_dv of E when E < pivot
+      array_dv of E when E = pivot
+      array_dv of E when E > pivot
+    end for
+  end let
+end function
+
+function Main(Data: Info returns Info)
+  if array_size(Data) > 1 then
+    let
+      L, Middle, R := Split(Data);
+    in
+      Main(L) || Middle || Main(R)
+    end let
+  else
+    Data
+  end if
+end function

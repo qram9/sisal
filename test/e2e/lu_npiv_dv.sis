@@ -1,48 +1,44 @@
-% Gauss-Jordan elimination with no pivoting — DV variant (based on lu.npiv.sis)
+% Origin: test/unit/lu.npiv.sis
+% Port Note: Gauss-Jordan elimination without pivoting. Converted 2D ragged array (TwoD = array[array[double]])
+% to flat rank-2 rank-polymorphic array_dv[double].
 %
-% DV changes (all arrays are array_dv — no array-of-arrays):
-%   • OneD = array_dv[double]; TwoD = flat rank-2 array_dv[double],
-%     element (i,j) via A[i,j]; rows stacked by a rank-2 array_dv gather.
-%   • Row iteration (for row in A at i / for x in row at j) becomes index
-%     loops over 1..n reading A[i, j]; Reduce takes n explicitly.
-
 define Main
 
-%type double = double_real;
-type OneI = array_dv[integer];
 type OneD = array_dv[double];
-type TwoD = array_dv[double];   % flat rank-2, element (i,j) via A[i,j]
+type TwoD = array_dv[double];
 
-
-function Reduce(A: TwoD; pivot: integer; B: OneD; n: integer
-                returns TwoD, OneD)
-
-  for i in 1, n
-    mult := A[i, pivot] / A[pivot, pivot];
-
-    rrow, rB := if i = pivot then
-                  for j in 1, n returns array_dv of A[i, j] / A[pivot, pivot] end for,
-                  B[i] / A[pivot, pivot]
-                else
-                  for j in 1, n returns array_dv of A[i, j] - mult * A[pivot, j] end for,
-                  B[i] - mult * B[pivot]
-                end if
-  returns array_dv of rrow
-          array_dv of rB
-  end for
-
+function Reduce(pivot, n : integer; A : TwoD; B : OneD returns TwoD, OneD)
+    let
+        rA := for i in 1, n cross j in 1, n
+                mult := A[i, pivot] / A[pivot, pivot];
+                val := if i = pivot then
+                         A[i, j] / A[pivot, pivot]
+                       else
+                         A[i, j] - mult * A[pivot, j]
+                       end if;
+              returns array_dv of val
+              end for;
+        rB := for i in 1, n
+                mult := A[i, pivot] / A[pivot, pivot];
+                val := if i = pivot then
+                         B[i] / A[pivot, pivot]
+                       else
+                         B[i] - mult * B[pivot]
+                       end if;
+              returns array_dv of val
+              end for;
+    in
+        rA, rB
+    end let
 end function
 
-
-function Main(n: integer; Ain: TwoD; Bin: OneD returns OneD)
-
-  for initial
-    i    := 0;
-    A, B := Ain, Bin;
-  while i < n repeat
-    i    := old i + 1;
-    A, B := Reduce(old A, i, old B, n);
-  returns value of B
-  end for
-
+function Main(n : integer; Ain : TwoD; Bin : OneD returns OneD)
+    for initial
+        i := 0;
+        A, B := Ain, Bin;
+    while i < n repeat
+        i := old i + 1;
+        A, B := Reduce(i, n, old A, old B);
+    returns value of B
+    end for
 end function

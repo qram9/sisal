@@ -1,3 +1,6 @@
+% Origin: test/unit/simple.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % The alpha/beta FORWARD sweep from the SIMPLE hydrodynamics benchmark
 % (test/unit/simple.sis, the `a_1, b_1 := for initial ...` loop in the
 % l-direction solve).  Companion to simple_backsub_dv, which covers the back
@@ -14,13 +17,13 @@
 %                   a     := cbb[k,old l] / denom;
 %                   b     := (sig[k,old l]*temp[k,old l]
 %                            + cbb[k,old l-1] * old b) / denom;
-%                 returns array of a
-%                         array of b
+%                 returns array_dv of a
+%                         array_dv of b
 %                 end for;
 %
 % What this covers that simple_backsub_dv does not:
 %
-%   * TWO `array of` GATHERS off one for-initial.  The back sweep returns
+%   * TWO `array_dv of` GATHERS off one for-initial.  The back sweep returns
 %     `value of r` -- a single last-value.  Here the loop's per-iteration
 %     history is collected into two separate result arrays, which is the other
 %     RETURNS path entirely.
@@ -39,7 +42,7 @@
 % elements plus the seed: the declared extent is a SIZE DESCRIPTOR, slot 0 is
 % body_0, so `array_dv(n + 1) of a` yields the whole history.
 %
-% Matches OSC 13.0.3 exactly -- Sisal 1.2's `array of` is a history gather and
+% Matches OSC 13.0.3 exactly -- Sisal 1.2's `array_dv of` is a history gather and
 % the initial clause contributes:
 %
 %   a_1 = [0.000000, 0.333333, 0.333333, 0.319149, 0.309211]   n+1, seed first

@@ -1,9 +1,6 @@
-% ALPHABETA — DV variant of unit/alphabeta.sis (Job Shop Scheduler: per-job
-% segment start/finish times).  SRec/Element inlined from types.h;
-% SRec_OneDim = array_dv[SRec] (records as dv elements), AB_TwoDim = flat
-% rank-2 array_dv[Element] via box-flatten of per-job record rows — the
-% first RANK-2 RECORD result in the suite.  Renamed Main.
-
+% Origin: test/unit/alphabeta.sis
+% Port Note: AlphaBeta array calculation stage of Job Shop scheduler ported to flat rank-2 array_dv[Element] and rank-1 array_dv[real].
+%
 define Main
 
 type SRec = record [Start, Finish, Duration: real; Priority: integer];
@@ -12,24 +9,23 @@ type Element = record [Alpha, Beta: real; Priority: integer];
 type AB_TwoDim = array_dv [Element];
 type Real_OneDim = array_dv [real];
 
-function Main (Sorted : SRec_OneDim;
-               Q : integer
-              returns
-               AB_TwoDim,
-               Real_OneDim)
+function AlphaBeta (Sorted : SRec_OneDim; Q : integer returns AB_TwoDim, Real_OneDim)
   for Elt in Sorted
      Last_Start := Elt.Finish - Elt.Duration;
-     Del := (Last_Start - Elt.Start) / Real(Q);
-     Row :=
+     Del := (Last_Start - Elt.Start) / real(Q);
+     Row := 
         for I in 1, Q+1
-           Alpha := Elt.Start + (Real(I-1) * Del);
+           Alpha := Elt.Start + (real(I-1) * Del);
            Beta := Alpha + Elt.Duration;
         returns
-           array_dv of record Element [Alpha: Alpha; Beta: Beta;
-                                    Priority: Elt.Priority]
+           array_dv of record Element [Alpha: Alpha; Beta: Beta; Priority: Elt.Priority]
         end for;
-   returns
-      array_dv of Row
-      array_dv of Del
-   end for
+  returns
+     array_dv of Row
+     array_dv of Del
+  end for
+end function
+
+function Main (Sorted : SRec_OneDim; Q : integer returns AB_TwoDim, Real_OneDim)
+  AlphaBeta(Sorted, Q)
 end function

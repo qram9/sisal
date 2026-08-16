@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 function Main( n: integer returns array_dv[integer] )
   for initial
     i := 0;

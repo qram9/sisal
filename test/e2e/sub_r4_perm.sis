@@ -1,3 +1,6 @@
+% Origin: test/unit/subscript_slicing.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % rank-4: a[i,j,k,l] = b[j,i,k,l] + c[k,l,j,i].
 % b[..]=i*1000+j*100+k*10+l ; c[..]=i+j+k+l ; N=2
 % a[1,2,1,2] = b[2,1,1,2] + c[1,2,2,1] = 2112 + 6 = 2118

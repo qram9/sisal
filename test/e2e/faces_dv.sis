@@ -1,0 +1,132 @@
+% Origin: test/unit/faces.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for Radiative Transport Spline Solver.
+%
+% Radiative Transport Spline Solver (FN Collocation Method).
+% Computes eigenvalues nu0, quadratic knot distributions, midpoint collocation points,
+% and right-hand side source vectors for radiative transfer in a slab.
+%
+define Main
+
+type RealVector = array_dv[real];
+
+global etothe(x: real returns real)
+
+function expon(x: real returns real)
+  if x < -88.028 then 0.0
+  elseif x > 88.028 then 0.0
+  else etothe(x)
+  end if
+end function
+
+function g(alpha, c: real returns real)
+  2.0 * alpha / c + log((1.0 - alpha) / (1.0 + alpha))
+end function
+
+function g_prime(alpha, c: real returns real)
+  2.0 / c - 1.0 / (1.0 - alpha) - 1.0 / (1.0 + alpha)
+end function
+
+function above(c: real returns real, real)
+  for initial
+    alpha0 := 0.5;
+    g_alpha0 := g(0.5, c);
+  while g_alpha0 >= 0.0 repeat
+    alpha0 := 0.5 * (1.0 + old alpha0);
+    g_alpha0 := g(alpha0, c);
+  returns
+    value of alpha0
+    value of g_alpha0
+  end for
+end function
+
+function get_nu0(c, eps: real returns real)
+  let
+    a := for initial
+           alpha, g_alpha := above(c);
+           d_alpha := g_alpha / g_prime(alpha, c);
+         repeat
+           d_alpha := old g_alpha / g_prime(old alpha, c);
+           alpha := old alpha - d_alpha;
+           g_alpha := g(alpha, c);
+         until abs(d_alpha) < eps * alpha
+         returns value of alpha
+         end for;
+  in
+    1.0 / a
+  end let
+end function
+
+function form_knots(interv: integer returns RealVector, RealVector)
+  let
+    knots := for j in 0, interv
+               k_val := if j = 0 then 0.0
+                        elseif j = interv then 1.0
+                        else (real(j) / real(interv)) * (real(j) / real(interv))
+                        end if;
+             returns array_dv of k_val
+             end for;
+    lengths := for j in 0, interv + 1
+                 l_val := if j = 0 | j = interv + 1 then -1.0
+                          else knots[j + 1] - knots[j]
+                          end if;
+               returns array_dv of l_val
+               end for;
+  in
+    knots, lengths
+  end let
+end function
+
+function form_col_pts(interv: integer; knots: RealVector; nu0: real returns RealVector)
+  let
+    zero_arr := array_dv_fill(1, 1, 0.0);
+    nu0_arr  := array_dv_fill(1, 1, nu0);
+    mids1, mids2 := for j in 1, interv
+                      p1 := 0.5 * (knots[j] + knots[j + 1]);
+                      p2 := knots[j + 1];
+                    returns array_dv of p1
+                            array_dv of p2
+                    end for;
+  in
+    zero_arr || mids1 || mids2 || nu0_arr
+  end let
+end function
+
+function s_int(nu, mu0, delta: real returns real)
+  if nu = 0.0 then 0.5
+  else 0.5 * mu0 * (1.0 - expon(-delta * (1.0 / mu0 + 1.0 / nu))) / (mu0 + nu)
+  end if
+end function
+
+function c_int(nu, mu0, delta, eps: real returns real)
+  if nu = 0.0 then 0.5 * expon(-delta / mu0)
+  elseif abs(nu - mu0) < eps then 0.5 * (delta / nu) * expon(-delta / nu)
+  else 0.5 * mu0 * (expon(-delta / mu0) - expon(-delta / nu)) / (mu0 - nu)
+  end if
+end function
+
+function form_k(block_size: integer; mu0, delta: real; col_pts: RealVector; eps: real returns RealVector)
+  let
+    k_left := for i in 1, block_size
+                val := 2.0 * s_int(col_pts[i], mu0, delta);
+              returns array_dv of val
+              end for;
+    k_right := for i in 1, block_size
+                 val := 2.0 * c_int(col_pts[i], mu0, delta, eps);
+               returns array_dv of val
+               end for;
+  in
+    k_left || k_right
+  end let
+end function
+
+function Main(interv: integer; c, eps, mu0, delta: real returns real, integer, RealVector)
+  let
+    nu0 := get_nu0(c, eps);
+    knots, lengths := form_knots(interv);
+    col_pts := form_col_pts(interv, knots, nu0);
+    block_size := 2 * interv + 2;
+    rhs_k := form_k(block_size, mu0, delta, col_pts, eps);
+  in
+    nu0, array_size(col_pts), rhs_k
+  end let
+end function

@@ -1,7 +1,7 @@
 % SMOOTH — DV / rank-3 variant
 %
 % Rewrite of smooth.sis.
-%   • Grid changes from array[array[array[real]]] to array_dv[real] (rank-3).
+%   • Grid changes from array_dv[array_dv[array_dv[real]]] to array_dv[real] (rank-3).
 %   • Triple cross-forall (i × j × k) emits array_dv, producing a contiguous
 %     rank-3 array whose elements are indexed as Grid[i,j,k].
 %   • The "for e in S at j,k,l" element-iterator is replaced by explicit

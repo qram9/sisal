@@ -1,3 +1,6 @@
+% Origin: test/unit/simpson.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 %
 % --- SIMPSONS RULE INTEGRATION ---
 %

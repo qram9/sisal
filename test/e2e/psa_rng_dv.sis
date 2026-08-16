@@ -1,3 +1,6 @@
+% Origin: test/unit/psa.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PSA_RNG -- the random-number layer of psa.sis (Parallel Scheduler v1.0,
 % 03/23/89: simulated annealing on the School TimeTable Problem).
 %
@@ -13,7 +16,7 @@
 %
 % THE ARRAY MAPPING.  `fourplex` is a 0-BASED rank-1 array_dv of 4 limbs, so
 % the literals stay `array_dv fourplex [0: ...]` and a[0]..a[3] index as written.
-% `Seed_Type = array [fourplex]` -- an array of those -- becomes a rank-2
+% `Seed_Type = array_dv[fourplex]` -- an array_dv of those -- becomes a rank-2
 % array_dv (n x 4), which is what `rans`'s `array_dv of seed` gather produces
 % by stacking rank-1 rows.  A row comes back out by subscript, which
 % rank-reduces: SS[i, ..] is the i-th 4-limb seed, still 0-based on its own

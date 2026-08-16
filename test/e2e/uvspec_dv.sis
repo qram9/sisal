@@ -1,3 +1,6 @@
+% Origin: test/unit/UVSpec.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UVSPEC — DV variant of unit/UVSpec.sis (U/V wind components from
 % vorticity/divergence spectra).  All arrays array_dv; Cadd/Csub/Cmul/Crmul
 % inlined from CpxFuncs.sis; renamed Main.  Pins a 4-way IF/ELSEIF ladder

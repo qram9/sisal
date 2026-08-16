@@ -1,3 +1,6 @@
+% Origin: test/unit/feo.fft.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % feo_fft_parts3.sis
 % Part 3: fft_4_2 and Pack_j butterfly kernels.
 

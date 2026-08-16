@@ -1,3 +1,6 @@
+% Origin: test/unit/record.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
 type Cart = record[X:integer; Y:real]

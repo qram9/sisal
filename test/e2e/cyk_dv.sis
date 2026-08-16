@@ -1,11 +1,14 @@
+% Origin: test/unit/cyk.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % CYK -- Cocke-Younger-Kasami recognition, the dynamic-programming example of
 % test/unit/cyk.sis (Hopcroft & Ullman, Automata Theory, p.140), rewritten
 % under the array_dv model.
 %
 % WHY THIS STAYS DENSE, AND IS NOT A LIST.  The original types are
-%     type prod1 = array[array[boolean]] ;
-%     type prod2 = array[array[array[boolean]]] ;
-% and V itself is an array of arrays of arrays -- three levels of boxing.  Under
+%     type prod1 = array_dv[array_dv[boolean]] ;
+%     type prod2 = array_dv[array_dv[array_dv[boolean]]] ;
+% and V itself is an array_dv of arrays of arrays -- three levels of boxing.  Under
 % the dope-vector model all three are ONE flat array_dv whose rank is a runtime
 % property: P1 is rank-2 (terminal x variable), P2 and V are rank-3.
 %

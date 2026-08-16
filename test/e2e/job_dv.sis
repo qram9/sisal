@@ -1,3 +1,6 @@
+% Origin: test/unit/job.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % JOB — DV variant of unit/job.sis, the Job Shop Scheduler's top-level driver,
 % with its six included files assembled into one unit.  This is the whole
 % benchmark rather than a stage of it:

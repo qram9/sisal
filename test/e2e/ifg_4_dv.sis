@@ -1,3 +1,6 @@
+% Origin: test/unit/IFg_4.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % IFACTg_4 -- the radix-4 butterfly of the GRID-direction FFT, from
 % test/unit/IFg_4.sis.  Last of the three kernels PassGrid dispatches to.
 % Transposed dual of ifm_4_dv: jump on the ja1 axis, bounds iink+2 /

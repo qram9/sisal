@@ -1,3 +1,6 @@
+% Origin: test/unit/masked_cross_gather.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Regression pin for the type-table "float = unknown" flaw: an element
 % scatter over array_dv[REAL] had its element port clobbered to
 % sisal_array_t by pass2 propagation (integer elements were immune only

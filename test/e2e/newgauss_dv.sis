@@ -1,3 +1,6 @@
+% Origin: test/unit/newgauss.sis, test/unit/stand_alone_gauss.sis, test/unit/newgauss_dv.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % newgauss -- LU factorisation with forward/back substitution.
 %
 % Named for test/unit/newgauss.sis; test/unit/stand_alone_gauss.sis is the same

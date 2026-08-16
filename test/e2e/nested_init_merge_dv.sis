@@ -1,3 +1,6 @@
+% Origin: test/unit/nested.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Minimal DOUBLE-nested `for initial` reproducer for the MERGE int<->array
 % mis-wiring. The inner loop has MIXED carries (k,i int; Xt array) AND captures
 % values from the outer scope (p, old A) -- which is what shifts the inner INIT's

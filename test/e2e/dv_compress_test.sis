@@ -1,3 +1,6 @@
+% Origin: test/unit/bulk_ops.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % dv_compress_test.sis — DV_COMPRESS produces array_dv from a boolean mask.
 %
 % COMPRESS(mask, arr) selects elements of arr where mask is true.

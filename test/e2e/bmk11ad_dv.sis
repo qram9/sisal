@@ -1,3 +1,6 @@
+% Origin: test/unit/bmk11ad.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % BMK11AD -- the destructive re-zeroing loop, the one thing it adds over BMK11A.
 %
 % bmk11ad.sis is bmk11a.sis with two differences and no others: nlop is 10

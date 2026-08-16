@@ -1,3 +1,6 @@
+% Origin: test/unit/stream.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % STREAM OF RECORDS -- a stream whose element is a record, not a scalar.
 %
 % Every other stream test carries a scalar (`stream[real]`, `stream[integer]`,

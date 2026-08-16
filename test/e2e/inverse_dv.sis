@@ -1,3 +1,6 @@
+% Origin: test/unit/inverse.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MATRIX INVERSE — DV variant (based on inverse.sis)
 %
 % All arrays are flat array_dv (no array-of-arrays):
@@ -127,8 +130,8 @@ function find_inverse( A: TwoD; N: integer returns TwoD )
     Indxc := for initial
                I     := 1;
                Ipiv  := for J in 1, N returns array_dv of 0 end for;
-               Indxr := array OneI [];
-               Indxc := array OneI [];
+               Indxr := array_dv OneI [];
+               Indxc := array_dv OneI [];
                TmpA  := A;
              while I <= N repeat
                I     := old I + 1;

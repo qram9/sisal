@@ -1,5 +1,8 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % nucleic get_var / solution on array_dv-of-records.
-%   solution = array[var]  ->  array_dv[var]   (var is a NON-RECURSIVE record,
+%   solution = array_dv[var]  ->  array_dv[var]   (var is a NON-RECURSIVE record,
 %   hence sizable -> lives in a dope directly, like rec_aos_dv).
 %   var = record[tfo; nuc; label]; here modelled as [label; k; params] to focus
 %   on the search mechanic.  get_var backward-searches the solution for the var

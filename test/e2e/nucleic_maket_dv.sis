@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % nucleic make_t on the SoA: the reference-frame pipeline
 %   make_t = tfo_inv_ortho(tfo_align(atom_pos ×3 over ref.nuc[5]))
 % ported onto the struct-of-arrays layout.  The nuc's params ROW is recovered as

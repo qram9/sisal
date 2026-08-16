@@ -1,3 +1,6 @@
+% Origin: test/unit/initialize.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SoA rewrite of init_A (11 nucs -> record of 7 rank-2 arrays), from the real
 % nucleic.sis data.  CLEAN construction: each field is a FLAT 1-D array_dv
 % literal reshaped to (11 x width) -- no nested array_dv literals.  `typ` stays

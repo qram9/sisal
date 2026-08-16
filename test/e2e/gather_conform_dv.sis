@@ -1,3 +1,6 @@
+% Origin: test/unit/masked_cross_gather.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PADDING A COMPACTED ROW WITH `||`, AND GATHER CONFORMITY.
 %
 % `packed || Zeros(width - array_size(packed))` is the natural way to pad a

@@ -1,3 +1,6 @@
+% Origin: test/unit/red_sum.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % three reduction ops, each inner-reduce + outer-gather -> rank 1
 define main
 type IOneD = array_dv[integer];

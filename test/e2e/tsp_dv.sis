@@ -1,0 +1,62 @@
+% Origin: test/unit/tsp.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
+% Traveling Salesperson Problem (TSP) benchmark — DV variant.
+% Computes node coordinates, 2D distance matrix using rank-2 array_dv,
+% and total itinerary cost (Set_Energy).
+%
+define Main
+
+type Node_type = record [x, y: integer];
+type Node_List = array_dv [Node_type];
+type Dist_Type = array_dv [real];
+type Itin_Type = array_dv [integer];
+
+function my_sqrt (x : real returns real)
+  real(sqrt(double_real(x)))
+end function
+
+% Return distance d[a, b] from 2D distance matrix
+function Dist (a, b : integer; Distances : Dist_Type returns real)
+  Distances[a, b]
+end function
+
+% Calculate total cost of itinerary (sum of edge distances)
+function Set_Energy (Itinerary : Itin_Type; Distances : Dist_Type returns real)
+  for I in 1, array_size(Itinerary) - 1
+    d := Dist (Itinerary[I], Itinerary[I+1], Distances)
+  returns
+    value of sum d
+  end for
+end function
+
+% Construct N x N 2D distance matrix using cross loop and explicit 2D extent
+function Build_Distances(n : Node_List; num_nodes : integer returns Dist_Type)
+  for I in 1, num_nodes cross J in 1, num_nodes
+    E  := n[I];
+    E1 := n[J];
+    xdiff := real(E.x - E1.x);
+    ydiff := real(E.y - E1.y);
+  returns array_dv(num_nodes, num_nodes) of my_sqrt(xdiff * xdiff + ydiff * ydiff)
+  end for
+end function
+
+% Build Node list from 1D coordinates [x1, y1, x2, y2, ...]
+function Init_Nodes(In_Array : array_dv[integer] returns Node_List)
+  for I in 1, array_size(In_Array) / 2
+  returns array_dv of record Node_type [
+    x : In_Array[I * 2 - 1];
+    y : In_Array[I * 2]
+  ]
+  end for
+end function
+
+function Main( In_Array : array_dv[integer]; Itinerary : Itin_Type returns real )
+  let
+    nodes := Init_Nodes(In_Array);
+    num_nodes := array_size(nodes);
+    distances := Build_Distances(nodes, num_nodes);
+  in
+    Set_Energy(Itinerary, distances)
+  end let
+end function

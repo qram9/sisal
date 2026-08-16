@@ -1,3 +1,6 @@
+% Origin: test/unit/quad.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % quad -- ARITHMETIC on quadtrees (add, multiply, transpose), from
 % test/unit/quad.sis.  Companion to quadtree_dv, which only BUILDS the tree.
 %
@@ -41,7 +44,7 @@ type BList = union[ empty: null; cons: record[ hd: BTree; tl: BList ] ];
 type QTree = union[ Scalar: real; NonScalar: record[ NE, SE, SW, NW: QTree ] ];
 type QuadTree = record[ Order, Padding: integer; Body: QTree ];
 
-% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array[BTree] ----
+% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array_dv[BTree] ----
 function Mt( returns BList ) union BList[ empty: nil ] end function
 function Cons( h: BTree; t: BList returns BList )
   union BList[ cons: record[ hd: h; tl: t ] ]

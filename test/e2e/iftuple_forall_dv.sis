@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_add.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % if-expression returning a tuple inside a forall body
 define main
 type IOneD = array_dv[integer];

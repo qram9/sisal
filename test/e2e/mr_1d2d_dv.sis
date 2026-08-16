@@ -1,3 +1,6 @@
+% Origin: test/unit/mat2_construct.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % forall returns a 1-D gather and a 2-D gather (gather of rows)
 define main
 type IOneD = array_dv[integer];

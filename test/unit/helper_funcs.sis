@@ -1,0 +1,13 @@
+define Main, Increase, IncreaseX
+
+function Increase(x : integer returns integer)
+  x + 1
+end function
+
+function IncreaseX(x : integer returns integer)
+  Increase(x) * 2
+end function
+
+function Main( n, m : integer returns integer )
+  Increase(n) * IncreaseX(m)
+end function

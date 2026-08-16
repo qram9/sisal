@@ -1,3 +1,6 @@
+% Origin: test/unit/union1.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 
 define main
 type ar		= array_dv[integer];

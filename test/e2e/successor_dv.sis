@@ -1,3 +1,6 @@
+% Origin: test/unit/successor.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SUCCESSOR — DV variant of unit/successor.sis (Job Shop Scheduler: for each
 % segment of job I, the index of the first segment of job I+1 that can follow
 % it).  Element/Int_OneDim/Real_OneDim inlined from types.h.
@@ -7,7 +10,7 @@
 %     array_dv[AB_OneDim] — nested dope vectors are malformed).  A row is
 %     reached with the `..` slice, AB[I, ..], which rank-reduces 2 -> 1;
 %     AB_OneDim is the same array_dv[Element] seen at rank 1.
-%   - gather clauses `array of` -> `array_dv of`.
+%   - gather clauses `array_dv of` -> `array_dv of`.
 %   - `value of tree sum` -> `value of sum`.  The C backend lowers REDUCE but
 %     not REDUCETREE; a left fold is a valid serialization of a tree fold, so
 %     this is the faithful sequential reading of the original.  (The `tree`

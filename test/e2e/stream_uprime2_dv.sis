@@ -1,3 +1,6 @@
+% Origin: test/unit/uprime2.sis, test/unit/uprime1.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % stream_uprime2_dv — Sieve of Eratosthenes over an INFINITE stream.
 %
 % Unlike stream_sieve_dv/stream_sieve_v2_dv, Integers here is UNBOUNDED

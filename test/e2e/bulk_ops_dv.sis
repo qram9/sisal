@@ -1,3 +1,6 @@
+% Origin: test/unit/bulk_ops.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % BULK OPS -- the whole-array (APL-style) operator battery of
 % test/unit/bulk_ops.sis, given a driver and exact references.
 %

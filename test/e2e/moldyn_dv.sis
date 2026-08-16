@@ -1,3 +1,6 @@
+% Origin: test/unit/moldyn.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MOLDYN — the whole of unit/moldyn.sis: Evolve_Ensemble and the driver, on top
 % of every stage already ported.  This runs the simulation.
 %
@@ -53,10 +56,10 @@
 %
 % THE PARAMETER TABLES.  PROBLEM_DATA holds six tables indexed by a PAIR of
 % particle types, A1[Tp,Tn] and friends.  In the original each is an
-% array[array[real]]; here each is a FLAT rank-2 array_dv, so the record is six
+% array_dv[array_dv[real]]; here each is a FLAT rank-2 array_dv, so the record is six
 % dope handles rather than six ragged nests -- the same struct-of-arrays shape
 % the ENSEMBLE record already had (POSITIONS is a record of three arrays, not
-% an array of position records).
+% an array_dv of position records).
 %
 % THE NEIGHBOUR LISTS are the ragged part: how many neighbours a particle has
 % is a property of the configuration, not of the program.  They are carried the
@@ -279,7 +282,7 @@ function Get_Gamma_Star (returns Reals)
                        (2197.0/4104.0), (-1.0/5.0), 0.0 ]
 end function
 
-% 6 x 5, row-major.  The original writes it as an array of arrays; here the
+% 6 x 5, row-major.  The original writes it as an array_dv of arrays; here the
 % constants are a flat literal reshaped by a nested gather into a real rank-2.
 function Get_Beta (returns Reals)
    let

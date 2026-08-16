@@ -1,3 +1,6 @@
+% Origin: test/unit/record2.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define TestDot
 type rec0 = record [ a, b: integer ]
 function Test(R: rec0 returns integer)

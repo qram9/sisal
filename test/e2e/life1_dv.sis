@@ -1,3 +1,6 @@
+% Origin: test/unit/life1.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Conway-variant Life from test/unit/life1.sis, ported to array_dv.  Distinct
 % from the covered life2_dv, which is a FLAT CROSS forall over the padded grid:
 % this one uses NESTED foralls and rebuilds the border explicitly, so it

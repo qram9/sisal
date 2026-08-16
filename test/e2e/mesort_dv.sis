@@ -1,3 +1,6 @@
+% Origin: test/unit/mesort.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Batcher's parallel merge-exchange sort (Knuth Vol.3 p112) — DV variant.
 % info = array_dv[integer] (1-based positional); the algorithm's bit
 % arithmetic is 0-based, so loops iterate 1..n with i0 := i-1 driving the

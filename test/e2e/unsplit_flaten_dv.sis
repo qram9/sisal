@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 5 of 8 -- `flaten`, the shock-flattening coefficient.
 %
 % flaten produces a coefficient in [0,1] per cell, which `slope` (part 4)
@@ -16,7 +19,7 @@
 % two directions combined by min -- or identically zero when godorder /= 2.
 %
 % THE ARRAY REWRITE is the same shape as parts 2-4: PlaneArray -> flat rank-2
-% array_dv, `returns array of` -> `returns array_dv of`, no structural change.
+% array_dv, `returns array_dv of` -> `returns array_dv of`, no structural change.
 % The index span is again -3 .. n+4 (p is read at [j, i+-2] over i in
 % -1..nc1+2), matching PhysBnd's ghost cells exactly.
 %

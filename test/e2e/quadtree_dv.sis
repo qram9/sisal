@@ -1,9 +1,12 @@
+% Origin: test/unit/quadtree.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % quadtree -- matrix to quadtree, from test/unit/quadtree.sis.  The row-of-trees
 % intermediate is a CONS LIST, in the moldyn_nbrlist_dv idiom, because it cannot
 % be an array_dv.
 %
 % WHY THE LIST.  The original carries
-%     type OneDimBTree = array[ BTree ];      % BTree is a recursive union
+%     type OneDimBTree = array_dv[ BTree ];      % BTree is a recursive union
 % and `array_dv[BTree]` is rejected outright:
 %     "array_dv element is not sizable: type `ONEDIMBTREE` places a directly
 %      (inline) recursive type in an array_dv, so its size fold does not
@@ -52,7 +55,7 @@ type BList = union[ empty: null; cons: record[ hd: BTree; tl: BList ] ];
 type QTree = union[ Scalar: real; NonScalar: record[ NE, SE, SW, NW: QTree ] ];
 type QuadTree = record[ Order, Padding: integer; Body: QTree ];
 
-% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array[BTree] ----
+% ---- BList: the moldyn_nbrlist cons-list idiom, standing in for array_dv[BTree] ----
 function Mt( returns BList ) union BList[ empty: nil ] end function
 function Cons( h: BTree; t: BList returns BList )
   union BList[ cons: record[ hd: h; tl: t ] ]

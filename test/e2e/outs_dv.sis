@@ -1,3 +1,6 @@
+% Origin: test/unit/outs.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % outs -- quicksort by masked partition, from test/unit/outs.sis.
 %
 % Two things nothing else in the suite has:

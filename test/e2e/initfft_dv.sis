@@ -1,0 +1,117 @@
+% Origin: test/unit/InitFFT.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for FFT initialization and factorization.
+%
+% FFT Factorization & Trigonometric Table Initialization.
+% Factors longitudinal grid size n into prime factors (with radix-4 optimization)
+% and precomputes forward and reverse trigonometric tables trigf and trigb.
+%
+define Main
+
+type ArrInt1 = array_dv[integer];
+type ArrReal1 = array_dv[real];
+
+function SINR(num: real returns real)
+  sin(num)
+end function
+
+function COSR(num: real returns real)
+  cos(num)
+end function
+
+function facRecur(nparti, idiv, ifTi: integer; ifacti: ArrInt1 returns integer, integer, integer, ArrInt1)
+  for initial
+    npart := nparti;
+    iquot := npart / idiv;
+    ifT := ifTi;
+    ifact1 := ifacti;
+  while npart - idiv * iquot = 0 repeat
+    npart := old iquot;
+    iquot := npart / idiv;
+    ifT := old ifT + 1;
+    ifact1 := old ifact1[ifT : idiv];
+  returns
+    value of npart
+    value of iquot
+    value of ifT
+    value of ifact1
+  end for
+end function
+
+function Loop_id(n: integer returns integer, integer, ArrInt1)
+  for initial
+    id := 1;
+    ifT := 0;
+    npart := n;
+    ifact := array_dv_fill(1, 20, 0);
+  while id <= n repeat
+    idiv := if old id - 1 <= 0 then 2 else old id end if;
+    npart_next, iquot, ifT_next, ifact_next := facRecur(old npart, idiv, old ifT, old ifact);
+    npart := npart_next;
+    ifT := ifT_next;
+    ifact := ifact_next;
+    id := if iquot - idiv <= 0 then n + 1 else old id + 2 end if;
+  returns
+    value of npart
+    value of ifT
+    value of ifact
+  end for
+end function
+
+function FACTR4(n: integer returns integer, ArrInt1)
+  let
+    npart, ifT, ifact1 := Loop_id(n);
+    iff := if npart - 1 > 0 then ifT + 1 else ifT end if;
+    ifact2 := ifact1;
+    nfactT := iff;
+    n2 := for initial
+            count := 0;
+            i := 1;
+          while i <= nfactT repeat
+            oi := old i;
+            count := if ifact2[oi] = 2 then old count + 1 else old count end if;
+            i := oi + 1;
+          returns value of count
+          end for;
+    n4 := n2 / 2;
+    f4_part := array_dv_fill(1, n4, 4);
+    mid_part := for i in n4 + 1, nfactT - n4
+                  val := ifact2[i];
+                returns array_dv of val
+                end for;
+    zero_part := array_dv_fill(1, n4, 0);
+    ifact3 := f4_part || mid_part || zero_part;
+    nfact := nfactT - n4;
+  in
+    nfact, ifact3
+  end let
+end function
+
+function InitFFT(n: integer returns boolean, boolean, integer, ArrInt1, ArrReal1, ArrReal1)
+  let
+    Abortinitfft := if mod(n, 2) ~= 0 | n > 200 then true else false end if;
+    AbortFFT := if n > 96 then true else false end if;
+    pi := 3.141592653589793;
+    nfax, ifax := FACTR4(n);
+    trigf, trigb := if Abortinitfft then
+                      array_dv ArrReal1 [], array_dv ArrReal1 []
+                    else
+                      for Lp in 1, n
+                        k := (Lp + 1) / 2;
+                        Cargument := -2.0 * pi * real(k - 1) / real(n);
+                        COStheta := COSR(Cargument);
+                        SINtheta := SINR(Cargument);
+                        tf := if mod(Lp, 2) = 0 then SINtheta else COStheta end if;
+                        tb := if mod(Lp, 2) = 0 then -SINtheta else COStheta end if;
+                      returns
+                        array_dv of tf
+                        array_dv of tb
+                      end for
+                    end if;
+  in
+    AbortFFT, Abortinitfft, nfax, ifax, trigf, trigb
+  end let
+end function
+
+function Main(n: integer returns boolean, boolean, integer, ArrInt1, ArrReal1, ArrReal1)
+  InitFFT(n)
+end function

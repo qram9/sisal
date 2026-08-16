@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_TRACK -- the particle tracking loop.  This is the construct that made
 % ssphot uncompilable, and the reason it was picked as the benchmark to port.
 %

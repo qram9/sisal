@@ -1,3 +1,6 @@
+% Origin: test/unit/basic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % DEPENDENT CROSS RANGES WHOSE BOUNDS ARE EXPRESSIONS.
 %
 % fec8715 made `for i in 1,n cross j in i,n` work: a nested bound that reads an

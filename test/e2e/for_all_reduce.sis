@@ -1,3 +1,6 @@
+% Origin: test/unit/for_all_reduce.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 Function Main(x:integer returns integer ) 
 for i in 1, 10
     val := 100 / (i - 5) 

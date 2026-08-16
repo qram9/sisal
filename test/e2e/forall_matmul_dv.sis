@@ -1,6 +1,9 @@
+% Origin: test/unit/test_forall_matmul.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Nested-forall matrix multiply, promoted from test/unit/test_forall_matmul.sis.
 %
-% ARRAY REWRITE: `array[array[integer]]` (an array of rows) becomes a flat
+% ARRAY REWRITE: `array_dv[array_dv[integer]]` (an array_dv of rows) becomes a flat
 % rank-2 array_dv, so A[i,k] is a single rank-2 subscript rather than two
 % chained ones, and the result is built by a rank-2 gather of rank-1 rows.
 %

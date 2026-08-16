@@ -1,3 +1,6 @@
+% Origin: test/unit/mat2_construct.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Minimal isolation of loop13's shape: a for-initial carrying TWO rank-2
 % array_dv values and returning BOTH (`returns value of H value of P`).
 % H is all 10s, P is all 20s -- distinct so each return slot is checkable.

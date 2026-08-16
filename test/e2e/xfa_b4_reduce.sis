@@ -1,3 +1,6 @@
+% Origin: test/unit/for_all_reduce.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define main
 function main(n, m: integer returns integer)
   for i in 1, n cross j in 1, m

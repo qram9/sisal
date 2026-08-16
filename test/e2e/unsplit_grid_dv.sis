@@ -1,10 +1,13 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 2 of 7 -- initial conditions and the starting timestep.
 %
 % ProbInit / buildplane1 / buildplane2 / InitDt from test/unit/unsplit.sis (the
 % LLNL AMR hydro integrator).  Part 1 covered the scalar helpers; this is the
 % first part with real arrays in it.
 %
-% THE ARRAY REWRITE.  `type PlaneArray = array [ OneDim ]` -- an array of rows --
+% THE ARRAY REWRITE.  `type PlaneArray = array_dv[ OneDim ]` -- an array_dv of rows --
 % becomes ONE flat array_dv[double_real] that is rank-2 at runtime.  The nested
 % gather ports VERBATIM apart from the keyword:
 %

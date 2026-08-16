@@ -1,3 +1,6 @@
+% Origin: test/unit/MdFFTGrid.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MdFFTGrid -- the multi-factor INVERSE FFT driver, from test/unit/MdFFTGrid.sis.
 % The grid-direction dual of mdfftfreq_dv: frequency coefficients in, grid point
 % values out.  The three IFACTg_* butterflies and PassGrid are inlined (e2e

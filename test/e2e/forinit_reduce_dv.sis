@@ -1,11 +1,14 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Reductions in a SEQUENTIAL loop: `for initial ... returns value of sum/product/
 % least/greatest X`.  A forall has had these all along; a for-initial had only
-% FINALVALUE (`value of X`) and gathers (`array of X`), so a REDUCE node in its
+% FINALVALUE (`value of X`) and gathers (`array_dv of X`), so a REDUCE node in its
 % RETURNS hit the generic node lowering and failed.
 %
 % The operator statements are shared with the forall path (emit_reduction), and
 % the correctness bar is that a reduction must AGREE with a gather over the same
-% loop: `returns array of X` collects the value history, so `value of sum X` must
+% loop: `returns array_dv of X` collects the value history, so `value of sum X` must
 % equal its sum.  For a CARRY that history starts with the SEED -- the gather
 % stores it in the preheader before the first iteration -- so the fold has to
 % include it too.
@@ -44,7 +47,7 @@ end function
 % the same loop gathered, so the test can check reduction == sum(gather)
 function GatherI( returns A )
   for initial i := 1 while i <= 10 repeat i := old i + 1
-  returns array of i end for
+  returns array_dv of i end for
 end function
 
 % a body-computed (non-monotone) value, not the induction variable

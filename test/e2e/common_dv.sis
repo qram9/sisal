@@ -1,0 +1,70 @@
+% Origin: test/unit/common.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for 3D Graphics World-to-Screen Transformation Engine.
+%
+% 3D Graphics Transformation & Perspective Projection Engine.
+% Transforms 3D world points into 2D raster viewport screen coordinates
+% using homogeneous 4x4 transformation matrix composition.
+%
+define Main
+
+type pt_rec = record[xp, yp, zp: real];
+type real_array2 = array_dv[real];
+
+function mat_mult_4x4(m1, m2: real_array2 returns real_array2)
+  for i in 1, 4 cross j in 1, 4
+    val := for k in 1, 4
+             idx1 := (i - 1) * 4 + k;
+             idx2 := (k - 1) * 4 + j;
+           returns value of sum m1[idx1] * m2[idx2]
+           end for;
+  returns array_dv(4, 4) of val
+  end for
+end function
+
+function build_world_to_screen(xpixels, ypixels: integer; xlo, xhi, ylo, yhi: real; gtr: real_array2 returns real_array2)
+  let
+    ndc_to_pixel := real(if xpixels < ypixels then xpixels else ypixels end if);
+    sx := ndc_to_pixel * (xhi - xlo) / 2.0;
+    tx := ndc_to_pixel * (xhi + xlo) / 2.0;
+    sy := ndc_to_pixel * (yhi - ylo) / 2.0;
+    ty := ndc_to_pixel * (yhi + ylo) / 2.0;
+    c2s_vec := for i in 1, 4 cross j in 1, 4
+                 val := if i = 1 & j = 1 then sx
+                        elseif i = 2 & j = 2 then sy
+                        elseif i = 3 & j = 3 then 1.0
+                        elseif i = 4 & j = 4 then 1.0
+                        elseif i = 4 & j = 1 then tx
+                        elseif i = 4 & j = 2 then ty
+                        else 0.0
+                        end if;
+               returns array_dv(4, 4) of val
+               end for;
+  in
+    mat_mult_4x4(gtr, c2s_vec)
+  end let
+end function
+
+function transform_pt(pt: pt_rec; mat: real_array2 returns pt_rec)
+  let
+    w := pt.xp * mat[4] + pt.yp * mat[8] + pt.zp * mat[12] + mat[16];
+    w_eff := if w = 0.0 then 1.0 else w end if;
+  in
+    record pt_rec [
+      xp: (pt.xp * mat[1] + pt.yp * mat[5] + pt.zp * mat[9] + mat[13]) / w_eff;
+      yp: (pt.xp * mat[2] + pt.yp * mat[6] + pt.zp * mat[10] + mat[14]) / w_eff;
+      zp: (pt.xp * mat[3] + pt.yp * mat[7] + pt.zp * mat[11] + mat[15]) / w_eff
+    ]
+  end let
+end function
+
+function Main(xpixels, ypixels: integer; xlo, xhi, ylo, yhi: real; pt: pt_rec returns pt_rec)
+  let
+    identity_gtr := for i in 1, 4 cross j in 1, 4
+                      val := if i = j then 1.0 else 0.0 end if;
+                    returns array_dv(4, 4) of val
+                    end for;
+    w2s := build_world_to_screen(xpixels, ypixels, xlo, xhi, ylo, yhi, identity_gtr);
+  in
+    transform_pt(pt, w2s)
+  end let
+end function

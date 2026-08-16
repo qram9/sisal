@@ -1,3 +1,6 @@
+% Origin: test/unit/loop19s.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % General Linear Recurrence Equations
 % Sequential Agorithm
 
@@ -42,7 +45,7 @@ function Main( rep,n:integer; STB5in: double;
                 SA, SB: OneD returns OneD, double  )
    for initial
        i    := 1;
-       B5   := array OneD [];
+       B5   := array_dv OneD [];
        STB5 := STB5in;
    while ( i <= rep ) repeat
        i := old i + 1;

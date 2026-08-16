@@ -1,11 +1,14 @@
+% Origin: test/unit/test_mix_scalar_array.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define Main
 
 type dvi = array_dv[integer]
 
 function Main(flag: boolean returns dvi, dvi)
     if flag then
-        array dvi [1: 1, 2], array dvi [1: 10, 20]
+        array_dv dvi [1: 1, 2], array_dv dvi [1: 10, 20]
     else
-        array dvi [1: 0], array dvi [1: 0]
+        array_dv dvi [1: 0], array_dv dvi [1: 0]
     end if
 end function

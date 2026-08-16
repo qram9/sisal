@@ -1,3 +1,6 @@
+% Origin: test/unit/genp.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % GENLINKS — DV variant of GenLinks from unit/successor.sis (Job Shop
 % Scheduler).  Builds the successor-link structure the Trace/BackTrack phases
 % walk: for each job I, a LAYER of candidate successor jobs, each layer row
@@ -22,7 +25,7 @@
 %     `while (J < NumZeros)` runs NumZeros-1 times, so the shift is
 %     NumZeros-1 while Depth drops by NumZeros -- preserved exactly, including
 %     that asymmetry.
-%   - The `|| array [1: ...]` fudge row for job N becomes a select inside a
+%   - The `|| array_dv[1: ...]` fudge row for job N becomes a select inside a
 %     forall over 1..N, which keeps the result rectangular.
 %   - `value of tree sum` -> `value of sum` (backend lowers REDUCE, not
 %     REDUCETREE; a left fold is a valid serialization of a tree fold).
@@ -206,7 +209,7 @@ function Main (AB : AB_TwoDim;       % alpha/beta array, rank 2
          end for;
 
       % fudge in an extra row into links for job N (rectangular: a select over
-      % 1..N rather than the original's `|| array [1: ...]`)
+      % 1..N rather than the original's `|| array_dv[1: ...]`)
       Links :=
          for I in 1, N cross
              J in 1, MaxD cross

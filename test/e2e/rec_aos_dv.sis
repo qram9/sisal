@@ -1,4 +1,7 @@
-% array_dv OF records-holding-arrays -- the nucleic `solution = array[var]`
+% Origin: test/unit/record.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
+% array_dv OF records-holding-arrays -- the nucleic `solution = array_dv[var]`
 % shape (var = record with array fields).  Exercises, in one program:
 %   * forall building array_dv of a record whose field is itself an array_dv
 %   * array_addh growth of that array-of-structs

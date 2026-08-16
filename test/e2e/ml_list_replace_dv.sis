@@ -1,3 +1,6 @@
+% Origin: test/unit/bintree.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % `r replace [f: v]` on a RECURSIVE (boxed) type -- Sisal's OCaml `{ r with f = v }`.
 % This is the one operation that must ALLOCATE rather than write: the recursive
 % field is stored as a pointer, so replacing it has to build a NEW cell, and the

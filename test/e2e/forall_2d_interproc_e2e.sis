@@ -1,11 +1,14 @@
+% Origin: test/unit/test_forall_simple.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
-type OneD = array[real]
+type OneD = array_dv[real]
 
 function BuildRow(row_idx, Cols: integer returns OneD)
   for j in 1, Cols
     val := real(row_idx * 10 + j)
-  returns array of val
+  returns array_dv of val
   end for
 end function
 
@@ -13,6 +16,6 @@ function Main(Rows, Cols: integer returns OneD)
   for i in 1, Rows
     row := BuildRow(i, Cols);
     s := for r in row returns value of sum r end for
-  returns array of s
+  returns array_dv of s
   end for
 end function

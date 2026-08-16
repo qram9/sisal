@@ -1,3 +1,6 @@
+% Origin: test/unit/IFm_2ETC.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % IFACTm_2ETC -- the radix-2 (and general "2 etc") butterfly pass of the FFT,
 % from test/unit/IFm_2ETC.sis, ported to array_dv.  One of the three kernels
 % PassFreq / PassGrid declare as `global` externs, which is the only reason

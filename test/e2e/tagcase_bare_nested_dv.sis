@@ -1,3 +1,6 @@
+% Origin: test/unit/tagcase_bare_nested.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % NESTED bare tagcases — regression pin.  The bare form used to mint a
 % __tagcase_expr__ payload pseudo-binding at (0,0) in each arm scope; a
 % nested compound then tried to wire that unreferencable name as an input

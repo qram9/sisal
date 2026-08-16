@@ -1,3 +1,6 @@
+% Origin: test/unit/intrinsics_test.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % dv_intrinsics.sis — intrinsic operations lifted over array_dv aggregates.
 %
 % Sections:

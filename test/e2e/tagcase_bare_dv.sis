@@ -1,3 +1,6 @@
+% Origin: test/unit/tagcase_bare.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % Bare tagcase forms — `tagcase <expr>` with NO payload binding (X :=).
 % The arms cannot reference the payload; only the tag dispatch matters.
 % Covers: selector = let-bound variable, function parameter, call result,

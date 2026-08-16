@@ -1,4 +1,7 @@
-% Minimal: empty array_dv build seed (array OneD []) + array_dv_fill in a
+% Origin: test/unit/initialize.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
+% Minimal: empty array_dv build seed (array_dv OneD []) + array_dv_fill in a
 % for-initial loop + keep-last on an array-valued carry.  Exercises
 % DV_ARRAY_BUILD (empty) + DV_ARRAY_FILL + FINALVALUE-of-array.
 define main
@@ -7,7 +10,7 @@ type OneD = array_dv[double];
 function main( n: integer returns OneD )
   for initial
       i := 0;
-      X := array OneD [];
+      X := array_dv OneD [];
   while i < n repeat
       i := old i + 1;
       X := array_dv_fill( 1, i, 2.0d0 );

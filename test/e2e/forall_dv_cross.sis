@@ -1,3 +1,6 @@
+% Origin: test/unit/test_forall_cross.sis, test/unit/forall_dv_cross_dot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % for x cross y in A, B — cartesian product.
 % Element vars (x,y) must not case-collide with the arrays (A,B): Sisal is
 % case-insensitive, so `for a in A` self-shadows A and miscompiles.

@@ -1,3 +1,6 @@
+% Origin: test/unit/pinsert.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PINSERT — DV variant of unit/pinsert.sis (parallel insertion: each matrix
 % row sorted independently by the shift-and-insert Insertion).  TwoDim ->
 % flat rank-2 array_dv; per the lu_piv_dv precedent row iteration becomes an

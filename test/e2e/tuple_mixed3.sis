@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_tests.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 FUNCTION TupleMixed (X : INTEGER RETURNS INTEGER, REAL)
 let #(A, B) : #(INTEGER, REAL) := #(X, 3.14)
 in A + 1, B * 2.0

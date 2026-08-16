@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 7d of 8 -- the flux machinery, Method9..Method16.
 %
 % The stages between the traced states (7b) and the update (7c):

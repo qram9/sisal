@@ -1,3 +1,6 @@
+% Origin: test/unit/seqbatcher.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SEQBATCHER — DV variant (array -> array_dv; no other changes).
 %
 % NOTE: this program is NOT a correct sort.  Its exchange skeleton seeds the

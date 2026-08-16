@@ -1,13 +1,16 @@
+% Origin: test/unit/para.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % Turner's paraffins, rewritten with the nucleic playbook.
 %
 % para.sis's own comments say what its arrays really are:
-%     Carbon: array[Radical]   "always three Radicals"
-%     Paraffin = array[Radical] "always four Radicals"
+%     Carbon: array_dv[Radical]   "always three Radicals"
+%     Paraffin = array_dv[Radical] "always four Radicals"
 % Those are RECORDS IN DISGUISE -- fixed arity, every index a constant -- so the
 % de-array transform turns them into records.  Both are recursive, so the
 % backend boxes the recursive fields (the bintree shape).
 %
-%     Class = array[Paraffin]   grown with array_addh, taken apart by FirstRest
+%     Class = array_dv[Paraffin]   grown with array_addh, taken apart by FirstRest
 %                               (= hd/tl) and array_reml (= tail), searched
 %                               linearly by IsMember
 % That is a LIST, not an array -- so it becomes the ML cons-list.

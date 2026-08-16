@@ -1,3 +1,6 @@
+% Origin: test/unit/crossovers.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % CROSSOVERS -- the crossed-edge geometry of the TSP simulated-annealing code
 % (test/unit/crossovers.sis, Feo/DeBoni/Osterbrock, LLNL 1991), rewritten under
 % the array_dv model.  It was on the deferred list for exactly one reason: every
@@ -5,9 +8,9 @@
 % the data.
 %
 % THE SHAPES.  From anneal.sish the original types nest four deep:
-%     type Edge_Type  = array [integer];          % 2 node indices
-%     type Cross_Type = array [Edge_type];        % the 2 edges that cross
-%     type Cross_List = array [Cross_type];
+%     type Edge_Type  = array_dv[integer];          % 2 node indices
+%     type Cross_Type = array_dv[Edge_type];        % the 2 edges that cross
+%     type Cross_List = array_dv[Cross_type];
 % A crossing is a fixed 2 x 2 block of node indices, so a cross list is a
 % perfectly rectangular rank-3 array_dv (ncross x 2 x 2).  Only the COUNT is
 % data-dependent -- the shape is not ragged at all.
@@ -85,7 +88,7 @@ function Edge( Itin: Ints; i: integer returns Ints )
   end for
 end function
 
-% one crossing, as the 2 x 2 block the original writes `array [1: E1, E2]`
+% one crossing, as the 2 x 2 block the original writes `array_dv[1: E1, E2]`
 function MkCross( a, b: Ints returns Ints )
   for r in 1, 2 cross c in 1, 2
   returns array_dv of if r = 1 then a[c] else b[c] end if
@@ -181,7 +184,7 @@ end function
 %==========================================================================
 %  Check a new edge for crossed edges -- MAP THEN COMPACT
 %==========================================================================
-% The original is `returns array of array [1:E, E2] when Are_Crossed(...)`.  The
+% The original is `returns array_dv of array_dv[1:E, E2] when Are_Crossed(...)`.  The
 % candidate set here IS dense (one edge per itinerary position), so the mask
 % never has to create raggedness: build all n-1 candidate blocks and the mask
 % together, then COMPRESS the surviving slabs off the leading axis.
@@ -202,7 +205,7 @@ end function
 %===========================================================================
 %  Remove an edge from the cross list -- MAP THEN COMPACT
 %===========================================================================
-% `returns array of CE unless <CE mentions E>`.  CE is one 2 x 2 slab, so the
+% `returns array_dv of CE unless <CE mentions E>`.  CE is one 2 x 2 slab, so the
 % original's CE[1,1] / CE[2,2] become C[c,1,1] / C[c,2,2] on the rank-3 -- the
 % same two subscripts, with the slab index in front.  The mask is built over the
 % slabs and COMPRESS drops the ones the edge appears in.

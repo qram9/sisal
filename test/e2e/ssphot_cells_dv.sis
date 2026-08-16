@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_CELLS -- edge classification and cell volumes, layer 2 of the ssphot
 % port.  Builds directly on ssphot_geom_dv's corner grid.
 %
@@ -25,7 +28,7 @@
 % reproduced as written -- they encode which faces are shared with a neighbour
 % and would be double counted, and guessing at them would change the answer.
 %
-% Same two forced rewrites as layer 1: `cellinfo = array[array[inforec]]`
+% Same two forced rewrites as layer 1: `cellinfo = array_dv[array_dv[inforec]]`
 % becomes a flat rank-2 array_dv, and the `at row, col` scatter becomes an
 % explicit cross, since a statically rank-1 `array_dv [inforec]` gives a dual
 % index nothing to bind to.

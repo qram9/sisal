@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_INTERP -- the opacity table lookup, layer 3 of the ssphot port.
 %
 % Given a material's temperature and density, bracket both in the tabulated
@@ -27,7 +30,7 @@
 % parent variable and needs no relay at all.  Fixed in relay_copyins, so the
 % faithful spelling is what this file uses; xfa_scatter_expr_dv pins it.
 %
-% ARRAY MAPPING: `aaaareal = array[array[array[array[double_real]]]]` becomes a
+% ARRAY MAPPING: `aaaareal = array_dv[array_dv[array_dv[array_dv[double_real]]]]` becomes a
 % FLAT rank-4 array_dv, indexed x[id, it, ie, mtl].  `aareal` -> flat rank 2,
 % `areal` -> rank 1.  Nested dopes are malformed and the C lowering is
 % array_dv-only.

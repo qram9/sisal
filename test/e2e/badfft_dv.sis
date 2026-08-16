@@ -1,8 +1,11 @@
+% Origin: test/unit/badfft.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % FFT — DV variant (based on badfft.sis / Vivek Sarkar)
 %
 % DV changes:
 %   • type CVec = array_dv[complex]: the signal vector is a contiguous
-%     dope-vector array of complex records instead of a nested array.
+%     dope-vector array_dv of complex records instead of a nested array.
 %   • The inner butterfly loop (for x in 0,n-1) now emits array_dv of w,
 %     producing a pre-allocated output buffer in each iteration.
 %   • The test-signal generator and the validation arrays also use array_dv.

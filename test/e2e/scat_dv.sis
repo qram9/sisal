@@ -1,0 +1,30 @@
+% Origin: test/unit/scat.sis
+% Port Note: 2D masked scatter matrix update converted from ragged arrays to rank-polymorphic array_dv.
+%
+define Main
+
+type twoi = array_dv[integer];
+type twod = array_dv[real];
+
+function Scatter( l, k : integer; mask : twoi; A : twod returns twod )
+  for i in 1, l cross j in 1, k 
+    v := if ( mask[i, j] = 1 ) then 0.0 else A[i, j] end if;
+  returns array_dv of v
+  end for
+end function
+
+function Main( nlop, l, k : integer returns twod )
+let
+  mat  := for i in 1, l cross j in 1, k returns array_dv of 1.0 end for;
+  mask := for i in 1, l cross j in 1, k returns array_dv of mod(i + j, 3) end for;
+in
+  for initial
+    M := mat;
+    i := 1;
+  while ( i <= nlop ) repeat
+    i := old i + 1;
+    M := Scatter( l, k, mask, old M );
+  returns value of M
+  end for
+end let
+end function

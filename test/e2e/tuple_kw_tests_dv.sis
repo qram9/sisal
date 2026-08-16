@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_kw_tests.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define tuple_kw_tests,
   tuple_kw_swap,
   tuple_kw_typed,

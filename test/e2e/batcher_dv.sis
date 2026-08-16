@@ -1,11 +1,14 @@
+% Origin: test/unit/batcher.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % BATCHER — DV variant of unit/batcher.sis ("ripped from the Sisal Workshop",
-% Job Shop Scheduler suite).  Sorts an array of records on the .Val key with
+% Job Shop Scheduler suite).  Sorts an array_dv of records on the .Val key with
 % .Loc carrying each element's original position.
 %
 % DV changes: SortRec/Sort_OneDim inlined from types.h with
 % Sort_OneDim = array_dv[SortRec] (records as dope-vector elements — the
 % gather allocs sized slots via sisal_array_alloc_sized), gather clause
-% `array of` -> `array_dv of`, and a Main wrapper added (the original is a
+% `array_dv of` -> `array_dv of`, and a Main wrapper added (the original is a
 % library function Batcher with no Main).  Unlike its p/s/seq siblings this
 % skeleton is the CORRECT merge-exchange (Q seeds at 2^T, exits at Q < P) —
 % it really sorts; reference = qsort on distinct keys.

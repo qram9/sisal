@@ -1,3 +1,6 @@
+% Origin: test/unit/parpi2.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
   
 % Main is a very, very slowly converging approximation to pi

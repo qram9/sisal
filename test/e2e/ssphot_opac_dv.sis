@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_OPAC -- per-material scattering cross-sections, layer 4 of the ssphot
 % port, built on layer 3's table lookup.
 %
@@ -12,7 +15,7 @@
 % bracket search in layer 3 non-trivial: the second grid is the first shifted by
 % six entries, which is exactly why materials 2 and 4 select it.
 %
-% `t := array[1: t1, t2]` -- a literal whose ELEMENTS are arrays -- is built as
+% `t := array_dv[1: t1, t2]` -- a literal whose ELEMENTS are arrays -- is built as
 % a gather of the two rows instead, `for k in 1,2 returns array_dv of ...`.  A
 % literal of arrays would want a rank-1 of descriptors, which is the nested-dope
 % shape that has no meaning here; the gather stacks them into the flat rank-2

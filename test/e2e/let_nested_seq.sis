@@ -1,3 +1,6 @@
+% Origin: test/unit/let_local_fn.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Nested lets for sequential computation where inner scope sees outer
 FUNCTION Main( RETURNS INTEGER )
   LET X := 10

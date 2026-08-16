@@ -5,7 +5,7 @@
 % DV changes:
 %   • queen_vec = array_dv[integer]: a pre-allocated N-slot vector of queen
 %     column positions, updated functionally with element replacement.
-%   • sol_list is a FLAT rank-2 array_dv (solutions × n), not an array of
+%   • sol_list is a FLAT rank-2 array_dv (solutions × n), not an array_dv of
 %     arrays: every solution is a fixed-length row, so the solution list is
 %     rectangular by construction.  Per the dv convention the TYPE stays
 %     array_dv[integer] — rank is a runtime property of the dope; a single

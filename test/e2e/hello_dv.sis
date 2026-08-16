@@ -1,0 +1,13 @@
+% Origin: test/unit/hello.sis
+% Port Note: Uses rank-polymorphic array_dv[character] element construction for string return.
+%
+% Sisal Hello World String Test — DV Variant.
+% Returns array_dv of character ("Hello world!").
+%
+define Main
+
+type String = array_dv[character];
+
+function Main(returns String)
+  array String [ 1: 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', '!' ]
+end function

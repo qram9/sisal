@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 7b of 8 -- Method5..Method8, the traced (predicted) states.
 %
 % The four characteristic-tracing stages: left and right states at each x
@@ -9,7 +12,7 @@
 %
 % THE ARRAY REWRITE was purely mechanical and is applied verbatim from the
 % original: PlaneArray -> Plane (flat rank-2 array_dv), SystemArray -> Sys (flat
-% rank-3), `returns array of` -> `returns array_dv of`.  Nothing else changed.
+% rank-3), `returns array_dv of` -> `returns array_dv of`.  Nothing else changed.
 % This is the first part that CONSUMES a rank-3: the slopes arrive as
 % drho[1,jc,ic] for the x direction and drho[2,jc,ic] for y, which is exactly
 % the two-plane result part 4 produces.

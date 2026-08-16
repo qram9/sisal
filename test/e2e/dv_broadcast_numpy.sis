@@ -1,3 +1,6 @@
+% Origin: test/unit/verify_numpy_broadcast.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define main
 
 type OneD = array_dv[double_real];

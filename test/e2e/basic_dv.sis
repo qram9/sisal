@@ -1,3 +1,6 @@
+% Origin: test/unit/basic.sis, test/unit/basic_dv.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % basic_dv.sis — aggregate array_dv tests, modelled on basic.sis /
 %               sisal_tests_by_section.sis.
 %

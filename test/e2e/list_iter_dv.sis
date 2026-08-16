@@ -1,3 +1,6 @@
+% Origin: test/unit/bintree.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % Iterating a cons-list WITHOUT recursion: a for-initial loop that CARRIES the
 % list, with `is empty` as the guard and Hd/Tl as the step -- the same shape the
 % stream sieves use (stream_first / stream_rest / stream_empty).

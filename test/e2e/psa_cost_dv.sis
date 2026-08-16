@@ -1,7 +1,10 @@
+% Origin: test/unit/psa.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PSA_COST -- the cost/energy layer of psa.sis, and the schedule representation
 % every later layer is built on.
 %
-% THE RAGGED PROBLEM.  psa's schedule is `array [array [Tuple_Type]]`: one
+% THE RAGGED PROBLEM.  psa's schedule is `array_dv[array_dv[Tuple_Type]]`: one
 % period per timeslot, each holding however many lessons currently sit in it.
 % The sizes are not merely unequal, they CHANGE -- the whole algorithm is moving
 % tuples between periods, shrinking one and growing another on every swap.  So
@@ -20,7 +23,7 @@
 % and it is visible in every signature here.
 %
 % ONE SISAL 1.2 SEMANTIC WORTH RECORDING, because OSC caught it and it is easy
-% to get wrong: `for k in 5, 6 returns array of ...` yields an array whose LOWER
+% to get wrong: `for k in 5, 6 returns array_dv of ...` yields an array whose LOWER
 % BOUND is 5, not 1 -- the generator's start becomes the array's origin.  psa's
 % Init_Periods calls array_setl(Period, 1) for precisely this reason.  Building
 % the OSC reference without it gave an ARRAY SUBSCRIPT VIOLATION inside

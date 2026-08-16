@@ -1,3 +1,6 @@
+% Origin: test/unit/quadrature.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % quadrature -- adaptive-trapezoid integration of F(x) = x^2 + 1, from
 % test/unit/quadrature.sis.  Ported UNCHANGED: no arrays anywhere, so nothing to
 % convert; what it needed was two compiler fixes, not a rewrite.

@@ -1,3 +1,6 @@
+% Origin: test/unit/psa.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PSA_UPDATE -- applying a swap: take a lesson out of one period and put it in
 % another, and carry the energy along.  Layer 4, and the one that exercises the
 % padded schedule hardest, because this is what makes periods shrink and grow.

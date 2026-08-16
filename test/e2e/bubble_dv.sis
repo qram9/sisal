@@ -1,0 +1,33 @@
+% Origin: test/unit/bubble.sis
+% Port Note: Bubble sort algorithm ported to rank-polymorphic array_dv[integer].
+%
+define Main
+
+type OneDim = array_dv[integer];
+
+function Main( Ain : OneDim returns OneDim )
+  let
+    n := array_size(Ain);
+  in
+    for initial
+      A, limit := array_setl(Ain, 1), n;
+    while limit > 1 repeat
+      limit := old limit - 1;
+      A     := for initial
+                 j  := 1;
+                 A1 := old A;
+               while j <= old limit - 1 repeat
+                 A1 := if old A1[j] > old A1[j + 1] then
+                          old A1[j: old A1[j + 1], old A1[j]]
+                       else
+                          old A1
+                       end if;
+                 j := old j + 1;
+               returns
+                 value of A1
+               end for;
+    returns
+      value of A
+    end for
+  end let
+end function

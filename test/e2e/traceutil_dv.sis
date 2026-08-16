@@ -10,8 +10,8 @@
 %   Diffs      how many holes to open between adjacent elements to expand a
 %              compressed array back to full size
 %
-% DV changes: types flattened to array_dv, `array of` -> `array_dv of`,
-% `array Sort_OneDim [...]` -> `array_dv Sort_OneDim [...]`, Main wrapper.
+% DV changes: types flattened to array_dv, `array_dv of` -> `array_dv of`,
+% `array_dv Sort_OneDim [...]` -> `array_dv Sort_OneDim [...]`, Main wrapper.
 %
 % Unique is the interesting one: TWO masked gathers on one generator, sharing
 % a mask.  Masking on a single generator is legal -- the survivors are counted
@@ -101,11 +101,11 @@ function Unique (Sorted : Sort_OneDim
 end function   % end of Unique
 
 
-function Diffs (Vals : Int_OneDim;    % array of values
+function Diffs (Vals : Int_OneDim;    % array_dv of values
                 Low,                  % lower bound of expanded array
                 High : integer        % upper bound of expnaded array
                returns
-                Int_OneDim)           % array of differences
+                Int_OneDim)           % array_dv of differences
 %
 %  Want to expand a compressed array to full size.  So, count the number of
 %  spaces which are to be added between each adjacent element.

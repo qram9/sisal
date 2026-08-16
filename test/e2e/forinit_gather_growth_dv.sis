@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % FOR-INITIAL GATHER WITH NO DERIVABLE TRIP COUNT.
 %
 % A for-initial gather PREALLOCATES its result, sizing it from a trip count

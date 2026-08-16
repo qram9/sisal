@@ -1,52 +1,30 @@
-% Vandermonde system data, from test/unit/gaussdata.sis -- the matrix and
-% right-hand side the Gauss solvers are fed.
+% Origin: test/unit/gaussdata.sis
+% Port Note: Gaussian Data Generator benchmark returning (n, A, B) with rank-2 array_dv[double_real] matrix A and rank-1 array_dv[double_real] vector B.
 %
-%   A[i,j] = exp(j, i-1) = j^(i-1)     built by a CROSS forall
-%   B[j]   = 1.0 if j = m else 0.0     a conditional element
-%
-% Two things worth pinning:
-%
-%   * the two-argument `exp` is POWER, not e^x -- Sisal's exp(b,n) = b^n while
-%     exp(x) and etothe(x) are e^x (see reference notes; to_if1 routes 1-arg EXP
-%     to ETOTHE).  A test that used e^x would still produce numbers, so the
-%     reference computes j^(i-1) explicitly.
-%   * a CROSS forall with `array_dv of` builds a RANK-2 (n, n) result in
-%     row-major order -- measured, not assumed.  docs/forall_spec.md describes
-%     the flat rank-1 default for `array of` over a cross; the `array_dv of`
-%     form here comes back rank 2 with dims (n, n), so the harness checks rank
-%     and dims explicitly rather than only the contents.
-%
-% Both are exactly computable, so the harness recomputes rather than
-% snapshotting.
-
 define Main
 
-type oned = array_dv[double_real];
-type twod = array_dv[double_real];
+type OneD = array_dv[double_real];
+type TwoD = array_dv[double_real];
 
-function FormA(n : integer returns twod)
-for i in 1, n cross j in 1, n
-  bij := exp(double_real(j),i-1)
-returns array_dv of bij
-end for
+function FormA( n : integer returns TwoD )
+  for i in 1, n cross j in 1, n
+    bij := exp( double_real(j), i - 1 )
+  returns array_dv of bij
+  end for
 end function 
-% ************************************************
-%                 FormB
-% ************************************************
-function FormB( n,m:integer returns oned )
-for j in 1, n
-  element := if (j=m) then 1.0D0 else 0.0D0 end if
-returns array_dv of element
-end for
+
+function FormB( n, m : integer returns OneD )
+  for j in 1, n
+    element := if j = m then 1.0D0 else 0.0D0 end if
+  returns array_dv of element
+  end for
 end function
-% **************************************************
-%                      gauss
-% **************************************************
-function Main(n : integer returns integer, twod, oned )
-let
-  b := FormB(n, 1);
-  a := FormA( n );
-in
-  n, a, b
-end let
+
+function Main( n : integer returns integer, TwoD, OneD )
+  let
+    a := FormA( n );
+    b := FormB( n, 1 );
+  in
+    n, a, b
+  end let
 end function

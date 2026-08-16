@@ -1,3 +1,6 @@
+% Origin: test/unit/reshape_matmul.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Matrix multiply over reshaped operands, from test/unit/reshape_matmul.sis.
 % Last of the reshape family, and the first where the layout feeds ARITHMETIC
 % rather than only indexing: a stride error changes a sum instead of moving a

@@ -1,3 +1,6 @@
+% Origin: test/unit/moldyn.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MOLDYN_FORCE — DV variant of the force core of unit/moldyn.sis, T. M. DeBoni's
 % Newtonian pairwise particle dynamics modeller.  This is the inner loop of the
 % simulation: for every particle, the total force its neighbours exert on it,
@@ -16,10 +19,10 @@
 %
 % THE PARAMETER TABLES.  PROBLEM_DATA holds six tables indexed by a PAIR of
 % particle types, A1[Tp,Tn] and friends.  In the original each is an
-% array[array[real]]; here each is a FLAT rank-2 array_dv, so the record is six
+% array_dv[array_dv[real]]; here each is a FLAT rank-2 array_dv, so the record is six
 % dope handles rather than six ragged nests -- the same struct-of-arrays shape
 % the ENSEMBLE record already had (POSITIONS is a record of three arrays, not
-% an array of position records).
+% an array_dv of position records).
 %
 % THE NEIGHBOUR LISTS are the ragged part: how many neighbours a particle has
 % is a property of the configuration, not of the program.  They are carried the

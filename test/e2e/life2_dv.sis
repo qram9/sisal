@@ -1,40 +1,40 @@
-% Conway-style Game of Life (life2's quirky rule set, mirrored exactly) —
-% DV variant: Grid = flat rank-2 array_dv[integer], element (i,j) via
-% G[I,J].  The 0-based iteration space translates +1 (rows/cols 1..R+2,
-% border at 1 and R+2/C+2); the stencil offsets are unchanged.
+% Origin: test/unit/life.sis
+% Port Note: Conway's Game of Life 2D Grid Simulation ported to e2e rank-polymorphic array_dv.
+%
 define Main
 
-type Grid = array_dv[integer];   % flat rank-2, element (i,j) via G[I,J]
+type Grid = array_dv[integer];
 
 function Compute( G : Grid; I : integer; J : integer returns integer )
-    let
-        Total := G[I+1,J-1] + G[I+1,J] + G[I+1,J+1] +
-                 G[I-1,J-1] + G[I-1,J] + G[I-1,J+1] +
-                 G[I,J-1]   + G[I,J+1];
-    in
-        if ( G[I,J] = 1 & Total > 5 ) then 0
-        ELSEIF ( Total ~= 3 ) then 1 else 0 end if
-    end let
+  let
+    Total := G[I-1,J-1] + G[I-1,J] + G[I-1,J+1] +
+             G[I,J-1]        +       G[I,J+1]   +
+             G[I+1,J-1] + G[I+1,J] + G[I+1,J+1];
+  in
+    if ( G[I,J] = 1 & Total > 5 ) then 0
+    elseif ( G[I,J] = 0 & Total ~= 3 ) then 1
+    else G[I,J] end if
+  end let
 end function
 
-function DoWork( G : Grid; Rows, Columns : integer returns Grid )
-    for I in 1, Rows + 2 cross J in 1, Columns + 2
-        V := if ( I = 1 | J = 1 | I = Rows + 2 | J = Columns + 2 ) then
-                 0
-             else
-                 Compute( G, I, J )
-             end if
-    returns array_dv of V
-    end for
+function DoWork( G: Grid; Rows, Columns: integer returns Grid )
+  for I in 0, Rows + 1 cross J in 0, Columns + 1
+    Val := if (I = 0 | I = Rows + 1 | J = 0 | J = Columns + 1) then
+             0
+           else
+             Compute(G, I, J)
+           end if;
+  returns array_dv of Val
+  end for
 end function
 
-function Main( Num, Rows, Columns : integer; G : Grid returns Grid )
-    for initial
-        Count := Num;
-        NewG  := G
-    while ( Count > 0 ) repeat
-        Count := old Count - 1;
-        NewG  := DoWork( old NewG, Rows, Columns );
-    returns value of NewG
-    end for
+function Main( Iterations, Rows, Columns: integer; InitialGrid: Grid returns Grid )
+  for initial
+    Count := Iterations;
+    G := InitialGrid;
+  while ( Count > 0 ) repeat
+    Count := old Count - 1;
+    G := DoWork( old G, Rows, Columns );
+  returns value of G
+  end for
 end function

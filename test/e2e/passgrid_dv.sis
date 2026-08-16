@@ -1,3 +1,6 @@
+% Origin: test/unit/PassGrid.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PassGrid -- the GRID-direction FFT pass dispatcher, from
 % test/unit/PassGrid.sis.  Companion to passfreq_dv, and the reason the three
 % ifg_*_dv kernels were promoted; as there, the kernels are INLINED because e2e

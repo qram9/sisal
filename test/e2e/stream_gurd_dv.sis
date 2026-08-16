@@ -1,3 +1,6 @@
+% Origin: test/unit/gurd.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
 type IntStream = stream[ integer ]

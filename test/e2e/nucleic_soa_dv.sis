@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % ============================================================================
 %  nucleic  ->  Struct-of-Arrays  (illustrative rewrite of the core patterns)
 % ----------------------------------------------------------------------------
@@ -8,8 +11,8 @@
 %  THE LAYOUT TRANSFORM
 %  --------------------
 %    ORIGINAL (ragged AoS)                 SoA (dense rank-2 fields)
-%    type OneDim = array[double]           type NucSoA = record[
-%    type nuc    = array[OneDim]  -- 7        typ:       array_dv[double];  % (N)
+%    type OneDim = array_dv[double]           type NucSoA = record[
+%    type nuc    = array_dv[OneDim]  -- 7        typ:       array_dv[double];  % (N)
 %      nuc[0] = typ     (len 1)               dgf:       array_dv[double];  % (N x 12)
 %      nuc[1] = dgf     (len 12)              p275:      array_dv[double];  % (N x 12)
 %      nuc[2] = p275    (len 12)              p180:      array_dv[double];  % (N x 12)
@@ -17,7 +20,7 @@
 %      nuc[4] = p60     (len 12)              params:    array_dv[double];  % (N x 75)
 %      nuc[5] = params  (len 75)              uniontype: array_dv[double] ] % (N x 24)
 %      nuc[6] = union   (len 24)
-%    type nuc1   = array[nuc]              -- the outer array[nuc] is GONE:
+%    type nuc1   = array_dv[nuc]              -- the outer array_dv[nuc] is GONE:
 %                                            the N nucs are the rows of each field.
 %
 %  THE ACCESS REWRITES   (for nuc index k)

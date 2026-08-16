@@ -1,3 +1,6 @@
+% Origin: test/unit/red_sum.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Reduction: sum of i for i in 1..N  =>  N*(N+1)/2.   N=5 -> 15
 define main
 function main(N: integer returns integer)

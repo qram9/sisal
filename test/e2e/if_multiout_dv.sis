@@ -1,3 +1,6 @@
+% Origin: test/unit/switch.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % if-expression returns multiple outputs
 define main
 function main( c: integer returns integer, integer )

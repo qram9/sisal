@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % for-initial 1.2 HISTORY semantics (cross-checked against the behavior of
 % OSC 13.0.3): the initial clause is body_0 of every returns sequence, so a
 % gather of a carry includes the SEED as element 0 and a zero-trip loop

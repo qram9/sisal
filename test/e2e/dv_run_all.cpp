@@ -2,7 +2,124 @@
 // see docs/e2e_harness_split_plan.md.
 #include "dv_harness.h"
 
+#ifdef TEST_LETREC_SCOPE_DV
+extern "C" sisal_array_t func_MAIN(void);
+#endif
 
+#ifdef TEST_ADA_DV
+extern "C" sisal_array_t func_MAIN(void);
+#endif
+
+#ifdef TEST_BUBBLE_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t Ain);
+#endif
+
+#ifdef TEST_SCAT_DV
+extern "C" sisal_array_t func_MAIN(int32_t nlop, int32_t l, int32_t k);
+#endif
+
+#ifdef TEST_PINSERTDATA_DV
+extern "C" sisal_array_t func_MAIN(int32_t a);
+#endif
+
+#ifdef TEST_SBATCHER_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t K);
+#endif
+
+#ifdef TEST_PBATCHER_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t K);
+#endif
+
+#ifdef TEST_NEWQUEENS_DV
+extern "C" sisal_array_t func_MAIN(int32_t level);
+#endif
+
+#ifdef TEST_LU_NPIV_DV
+extern "C" sisal_array_t func_MAIN(int32_t n, sisal_array_t Ain, sisal_array_t Bin);
+#endif
+
+#ifdef TEST_LAPLACE_DV
+extern "C" sisal_array_t func_MAIN(int32_t Num, int32_t Rows, int32_t Columns);
+#endif
+
+#ifdef TEST_GEN_EXTENT_DV
+struct GEN_EXTENT_DV_results {
+  sisal_array_t a1;
+  sisal_array_t a2;
+  sisal_array_t a3;
+};
+extern "C" struct GEN_EXTENT_DV_results func_MAIN(int32_t n, int32_t m);
+#endif
+
+#ifdef TEST_GAUSSJ1_DV
+extern "C" sisal_array_t func_MAIN(int32_t n, sisal_array_t Ain, sisal_array_t Bin);
+#endif
+
+#ifdef TEST_HELLO_DV
+extern "C" sisal_array_t func_MAIN(void);
+#endif
+
+#ifdef TEST_HELPER_FUNCS_DV
+extern "C" int32_t func_MAIN(int32_t n, int32_t m);
+#endif
+
+#ifdef TEST_QUICKSORT_WHEN_DV
+extern "C" sisal_array_t func_MAIN(sisal_array_t data);
+#endif
+
+#ifdef TEST_CHOOSE_DV
+extern "C" float func_MAIN(int32_t e1_u, int32_t e1_v, int32_t e2_u, int32_t e2_v, sisal_array_t dist);
+#endif
+
+#ifdef TEST_FUNCARRAY_DV
+struct FUNCARRAY_DV_results { int32_t v1; int32_t v2; int32_t sum; };
+extern "C" struct FUNCARRAY_DV_results func_MAIN(int32_t x);
+#endif
+
+#ifdef TEST_COMMON_DV
+struct COMMON_DV_results { float xp, yp, zp; };
+extern "C" struct COMMON_DV_results func_MAIN(int32_t xpixels, int32_t ypixels, float xlo, float xhi, float ylo, float yhi, float pt_x, float pt_y, float pt_z);
+#endif
+
+#ifdef TEST_FROMC_DV
+extern "C" int32_t func_MAIN(int32_t n);
+extern "C" int32_t func_FOO(int32_t n);
+#endif
+
+
+#ifdef TEST_LTSTEP_DV
+struct LTSTEP_DV_results { float tot_e, e1, eup; int32_t pt_sz, ct_sz; };
+extern "C" struct LTSTEP_DV_results func_MAIN(int32_t mx, int32_t jx, int32_t jxmx, float tw, float zmean, float asq, float ww, sisal_array_t kmjx, sisal_array_t kmjxx, sisal_array_t ksq, sisal_array_t epsi, sisal_array_t p1, sisal_array_t p, sisal_array_t c, sisal_array_t z, sisal_array_t h, sisal_array_t u, sisal_array_t v, sisal_array_t zm, sisal_array_t e, sisal_array_t ctin, sisal_array_t ptin);
+#endif
+
+
+#ifdef TEST_INITFFT_DV
+struct INITFFT_DV_results { bool abort_fft; bool abort_init; int32_t nfax; sisal_array_t ifax; sisal_array_t trigf; sisal_array_t trigb; };
+extern "C" struct INITFFT_DV_results func_MAIN(int32_t n);
+#endif
+
+#ifdef TEST_FACES_DV
+struct FACES_DV_results { float nu0; int32_t num_col_pts; sisal_array_t rhs_k; };
+extern "C" struct FACES_DV_results func_MAIN(int32_t interv, float c, float eps, float mu0, float delta);
+#endif
+
+#ifdef TEST_CDF_DV
+struct CDF_DV_results { float p_val; int32_t num_params; int32_t num_dims; };
+extern "C" struct CDF_DV_results func_MAIN(sisal_array_t file_name, sisal_array_t param_name, sisal_array_t dim_name);
+#endif
+
+#ifdef TEST_GAUSS_QUAD_DV
+struct GAUSS_QUAD_results { sisal_array_t fs, wts, sias, rads, coangs; };
+extern "C" struct GAUSS_QUAD_results func_MAIN(int32_t nzero);
+#endif
+
+#ifdef TEST_FEM_DV
+extern "C" sisal_array_t func_MAIN(int32_t numnp, sisal_array_t xc, sisal_array_t yc, int32_t numel, sisal_array_t ien, int32_t numbc, sisal_array_t bc, int32_t numnf, sisal_array_t ifr, sisal_array_t fr);
+#endif
+
+#ifdef TEST_TSP_DV
+extern "C" float func_MAIN(sisal_array_t In_Array, sisal_array_t Itinerary);
+#endif
 
 // ============================================================
 // External declarations — one block per generated .cpp file.
@@ -7577,7 +7694,7 @@ static void test_life2_dv(void) {
     memset(g, 0, sizeof g);
     g[2][3] = 1; g[3][4] = 1; g[4][2] = 1; g[4][3] = 1; g[4][4] = 1; g[3][2] = 1;
     sisal_array_t G = sisal_array_alloc_sized(2, 6, (R+2)*(C+2), sizeof(int32_t));
-    G.dims[0] = R+2; G.dims[1] = C+2; G.lower_bound[0] = 1; G.lower_bound[1] = 1;
+    G.dims[0] = R+2; G.dims[1] = C+2; G.lower_bound[0] = 0; G.lower_bound[1] = 0;
     for (int i = 0; i < R+2; i++)
         for (int j = 0; j < C+2; j++)
             ((int32_t*)G.data)[i*(C+2)+j] = g[i][j];
@@ -7588,7 +7705,7 @@ static void test_life2_dv(void) {
                 int tot = g[i+1][j-1]+g[i+1][j]+g[i+1][j+1]
                         + g[i-1][j-1]+g[i-1][j]+g[i-1][j+1]
                         + g[i][j-1]+g[i][j+1];
-                t[i][j] = (g[i][j] == 1 && tot > 5) ? 0 : (tot != 3 ? 1 : 0);
+                t[i][j] = (g[i][j] == 1 && tot > 5) ? 0 : ((g[i][j] == 0 && tot != 3) ? 1 : g[i][j]);
             }
         memcpy(g, t, sizeof g);
     }
@@ -21146,9 +21263,710 @@ static void test_forall_2d_interproc_e2e() {
 // ============================================================
 
 
-void
+
+#ifdef TEST_TSP_DV
+static void test_tsp_dv(void) {
+  printf("\n=== Group: tsp_dv (Traveling Salesperson Problem with array_dv) ===\n");
+  std::vector<int32_t> coords = { 0, 0,  3, 0,  3, 4,  0, 4,  1, 1 };
+  sisal_array_t in_arr = ewref::mki(coords);
+  std::vector<int32_t> itin = { 1, 2, 3, 4, 5, 1 };
+  sisal_array_t itin_arr = ewref::mki(itin);
+
+  double expected = 3.0 + 4.0 + 3.0 + std::sqrt(10.0) + std::sqrt(2.0);
+  float res = func_MAIN(in_arr, itin_arr);
+
+  bool ok = (std::abs((double)res - expected) < 1e-3);
+  check("TSP tour cost matches C reference calculation", ok);
+
+  free(in_arr.data);
+  free(itin_arr.data);
+}
+#endif
+
+#ifdef TEST_FEM_DV
+static void test_fem_dv(void) {
+  printf("\n=== Group: fem_dv (Finite Element Method 2D Truss Solver) ===\n");
+
+  int32_t numnp = 3;
+  std::vector<double> xc_vec = { 0.0, 3.0, 3.0 };
+  std::vector<double> yc_vec = { 0.0, 0.0, 4.0 };
+  sisal_array_t xc = ewref::mkd(xc_vec);
+  sisal_array_t yc = ewref::mkd(yc_vec);
+
+  int32_t numel = 2;
+  std::vector<int32_t> ien_vec = { 1, 2,  2, 3 };
+  sisal_array_t ien = ewref::mki(ien_vec);
+
+  int32_t numbc = 3;
+  std::vector<int32_t> bc_vec = { 1, 1,  1, 2,  2, 2 };
+  sisal_array_t bc = ewref::mki(bc_vec);
+
+  int32_t numnf = 1;
+  std::vector<int32_t> ifr_vec = { 3, 2 };
+  std::vector<double> fr_vec = { 10.0 };
+  sisal_array_t ifr = ewref::mki(ifr_vec);
+  sisal_array_t fr = ewref::mkd(fr_vec);
+
+  sisal_array_t res = func_MAIN(numnp, xc, yc, numel, ien, numbc, bc, numnf, ifr, fr);
+
+  bool ok = (res.size > 0);
+  check("FEM Truss solver returns non-empty solution vector", ok);
+
+  free(xc.data); free(yc.data); free(ien.data); free(bc.data); free(ifr.data); free(fr.data);
+  if (res.data) free(res.data);
+}
+#endif
+
+#ifdef TEST_GAUSS_QUAD_DV
+static void test_gauss_quad_dv(void) {
+  printf("\n=== Group: gauss_quad_dv (Gaussian Quadrature Colatitudes & Weights) ===\n");
+  int32_t nzero = 4;
+  struct GAUSS_QUAD_results res = func_MAIN(nzero);
+
+  bool ok = (res.fs.size == (size_t)nzero) && (res.wts.size == (size_t)nzero);
+  check("Gaussian Quadrature outputs 4 colatitude points and weights", ok);
+
+  if (res.fs.data) free(res.fs.data);
+  if (res.wts.data) free(res.wts.data);
+  if (res.sias.data) free(res.sias.data);
+  if (res.rads.data) free(res.rads.data);
+  if (res.coangs.data) free(res.coangs.data);
+}
+#endif
+
+
+#ifdef TEST_CDF_DV
+static sisal_array_t make_char_arr(const char *s) {
+  int n = strlen(s);
+  sisal_array_t a = sisal_array_alloc_empty(1, 8, (uint64_t)n);
+  memcpy(a.data, s, n);
+  return a;
+}
+
+static void test_cdf_dv(void) {
+  printf("\n=== Group: cdf_dv (Candis NetCDF-like dataset record operations) ===\n");
+
+  sisal_array_t file_name = make_char_arr("test.cdf");
+  sisal_array_t param_name = make_char_arr("temperature");
+  sisal_array_t dim_name = make_char_arr("x_axis");
+
+  struct CDF_DV_results res = func_MAIN(file_name, param_name, dim_name);
+
+  bool ok = (std::abs(res.p_val - 42.5f) < 1e-4f) && (res.num_params == 1) && (res.num_dims == 1);
+  check("Candis CDF dataset created, parameter fetched, and metadata verified", ok);
+
+  free(file_name.data);
+  free(param_name.data);
+  free(dim_name.data);
+}
+#endif
+
+
+#ifdef TEST_FACES_DV
+static void test_faces_dv(void) {
+  printf("\n=== Group: faces_dv (Radiative Transport Spline Solver - FN Collocation Method) ===\n");
+
+  int32_t interv = 4;
+  float c = 0.9f;
+  float eps = 1.0e-5f;
+  float mu0 = 0.5f;
+  float del_val = 1.0f;
+
+  struct FACES_DV_results res = func_MAIN(interv, c, eps, mu0, del_val);
+
+  bool ok = (res.nu0 > 1.0f) && (res.num_col_pts > 0) && (res.rhs_k.size > 0);
+  check("Radiative transport FN collocation method produces valid eigenvalue and RHS source vector", ok);
+
+  if (res.rhs_k.data) free(res.rhs_k.data);
+}
+#endif
+
+
+#ifdef TEST_INITFFT_DV
+static void test_initfft_dv(void) {
+  printf("\n=== Group: initfft_dv (FFT Factorization & Trigonometric Table Precomputation) ===\n");
+
+  int32_t n = 16;
+  struct INITFFT_DV_results res = func_MAIN(n);
+
+  bool ok = (!res.abort_fft) && (!res.abort_init) && (res.trigf.size == 16) && (res.trigb.size == 16);
+  check("FFT initialization factorizes grid size 16 and computes trig tables", ok);
+
+  if (res.ifax.data) free(res.ifax.data);
+  if (res.trigf.data) free(res.trigf.data);
+  if (res.trigb.data) free(res.trigb.data);
+}
+#endif
+
+
+
+
+#ifdef TEST_LTSTEP_DV
+static void test_ltstep_dv(void) {
+  printf("\n=== Group: ltstep_dv (Atmospheric TimeStep Loop & Physics Diagnostic Suite) ===\n");
+
+  int32_t mx = 2, jx = 2, jxmx = 4;
+  float tw = 0.5f, zmean = 100.0f, asq = 16.0f, ww = 2.5f;
+
+  std::vector<int32_t> kmjx_v = {0, 0, 2};
+  std::vector<int32_t> kmjxx_v = {0, 0, 2};
+  std::vector<int32_t> ksq_v = {1, 2, 3, 4};
+  std::vector<float> epsi_v = {0.0f, 0.1f, 0.2f, 0.3f, 0.4f};
+  std::vector<float> p1_v = {1.0f, 2.0f};
+
+  struct cplex_t { float re, im; };
+  std::vector<cplex_t> u_vec  = { {10.0f, 1.0f}, {12.0f, 2.0f}, {14.0f, 3.0f}, {16.0f, 4.0f} };
+  std::vector<cplex_t> h_vec  = { {5.0f, 0.5f},  {6.0f, 0.6f},  {7.0f, 0.7f},  {8.0f, 0.8f} };
+  std::vector<cplex_t> zm_vec = { {15.0f, 1.5f}, {18.0f, 1.8f}, {21.0f, 2.1f}, {24.0f, 2.4f} };
+  std::vector<cplex_t> z_vec  = { {20.0f, 2.0f}, {25.0f, 2.5f}, {30.0f, 3.0f}, {35.0f, 3.5f} };
+
+  sisal_array_t kmjx = sisal_array_alloc_empty(1, 4, 3); memcpy(kmjx.data, kmjx_v.data(), 3 * sizeof(int32_t));
+  sisal_array_t kmjxx = sisal_array_alloc_empty(1, 4, 3); memcpy(kmjxx.data, kmjxx_v.data(), 3 * sizeof(int32_t));
+  sisal_array_t ksq = sisal_array_alloc_empty(1, 4, 4); memcpy(ksq.data, ksq_v.data(), 4 * sizeof(int32_t));
+  sisal_array_t epsi = sisal_array_alloc_empty(1, 8, 5); memcpy(epsi.data, epsi_v.data(), 5 * sizeof(float));
+  sisal_array_t p1 = sisal_array_alloc_empty(1, 8, 2); memcpy(p1.data, p1_v.data(), 2 * sizeof(float));
+
+  sisal_array_t u  = sisal_array_alloc_empty(1, 8, 4); memcpy(u.data,  u_vec.data(),  4 * sizeof(cplex_t));
+  sisal_array_t h  = sisal_array_alloc_empty(1, 8, 4); memcpy(h.data,  h_vec.data(),  4 * sizeof(cplex_t));
+  sisal_array_t zm = sisal_array_alloc_empty(1, 8, 4); memcpy(zm.data, zm_vec.data(), 4 * sizeof(cplex_t));
+  sisal_array_t z  = sisal_array_alloc_empty(1, 8, 4); memcpy(z.data,  z_vec.data(),  4 * sizeof(cplex_t));
+
+  struct LTSTEP_DV_results res = func_MAIN(mx, jx, jxmx, tw, zmean, asq, ww, kmjx, kmjxx, ksq, epsi, p1, u, h, z, h, u, h, zm, u, h, u);
+
+  bool ok = (res.pt_sz == 4) && (res.ct_sz == 4) && (res.tot_e > 0.0f);
+  check("Atmospheric timestep simulation produces valid linear terms and energy diagnostics", ok);
+
+  free(kmjx.data); free(kmjxx.data); free(ksq.data); free(epsi.data); free(p1.data);
+  free(u.data); free(h.data); free(zm.data); free(z.data);
+}
+#endif
+
+
+
+
+#ifdef TEST_FROMC_DV
+static void test_fromc_dv(void) {
+  printf("\n=== Group: fromc_dv (C Interop Function Entrypoint Test) ===\n");
+
+  int32_t input = 5;
+  int32_t res_main = func_MAIN(input);
+  int32_t res_foo  = func_FOO(input);
+
+  bool ok = (res_main == 38) && (res_foo == 38);
+  check("Calling exported Sisal entrypoint functions from C++ ABI yields exact 38", ok);
+}
+#endif
+
+
+#ifdef TEST_COMMON_DV
+static void test_common_dv(void) {
+  printf("\n=== Group: common_dv (3D World-to-Screen Graphics Transformation Engine) ===\n");
+
+  int32_t xpixels = 1000, ypixels = 1000;
+  float xlo = -1.0f, xhi = 1.0f, ylo = -1.0f, yhi = 1.0f;
+  float pt_x = 0.5f, pt_y = 0.5f, pt_z = 0.0f;
+
+  struct COMMON_DV_results res = func_MAIN(xpixels, ypixels, xlo, xhi, ylo, yhi, pt_x, pt_y, pt_z);
+
+  bool ok = near_f(res.xp, 500.0f) && near_f(res.yp, 500.0f) && near_f(res.zp, 0.0f);
+  check("3D point (0.5, 0.5, 0.0) transforms accurately to raster screen point (500, 500, 0)", ok);
+}
+#endif
+
+
+#ifdef TEST_FUNCARRAY_DV
+static void test_funcarray_dv(void) {
+  printf("\n=== Group: funcarray_dv (Higher-Order Function Reference Evaluation) ===\n");
+
+  int32_t x = 10;
+  struct FUNCARRAY_DV_results res = func_MAIN(x);
+
+  bool ok = (res.v1 == 10) && (res.v2 == 11) && (res.sum == 21);
+  check("Higher-order functions F1(10)=10 and F2(10)=11 evaluate correctly with sum 21", ok);
+}
+#endif
+
+#ifdef TEST_CHOOSE_DV
+static void test_choose_dv(void) {
+  printf("\n=== Group: choose_dv (Simulated Annealing 2-Opt Edge Swap Cost Evaluator) ===\n");
+
+  std::vector<float> dist_v = {
+    0.0f, 10.0f, 15.0f, 20.0f,
+   10.0f,  0.0f, 35.0f, 25.0f,
+   15.0f, 35.0f,  0.0f, 30.0f,
+   20.0f, 25.0f, 30.0f,  0.0f
+  };
+
+  sisal_array_t dist = make_float_2d(dist_v.data(), 4, 4);
+
+  float delta_e = func_MAIN(1, 4, 2, 3, dist);
+
+  bool ok = near_f(delta_e, -15.0f);
+  check("Simulated annealing 2-opt edge swap cost reduction equals -15.0", ok);
+
+  free(dist.data);
+}
+#endif
+
+#ifdef TEST_QUICKSORT_WHEN_DV
+static void test_quicksort_when_dv(void) {
+  printf("\n=== Group: quicksort_when_dv (Functional QuickSort with WHEN Stream Filters) ===\n");
+
+  std::vector<int32_t> input = {35, 12, 89, 4, 27, 89, 1, 64};
+  std::vector<int32_t> expected = {1, 4, 12, 27, 35, 64, 89, 89};
+
+  sisal_array_t arr_in = make_int_arr(input.data(), (int)input.size());
+  sisal_array_t arr_out = func_MAIN(arr_in);
+
+  bool ok = (arr_out.dims[0] == 8);
+  if (ok) {
+    int32_t *out_data = (int32_t *)arr_out.data;
+    for (size_t i = 0; i < 8; ++i) {
+      if (out_data[i] != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("Functional QuickSort with parallel WHEN stream filters correctly sorts array", ok);
+
+  free(arr_in.data);
+  free(arr_out.data);
+}
+#endif
+
+#ifdef TEST_HELPER_FUNCS_DV
+static void test_helper_funcs_dv(void) {
+  printf("\n=== Group: helper_funcs_dv (Top-Level Helper Function Delegation) ===\n");
+
+  int32_t n = 3;
+  int32_t m = 4;
+  int32_t res = func_MAIN(n, m);
+
+  bool ok = (res == 40);
+  check("Increase(3) * IncreaseX(4) evaluates correctly to 40", ok);
+}
+#endif
+
+#ifdef TEST_HELLO_DV
+static void test_hello_dv(void) {
+  printf("\n=== Group: hello_dv (Sisal Hello World String Return) ===\n");
+
+  sisal_array_t res = func_MAIN();
+
+  bool ok = (res.rank == 1) && (res.dims[0] == 12) && (res.elem_bytes == 1);
+  if (ok) {
+    const char *expected = "Hello world!";
+    char *data = (char *)res.data;
+    for (size_t i = 0; i < 12; ++i) {
+      if (data[i] != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("Main() returns string array 'Hello world!' cleanly", ok);
+
+  free(res.data);
+}
+#endif
+
+#ifdef TEST_GAUSSJ1_DV
+static void test_gaussj1_dv(void) {
+  printf("\n=== Group: gaussj1_dv (Gauss-Jordan Elimination Matrix Solver) ===\n");
+
+  std::vector<double> A_vals = {
+    2.0, 1.0,
+    1.0, 3.0
+  };
+  std::vector<double> B_vals = {
+    4.0, 7.0
+  };
+
+  sisal_array_t A = make_double_2d(A_vals.data(), 2, 2);
+  sisal_array_t B = make_double_arr(B_vals.data(), 2);
+
+  sisal_array_t res = func_MAIN(2, A, B);
+
+  bool ok = (res.rank == 1) && (res.dims[0] == 2);
+  if (ok) {
+    double *data = (double *)res.data;
+    ok = near_d(data[0], 1.0) && near_d(data[1], 2.0);
+  }
+
+  check("Gauss-Jordan solver accurately solves 2x2 linear system [2 1; 1 3]x = [4 7] -> x=[1 2]", ok);
+
+  free(A.data);
+  free(B.data);
+  free(res.data);
+}
+#endif
+
+#ifdef TEST_GEN_EXTENT_DV
+static void test_gen_extent_dv(void) {
+  printf("\n=== Group: gen_extent_dv (Generator Expression-Bound Evaluation) ===\n");
+
+  int32_t n = 5;
+  int32_t m = 4;
+  struct GEN_EXTENT_DV_results res = func_MAIN(n, m);
+
+  bool ok = (res.a1.rank == 1) && (res.a1.dims[0] == 4) &&
+            (res.a2.rank == 1) && (res.a2.dims[0] == 4) &&
+            (res.a3.rank == 2) && (res.a3.dims[0] == 5) && (res.a3.dims[1] == 3);
+
+  if (ok) {
+    int32_t *d1 = (int32_t *)res.a1.data;
+    int32_t *d2 = (int32_t *)res.a2.data;
+    int32_t *d3 = (int32_t *)res.a3.data;
+
+    ok = (d1[0] == 1 && d1[1] == 4 && d1[2] == 9 && d1[3] == 16) &&
+         (d2[0] == 2 && d2[1] == 3 && d2[2] == 4 && d2[3] == 5) &&
+         (d3[0] == 11 && d3[1] == 12 && d3[2] == 13 && d3[3] == 21);
+  }
+
+  check("Generator expression bounds n-1, n-3, m-1 evaluate correctly across 1D and 2D arrays", ok);
+
+  free(res.a1.data);
+  free(res.a2.data);
+  free(res.a3.data);
+}
+#endif
+
+#ifdef TEST_NEWQUEENS_DV
+static void test_newqueens_dv(void) {
+  printf("\n=== Group: newqueens_dv (N-Queens solver with forward decl) ===\n");
+
+  const int32_t level = 8;
+  sisal_array_t out = func_MAIN(level);
+
+  // 8-queens problem has 92 valid solutions, represented as a 92x8 rank-2 array_dv
+  bool ok = (out.rank == 2) && ((int)out.dims[0] == 92) && ((int)out.dims[1] == 8);
+  if (ok) {
+    const int32_t* sol_data = (const int32_t*)out.data;
+    // Check that each solution has no diagonal or column conflicts
+    for (int s = 0; s < 92 && ok; ++s) {
+      const int32_t* board = sol_data + s * 8;
+      for (int c1 = 0; c1 < 8 && ok; ++c1) {
+        int r1 = board[c1];
+        if (r1 < 1 || r1 > 8) { ok = false; break; }
+        for (int c2 = c1 + 1; c2 < 8; ++c2) {
+          int r2 = board[c2];
+          if (r1 == r2 || std::abs(r1 - r2) == std::abs((c1 + 1) - (c2 + 1))) {
+            ok = false;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  check("N-Queens 8x8 produces 92 valid non-conflicting solutions", ok);
+
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_PBATCHER_DV
+static void test_pbatcher_dv(void) {
+  printf("\n=== Group: pbatcher_dv (Batcher's parallel sorting network) ===\n");
+
+  const int32_t n = 8;
+  int32_t raw_arr[8] = { 5, 2, 8, 1, 9, 3, 7, 4 };
+
+  sisal_array_t K = sisal_array_alloc_empty(1, sizeof(int32_t), n);
+  K.dims[0] = n; K.lower_bound[0] = 0;
+  memcpy(K.data, raw_arr, sizeof(raw_arr));
+
+  sisal_array_t out = func_MAIN(K);
+
+  bool ok = (out.rank == 1) && ((int)out.dims[0] == n);
+  if (ok) {
+    const int32_t* sol = (const int32_t*)out.data;
+    int32_t expected[8] = { 1, 3, 2, 4, 5, 8, 7, 9 };
+    for (int i = 0; i < n; ++i) {
+      if (sol[i] != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("pbatcher_dv parallel sorting network produces expected output [1,3,2,4,5,8,7,9]", ok);
+
+  if (K.data) free(K.data);
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_SBATCHER_DV
+static void test_sbatcher_dv(void) {
+  printf("\n=== Group: sbatcher_dv (Sequential Batcher sorting network) ===\n");
+
+  const int32_t n = 8;
+  int32_t raw_arr[8] = { 5, 2, 8, 1, 9, 3, 7, 4 };
+
+  sisal_array_t K = sisal_array_alloc_empty(1, sizeof(int32_t), n);
+  K.dims[0] = n; K.lower_bound[0] = 0;
+  memcpy(K.data, raw_arr, sizeof(raw_arr));
+
+  sisal_array_t out = func_MAIN(K);
+
+  bool ok = (out.rank == 1) && ((int)out.dims[0] == n);
+  if (ok) {
+    const int32_t* sol = (const int32_t*)out.data;
+    int32_t expected[8] = { 1, 2, 3, 4, 5, 7, 8, 9 };
+    for (int i = 0; i < n; ++i) {
+      if (sol[i] != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("sbatcher_dv sequential sorting network sorts 8-element array correctly into [1,2,3,4,5,7,8,9]", ok);
+
+  if (K.data) free(K.data);
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_PINSERTDATA_DV
+static void test_pinsertdata_dv(void) {
+  printf("\n=== Group: pinsertdata_dv (Parallel insertion dataset generator) ===\n");
+
+  const int32_t a = 3;
+  sisal_array_t out = func_MAIN(a);
+
+  bool ok = (out.rank == 2) && ((int)out.dims[0] == a) && ((int)out.dims[1] == a);
+  if (ok) {
+    const float* data = (const float*)out.data;
+    // Expected 3x3 matrix:
+    // row 0 (i=1): [3.0, 2.0, 1.0]
+    // row 1 (i=2): [3.0, 2.0, 1.0]
+    // row 2 (i=3): [3.0, 2.0, 1.0]
+    for (int i = 0; i < a; ++i) {
+      for (int j = 0; j < a; ++j) {
+        float expected = (float)(a - j);
+        float actual = data[i * a + j];
+        if (fabsf(actual - expected) > 1e-4f) {
+          ok = false;
+          break;
+        }
+      }
+    }
+  }
+
+  check("pinsertdata_dv generates 2D rank-polymorphic array_dv correctly", ok);
+
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_SCAT_DV
+static void test_scat_dv(void) {
+  printf("\n=== Group: scat_dv (2D Masked Scatter Matrix Update) ===\n");
+
+  const int32_t nlop = 2;
+  const int32_t l = 3;
+  const int32_t k = 3;
+  sisal_array_t out = func_MAIN(nlop, l, k);
+
+  bool ok = (out.rank == 2) && ((int)out.dims[0] == l) && ((int)out.dims[1] == k);
+  if (ok) {
+    const float* data = (const float*)out.data;
+    // mask(i,j) = mod(i+j, 3). For i,j in 1..3:
+    // i=1: j=1 -> mod(2,3)=2 (keep 1.0); j=2 -> mod(3,3)=0 (keep 1.0); j=3 -> mod(4,3)=1 (set 0.0)
+    // i=2: j=1 -> mod(3,3)=0 (keep 1.0); j=2 -> mod(4,3)=1 (set 0.0); j=3 -> mod(5,3)=2 (keep 1.0)
+    // i=3: j=1 -> mod(4,3)=1 (set 0.0); j=2 -> mod(5,3)=2 (keep 1.0); j=3 -> mod(6,3)=0 (keep 1.0)
+    float expected[3][3] = {
+      { 1.0f, 1.0f, 0.0f },
+      { 1.0f, 0.0f, 1.0f },
+      { 0.0f, 1.0f, 1.0f }
+    };
+    for (int i = 0; i < l; ++i) {
+      for (int j = 0; j < k; ++j) {
+        float actual = data[i * k + j];
+        if (fabsf(actual - expected[i][j]) > 1e-4f) {
+          ok = false;
+          break;
+        }
+      }
+    }
+  }
+
+  check("scat_dv performs 2D masked scatter matrix update correctly", ok);
+
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_BUBBLE_DV
+static void test_bubble_dv(void) {
+  printf("\n=== Group: bubble_dv (Bubble sort algorithm) ===\n");
+
+  std::vector<int32_t> in = { 5, 2, 8, 1, 9, 3 };
+  sisal_array_t Ain = ewref::mki(in);
+  sisal_array_t out = func_MAIN(Ain);
+
+  bool ok = (out.size == 6);
+  if (ok) {
+    int32_t expected[6] = { 1, 2, 3, 5, 8, 9 };
+    for (int i = 0; i < 6; ++i) {
+      if (ai(out, i) != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("bubble_dv sorts array into [1, 2, 3, 5, 8, 9]", ok);
+
+  if (Ain.data) free(Ain.data);
+  if (out.data && out.data != Ain.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_ADA_DV
+static void test_ada_dv(void) {
+  printf("\n=== Group: ada_dv (Ada-style nested loop value reduction) ===\n");
+
+  sisal_array_t out = func_MAIN();
+
+  bool ok = (out.size == 5);
+  if (ok) {
+    int32_t expected[5] = { 1, 2, 3, 4, 5 };
+    for (int i = 0; i < 5; ++i) {
+      if (ai(out, i) != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("ada_dv produces [1, 2, 3, 4, 5]", ok);
+
+  if (out.data) free(out.data);
+}
+#endif
+
+#ifdef TEST_LETREC_SCOPE_DV
+static void test_letrec_scope_dv(void) {
+  printf("\n=== Group: letrec_scope_dv (Mutual recursive scope and factorial) ===\n");
+
+  sisal_array_t out = func_MAIN();
+
+  bool ok = (out.size == 2);
+  if (ok) {
+    int32_t expected[2] = { 20, 120 };
+    for (int i = 0; i < 2; ++i) {
+      if (ai(out, i) != expected[i]) {
+        ok = false;
+        break;
+      }
+    }
+  }
+
+  check("letrec_scope_dv produces [20, 120]", ok);
+
+  if (out.data) free(out.data);
+}
+#endif
+
 run_active_test (void)
 {
+#ifdef TEST_LETREC_SCOPE_DV
+  test_letrec_scope_dv ();
+#endif
+#ifdef TEST_ADA_DV
+  test_ada_dv ();
+#endif
+#ifdef TEST_BUBBLE_DV
+  test_bubble_dv ();
+#endif
+#ifdef TEST_SCAT_DV
+  test_scat_dv ();
+#endif
+#ifdef TEST_PINSERTDATA_DV
+  test_pinsertdata_dv ();
+#endif
+#ifdef TEST_SBATCHER_DV
+  test_sbatcher_dv ();
+#endif
+#ifdef TEST_PBATCHER_DV
+  test_pbatcher_dv ();
+#endif
+#ifdef TEST_NEWQUEENS_DV
+  test_newqueens_dv ();
+#endif
+
+#ifdef TEST_GEN_EXTENT_DV
+  test_gen_extent_dv ();
+#endif
+
+#ifdef TEST_GAUSSJ1_DV
+  test_gaussj1_dv ();
+#endif
+
+#ifdef TEST_HELLO_DV
+  test_hello_dv ();
+#endif
+
+#ifdef TEST_HELPER_FUNCS_DV
+  test_helper_funcs_dv ();
+#endif
+
+#ifdef TEST_QUICKSORT_WHEN_DV
+  test_quicksort_when_dv ();
+#endif
+
+#ifdef TEST_CHOOSE_DV
+  test_choose_dv ();
+#endif
+
+#ifdef TEST_FUNCARRAY_DV
+  test_funcarray_dv ();
+#endif
+
+#ifdef TEST_COMMON_DV
+  test_common_dv ();
+#endif
+
+#ifdef TEST_FROMC_DV
+  test_fromc_dv ();
+#endif
+
+
+#ifdef TEST_LTSTEP_DV
+  test_ltstep_dv ();
+#endif
+
+
+#ifdef TEST_INITFFT_DV
+  test_initfft_dv ();
+#endif
+
+#ifdef TEST_FACES_DV
+  test_faces_dv ();
+#endif
+
+#ifdef TEST_CDF_DV
+  test_cdf_dv ();
+#endif
+
+#ifdef TEST_GAUSS_QUAD_DV
+  test_gauss_quad_dv ();
+#endif
+
+#ifdef TEST_FEM_DV
+  test_fem_dv ();
+#endif
+
+#ifdef TEST_TSP_DV
+  test_tsp_dv ();
+#endif
+
 
 #ifdef TEST_QS_DV
   test_qs_dv ();
@@ -22417,9 +23235,7 @@ run_active_test (void)
     && !defined(TEST_LU_PIV_DV)                                               \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
-    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FEO_FFT_PARTS2)         \
-    && !defined(TEST_FEO_FFT_PARTS3) && !defined(TEST_FEO_FFT_PARTS4)         \
-    && !defined(TEST_FEO_FFT_DV) && !defined(TEST_FEO_FFT) && !defined(TEST_KIN16_DV) && !defined(TEST_BASIC_DV) && !defined(TEST_CFFT_DV) && !defined(TEST_HILBERT_DV) && !defined(TEST_ARRAY_SWAP_E2E) && !defined(TEST_QUICKSORT_DV) && !defined(TEST_HEAPSORT_DV) && !defined(TEST_NESTED_CAPTURE_DV) && !defined(TEST_INTERPROC_PROVIDED_E2E) && !defined(TEST_FORALL_INTERPROC_E2E) && !defined(TEST_FORALL_2D_INTERPROC_E2E) && !defined(TEST_STREAM_SIMPLE_DV) && !defined(TEST_STREAM_LOOP_DV) && !defined(TEST_STREAM_SIEVE_DV) && !defined(TEST_STREAM_INTEGERS_DV) && !defined(TEST_STREAM_SIEVE_V2_DV) && !defined(TEST_STREAM_UPRIME2_DV) && !defined(TEST_STREAM_GURD_DV) && !defined(TEST_TEST_IF_NESTED_CAPTURE_DV) && !defined(TEST_TEST_IF_LET_CASCADE_DV) && !defined(TEST_TAGCASE_BARE_DV) && !defined(TEST_TAGCASE_BARE_MIXED_DV) && !defined(TEST_TAGCASE_BARE_NESTED_DV) && !defined(TEST_CRYPTO_DV) && !defined(TEST_SQRT_DV) && !defined(TEST_ARRAY_EX_DV) && !defined(TEST_NICO_DV) && !defined(TEST_NICO2_DV) && !defined(TEST_TEST_BIN_DV) && !defined(TEST_IF_COMPLEX_REVIEW_DV) && !defined(TEST_TAGCASE_II_DV) && !defined(TEST_NESTED_DV) && !defined(TEST_VECTEST_DV) && !defined(TEST_LEGPOLY1_DV) && !defined(TEST_INTRINSICS_TEST_DV) && !defined(TEST_TUPLE_HASH_TESTS_DV) && !defined(TEST_TUPLE_KW_TESTS_DV) && !defined(TEST_BUILTIN_SCALAR_DV) && !defined(TEST_CPXCONV_DV) && !defined(TEST_REC_FIELD_DV) && !defined(TEST_REC_AOS_DV) && !defined(TEST_REC_SOA_DV) && !defined(TEST_RESHAPE_DV) && !defined(TEST_SOA_INIT_DV) && !defined(TEST_NUCLEIC_SOA_DV) && !defined(TEST_NUCLEIC_MAKET_DV) && !defined(TEST_NUCLEIC_DGFBASE_DV) && !defined(TEST_NUCLEIC_GETVAR_DV) && !defined(TEST_MEMBER_DV) && !defined(TEST_ML_LIST_DV) && !defined(TEST_NUCLEIC_SEARCH_DV) && !defined(TEST_ML_LIST_REPLACE_DV) && !defined(TEST_NUCLEIC_KERNELS_DV) && !defined(TEST_NUCLEIC_BUILDERS_DV) && !defined(TEST_NUCLEIC_BASES_DV) && !defined(TEST_NUCLEIC_DV) && !defined(TEST_BINTREE_DV) && !defined(TEST_PARA_DEARRAY_DV) && !defined(TEST_LIST_ITER_DV) && !defined(TEST_FORINIT_REDUCE_DV) && !defined(TEST_WORDCOUNT_DV) && !defined(TEST_BACKTRACK_DV) && !defined(TEST_SUCCESSOR_DV) && !defined(TEST_GENLINKS_DV) && !defined(TEST_GENARCS_DV) && !defined(TEST_TRACEUTIL_DV) && !defined(TEST_ARCGRID_DV) && !defined(TEST_TRACE_DV) && !defined(TEST_JOB_DV) && !defined(TEST_MOLDYN_FORCE_DV) && !defined(TEST_MOLDYN_DIFFUN_DV) && !defined(TEST_MOLDYN_RK_DV) && !defined(TEST_MOLDYN_RKF45_DV) && !defined(TEST_MOLDYN_SOLVE_DV) && !defined(TEST_MOLDYN_DV) && !defined(TEST_GATHER_CONFORM_DV) && !defined(TEST_MOLDYN_NEIGHBORS_DV) && !defined(TEST_MOLDYN_NBRLIST_DV) && !defined(TEST_ZEROTRIP_EXPR_DV) && !defined(TEST_FORINIT_MASK_DV) && !defined(TEST_ADDH_ROW_DV) && !defined(TEST_FORINIT_GATHER_GROWTH_DV) && !defined(TEST_PSA_RNG_DV) && !defined(TEST_XFA_DEP_EXPR) && !defined(TEST_PSA_SWAP_DV) && !defined(TEST_PSA_UPDATE_DV) && !defined(TEST_PSA_DV) && !defined(TEST_FORINIT_CATENATE_DV) && !defined(TEST_SSPHOT_GEOM_DV) && !defined(TEST_SSPHOT_CELLS_DV) && !defined(TEST_SSPHOT_INTERP_DV) && !defined(TEST_XFA_SCATTER_EXPR_DV) && !defined(TEST_SSPHOT_OPAC_DV) && !defined(TEST_SSPHOT_MOVE_DV) && !defined(TEST_PSA_COST_DV) && !defined(TEST_FORINIT_SHADOW_DV) && !defined(TEST_SSPHOT_TRACK_DV) && !defined(TEST_SIMPLE_BACKSUB_DV) && !defined(TEST_SIMPLE_FWDSWEEP_DV) && !defined(TEST_FIRSTTRUE_DV) && !defined(TEST_RANF_DV) && !defined(TEST_LIFE1_DV) && !defined(TEST_RESHAPE_1D_2D_1D_DV) && !defined(TEST_RESHAPE_3D_DV) && !defined(TEST_RESHAPE_SCAN_DV) && !defined(TEST_RESHAPE_TRANSPOSE_DV) && !defined(TEST_RESHAPE_MATMUL_DV) && !defined(TEST_IFM_2ETC_DV) && !defined(TEST_IFM_3_DV) && !defined(TEST_IFM_4_DV) && !defined(TEST_PASSFREQ_DV) && !defined(TEST_IFG_2ETC_DV) && !defined(TEST_IFG_3_DV) && !defined(TEST_IFG_4_DV) && !defined(TEST_PASSGRID_DV) && !defined(TEST_INITAL_DV) && !defined(TEST_ARSIEVE_DV) && !defined(TEST_GAUSSDATA_DV) && !defined(TEST_MDFFTFREQ_DV) && !defined(TEST_MDFFTGRID_DV) && !defined(TEST_NEWSIEVE_DV) && !defined(TEST_CK_YB_DV) && !defined(TEST_GAUSSJNEW_DV) && !defined(TEST_TST_LOOPAT_DV) && !defined(TEST_QUADRATURE_DV) && !defined(TEST_OUTS_DV) && !defined(TEST_QUADTREE_DV) && !defined(TEST_TAG_SCOPE_DV) && !defined(TEST_NOISEDUMP_DV) && !defined(TEST_ZBUFFER_DV) && !defined(TEST_HAM_DV) && !defined(TEST_QUAD_DV) && !defined(TEST_NEWGAUSS_DV) && !defined(TEST_NEWGAUSSJ_DV) && !defined(TEST_MMULT2_DV) && !defined(TEST_CYK_DV) && !defined(TEST_CROSSOVERS_DV) && !defined(TEST_NANU_DV) && !defined(TEST_BULK_OPS_DV) && !defined(TEST_CONFORM_ERROR_DV) && !defined(TEST_UNSPLIT_SCALARS_DV) && !defined(TEST_STREAM_RECORD_DV) && !defined(TEST_UNSPLIT_GRID_DV) && !defined(TEST_UNSPLIT_BND_DV) && !defined(TEST_UNSPLIT_SLOPE_DV) && !defined(TEST_UNSPLIT_FLATEN_DV) && !defined(TEST_UNSPLIT_FLUX_DV) && !defined(TEST_UNSPLIT_PREP_DV) && !defined(TEST_UNSPLIT_TRACE_DV) && !defined(TEST_UNSPLIT_UPDATE_DV) && !defined(TEST_UNSPLIT_FLUXSTAGE_DV) && !defined(TEST_UNSPLIT_DV) && !defined(TEST_BMK11A_MOVE_DV) && !defined(TEST_BMK11A_BORIS_DV) && !defined(TEST_BMK11A_REL_DV) && !defined(TEST_BMK11A_DV) && !defined(TEST_BMK11AD_DV)
+    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FROMC_DV) && !defined(TEST_COMMON_DV) && !defined(TEST_FUNCARRAY_DV) && !defined(TEST_CHOOSE_DV) && !defined(TEST_QUICKSORT_WHEN_DV) && !defined(TEST_HELPER_FUNCS_DV) && !defined(TEST_HELLO_DV) && !defined(TEST_GAUSSJ1_DV) && !defined(TEST_LAPLACE_DV) && !defined(TEST_LU_NPIV_DV) && !defined(TEST_NEWQUEENS_DV) && !defined(TEST_PBATCHER_DV) && !defined(TEST_SBATCHER_DV) && !defined(TEST_PINSERTDATA_DV) && !defined(TEST_SCAT_DV) && !defined(TEST_BUBBLE_DV) && !defined(TEST_ADA_DV) && !defined(TEST_LETREC_SCOPE_DV) && !defined(TEST_GEN_EXTENT_DV) && !defined(TEST_FEO_FFT_PARTS2)         \
   g_no_macro = true;
 #endif
 }

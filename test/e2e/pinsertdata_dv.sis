@@ -1,0 +1,10 @@
+% Origin: test/unit/pinsertdata.sis
+% Port Note: Parallel insertion dataset generator converted from ragged array[array[double_real]] to rank-2 array_dv[real].
+%
+define Main
+
+function Main( a : integer returns array_dv[real] )
+  for i in 1, a cross j in 1, a
+  returns array_dv of real( a - j + 1 )
+  end for
+end function

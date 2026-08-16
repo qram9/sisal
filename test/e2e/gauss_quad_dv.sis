@@ -1,0 +1,123 @@
+% Origin: test/unit/Gauss.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) instead of unit array.
+%
+% Gaussian Quadrature Colatitudes and Weights Generator using Legendre Polynomials.
+% Computes spectral colatitudes, integration weights, colatitude angles in degrees,
+% and sine factors.
+%
+define Main
+
+type ArrReal1 = array_dv[real];
+type ArrDreal1 = array_dv[double_real];
+
+function ORDLEG(ir : integer; coa : double_real returns double_real)
+  let
+    irppm := ir;
+    delta := acos(coa);
+    sqr2 := sqrt(2.0d0);
+    theta := delta;
+    c1 := sqr2 * for n in 1, irppm
+                   fn := double_real(n);
+                   fn2 := fn * 2.0d0;
+                   fn2sq := fn2 * fn2;
+                 returns value of product sqrt(1.0d0 - 1.0d0 / fn2sq)
+                 end for;
+
+    s1 := for initial
+            n := irppm;
+            fn := double_real(irppm);
+            fn2 := fn * 2.0d0;
+            ang := fn * theta;
+            s1T := 0.0d0;
+            c4 := 1.0d0;
+            a := -1.0d0;
+            b := 0.0d0;
+            n1 := n + 1;
+            kk := 1;
+          while kk <= n1 repeat
+            kk := old kk + 2;
+            k := old kk - 1;
+            c4T := if k = n then 0.5d0 * old c4 else old c4 end if;
+            s1T := old s1T + c4T * cos(old ang);
+            a := old a + 2.0d0;
+            b := old b + 1.0d0;
+            fk := double_real(k);
+            ang := theta * (fn - fk - 2.0d0);
+            c4 := a * (fn - b + 1.0d0) / (b * (fn2 - a)) * c4T;
+          returns value of s1T
+          end for;
+    sx := s1 * c1;
+  in
+    sx
+  end let
+end function
+
+function CYCLE(ir, irm, irp : integer; ft, a, b, xlim : double_real returns double_real)
+  for initial
+    ftnew := ft;
+  repeat
+    g := ORDLEG(ir, old ftnew);
+    gm := ORDLEG(irm, old ftnew);
+    gp := ORDLEG(irp, old ftnew);
+    gt := (old ftnew * old ftnew - 1.0d0) / (a * gp - b * gm);
+    ftemp := old ftnew - g * gt;
+    gtemp := old ftnew - ftemp;
+    ftnew := ftemp;
+  while abs(gtemp) - xlim > 0.0d0
+  returns value of ftnew
+  end for
+end function
+
+function Main(nzero : integer returns ArrReal1, ArrReal1, ArrReal1, ArrReal1, ArrReal1)
+  let
+    xlim := 1.0d-12;
+    ir := nzero * 2;
+    fi := double_real(ir);
+    fi1 := fi + 1.0d0;
+    pi := 3.141592653589793d0;
+    piov2 := pi * 0.5d0;
+    fn := piov2 / double_real(nzero);
+    wt := for lat in 1, nzero
+          returns array_dv of double_real(lat) - 0.5d0
+          end for;
+    f := for lat in 1, nzero
+         returns array_dv of sin(wt[lat] * fn + piov2)
+         end for;
+
+    dn := fi / sqrt(4.0d0 * fi * fi - 1.0d0);
+    dn1 := fi1 / sqrt(4.0d0 * fi1 * fi1 - 1.0d0);
+    a := dn1 * fi;
+    b := dn * fi1;
+    irp := ir + 1;
+    irm := ir - 1;
+    fnew := for lat in 1, nzero
+            returns array_dv of CYCLE(ir, irm, irp, f[lat], a, b, xlim)
+            end for;
+
+    wtnew, radnew, coangnew, sianew :=
+      for lat in 1, nzero
+        a1 := 2.0d0 * (1.0d0 - fnew[lat] * fnew[lat]);
+        bo := ORDLEG(irm, fnew[lat]);
+        b1 := bo * bo * fi * fi;
+        wtt := a1 * (fi - 0.5d0) / b1;
+        radt := acos(fnew[lat]);
+        coangt := radt * 180.0d0 / pi;
+        siat := sin(radt);
+      returns array_dv of wtt
+              array_dv of radt
+              array_dv of coangt
+              array_dv of siat
+      end for;
+
+    fs, wts, sias, rads, coangs :=
+      for lat in 1, nzero
+      returns array_dv of real(fnew[lat])
+              array_dv of real(wtnew[lat])
+              array_dv of real(sianew[lat])
+              array_dv of real(radnew[lat])
+              array_dv of real(coangnew[lat])
+      end for;
+  in
+    fs, wts, sias, rads, coangs
+  end let
+end function

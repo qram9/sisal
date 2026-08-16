@@ -1,3 +1,6 @@
+% Origin: test/unit/TStep.sis, test/unit/LTStep.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % TSTEP — DV variant of unit/TStep.sis (spectral leapfrog time step with
 % Robert/Asselin filter).  All arrays array_dv; Csub/Cadd/Crmul/Crsub/Crdiv
 % inlined from CpxFuncs.sis; renamed Main.  Nine complex-record outputs

@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_tests.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 FUNCTION TupleMixed (RETURNS INTEGER, REAL)
   #(1, 2.0)
 END FUNCTION

@@ -1,3 +1,6 @@
+% Origin: test/unit/verify_numpy_broadcast.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % rank-poly broadcast: 3-D + 1-D, numpy trailing-alignment (vector over both leading axes).
 define main
 type ThreeD = array_dv[double];

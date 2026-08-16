@@ -1,3 +1,6 @@
+% Origin: test/unit/SIFuncs.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % SIFUNCS — unit/SIFuncs.sis promoted verbatim: the physics corpus's
 % R-suffixed real wrappers over the double intrinsics (real -> double ->
 % intrinsic -> real).  Pins the double_real()/real() conversion pair and

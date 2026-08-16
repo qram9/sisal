@@ -1,3 +1,6 @@
+% Origin: test/unit/builtin_scalar.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define builtin_scalar,
   scalar_abs_int,
   scalar_abs_real,

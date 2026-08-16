@@ -1,3 +1,6 @@
+% Origin: test/unit/loop1.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define Main
 function Main( n: integer; Ain: array_dv[double] returns array_dv[double] )
   for initial

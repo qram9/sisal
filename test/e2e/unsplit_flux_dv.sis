@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 6 of 8 -- the approximate Riemann solver, fluxev and its stages.
 %
 % fluxev solves a Riemann problem per interface and returns the four Euler
@@ -10,7 +13,7 @@
 %   fluxev6  turn that state into fluxes
 %
 % THE ARRAY REWRITE is purely notational here -- everything is rank 1, so
-% `array[double_real]` and OneDim both become array_dv[double_real] and the
+% `array_dv[double_real]` and OneDim both become array_dv[double_real] and the
 % gathers become `returns array_dv of`.  Nothing structural changes.  fluxev5's
 % six-way multi-bind from an `if` (ro, uo, vo, po, ri, vi := if ... then ...
 % else ... end if) ports unchanged.

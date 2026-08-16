@@ -1,6 +1,9 @@
+% Origin: test/unit/mat2_ops.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
-type IntArray = array[integer]
+type IntArray = array_dv[integer]
 
 function Main(A, B : IntArray returns IntArray, IntArray)
     let

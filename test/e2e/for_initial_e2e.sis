@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % for_initial_e2e.sis — end-to-end coverage for the LoopB ("for initial") lowering.
 % Exercises the MERGE-phi lowering: front-edge seeding from INIT, body-output
 % capture, and the backedge copies. Includes a pass-through carry (a variable

@@ -1,3 +1,6 @@
+% Origin: test/unit/innerproduct.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % rank-poly inner product (innerproduct = APL +.x = np.dot): contract A's last axis
 % with B's first axis.  Verified across rank combos against numpy np.dot.
 define main

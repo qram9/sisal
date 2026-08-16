@@ -1,3 +1,6 @@
+% Origin: test/unit/reshape_transpose.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Transpose via reshape, from test/unit/reshape_transpose.sis.
 %
 % The unit original returns `B2d[1,1]`, which is 101.0 whether the transpose

@@ -1,3 +1,6 @@
+% Origin: test/unit/bintree.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % The ML list, written as the ML type -- a recursive union whose tail is the
 % list ITSELF (no array/handle smuggled into the source):
 %

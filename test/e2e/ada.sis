@@ -1,3 +1,6 @@
+% Origin: test/unit/ada.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % ADA — unit/ada.sis, iterations trimmed (10M -> 100k per outer step keeps
 % the same shape at e2e speed).  Pins the forall keep-last FINALVALUE arm:
 % `value of local` with no reduction op over an inner counted loop returning

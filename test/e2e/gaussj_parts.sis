@@ -1,3 +1,6 @@
+% Origin: test/unit/gaussj.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % gaussj_parts.sis — regression for the gaussj component pieces verified bottom-up.
 % Each function was checked in isolation against a hand-computed result; together they
 % guard the new lower_forall paths: multi-output array gather, box-then-flatten

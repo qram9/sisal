@@ -1,11 +1,14 @@
+% Origin: test/unit/simple.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % The tridiagonal back-substitution from the SIMPLE hydrodynamics benchmark
-% (test/unit/simple.sis, the `temp_r := for initial r := array Oned []; ...`
+% (test/unit/simple.sis, the `temp_r := for initial r := array_dv Oned []; ...`
 % loop in the k-direction sweep).  Extracted because it is the one place in the
 % corpus where a REAL program had an ARRAY-VALUED carry whose name shadows an
 % enclosing binding:
 %
 %     temp_r := for initial
-%                 r  := array Oned [];          % r also bound further out
+%                 r  := array_dv Oned [];          % r also bound further out
 %                 ml := lmx;
 %                 V  := temp[k, ml+1];
 %               while ( ml >= lmnp ) repeat

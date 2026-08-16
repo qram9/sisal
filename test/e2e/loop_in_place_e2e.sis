@@ -1,6 +1,9 @@
+% Origin: test/unit/loop1.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
-type IntArray = array[integer]
+type IntArray = array_dv[integer]
 
 function Main(A : IntArray; N, Steps : integer returns IntArray)
     for initial
@@ -10,7 +13,7 @@ function Main(A : IntArray; N, Steps : integer returns IntArray)
         i := old i + 1;
         NewA := for j in 1, N - 1
                     val := old CurrA[j] + old CurrA[j + 1]
-                returns array of val
+                returns array_dv of val
                 end for;
         CurrA := NewA
     returns value of CurrA

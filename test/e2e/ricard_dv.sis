@@ -1,3 +1,6 @@
+% Origin: test/unit/ricard.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % RICARD CHROMATOGRAPHY — DV variant (based on ricard.sis)
 %
 % All arrays are flat array_dv (no array-of-arrays):
@@ -9,7 +12,7 @@
 %     on SISAL 1.2 absolute bounds (addl/addh making rows span [2..N]); dv
 %     concatenation is positional with lower_bound 1, so rows are
 %     normalized instead — reads LN[m, J] for J in 2..N stay correct.
-%   • array literals (XI, AXDIS_1, GZERO) are dv literals (array Oned [..]).
+%   • array literals (XI, AXDIS_1, GZERO) are dv literals (array_dv Oned [..]).
 
 define Main
 
@@ -236,12 +239,12 @@ function Main( returns Double, Oned, Oned, Double, Double,
     IELUTE := 20;
     DX     := 0.02D0;
 
-    XI := array Oned [1: 0.8D0, 0.54D0, 0.54D0, 0.54D0, 0.54D0];
+    XI := array_dv Oned [1: 0.8D0, 0.54D0, 0.54D0, 0.54D0, 0.54D0];
 
     RATIO := XI[2] / XI[1];
     DV    := XI[1] * DX / double_real(IELUTE);
 
-    AXDIS_1 := array Oned [1: 2.0D-02, 6.0D-02, 6.0D-02, 6.0D-02, 6.0D-02];
+    AXDIS_1 := array_dv Oned [1: 2.0D-02, 6.0D-02, 6.0D-02, 6.0D-02, 6.0D-02];
 
     VEL, LAMBDA :=
       for M in 1, 5
@@ -271,7 +274,7 @@ function Main( returns Double, Oned, Oned, Double, Double,
     COF5    :=  RFISOM * DV / F;
     COF6    := -RRISOM * DV / F;
 
-    GZERO := array Oned [1: 0.4038637706D-05, 0.7454342552D-05, 0.6623185565D-05,
+    GZERO := array_dv Oned [1: 0.4038637706D-05, 0.7454342552D-05, 0.6623185565D-05,
                             0.0070055980D-05,  0.1401119600D-05];
 
     VOL, CELUTE, LN :=

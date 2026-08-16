@@ -1,3 +1,6 @@
+% Origin: test/unit/hello.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define main
 
 function main(X,y,z:INTEGER returns integer)

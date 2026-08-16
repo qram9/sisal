@@ -1,3 +1,6 @@
+% Origin: test/unit/gaussj.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % GAUSS-JORDAN — DV variant, explicit-rank conventions
 %
 %   A[i,j]                 LOAD a scalar  (index count == array rank)

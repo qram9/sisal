@@ -1,3 +1,6 @@
+% Origin: test/unit/MdFFTFreq.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MdFFTFreq -- the multi-factor FFT driver, from test/unit/MdFFTFreq.sis.  This
 % is the top of the frequency-direction stack: it factors the transform across
 % ifax[1..nfax] and drives PassFreq once per factor.  With the three butterfly
@@ -10,7 +13,7 @@
 %   * PING-PONG double buffering through a for-initial carrying TWO arrays and
 %     an integer state -- `next` alternates 40/50 and selects which of x/work is
 %     the source and which the destination on each factor.  A carry mis-wired
-%     between the two buffers still produces an array of the right size.
+%     between the two buffers still produces an array_dv of the right size.
 %   * a multi-value IF returning (integer, array_dv, array_dv), taken inside the
 %     loop body, so the array carries pass through a conditional every factor.
 %   * the parity pre-step: when nfax is odd the first pass writes into x,
@@ -29,7 +32,7 @@
 % intrinsics -- array_fill builds a PLAIN array (AFILL), array_dv_fill builds a
 % dope vector (DVAFILL) -- and mixing the two is what `||` refuses, since it
 % requires both operands to be the same array flavour.  Using array_fill here
-% gives `Type Mismatch: Expected array_dv[REAL], but found array[REAL]`, behind
+% gives `Type Mismatch: Expected array_dv[REAL], but found array_dv[REAL]`, behind
 % a misleading "Unexpected end of input" reported first.
 
 DEFINE Main

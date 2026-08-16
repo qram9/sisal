@@ -308,7 +308,7 @@ run_group LU_PIV_DV         lu_piv_dv            ""
 run_group FEO_FFT_DV        feo_fft_dv           ""
 run_group FEO_FFT           feo_fft              ""
 run_group KIN16_DV          kin16_dv             ""
-# run_group CFFT_DV           cfft_dv              ""
+run_group CFFT_DV           cfft_dv              ""
 run_group HILBERT_DV        hilbert_dv           ""
 run_group ARRAY_SWAP_E2E     array_swap_e2e       ""
 run_group QUICKSORT_DV       quicksort_dv         ""
@@ -471,3 +471,41 @@ echo "========================================"
 echo "Groups passed: ${TOTAL_PASS}  Groups with failures: ${TOTAL_FAIL}"
 echo "========================================"
 [ ${TOTAL_FAIL} -eq 0 ]
+
+run_group TSP_DV                  tsp_dv                 ""
+
+run_group FEM_DV                  fem_dv                 ""
+
+run_group GAUSS_QUAD_DV           gauss_quad_dv          ""
+
+run_group CDF_DV                  cdf_dv                 ""
+
+run_group FACES_DV                faces_dv               ""
+
+run_group INITFFT_DV              initfft_dv             ""
+
+
+run_group LTSTEP_DV               ltstep_dv              ""
+
+
+run_group FROMC_DV                fromc_dv               ""
+
+run_group COMMON_DV               common_dv              ""
+
+run_group FUNCARRAY_DV            funcarray_dv           ""
+run_group CHOOSE_DV               choose_dv              ""
+run_group QUICKSORT_WHEN_DV         quicksort_when_dv      ""
+run_group HELPER_FUNCS_DV         helper_funcs_dv        ""
+run_group HELLO_DV                hello_dv               ""
+run_group GAUSSJ1_DV              gaussj1_dv             ""
+run_group LAPLACE_DV              laplace_dv             ""
+run_group LU_NPIV_DV              lu_npiv_dv             ""
+run_group NEWQUEENS_DV            newqueens_dv           ""
+run_group PBATCHER_DV             pbatcher_dv            ""
+run_group SBATCHER_DV             sbatcher_dv            ""
+run_group PINSERTDATA_DV          pinsertdata_dv         ""
+run_group SCAT_DV                 scat_dv                ""
+run_group BUBBLE_DV               bubble_dv              ""
+run_group ADA_DV                  ada_dv                 ""
+run_group LETREC_SCOPE_DV         letrec_scope_dv        ""
+run_group GEN_EXTENT_DV           gen_extent_dv          ""

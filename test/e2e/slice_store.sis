@@ -1,3 +1,6 @@
+% Origin: test/unit/subscript_slicing.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Write-side test for `A[i, .. : row]` — replace row i with a row.
 % A[i,j]=i*10+j ; Z = a zero row.  A[2, .. : Z] -> row 2 becomes zeros.
 % N=3 -> flat result [11,12,13, 0,0,0, 31,32,33]

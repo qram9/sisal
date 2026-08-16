@@ -1,3 +1,6 @@
+% Origin: test/unit/subscript_slicing.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % rank-3 index permutation (full transpose): a[i,j,k] = b[k,j,i].
 % b[i,j,k]=i*100+j*10+k ; N=3 -> a[1,2,3] = b[3,2,1] = 321
 define main

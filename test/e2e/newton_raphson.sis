@@ -1,3 +1,6 @@
+% Origin: test/unit/basic.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % newton_raphson.sis
 % Newton-Raphson square root algorithm test.
 % Reference: test/unit/for_initial.sis

@@ -1,3 +1,6 @@
+% Origin: test/unit/lu.piv.sis, test/unit/lu.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % LU DECOMPOSITION WITH PIVOTING — DV variant (based on lu.piv.sis)
 %
 % DV changes (all arrays are array_dv — no array-of-arrays):

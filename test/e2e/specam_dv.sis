@@ -1,3 +1,6 @@
+% Origin: test/unit/Specam.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SPECAM — DV variant of unit/Specam.sis (spectral amplitude diagnostics per
 % zonal wavenumber).  ArrInt1/ArrReal1/ArrCplexReal -> array_dv; renamed Main.
 

@@ -1,3 +1,6 @@
+% Origin: test/unit/mat2_construct.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 function Two2( a, b: integer returns integer, integer )
   a + b, a - b

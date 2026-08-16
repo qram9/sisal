@@ -1,3 +1,6 @@
+% Origin: test/unit/Energy.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % ENERGY — DV variant of unit/Energy.sis (spectral shallow-water potential/
 % kinetic energy diagnostics).  ArrCplexReal = array_dv[CplexReal];
 % Csub/Cmul/Conjg inlined from CpxFuncs.sis; function renamed Main.

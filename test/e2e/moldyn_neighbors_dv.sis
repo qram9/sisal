@@ -1,3 +1,6 @@
+% Origin: test/unit/moldyn.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % MOLDYN_NEIGHBORS — DV variant of Get_Neighbor_Lists / Get_Neighbors /
 % Separation from unit/moldyn.sis.  These BUILD the ragged neighbour structure
 % that moldyn_force_dv then consumes: for each particle, which other particles
@@ -9,7 +12,7 @@
 % comes out packed with length = the number of neighbours.
 %
 % Get_Neighbor_Lists is what cannot survive verbatim.  It gathers those rows
-% with `array of N_LIST`, and since each row has a different length the result
+% with `array_dv of N_LIST`, and since each row has a different length the result
 % is ragged -- no array_dv shape.  It becomes the padded rank-2 NEIGHBORS plus
 % the NCOUNT extent vector that the force core already expects, the same
 % treatment GenLinks' layers got.

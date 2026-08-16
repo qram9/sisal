@@ -1,3 +1,6 @@
+% Origin: test/unit/record.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Struct-of-Arrays: the nucleic `nuc` target layout.  A ragged nuc (7 rows of
 % differing length) transposes into ONE record whose fields are each a single
 % DENSE rank-2 array_dv (row-length x nucs), rectangular hence dense -- plus a

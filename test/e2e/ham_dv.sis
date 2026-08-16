@@ -1,3 +1,6 @@
+% Origin: test/unit/ham.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % ham -- Hamming / 5-smooth numbers by three-way stream merge, from
 % test/unit/ham.sis.  Ported UNCHANGED: no arrays, so nothing to convert.
 %

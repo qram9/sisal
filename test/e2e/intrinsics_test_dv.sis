@@ -1,3 +1,6 @@
+% Origin: test/unit/intrinsics_test.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define AllIntrinsics
 
 function AllIntrinsics(A, B: array_dv[real]; flag: boolean returns array_dv[real], array_dv[real], array_dv[boolean])

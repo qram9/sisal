@@ -1,0 +1,54 @@
+% Origin: test/unit/newqueens.sis
+% Port Note: N-queens solver with forward declaration and explicit type signatures.
+% Converted 2D ragged solution_list (array[array[integer]]) to flat rank-2 array_dv[integer].
+%
+define Main
+
+type queen_list = array_dv[integer];
+type solution_list = array_dv[integer];
+
+forward function in_check(row, column : integer; queens : queen_list returns boolean)
+
+function Place(col, n : integer; queens : queen_list returns solution_list)
+  if col > n then
+    for i in 1, 1
+    returns array_dv of queens
+    end for
+  else
+    let
+      all_ext, ok :=
+        for row in 1, n
+        returns array_dv of queens[col : row]
+                array_dv of ~in_check(row, col, queens)
+        end for;
+      valid_ext := COMPRESS(ok, all_ext);
+      nvalid    := for f in ok
+                   returns value of sum (if f then 1 else 0 end if)
+                   end for
+    in
+      for i in 1, nvalid
+        subs := Place(col + 1, n, valid_ext[i, ..])
+      returns
+        value of catenate subs
+      end for
+    end let
+  end if
+end function
+
+function Main(level : integer returns solution_list)
+  let
+    empty := for j in 1, level returns array_dv of 0 end for
+  in
+    Place(1, level, empty)
+  end let
+end function
+
+function in_check (row, column : integer; queens : queen_list returns boolean)
+    for old_column in 1, column - 1
+        old_row := queens[old_column];
+        check_value := (row = old_row) |
+                       ((old_row + old_column) = (row + column)) |
+                       ((old_row - old_column) = (row - column))
+    returns value of sum check_value
+    end for
+end function

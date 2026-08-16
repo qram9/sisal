@@ -1,3 +1,6 @@
+% Origin: test/unit/tagcase_bare_mixed.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % Mixed bound/bare tagcase nesting — classification must be PER INSTANCE
 % (the backend resolves each arm's own TAGCASE compound via parent_map and
 % keys the port-0 payload protocol on that node's TAGCASE_BARE pragma):

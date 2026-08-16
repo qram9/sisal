@@ -1,3 +1,6 @@
+% Origin: test/unit/loop2.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Minimized reproducer for the for-initial MERGE int<->array mis-wiring.
 % Lifted from loop2_dv.sis: the INNERMOST `for initial` only.
 % Carries: k (int), i (int), Xt (array_dv) + their `old` shadows -> the mix of

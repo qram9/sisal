@@ -1,0 +1,45 @@
+% Origin: test/unit/einsum_test.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for EINSUM tensor contraction tests.
+%
+% EINSUM Tensor Contraction Tests.
+% Covers dot product ("i,i->"), outer product ("i,j->ij"), trace ("ii->"),
+% matrix transpose ("ij->ji"), and triple tensor contraction ("ijk,ijk->").
+%
+define Main
+
+type ai = array_dv[integer];
+type ar = array_dv[real];
+
+function t_dot(u, v: ai returns integer)
+  EINSUM("i,i->", u, v)
+end function
+
+function t_outer(u, v: ai returns ai)
+  EINSUM("i,j->ij", u, v)
+end function
+
+function t_trace(A: ai returns integer)
+  EINSUM("ii->", A)
+end function
+
+function t_transpose(A: ar returns ar)
+  EINSUM("ij->ji", A)
+end function
+
+function t_triple_contract(A, B: ar returns real)
+  EINSUM("ijk,ijk->", A, B)
+end function
+
+function Main(u, v: ai; A_sq: ai; Mat: ar returns integer, integer, integer, integer, real)
+  let
+    dot_res := t_dot(u, v);
+    outer_arr := t_outer(u, v);
+    outer_sz := array_size(outer_arr);
+    tr_res := t_trace(A_sq);
+    trans_arr := t_transpose(Mat);
+    trans_sz := array_size(trans_arr);
+    triple_res := t_triple_contract(Mat, Mat);
+  in
+    dot_res, outer_sz, tr_res, trans_sz, triple_res
+  end let
+end function

@@ -1,3 +1,6 @@
+% Origin: test/unit/moldyn.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % MOLDYN_NBRLIST — moldyn's neighbour structure as a LIST OF array_dv, which is
 % what a ragged 2-D actually is: the inner dimension is a real rank-1 dope
 % vector of exactly the right length, and the outer dimension is a cons list

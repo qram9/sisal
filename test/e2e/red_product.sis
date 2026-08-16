@@ -1,3 +1,6 @@
+% Origin: test/unit/red_product.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % Reduction: product of i for i in 1..N  =>  N!.   N=5 -> 120
 define main
 function main(N: integer returns integer)

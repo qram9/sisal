@@ -1,3 +1,6 @@
+% Origin: test/unit/capture.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % bind array B:=A + scalar s; nested let binds array C:=B; forall grabs B,C,s
 define main
 type IOneD = array_dv[integer];

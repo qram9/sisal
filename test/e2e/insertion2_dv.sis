@@ -1,3 +1,6 @@
+% Origin: test/unit/insertion2.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % INSERTION2 — DV variant of unit/insertion2.sis (insertion sort with the
 % early-exit inner walk; the original's "this is not insertion sort" comment
 % notwithstanding, the early exit is correct because the prefix is sorted).

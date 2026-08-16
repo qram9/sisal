@@ -1,3 +1,6 @@
+% Origin: test/unit/gmember.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % member_dv — Paraffins structural equality + membership (memberi/memberii
 % merged, all arrays array_dv).  Exercises the union/tagcase stack end to
 % end: recursive union (Carbon: array_dv[Radical]), null-payload tags

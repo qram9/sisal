@@ -1,9 +1,12 @@
+% Origin: test/unit/LegPoly.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Legendre Polynomials of 1st Kind — DV variant (based on LegPoly.sis)
 %
 % DV changes:
 %   • ArrDreal1 = array_dv[double_real]: the polynomial coefficient array is DV.
-%   • singleton(v) helper replaces ARRAY ArrDreal1 [1: v].
-%   • RETURNS ARRAY of 0.0d0 → RETURNS ARRAY_DV of 0.0d0 in the fill forall.
+%   • singleton(v) helper replaces array_dv ArrDreal1 [1: v].
+%   • returns array_dv of 0.0d0 → RETURNS ARRAY_DV of 0.0d0 in the fill forall.
 %   • All indexed element-update operations on pLoop1/ppp/p4 work unchanged
 %     on DV arrays.
 

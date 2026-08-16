@@ -1,3 +1,6 @@
+% Origin: test/unit/kin16.sis, test/unit/kin16_dv.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % KIN16 ZONE ELECTROPHORESIS — DV variant (based on kin16.sis)
 %
 % DV changes:
@@ -5,16 +8,16 @@
 %     (rows read as C[i,j]; rows built rank-1 and stacked by rank-2 gathers).
 %   • singleton(v) helper for single-element DV prepend/append.
 %   • array_addl(X, v) → singleton(v) || X
-%   • Inner foralls: returns array of scalar → returns array_dv of scalar.
+%   • Inner foralls: returns array_dv of scalar → returns array_dv of scalar.
 %   • Cross-forall for DLAMBDA (for M cross I) converted to nested form
-%     (for M returns array of (for I returns array_dv of ...)) to keep
-%     TwoD = array[OneD] consistent.
+%     (for M returns array_dv of (for I returns array_dv of ...)) to keep
+%     TwoD = array_dv[OneD] consistent.
 %   • VELOCITY inner arrays: array_addl(Vc, v) → singleton(v) || Vc.
 %   • Main loop C reconstruction: the 2 x N matrix is rebuilt by a
 %     row-valued IF gather (for r in 1,2 returns array_dv of ...).
 %   • Main takes IT/N/NSEG as parameters (the benchmark hardwired
 %     42000 x 14285; the e2e harness dials it down).
-%   • array[1: scalar, scalar] (2-element) changed to singleton || singleton.
+%   • array_dv[1: scalar, scalar] (2-element) changed to singleton || singleton.
 
 define Main
 
@@ -110,8 +113,8 @@ function FILLUP( N, NSEG: integer; DX: Double; GZERO: OneD
 
     % Each C row: position 1 = 0 (ghost), 2..NSEG = GZERO[M], NSEG+1..N = 0.
     % Original: array_addl(R1, 0.0D0) || R2
-    % where R1 = for J in 2,NSEG returns array of GZERO[M],
-    %       R2 = for J in NSEG+1,N returns array of 0.0D0
+    % where R1 = for J in 2,NSEG returns array_dv of GZERO[M],
+    %       R2 = for J in NSEG+1,N returns array_dv of 0.0D0
     % → singleton(0.0D0) || R1 || R2
     C := for M in 1, 2
            R1 := for J in 2,    NSEG returns array_dv of GZERO[M]  end for;
@@ -135,7 +138,7 @@ function VELOCITY( DT, DX: Double; N: integer; X: OneD
     T1 := singleton(6.0D-04)    || singleton(5.0D-04);
     T2 := singleton(2.1D-07)    || singleton(1.67D-07);
 
-    % V, DEFF: TwoD = array[OneD].
+    % V, DEFF: TwoD = array_dv[OneD].
     % Each row is built by prepending the boundary value.
     % array_addl(Vc, T1[M]*DT/DX) → singleton(T1[M]*DT/DX) || Vc
     V, DEFF :=
@@ -228,7 +231,7 @@ function Main( IT, N, NSEG: integer returns Edit, Edit )
                 5.0D-01*RK1*exp(old C[1,NP], 2.0D0) - RK2*old C[2,NP];
 
         % Build updated DV rows.
-        % Original: array[1: old C[1,1], C12] || C1c || array[1: C1NP, old C[1,N]]
+        % Original: array_dv[1: old C[1,1], C12] || C1c || array_dv[1: C1NP, old C[1,N]]
         % With DV: singleton(C[1,1]) || singleton(C12) || C1c || singleton(C1NP) || singleton(C[1,N])
         C1 := singleton(old C[1,1]) || singleton(C12)  ||
               C1c ||

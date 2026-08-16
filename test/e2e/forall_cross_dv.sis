@@ -1,3 +1,6 @@
+% Origin: test/unit/test_forall_cross.sis, test/unit/forall_dv_cross_dot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Element-scatter CROSS over dv values — outer product, flat rank-2.
 % Regression pin: the forall's dot-conformance diamond used to zip the
 % INDEPENDENT cross axes into one DV_CONFORM; different sizes (3 x 2)

@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_add.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define main
 
 function tuple_add(A, B : array_dv[real] returns array_dv[real])

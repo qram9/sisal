@@ -1,0 +1,39 @@
+% Origin: test/unit/letrec_scope.sis, test/unit/letrec.sis
+% Port Note: Mutual recursive scope test ported to array_dv[integer].
+%
+define Main
+
+type ArrInt = array_dv[integer];
+
+function Fact(N : integer returns integer)
+  if N <= 1 then 1
+  else N * Fact(N - 1)
+  end if
+end function
+
+forward function G(N : integer returns integer)
+
+function F(N : integer returns integer)
+  let InternalF := N * 2
+  in
+    if N <= 0 then 0
+    else InternalF + G(N - 1)
+    end if
+  end let
+end function
+
+function G(N : integer returns integer)
+  let InternalG := N + 10
+  in
+    if N <= 0 then 0
+    else InternalG + F(N - 1)
+    end if
+  end let
+end function
+
+function Main( returns ArrInt )
+  for i in 1, 2
+    v := if i = 1 then F(3) else Fact(5) end if;
+  returns array_dv of v
+  end for
+end function

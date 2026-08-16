@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_GEOM -- the cell geometry and the generator of ssphot.sis, a Monte
 % Carlo photon-transport code.  Layer 1 of that port.
 %
@@ -9,10 +12,10 @@
 %
 % TWO REWRITES, both forced and both mechanical.
 %
-% 1. `coords = array[array[coordrec]]` becomes a FLAT rank-2 array_dv of
+% 1. `coords = array_dv[array_dv[coordrec]]` becomes a FLAT rank-2 array_dv of
 %    coordrec (nzones x 5).  Nested array_dv is malformed -- the descriptor is
 %    the array, so a dope holding dopes has no meaning here -- and the C
-%    lowering is array_dv-only, so `array[...]` is not an option to keep.
+%    lowering is array_dv-only, so `array_dv[...]` is not an option to keep.
 %
 % 2. `for coord in cellcoords at row, col` becomes
 %    `for row in 1, nzones cross col in 1, 5`.  The scatter form cannot survive:

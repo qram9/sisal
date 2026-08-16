@@ -1,7 +1,7 @@
 % RANF, the Cray/LLNL 48-bit multiplicative congruential generator, as written
 % in Sisal by J. Feo and T. DeBoni -- test/unit/ranf.sis, ported to array_dv.
 % The full file also has `rans` (which divides the wheel into n subsequences and
-% returns array[Four_Plex] -- an array OF arrays, boxed territory) and the
+% returns array_dv[Four_Plex] -- an array_dv of arrays, boxed territory) and the
 % ranf_k/ranf_k_binary/ranf_a_to_k machinery that supports it; those stay in
 % unit/.  ranf_mod_mult and ranf below are self-contained and are the generator
 % proper.

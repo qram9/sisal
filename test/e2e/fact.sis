@@ -1,3 +1,6 @@
+% Origin: test/unit/fact.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define main
 
 function main( n : integer returns integer )

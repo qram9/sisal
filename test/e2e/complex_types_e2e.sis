@@ -1,3 +1,6 @@
+% Origin: test/unit/complex_types.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % complex_types.sis — built-in complex scalar and array types
 %
 % complex_half   = record[re: half;   im: half  ]
@@ -5,7 +8,7 @@
 % complex_double = record[re: double; im: double]
 %
 % Array variants registered automatically:
-%   array_complex_{half,float,double}    — static array[complex_T]
+%   array_complex_{half,float,double}    — static array_dv[complex_T]
 %   array_dv_complex_{half,float,double} — dope-vector array_dv[complex_T]
 %
 % Builders:
@@ -18,7 +21,7 @@ define complex_types,
   t_soa_float,
   t_aos_float
 
-type vr  = array[real]
+type vr  = array_dv[real]
 
 % Construct a complex_float record and return it
 function t_make_cfloat (r, i : real returns complex_float)

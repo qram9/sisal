@@ -1,3 +1,6 @@
+% Origin: test/unit/sp.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Sparse matrix-vector multiply — DV variant (based on sp.sis)
 %
 % All arrays are flat array_dv: A is a 4 x n rank-2 dv of reals, AJ a 4 x n

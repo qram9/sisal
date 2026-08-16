@@ -1,3 +1,6 @@
+% Origin: test/unit/transpose.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % transpose_at_dv.sis -- transpose WITHOUT loop interchange: the cross forall
 % iterates row-major over A (good read locality) and the scatter placement
 % [j, i] supplies the store coordinates.  The Sisal 1.2 idiom needed the loops

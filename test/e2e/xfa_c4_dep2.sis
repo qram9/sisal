@@ -1,3 +1,6 @@
+% Origin: test/unit/basic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 define main
 function main(n: integer returns array_dv[integer])
   for i in 1, n cross j in i, n

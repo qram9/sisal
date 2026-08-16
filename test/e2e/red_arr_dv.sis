@@ -1,3 +1,6 @@
+% Origin: test/unit/red_argmax.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % array-VALUED reductions: outer reduce over inner-gathered arrays.
 % sum/product/greatest/least over 1-D rows (rank 1) + sum over 2-D matrices (rank 2).
 define main

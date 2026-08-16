@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % nucleic pseudoknot_domains: the backtracking DOMAIN SEARCH, on the pieces we
 % built -- SoA data (row slice) + the ML cons-list stack + get_var look-back.
 %

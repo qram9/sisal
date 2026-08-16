@@ -1,3 +1,6 @@
+% Origin: test/unit/unsplit.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % UNSPLIT, part 8 of 8 -- the INTEGRATED timestep.
 %
 % Everything the previous seven parts covered, wired together as the original
@@ -14,9 +17,9 @@
 % THE ARRAY REWRITE, applied to the whole file at once and entirely mechanical:
 %     PlaneArray  -> Plane   (flat rank-2 array_dv)
 %     SystemArray -> Sys     (flat rank-3)
-%     `returns array of` -> `returns array_dv of`
+%     `returns array_dv of` -> `returns array_dv of`
 %     30 single-subscript row reads  A[j] -> A[j, ..]
-%     the one `array Sys [ 1: dq1, dq2t ]` literal -> a gather over the two
+%     the one `array_dv Sys [ 1: dq1, dq2t ]` literal -> a gather over the two
 %     direction planes
 % `global sqrt` is dropped: math intrinsics are implicit.
 %

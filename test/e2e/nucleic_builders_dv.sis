@@ -1,3 +1,6 @@
+% Origin: test/unit/nucleic.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % nucleic constraint builders: `try`, the REAL pseudoknot_constraint (both of
 % its distance branches), `reference`, and `wc_dumas` -- the template the other
 % four builders (helix3/helix5/G37_A38/P_O3a) follow verbatim.

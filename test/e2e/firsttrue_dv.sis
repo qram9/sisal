@@ -1,5 +1,8 @@
+% Origin: test/unit/for_all_reduce.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % FirstTrue, from test/unit/crypto.sis -- linear search for the first set flag.
-% The rest of crypto (26^3 candidate strings, nested array[character]) is boxed
+% The rest of crypto (26^3 candidate strings, nested array_dv[character]) is boxed
 % array-of-array territory and stays parked; this function is self-contained and
 % is worth having on its own for three reasons.
 %

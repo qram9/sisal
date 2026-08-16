@@ -1,3 +1,6 @@
+% Origin: test/unit/tagcase.sis
+% Port Note: uses list pattern / union node representation for unavoidable ragged structures.
+%
 % TAG AND FIELD SCOPING -- regression test for b2027f0 and 5db4f55.
 %
 % Tag names used to be resolved GLOBALLY: lookup_tag_nums folded the entire

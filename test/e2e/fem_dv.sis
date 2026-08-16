@@ -1,0 +1,279 @@
+% Origin: test/unit/newfem.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
+% Finite Element Method (FEM) 2D Truss Solver benchmark.
+% Assembles global stiffness matrix K from element stiffness matrices,
+% constructs global force vector F using boundary conditions and equation numbering,
+% and solves K * U = F via Crout LDLT matrix factorization and back substitution.
+%
+define Main
+
+type areal = array_dv[real];
+type aint = array_dv[integer];
+type aaint = array_dv[integer];  % 2D array_dv
+type chip = record[x, y: integer; val: real];
+type chiparray = array_dv[chip];
+
+type control = record[numnp, numel, neq: integer];
+type loc = record[lm: aint; ien: aint];
+type elemt = array_dv[loc];
+type nodal = record[x, y, force, disp: areal];
+
+function my_sqrt(q: real returns real)
+  real(sqrt(double_real(q)))
+end function
+
+% Builds the ID array (Boundary Conditions mapping: 1 for active DOF, 0 for fixed)
+function BUILDID(NUMNP, NUMBC: integer; BC: aaint returns aaint)
+  for initial
+    IDROW := array_dv_fill(1, 2, 1);
+    ID := for i in 1, NUMNP returns array_dv(NUMNP) of IDROW end for;
+    I := 0;
+  while I < NUMBC repeat
+    I := old I + 1;
+    row_idx := BC[I, 1];
+    col_idx := BC[I, 2];
+    % Set fixed DOF to 0
+    ID := old ID[row_idx, col_idx : 0];
+  returns value of ID
+  end for
+end function
+
+% Assigns global equation numbers to active (non-zero) degrees of freedom
+function EQNUM(NUMNP: integer; ID: aaint returns aaint, integer)
+  for initial
+    I := 0;
+    NEQ := 0;
+    IC := ID;
+  while I < NUMNP repeat
+    I := old I + 1;
+    IC, NEQJ := for initial
+                  J := 0;
+                  NEQJ := old NEQ;
+                  ICJ := old IC;
+                while J < 2 repeat
+                  J := old J + 1;
+                  IELEM := old IC[I, J];
+                  NEQJ := if IELEM ~= 0 then old NEQJ + 1 else old NEQJ end if;
+                  ICJ := if IELEM ~= 0 then
+                           old ICJ[I, J : NEQJ]
+                         else
+                           old ICJ
+                         end if;
+                returns value of ICJ
+                        value of NEQJ
+                end for;
+    NEQ := NEQJ;
+  returns value of IC
+          value of NEQ
+  end for
+end function
+
+% Builds the Location Matrix (LM) mapping element local DOFs to global equation numbers
+function BUILDLM(NUMEL: integer; IEN, ID: aaint returns aaint)
+  for EL in 1, NUMEL cross J in 1, 4
+    val := if J = 1 then ID[IEN[EL, 1], 1]
+           elseif J = 2 then ID[IEN[EL, 1], 2]
+           elseif J = 3 then ID[IEN[EL, 2], 1]
+           else ID[IEN[EL, 2], 2]
+           end if;
+  returns array_dv(NUMEL, 4) of val
+  end for
+end function
+
+% Builds global force vector F
+function BUILDF(NUMNF: integer; IFR: aaint; FR: areal; ID: aaint; NEQ: integer returns areal)
+  for initial
+    F := array_dv_fill(1, NEQ, 0.0);
+    I := 0;
+  while I < NUMNF repeat
+    I := old I + 1;
+    J := ID[IFR[I, 1], IFR[I, 2]];
+    F := old F[J : FR[I]];
+  returns value of F
+  end for
+end function
+
+% Computes 4x4 element stiffness matrix for a 2D truss element and returns array_dv of non-zero entries (chips)
+function truss(loc: loc; nodal: nodal returns chiparray)
+  let
+    x1 := nodal.x[loc.ien[1]];
+    x2 := nodal.x[loc.ien[2]];
+    y1 := nodal.y[loc.ien[1]];
+    y2 := nodal.y[loc.ien[2]];
+    dx := x2 - x1;
+    dy := y2 - y1;
+    length := my_sqrt(dx * dx + dy * dy);
+    ym := 1.0;
+    area := 1.0;
+    const := ym * area / length;
+    c1 := dx / length;
+    s1 := dy / length;
+    cc := c1 * c1 * const;
+    cs := c1 * s1 * const;
+    ss := s1 * s1 * const;
+
+    % kelem lower-triangle values (4x4 matrix mapped to 1D flat indexed by 1..16)
+    k11 := cc;  k12 := cs;  k13 := -cc; k14 := -cs;
+    k21 := cs;  k22 := ss;  k23 := -cs; k24 := -ss;
+    k31 := -cc; k32 := -cs; k33 := cc;  k34 := cs;
+    k41 := -cs; k42 := -ss; k43 := cs;  k44 := ss;
+  in
+    for i in 1, 4 cross j in 1, 4
+      val := if i = 1 & j = 1 then k11
+             elseif i = 1 & j = 2 then k12
+             elseif i = 1 & j = 3 then k13
+             elseif i = 1 & j = 4 then k14
+             elseif i = 2 & j = 1 then k21
+             elseif i = 2 & j = 2 then k22
+             elseif i = 2 & j = 3 then k23
+             elseif i = 2 & j = 4 then k24
+             elseif i = 3 & j = 1 then k31
+             elseif i = 3 & j = 2 then k32
+             elseif i = 3 & j = 3 then k33
+             elseif i = 3 & j = 4 then k34
+             elseif i = 4 & j = 1 then k41
+             elseif i = 4 & j = 2 then k42
+             elseif i = 4 & j = 3 then k43
+             else k44
+             end if;
+    returns array_dv(16) of record chip [x: loc.lm[i]; y: loc.lm[j]; val: val]
+    end for
+  end let
+end function
+
+% Forms global stiffness matrix K by scattering element chips into K
+function stiff(control: control; elemt: elemt; nodal: nodal returns areal)
+  let
+    alltruss := for lnum in 1, control.numel
+                returns value of catenate truss(elemt[lnum], nodal)
+                end for;
+  in
+    for initial
+      gstiff := array_dv_fill(1, control.neq * control.neq, 0.0);
+      chipindex := 1;
+      num_chips := array_size(alltruss);
+    while chipindex <= num_chips repeat
+      c := alltruss[old chipindex];
+      chipindex := old chipindex + 1;
+
+      gstiff := if (c.x ~= 0) & (c.y ~= 0) then
+                  let idx := (c.x - 1) * control.neq + c.y in
+                    old gstiff[idx : old gstiff[idx] + c.val]
+                  end let
+                else
+                  old gstiff
+                end if;
+    returns value of gstiff
+    end for
+  end let
+end function
+
+function readata(numnpr, numelr, neqr: integer; xr, yr: areal;
+                 lmr, ienr: aaint returns areal)
+  let
+    nodal := record[x: xr; y: yr; force: array_dv_fill(1, 0, 0.0); disp: array_dv_fill(1, 0, 0.0)];
+    control := record[numnp: numnpr; numel: numelr; neq: neqr];
+    elemt := for lnum in 1, numelr
+               lm_row := for j in 1, 4 returns array_dv of lmr[lnum, j] end for;
+               ien_row := for j in 1, 2 returns array_dv of ienr[lnum, j] end for;
+             returns array_dv of record[lm: lm_row; ien: ien_row]
+             end for;
+  in
+    stiff(control, elemt, nodal)
+  end let
+end function
+
+% Crout LDLT Factorization of symmetric matrix A (size N x N)
+function FACTOR(A: areal; N: integer returns areal, areal)
+  for initial
+    I := 1;
+    D := array_dv_fill(1, N, 0.0)[1 : A[1]];
+    L := for initial
+           J := 2;
+           L_init := array_dv_fill(1, N * N, 0.0);
+         while J <= N repeat
+           idx := (J - 1) * N + 1;
+           L_init := old L_init[idx : A[idx] / A[1]];
+           J := old J + 1;
+         returns value of L_init
+         end for;
+  while I < N repeat
+    I := old I + 1;
+    % Compute dot product for D[I]
+    X := for K in 1, I - 1
+           l_ki := old L[(K - 1) * N + I];
+         returns value of sum (l_ki * l_ki * old D[K])
+         end for;
+
+    d_val := A[(I - 1) * N + I] - X;
+    D := old D[I : d_val];
+
+    % Compute row I of L
+    L := for initial
+           K := I + 1;
+           L_row := old L;
+         while K <= N repeat
+           a_ki := A[(K - 1) * N + I];
+           fac1 := a_ki - (for M in 1, I - 1
+                           returns value of sum (old L[(M - 1) * N + K] * old D[M] * old L[(M - 1) * N + I])
+                           end for);
+           l_ik := fac1 / d_val;
+           L_row := old L_row[(I - 1) * N + K : l_ik];
+           K := old K + 1;
+         returns value of L_row
+         end for;
+  returns value of D
+          value of L
+  end for
+end function
+
+% Forward reduction & Back substitution: Solve L * D * L^T * X = B
+function BSOLVE(D, L: areal; B: areal; N: integer returns areal)
+  let
+    % Forward reduction: L * G = B
+    G := for initial
+           I := 1;
+           G_arr := array_dv_fill(1, N, 0.0)[1 : B[1]];
+         while I < N repeat
+           I := old I + 1;
+           elem := B[I] - (for J in 1, I - 1
+                          returns value of sum (L[(J - 1) * N + I] * old G_arr[J])
+                          end for);
+           G_arr := old G_arr[I : elem];
+         returns value of G_arr
+         end for;
+
+    % Back substitution: D * L^T * X = G
+    X := for initial
+           I := N;
+           X_arr := array_dv_fill(1, N, 0.0)[N : G[N] / D[N]];
+         while I > 1 repeat
+           I := old I - 1;
+           elem := (G[I] / D[I]) - (for J in I + 1, N
+                                   returns value of sum (L[(I - 1) * N + J] * old X_arr[J])
+                                   end for);
+           X_arr := old X_arr[I : elem];
+         returns value of X_arr
+         end for;
+  in
+    X
+  end let
+end function
+
+function Main(NUMNP: integer; XC, YC: areal;
+              NUMEL: integer; IEN: aaint;
+              NUMBC: integer; BC: aaint;
+              NUMNF: integer; IFR: aaint; FR: areal
+         returns areal)
+  let
+    ID1 := BUILDID(NUMNP, NUMBC, BC);
+    ID2, NEQ := EQNUM(NUMNP, ID1);
+    LM := BUILDLM(NUMEL, IEN, ID2);
+    F := BUILDF(NUMNF, IFR, FR, ID2, NEQ);
+    K := READATA(NUMNP, NUMEL, NEQ, XC, YC, LM, IEN);
+    D, L := FACTOR(K, NEQ);
+  in
+    BSOLVE(D, L, F, NEQ)
+  end let
+end function

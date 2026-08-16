@@ -1,3 +1,6 @@
+% Origin: test/unit/test_forall_simple.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % for x at i in A — element and its 1-based index.
 % NB: the element var must NOT case-collide with the array (Sisal is
 % case-insensitive, so `for a in A` self-shadows A and miscompiles).

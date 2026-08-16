@@ -1,3 +1,6 @@
+% Origin: test/unit/for_initial.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % ZERO-TRIP RETURNS OVER AN EXPRESSION.
 %
 % docs/loop_behavior_comparison.md Rule 1: a for-initial's `initial` clause is
@@ -15,8 +18,8 @@
 %
 % Expected values are OSC 13.0.3's (~/work/oldsisal), not our own:
 %     value of I*2       -> 20      value of I*3+1  -> 31
-%     array of I*2       -> [20]    value of sum I*2 -> 20
-% and OSC agrees with the doc on the bare forms too: zero-trip `array of I`
+%     array_dv of I*2       -> [20]    value of sum I*2 -> 20
+% and OSC agrees with the doc on the bare forms too: zero-trip `array_dv of I`
 % gives [1,1: 10], the 5-check loop gives [1,6: 1 2 3 4 5 6], sum -> 21.
 
 define Main

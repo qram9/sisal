@@ -1,7 +1,10 @@
+% Origin: test/unit/nanu.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % NANU -- Dave Cann's A * B = C matrix multiply (test/unit/nanu.sis, LLNL 1991),
 % rewritten under the array_dv model.
 %
-% THE ARRAY REWRITE.  `type Twod = array[Oned]` becomes a flat rank-2 array_dv,
+% THE ARRAY REWRITE.  `type Twod = array_dv[Oned]` becomes a flat rank-2 array_dv,
 % and the original's scatter over rows
 %     for E in array_fill(1,n,array_fill(1,n,0.0)) at I,J
 % becomes an index cross -- `for i in 1,n cross j in 1,n` -- which is the same

@@ -1,3 +1,6 @@
+% Origin: test/unit/tst_loopX.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % TST_LOOPX — DV variant of unit/tst_loopX.sis (hydro fragment).
 % ThreeD -> flat rank-3 array_dv[double_real]; pins a PERMUTED 3-index read
 % (w[K,J,I] — transposed access) and a non-1 lower bound on the outer gather

@@ -1,0 +1,103 @@
+% Origin: test/unit/LTStep.sis
+% Port Note: Uses rank-polymorphic array_dv (flat dope-vector) for Atmospheric Loop TimeStep simulation.
+%
+% Atmospheric TimeStep Loop & Physics Diagnostic Suite.
+% Integrates linear spectral force terms, energy diagnostics, and atmospheric angular momentum.
+%
+define Main
+
+type CplexReal = record[Repart, Impart: real];
+type ArrCplexReal = array_dv[CplexReal];
+type ArrInt1 = array_dv[integer];
+type ArrReal1 = array_dv[real];
+
+function Cadd(cnum1, cnum2: CplexReal returns CplexReal)
+  record CplexReal [
+    Repart: cnum1.Repart + cnum2.Repart;
+    Impart: cnum1.Impart + cnum2.Impart
+  ]
+end function
+
+function Csub(cnum1, cnum2: CplexReal returns CplexReal)
+  record CplexReal [
+    Repart: cnum1.Repart - cnum2.Repart;
+    Impart: cnum1.Impart - cnum2.Impart
+  ]
+end function
+
+function Crmul(cons: real; cnum: CplexReal returns CplexReal)
+  record CplexReal [
+    Repart: cons * cnum.Repart;
+    Impart: cons * cnum.Impart
+  ]
+end function
+
+function Cmul(cnum1, cnum2: CplexReal returns CplexReal)
+  record CplexReal [
+    Repart: cnum1.Repart * cnum2.Repart - cnum1.Impart * cnum2.Impart;
+    Impart: cnum1.Repart * cnum2.Impart + cnum1.Impart * cnum2.Repart
+  ]
+end function
+
+function Conjg(cnum: CplexReal returns CplexReal)
+  record CplexReal [
+    Repart: cnum.Repart;
+    Impart: -cnum.Impart
+  ]
+end function
+
+function Linear(mx, jx: integer; kmjx, kmjxx, ksq: ArrInt1; tw: real; epsi: ArrReal1; c, p, u, v, ctin, e, ptin: ArrCplexReal returns ArrCplexReal, ArrCplexReal)
+  let
+    zero := record CplexReal [Repart: 0.0; Impart: 0.0];
+    pt, ct := for m in 1, mx
+                pt_m, ct_m := for j in 1, jx
+                                l := j + m - 2;
+                                kl := real(ksq[l]);
+                                jm := kmjx[m] + j;
+                                jm_p1 := jm + 1;
+                                jm_m1 := jm - 1;
+                                jmx := kmjxx[m] + j;
+                                pjm_p1, cjm_p1 := if j = jx then zero, zero else p[jm_p1], c[jm_p1] end if;
+                                pjm_m1, cjm_m1 := if j = 1 then zero, zero else p[jm_m1], c[jm_m1] end if;
+                              returns
+                                array_dv of Csub(ptin[jm], Crmul(tw, Cadd(Crmul(epsi[jmx], cjm_m1), Cadd(Crmul(epsi[jmx + 1], cjm_p1), v[jmx]))))
+                                array_dv of Cadd(ctin[jm], Cadd(Crmul(tw, Csub(Cadd(Crmul(epsi[jmx], pjm_m1), Crmul(epsi[jmx + 1], pjm_p1)), u[jmx])), Crmul(0.5 * kl, e[jm])))
+                              end for;
+              returns
+                value of catenate pt_m
+                value of catenate ct_m
+              end for;
+  in
+    pt, ct
+  end let
+end function
+
+function Energy(jx, jxmx: integer; zmean, asq: real; e, h, zm: ArrCplexReal returns real, real, real)
+  let
+    c1, c2, c3, c4 := 0.942809, 0.421637, 1.4142136, 1E-5;
+    gmass := 4.0 * (zmean - h[1].Repart) / asq;
+    e1 := e[1].Repart * c3 * (zmean - h[1].Repart);
+    backdown := 2 + jxmx;
+    eup := for j in 2, jxmx
+             k := backdown - j;
+             conjg_e := Conjg(e[k]);
+             rel := Cmul(Csub(zm[k], h[k]), conjg_e).Repart;
+           returns value of sum
+             if k > jx then 2.0 * rel else rel end if
+           end for;
+    tot_e := (e1 + eup) / gmass * c4;
+  in
+    tot_e, e1, eup
+  end let
+end function
+
+function Main(mx, jx, jxmx: integer; tw, zmean, asq, ww: real; kmjx, kmjxx, ksq: ArrInt1; epsi, p1: ArrReal1; p, c, z, h, u, v, zm, e, ctin, ptin: ArrCplexReal returns real, real, real, integer, integer)
+  let
+    pt, ct := Linear(mx, jx, kmjx, kmjxx, ksq, tw, epsi, c, p, u, v, ctin, e, ptin);
+    tot_e, e1, eup := Energy(jx, jxmx, zmean, asq, e, h, zm);
+    pt_sz := array_size(pt);
+    ct_sz := array_size(ct);
+  in
+    tot_e, e1, eup, pt_sz, ct_sz
+  end let
+end function

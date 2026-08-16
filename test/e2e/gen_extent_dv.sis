@@ -1,0 +1,42 @@
+% Origin: test/unit/gen_extent.sis
+% Port Note: Generator expression-bound lowering with rank-polymorphic array_dv.
+%
+% Generator Expression Upper/Lower Bound Evaluation — DV Variant.
+%
+define Main, genext_sub, genext_lb, genext_cross
+
+type OneI = array_dv[integer];
+type TwoI = array_dv[integer];
+
+% single-level expression upper bound: i runs 1..(n-1).
+% n=5 -> i in 1..4 -> [1,4,9,16].
+function genext_sub(n: integer returns OneI)
+  for i in 1, n-1
+  returns array_dv of i * i
+  end for
+end function
+
+% expression LOWER bound too: i runs (n-3)..n.
+% n=6 -> i in 3..6 -> [3,4,5,6].
+function genext_lb(n: integer returns OneI)
+  for i in n-3, n
+  returns array_dv of i
+  end for
+end function
+
+% cross nest with an expression bound on the INNER axis: i in 1..n, j in 1..(m-1).
+% n=2, m=4 -> 2x3 matrix: [11 12 13; 21 22 23].
+function genext_cross(n: integer; m: integer returns TwoI)
+  for i in 1, n cross j in 1, m-1
+  returns array_dv of i * 10 + j
+  end for
+end function
+
+function Main(n: integer; m: integer returns OneI, OneI, TwoI)
+  let a1 := genext_sub(n);
+      a2 := genext_lb(n);
+      a3 := genext_cross(n, m);
+  in
+      a1, a2, a3
+  end let
+end function

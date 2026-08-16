@@ -1,3 +1,6 @@
+% Origin: test/unit/switch.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % if_cond.sis — if / elseif / else lowering (the elseif chain becomes a deeply
 % nested if; see docs).  Exercises simple if, a 3-way elseif, an elseif over
 % three distinct variables (the scope-resolution case), and a deep 6-branch chain.

@@ -1,3 +1,6 @@
+% Origin: test/unit/record.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % record ops: nested BY-VALUE records (Inner inside Pair -- struct emission
 % must be topological), chained field reads, functional replace, and
 % NESTED-FIELD replace chains (p replace [n.x: v] == read-modify-write),

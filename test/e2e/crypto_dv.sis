@@ -1,3 +1,6 @@
+% Origin: test/unit/crypto.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % crypto string-equality checker (from unit/crypto.sis).  The unit `main` is a
 % brute-force 26^3 cracker (array-of-array); here `main` exercises the crypto
 % equality function directly: two array_dv[character] in, boolean out.

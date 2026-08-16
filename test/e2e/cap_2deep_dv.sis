@@ -1,3 +1,6 @@
+% Origin: test/unit/capture2.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % free-var captured across TWO nested foralls (innermost use)
 define main
 type IOneD = array_dv[integer];

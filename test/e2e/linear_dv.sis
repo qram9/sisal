@@ -1,3 +1,6 @@
+% Origin: test/unit/Linear.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % LINEAR — DV variant of unit/Linear.sis (adds the linear terms to the
 % spectral time-derivatives).  All arrays array_dv; Cadd/Csub/Crmul inlined
 % from CpxFuncs.sis; renamed Main.  NB ksq is indexed l = j+m-2 from 0 —

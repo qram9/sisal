@@ -1,3 +1,6 @@
+% Origin: test/unit/ssphot.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % SSPHOT_MOVE -- Russian roulette and the particle move, layer 5 of the ssphot
 % port.  This is the variance-reduction machinery: when a photon crosses into a
 % zone of different importance, or its weight drifts out of band, it is either

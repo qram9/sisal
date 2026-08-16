@@ -1,9 +1,12 @@
+% Origin: test/unit/cfft.sis, test/unit/cfft_dv.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % CFFT — Cray-2 FFT, DV variant (based on cfft.sis)
 %
 % DV changes from cfft.sis (all arrays are array_dv — no array-of-arrays):
 %   • OneD = array_dv[real]: every real vector — signal and workspace alike —
 %     is a contiguous dope-vector array.  The OneD / OneDV split is gone.
-%   • The weight table (was ThreeD = array[array[array_dv]], doubly ragged:
+%   • The weight table (was ThreeD = array_dv[array_dv[array_dv]], doubly ragged:
 %     level ll's 3 twiddle vectors have 4^(ll-1) entries, plus an appended
 %     1-vector entry holding the full wr/wi) is now a flat rank-3
 %     array_dv[real] indexed [level, vec, k], zero-padded to the longest
@@ -12,7 +15,7 @@
 %   • array_addl(arr, v)  →  singleton(v) || arr
 %     array_addh(arr, v)  →  arr || singleton(v)
 %     where singleton(v) = for dummy in 1,1 returns array_dv of v end for
-%   • Every inner forall that produced  returns array of x
+%   • Every inner forall that produced  returns array_dv of x
 %     now produces              returns array_dv of x
 %   • The sfft4AT zero-padding (was array_addh(rQ, 0.0)) uses rQ || zero
 %     with a one-element DV singleton defined once per call.

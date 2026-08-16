@@ -1,3 +1,6 @@
+% Origin: test/unit/tuple_fn_val.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % TUPLE_DESTRUCTURE — unit/tuple_hash_tests.sis + tuple_kw_tests.sis merged
 % (the unit files are %$include halves of tuple_tests.sis; e2e files stay
 % self-contained).  Pins the parallel-copy binder's Tuple items in BOTH

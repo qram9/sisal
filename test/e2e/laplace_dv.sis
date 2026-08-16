@@ -1,88 +1,59 @@
-% Laplace relaxation — DV variant (based on laplace.sis)
+% Origin: test/unit/laplace.sis
+% Port Note: 2D Laplace equation solver. Converted 2D ragged array (Grid = array[array[double_real]])
+% to flat rank-2 rank-polymorphic array_dv[double_real].
 %
-% DV changes (fully array_dv, C-lowerable):
-%   • Grid = array_dv[double_real]: a flat rank-2 dope vector (was array[OneDim] AoA).
-%   • Rows built directly 0-based in one forall over 0..Columns+1 with a boundary
-%     conditional — no singleton/singleton0 helpers, no `||` catenate.
-%   • Grid rows gathered with `array_dv of Row` (2-D box-then-flatten).
-%   • Row access into the 2-D grid uses rank-reduce `G[r, ..]` (a bare `G[r]` is a
-%     scalar load); element access `G[i,j]` unchanged.
-
 define Main
 
-type OneDim = array_dv[double_real];
-type Grid   = array_dv[double_real];   % flat rank-2 dope vector (was array[OneDim] AoA)
+type Grid = array_dv[double_real];
 
-
-function Phi( A, B: integer returns double_real )
-  let
-    X := double_real(A);
-    Y := double_real(B)
-  in
-    X * Y
-  end let
+function Phi( A, B : integer returns double_real )
+    let
+        X := double_real( A );
+        Y := double_real( B );
+    in
+        X * Y
+    end let
 end function
 
-
-function BuildGrid( Rows, Columns: integer returns Grid )
-  let
-    % Build top/bottom rows 0-based (avoids array_setl).
-    Top    := for I in 0, Columns+1
-              returns array_dv of Phi(1, I+1)
-              end for;
-
-    Bottom := for I in 0, Columns+1
-              returns array_dv of Phi(Rows+2, I+1)
-              end for;
-
-    Middle := for I in 1, Rows
-                Low  := Phi(I+1, 1);
-                High := Phi(I+1, Columns+2);
-                Row  := for J in 0, Columns+1
-                          returns array_dv of ( if J = 0            then Low
-                                                elseif J = Columns+1 then High
-                                                else 0.0D0 end if )
-                        end for
-              returns array_dv of Row
-              end for;
-
-    Temp1  := array_addh(Middle, Bottom)
-  in
-    array_addl(Temp1, Top)
-  end let
+function BuildGrid( Rows, Columns : integer returns Grid )
+    for I in 0, Rows + 1 cross J in 0, Columns + 1
+        Val := if I = 0 then
+                 Phi(1, J + 1)
+               elseif I = Rows + 1 then
+                 Phi(Rows + 2, J + 1)
+               elseif J = 0 then
+                 Phi(I + 1, 1)
+               elseif J = Columns + 1 then
+                 Phi(I + 1, Columns + 2)
+               else
+                 0.0D0
+               end if;
+    returns array_dv of Val
+    end for
 end function
 
-
-function Compute( G: Grid; I, J: integer returns double_real )
-  (G[I,J-1] + G[I,J+1] + G[I+1,J] + G[I-1,J]) / 4.0D0
+function Compute( G : Grid; I, J : integer returns double_real )
+    (G[I, J - 1] + G[I, J + 1] + G[I + 1, J] + G[I - 1, J]) / 4.0D0
 end function
 
-
-function DoWork( G: Grid; Rows, Columns: integer returns Grid )
-  let
-    Rlast  := Rows + 1;
-    Clast  := Columns + 1;
-    Middle := for I in 1, Rows
-                Row := for J in 0, Clast
-                         returns array_dv of ( if J = 0     then G[I,0]
-                                               elseif J = Clast then G[I,Clast]
-                                               else Compute(G, I, J) end if )
-                       end for
-              returns array_dv of Row
-              end for
-  in
-    array_addl(array_addh(Middle, G[Rlast, ..]), G[0, ..])
-  end let
+function DoWork( G : Grid; Rows, Columns : integer returns Grid )
+    for I in 0, Rows + 1 cross J in 0, Columns + 1
+        Val := if (I = 0 | I = Rows + 1 | J = 0 | J = Columns + 1) then
+                 G[I, J]
+               else
+                 Compute(G, I, J)
+               end if;
+    returns array_dv of Val
+    end for
 end function
 
-
-function Main( Num: integer; Rows, Columns: integer returns Grid )
-  for initial
-    Count := Num;
-    NewG  := BuildGrid(Rows, Columns)
-  while Count > 0 repeat
-    Count := old Count - 1;
-    NewG  := DoWork(old NewG, Rows, Columns)
-  returns value of NewG
-  end for
+function Main( Num : integer; Rows, Columns : integer returns Grid )
+    for initial
+        Count := Num;
+        NewG  := BuildGrid( Rows, Columns );
+    while ( Count > 0 ) repeat
+        Count := old Count - 1;
+        NewG  := DoWork( old NewG, Rows, Columns ); 
+    returns value of NewG
+    end for
 end function

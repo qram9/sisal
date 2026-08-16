@@ -1,9 +1,12 @@
+% Origin: test/unit/BackTrack.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]); uses list pattern / union node representation for unavoidable ragged structures.
+%
 % BackTrack's path trace, rewritten along the array_dv + list lines.
 %
 % The original (test/unit/BackTrack.sis) does:
 %     for initial NextJob := JobIndex; NextSeg := SegIndex
 %     while FinalPtrs[NextJob,NextSeg].Max.Job ~= 0 repeat ...
-%     returns array of NextJob  array of NextSeg
+%     returns array_dv of NextJob  array_dv of NextSeg
 % and the C backend cannot size those gathers: the loop is a SENTINEL-terminated
 % pointer chase (follow Max.Job/.Max.Seg back through the job-schedule DAG until
 % Max.Job = 0), so the trip count is a property of the data, not of the test.
@@ -85,7 +88,7 @@ end function
 % ---- leaf sweep -------------------------------------------------------------
 % The original collects leaves with a nested masked gather:
 %     for Job in FinalPtrs at I / for Seg in Job at J
-%       returns array of real(Seg.Max.Val) when Seg.Leaf ...
+%       returns array_dv of real(Seg.Max.Val) when Seg.Leaf ...
 %     returns value of catenate Row ...
 % Two reasons that is not an array_dv shape: `for X in <rank-2 dope>` wants a
 % genuine array-of-arrays (a dope is flat), and a `when` mask COMPACTS, so how

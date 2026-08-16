@@ -1,3 +1,6 @@
+% Origin: test/unit/PassFreq.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % PassFreq -- the FFT pass dispatcher, from test/unit/PassFreq.sis.  It derives
 % the pass parameters from (n, ifac, la, inc1, inc2) and hands off to one of
 % three butterfly kernels:

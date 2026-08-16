@@ -1,3 +1,6 @@
+% Origin: test/unit/Freq.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % FREQ — DV variant of unit/Freq.sis (FreqToSpecSphere: forward Legendre
 % transform, per-latitude Fourier coefficients -> spectral tendencies).
 % All arrays array_dv: rank-3 inputs, TEN rank-2 symmetric/antisymmetric

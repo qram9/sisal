@@ -1,3 +1,6 @@
+% Origin: test/unit/capture.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 % free-var capture in nested lets, 3 levels deep
 define main
 function main( returns integer )

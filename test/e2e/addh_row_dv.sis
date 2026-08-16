@@ -1,3 +1,6 @@
+% Origin: test/unit/mat_ops.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % APPENDING A ROW TO A MATRIX WITH `||`.
 %
 % `||` on array_dv is concatenation along the FIRST axis, and it is rank

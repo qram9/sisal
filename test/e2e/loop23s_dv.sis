@@ -1,3 +1,6 @@
+% Origin: test/unit/loop23s.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % 2-D Implicit Hydodynamics Fragment
 % Sequential Algorithm
 

@@ -1,3 +1,6 @@
+% Origin: test/unit/genp.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % GENARCS — DV variant of GenArcs from unit/trace.sis (Job Shop Scheduler).
 % One wavefront step of the trace: fan out from every (job, segment) of the
 % Grid, keep only the arcs leaving an ENABLED, not-yet-fired segment that
@@ -13,7 +16,7 @@
 % Depth[I]) inside the cross body, not on the cross itself.
 %
 % DV changes: types flattened (Seg_TwoDim/Int_ThreeDim etc. are all one
-% array_dv, rank being a runtime property), `array of` -> `array_dv of`, and
+% array_dv, rank being a runtime property), `array_dv of` -> `array_dv of`, and
 % a Main wrapper.  Grid/Links/Vs/Depth come in as the dense-plus-Depth
 % structure genlinks_dv produces.
 

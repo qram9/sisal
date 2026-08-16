@@ -1,3 +1,6 @@
+% Origin: test/unit/feo.fft.sis, test/unit/InitFFT.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % feo_fft_dv.sis — Full Radix-4 FFT using Dope Vectors.
 define main
 

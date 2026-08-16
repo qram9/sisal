@@ -1,11 +1,14 @@
+% Origin: test/unit/test_forall_simple.sis
+% Port Note: adapted for rank-polymorphic e2e execution.
+%
 define Main
 
-type OneD = array[double]
+type OneD = array_dv[double]
 
 function AllocateTransform(val: double; N: integer returns OneD)
   for j in 1, N
     res := val * double_real(j)
-  returns array of res
+  returns array_dv of res
   end for
 end function
 
@@ -14,6 +17,6 @@ function Main(N: integer returns OneD)
     v := double_real(i);
     arr := AllocateTransform(v, N);
     sum_val := for elem in arr returns value of sum elem end for
-  returns array of sum_val
+  returns array_dv of sum_val
   end for
 end function

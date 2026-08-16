@@ -1,3 +1,6 @@
+% Origin: test/unit/noisedump.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % noisedump -- render a 0/1 matrix as a character picture, from
 % test/unit/noisedump.sis.
 %

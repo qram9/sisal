@@ -1,3 +1,6 @@
+% Origin: test/unit/reshape_3d.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % reshape(A, d0, d1, ...): a flat 1-D array_dv reshaped to rank-2 and rank-3,
 % then indexed by [k,j] / [i,j,k].  A dope vector is flat, so reshape is a
 % descriptor rewrite over the same buffer (DV_RESHAPE -> sisal_array_reshapeN).

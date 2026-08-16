@@ -1,9 +1,12 @@
+% Origin: test/unit/VSphere.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % VSPHERE — DV variant of unit/VSphere.sis (vertical integrals for the
 % spectral shallow-water model: energy and momentum-flux grid products).
 %
-% DV changes: ArrReal3 (array[array[array[real]]]) -> flat rank-3
+% DV changes: ArrReal3 (array_dv[array_dv[array_dv[real]]]) -> flat rank-3
 % array_dv[real]; the 3-index subscripts were already in ug[h,l,p] form.
-% Gather clauses ARRAY of -> array_dv of (inner rank-1 rows, outer
+% Gather clauses array_dv of -> array_dv of (inner rank-1 rows, outer
 % hemi CROSS latlev box-flatten to rank-3).  Function renamed Main.
 
 define Main

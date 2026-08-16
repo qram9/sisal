@@ -1,3 +1,6 @@
+% Origin: test/unit/loop20.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % Discrete Ordinates Transport: Conditional Recurrence on XX
 
 Define  Main
@@ -33,7 +36,7 @@ function Main( rep,n:integer; DK,S,T:double;
                  XXin,G,U,V,VX,W,Y,Z:OneD returns OneD, OneD )
    for initial
        i  := 1;
-       X  := array OneD [];
+       X  := array_dv OneD [];
        XX := XXin;
    while ( i <= rep ) repeat
        i := old i + 1;

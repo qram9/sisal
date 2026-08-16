@@ -1,3 +1,6 @@
+% Origin: test/unit/let_local_fn.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % multibind_dv — regression pin for the let-statement multi-bind bug.
 %
 % `a, b := e1, e2` (a LIST of single-valued expressions, not one

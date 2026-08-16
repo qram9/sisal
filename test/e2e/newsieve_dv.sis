@@ -1,3 +1,6 @@
+% Origin: test/unit/newsieve.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % newsieve -- sieve of Eratosthenes over BOOLEAN flags, from test/unit/newsieve.sis.
 %
 % Promoted for the element type, not the algorithm.  arsieve_dv already covers a

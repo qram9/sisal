@@ -1,11 +1,14 @@
+% Origin: test/unit/noise.sis
+% Port Note: uses rank-polymorphic array_dv (flat dope-vector) instead of unit ragged array (array_dv[array_dv[...]]).
+%
 % NOISE — DV variant of unit/noise.sis (binary-image noise removal: a 5x5
 % neighborhood stencil that clears isolated 1-pixels).
 %
-% DV changes: Matrix (array[array[integer]]) -> flat rank-2
+% DV changes: Matrix (array_dv[array_dv[integer]]) -> flat rank-2
 % array_dv[integer] with M[I,Y] reads unchanged; per the lu_piv_dv
 % precedent, Rows/Cols arrive as explicit params (a subscripted row M[I]
 % types as element statically, so array_liml(M[I]) is unavailable under
-% the dv backend); bounds are 1-based.  Gathers ARRAY of -> array_dv of.
+% the dv backend); bounds are 1-based.  Gathers array_dv of -> array_dv of.
 
 define Main
 
