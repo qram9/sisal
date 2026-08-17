@@ -23,6 +23,27 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
    - Supports don't-care wildcard (`_`) bindings across all `decldef` contexts (`let`, `:=`, tuple patterns, loops, `let rec`).
    - Tuple pattern bindings resolve via IF1 `MULTIARITY` nodes during AST lowering.
 
+5. **Range Indexing & Slicing (`..`)**:
+   - Concise APL/NumPy-style range slicing syntax (e.g., `A[1..5, 2..8]`) lowered directly into zero-copy dope-vector descriptor operations.
+
+6. **First-Class Tuple Types**:
+   - Composite tuple types and multi-value returns (`let x, y, z := ...`) supported natively throughout compiler AST and IF1 IR lowerings.
+
+---
+
+## Pending Items & Future Roadmap
+
+- **Higher-Order Functions (Runtime Values)**:
+  - Extend function types (`FUNCTION_TYPE`) from compile-time inlined constructs into first-class runtime function pointers and closures passed as parameters into functions.
+- **APL Combinators**:
+  - Full combinator library (`MAP`, `FOLDL`, `SCAN`, `EACH`) with general lambda expressions.
+- **Einstein Summation (`EINSUM`) Lowering**:
+  - Direct translation of `EINSUM` notation to optimized tensor library backends (BLAS, LAPACK, cuTENSOR).
+- **Railway Error Monad Pipeline**:
+  - Generalizing Monad Control types (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) into a unified Railway Monad error handling and IO system.
+- **GPU Performance & Library Acceleration**:
+  - GPU offloading for dense matrix and vector kernels using CUDA, CUTLASS, and Apple Accelerate/vDSP.
+
 ---
 
 ## Installation & Environment Setup
