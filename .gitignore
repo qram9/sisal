@@ -1,4 +1,5 @@
 _build/*
+_coverage/*
 main.native
 setup.log
 .aider*
