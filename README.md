@@ -24,7 +24,12 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 4. **Coroutines & Stream Pipeline Processing**:
    - First-class stream processing (`stream_t`) with coroutine generators (`STREAM_SIEVE`, `STREAM_INTEGERS`, `STREAM_GURD`) lowered into zero-overhead stateful C++ iterators.
 
-5. **Side-Effect Sequencing via Monad Ordering**:
+5. **Small Vector & Fixed Matrix Intrinsics (`float2`, `float4`, `mat2`, `mat4`)**:
+   - First-class fixed-size SIMD vector types (`float2`, `float3`, `float4`, `int2`, `int4`) and matrix types (`mat2`, `mat3`, `mat4`).
+   - Mapped directly to CPU SIMD vector registers (ARM Neon, x86 AVX-512) and GPU compute shader vector primitives.
+   - Built-in hardware math intrinsics: matrix-matrix products (`mat2 * mat2`), matrix-vector transformations (`mat2 * float2`), inner products, and elementwise math (`mat_abs`, `mat_sqrt`, `mat_sin`).
+
+6. **Side-Effect Sequencing via Monad Ordering**:
    - Reconciles pure functional dataflow graph optimizations (IF1) with deterministic IO (`printf`, `cout`, `cerr`).
    - Monad control ports automatically insert prepass ordering edges (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) between side-effecting nodes while leaving pure dataflow nodes 100% parallelizable.
 
