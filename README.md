@@ -1,6 +1,6 @@
 # Sisal 2.0 Compiler (`git_sisal`)
 
-A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introducing rank-polymorphic dense arrays (dope vectors), side-effect monad ordering, Einstein summation, stream coroutines, and dataflow IR graph transformations.
+A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introducing rank-polymorphic dense arrays (dope vectors), side-effect monad ordering, Einstein summation, stream coroutines, structural IR deduplication, and dataflow graph transformations.
 
 ---
 
@@ -14,7 +14,7 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 
 2. **Einstein Summation (`EINSUM`) & Contraction Engine**:
    - Built-in `EINSUM` notation parser (`einsum_lower.ml`) supporting general multi-tensor contractions (e.g., `EINSUM("ij,jk->ik", A, B)`).
-   - Lowers directly to optimized BLAS/LAPACK `cblas_dgemm` / `cblas_sgemm` matrix calls.
+   - Lowers directly to BLAS/LAPACK `cblas_dgemm` / `cblas_sgemm` matrix calls.
 
 3. **APL-Style Array Combinators**:
    - Native support for array combinators: `MAP`, `FOLDL`, `SCAN`, `EACH`, `REDUCE`, `REDUCE_AXIS`, `REDUCE_RANGE`, `ROTATE`, `TAKE`, `DROP`, `SLICE`, `COMPRESS`, `RAVEL`, and `STENCIL`.
@@ -33,8 +33,17 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 7. **AoS / SoA Memory Layout Transformations**:
    - Flexible memory layout support for Array of Structures (AoS) and Structure of Arrays (SoA) layout transformations (`NUCLEIC_SOA`, `REC_SOA`).
 
-8. **Ragged Arrays & Algebraic Lists**:
-   - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
+8. **IR Structural Type Deduplication**:
+   - Automated IR graph pass (`cleanup.ml`) computing structural equivalence classes for type IDs, deduplicating identical types and re-linking edge types to canonical leader IDs.
+
+9. **Copy-on-Write Reference Counting**:
+   - Runtime descriptor management (`runtime/sisal_runtime.h`) with automatic reference counting (`ref_count`) and copy-on-write allocations for array descriptors.
+
+10. **Interactive HTML Graph Visualizer**:
+    - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
+
+11. **Ragged Arrays & Algebraic Lists**:
+    - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
 
 ---
 
