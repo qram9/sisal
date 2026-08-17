@@ -38,11 +38,8 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 8. **IR Structural Type Deduplication**:
    - Automated IR graph pass (`cleanup.ml`) computing structural equivalence classes for type IDs, deduplicating identical types and re-linking edge types to canonical leader IDs.
 
-9. **Copy-on-Write Reference Counting**:
-   - Runtime descriptor management (`runtime/sisal_runtime.h`) with automatic reference counting (`ref_count`) and copy-on-write allocations for array descriptors.
-
-10. **Interactive HTML Graph Visualizer**:
-    - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
+9. **Interactive HTML Graph Visualizer**:
+   - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
 
 11. **Ragged Arrays & Algebraic Lists**:
     - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
@@ -51,6 +48,8 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 
 ## Pending Items & Future Roadmap
 
+- **Copy-on-Write (COW) & Reference Count Lifetime Management**:
+  - Full static liveness analysis and runtime COW reference-counting (`sisal_array_consume_replace`) to perform automatic in-place array updates when `ref_count == 1` vs copy-on-write when arrays are shared.
 - **Higher-Order Functions (Runtime Values)**:
   - Extend function types (`FUNCTION_TYPE`) from compile-time inlined constructs into first-class runtime function pointers and closures passed as values into functions.
 - **Railway Error Monad Pipeline**:
