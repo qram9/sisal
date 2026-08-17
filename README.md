@@ -6,11 +6,12 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 
 ## Key Features & Language Innovations
 
-1. **Dense Dope-Vectored Arrays (`array_dv`)**:
-   - Originally, SISAL 1.2 implemented arrays in a ragged/nested sense, using build-in-place or update-in-place analysis to recover performance.
-   - To support high-performance APL/NumPy-style dense multi-dimensional array operations, `array_dv` introduces rank-polymorphic dope-vector descriptors (strides, shape, offset).
-   - Operations like slicing (`A[1..5, 2..8]`), reshaping, broadcasting, and transposing are zero-copy descriptor transformations.
-   - C++ lowering targets modern C++23 with Apple Accelerate / BLAS acceleration for dense matrix operations.
+1. **Novel C++23 Dope-Vector Runtime (`sisal_runtime.h`)**:
+   - Built from scratch to support rank-polymorphic multi-dimensional dense arrays (`array_dv`) with dynamic shape, stride, and offset descriptors.
+   - **Zero-Copy Descriptor Transformations**: Slicing (`A[1..5, 2..8]`), reshaping, broadcasting, and transposition operate in $O(1)$ time by manipulating stride/offset metadata without copying underlying element buffers.
+   - **Copy-on-Write (COW) Memory Management**: Reference-counted buffer management (`ref_count`) ensures safe functional updates while avoiding unneeded data duplication.
+   - **Hardware BLAS Acceleration**: Direct memory layout alignment with BLAS/LAPACK (`cblas_dgemm`, `cblas_sgemm`, `cblas_dgemv`) via Apple Accelerate / OpenBLAS.
+   - Originally, SISAL 1.2 implemented arrays in a ragged/nested sense, using build-in-place or update-in-place analysis. `array_dv` provides modern NumPy/APL dense array capabilities while maintaining Sisal's functional guarantees.
 
 2. **Einstein Summation (`EINSUM`) & Contraction Engine**:
    - Built-in `EINSUM` notation parser (`einsum_lower.ml`) supporting general multi-tensor contractions (e.g., `EINSUM("ij,jk->ik", A, B)`).
