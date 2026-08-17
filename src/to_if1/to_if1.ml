@@ -2751,7 +2751,8 @@ and do_params_decl po in_gr z =
               }
             in
             let _, in_gr = If1.add_to_boundary_inputs ~namen:hdx 0 port in_gr in
-            add_all_to_sm (If1.SM.add hdx sm_v umap) tlx (p + 1) (hdx :: q)
+            let umap = if hdx = "_" then umap else If1.SM.add hdx sm_v umap in
+            add_all_to_sm umap tlx (p + 1) (hdx :: q)
               in_gr
         | Decl_func _ :: _ ->
             raise (If1.Sem_error "Ast.Function_header by assign TODO")
@@ -2937,7 +2938,7 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
         List.concat_map
           (fun (n, p, t) ->
             match If1.NM.find_opt n in_gr.If1.nmap with
-            | Some (If1.Simple (_, If1.MULTIARITY, _, _, prags))
+            | Some (If1.Simple (_, (If1.MULTIARITY | If1.PRINTF_NODE | If1.COUT_NODE | If1.CERR_NODE), _, _, prags))
               when not (is_tuple_val prags) ->
                 ports_of n in_gr
             | _ -> [ (n, p, t) ])
@@ -2952,23 +2953,25 @@ and do_each_decl2 lhs_decldef_names rhs_decldef_exps expl expl_rev decl_rev
                 (List.length items) (List.length values)));
       let bind_one g nm atyp (vn, vp, vt) =
         let g = check_decl_type atyp vt g in
-        let g = If1.add_name_pragma vn nm g in
-        let localsyms, globsyms = g.If1.symtab in
-        {
-          g with
-          If1.symtab =
-            ( If1.SM.add nm
-                {
-                  If1.val_name = nm;
-                  If1.val_ty = vt;
-                  If1.val_def = vn;
-                  If1.def_port = vp;
-                  (* LOCAL: a `:=` binding (let / decldef / initial / body) *)
-                  If1.inherited = false;
-                }
-                localsyms,
-              globsyms );
-        }
+        if nm = "_" then g
+        else
+          let g = If1.add_name_pragma vn nm g in
+          let localsyms, globsyms = g.If1.symtab in
+          {
+            g with
+            If1.symtab =
+              ( If1.SM.add nm
+                  {
+                    If1.val_name = nm;
+                    If1.val_ty = vt;
+                    If1.val_def = vn;
+                    If1.def_port = vp;
+                    (* LOCAL: a `:=` binding (let / decldef / initial / body) *)
+                    If1.inherited = false;
+                  }
+                  localsyms,
+                globsyms );
+          }
       in
       (* 4: zip items against values *)
       let in_gr, rev_bound, rev_names =
@@ -3042,20 +3045,22 @@ and map_names_to_type decls atyp in_gr =
                     (If1.Sem_error "Require types to be specified in let rec")
             in
 
-            let localsyms, globsyms = in_gr.If1.symtab in
-            let localsyms =
-              If1.SM.add current_name
-                {
-                  If1.val_name = current_name;
-                  If1.val_ty = typenum;
-                  If1.val_def = 0;
-                  (* these are unknown at this time *)
-                  If1.def_port = 0;
-                  If1.inherited = false (* LOCAL: let-rec binding *);
-                }
-                localsyms
-            in
-            { in_gr with If1.symtab = (localsyms, globsyms) }
+            if current_name = "_" then in_gr
+            else
+              let localsyms, globsyms = in_gr.If1.symtab in
+              let localsyms =
+                If1.SM.add current_name
+                  {
+                    If1.val_name = current_name;
+                    If1.val_ty = typenum;
+                    If1.val_def = 0;
+                    (* these are unknown at this time *)
+                    If1.def_port = 0;
+                    If1.inherited = false (* LOCAL: let-rec binding *);
+                  }
+                  localsyms
+              in
+              { in_gr with If1.symtab = (localsyms, globsyms) }
         | Decl_func current_name ->
             let _ =
               match atyp with
@@ -5266,6 +5271,56 @@ and do_simple_exp_impl in_gr in_sim_ex =
           | Ast.Arg (Ast.Exp [ arr; k ]) ->
               do_simple_exp in_gr (Ast.Expand_exp (arr, k))
           | _ -> raise (If1.Sem_error "EXPAND: expected EXPAND(arr, k)"))
+      | ("PRINTF" | "SISAL_COUT" | "SISAL_CERR" | "printf" | "sisal_cout" | "sisal_cerr") as print_fn ->
+          let node_kind, ctrl_ty_kind =
+            match String.uppercase_ascii print_fn with
+            | "PRINTF" -> (If1.PRINTF_NODE, If1.PRINTF_TY)
+            | "SISAL_COUT" -> (If1.COUT_NODE, If1.COUT_TY)
+            | _ -> (If1.CERR_NODE, If1.CERR_TY)
+          in
+          let arg_list =
+            match arg with
+            | Ast.Arg (Ast.Exp args) -> args
+            | _ -> []
+          in
+          let (arg_triples, in_gr) =
+            List.fold_left
+              (fun (acc, g) e ->
+                let (n, p, t), g' = do_simple_exp g e in
+                let n, p, t = If1.find_incoming_regular_node (n, p, t) g' in
+                (acc @ [ (n, p, t) ], g'))
+              ([], in_gr) arg_list
+          in
+          let num_args = List.length arg_triples in
+          let (rn, _rp, _), in_gr =
+            If1.add_node_2
+              (`Simple
+                 ( node_kind,
+                   Array.make num_args "",
+                   [| ""; "" |],
+                   [ If1.No_pragma ] ))
+              in_gr
+          in
+          let in_gr =
+            List.fold_left
+              (fun g (i, (an, ap, at)) -> If1.add_edge an ap rn i at g)
+              in_gr
+              (List.mapi (fun i x -> (i, x)) arg_triples)
+          in
+          let data_args = match arg_triples with _ :: data -> data | [] -> [] in
+          let num_data = List.length data_args in
+          if num_data = 0 then
+            let out_ty = If1.lookup_tyid ctrl_ty_kind in
+            ((rn, 0, out_ty), in_gr)
+          else
+            let (mn, _, _), in_gr = build_multiarity ~nam:"PRINTF" num_data in_gr in
+            let in_gr =
+              List.fold_left
+                (fun g (i, (an, ap, at)) -> If1.add_edge an ap mn i at g)
+                in_gr
+                (List.mapi (fun i x -> (i, x)) data_args)
+            in
+            ((mn, 0, List.hd data_args |> fun (_, _, at) -> at), in_gr)
       | "RAVEL" | "FLATTEN_DV" -> (
           match arg with
           | Ast.Arg (Ast.Exp [ arr ]) -> do_simple_exp in_gr (Ast.Ravel_exp arr)

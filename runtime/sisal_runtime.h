@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <iostream>
 #include <math.h>
 #include <algorithm>   /* stable_sort: GRADE_UP/GRADE_DOWN, sort: SORT */
 #include <stdarg.h>
@@ -244,6 +245,11 @@ inline typename std::enable_if<!is_sisal_generator<T>::value, T>::type
 sisal_cast_dispatch(S s) { 
   return (T)s; 
 }
+
+template<> inline int32_t sisal_cast_dispatch<int32_t, const char*>(const char*) { return 0; }
+template<> inline int32_t sisal_cast_dispatch<int32_t, char*>(char*) { return 0; }
+template<> inline int64_t sisal_cast_dispatch<int64_t, const char*>(const char*) { return 0; }
+template<> inline int64_t sisal_cast_dispatch<int64_t, char*>(char*) { return 0; }
 
 // Specializations for sisal_array_t
 template<> inline int32_t sisal_cast_dispatch<int32_t, sisal_array_t>(sisal_array_t s) { 
@@ -2164,6 +2170,41 @@ static inline float   func__SMIN__FF__F(float a, float b)     { return a < b ? a
 static inline double  func__SMAX__DD__D(double a, double b)   { return a > b ? a : b; }
 static inline double  func__SMIN__DD__D(double a, double b)   { return a < b ? a : b; }
 
+/* SIMD Vector Intrinsics */
+#ifndef SISAL_V4_DEFINED
+#define SISAL_V4_DEFINED
+typedef float float4_t __attribute__((vector_size(16)));
+typedef int32_t int4_t __attribute__((vector_size(16)));
+#endif
+
+static inline float4_t func__SABS__V4F__V4F(float4_t v) {
+  return (float4_t){fabsf(v[0]), fabsf(v[1]), fabsf(v[2]), fabsf(v[3])};
+}
+static inline int4_t func__SABS__V4I__V4I(int4_t v) {
+  return (int4_t){v[0] < 0 ? -v[0] : v[0], v[1] < 0 ? -v[1] : v[1], v[2] < 0 ? -v[2] : v[2], v[3] < 0 ? -v[3] : v[3]};
+}
+static inline float4_t func__SMAX__V4FV4F__V4F(float4_t a, float4_t b) {
+  return (float4_t){a[0] > b[0] ? a[0] : b[0], a[1] > b[1] ? a[1] : b[1], a[2] > b[2] ? a[2] : b[2], a[3] > b[3] ? a[3] : b[3]};
+}
+static inline int4_t func__SMAX__V4IV4I__V4I(int4_t a, int4_t b) {
+  return (int4_t){a[0] > b[0] ? a[0] : b[0], a[1] > b[1] ? a[1] : b[1], a[2] > b[2] ? a[2] : b[2], a[3] > b[3] ? a[3] : b[3]};
+}
+static inline float4_t func__SMIN__V4FV4F__V4F(float4_t a, float4_t b) {
+  return (float4_t){a[0] < b[0] ? a[0] : b[0], a[1] < b[1] ? a[1] : b[1], a[2] < b[2] ? a[2] : b[2], a[3] < b[3] ? a[3] : b[3]};
+}
+static inline int4_t func__SMIN__V4IV4I__V4I(int4_t a, int4_t b) {
+  return (int4_t){a[0] < b[0] ? a[0] : b[0], a[1] < b[1] ? a[1] : b[1], a[2] < b[2] ? a[2] : b[2], a[3] < b[3] ? a[3] : b[3]};
+}
+static inline int4_t func__SMOD__V4IV4I__V4I(int4_t a, int4_t b) {
+  return (int4_t){a[0] % b[0], a[1] % b[1], a[2] % b[2], a[3] % b[3]};
+}
+static inline int4_t func__SFLOOR__V4F__V4I(float4_t v) {
+  return (int4_t){(int32_t)floorf(v[0]), (int32_t)floorf(v[1]), (int32_t)floorf(v[2]), (int32_t)floorf(v[3])};
+}
+static inline int4_t func__STRUNC__V4F__V4I(float4_t v) {
+  return (int4_t){(int32_t)v[0], (int32_t)v[1], (int32_t)v[2], (int32_t)v[3]};
+}
+
 /* exp(base, n): two-arg form is POWER base^n (Sisal `exp` = exponentiation). */
 static inline float   func__SEXP__FI__F(float base, int32_t n)  { return powf(base, (float)n); }
 static inline double  func__SEXP__DI__D(double base, int32_t n) { return pow(base, (double)n); }
@@ -2372,6 +2413,28 @@ inline void sisal_stream_close(sisal_stream_t& s) {
         s.producer_done = true;
         s.cv_not_empty->notify_all();
     }
+}
+
+// Overloaded stream printing for sisal_cout and sisal_cerr
+template <typename T>
+static inline void sisal_print_item(std::ostream& os, const T& val) {
+    if constexpr (std::is_same_v<T, sisal_array_t>) {
+        os << "array_dv(rank=" << val.rank << ", size=" << val.size << ")";
+    } else {
+        os << val;
+    }
+}
+
+template <typename... Args>
+static inline int32_t sisal_cout_impl(const Args&... args) {
+    (sisal_print_item(std::cout, args), ...);
+    return 0;
+}
+
+template <typename... Args>
+static inline int32_t sisal_cerr_impl(const Args&... args) {
+    (sisal_print_item(std::cerr, args), ...);
+    return 0;
 }
 
 #endif

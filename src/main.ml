@@ -161,7 +161,12 @@ let main () =
       write_to !ast_dest (Ast.str_compilation_unit sisal_ast ^ "\n");
     let ou = To_if1_.do_compilation_unit sisal_ast in
     if !Ir.Debug.level > 0 then begin
-      If1.If1_View.export_debug_html "compiler_dump.html" ou;
+      If1.If1_View.export_debug_html "compiler_dump.html" ou
+    end;
+    let ou = If1.connect_monad_ordering_edges ou in
+    if !Ir.Debug.level > 0 then begin
+      Printf.printf "\n=== PREPASS: MONAD CONTROL EDGESET ===\n%s\n======================================\n"
+        (If1.cate_list (If1.string_of_all_edge_sets ou) "\n");
       ignore (If1.write_dot_file ou)
     end;
     if !if1_dest <> Nothing then
@@ -169,6 +174,9 @@ let main () =
     if !c_dest <> Nothing then begin
       let c_unit = Cpp.translate ou in
       write_to !c_dest (Ir.C_ast_print.string_of_unit c_unit ^ "\n")
+    end;
+    if !Ir.Debug.level > 0 then begin
+      If1.If1_View.export_debug_html "compiler_dump_after_c_lowering.html" ou
     end
   with e ->
     let lexbuf = !last_lexbuf in

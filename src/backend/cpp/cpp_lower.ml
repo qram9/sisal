@@ -3353,6 +3353,41 @@ and lower_simple env gr nid sym pin pout pr =
     | STENCIL_NODE -> C.Call ("sisal_array_stencil", [ e1; e2; get_in_expr 2 ])
     | WHERE_NODE -> C.Call ("sisal_array_where", [ e1; e2; get_in_expr 2 ])
     | NONZERO_NODE -> C.Call ("sisal_array_nonzero", [ e1 ])
+    | PRINTF_NODE | COUT_NODE | CERR_NODE ->
+        let get_uncasted_in_expr p =
+          let producers =
+            ES.fold
+              (fun (src, dst, _) acc -> if dst = (nid, p) then Some src else acc)
+              gr.eset None
+          in
+          match producers with
+          | Some (sn, sp) -> (
+              match NM.find_opt sn gr.nmap with
+              | Some (Literal (_, code, value, _)) ->
+                  if String.length value >= 2 && value.[0] = '"' && value.[String.length value - 1] = '"' then
+                    C.Id value
+                  else if not (String.length value > 0 && ((value.[0] >= '0' && value.[0] <= '9') || value.[0] = '-')) then
+                    C.Id (Printf.sprintf "%S" value)
+                  else
+                    c_literal_of code value
+              | _ -> get_expr env gid sn sp `Out)
+          | None -> C.LitInt 0
+        in
+        let fed_ports =
+          ES.fold
+            (fun (_, (dn, dp), _) acc ->
+              if dn = nid && dp >= 0 then IntSet.add dp acc else acc)
+            gr.eset IntSet.empty
+          |> IntSet.elements
+        in
+        let exprs = List.map get_uncasted_in_expr fed_ports in
+        let fn_name =
+          match sym with
+          | PRINTF_NODE -> "printf"
+          | COUT_NODE -> "sisal_cout_impl"
+          | _ -> "sisal_cerr_impl"
+        in
+        C.Call (fn_name, exprs)
     (* Whole-array statistics and folds.  Each of these ALSO has an axis form
        carrying a second operand -- MEAN(a) vs MEAN(a, k) -- which reduces along
        one axis and yields an ARRAY.  Dispatch on whether port 1 is actually fed:

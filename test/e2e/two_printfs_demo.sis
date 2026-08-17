@@ -1,0 +1,10 @@
+define Main
+
+function Main(N: integer returns integer)
+    let
+        _ := printf("First printf: N = %d\n", N);
+        _ := printf("Second printf: N*2 = %d\n", N * 2)
+    in
+        N
+    end let
+end function

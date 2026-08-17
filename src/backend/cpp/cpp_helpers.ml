@@ -127,6 +127,11 @@ let c_literal_of code value =
   | REAL -> C.LitFloat (float_of_string value)
   | DOUBLE -> C.LitDouble (float_of_string value)
   | BOOLEAN -> C.Id (String.lowercase_ascii value)
+  | _
+    when String.length value >= 2
+         && value.[0] = '"'
+         && value.[String.length value - 1] = '"' ->
+      C.Id value
   | CHARACTER | UCHAR
     when String.length value >= 2
          && value.[0] = '\''
@@ -208,7 +213,7 @@ let c_type_of_if1_basic = function
   | CHARACTER | UCHAR -> C.Basic "char"
   | DOUBLE -> C.Basic "double"
   | REAL -> C.Basic "float"
-  | INTEGRAL | BYTE | UBYTE -> C.Basic "int32_t"
+  | INTEGRAL | BYTE | UBYTE | PRINTF_TY | COUT_TY | CERR_TY -> C.Basic "int32_t"
   | LONG | ULONG -> C.Basic "int64_t"
   | SHORT | USHORT -> C.Basic "int16_t"
   | UINT -> C.Basic "uint32_t"

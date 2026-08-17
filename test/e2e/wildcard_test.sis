@@ -1,0 +1,9 @@
+define Main
+
+function Main(N: integer returns integer)
+    for i in 1, N
+        _ := printf("Loop index: %d\n", i)
+    returns
+        value of sum i
+    end for
+end function

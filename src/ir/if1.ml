@@ -253,6 +253,9 @@ type node_sym =
   | CONV_H  (** Apple Silicon: Horizontal Convolution *)
   | CONV_V  (** Apple Silicon: Vertical Convolution *)
   | CONV_2D  (** Apple Silicon: 2D Convolution *)
+  | PRINTF_NODE
+  | COUT_NODE
+  | CERR_NODE
 
 type comment = C of string | CDollar of string
 
@@ -330,6 +333,9 @@ type basic_code =
   | ULONG3
   | ULONG4
   | ULONG8
+  | PRINTF_TY
+  | COUT_TY
+  | CERR_TY
   | ULONG16
   | USHORT2
   | USHORT3
@@ -701,6 +707,9 @@ let basic_types =
     (81, Basic MAT3);
     (82, Basic MAT4);
     (83, Basic NULL);
+    (84, Basic PRINTF_TY);
+    (85, Basic COUT_TY);
+    (86, Basic CERR_TY);
   ]
 
 let basic_map_tyid inc_map =
@@ -2056,6 +2065,9 @@ and lookup_tyid = function
   | DOUBLE -> 4
   | HALF -> 5
   | INTEGRAL -> 6
+  | PRINTF_TY -> 84
+  | COUT_TY -> 85
+  | CERR_TY -> 86
   | LONG -> 7
   | REAL -> 8
   | SHORT -> 9
@@ -2306,6 +2318,9 @@ and rev_lookup_ty_name = function
   | 81 -> "MAT3"
   | 82 -> "MAT4"
   | 83 -> "NULL"
+  | 84 -> "PRINTF_TY"
+  | 85 -> "COUT_TY"
+  | 86 -> "CERR_TY"
   | -2 -> "U__NKNOWN"
   | _ -> "UNKNOWN"
 
@@ -2393,6 +2408,9 @@ and lookup_tyid_triple = function
   | MAT3 -> (81, 0, 81)
   | MAT4 -> (82, 0, 82)
   | NULL -> (83, 0, 83)
+  | PRINTF_TY -> (84, 0, 84)
+  | COUT_TY -> (85, 0, 85)
+  | CERR_TY -> (86, 0, 86)
   | _ as f ->
       failwith
         (Printf.sprintf "Can only look up native types with lookup_tyid, not %s"
@@ -2641,7 +2659,9 @@ and is_typed_error_port ty_id in_gr =
 
 and is_error_port ty_id in_gr =
   let _, tm, _ = get_typemap in_gr in
-  match TM.find_opt ty_id tm with Some (ERROR _) -> true | _ -> false
+  match TM.find_opt ty_id tm with
+  | Some (ERROR _) | Some (Basic (PRINTF_TY | COUT_TY | CERR_TY)) -> true
+  | _ -> false
 
 and is_typed_error_ty ty_id in_gr =
   let _, tm, _ = get_typemap in_gr in
@@ -2665,6 +2685,55 @@ and connect_one_to_one in_lis to_n in_gr =
       in_lis (in_gr, 0)
   in
   in_gr
+
+and connect_monad_ordering_edges in_gr =
+  let new_nm =
+    NM.map
+      (fun nod ->
+        match nod with
+        | Compound (pi, sy, ty, prag, subgr, alis) ->
+            Compound (pi, sy, ty, prag, connect_monad_ordering_edges subgr, alis)
+        | _ -> nod)
+      in_gr.nmap
+  in
+  let in_gr = { in_gr with nmap = new_nm } in
+  let print_nodes =
+    NM.bindings in_gr.nmap
+    |> List.filter_map (fun (id, nod) ->
+           match nod with
+           | Simple (_, PRINTF_NODE, _, _, _) -> Some (id, PRINTF_TY)
+           | Simple (_, COUT_NODE, _, _, _) -> Some (id, COUT_TY)
+           | Simple (_, CERR_NODE, _, _, _) -> Some (id, CERR_TY)
+           | _ -> None)
+    |> List.sort (fun (id1, _) (id2, _) -> compare id1 id2)
+  in
+  let group_by_type nodes =
+    List.fold_left
+      (fun acc (id, ty_kind) ->
+        match acc with
+        | (t, l) :: rest when t = ty_kind -> (t, l @ [ id ]) :: rest
+        | _ -> (ty_kind, [ id ]) :: acc)
+      [] nodes
+    |> List.rev
+  in
+  let monad_groups = group_by_type print_nodes in
+  List.fold_left
+    (fun gr (ty_kind, nids) ->
+      let ctrl_ty = lookup_tyid ty_kind in
+      let rec chain_nodes g = function
+        | n1 :: n2 :: rest ->
+            let in_ports =
+              ES.fold
+                (fun (_, (dn, dp), _) acc ->
+                  if dn = n2 then max acc (dp + 1) else acc)
+                g.eset 0
+            in
+            let g' = add_edge n1 0 n2 in_ports ctrl_ty g in
+            chain_nodes g' (n2 :: rest)
+        | _ -> g
+      in
+      chain_nodes gr nids)
+    in_gr monad_groups
 
 and all_edges_starting_at n1 in_gr =
   let pe = get_edge_set in_gr in
@@ -3852,6 +3921,9 @@ and node_sym_to_num = function
   | CONV_H -> 127
   | CONV_V -> 128
   | CONV_2D -> 129
+  | PRINTF_NODE -> 190
+  | COUT_NODE -> 191
+  | CERR_NODE -> 192
 
 and string_of_node_sym = function
   | AADDH -> "ARRAY_ADDH"
@@ -4004,6 +4076,9 @@ and string_of_node_sym = function
   | CONV_H -> "CONV_H"
   | CONV_V -> "CONV_V"
   | CONV_2D -> "CONV_2D"
+  | PRINTF_NODE -> "PRINTF"
+  | COUT_NODE -> "COUT"
+  | CERR_NODE -> "CERR"
 
 and string_of_compound_of = function
   | If1_forall -> "FORALL"
@@ -4182,6 +4257,9 @@ and string_of_if1_basic_ty bc =
   | ULONG4 -> "ULONG4"
   | ULONG8 -> "ULONG8"
   | UNION -> "UNION"
+  | PRINTF_TY -> "PRINTF_TY"
+  | COUT_TY -> "COUT_TY"
+  | CERR_TY -> "CERR_TY"
   | USHORT -> "USHORT"
   | USHORT16 -> "USHORT16"
   | USHORT2 -> "USHORT2"
@@ -4296,6 +4374,19 @@ and string_of_edge in_gr ((n1, p1), (n2, p2), tt) =
 and string_of_edge_set in_gr ne =
   let ee = ES.fold (fun x y -> string_of_edge in_gr x :: y) ne [] in
   match ee with [] -> [] | _ -> "----EDGES----" :: ee
+
+and string_of_all_edge_sets in_gr =
+  let cur_edges = string_of_edge_set in_gr in_gr.eset in
+  let sub_edges =
+    NM.fold
+      (fun _ nod acc ->
+        match nod with
+        | Compound (id, sy, _, _, subgr, _) ->
+            acc @ ["Graph Node " ^ string_of_int id ^ " (" ^ string_of_node_sym sy ^ ")"] @ string_of_all_edge_sets subgr
+        | _ -> acc)
+      in_gr.nmap []
+  in
+  cur_edges @ sub_edges
 
 and string_of_node_map ?(offset = 2) in_gr =
   let mn = in_gr.nmap in
