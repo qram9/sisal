@@ -105,6 +105,14 @@ Comprehensive design specifications and architecture notes are located in the [`
 
 ---
 
+## Authors & Contributors
+
+- **Ram** (Lead Architect & Developer)
+- **Antigravity AI (Google DeepMind)**
+- **Claude and Gemini** (AI Pair Programming Contributors)
+
+---
+
 ## License
 
 See [LICENSE](file:///Users/ramshankar/work/fromgit/git_sisal/LICENSE).
