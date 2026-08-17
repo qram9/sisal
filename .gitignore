@@ -3,6 +3,7 @@ _coverage/*
 main.native
 setup.log
 .aider*
+*.swp
 
 # Sisal IF1 debug dumps (not goldens; cram checks stdout)
 test/**/*.if1
