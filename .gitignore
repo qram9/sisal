@@ -6,3 +6,6 @@ setup.log
 # Sisal IF1 debug dumps (not goldens; cram checks stdout)
 test/**/*.if1
 test/*.if1
+*.html
+*.dot
+.DS_Store
