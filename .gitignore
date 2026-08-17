@@ -27,4 +27,5 @@ test/*.if1
 /gaussj_dv_*
 /ot
 /temp.cpp
+/check_new_voucher*.sis
 .DS_Store
