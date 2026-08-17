@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     test_lu_npiv_dv
-relocations:     []
-...

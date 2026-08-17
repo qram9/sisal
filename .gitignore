@@ -8,4 +8,7 @@ test/**/*.if1
 test/*.if1
 *.html
 *.dot
+*.o
+*.dSYM
+/test_*
 .DS_Store
