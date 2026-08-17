@@ -1,100 +1,66 @@
-(* TODO (15july2019): Most compiler warnings that remain in this file are
-   in the tagcase/If1.union lowering. *)
-(** Ideas here mostly come from the single paper: "IF1, AN INTERMEDIATE FORM FOR
-    APPLICATIVE LANGUAGES, JULY 31, 1985 VERSION 1.0".
+(* TODO (15july2019): Compiler warnings in tagcase / If1.union lowering. *)
 
-    This is also useful: "FRONTEND OF A SISAL COMPILER, RIYAZ V.P, M.TECH THESIS
-    INDIAN INST OF TECH. KANPUR, MARCH 1993". *)
+(** ============================================================================
+    AST to IF1 Dataflow Graph Lowering (`to_if1.ml`)
+    ============================================================================
 
-(** IF1 is a dataflow graph format generated with some effort (boring and time
-    consuming) using an AST visitor/walker for the applicative and single
-    assignment SISAL langauge. The language has let bindings, compound
-    statements like forall (perfect loops with scoping similar to nested lets,
-    with mostly bindings similar to a standard let), for_initial, if expressions
-    (select expressions), tagged unions which are mostly like ML variants but
-    with one difference - sharing of the body expression by different tags is
-    allowed, nested functions but no higher order functions (though, SISAL2 and
-    SISAL90 support higher order functions). Types would need to be provided by
-    the user, for the most part, with an exception for arithmetic operations,
-    for which the compiler infers types from the expression's operands. When
-    types are specified, infered types need to be checked against the specified
-    types etc. LET's are lowered here using hierarchical symtabs, with a parent
-    If1.symtab for enclosing-scope and one for current-scope.
+    This module lowers the applicative, single-assignment SISAL AST into IF1
+    dataflow graphs.
 
-    Each lowering function below should start with a do_, for example, do_exp,
-    do_simple_exp etc. Their purpose would be to recursively lower an incoming
-    AST type (for the two mentioned above, exp, simple_exp would be the AST
-    type) to IF1. The return value is a quadruple, organized into a triplet of
-    ints followed by a graph type: (x, y, z), gr :- x signifying node-id, y for
-    port-id and z for type-id, and finally gr is a graph type that you may find
-    in if1.ml. The difficulty here is that we just return only one int as the
-    producing node's ID. But AST types may return multiple values. Any function
-    could return many values; or and parallel assignments are possible as well.
-    What I did was introduce a If1.MULTIARITY node, which has enough incoming
-    ports for each result values, and now we can get away with the single ID
-    that of the If1.MULTIARITY node. The users get a MULTIARITY and then connect
-    to the input ports of the MULTIARITY directly. Thus MULTIARITY is just an
-    indirection and is thrown away when returning to the Callee.
+    Primary References:
+    1. "IF1: An Intermediate Form for Applicative Languages"
+       (LLNL, July 31, 1985, Version 1.0).
+    2. "Frontend of a SISAL Compiler"
+       (Riyaz V.P., M.Tech Thesis, IIT Kanpur, March 1993).
 
-    A spate of library functions do exist... DOUBLE, TRIPLE are some shortcuts
-    to create tuples from expressions or declarations. There are peculiarities
-    in function declarations due to the need for forward declarations etc.
+    ----------------------------------------------------------------------------
+    Architecture & Lowering Overview
+    ----------------------------------------------------------------------------
 
-    In modern day Graphics languages like openGL/CL etc and with CPU/GPU
-    vector-instruction support, we often find intrinsic based code. Thus I added
-    a series of vector and matrix types based off OpenCL/GL - they should be
-    directly mappable to vector swizzles and mat-vec multiplies seen in graphics
-    circles and give us ability to write OpenGL like swizzle code. Also these
-    data-types should map to most processor's vector SIMD registers.
+    1. AST Traversal & Scoping:
+       - Lowering functions follow the `do_<ast_node>` naming convention
+         (e.g., `do_exp`, `do_simple_exp`).
+       - AST nodes recursively translate into IF1 node/port/type triples:
+         `(node_id, port_id, type_id), graph`.
+       - Variable bindings and scoping (`let`, `let rec`, loops) are managed via
+         hierarchical symbol tables (`If1.symtab`) containing parent (enclosing)
+         and local symbol maps.
 
-    In one of the kinds of loops called the FOR INITIAL loop, there is a keyword
-    called Old. This takes some explanation. The statements in the FOR INITIAL
-    or FOR loops are written like C assignments. These statements are called
-    DeclDefs. A decldef looks like X := some expn; Each of these statements are
-    basically the same as a let statement, like let name = expn in expn in ML
-    like languages. So we need to imagine an imaginary let before the
-    statement's LHS and an 'in' to replace the ';' ending the decldef. Now if we
-    have an exp i = i + 1; k = i; in a loop, the meaning is akin to Ml lang
-    statement: let i = i + 1 in k = i.
+    2. Multi-Value Returns & MULTIARITY Indirection:
+       - SISAL expressions, function calls, and tuple patterns can return multiple
+         values (`x, y, z := ...`).
+       - To represent multi-value outputs while returning a single logical ID during
+         AST traversal, `do_simple_exp` constructs a temporary `If1.MULTIARITY`
+         node with input ports for each output value.
+       - Unpacking `MULTIARITY` ports maps variables 1-to-1 to their destination
+         ports, after which the `MULTIARITY` node indirection dissolves.
 
-    With a redefinition of any name it would now be shadowed and the old binding
-    is no longer available. Thus after that statement, the previous loop's value
-    is not available. I suppose we could make a copy of it with a new name with
-    a decldef at the beginning of the loop. Thus, I guess the hacky 'Old i' came
-    about to be able to refer to the earlier iteration's value, wherever
-    required in all of the current iteration's decldefs.
+    3. Vector & Matrix SIMD Intrinsics:
+       - Built-in fixed vector types (`float2`, `float3`, `float4`, `int2`, `int4`)
+         and matrix types (`mat2`, `mat3`, `mat4`) provide first-class graphics
+         and SIMD primitives.
+       - These map directly to hardware CPU SIMD registers (ARM Neon, AVX-512)
+         and GPU compute shader primitives, supporting vector swizzling and
+         mat-vec transformation intrinsics.
 
-    I guess only from the last iteration and not two or more iterations ago -
-    like we would have in a reduction. That can be written as well using this
-    old i trick and some extra variables, maybe. In any case I cannot fully
-    understand why they needed this 'Old'.
+    4. `for initial` Loops & `old` Loop-Carried Bindings:
+       - Sequential `for initial` loop bodies consist of `decldef` statements
+         (`X := expn;`), which act like nested `let name = expn in ...` expressions.
+       - When a variable name is redefined in a loop body, it shadows the previous
+         binding.
+       - To reference a value carried over from the *previous* loop iteration (prior
+         to shadowing), SISAL provides the `old` keyword (e.g., `i := old i + 1`),
+         which binds directly to the loop's initial/carried boundary input.
 
-    Old is only available for "FOR INITIAL" loops, which are basically like tail
-    recursive function calls. In contrast, the "FOR" loop is a fully parallel
-    loop. But the body is still a nested let-in written with decldefs. I suppose
-    we could do t3 := old t2; t2 := old t1; k := t3 + t2; t1 := t1 + 1; but we
-    could do that without the old keyword.
+    5. Parallel Loops vs. Sequential Iteration:
+       - `for initial` represents tail-recursive sequential iteration with `old`
+         state carrying.
+       - `forall` represents fully parallel range iteration over array domains.
 
-    We often find that there are some let's mixed in the loops to make some LHS
-    value usable in an if-else compound statement and the code could get
-    confusing as a result. The If-else body or condition would need to be an
-    expression and not decldefs.
-
-    The semicolon everywhere in the language is to be treated like that. It is
-    not equivalent to Ocaml's "and" for parallel copies. We would probably like
-    to have an "and" to add a parallel decldef list. That is an easy addition.
-
-    Recursions and cross recursions are easy as the only thing required is a
-    forward declaration. However to handle Higher Order Functions we would need
-    to add a Rec keyword like ML; otherwise the LHS name in the decldef is not
-    going to be made available to the RHS, just like in ML like langs.
-
-    What next: 1: I also found reading Prof. Andrew Appel's book: "Compiling
-    with Continuations" facinating-- including callcc etc concepts. CPS callcc
-    etc. Every compiler stage is discussed and also they discuss closure
-    conversion etc. and maybe a CPS lowering would be fun to do...
-
-    2: For better usability: SISAL2 etc had written about but not attempted...*)
+    6. Function Declarations & Recursion:
+       - Mutual recursion and forward function references are resolved by
+         pre-registering top-level function signatures in the global symbol table.
+*)
 
 module Ast = Ir.Ast
 module If1 = Ir.If1
