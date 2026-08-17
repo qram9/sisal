@@ -11,4 +11,5 @@ test/*.if1
 *.o
 *.dSYM
 /test_*
+/run_*
 .DS_Store
