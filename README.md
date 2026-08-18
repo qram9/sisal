@@ -133,6 +133,22 @@ Run the parallel end-to-end regression suite (compiles and runs 408 test groups 
 python3 test/e2e/run_dv_e2e_parallel.py
 ```
 
+### Code Coverage Tracking (`bisect_ppx`)
+
+To collect code coverage statistics across the compiler while executing all 408 end-to-end regression tests:
+
+```bash
+# 1. Run parallel E2E tests with coverage tracking
+mkdir -p _coverage
+BISECT_FILE=$(pwd)/_coverage/bisect python3 test/e2e/run_dv_e2e_parallel.py
+
+# 2. View terminal coverage summary
+bisect-ppx-report summary --per-file --coverage-path _coverage/
+
+# 3. Generate HTML coverage report
+bisect-ppx-report html --coverage-path _coverage/ -o _coverage/html/
+```
+
 ---
 
 ## Documentation
