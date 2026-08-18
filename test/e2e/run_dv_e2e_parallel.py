@@ -9,7 +9,9 @@ import multiprocessing
 import time
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-SISAL = os.path.join(REPO, "_build/install/default/bin/sisal")
+SISAL_EXE = os.path.join(REPO, "_build/default/src/main.exe")
+SISAL_INSTALL = os.path.join(REPO, "_build/install/default/bin/sisal")
+SISAL = SISAL_EXE if os.path.exists(SISAL_EXE) else SISAL_INSTALL
 RUNTIME = os.path.join(REPO, "runtime")
 PARTS = os.path.join(REPO, "test/e2e/parts")
 
@@ -63,12 +65,16 @@ def run_single_test(args):
     bin_out = os.path.join(gendir, f"test_{macro}")
 
     # 1. Emit C++
-    cmd_emit = [SISAL, os.path.join(REPO, f"test/e2e/{stem}.sis")]
+    if "BISECT_FILE" in os.environ:
+        cmd_emit = ["dune", "exec", "--instrument-with", "bisect_ppx", "--", "sisal", os.path.join(REPO, f"test/e2e/{stem}.sis")]
+    else:
+        cmd_emit = [SISAL, os.path.join(REPO, f"test/e2e/{stem}.sis")]
     if flags:
         cmd_emit.extend(flags.split())
     cmd_emit.append(f"--c={cpp_out}")
 
-    res_emit = subprocess.run(cmd_emit, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    env = os.environ.copy()
+    res_emit = subprocess.run(cmd_emit, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     if res_emit.returncode != 0:
         return macro, False, "EMIT", res_emit.stdout + res_emit.stderr
 

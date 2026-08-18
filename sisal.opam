@@ -9,6 +9,7 @@ depends: [
   "dune" {>= "3.11" & >= "3.11"}
   "menhir" {>= "20211230"}
   "re" {>= "1.10.0"}
+  "bisect_ppx" {>= "2.8.0"}
   "odoc" {with-doc}
 ]
 build: [

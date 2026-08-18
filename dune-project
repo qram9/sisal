@@ -12,6 +12,7 @@
   (ocaml (>= 4.14.0))
   (dune (>= 3.11))
   (menhir (>= 20211230))
-  (re (>= 1.10.0))))
+  (re (>= 1.10.0))
+  (bisect_ppx (>= 2.8.0))))
 
 (generate_opam_files true)
