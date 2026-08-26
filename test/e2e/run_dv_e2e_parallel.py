@@ -104,26 +104,47 @@ def run_single_test(args):
 
     return macro, True, "PASS", res_run.stdout
 
+import argparse
+
 def main():
-    print("=== Building compiler ===")
-    dune_cmd = ["dune", "build"]
-    dune_install_cmd = ["dune", "build", "@install"]
-    if os.environ.get("BISECT_COVERAGE") == "1":
-        dune_cmd.append("--instrument-with=bisect_ppx")
-        dune_install_cmd.append("--instrument-with=bisect_ppx")
+    parser = argparse.ArgumentParser(description="Parallel E2E test runner for SISAL")
+    parser.add_argument("patterns", nargs="*", help="Filter tests by substring/pattern (e.g. UNSPLIT SBATCHER)")
+    parser.add_argument("--skip-build", "-s", action="store_true", help="Skip dune compiler build step")
+    cli_args = parser.parse_args()
 
-    res = subprocess.run(dune_cmd, cwd=REPO)
-    if res.returncode != 0:
-        print("Compiler build failed!")
-        sys.exit(1)
+    if not cli_args.skip_build:
+        print("=== Building compiler ===")
+        dune_cmd = ["dune", "build"]
+        dune_install_cmd = ["dune", "build", "@install"]
+        if os.environ.get("BISECT_COVERAGE") == "1":
+            dune_cmd.append("--instrument-with=bisect_ppx")
+            dune_install_cmd.append("--instrument-with=bisect_ppx")
 
-    res = subprocess.run(dune_install_cmd, cwd=REPO)
-    if res.returncode != 0:
-        print("Compiler install build failed!")
-        sys.exit(1)
+        res = subprocess.run(dune_cmd, cwd=REPO)
+        if res.returncode != 0:
+            print("Compiler build failed!")
+            sys.exit(1)
 
-    groups = parse_test_groups()
-    print(f"Found {len(groups)} test groups to run.")
+        res = subprocess.run(dune_install_cmd, cwd=REPO)
+        if res.returncode != 0:
+            print("Compiler install build failed!")
+            sys.exit(1)
+
+    all_groups = parse_test_groups()
+    if cli_args.patterns:
+        p_lowers = [p.lower() for p in cli_args.patterns]
+        groups = [
+            g for g in all_groups
+            if any(p in g[0].lower() or p in g[1].lower() for p in p_lowers)
+        ]
+        print(f"Filtered to {len(groups)} of {len(all_groups)} test groups matching: {cli_args.patterns}")
+    else:
+        groups = all_groups
+        print(f"Found {len(groups)} test groups to run.")
+
+    if not groups:
+        print("No test groups matched pattern(s). Exiting.")
+        sys.exit(0)
 
     gendir = tempfile.mkdtemp(prefix="sisal_e2e_parallel_")
     

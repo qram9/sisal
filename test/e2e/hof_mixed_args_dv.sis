@@ -1,0 +1,36 @@
+% Test case: HOF with mixed scalar vars & functions as args, capturing scalar & outer function in if scope
+define Main
+
+type IntOp = function( integer returns integer )
+
+function BaseOp( a : integer returns integer )
+  a * 3
+end function
+
+function ApplyMixed( f1, f2 : IntOp; v1, v2 : integer returns integer )
+  f1( v1 ) + f2( v2 )
+end function
+
+function Main( init_val, scale : integer returns integer )
+  function CapturedFn( x : integer returns integer )
+    let
+      t := BaseOp( x )
+    in
+      if x > 5 then
+        t + scale
+      else
+        t - scale
+      end if
+    end let
+  end function
+
+  function LocalAdd( y : integer returns integer )
+    y + 5
+  end function
+
+  let
+    res := ApplyMixed( CapturedFn, LocalAdd, init_val, 2 )
+  in
+    res
+  end let
+end function

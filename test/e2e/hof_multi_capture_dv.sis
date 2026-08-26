@@ -1,0 +1,20 @@
+% Test case: Higher-order function with multiple captured variables and multiple arguments
+define Main
+
+type MultiOp = function( integer, integer returns integer )
+
+function ApplyOp( f : MultiOp; a, b : integer returns integer )
+  f( a, b )
+end function
+
+function Main( x, multiplier, offset : integer returns integer )
+  function MultiCaptureFn( y, z : integer returns integer )
+    (y + z + x) * multiplier + offset
+  end function
+
+  let
+    res := ApplyOp( MultiCaptureFn, 10, 20 )
+  in
+    res
+  end let
+end function

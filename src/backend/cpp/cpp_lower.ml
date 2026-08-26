@@ -778,7 +778,7 @@ let for_initial_reduce_ports ret_gr =
 (** [infer_types env gr gid] populates the type_table for the current graph
     hierarchy. *)
 let infer_types env gr gid =
-  let _, _tm, _ = gr.typemap in
+  let _tm = env.tm in
   let table = Hashtbl.create 256 in
   FullPortMap.iter (fun k v -> Hashtbl.replace table k v) env.type_table;
 
@@ -876,6 +876,11 @@ let infer_types env gr gid =
                 Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
                 Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
                 Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
+            | cty when Cpp_helpers.is_function_type cty ->
+                Hashtbl.replace table (cur_gid, sn, sp, `Out) cty;
+                Hashtbl.replace locked (cur_gid, sn, sp, `Out) ();
+                Hashtbl.replace table (cur_gid, dn, dp, `In) cty;
+                Hashtbl.replace locked (cur_gid, dn, dp, `In) ()
             | _ -> ())
       g.eset;
     NM.iter
@@ -901,13 +906,11 @@ let infer_types env gr gid =
     let tm_local = _tm in
     SM.iter
       (fun _ v ->
-        (* nested function definitions put function-typed NAMES in the
-           local symtab; they are nominal, not values — no C type exists *)
-        match TM.find_opt v.val_ty tm_local with
-        | Some (Function_ty _) -> ()
-        | _ ->
-            set_ty cur_gid v.val_def v.def_port `Out
-              (c_type_of_if1_tyid tm_local v.val_ty))
+        if v.val_ty <> 0 then begin
+          let cty = c_type_of_if1_tyid tm_local v.val_ty in
+          set_ty cur_gid v.val_def v.def_port `Out cty;
+          Hashtbl.replace locked (cur_gid, v.val_def, v.def_port, `Out) ()
+        end)
       cs;
     NM.iter
       (fun nid node ->
@@ -1598,6 +1601,7 @@ let dummy_env tm sub_gr =
     parent_env = None;
     compound_nid_in_parent = 0;
     seen_decls = StringSet.empty;
+    proc_params = StringSet.empty;
     fanout_map = PortFanout.empty;
     edge_free_map = EdgeFreeMap.empty;
     mandatory_ports = PortSet.empty;
@@ -2134,6 +2138,57 @@ let lower_dv_replace env gr gid nid e1 e2 get_in_expr =
 (** [lower_graph env parent_gr compound_nid gr gid] translates an IF1 graph into
     a list of C statements. *)
 let rec lower_graph env parent_gr compound_nid gr gid =
+  let proc_param_set =
+    let cs, ps = gr.symtab in
+    let is_num s =
+      let s' = if String.length s >= 5 && String.sub s 0 5 = "func_" then String.sub s 5 (String.length s - 5) else s in
+      try ignore (int_of_string s'); true with _ -> false
+    in
+    let is_proc_name k =
+      let upper = String.uppercase_ascii (sanitize k) in
+      let rec is_ancestor_proc name_upper e_opt =
+        match e_opt with
+        | None -> false
+        | Some e ->
+            let in_curr =
+              NM.fold (fun nid node acc ->
+                match node with
+                | Compound (_, _, _, pr, _, _) ->
+                    let matched =
+                      List.exists
+                        (function
+                          | Name nm ->
+                              let u = String.uppercase_ascii (sanitize nm) in
+                              u = name_upper || "FUNC_" ^ u = name_upper || u = "FUNC_" ^ name_upper
+                          | _ -> false)
+                        pr
+                    in
+                    acc || matched
+                | _ -> acc) e.curr_gr.nmap false
+            in
+            in_curr || is_ancestor_proc name_upper e.parent_env
+      in
+      is_ancestor_proc upper (Some env)
+      || IntMap.fold (fun _ name acc -> acc || String.uppercase_ascii name = "FUNC_" ^ upper || String.uppercase_ascii name = upper) env.proc_map false
+      || IntMap.fold (fun _ name acc -> acc || String.uppercase_ascii name = "FUNC_" ^ upper || String.uppercase_ascii name = upper) env.gid_name_map false
+      || NM.fold (fun _ n acc ->
+           match n with
+           | Compound (_, _, _, pr_sub, _, _) ->
+               acc || List.exists (function Name nm -> String.uppercase_ascii (sanitize nm) = upper | _ -> false) pr_sub
+           | _ -> acc) gr.nmap false
+    in
+    let add_syms m acc =
+      SM.fold
+        (fun k v a ->
+          if v.val_def = 0 && not (is_num k) && not (is_proc_name k) then
+            let san = sanitize k in
+            StringSet.add san (StringSet.add (String.uppercase_ascii san) a)
+          else a)
+        m acc
+    in
+    add_syms ps (add_syms cs env.proc_params)
+  in
+  let env = { env with proc_params = proc_param_set } in
   let local_nested_funcs =
     NM.fold
       (fun nid node acc ->
@@ -2570,8 +2625,36 @@ and lower_node env gr nid node =
                return_ty)
         in
         let lambda_close = C.Raw "};" in
+        let decl_stmts, env = declare_outputs env gr gid nid node in
+        let out_pids =
+          ES.fold
+            (fun ((sn, sp), _, _) acc ->
+              if sn = nid then IntSet.add sp acc else acc)
+            gr.eset IntSet.empty
+          |> IntSet.elements
+        in
+        let is_hof_port sp =
+          let ty_id =
+            ES.fold
+              (fun ((sn, port), _, t) acc ->
+                if sn = nid && port = sp then Some t else acc)
+              gr.eset None
+            |> Option.value ~default:0
+          in
+          match lookup_ty_safe ty_id gr with
+          | Some (Function_ty _) -> true
+          | _ -> false
+        in
+        let hof_out_pids = List.filter is_hof_port out_pids in
+        let assigns =
+          List.map
+            (fun sp ->
+              let out_var = get_c_name env.proc_map env.gid_name_map gid nid sp `Out gr in
+              C.Expr (C.BinOp (C.Assign, C.Id out_var, C.Id func_name)))
+            hof_out_pids
+        in
         let env = { env with seen_decls = StringSet.add func_name env.seen_decls } in
-        ([ lambda_decl; C.Compound body_stmts; lambda_close ], env) end
+        (decl_stmts @ [ lambda_decl; C.Compound body_stmts; lambda_close ] @ assigns, env) end
       else if c_of = If1_forall then
         lower_forall env gr gid nid loop_gr sub_gid pr
       else if c_of = If1_predicate || c_of = If1_if then
@@ -2584,6 +2667,7 @@ and lower_node env gr nid node =
         let env_child =
           {
             env with
+            tm = TM.union (fun _ _ b -> Some b) env.tm (get_typemap_tm loop_gr);
             parent_env = Some env;
             compound_nid_in_parent = nid;
             parent_map = IntMap.add sub_gid (gid, nid) env.parent_map;
@@ -3486,24 +3570,224 @@ and lower_simple env gr nid sym pin pout pr =
         in
         C.Call (reduce_fn, [ e1 ])
     | INVOCATION ->
+        let is_numeric s =
+          let s' =
+            if String.length s >= 5 && String.lowercase_ascii (String.sub s 0 5) = "func_" then
+              String.sub s 5 (String.length s - 5)
+            else s
+          in
+          try ignore (int_of_string s'); true with _ -> false
+        in
         let fname_pragma =
-          List.find_map (function Name n -> Some n | _ -> None) pr
+          List.find_map (function Name n when not (is_numeric n) -> Some n | _ -> None) pr
+        in
+        let rec trace_func_name env_curr g_curr n_curr p_curr =
+          match
+            ES.fold
+              (fun (src, dst, _) acc ->
+                if dst = (n_curr, p_curr) then Some src else acc)
+              g_curr.eset None
+          with
+          | Some (0, b_port) -> (
+              match env_curr.parent_env with
+              | Some pe ->
+                  trace_func_name pe pe.curr_gr env_curr.compound_nid_in_parent b_port
+              | None -> (
+                  let cs, ps = g_curr.symtab in
+                  let find_param m =
+                    SM.fold
+                      (fun k v acc ->
+                        if v.val_def = 0 && v.def_port = b_port && not (is_numeric k) then Some k else acc)
+                      m None
+                  in
+                  match find_param cs with
+                  | Some name -> Some ("func_" ^ String.uppercase_ascii (sanitize name))
+                  | None -> (
+                      match find_param ps with
+                      | Some name -> Some ("func_" ^ String.uppercase_ascii (sanitize name))
+                      | None -> None)))
+          | Some (src_node, src_port) when src_node > 0 -> (
+              match IntMap.find_opt src_node env_curr.proc_map with
+              | Some name -> Some name
+              | None -> (
+                  match NM.find_opt src_node g_curr.nmap with
+                  | Some (Simple (_, MERGE, _, _, _)) -> (
+                      match trace_func_name env_curr g_curr src_node 1 with
+                      | Some n -> Some n
+                      | None -> trace_func_name env_curr g_curr src_node 2)
+                  | Some (Compound (_, _, _, _, sub_gr, _)) -> (
+                      match
+                        ES.fold
+                          (fun (src, dst, _) acc ->
+                            if dst = (0, src_port) then Some src else acc)
+                          sub_gr.eset None
+                      with
+                      | Some (inner_node, inner_port) ->
+                          trace_func_name env_curr sub_gr inner_node inner_port
+                      | None -> None)
+                  | _ -> None))
+          | _ -> None
         in
         let fname, start_port =
           match fname_pragma with
-          | Some n -> ("func_" ^ String.uppercase_ascii n, 0)
+          | Some n ->
+              let upper = String.uppercase_ascii n in
+              let san = sanitize n in
+              let is_global_proc =
+                IntMap.fold
+                  (fun _ name acc ->
+                    acc
+                    || String.uppercase_ascii name = "FUNC_" ^ upper
+                    || String.uppercase_ascii name = upper)
+                  env.proc_map false
+              in
+              let is_intrinsic =
+                String.length n >= 2 && String.sub n 0 2 = "_S"
+              in
+              let is_proc_name_check s =
+                let u = String.uppercase_ascii (sanitize s) in
+                let rec is_ancestor_proc name_upper e_opt =
+                  match e_opt with
+                  | None -> false
+                  | Some e ->
+                      let in_curr =
+                        NM.fold (fun _ node acc ->
+                          if acc then true
+                          else match node with
+                          | Compound (_, _, _, pr, _, _) ->
+                              List.exists (function Name nm -> String.uppercase_ascii (sanitize nm) = name_upper | _ -> false) pr
+                          | _ -> false) e.curr_gr.nmap false
+                      in
+                      in_curr || is_ancestor_proc name_upper e.parent_env
+                in
+                is_ancestor_proc u (Some env)
+                || IntMap.fold (fun _ name acc -> acc || String.uppercase_ascii name = "FUNC_" ^ u || String.uppercase_ascii name = u) env.proc_map false
+                || IntMap.fold (fun _ name acc -> acc || String.uppercase_ascii name = "FUNC_" ^ u || String.uppercase_ascii name = u) env.gid_name_map false
+              in
+              let is_func_param =
+                (StringSet.mem san env.proc_params || StringSet.mem upper env.proc_params)
+                && not (is_proc_name_check n)
+              in
+              let is_declared_in_scope =
+                StringSet.mem ("func_" ^ upper) env.seen_decls
+                || StringSet.mem ("func_" ^ san) env.seen_decls
+              in
+              let local_sym_var =
+                let cs, ps = gr.symtab in
+                let is_func_val v =
+                  v.val_def > 0
+                  && v.val_def <> nid
+                  && Cpp_helpers.is_function_type (c_type_of_if1_tyid env.tm v.val_ty)
+                  && FullPortMap.mem (gid, v.val_def, v.def_port, `Out) env.var_map
+                  && (match FullPortMap.find_opt (gid, v.val_def, v.def_port, `Out) env.type_table with
+                      | Some ty -> Cpp_helpers.is_function_type ty
+                      | None -> true)
+                in
+                let find_sym s =
+                  match SM.find_opt s cs with
+                  | Some v when is_func_val v -> Some v
+                  | _ -> (
+                      match SM.find_opt s ps with
+                      | Some v when is_func_val v -> Some v
+                      | _ -> None)
+                in
+                match find_sym n with
+                | Some v -> Some (get_expr env gid v.val_def v.def_port `Out)
+                | None -> (
+                    match find_sym san with
+                    | Some v -> Some (get_expr env gid v.val_def v.def_port `Out)
+                    | None -> (
+                        match find_sym upper with
+                        | Some v -> Some (get_expr env gid v.val_def v.def_port `Out)
+                        | None -> None))
+              in
+              let is_numeric s =
+                try ignore (int_of_string s); true with _ -> false
+              in
+              let fn_code, start_p =
+                if is_numeric n then
+                  match trace_func_name env gr nid 0 with
+                  | Some name -> (name, 0)
+                  | None ->
+                      let enclosing_proc =
+                        let rec find_proc e =
+                          match IntMap.find_opt e.curr_gid e.proc_map with
+                          | Some name -> name
+                          | None -> (
+                              match e.parent_env with
+                              | Some pe -> find_proc pe
+                              | None -> "func_UNKNOWN")
+                        in
+                        find_proc env
+                      in
+                      (enclosing_proc, 0)
+                else if is_func_param then (san, 0)
+                else if is_global_proc || is_intrinsic || is_declared_in_scope then ("func_" ^ upper, 0)
+                else match local_sym_var with
+                | Some expr ->
+                    let s = Ir.C_ast_print.string_of_expr expr in
+                    if is_numeric s || String.uppercase_ascii s = upper || String.uppercase_ascii s = "FUNC_" ^ upper then ("func_" ^ upper, 0)
+                    else (s, 0)
+                | None -> ("func_" ^ upper, 0)
+              in
+              (fn_code, start_p)
           | None -> (
-              match
-                ES.fold
-                  (fun (src, dst, _) acc ->
-                    if dst = (nid, 0) then Some src else acc)
-                  gr.eset None
-              with
-              | Some (0, pn) -> (
-                  match IntMap.find_opt pn env.proc_map with
-                  | Some name -> (name, 1)
-                  | _ -> ("func_UNKNOWN", 1))
-              | _ -> ("func_UNKNOWN", 1))
+              let is_numeric s =
+                try ignore (int_of_string s); true with _ -> false
+              in
+              let get_sym_name_for_nid nid =
+                let cs, ps = gr.symtab in
+                let find_in m =
+                  SM.fold
+                    (fun k v acc ->
+                      if v.val_def = nid && not (is_numeric k) then Some k else acc)
+                    m None
+                in
+                match find_in cs with
+                | Some name -> Some name
+                | None -> find_in ps
+              in
+              match get_sym_name_for_nid nid with
+              | Some name when not (is_numeric name) ->
+                  ("func_" ^ String.uppercase_ascii (sanitize name), 0)
+              | _ -> (
+                  match trace_func_name env gr nid 0 with
+                  | Some name -> (name, 0)
+                  | None ->
+                      let port0_ty = get_final_ty env gid nid 0 `In in
+                      if Cpp_helpers.is_function_type port0_ty then
+                        let expr_str = Ir.C_ast_print.string_of_expr (get_in_expr 0) in
+                        if is_numeric expr_str then
+                          let enclosing_proc =
+                            let rec find_proc e =
+                              match IntMap.find_opt e.curr_gid e.proc_map with
+                              | Some name -> name
+                              | None -> (
+                                  match e.parent_env with
+                                  | Some pe -> find_proc pe
+                                  | None -> "func_UNKNOWN")
+                            in
+                            find_proc env
+                          in
+                          (enclosing_proc, 0)
+                        else
+                          (expr_str, 1)
+                      else
+                        let enclosing_proc =
+                          let rec find_proc e =
+                            match IntMap.find_opt e.curr_gid e.proc_map with
+                            | Some name -> name
+                            | None -> (
+                                match IntMap.find_opt e.compound_nid_in_parent e.proc_map with
+                                | Some name -> name
+                                | None -> (
+                                    match e.parent_env with
+                                    | Some pe -> find_proc pe
+                                    | None -> "func_UNKNOWN"))
+                          in
+                          find_proc env
+                        in
+                        (enclosing_proc, 0)))
         in
         let in_ports =
           ES.fold
@@ -4155,6 +4439,7 @@ and lower_tagcase env parent_gr nid loop_gr loop_gid =
         let env_child =
           {
             env with
+            tm = TM.union (fun _ _ b -> Some b) env.tm (get_typemap_tm arm_gr);
             parent_env = Some env;
             compound_nid_in_parent = dest_nid;
             curr_gid = sub_gid;
@@ -6151,6 +6436,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     {
       env_loop with
       parent_env = Some env_loop;
+      compound_nid_in_parent = init_nid;
       curr_gid = init_gid;
       curr_gr = init_gr;
       parent_map = IntMap.add init_gid (sub_gid, init_nid) env_loop.parent_map;
@@ -6213,6 +6499,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     {
       env_loop with
       parent_env = Some env_loop;
+      compound_nid_in_parent = test_nid;
       curr_gid = test_gid;
       curr_gr = test_gr;
       parent_map = IntMap.add test_gid (sub_gid, test_nid) env_loop.parent_map;
@@ -6250,6 +6537,7 @@ and lower_for_initial env gr gid nid loop_gr sub_gid pr =
     {
       env_loop with
       parent_env = Some env_loop;
+      compound_nid_in_parent = body_nid;
       curr_gid = body_gid;
       curr_gr = body_gr;
       parent_map = IntMap.add body_gid (sub_gid, body_nid) env_loop.parent_map;
@@ -7447,6 +7735,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
             List.init (List.length ins) (fun i -> i)
         | _ -> []
       in
+      let proc_tm = TM.union (fun _ _ b -> Some b) tm (get_typemap_tm sub_gr) in
       let env_module =
         {
           (dummy_env tm gr_module) with
@@ -7460,7 +7749,7 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
       in
       let env_init =
         {
-          (dummy_env tm sub_gr) with
+          (dummy_env proc_tm sub_gr) with
           gid_table;
           proc_map;
           gid_name_map;
@@ -7470,43 +7759,97 @@ let lower_procedure tm gid_table gid_name_map proc_map procedures_info_map nid
         }
       in
 
+      let get_sym_tid pid =
+        let (cs, ps) = sub_gr.symtab in
+        let find_in_map m =
+          SM.fold
+            (fun _ v acc ->
+              if v.val_def = 0 && v.def_port = pid && v.val_ty <> 0 then Some v.val_ty else acc)
+            m None
+        in
+        match find_in_map cs with
+        | Some tid -> Some tid
+        | None -> find_in_map ps
+      in
+
       (* Seed the procedure types using the function's type definition *)
-      let param_types = get_function_param_types tm ty_id in
       let env_seeded =
-        List.fold_left2
-          (fun env_acc pid tid ->
-            let ty_val = try TM.find tid tm with _ -> Basic REAL in
-            {
-              env_acc with
-              type_table =
-                FullPortMap.add (nid, 0, pid, `Out)
-                  (c_type_of_if1_ty tm ty_val)
-                  env_acc.type_table;
-            })
-          env_init
-          (List.filter (fun p -> p < List.length param_types) all_b_ins)
-          param_types
+        List.fold_left
+          (fun env_acc pid ->
+            match get_sym_tid pid with
+            | Some tid ->
+                {
+                  env_acc with
+                  type_table =
+                    FullPortMap.add (nid, 0, pid, `Out)
+                      (c_type_of_if1_tyid proc_tm tid)
+                      env_acc.type_table;
+                }
+            | None -> env_acc)
+          env_init all_b_ins
       in
 
       let env_typed = infer_types env_seeded sub_gr nid in
-      let param_tids = get_function_param_types tm ty_id in
+      let param_tids = get_function_param_types proc_tm ty_id in
       let params =
         List.mapi
           (fun i pid ->
             let ty =
-              if i < List.length param_tids then
-                let tid = List.nth param_tids i in
-                c_type_of_if1_tyid tm tid
-              else get_final_ty env_typed nid 0 pid `Out
+              match get_sym_tid pid with
+              | Some tid -> c_type_of_if1_tyid proc_tm tid
+              | None ->
+                  if i < List.length param_tids then
+                    let tid = List.nth param_tids i in
+                    c_type_of_if1_tyid proc_tm tid
+                  else get_final_ty env_typed nid 0 pid `Out
+            in
+            let is_num s =
+              let s' = if String.length s >= 5 && String.sub s 0 5 = "func_" then String.sub s 5 (String.length s - 5) else s in
+              try ignore (int_of_string s'); true with _ -> false
             in
             let name =
-              match get_port_name_from_cs sub_gr 0 pid `Out with
+              let cs, ps = sub_gr.symtab in
+              let find_p m =
+                SM.fold
+                  (fun k v acc -> if v.val_def = 0 && v.def_port = pid && not (is_num k) then Some k else acc)
+                  m None
+              in
+              match find_p cs with
               | Some n -> sanitize n
-              | None -> Printf.sprintf "param_%d" pid
+              | None -> (
+                  match find_p ps with
+                  | Some n -> sanitize n
+                  | None -> (
+                      match get_port_name_from_cs sub_gr 0 pid `Out with
+                      | Some n -> sanitize n
+                      | None -> Printf.sprintf "param_%d" pid))
             in
             (ty, name))
           all_b_ins
       in
+      let proc_param_set =
+        let cs, ps = sub_gr.symtab in
+        let is_num s =
+          let s' = if String.length s >= 5 && String.sub s 0 5 = "func_" then String.sub s 5 (String.length s - 5) else s in
+          try ignore (int_of_string s'); true with _ -> false
+        in
+        let add_syms m acc =
+          SM.fold
+            (fun k v a ->
+              if v.val_def = 0 && not (is_num k) then
+                let san = sanitize k in
+                StringSet.add san (StringSet.add (String.uppercase_ascii san) a)
+              else a)
+            m acc
+        in
+        let acc1 = add_syms cs StringSet.empty in
+        let acc2 = add_syms ps acc1 in
+        List.fold_left
+          (fun s (_, name) ->
+            StringSet.add name (StringSet.add (String.uppercase_ascii name) s))
+          acc2 params
+      in
+      let env_typed = { env_typed with proc_params = proc_param_set } in
       (* Seed param names so pre_declare sees them and can detect conflicts *)
       let env_param_seeded =
         List.fold_left2
@@ -7798,7 +8141,7 @@ let lower_to_c tm gr filename =
     NM.fold
       (fun nid node acc ->
         match node with
-        | Compound (_, INTERNAL, _, pr, sub_gr, _)
+        | Compound (_, _, _, pr, sub_gr, _)
           when get_compound_type pr = If1_procedure ->
             (nid, node, sub_gr) :: acc
         | _ -> acc)
@@ -7836,17 +8179,38 @@ let lower_to_c tm gr filename =
     |> fun (t, n, _) -> (t, n)
   in
 
+  let is_numeric s =
+    try ignore (int_of_string s); true with _ -> false
+  in
+  let get_proc_name_from_sub_gr sub_gr =
+    let cs, ps = sub_gr.symtab in
+    let find_in m =
+      SM.fold
+        (fun k v acc ->
+          if v.val_def = 0 && not (is_numeric k) then Some k else acc)
+        m None
+    in
+    match find_in cs with
+    | Some name -> Some name
+    | None -> find_in ps
+  in
   let proc_map =
     List.fold_left
-      (fun m (nid, node, _) ->
+      (fun m (nid, node, sub_gr) ->
         match node with
-        | Compound (_, INTERNAL, _, pr, _, _) -> (
+        | Compound (_, _, _, pr, _, _) -> (
             let func_name =
-              List.find_map (function Name nm -> Some nm | _ -> None) pr
-              |> Option.map String.uppercase_ascii
-              |> Option.map (fun n -> "func_" ^ n)
+              match List.find_map (function Name nm when not (is_numeric nm) -> Some nm | _ -> None) pr with
+              | Some nm -> Some ("func_" ^ String.uppercase_ascii nm)
+              | None -> (
+                  match get_proc_name_from_sub_gr sub_gr with
+                  | Some nm -> Some ("func_" ^ String.uppercase_ascii nm)
+                  | None -> None)
             in
-            match func_name with Some n -> IntMap.add nid n m | None -> m)
+            let sub_gid = try GidMap.find (0, nid) global_table with _ -> nid in
+            match func_name with
+            | Some n -> IntMap.add nid n (IntMap.add sub_gid n m)
+            | None -> m)
         | _ -> m)
       IntMap.empty procedures_info
   in

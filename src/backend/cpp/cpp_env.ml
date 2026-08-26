@@ -58,6 +58,7 @@ type env = {
   parent_env : env option;
   compound_nid_in_parent : int;
   seen_decls : StringSet.t;
+  proc_params : StringSet.t;
   fanout_map : int PortFanout.t;
   edge_free_map : (int * int * int) list EdgeFreeMap.t;
   mandatory_ports : PortSet.t;

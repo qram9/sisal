@@ -1,0 +1,14 @@
+% Test case: Array copy liveness where A and B are both live and modification to B must not affect A
+define Main
+
+type IntArray = array [ integer ]
+
+function Main( returns IntArray, IntArray )
+  let
+    A := array [1: 10, 20, 30];
+    B := A;
+    B2 := B[1: 999]
+  in
+    A, B2
+  end let
+end function

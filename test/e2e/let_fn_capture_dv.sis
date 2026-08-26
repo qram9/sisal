@@ -1,0 +1,15 @@
+% Test case: A function bound in a let block capturing outer variables and applying an operation with an argument.
+define Main
+
+function Main( x : integer; y : integer returns integer )
+  function MultiplyAndAdd( arg : integer returns integer )
+    arg * (y * 10) + x
+  end function
+
+  let
+    res1 := MultiplyAndAdd( 5 );
+    res2 := MultiplyAndAdd( 10 )
+  in
+    res1 + res2
+  end let
+end function

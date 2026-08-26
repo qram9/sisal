@@ -46,17 +46,40 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 9. **Interactive HTML Graph Visualizer**:
    - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
 
-11. **Ragged Arrays & Algebraic Lists**:
+10. **Ragged Arrays & Algebraic Lists**:
     - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
+
+11. **First-Class Higher-Order Functions (HOFs) & Closures**:
+    - **First-Class Function Values**: Functions can be passed as arguments, returned from procedures, bound to `let` variables, and stored in algebraic data structures (`union` lists).
+    - **Environment Variable Capture (Closures)**: Inner functions capture single or multiple scalar variables (`x`, `multiplier`, `offset`) and outer functions across surrounding lexical scopes.
+    - **Control-Flow Scope Integration**: Captured functions resolve cleanly inside `if-then-else` expressions, `for-initial` / `for-repeat` loop bodies, and `tagcase` pattern matches.
+    - **Direct & Mutual Recursion**: Full support for self-referential procedures (`HeapSort`, `DispatchAll`), mutual recursion (`LETREC_SCOPE_DV`), and recursive algebraic list dispatch.
+    - **Direct Multi-Assignment Tuple Swapping**: Zero-copy variable swapping (`A_swap, B_swap := B, A` and `A, B := B, A`) executes via direct 24-byte descriptor pointer assignments ($O(1)$ constant time).
+
+12. **Static Liveness Analysis & Copy-on-Write (CoW)**:
+    - **Topological Edge Liveness (`scan_edge_liveness`)**: Topologically sorts dataflow graphs (`topo_sort gr`) and tracks output port consumer fanout (`scan_fanout`), identifying exact last-use boundary edges (`EdgeFreeMap`).
+    - **Copy-on-Write Memory Safety**: Assignments (`B := A`) copy only 24-byte struct descriptors (`data` pointer, rank, size). Mutating operations (`B[i] := v`) automatically update in-place if `B` is unshared (last-use) or trigger CoW allocation if `A` is still live elsewhere.
+
+---
+
+## Sisal C++ Runtime vs. Python NumPy Architecture
+
+| Feature / Dimension | Sisal C++ (`sisal_array_t`) | Python NumPy (`numpy.ndarray`) |
+| :--- | :--- | :--- |
+| **Variable Assignment (`B := A`)** | **Zero-Copy Stack Struct**: Copies a 24-byte C struct (`data` pointer, rank, size). $O(1)$ constant time. | **Zero-Copy Reference**: Binds a Python object reference (`PyArrayObject*`) pointing to shared heap memory. |
+| **Mutation & Safety** | **Pure Functional Immutability (CoW)**: Performs **in-place update** if `A` is dead (last-use), or **automatic CoW copy** if `A` is live elsewhere. | **Mutable by Default**: Modifying `b[0]` mutates `a` when `b = a` or `b = a[:]`. Requires manual `.copy()` calls to avoid side-effects. |
+| **Broadcasting Engine** | **Built-in `conform_check`**: Implements exact right-aligned trailing axis broadcasting rules matching NumPy/JAX. | Standard `np.broadcast_arrays` rules ($d_A = d_B$, $d_A=1$, or $d_B=1$). |
+| **Execution Performance** | **Compiled Native C++23**: Native machine code compiled via `clang++`/`g++`. Loop nests (`forall`) are vectorizable by LLVM without GIL locks. | **Interpreted / C-Extension**: Fast for C primitives, but encounters Python interpreter / GIL overhead on explicit loops. |
+| **Python Interoperability** | **Zero-Copy C Export**: Flat `data` pointer can be wrapped directly by `pybind11::array_t` without memory copying. | Standard Python data science ecosystem. |
 
 ---
 
 ## Pending Items & Future Roadmap
 
-- **Copy-on-Write (COW) & Reference Count Lifetime Management**:
-  - Full static liveness analysis and runtime COW reference-counting (`sisal_array_consume_replace`) to perform automatic in-place array updates when `ref_count == 1` vs copy-on-write when arrays are shared.
-- **Higher-Order Functions (Runtime Values)**:
-  - Extend function types (`FUNCTION_TYPE`) from compile-time inlined constructs into first-class runtime function pointers and closures passed as values into functions.
+- **Monadic Linear State Threading**:
+  - Linear state threading ($\text{op} : \text{Array} \to (\text{Result}, \text{Array})$) to guarantee 100% in-place updates without dynamic reference checks.
+- **Lazy Layout Transformations**:
+  - Virtualizing stride/offset transformations for `TRANSPOSE`, `RESHAPE`, and `REVERSE` to fuse directly into downstream `forall` loops without intermediate buffer allocations.
 - **Railway Error Monad Pipeline**:
   - Generalizing Monad Control types (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) into a unified Railway Monad exception and IO pipeline.
 - **GPU Kernel Offloading & Acceleration**:

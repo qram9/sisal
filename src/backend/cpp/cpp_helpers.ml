@@ -291,6 +291,49 @@ let rec c_type_of_if1_ty tm ty =
   (* Error-flow ports carry an error sentinel, not a value; the carried datum is a
      type number, so an int holds it fine. *)
   | Typed_error _ | ERROR _ -> C.Basic "int32_t"
+  | Function_ty (ins, outs, _) ->
+      let rec flatten label =
+        if label = 0 then []
+        else
+          match TM.find_opt label tm with
+          | Some (Tuple_ty (curr, next)) -> curr :: flatten next
+          | _ -> [ label ]
+      in
+      let param_tids = flatten ins in
+      let ret_tids = flatten outs in
+      let resolve_tid tid =
+        match TM.find_opt tid tm with
+        | Some ty -> c_type_of_if1_ty tm ty
+        | None -> (
+            match tid with
+            | 1 -> C.Basic "bool"
+            | 2 | 10 -> C.Basic "int32_t"
+            | 3 | 11 -> C.Basic "char"
+            | 4 | 5 -> C.Basic "double"
+            | 6 -> C.Basic "int32_t"
+            | 7 | 13 -> C.Basic "int64_t"
+            | 8 -> C.Basic "float"
+            | 9 | 14 -> C.Basic "int16_t"
+            | 12 -> C.Basic "uint32_t"
+            | _ -> C.Basic "float")
+      in
+      let ret_str =
+        match ret_tids with
+        | [] -> "void"
+        | [ r ] ->
+            let rty = resolve_tid r in
+            Ir.C_ast_print.string_of_c_type rty
+        | _ -> "sisal_array_t"
+      in
+      let args_str =
+        List.map
+          (fun p ->
+            let pty = resolve_tid p in
+            Ir.C_ast_print.string_of_c_type pty)
+          param_tids
+        |> String.concat ", "
+      in
+      C.Basic (Printf.sprintf "std::function<%s(%s)>" ret_str args_str)
   | _ ->
       failwith
         ("c_type_of_if1_ty: don't know how to map this IF1 type to a C type: "
@@ -520,10 +563,14 @@ let is_generator_type = function
   | C.Basic s -> String.length s >= 15 && String.sub s 0 15 = "sisal_generator"
   | _ -> false
 
+let is_function_type = function
+  | C.Basic s -> String.length s >= 13 && String.sub s 0 13 = "std::function"
+  | _ -> false
+
 (** [default_init_for ty] — the zero initializer a declaration of [ty] needs:
     aggregates take brace init, scalars take 0. *)
 let default_init_for ty =
-  if ty = C.Basic "sisal_array_t" || is_generator_type ty then Some (C.Id "{}")
+  if ty = C.Basic "sisal_array_t" || is_generator_type ty || is_function_type ty then Some (C.Id "{}")
   else if is_struct_cty ty then Some (C.Id "{}")
   else Some (C.LitInt 0)
 

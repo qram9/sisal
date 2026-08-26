@@ -1,0 +1,20 @@
+% Test case: Higher-order function passing (a function bound in let and passed to another function)
+define Main
+
+type IntOp = function( integer returns integer )
+
+function ApplyTwice( f : IntOp; val : integer returns integer )
+  f( f( val ) )
+end function
+
+function Main( x : integer returns integer )
+  function AddX( y : integer returns integer )
+    y + x
+  end function
+
+  let
+    res := ApplyTwice( AddX, 10 )
+  in
+    res
+  end let
+end function

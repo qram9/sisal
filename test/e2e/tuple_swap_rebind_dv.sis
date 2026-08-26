@@ -1,0 +1,14 @@
+% Test case: Multi-assignment tuple swap self-rebind A, B := B, A
+define Main
+
+type IntArray = array [ integer ]
+
+function Main( returns IntArray, IntArray )
+  let
+    A := array [1: 10, 20, 30];
+    B := array [1: 40, 50, 60];
+    A, B := B, A
+  in
+    A, B
+  end let
+end function

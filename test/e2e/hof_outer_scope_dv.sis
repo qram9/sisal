@@ -1,0 +1,31 @@
+% Test case: HOF with outer vs inner scope resolution and function args in for-loop scope
+define Main
+
+type IntOp = function( integer returns integer )
+
+function OuterStep( n : integer returns integer )
+  n + 100
+end function
+
+function ProcessLoop( f : IntOp; x : integer; y : integer returns integer )
+  function InnerStep( n : integer returns integer )
+    n + 1
+  end function
+
+  for initial i := x repeat i := f( InnerStep( old i ) )
+  while old i < x + (y * 20)
+  returns value of i
+  end for
+end function
+
+function Main( start_val, count : integer returns integer )
+  function OuterStep( n : integer returns integer )
+    n + 10
+  end function
+
+  let
+    res := ProcessLoop( OuterStep, start_val, count )
+  in
+    res
+  end let
+end function

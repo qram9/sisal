@@ -1,0 +1,25 @@
+% Test case: HOF receiving a function argument that itself captures variables and accepts arguments
+define Main
+
+type BinaryOp = function( integer, integer returns integer )
+type Transformer = function( BinaryOp, integer, integer returns integer )
+
+function ApplyTransform( transform : Transformer; op : BinaryOp; a, b : integer returns integer )
+  transform( op, a, b )
+end function
+
+function Main( k, offset : integer returns integer )
+  function CapturedOp( x, y : integer returns integer )
+    (x * y) + k + offset
+  end function
+
+  function DoublerTransform( op : BinaryOp; u, v : integer returns integer )
+    op( u, v ) * 2
+  end function
+
+  let
+    res := ApplyTransform( DoublerTransform, CapturedOp, 3, 4 )
+  in
+    res
+  end let
+end function

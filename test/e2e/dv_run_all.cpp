@@ -21851,6 +21851,24 @@ static void test_ada_dv(void) {
 }
 #endif
 
+#ifdef TEST_HOF_PASSING_DV
+extern "C" int32_t func_MAIN(int32_t x);
+static void test_hof_passing_dv(void) {
+  printf("\n=== Group: hof_passing_dv (Higher-Order Function passing) ===\n");
+  int32_t res = func_MAIN(5);
+  check("hof_passing_dv MAIN(5) == 20", res == 20);
+}
+#endif
+
+#ifdef TEST_HOF_LIST_DV
+extern "C" int32_t func_MAIN(int32_t x);
+static void test_hof_list_dv(void) {
+  printf("\n=== Group: hof_list_dv (List of Higher-Order Functions in Union) ===\n");
+  int32_t res = func_MAIN(5);
+  check("hof_list_dv MAIN(5) == 27", res == 27);
+}
+#endif
+
 #ifdef TEST_LETREC_SCOPE_DV
 static void test_letrec_scope_dv(void) {
   printf("\n=== Group: letrec_scope_dv (Mutual recursive scope and factorial) ===\n");
@@ -21874,8 +21892,15 @@ static void test_letrec_scope_dv(void) {
 }
 #endif
 
+void
 run_active_test (void)
 {
+#ifdef TEST_HOF_PASSING_DV
+  test_hof_passing_dv ();
+#endif
+#ifdef TEST_HOF_LIST_DV
+  test_hof_list_dv ();
+#endif
 #ifdef TEST_LETREC_SCOPE_DV
   test_letrec_scope_dv ();
 #endif
@@ -23235,7 +23260,7 @@ run_active_test (void)
     && !defined(TEST_LU_PIV_DV)                                               \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
-    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FROMC_DV) && !defined(TEST_COMMON_DV) && !defined(TEST_FUNCARRAY_DV) && !defined(TEST_CHOOSE_DV) && !defined(TEST_QUICKSORT_WHEN_DV) && !defined(TEST_HELPER_FUNCS_DV) && !defined(TEST_HELLO_DV) && !defined(TEST_GAUSSJ1_DV) && !defined(TEST_LAPLACE_DV) && !defined(TEST_LU_NPIV_DV) && !defined(TEST_NEWQUEENS_DV) && !defined(TEST_PBATCHER_DV) && !defined(TEST_SBATCHER_DV) && !defined(TEST_PINSERTDATA_DV) && !defined(TEST_SCAT_DV) && !defined(TEST_BUBBLE_DV) && !defined(TEST_ADA_DV) && !defined(TEST_LETREC_SCOPE_DV) && !defined(TEST_GEN_EXTENT_DV) && !defined(TEST_FEO_FFT_PARTS2)         \
+    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FROMC_DV) && !defined(TEST_COMMON_DV) && !defined(TEST_FUNCARRAY_DV) && !defined(TEST_CHOOSE_DV) && !defined(TEST_QUICKSORT_WHEN_DV) && !defined(TEST_HELPER_FUNCS_DV) && !defined(TEST_HELLO_DV) && !defined(TEST_GAUSSJ1_DV) && !defined(TEST_LAPLACE_DV) && !defined(TEST_LU_NPIV_DV) && !defined(TEST_NEWQUEENS_DV) && !defined(TEST_PBATCHER_DV) && !defined(TEST_SBATCHER_DV) && !defined(TEST_PINSERTDATA_DV) && !defined(TEST_SCAT_DV) && !defined(TEST_BUBBLE_DV) && !defined(TEST_ADA_DV) && !defined(TEST_LETREC_SCOPE_DV) && !defined(TEST_HOF_PASSING_DV) && !defined(TEST_GEN_EXTENT_DV) && !defined(TEST_FEO_FFT_PARTS2)         \
   g_no_macro = true;
 #endif
 }

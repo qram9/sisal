@@ -1,0 +1,51 @@
+% Test case: Higher-order functions stored in a recursive union list and dispatched
+define Main
+
+type IntOp = function( integer returns integer );
+
+type FuncList = union[ nil_tag: null; cons_tag: record[ head: IntOp; tail: FuncList ] ];
+
+function EmptyList( returns FuncList )
+  union FuncList[ nil_tag: nil ]
+end function
+
+function PushFunc( lst : FuncList; f : IntOp returns FuncList )
+  union FuncList[ cons_tag: record[ head: f; tail: lst ] ]
+end function
+
+function DispatchAll( lst : FuncList; val : integer returns integer )
+  tagcase cell := lst
+  tag nil_tag:  val
+  tag cons_tag:
+    let
+      f := cell.head;
+      nxt := f( val )
+    in
+      DispatchAll( cell.tail, nxt )
+    end let
+  end tagcase
+end function
+
+function Main( x : integer returns integer )
+  function Add10( y : integer returns integer )
+    y + 10
+  end function
+
+  function Mul2( y : integer returns integer )
+    y * 2
+  end function
+
+  function Sub3( y : integer returns integer )
+    y - 3
+  end function
+
+  let
+    l0 := EmptyList();
+    l1 := PushFunc(l0, Sub3);
+    l2 := PushFunc(l1, Mul2);
+    l3 := PushFunc(l2, Add10);
+    res := DispatchAll(l3, x)
+  in
+    res
+  end let
+end function
