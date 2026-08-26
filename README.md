@@ -12,43 +12,86 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
    - **Zero-Copy Descriptor Transformations**: Slicing (`A[1..5, 2..8]`), reshaping, broadcasting, and transposition operate in $O(1)$ time by manipulating `sisal_array_t` stride/offset metadata without copying underlying element buffers.
    - **Copy-on-Write (COW) Memory Management**: Reference-counted buffer management (`ref_count`) ensures safe functional updates while avoiding unneeded data duplication.
    - **Hardware BLAS Acceleration**: Direct memory layout alignment with BLAS/LAPACK (`cblas_dgemm`, `cblas_sgemm`, `cblas_dgemv`) via Apple Accelerate / OpenBLAS.
-   - Originally, SISAL 1.2 implemented arrays in a ragged/nested sense, using build-in-place or update-in-place analysis. `array_dv` lowered to `sisal_array_t` provides modern NumPy/APL dense array capabilities while maintaining Sisal's functional guarantees.
+   ```sisal
+   % Zero-copy slicing & rank-polymorphic dope vectors
+   A := array [1: 10, 20, 30, 40, 50];
+   SubSlice := A[2..4] % O(1) view metadata shift, zero data copy
+   ```
 
 2. **Einstein Summation (`EINSUM`) & Contraction Engine**:
    - Built-in `EINSUM` notation parser (`einsum_lower.ml`) supporting general multi-tensor contractions (e.g., `EINSUM("ij,jk->ik", A, B)`).
    - Lowers directly to BLAS/LAPACK `cblas_dgemm` / `cblas_sgemm` matrix calls.
+   ```sisal
+   % Matrix Multiplication via Tensor Contraction
+   C := EINSUM("ij,jk->ik", MatrixA, MatrixB)
+   ```
 
 3. **APL-Style Array Combinators**:
    - Native support for array combinators: `MAP`, `FOLDL`, `SCAN`, `EACH`, `REDUCE`, `REDUCE_AXIS`, `REDUCE_RANGE`, `ROTATE`, `TAKE`, `DROP`, `SLICE`, `COMPRESS`, `RAVEL`, and `STENCIL`.
+   ```sisal
+   Doubled := MAP(A, function(x) x * 2 end function);
+   Total   := REDUCE(A, +);
+   Shifted := ROTATE(A, 1)
+   ```
 
 4. **Coroutines & Stream Pipeline Processing**:
    - First-class stream processing (`stream_t`) with coroutine generators (`STREAM_SIEVE`, `STREAM_INTEGERS`, `STREAM_GURD`) lowered into zero-overhead stateful C++ iterators.
+   ```sisal
+   Numbers := STREAM_INTEGERS(1, 100);
+   Primes  := STREAM_SIEVE(Numbers)
+   ```
 
 5. **Small Vector & Fixed Matrix Intrinsics (`float2`, `float4`, `mat2`, `mat4`)**:
    - First-class fixed-size SIMD vector types (`float2`, `float3`, `float4`, `int2`, `int4`) and matrix types (`mat2`, `mat3`, `mat4`).
    - Mapped directly to CPU SIMD vector registers (ARM Neon, x86 AVX-512) and GPU compute shader vector primitives.
    - Built-in hardware math intrinsics: matrix-matrix products (`mat2 * mat2`), matrix-vector transformations (`mat2 * float2`), inner products, and elementwise math (`mat_abs`, `mat_sqrt`, `mat_sin`).
+   ```sisal
+   v := float4(1.0, 2.0, 3.0, 4.0);
+   m := mat2(1.0, 0.0, 0.0, 1.0);
+   p := m * float2(5.0, 6.0) % Fast SIMD vector transform
+   ```
 
 6. **Side-Effect Sequencing via Monad Ordering & `printf` Support**:
    - Reconciles pure functional dataflow graph optimizations (IF1) with deterministic IO (`printf`, `cout`, `cerr`).
    - `printf` calls can be freely inserted into code for logging and debugging with **guaranteed execution ordering**.
    - Monad control ports automatically insert prepass ordering edges (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) between side-effecting nodes, ensuring strict, deterministic output ordering while keeping pure dataflow nodes 100% parallelizable.
+   ```sisal
+   let
+     _ := printf("Processing value: %d\n", input_val);
+     result := HeavyComputation(input_val);
+     _ := printf("Computed result: %d\n", result)
+   in
+     result
+   end let
+   ```
 
-6. **Pattern Matching & Wildcard Bindings**:
+7. **Pattern Matching & Wildcard Bindings**:
    - Supports don't-care wildcard (`_`) bindings across all `decldef` contexts (`let`, `:=`, tuple patterns, loops, `let rec`).
    - Tuple pattern bindings resolve via IF1 `MULTIARITY` nodes during AST lowering.
+   ```sisal
+   let
+     first, _, third := GetThreeTuple();
+     _ := IgnoreSideEffect()
+   in
+     first + third
+   end let
+   ```
 
-7. **AoS / SoA Memory Layout Transformations**:
+8. **AoS / SoA Memory Layout Transformations**:
    - Flexible memory layout support for Array of Structures (AoS) and Structure of Arrays (SoA) layout transformations (`NUCLEIC_SOA`, `REC_SOA`).
-
-8. **IR Structural Type Deduplication**:
-   - Automated IR graph pass (`cleanup.ml`) computing structural equivalence classes for type IDs, deduplicating identical types and re-linking edge types to canonical leader IDs.
+   ```sisal
+   type ParticleAoS = record[ x, y, z : real ];
+   type ParticleSoA = record[ x, y, z : array[real] ];
+   ```
 
 9. **Interactive HTML Graph Visualizer**:
    - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
 
 10. **Ragged Arrays & Algebraic Lists**:
     - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
+    ```sisal
+    type IntList = union[ nil_tag: null; cons_tag: record[ head: integer; tail: IntList ] ]
+    ```
 
 11. **First-Class Higher-Order Functions (HOFs) & Closures**:
     - **First-Class Function Values**: Functions can be passed as arguments, returned from procedures, bound to `let` variables, and stored in algebraic data structures (`union` lists).
@@ -56,10 +99,36 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
     - **Control-Flow Scope Integration**: Captured functions resolve cleanly inside `if-then-else` expressions, `for-initial` / `for-repeat` loop bodies, and `tagcase` pattern matches.
     - **Direct & Mutual Recursion**: Full support for self-referential procedures (`HeapSort`, `DispatchAll`), mutual recursion (`LETREC_SCOPE_DV`), and recursive algebraic list dispatch.
     - **Direct Multi-Assignment Tuple Swapping**: Zero-copy variable swapping (`A_swap, B_swap := B, A` and `A, B := B, A`) executes via direct 24-byte descriptor pointer assignments ($O(1)$ constant time).
+    ```sisal
+    type IntOp = function( integer returns integer );
+
+    function Main( x : integer returns integer )
+      function AddX( y : integer returns integer )
+        y + x % Environment capture of outer scalar 'x'
+      end function
+
+      let
+        % Higher-Order Function call & Direct Tuple Swap
+        res := ApplyTwice( AddX, 10 );
+        A, B := B, A % Zero-copy O(1) descriptor swap
+      in
+        res
+      end let
+    end function
+    ```
 
 12. **Static Liveness Analysis & Copy-on-Write (CoW)**:
     - **Topological Edge Liveness (`scan_edge_liveness`)**: Topologically sorts dataflow graphs (`topo_sort gr`) and tracks output port consumer fanout (`scan_fanout`), identifying exact last-use boundary edges (`EdgeFreeMap`).
     - **Copy-on-Write Memory Safety**: Assignments (`B := A`) copy only 24-byte struct descriptors (`data` pointer, rank, size). Mutating operations (`B[i] := v`) automatically update in-place if `B` is unshared (last-use) or trigger CoW allocation if `A` is still live elsewhere.
+    ```sisal
+    let
+      A := array [1: 10, 20, 30];
+      B := A;
+      B2 := B[1: 999] % Automatic CoW if A is live, or in-place update if A is dead
+    in
+      A, B2
+    end let
+    ```
 
 ---
 
