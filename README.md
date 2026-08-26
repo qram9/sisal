@@ -29,9 +29,10 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
    - Mapped directly to CPU SIMD vector registers (ARM Neon, x86 AVX-512) and GPU compute shader vector primitives.
    - Built-in hardware math intrinsics: matrix-matrix products (`mat2 * mat2`), matrix-vector transformations (`mat2 * float2`), inner products, and elementwise math (`mat_abs`, `mat_sqrt`, `mat_sin`).
 
-6. **Side-Effect Sequencing via Monad Ordering**:
+6. **Side-Effect Sequencing via Monad Ordering & `printf` Support**:
    - Reconciles pure functional dataflow graph optimizations (IF1) with deterministic IO (`printf`, `cout`, `cerr`).
-   - Monad control ports automatically insert prepass ordering edges (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) between side-effecting nodes while leaving pure dataflow nodes 100% parallelizable.
+   - `printf` calls can be freely inserted into code for logging and debugging with **guaranteed execution ordering**.
+   - Monad control ports automatically insert prepass ordering edges (`PRINTF_TY`, `COUT_TY`, `CERR_TY`) between side-effecting nodes, ensuring strict, deterministic output ordering while keeping pure dataflow nodes 100% parallelizable.
 
 6. **Pattern Matching & Wildcard Bindings**:
    - Supports don't-care wildcard (`_`) bindings across all `decldef` contexts (`let`, `:=`, tuple patterns, loops, `let rec`).
@@ -77,7 +78,7 @@ A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introdu
 ## Pending Items & Future Roadmap
 
 - **Monadic Linear State Threading**:
-  - Linear state threading ($\text{op} : \text{Array} \to (\text{Result}, \text{Array})$) to guarantee 100% in-place updates without dynamic reference checks.
+  - Linear state threading (`op : Array -> (Result, Array)`) to guarantee 100% in-place updates without dynamic reference checks.
 - **Lazy Layout Transformations**:
   - Virtualizing stride/offset transformations for `TRANSPOSE`, `RESHAPE`, and `REVERSE` to fuse directly into downstream `forall` loops without intermediate buffer allocations.
 - **Railway Error Monad Pipeline**:
