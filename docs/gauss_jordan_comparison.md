@@ -11,7 +11,7 @@ This document provides a detailed comparative case study of **Gauss-Jordan Elimi
 | **Matrix Type (`TwoD`)** | `type TwoD = array[array[double]]` *(Relied on compiler build-in-place optimizations)* | `type TwoD = array_dv[double]` *(Explicit language primitive)* | **User-Directed Flat Dope Vector**: No reliance on compiler optimization passes. User explicitly chooses flat `array_dv` for matrices. |
 | **Memory Layout** | Ragged pointer tree *(OSC compiler attempted in-place flattening)* | Flat C-contiguous row-major block (`sisal_array_t`) | **Guaranteed Flat Layout**: 100% contiguous memory layout guaranteed by type definition, enabling SIMD and BLAS acceleration. |
 | **Row Extraction** | `row_i := A[i]` | `row_i := A[i, ..]` *(rank-reducing slice)* | **Zero-Copy View**: $O(1)$ metadata shift without copying buffer bytes. |
-| **Scalar Indexing** | `val := A[i][j]` | `val := A[i, j]` *(flat stride calculation)* | **$O(1)$ Direct Offset**: Computes `data[i * s0 + j * s1]` directly. |
+| **Scalar Indexing** | `val := A[i, j]` *(sugar for `A[i][j]` 2-level dereference)* | `val := A[i, j]` *(flat stride calculation)* | **$O(1)$ Direct Offset**: Evaluates to scalar via direct `data[i * s0 + j * s1]` calculation without pointer chasing. |
 | **Row Swapping** | `A[i: A[j]; j: A[i]]` | `A[i: A[j, ..]; j: A[i, ..]]` *(dope swap)* | **$O(1)$ Zero-Copy Swap**: Swaps row descriptors in constant time with CoW. |
 | **Matrix Assembly** | `returns array of Arow` | `returns array_dv of Arow` *(rank elevation)* | **Flat Assembly**: Elevates 1D row slices into a single contiguous rank-2 matrix `array_dv[double]`. |
 
@@ -161,14 +161,14 @@ end function
 ### Step 3: Scalar Indexing
 - **Sisal 1.2**:
   ```sisal
-  pvtele := Ain[pvtrow][pvtrow]; % Nested bracket syntax
+  pvtele := Ain[pvtrow, pvtrow]; % Syntactic sugar for Ain[pvtrow][pvtrow]
   ```
-  Required two separate pointer lookups.
+  In Sisal 1.2, multi-index comma syntax `Ain[i, j]` was supported as syntactic sugar for `Ain[i][j]`, evaluating to a scalar via two separate pointer lookups `*(*(Ain + i) + j)`.
 - **Sisal-2026**:
   ```sisal
-  pvtele := Ain[pvtrow, pvtrow]; % Multi-index syntax
+  pvtele := Ain[pvtrow, pvtrow]; % Native multi-index calculation
   ```
-  Calculates flat memory index directly: `data[pvtrow * stride0 + pvtrow * stride1]`.
+  Evaluates to a scalar directly by calculating flat memory index: `data[pvtrow * stride0 + pvtrow * stride1]` with zero pointer indirection.
 
 ---
 
