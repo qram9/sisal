@@ -9,7 +9,7 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
 ## Key Features & Language Innovations
 
 1. **Novel C++23 Dope-Vector Runtime (`sisal_runtime.h`)**:
-   - **APL & NumPy Heritage**: Brings dense rank-polymorphic multi-dimensional arrays (`array_dv`) into Sisal-2026, continuing an architectural lineage originating in **APL** (Iverson, 1962) and perfected in **NumPy**, **PyTorch**, and **JAX**.
+   - **APL & NumPy Heritage**: Brings dense rank-polymorphic multi-dimensional arrays (`array_dv`) into Sisal-2026, continuing an architectural lineage originating in **APL** (Iverson, 1962) and perfected in **NumPy**, **PyTorch**, and **JAX**. (See 📘 **[Rank Polymorphism: A Complete Guide](docs/Rank_Polymorphism_Complete_Guide.md)**).
    - **Natural Fit for Single-Assignment Semantics**: Dope-vector metadata operations (slicing `A[1..5, 2..8]`, reshaping, transposition) fit naturally into single-assignment dataflow languages as $O(1)$ constant-time metadata views. Combined with Copy-on-Write (CoW) reference counting, `array_dv` provides 100% single-assignment immutability guarantees alongside native C/C++ execution performance.
    - **No `array_dv[array_dv[...]]`**: All vectors (1D), matrices (2D), and tensors ($N$-D) use the single flat type **`array_dv[T]`**. Dynamic rank is a runtime metadata property of `sisal_array_t`.
    - **`sisal_array_t` C Representation**: Encapsulates dynamic shape, stride, and offset arrays alongside element pointer and reference count (`ref_count`).

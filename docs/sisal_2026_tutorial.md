@@ -73,6 +73,10 @@ Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `
 > 💡 **Rank-Polymorphic Dope Vector Principle**:
 > `array_dv[T]` represents a flat multi-dimensional dope vector (`sisal_array_t`). The rank (1D vector, 2D matrix, 3D tensor) is a dynamic runtime property of the dope vector. Therefore, nested types like `array_dv[array_dv[T]]` are **invalid**. Matrices and higher-dimensional tensors are declared simply as **`array_dv[T]`**.
 
+> [!NOTE]
+> For an in-depth reference on static rank polymorphism, prefix agreement, unification, and dynamic shape inference in Sisal-2026, read the complete guide:
+> 📘 **[Rank Polymorphism: A Complete Guide](Rank_Polymorphism_Complete_Guide.md)**
+
 ### Array Construction & Indexing
 ```sisal
 type IntArray = array_dv [ integer ];

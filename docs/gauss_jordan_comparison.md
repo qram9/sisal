@@ -205,6 +205,7 @@ end function
 
 1. **APL & NumPy Heritage in a Single-Assignment Setting**:
    - Dense rank-polymorphic dope-vector arrays (`array_dv`) follow a proven architectural lineage originating in **APL** (Iverson, 1962) and perfected in modern computing by **NumPy**, **PyTorch**, and **JAX**.
+   - For complete theoretical details on static rank polymorphism, prefix agreement, and shape inference, see 📘 **[Rank Polymorphism: A Complete Guide](Rank_Polymorphism_Complete_Guide.md)**.
    - Rather than relying on compiler analysis passes (*build-in-place* / *update-in-place*) to discover or attempt to flatten array layouts, Sisal-2026 makes dense multi-dimensional dope vectors a first-class language primitive (`array_dv`).
 2. **Natural Fit for Single-Assignment Dataflow Semantics**:
    - Dope-vector metadata operations (slicing `A[i, ..]`, reshaping, transposition) fit naturally into single-assignment dataflow languages as $O(1)$ constant-time metadata views.
