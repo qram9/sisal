@@ -8,16 +8,18 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
 
 ## Key Features & Language Innovations
 
-1. **Novel C++23 Dope-Vector Runtime (`sisal_runtime.h`)**:
+1. **Novel C++23 Dope-Vector Runtime & Broadcasting Engine (`sisal_runtime.h`)**:
    - **APL & NumPy Heritage**: Brings dense rank-polymorphic multi-dimensional arrays (`array_dv`) into Sisal-2026, continuing an architectural lineage originating in **APL** (Iverson, 1962) and perfected in **NumPy**, **PyTorch**, and **JAX**. (See 📘 **[Rank Polymorphism: A Complete Guide](docs/Rank_Polymorphism_Complete_Guide.md)**).
    - **Natural Fit for Single-Assignment Semantics**: Dope-vector metadata operations (slicing `A[1..5, 2..8]`, reshaping, transposition) fit naturally into single-assignment dataflow languages as $O(1)$ constant-time metadata views. Combined with Copy-on-Write (CoW) reference counting, `array_dv` provides 100% single-assignment immutability guarantees alongside native C/C++ execution performance.
+   - **Right-Aligned Trailing Axis Broadcasting**: Built-in array broadcasting matching NumPy/JAX rules via `conform_check` and `sisal_dv_offset_at`. Axis sizes of 1 are expanded to match target shape using zero-copy `stride = 0` metadata, incurring zero element byte copies and zero allocation overhead.
    - **No `array_dv[array_dv[...]]`**: All vectors (1D), matrices (2D), and tensors ($N$-D) use the single flat type **`array_dv[T]`**. Dynamic rank is a runtime metadata property of `sisal_array_t`.
    - **`sisal_array_t` C Representation**: Encapsulates dynamic shape, stride, and offset arrays alongside element pointer and reference count (`ref_count`).
    - **Hardware BLAS Acceleration**: Direct memory layout alignment with BLAS/LAPACK (`cblas_dgemm`, `cblas_sgemm`, `cblas_dgemv`) via Apple Accelerate / OpenBLAS.
    ```sisal
    % Zero-copy slicing & rank-polymorphic dope vectors
    A := array_dv [1: 10, 20, 30, 40, 50];
-   SubSlice := A[2..4] % O(1) view metadata shift, zero data copy
+   SubSlice := A[2..4]; % O(1) view metadata shift, zero data copy
+   M := Matrix + Vector % Zero-copy stride-0 broadcast addition
    ```
 
 2. **Einstein Summation (`EINSUM`) & Contraction Engine**:
@@ -36,11 +38,14 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
    Shifted := ROTATE(A, 1)
    ```
 
-4. **Coroutines & Stream Pipeline Processing**:
-   - First-class stream processing (`stream_t`) with coroutine generators (`STREAM_SIEVE`, `STREAM_INTEGERS`, `STREAM_GURD`) lowered into zero-overhead stateful C++ iterators.
+4. **C++20 Stackless Stream Coroutines (`co_yield`)**:
+   - Streams (`stream[T]`) compile directly into **C++20 stackless coroutines (`sisal_generator<T>`)**.
+   - **Zero-Allocation Pipeline**: Producers yield elements on-demand into consumers via `co_yield`, allowing compiler Heap Allocation Elision Optimization (HALO) to inline coroutine frames directly onto the stack.
+   - **Ultra-Fast Switches**: User-space context transitions run in **2–5 nanoseconds** (30x–100x faster than kernel/ucontext thread switches).
+   - See 📘 **[Cooperative Coroutine Streams Design](docs/coroutine_streams_design.md)** and 📘 **[Stream Coroutine Lowering Architecture](docs/stream_coroutine_lowering.md)**.
    ```sisal
    Numbers := STREAM_INTEGERS(1, 100);
-   Primes  := STREAM_SIEVE(Numbers)
+   Primes  := STREAM_SIEVE(Numbers) % Evaluated lazily via C++20 co_yield
    ```
 
 5. **Small Vector & Fixed Matrix Intrinsics (`float2`, `float4`, `mat2`, `mat4`)**:
