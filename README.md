@@ -2,6 +2,8 @@
 
 A modern optimizing compiler and C++23 code generator for **Sisal 2.0**, introducing rank-polymorphic dense arrays (dope vectors), side-effect monad ordering, Einstein summation, stream coroutines, structural IR deduplication, and dataflow graph transformations.
 
+📖 **[Read the Complete Sisal 2.0 Tutorial & Reference Guide](docs/sisal_20_tutorial.md)**
+
 ---
 
 ## Key Features & Language Innovations
