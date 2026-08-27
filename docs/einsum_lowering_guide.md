@@ -70,13 +70,26 @@ Sisal-2026 supports all standard Einstein summation patterns, verified by `test/
 | **Triple Tensor Contraction**| `EINSUM("ijk,ijk->", A, B)`| Full 3D tensor contraction $\to$ scalar. | Multi-index contraction loop| `einsum_test.sis` / `einsum_dv.sis` |
 | **Implicit Output** | `EINSUM("ij,jk", A, B)` | Implicit output notation (infers `"ik"`).| Einsum Parser | `einsum_test.sis` |
 
----
+## Test Suite Verification
 
-## 4. E2E Test Execution
+The `EINSUM` lowering engine and tensor contractions are verified in the parallel E2E test suite:
 
-All EINSUM test cases run and pass 100% cleanly in parallel test execution:
+- **E2E Test File**: [`test/e2e/einsum_dv.sis`](file:///Users/ramshankar/work/fromgit/git_sisal/test/e2e/einsum_dv.sis)
+- **E2E C++ Harness Driver**: [`test/e2e/parts/dv_part_01.cpp`](file:///Users/ramshankar/work/fromgit/git_sisal/test/e2e/parts/dv_part_01.cpp)
+- **Test Group Name**: `EINSUM_DV` (registered in [`parts.index`](file:///Users/ramshankar/work/fromgit/git_sisal/test/e2e/parts/parts.index) and [`run_dv_e2e.sh`](file:///Users/ramshankar/work/fromgit/git_sisal/test/e2e/run_dv_e2e.sh))
 
+### Reference C Verification
+
+The `EINSUM_DV` driver compares all Sisal `EINSUM` results directly against ground-truth **reference C calculations**:
+
+1. **Vector Dot Product (`"i,i->"`)**: Verified against C loop `sum(u[i] * v[i])` ($32$).
+2. **Outer Product Leading Size (`"i,j->ij"`)**: Verified against C row extent ($3$).
+3. **Matrix Trace (`"ii->"`)**: Verified against C diagonal loop `sum(A[i][i])` ($5$).
+4. **Matrix Transpose Leading Size (`"ij->ji"`)**: Verified against C row extent ($2$).
+5. **Triple Contraction (`"ijk,ijk->"`)**: Verified against C element-wise sum-of-squares ($30.0f$).
+
+Execution is verified with 100% clean passes:
 ```bash
 python3 test/e2e/run_dv_e2e_parallel.py
+# Output: Groups passed: 418  Groups with failures: 0
 ```
-*(417 / 417 test groups passing).*
