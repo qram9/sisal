@@ -65,6 +65,9 @@ end let
 
 Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `sisal_array_t` dope vector.
 
+> ⚠️ **Important Language Note**:
+> Legacy Sisal 1.2 ragged `array` syntax is **not available in Sisal-2026**. All dense multi-dimensional arrays must use **`array_dv`**. If irregular or ragged data structures are needed, use algebraic recursive list structures (`union [ nil_tag: null; cons_tag: record [ head: ...; tail: ... ] ]`) as demonstrated in [Section 7](#7-first-class-higher-order-functions-hofs--closures).
+
 ### Array Construction & Indexing
 ```sisal
 type IntArray = array_dv [ integer ];
@@ -84,7 +87,7 @@ Slicing an array creates a zero-copy **View** without allocating memory or copyi
 
 ```sisal
 let
-  A := array [1: 10, 20, 30, 40, 50];
+  A := array_dv [1: 10, 20, 30, 40, 50];
   SubSlice := A[2..4] % Returns [20, 30, 40] in O(1) time
 in
   SubSlice
@@ -124,22 +127,22 @@ The `forall` construct expresses data-parallel execution across arrays or index 
 
 ### Parallel Vector Multiplication
 ```sisal
-function ScaleVector( A : array[real]; factor : real returns array[real] )
+function ScaleVector( A : array_dv[real]; factor : real returns array_dv[real] )
   for x in A
-  returns array of x * factor
+  returns array_dv of x * factor
   end for
 end function
 ```
 
 ### Cross-Product & Reductions
 ```sisal
-function MatrixVectorMult( M : array[array[real]]; V : array[real] returns array[real] )
+function MatrixVectorMult( M : array_dv[array_dv[real]]; V : array_dv[real] returns array_dv[real] )
   for row in M
     dot_product := for x in row at i
                      val := x * V[i]
                    returns value of sum val
                    end for
-  returns array of dot_product
+  returns array_dv of dot_product
   end for
 end function
 ```

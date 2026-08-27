@@ -83,14 +83,14 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
    - Flexible memory layout support for Array of Structures (AoS) and Structure of Arrays (SoA) layout transformations (`NUCLEIC_SOA`, `REC_SOA`).
    ```sisal
    type ParticleAoS = record[ x, y, z : real ];
-   type ParticleSoA = record[ x, y, z : array[real] ];
+   type ParticleSoA = record[ x, y, z : array_dv[real] ];
    ```
 
 9. **Interactive HTML Graph Visualizer**:
    - Embedded visualizer exporting interactive, colorized HTML graph diagrams (`export_debug_html`) at key compilation milestones (AST lowering, IR optimization, and C translation).
 
-10. **Ragged Arrays & Algebraic Lists**:
-    - For irregular data structures where raggedness is required, list-like patterns use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
+10. **Algebraic Lists for Irregular / Ragged Patterns**:
+    - Legacy `array` syntax is **not available in Sisal-2026**; all dense multi-dimensional arrays use **`array_dv`**. For irregular or ragged structures, use standard algebraic `union` types (`Cons` / `Nil`), providing ergonomic functional list processing.
     ```sisal
     type IntList = union[ nil_tag: null; cons_tag: record[ head: integer; tail: IntList ] ]
     ```
