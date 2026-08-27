@@ -10,6 +10,7 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
 
 1. **Novel C++23 Dope-Vector Runtime (`sisal_runtime.h`)**:
    - Built from scratch to support rank-polymorphic multi-dimensional dense arrays (`array_dv`) lowered directly to the C/C++ `sisal_array_t` descriptor struct.
+   - **No `array_dv[array_dv[...]]`**: There is no nested `array_dv[array_dv[...]]` in Sisal-2026. All vectors (1D), matrices (2D), and tensors ($N$-D) use the single flat type **`array_dv[T]`**. Dynamic rank is a runtime metadata property of `sisal_array_t`.
    - **`sisal_array_t` C Representation**: Encapsulates dynamic shape, stride, and offset arrays alongside element pointer and reference count (`ref_count`).
    - **Zero-Copy Descriptor Transformations**: Slicing (`A[1..5, 2..8]`), reshaping, broadcasting, and transposition operate in $O(1)$ time by manipulating `sisal_array_t` stride/offset metadata without copying underlying element buffers.
    - **Copy-on-Write (COW) Memory Management**: Reference-counted buffer management (`ref_count`) ensures safe functional updates while avoiding unneeded data duplication.
