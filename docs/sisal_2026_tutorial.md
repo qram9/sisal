@@ -67,6 +67,9 @@ Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `
 
 > ⚠️ **Important Language Note**:
 > Legacy Sisal 1.2 ragged `array` syntax is **not available in Sisal-2026**. All dense multi-dimensional arrays must use **`array_dv`**. If irregular or ragged data structures are needed, use algebraic recursive list structures (`union [ nil_tag: null; cons_tag: record [ head: ...; tail: ... ] ]`) as demonstrated in [Section 7](#7-first-class-higher-order-functions-hofs--closures).
+>
+> 💡 **Rank-Polymorphic Dope Vector Principle**:
+> `array_dv[T]` represents a flat multi-dimensional dope vector (`sisal_array_t`). The rank (1D vector, 2D matrix, 3D tensor) is a dynamic runtime property of the dope vector. Therefore, nested types like `array_dv[array_dv[T]]` are **invalid**. Matrices and higher-dimensional tensors are declared simply as **`array_dv[T]`**.
 
 ### Array Construction & Indexing
 ```sisal
@@ -136,13 +139,13 @@ end function
 
 ### Cross-Product & Reductions
 ```sisal
-function MatrixVectorMult( M : array_dv[array_dv[real]]; V : array_dv[real] returns array_dv[real] )
+function MatrixVectorMult( M : array_dv[real]; V : array_dv[real] returns array_dv[real] )
   for row in M
     dot_product := for x in row at i
                      val := x * V[i]
                    returns value of sum val
                    end for
-  returns array_dv of dot_product
+  returns array_dv of dot_product % Elevates 1D row dot-products into a rank-2 result array_dv
   end for
 end function
 ```
