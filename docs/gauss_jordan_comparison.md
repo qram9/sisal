@@ -103,7 +103,8 @@ function Compute( n, pvtrow: integer; Ain: TwoD; Bin: OneD returns TwoD, OneD )
   end let
 end function
 
-% Main iterative Gauss-Jordan loop
+% Main iterative Gauss-Jordan loop (uses sequential state transition `for initial ... repeat`)
+% See detailed notes on for initial semantics: loop_behavior_comparison.md & for_initial_seed_semantics.md
 function Main( n: integer; Ain: TwoD; Bin: OneD returns OneD )
   for initial
     I    := 0;

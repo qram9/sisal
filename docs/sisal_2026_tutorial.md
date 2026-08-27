@@ -158,6 +158,11 @@ end function
 
 Sequential loops carry state across iterations via `for initial ... repeat`.
 
+> [!NOTE]
+> For a detailed technical comparison of `for initial` loop semantics, initial seed evaluation rules, and comparisons with C/Fortran loops, see:
+> 📘 **[Sisal `for initial` Loop Behavior & C/Fortran Comparison](loop_behavior_comparison.md)**
+> 📘 **[Sisal `for initial` Seed Evaluation Semantics](for_initial_seed_semantics.md)**
+
 ### Iterative Convergence Loop
 ```sisal
 function Factorial( n : integer returns integer )
