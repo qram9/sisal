@@ -30,8 +30,9 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
    C := EINSUM("ij,jk->ik", MatrixA, MatrixB)
    ```
 
-3. **APL-Style Array Combinators**:
-   - Native support for array combinators: `MAP`, `FOLDL`, `SCAN`, `EACH`, `REDUCE`, `REDUCE_AXIS`, `REDUCE_RANGE`, `ROTATE`, `TAKE`, `DROP`, `SLICE`, `COMPRESS`, `RAVEL`, and `STENCIL`.
+3. **APL-Style Bulk Operations Battery (58 Primitives)**:
+   - Native support for 58 whole-array (APL-style) bulk operations: `MAP`, `FOLDL`, `FOLDR`, `SCAN`, `CUMSUM`, `CUMPROD`, `SUM`, `PRODUCT`, `LEAST`, `GREATEST`, `MEAN`, `VARIANCE`, `STDDEV`, `NORM`, `TAKE`, `DROP`, `ROTATE`, `REVERSE`, `COMPRESS`, `SORT`, `ARGMAX`, `ARGMIN`, `GRADE_UP`, `GRADE_DOWN`, `NONZERO`, `WHERE`, `CONCAT`, `TILE`, `PAD`, `STENCIL`, `INNERPRODUCT`, `OUTERPRODUCT`, `RAVEL`, `EXPAND`, `SQUEEZE`, `PERMUTE`, `ANY`, `ALL`, and 0-based `REDUCE_AXIS` reductions.
+   - See 📘 **[Bulk Operations & Whole-Array Primitives Reference](docs/bulk_ops_reference.md)**.
    ```sisal
    Doubled := MAP(A, function(x) x * 2 end function);
    Total   := REDUCE(A, +);

@@ -105,9 +105,13 @@ end let
 
 ---
 
-## 4. APL-Style Combinators & Einstein Summation (`EINSUM`)
+## 4. APL-Style Bulk Operations & Einstein Summation (`EINSUM`)
 
-Sisal-2026 provides native array combinators and Einstein summation for high-performance mathematical modeling.
+Sisal-2026 provides native whole-array (APL-style) bulk operations and Einstein summation for high-performance mathematical modeling.
+
+> [!NOTE]
+> For a complete reference of all 58 whole-array bulk operations (reductions, scans, statistical functions, axis reductions, sorting, and structural manipulators), see:
+> 📘 **[Bulk Operations & Whole-Array Primitives Reference](bulk_ops_reference.md)**
 
 ### Array Combinators
 ```sisal
