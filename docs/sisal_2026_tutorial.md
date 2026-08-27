@@ -289,6 +289,13 @@ The compiler analyzes dataflow edge liveness to identify the **last topological 
 
 ---
 
+### Case Study: Gauss-Jordan Elimination (Sisal 1.2 vs. Sisal-2026)
+
+For a complete, step-by-step comparative analysis of matrix solving, row slicing (`A[i, ..]`), scalar indexing (`A[i, j]`), and zero-copy row swapping, read the dedicated case study:
+📘 **[Gauss-Jordan Elimination: Sisal 1.2 vs. Sisal-2026 Case Study](gauss_jordan_comparison.md)**
+
+---
+
 ## Compiling & Running Sisal Programs
 
 To compile a Sisal source file (`program.sis`) to a C++ binary using `git_sisal`:
