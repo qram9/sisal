@@ -57,6 +57,7 @@ CRYPTO_DV dv_part_13.cpp
 CYK_DV dv_part_17.cpp
 DFT_DV dv_part_09.cpp
 ENERGY_DV dv_part_08.cpp
+EINSUM_DV dv_part_01.cpp
 FACES_DV dv_part_02.cpp
 FACT dv_part_03.cpp
 FEM_DV dv_part_02.cpp

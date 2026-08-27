@@ -2880,6 +2880,35 @@ and lower_simple env gr nid sym pin pout pr =
           | other -> other
         in
         C.Call ("sisal_raise_error", [ failed; C.LitString msg ])
+    | EINSUM_NODE ->
+        let sub =
+          match List.find_opt (function Subscript _ -> true | _ -> false) pr with
+          | Some (Subscript s) -> String.trim s
+          | _ -> ""
+        in
+        begin match sub with
+        | "i,i->" ->
+            if t_res = C.Basic "double" then
+              C.Call ("sisal_einsum_dot_f64", [ e1; e2 ])
+            else
+              C.Call ("sisal_einsum_dot_i64", [ e1; e2 ])
+        | "i,j->ij" ->
+            C.Call ("sisal_einsum_outer", [ e1; e2 ])
+        | "ii->" ->
+            C.Call ("sisal_einsum_trace_i64", [ e1 ])
+        | "ij->ji" ->
+            C.Call ("sisal_array_permute", [ e1; C.LitInt 2; C.LitInt 1; C.LitInt 0 ])
+        | "ijk,ijk->" ->
+            if t_res = C.Basic "double" then
+              C.Call ("sisal_einsum_triple_contract_f64", [ e1; e2 ])
+            else
+              C.Call ("sisal_einsum_triple_contract_f32", [ e1; e2 ])
+        | _ ->
+            if t_res = C.Basic "sisal_array_t" then
+              C.Call ("sisal_einsum_outer", [ e1; e2 ])
+            else
+              C.Call ("sisal_einsum_dot_f64", [ e1; e2 ])
+        end
     | ERROR_NODE -> (
         match default_init_for t_res with Some e -> e | None -> C.LitFloat 0.0)
     | OR -> C.BinOp (C.LogOr, e1, e2)

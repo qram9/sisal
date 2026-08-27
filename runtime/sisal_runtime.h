@@ -2438,4 +2438,69 @@ static inline int32_t sisal_cerr_impl(const Args&... args) {
     return 0;
 }
 
+// EINSUM Tensor Contraction Runtime Helpers
+inline int64_t sisal_einsum_dot_i64(sisal_array_t u, sisal_array_t v) {
+    int64_t sum = 0;
+    int32_t* ud = (int32_t*)u.data;
+    int32_t* vd = (int32_t*)v.data;
+    uint64_t n = u.size < v.size ? u.size : v.size;
+    for (uint64_t i = 0; i < n; i++) sum += (int64_t)ud[i] * vd[i];
+    return sum;
+}
+
+inline double sisal_einsum_dot_f64(sisal_array_t u, sisal_array_t v) {
+    double sum = 0.0;
+    double* ud = (double*)u.data;
+    double* vd = (double*)v.data;
+    uint64_t n = u.size < v.size ? u.size : v.size;
+    for (uint64_t i = 0; i < n; i++) sum += ud[i] * vd[i];
+    return sum;
+}
+
+inline sisal_array_t sisal_einsum_outer(sisal_array_t u, sisal_array_t v) {
+    uint64_t rows = u.size, cols = v.size;
+    sisal_array_t res = sisal_array_alloc_sized(2, u.type_id, rows * cols, sisal_esz(u));
+    res.dims[0] = (int32_t)rows;
+    res.dims[1] = (int32_t)cols;
+    int32_t* ud = (int32_t*)u.data;
+    int32_t* vd = (int32_t*)v.data;
+    int32_t* rd = (int32_t*)res.data;
+    for (uint64_t i = 0; i < rows; i++) {
+        for (uint64_t j = 0; j < cols; j++) {
+            rd[i * cols + j] = ud[i] * vd[j];
+        }
+    }
+    return res;
+}
+
+inline int64_t sisal_einsum_trace_i64(sisal_array_t A) {
+    int64_t sum = 0;
+    int32_t* ad = (int32_t*)A.data;
+    int32_t rows = A.dims[0] > 0 ? A.dims[0] : 1;
+    int32_t cols = A.dims[1] > 0 ? A.dims[1] : 1;
+    int32_t n = rows < cols ? rows : cols;
+    for (int32_t i = 0; i < n; i++) {
+        sum += ad[i * cols + i];
+    }
+    return sum;
+}
+
+inline float sisal_einsum_triple_contract_f32(sisal_array_t A, sisal_array_t B) {
+    float sum = 0.0f;
+    float* ad = (float*)A.data;
+    float* bd = (float*)B.data;
+    uint64_t n = A.size < B.size ? A.size : B.size;
+    for (uint64_t i = 0; i < n; i++) sum += ad[i] * bd[i];
+    return sum;
+}
+
+inline double sisal_einsum_triple_contract_f64(sisal_array_t A, sisal_array_t B) {
+    double sum = 0.0;
+    double* ad = (double*)A.data;
+    double* bd = (double*)B.data;
+    uint64_t n = A.size < B.size ? A.size : B.size;
+    for (uint64_t i = 0; i < n; i++) sum += ad[i] * bd[i];
+    return sum;
+}
+
 #endif
