@@ -16,7 +16,7 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
    - **Hardware BLAS Acceleration**: Direct memory layout alignment with BLAS/LAPACK (`cblas_dgemm`, `cblas_sgemm`, `cblas_dgemv`) via Apple Accelerate / OpenBLAS.
    ```sisal
    % Zero-copy slicing & rank-polymorphic dope vectors
-   A := array [1: 10, 20, 30, 40, 50];
+   A := array_dv [1: 10, 20, 30, 40, 50];
    SubSlice := A[2..4] % O(1) view metadata shift, zero data copy
    ```
 

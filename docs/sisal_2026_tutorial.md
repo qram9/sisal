@@ -67,11 +67,11 @@ Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `
 
 ### Array Construction & Indexing
 ```sisal
-type IntArray = array [ integer ];
+type IntArray = array_dv [ integer ];
 
 function ArrayDemo( returns IntArray, integer )
   let
-    A := array [1: 10, 20, 30, 40, 50];
+    A := array_dv [1: 10, 20, 30, 40, 50];
     val := A[3] % Returns 30
   in
     A, val
