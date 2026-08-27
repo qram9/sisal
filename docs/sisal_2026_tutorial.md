@@ -132,6 +132,10 @@ C := EINSUM("ij,jk->ik", MatrixA, MatrixB)
 T := EINSUM("bij,bjk->bik", TensorA, TensorB)
 ```
 
+> [!NOTE]
+> For complete compiler lowering pipelines, parser grammars, BLAS fast-paths, and test suite details, see:
+> 📘 **[Einstein Summation (`EINSUM`) Lowering & Support Guide](einsum_lowering_guide.md)**
+
 ---
 
 ## 5. Parallel Loops (`forall`) & Reductions

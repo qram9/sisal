@@ -24,7 +24,9 @@ A modern optimizing compiler and C++23 code generator for **Sisal-2026**, introd
 
 2. **Einstein Summation (`EINSUM`) & Contraction Engine**:
    - Built-in `EINSUM` notation parser (`einsum_lower.ml`) supporting general multi-tensor contractions (e.g., `EINSUM("ij,jk->ik", A, B)`).
-   - Lowers directly to BLAS/LAPACK `cblas_dgemm` / `cblas_sgemm` matrix calls.
+   - Fast-paths lower directly to BLAS/LAPACK `cblas_dgemm` / `cblas_dgemv` matrix/vector calls and $O(1)$ stride swaps.
+   - General Einstein subscripts lower to `If1.EINSUM_NODE` multi-index tensor contraction loops.
+   - See 📘 **[Einstein Summation (`EINSUM`) Lowering & Support Guide](docs/einsum_lowering_guide.md)**.
    ```sisal
    % Matrix Multiplication via Tensor Contraction
    C := EINSUM("ij,jk->ik", MatrixA, MatrixB)
