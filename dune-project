@@ -5,7 +5,7 @@
 
 (package
  (name sisal)
- (synopsis "Sisal 2.0 to IF1 / C++23 Compiler")
+ (synopsis "Sisal-2026 to IF1 / C++23 Compiler")
  (description "A modern Sisal compiler implementing rank-polymorphic dense arrays (dope vectors), side-effect monad ordering, and C++23 code generation.")
  (authors "Ram")
  (depends

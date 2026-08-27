@@ -1,12 +1,12 @@
-# Sisal 2.0 Language Tutorial & Reference Guide
+# Sisal-2026 Language Tutorial & Reference Guide
 
-Welcome to the **Sisal 2.0 Language Tutorial**. This guide is inspired by the classic Lawrence Livermore National Laboratory (LLNL) & University of East Anglia (UEA) Sisal tutorial (*John R. W. Glauert, John Feo, Tom DeBoni*), updated and expanded to cover all modern **Sisal 2.0** features in the `git_sisal` optimizing compiler and C++23 runtime.
+Welcome to the **Sisal-2026 Language Tutorial**. This guide is inspired by the classic Lawrence Livermore National Laboratory (LLNL) & University of East Anglia (UEA) Sisal tutorial (*John R. W. Glauert, John Feo, Tom DeBoni*), updated and expanded to cover all modern **Sisal-2026** features in the `git_sisal` optimizing compiler and C++23 runtime.
 
 ---
 
 ## Table of Contents
 
-1. [Introduction to Sisal 2.0 & Dataflow Parallelism](#1-introduction-to-sisal-20--dataflow-parallelism)
+1. [Introduction to Sisal-2026 & Dataflow Parallelism](#1-introduction-to-sisal-2026--dataflow-parallelism)
 2. [Expression Syntax, Scalar Types & Monadic `printf`](#2-expression-syntax-scalar-types--monadic-printf)
 3. [User-Defined Types & Rank-Polymorphic Dense Arrays (`array_dv`)](#3-user-defined-types--rank-polymorphic-dense-arrays-array_dv)
 4. [APL-Style Combinators & Einstein Summation (`EINSUM`)](#4-apl-style-combinators--einstein-summation-einsum)
@@ -19,14 +19,14 @@ Welcome to the **Sisal 2.0 Language Tutorial**. This guide is inspired by the cl
 
 ---
 
-## 1. Introduction to Sisal 2.0 & Dataflow Parallelism
+## 1. Introduction to Sisal-2026 & Dataflow Parallelism
 
 **Sisal** (*Streams and Iteration in a Single Assignment Language*) is a pure functional programming language designed for high-performance parallel computing. 
 
 ### Core Principles:
 - **Single Assignment / Immutability**: Values are immutable once defined. Variables represent values, not memory locations.
 - **Implicit Parallelism**: Because functions have no side-effects, independent dataflow expressions execute concurrently automatically.
-- **Sisal 2.0 Innovations**: Introduced dense rank-polymorphic dope-vector arrays (`array_dv`), first-class higher-order functions (closures), Einstein summation (`EINSUM`), hardware SIMD intrinsics (`float4`, `mat2`), stream coroutines, and side-effect monad ordering.
+- **Sisal-2026 Innovations**: Introduced dense rank-polymorphic dope-vector arrays (`array_dv`), first-class higher-order functions (closures), Einstein summation (`EINSUM`), hardware SIMD intrinsics (`float4`, `mat2`), stream coroutines, and side-effect monad ordering.
 
 ---
 
@@ -46,7 +46,7 @@ end function
 ```
 
 ### Side-Effect Sequencing via Monad Ordering & `printf`
-Sisal 2.0 reconciles pure functional dataflow graphs with deterministic I/O logging. `printf` calls can be freely inserted into code with **guaranteed execution sequence**:
+Sisal-2026 reconciles pure functional dataflow graphs with deterministic I/O logging. `printf` calls can be freely inserted into code with **guaranteed execution sequence**:
 
 ```sisal
 let
@@ -63,7 +63,7 @@ end let
 
 ## 3. User-Defined Types & Rank-Polymorphic Dense Arrays (`array_dv`)
 
-Arrays in Sisal 2.0 are dense multi-dimensional structures represented by the `sisal_array_t` dope vector.
+Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `sisal_array_t` dope vector.
 
 ### Array Construction & Indexing
 ```sisal
@@ -95,7 +95,7 @@ end let
 
 ## 4. APL-Style Combinators & Einstein Summation (`EINSUM`)
 
-Sisal 2.0 provides native array combinators and Einstein summation for high-performance mathematical modeling.
+Sisal-2026 provides native array combinators and Einstein summation for high-performance mathematical modeling.
 
 ### Array Combinators
 ```sisal
@@ -181,7 +181,7 @@ while ...
 
 ## 7. First-Class Higher-Order Functions (HOFs) & Closures
 
-Sisal 2.0 supports first-class functions, nested procedures, lexical environment closures, and recursive list dispatch.
+Sisal-2026 supports first-class functions, nested procedures, lexical environment closures, and recursive list dispatch.
 
 ### Closures & Variable Capture
 Nested functions capture variables from enclosing outer scopes:
@@ -230,7 +230,7 @@ end function
 
 ## 8. SIMD Small Vectors (`float4`) & Fixed Matrix Intrinsics (`mat2`)
 
-Sisal 2.0 maps fixed-size vectors directly to CPU SIMD registers (ARM Neon, x86 AVX-512) and GPU vector types.
+Sisal-2026 maps fixed-size vectors directly to CPU SIMD registers (ARM Neon, x86 AVX-512) and GPU vector types.
 
 ```sisal
 function TransformPoints( p : float4; m : mat2 returns float4 )
