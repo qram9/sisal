@@ -26,7 +26,7 @@ Welcome to the **Sisal-2026 Language Tutorial**. This guide is inspired by the c
 ### Core Principles & Architectural Heritage:
 - **Single Assignment / Immutability**: Values are immutable once defined. Variables represent values, not memory locations.
 - **Implicit Parallelism**: Because functions have no side-effects, independent dataflow expressions execute concurrently automatically.
-- **APL & NumPy Heritage**: Sisal-2026 introduces **dense rank-polymorphic dope-vector arrays (`array_dv`)**, continuing an architectural lineage originating in **APL** (Iverson, 1962, predating Sisal by two decades) and perfected in modern computing via **NumPy**, **PyTorch**, and **JAX**.
+- **APL & NumPy Heritage**: Sisal-2026 introduces **dense rank-polymorphic dope-vector arrays (`array_dv`)**, continuing an architectural lineage originating in **APL** (Iverson, 1962) and perfected in modern computing via **NumPy**, **PyTorch**, and **JAX**.
 - **Natural Fit for Pure Functional Semantics**: Dope-vector metadata operations (slicing `A[i, ..]`, reshaping, transposition) fit naturally into pure single-assignment functional languages as $O(1)$ constant-time immutable metadata views. Combined with Copy-on-Write (CoW) reference counting, `array_dv` provides 100% pure functional guarantees alongside native C/C++ execution performance—eliminating the need to rely on compiler static analysis passes (*build-in-place* / *update-in-place*) to infer layout intentions.
 - **Sisal-2026 Innovations**: First-class higher-order functions (closures), Einstein summation (`EINSUM`), hardware SIMD intrinsics (`float4`, `mat2`), stream coroutines, and side-effect monad ordering.
 

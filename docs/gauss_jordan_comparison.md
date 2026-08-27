@@ -203,7 +203,7 @@ end function
 ## 4. Performance & Language Design Philosophy
 
 1. **APL & NumPy Heritage in a Pure Functional Setting**:
-   - Dense rank-polymorphic dope-vector arrays (`array_dv`) follow a proven architectural lineage originating in **APL** (predating Sisal by two decades) and perfected in modern computing by **NumPy**, **PyTorch**, and **JAX**.
+   - Dense rank-polymorphic dope-vector arrays (`array_dv`) follow a proven architectural lineage originating in **APL** (Iverson, 1962) and perfected in modern computing by **NumPy**, **PyTorch**, and **JAX**.
    - Rather than relying on compiler analysis passes (*build-in-place* / *update-in-place*) to discover or attempt to flatten array layouts, Sisal-2026 makes dense multi-dimensional dope vectors a first-class language primitive (`array_dv`).
 2. **Natural Fit for Single-Assignment Functional Semantics**:
    - Dope-vector metadata operations (slicing `A[i, ..]`, reshaping, transposition) fit naturally into pure single-assignment functional languages as $O(1)$ constant-time immutable metadata views.
