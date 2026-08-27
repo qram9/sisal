@@ -6,14 +6,14 @@ This document provides a detailed comparative case study of **Gauss-Jordan Elimi
 
 ## 1. Executive Summary & Comparison Table
 
-| Language Feature | Sisal 1.2 (Legacy) | Sisal-2026 (`git_sisal`) | Impact in Sisal-2026 |
+| Language Feature | Sisal 1.2 (Legacy Model) | Sisal-2026 (`git_sisal`) | Impact in Sisal-2026 |
 | :--- | :--- | :--- | :--- |
-| **Matrix Type (`TwoD`)** | `type TwoD = array[array[double]]` | `type TwoD = array_dv[double]` | **Single Flat Dope Vector**: No nested pointer arrays. 1D vectors and 2D matrices share the flat type `array_dv[double]`. |
-| **Memory Layout** | Ragged pointer tree (heap-fragmented row arrays) | Flat C-contiguous row-major block (`sisal_array_t`) | **Hardware Vectorization**: Enables LLVM SIMD auto-vectorization (AVX-512/Neon) and BLAS acceleration. |
-| **Row Extraction** | `row_i := A[i]` *(pointer indirection)* | `row_i := A[i, ..]` *(rank-reducing slice)* | **Zero-Copy View**: $O(1)$ metadata shift without copying buffer bytes. |
-| **Scalar Indexing** | `val := A[i][j]` *(two-level dereference)* | `val := A[i, j]` *(flat stride calculation)* | **$O(1)$ Direct Offset**: Computes `data[i * s0 + j * s1]` directly. |
-| **Row Swapping** | `A[i: A[j]; j: A[i]]` *(pointer swap)* | `A[i: A[j, ..]; j: A[i, ..]]` *(dope swap)* | **$O(1)$ Zero-Copy Swap**: Swaps row descriptors in constant time. |
-| **Matrix Assembly** | `returns array of Arow` *(creates array of pointers)* | `returns array_dv of Arow` *(transparent rank elevation)* | **Flat Assembly**: Elevates 1D row slices into a single contiguous rank-2 matrix `array_dv[double]`. |
+| **Matrix Type (`TwoD`)** | `type TwoD = array[array[double]]` *(Relied on compiler build-in-place optimizations)* | `type TwoD = array_dv[double]` *(Explicit language primitive)* | **User-Directed Flat Dope Vector**: No reliance on compiler optimization passes. User explicitly chooses flat `array_dv` for matrices. |
+| **Memory Layout** | Ragged pointer tree *(OSC compiler attempted in-place flattening)* | Flat C-contiguous row-major block (`sisal_array_t`) | **Guaranteed Flat Layout**: 100% contiguous memory layout guaranteed by type definition, enabling SIMD and BLAS acceleration. |
+| **Row Extraction** | `row_i := A[i]` | `row_i := A[i, ..]` *(rank-reducing slice)* | **Zero-Copy View**: $O(1)$ metadata shift without copying buffer bytes. |
+| **Scalar Indexing** | `val := A[i][j]` | `val := A[i, j]` *(flat stride calculation)* | **$O(1)$ Direct Offset**: Computes `data[i * s0 + j * s1]` directly. |
+| **Row Swapping** | `A[i: A[j]; j: A[i]]` | `A[i: A[j, ..]; j: A[i, ..]]` *(dope swap)* | **$O(1)$ Zero-Copy Swap**: Swaps row descriptors in constant time with CoW. |
+| **Matrix Assembly** | `returns array of Arow` | `returns array_dv of Arow` *(rank elevation)* | **Flat Assembly**: Elevates 1D row slices into a single contiguous rank-2 matrix `array_dv[double]`. |
 
 ---
 
@@ -200,11 +200,12 @@ end function
 
 ---
 
-## 4. Performance & Compiler Architecture Impact
+## 4. Performance & Language Design Philosophy
 
-1. **Cache Locality**:
-   Sisal-2026 stores all matrix entries contiguously in row-major order. Iterating across rows yields 100% L1/L2 data cache hit rates, avoiding pointer-chasing cache misses present in Sisal 1.2.
-2. **LLVM SIMD Auto-Vectorization**:
-   Because `Ain[i, j] - multiplier * Ain[pvtrow, j]` operates on contiguous double-precision floats, LLVM compiles the inner loop into vector SIMD instructions (AVX-512 / Neon FMA).
-3. **BLAS Acceleration**:
-   Sisal-2026 flat dope vectors align directly with BLAS/LAPACK memory layouts, allowing matrix operations to be accelerated via `cblas_dgemm` / Apple Accelerate.
+1. **Explicit Language Primitives vs. Optimization Heuristics**:
+   - **Sisal 1.2 (OSC Compiler)**: Attempted complex compiler optimization passes (*build-in-place* and *update-in-place* analysis) to flatten ragged pointer structures into contiguous memory. When compiler heuristics failed, code reverted to slow, fragmented pointer trees.
+   - **Sisal-2026 (`git_sisal`)**: Puts explicit structural control directly in the programmer's hands. By declaring **`array_dv[T]`**, the user explicitly guarantees a 100% flat, dense, row-major dope-vector memory layout without relying on fragile compiler optimization heuristics.
+2. **Predictable L1/L2 Cache Locality**:
+   Sisal-2026 stores all matrix entries contiguously in row-major order by definition. Iterating across rows yields 100% L1/L2 data cache hit rates, avoiding pointer-chasing cache misses present in legacy ragged representations.
+3. **LLVM SIMD Auto-Vectorization & BLAS Acceleration**:
+   Because `Ain[i, j] - multiplier * Ain[pvtrow, j]` operates on a guaranteed flat block of contiguous double-precision floats, LLVM compiles the inner loop into vector SIMD instructions (AVX-512 / Neon FMA) and BLAS matrix calls (`cblas_dgemm`).
