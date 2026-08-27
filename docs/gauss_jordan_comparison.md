@@ -202,11 +202,11 @@ end function
 
 ## 4. Performance & Language Design Philosophy
 
-1. **APL & NumPy Heritage in a Pure Functional Setting**:
+1. **APL & NumPy Heritage in a Single-Assignment Setting**:
    - Dense rank-polymorphic dope-vector arrays (`array_dv`) follow a proven architectural lineage originating in **APL** (Iverson, 1962) and perfected in modern computing by **NumPy**, **PyTorch**, and **JAX**.
    - Rather than relying on compiler analysis passes (*build-in-place* / *update-in-place*) to discover or attempt to flatten array layouts, Sisal-2026 makes dense multi-dimensional dope vectors a first-class language primitive (`array_dv`).
-2. **Natural Fit for Single-Assignment Functional Semantics**:
-   - Dope-vector metadata operations (slicing `A[i, ..]`, reshaping, transposition) fit naturally into pure single-assignment functional languages as $O(1)$ constant-time immutable metadata views.
-   - Combined with Copy-on-Write (CoW) reference counting, `array_dv` provides 100% pure functional guarantees alongside native C/C++ execution performance.
+2. **Natural Fit for Single-Assignment Dataflow Semantics**:
+   - Dope-vector metadata operations (slicing `A[i, ..]`, reshaping, transposition) fit naturally into single-assignment dataflow languages as $O(1)$ constant-time metadata views.
+   - Combined with Copy-on-Write (CoW) reference counting, `array_dv` provides 100% single-assignment immutability guarantees alongside native C/C++ execution performance.
 3. **Predictable L1/L2 Cache Locality & Hardware Acceleration**:
    - Storing all matrix entries contiguously in row-major order guarantees L1/L2 cache locality, enabling LLVM SIMD auto-vectorization (AVX-512 / Neon FMA) and BLAS matrix acceleration (`cblas_dgemm`).
