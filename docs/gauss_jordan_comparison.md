@@ -202,10 +202,10 @@ end function
 
 ## 4. Performance & Language Design Philosophy
 
-1. **Explicit Language Primitives vs. Optimization Heuristics**:
-   - **Sisal 1.2 (OSC Compiler)**: Attempted complex compiler optimization passes (*build-in-place* and *update-in-place* analysis) to flatten ragged pointer structures into contiguous memory. When compiler heuristics failed, code reverted to slow, fragmented pointer trees.
-   - **Sisal-2026 (`git_sisal`)**: Puts explicit structural control directly in the programmer's hands. By declaring **`array_dv[T]`**, the user explicitly guarantees a 100% flat, dense, row-major dope-vector memory layout without relying on fragile compiler optimization heuristics.
+1. **Explicit Type Primitives vs. Automated Optimization Analysis**:
+   - **Sisal 1.2 (OSC Compiler)**: Employed automated static analysis passes (*build-in-place* and *update-in-place* analysis) to identify and flatten ragged array patterns into contiguous memory.
+   - **Sisal-2026 (`git_sisal`)**: Puts explicit structural specification directly in the programmer's hands. By declaring **`array_dv[T]`**, the user specifies a 100% flat, dense, row-major dope-vector memory layout at the type level.
 2. **Predictable L1/L2 Cache Locality**:
-   Sisal-2026 stores all matrix entries contiguously in row-major order by definition. Iterating across rows yields 100% L1/L2 data cache hit rates, avoiding pointer-chasing cache misses present in legacy ragged representations.
+   Sisal-2026 stores all matrix entries contiguously in row-major order by definition. Iterating across rows yields high L1/L2 data cache efficiency.
 3. **LLVM SIMD Auto-Vectorization & BLAS Acceleration**:
    Because `Ain[i, j] - multiplier * Ain[pvtrow, j]` operates on a guaranteed flat block of contiguous double-precision floats, LLVM compiles the inner loop into vector SIMD instructions (AVX-512 / Neon FMA) and BLAS matrix calls (`cblas_dgemm`).
