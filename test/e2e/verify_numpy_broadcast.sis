@@ -23,5 +23,5 @@ end function
 
 % 4. Test multi-op lifting
 function test_multi_op(A, B: TwoD returns TwoD)
-  (A + B) * 2.0 - A
+  (A + B) * 2.0d0 - A
 end function

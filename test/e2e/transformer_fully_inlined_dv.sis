@@ -1,0 +1,82 @@
+% Sisal-2026 Fully Inlined & Fused Transformer Block
+
+define Main
+
+function Softmax( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    ExpX := EXP(X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      SumRow := double(for k in 1, Cols returns value of sum ExpX[i, k] end for)
+    returns array_dv of ExpX[i, j] / SumRow
+    end for
+  end let
+end function
+
+function FullyFusedTransformerBlock( X : array_dv[double]; 
+                                     Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                                     W_O : array_dv[double];
+                                     W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                                     Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                                     scale, eps : double 
+                                     returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    
+    % 1. Pre-LayerNorm 1
+    MeanSq1 := MEAN(X * X);
+    InvRMS1 := 1.0d0 / SQRT(MeanSq1 + eps);
+    Norm1 := for i in 1, Rows cross j in 1, Cols
+             returns array_dv of X[i, j] * InvRMS1 * Gamma1[j]
+             end for;
+             
+    % 2. Attention
+    RawScores := MATMUL(Q, K);
+    SeqLen := array_size(Q);
+    KeyLen := array_size(V);
+    Scores := for i in 1, SeqLen cross j in 1, KeyLen
+              returns array_dv of RawScores[i, j] * scale
+              end for;
+    AttnWeights := Softmax(Scores, KeyLen);
+    Context := MATMUL(AttnWeights, V);
+    AttnOut := MATMUL(Context, W_O);
+    
+    % 3. Residual 1 (Inlined Addition)
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+          
+    % 4. Pre-LayerNorm 2 + SwiGLU FFN + Residual 2 (Fully Inlined & Fused)
+    MeanSq2 := MEAN(X1 * X1);
+    InvRMS2 := 1.0d0 / SQRT(MeanSq2 + eps);
+    
+    ExpW1 := EXP(-MATMUL(X1, W1));
+    Gate  := MATMUL(X1, W1);
+    Up    := MATMUL(X1, W2);
+    
+    Hidden := for i in 1, Rows cross j in 1, array_size(W3)
+              % Swish activation fused with Norm2 scaling on the fly
+              returns array_dv of (Gate[i, j] / (1.0d0 + ExpW1[i, j])) * Up[i, j]
+              end for;
+              
+    FFNOut := MATMUL(Hidden, W3)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+function Main( X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; scale, eps : double 
+              returns integer, double, double )
+  let
+    Out := FullyFusedTransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    Sz := array_size(Out) * array_size(Gamma1);
+    SumVal := SUM(Out);
+    MeanVal := MEAN(Out)
+  in
+    Sz, SumVal, MeanVal
+  end let
+end function

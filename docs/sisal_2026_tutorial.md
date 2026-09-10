@@ -36,8 +36,22 @@ Welcome to the **Sisal-2026 Language Tutorial**. This guide is inspired by the c
 
 Sisal supports basic scalar types: `integer`, `real`, `double`, `boolean`, `character`.
 
-### Basic Arithmetic & Conditional Expressions
+> 💡 **Floating-Point Literal Exponent Notation**:
+> - Exponents with `e` or `E` (e.g. `1.0e-5`, `3.14e0`) denote single-precision **`real`** values (`float`).
+> - Exponents with `d` or `D` (e.g. `1.0d-5`, `2.718281828459d0`) denote double-precision **`double`** values (`double`).
+>
+> ⚠️ **Strict Type Safety**:
+> Sisal-2026 is strictly statically typed. Binary operators cannot mix distinct scalar types without explicit conversion (e.g., `double(i) + d` or `real(count)`). Implicit type coercion is forbidden.
+
+### Basic Arithmetic & Strict Type Conversion
 ```sisal
+function MixedArithmetic( i : integer; d : double returns double )
+  % ERROR: i + d  (Implicit mixing of integer and double is forbidden!)
+
+  % CORRECT: Explicitly promote i to double before addition
+  double(i) + d
+end function
+
 function Calculate( a, b : integer returns integer )
   if a > b then
     (a + b) * 2
@@ -48,18 +62,22 @@ end function
 ```
 
 ### Side-Effect Sequencing via Monad Ordering & `printf`
-Sisal-2026 reconciles pure functional dataflow graphs with deterministic I/O logging. `printf` calls can be freely inserted into code with **guaranteed execution sequence**:
+Sisal-2026 reconciles pure functional dataflow graphs with deterministic I/O logging using two primary idioms:
+1. **Wildcard Binding (`_ := printf(...)`)**: Discards output return when logging status.
+2. **Value Pass-Through Assignment (`res := printf("%d\n", val)`)**: Evaluates and returns the primary argument value after printing, enabling inline logging without temporary variables.
 
 ```sisal
 let
+  % 1. Wildcard binding pattern
   _ := printf("Starting computation for input val=%d\n", input_val);
-  result := HeavyCompute(input_val);
-  _ := printf("Completed computation: result=%d\n", result)
+  
+  % 2. Value pass-through pattern (prints result and binds it to result)
+  result := printf("Completed computation: result=%d\n", HeavyCompute(input_val))
 in
   result
 end let
 ```
-*Note: The compiler automatically inserts monad control ports (`PRINTF_TY`) to order log calls sequentially while leaving pure dataflow nodes 100% parallelizable.*
+*Note: The compiler automatically inserts monad control ports (`PRINTF_TY`) to order log calls in strict **lexicographic order** while leaving pure dataflow nodes 100% parallelizable.*
 
 ---
 
@@ -67,26 +85,37 @@ end let
 
 Arrays in Sisal-2026 are dense multi-dimensional structures represented by the `sisal_array_t` dope vector.
 
-> ⚠️ **Important Language Note**:
-> Legacy Sisal 1.2 ragged `array` syntax is **not available in Sisal-2026**. All dense multi-dimensional arrays must use **`array_dv`**. If irregular or ragged data structures are needed, use algebraic recursive list structures (`union [ nil_tag: null; cons_tag: record [ head: ...; tail: ... ] ]`) as demonstrated in [Section 7](#7-first-class-higher-order-functions-hofs--closures).
+> ⚠️ **First Edition Language Note**:
+> In the First Edition of Sisal-2026, the legacy `array` syntax is **not supported**. All multi-dimensional arrays are exclusively represented using **`array_dv`** (dense dope vectors). Support for legacy `array` representations may be evaluated in future editions of the language. If irregular or ragged structures are required in Edition 1, use algebraic recursive union types (`union [ nil_tag: null; cons_tag: record [ head: ...; tail: ... ] ]`) as demonstrated in [Section 7](#7-first-class-higher-order-functions-hofs--closures).
 >
 > 💡 **Rank-Polymorphic Dope Vector Principle**:
 > `array_dv[T]` represents a flat multi-dimensional dope vector (`sisal_array_t`). The rank (1D vector, 2D matrix, 3D tensor) is a dynamic runtime property of the dope vector. Therefore, nested types like `array_dv[array_dv[T]]` are **invalid**. Matrices and higher-dimensional tensors are declared simply as **`array_dv[T]`**.
+>
+> 💡 **Design Philosophy: Not a Weakness, But a Strength**:
+> Sisal-2026 removes the need for compiler optimization passes to guess layout intentions between ragged vs. dense arrays. Dense multi-dimensional computations explicitly use `array_dv[T]`, while irregular patterns use algebraic recursive union types. We believe this explicit division is not a weakness, but rather a strength: it eliminates compiler ambiguity and gives programmers transparent, predictable control over vectorization and performance.
 
 > [!NOTE]
 > For an in-depth reference on static rank polymorphism, prefix agreement, unification, and dynamic shape inference in Sisal-2026, read the complete guide:
 > 📘 **[Rank Polymorphism: A Complete Guide](Rank_Polymorphism_Complete_Guide.md)**
 
 ### Array Construction & Indexing
+Array literal syntax `array_dv [1: v1, v2, ...]` creates a **flat 1D vector**. To construct a multi-dimensional matrix, initialize a flat 1D vector literal and apply `reshape`:
+
 ```sisal
 type IntArray = array_dv [ integer ];
 
-function ArrayDemo( returns IntArray, integer )
+function MatrixDemo( returns IntArray, integer )
   let
-    A := array_dv [1: 10, 20, 30, 40, 50];
-    val := A[3] % Returns 30
+    % 1D Vector literal (6 elements)
+    Flat := array_dv [1: 10, 20, 30, 40, 50, 60];
+    
+    % Reshape flat 1D vector into 2x3 rank-2 Matrix
+    M := reshape(Flat, 2, 3);
+    
+    % Coordinate indexing M[2, 1] returns scalar integer (40)
+    val := M[2, 1]
   in
-    A, val
+    M, val
   end let
 end function
 ```

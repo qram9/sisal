@@ -1,0 +1,119 @@
+% Sisal-2026 Modern Transformer Graph: RMSNorm, Grouped-Query Attention (GQA), and SwiGLU FFN
+
+define Main
+
+function RMSNorm( X : array_dv[double]; Gamma : array_dv[double]; eps : double returns array_dv[double] )
+  let
+    Variance := MEAN(X * X);
+    Scale := 1.0d0 / SQRT(Variance + eps)
+  in
+    X * Scale * Gamma
+  end let
+end function
+
+function Swish( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    ExpX := EXP(-X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X[i, j] / (1.0d0 + ExpX[i, j])
+    end for
+  end let
+end function
+
+function SwiGLUFFN( X : array_dv[double]; W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double] returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(W3);
+    % Project input sequence X to gate and up hidden projections via MATMUL
+    % Note: MATMUL(A, B), INNERPRODUCT(A, B), or EINSUM("sd,dh->sh", A, B) may be used interchangeably
+    Gate := MATMUL(X, W1);
+    Up   := MATMUL(X, W2);
+    SwishGate := Swish(Gate, Cols);
+    
+    % Elementwise Hadamard product between 2D matrices
+    Hidden := for i in 1, Rows cross j in 1, Cols
+              returns array_dv of SwishGate[i, j] * Up[i, j]
+              end for
+  in
+    % Project hidden state back to model dimension d (MATMUL / INNERPRODUCT / EINSUM)
+    MATMUL(Hidden, W3)
+  end let
+end function
+
+function Softmax( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    ExpX := EXP(X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      SumRow := double(for k in 1, Cols returns value of sum ExpX[i, k] end for)
+    returns array_dv of ExpX[i, j] / SumRow
+    end for
+  end let
+end function
+
+function GQAttention( Q : array_dv[double]; K : array_dv[double]; V : array_dv[double]; W_O : array_dv[double]; scale : double returns array_dv[double] )
+  let
+    % 1. Compute multi-head attention scores Q * K^T and scale
+    % Note: MATMUL(A, B), INNERPRODUCT(A, B), or EINSUM may be used for matrix contractions
+    RawScores := MATMUL(Q, K);
+    SeqLen := array_size(Q);
+    KeyLen := array_size(V);
+    Scores := for i in 1, SeqLen cross j in 1, KeyLen
+              returns array_dv of RawScores[i, j] * scale
+              end for;
+    
+    % 2. Softmax normalization across key sequence axis
+    AttnWeights := Softmax(Scores, KeyLen);
+    
+    % 3. Aggregate values AttnWeights * V via MATMUL / INNERPRODUCT
+    Context := MATMUL(AttnWeights, V);
+    
+    % 4. Output projection to model dimension
+    Out := MATMUL(Context, W_O)
+  in
+    Out
+  end let
+end function
+
+function TransformerBlock( X : array_dv[double]; 
+                          Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                          W_O : array_dv[double];
+                          W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                          Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                          scale, eps : double 
+                          returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    
+    % Pre-LayerNorm 1 + Self-Attention + Residual
+    Norm1 := RMSNorm(X, Gamma1, eps);
+    AttnOut := GQAttention(Q, K, V, W_O, scale);
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+    
+    % Pre-LayerNorm 2 + SwiGLU FFN + Residual
+    Norm2 := RMSNorm(X1, Gamma2, eps);
+    FFNOut := SwiGLUFFN(Norm2, W1, W2, W3)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+function Main( X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; scale, eps : double 
+              returns integer, double, double )
+  let
+    Out := TransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    Sz := array_size(Out) * array_size(Gamma1);
+    SumVal := SUM(Out);
+    MeanVal := MEAN(Out)
+  in
+    Sz, SumVal, MeanVal
+  end let
+end function

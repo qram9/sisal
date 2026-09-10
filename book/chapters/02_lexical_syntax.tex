@@ -1,0 +1,79 @@
+\chapter{Lexical Structure \& Syntax}
+\label{chap:lexical_syntax}
+
+\section{Identifiers, Keywords \& Case Insensitivity}
+Sisal-2026 programs are written using the standard ASCII character set. The language is \textbf{case-insensitive} with respect to all identifiers and keywords (e.g., \texttt{MAIN}, \texttt{Main}, and \texttt{main} refer to the same procedure, and \texttt{FOR}, \texttt{For}, and \texttt{for} refer to the same loop keyword).
+
+\subsection{Identifiers}
+An identifier begins with a letter (\texttt{a}--\texttt{z}, \texttt{A}--\texttt{Z}) or an underscore (\texttt{\_}), followed by zero or more letters, digits (\texttt{0}--\texttt{9}), or underscores. Case variations in identifier names map to identical symbol table entries.
+\begin{lstlisting}[caption={Valid Identifier Examples (Case-Insensitive)}]
+Alpha          % Equivalent to alpha or ALPHA
+matrix_2d      % Equivalent to MATRIX_2D
+_temp_value    % Equivalent to _TEMP_VALUE
+ComputeFFT_v2  % Equivalent to computefft_v2
+\end{lstlisting}
+
+The single underscore \texttt{\_} is reserved as the wildcard binding pattern (see Section~\ref{sec:wildcard}).
+
+\subsection{Reserved Keywords}
+The following tokens are reserved keywords in Sisal-2026 and cannot be used as user identifiers:
+\begin{center}
+\begin{tabular}{lllll}
+\toprule
+\texttt{array\_dv} & \texttt{array} & \texttt{boolean} & \texttt{character} & \texttt{co\_yield} \\
+\texttt{cross} & \texttt{dot} & \texttt{double} & \texttt{else} & \texttt{elseif} \\
+\texttt{end} & \texttt{EINSUM} & \texttt{float2} & \texttt{float4} & \texttt{for} \\
+\texttt{forall} & \texttt{function} & \texttt{if} & \texttt{in} & \texttt{initial} \\
+\texttt{integer} & \texttt{is} & \texttt{let} & \texttt{long} & \texttt{mat2} \\
+\texttt{mat4} & \texttt{real} & \texttt{record} & \texttt{repeat} & \texttt{returns} \\
+\texttt{stream} & \texttt{then} & \texttt{type} & \texttt{union} & \texttt{unsigned} \\
+\texttt{until} & \texttt{while} & & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Literals \& Comments}
+\subsection{Literals}
+Sisal-2026 supports five basic literal formats:
+\begin{itemize}
+    \item \textbf{Integer Literals}: Sequences of digits, e.g., \texttt{42}, \texttt{-100}, \texttt{0}.
+    \item \textbf{Real Literals (\texttt{real})}: Single-precision floating-point numbers with optional \texttt{e} or \texttt{E} exponent notation, e.g., \texttt{3.14159}, \texttt{1.0e-5}, \texttt{-0.5}.
+    \item \textbf{Double Literals (\texttt{double})}: Double-precision floating-point numbers specified using \texttt{d} or \texttt{D} exponent notation, e.g., \texttt{1.0d-5}, \texttt{2.718281828459d0}.
+    \item \textbf{Boolean Literals}: \texttt{true} and \texttt{false}.
+    \item \textbf{Character Literals}: Single characters enclosed in single quotes, e.g., \texttt{'a'}, \texttt{'\textbackslash n'}.
+    \item \textbf{String Literals}: Double-quoted character sequences, e.g., \texttt{"Hello, Sisal-2026\textbackslash n"}.
+\end{itemize}
+
+\subsection{Comments}
+Sisal-2026 supports single-line comments introduced by the percent sign \texttt{\%}:
+\begin{lstlisting}[caption={Comment Syntax}]
+% This is a single-line comment in Sisal-2026
+A := array_dv [1: 10, 20, 30]; % Comments can follow code
+\end{lstlisting}
+
+\section{\texttt{printf} Logging}
+Sisal-2026 reconciles pure dataflow immutability with deterministic I/O logging via the built-in \texttt{printf} procedure.
+
+\texttt{printf} can be invoked using two primary binding idioms:
+\begin{enumerate}
+    \item \textbf{Wildcard Binding (\texttt{\_ := printf(...)})}: Used when logging output and discarding any return value.
+    \item \textbf{Value Pass-Through Assignment (\texttt{res := printf(...)})}: Used when logging a value inline while returning that printed value argument to be bound directly to a variable or chained into downstream computations.
+\end{enumerate}
+
+\begin{lstlisting}[caption={\texttt{printf} Binding Patterns}]
+function ProcessData( val : integer returns integer )
+  let
+    % 1. Wildcard binding idiom (discarding output return)
+    _ := printf("Input received: %d\n", val);
+    
+    % 2. Value pass-through assignment idiom (prints val and assigns to res)
+    res := printf("Processing value: %d\n", val * 42)
+  in
+    res
+  end let
+end function
+\end{lstlisting}
+
+\begin{note}[Monad Execution Ordering]
+Although Sisal-2026 expressions evaluate in parallel by default, statements producing side-effects (such as \texttt{printf}, \texttt{cout}, \texttt{cerr}) are automatically connected via compiler-inserted \texttt{PRINTF\_TY} monad control edges in the IF1 graph. This guarantees strict lexicographic execution order for log output while allowing pure computation subgraphs to execute concurrently.
+\end{note}

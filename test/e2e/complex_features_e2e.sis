@@ -12,7 +12,7 @@ function ProcessUnion(union_input : UN; returns real)
       for initial
         loop_i := 1.0;
         loop_acc := 0.0;
-      while loop_i <= double_real(payload) repeat
+      while loop_i <= real(double_real(payload)) repeat
         loop_i := old loop_i + 1.0;
         loop_acc := old loop_acc + old loop_i;
       returns value of loop_acc

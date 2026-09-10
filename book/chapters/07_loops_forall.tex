@@ -1,0 +1,136 @@
+\chapter{Parallel \& Sequential Loops}
+\label{chap:loops_forall}
+
+\section{Parallel Loops (\texttt{for})}
+The parallel \texttt{for} loop (lowered to \texttt{ForallNode} compound graphs in IF1 IR) is the primary construct for data-parallel execution in Sisal-2026. Every iteration of a parallel \texttt{for} loop is independent and can execute concurrently on separate CPU worker threads or GPU thread blocks.
+
+\begin{note}[Keyword Clarification: \texttt{for} vs. \texttt{forall}]
+In Sisal-2026 source code, the keyword for parallel loops is \textbf{\texttt{for}} (e.g., \texttt{for i in 1..N ... end for}). The term \emph{forall} refers to the underlying IF1 dataflow compound graph node (\texttt{ForallNode}) and literature terminology.
+\end{note}
+
+\subsection{Syntax \& Generator Ranges}
+A parallel \texttt{for} loop consists of three sections:
+\begin{enumerate}
+    \item \textbf{Generator Range}: Defines the index domain (\texttt{i in 1, N} or element iteration \texttt{x in Array}).
+    \item \textbf{Loop Body}: Computes expression bindings for each element in the domain.
+    \item \textbf{Returns Clause}: Specifies reduction accumulators (\texttt{sum of}, \texttt{array of}, \texttt{stream of}, \texttt{product of}, \texttt{least of}, \texttt{greatest of}).
+\end{enumerate}
+
+\begin{lstlisting}[caption={Parallel \texttt{for} Loop Example}]
+function VectorScale( A : array_dv[real]; factor : real returns array_dv[real] )
+  for x in A
+    y := x * factor
+  returns
+    array of y
+  end for
+end function
+\end{lstlisting}
+
+\subsection{Cross Products \& Dot Products}
+Multiple generator ranges can be combined using \texttt{cross} (Cartesian product) or \texttt{dot} (lock-step parallel iteration):
+
+\begin{lstlisting}[caption={Cross Product vs. Dot Product Generators}]
+% Cross Product (N x M iterations)
+Matrix := for i in 1, N cross j in 1, M
+  val := i * 10 + j
+returns
+  array of val
+end for;
+
+% Dot Product (min(N, M) lock-step iterations)
+Sums := for x in VectorA dot y in VectorB
+  z := x + y
+returns
+  array of z
+end for;
+\end{lstlisting}
+
+\section{Sequential Loops (\texttt{for initial})}
+When loop iterations have loop-carried dependencies (where iteration $k$ requires results from iteration $k-1$), the \texttt{for initial} sequential loop is used.
+
+\begin{lstlisting}[caption={Sequential Loop with Zero-Copy Tuple Swapping}]
+function Fibonacci( n : integer returns integer )
+  for initial
+    i := 1;
+    a := 0;
+    b := 1
+  while i < n repeat
+    i := old i + 1;
+    a := old b;
+    b := old a + old b
+  returns
+    value of b
+  end for
+end function
+\end{lstlisting}
+
+\begin{note}[\texttt{old} Keyword]
+Inside a \texttt{for initial} loop body, the \texttt{old} keyword references value bindings from the previous iteration. The compiler lowers state updates to zero-copy pointer swaps.
+\end{note}
+
+\section{Loop Semantics \& Comparative Analysis: Sisal vs. C vs. Fortran}
+Sisal's \texttt{for initial} construct is a functional state-transition graph loop rather than a control-flow jump. This fundamental semantic difference distinguishes Sisal loops from traditional imperative loops in C and Fortran.
+
+\subsection{Core Rules of \texttt{for initial} Iteration}
+\begin{enumerate}
+    \item \textbf{Rule 1: Unconditional Initial Seed Evaluation (No Undefined States)}:
+    Sisal defines a single-assignment value history that begins with an explicit initial state (\texttt{body\_0}). The \texttt{initial} seed is unconditionally evaluated and added to any accumulation collection (e.g. \texttt{returns stream of I}) \emph{before} the loop condition check occurs. Even in a zero-trip loop where the condition is false on entry, the initial seed value is safely defined and gathered, eliminating any risk of reading garbage or uninitialized memory.
+    
+    \item \textbf{Rule 2: Out-of-Bounds Value Calculation \& Gathering}:
+    In Sisal, the loop body computes the new state of loop variables from the previous state (\texttt{I := old I + step}). If the condition is satisfied, the body computes the new state and immediately gathers it. Consequently, the final value of \texttt{I} (which fails the subsequent condition check and terminates the loop) has already been computed and gathered into the result collection.
+\end{enumerate}
+
+\subsection{Comparative Analysis: Zero-Trip \& Normal Loops}
+Table~\ref{tab:loop_comparison_zero_trip} and Table~\ref{tab:loop_comparison_normal} compare the execution behavior of Sisal, C/C++, and Fortran under zero-trip and normal loop scenarios.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Language} & \textbf{Example Syntax} & \textbf{Execution Details \& Undefined Risk} \\
+\midrule
+\textbf{Sisal-2026} & \texttt{for initial I := 10 while I < 5 repeat I := old I + 1 returns stream of I end for} & Initial seed executes unconditionally and gathers \texttt{10}. Condition \texttt{10 < 5} is false $\rightarrow$ exits. \\
+\addlinespace
+& & \textbf{Stream}: \texttt{[10]} (Size 1) \quad \textbf{Risk}: None. \\
+\midrule
+\textbf{C / C++} & \texttt{int r; for(int i=10; i<5; i++) r=i;} & Condition \texttt{10 < 5} is checked first and fails. Body never executes. \\
+\addlinespace
+& & \textbf{Vector}: \texttt{[]} (Empty) \quad \textbf{Risk}: High (reading \texttt{r} yields garbage/UB). \\
+\midrule
+\textbf{Fortran} & \texttt{INTEGER :: I, R; DO I = 10, 5; R = I; END DO} & Trip count \texttt{MAX(0, 5-10+1)} evaluates to \texttt{0}. Body never executes. \\
+\addlinespace
+& & \textbf{Result}: Uninitialized \quad \textbf{Risk}: High. \\
+\bottomrule
+\end{tabularx}
+\caption{Zero-Trip Loop Behavior Comparison (Initial Seed = 10, Bound = 5).}
+\label{tab:loop_comparison_zero_trip}
+\end{table}
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}p{4.2cm} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Language} & \textbf{Example Syntax} & \textbf{State Sequence \& Resulting Collection} \\
+\midrule
+\textbf{Sisal-2026} & \texttt{for initial I := 1 while I <= 5 repeat I := old I + 1 returns stream of I end for} & 1. Seed gathers \texttt{1}. \newline 2. Iterations 1--5 compute and gather \texttt{2, 3, 4, 5, 6}. \newline 3. \texttt{6 <= 5} fails $\rightarrow$ exits. \\
+\addlinespace
+& & \textbf{Stream}: \texttt{[1, 2, 3, 4, 5, 6]} (Size 6) \\
+\midrule
+\textbf{C / C++} & \texttt{for(int i=1; i<=5; i++) vec.push\_back(i);} & 1. Iterations 1--5 push \texttt{1, 2, 3, 4, 5}. \newline 2. Increment to \texttt{6}; \texttt{6 <= 5} fails $\rightarrow$ exits. \\
+\addlinespace
+& & \textbf{Vector}: \texttt{[1, 2, 3, 4, 5]} (Size 5) \\
+\midrule
+\textbf{Fortran} & \texttt{DO I = 1, 5; ... END DO} & Loop executes 5 times. Final \texttt{I} is incremented to \texttt{6} on exit. \\
+\bottomrule
+\end{tabularx}
+\caption{Normal 5-Iteration Loop Behavior Comparison (Range = 1..5).}
+\label{tab:loop_comparison_normal}
+\end{table}
+
+\subsection{Key Design Takeaways}
+\begin{itemize}
+    \item \textbf{Collection Sizes}: For $N$ successful condition evaluations, a traditional C/Fortran loop produces $N$ elements, whereas a Sisal \texttt{for initial} loop yields $N + 1$ elements (the initial seed plus $N$ body calculations).
+    \item \textbf{Initialization Safety}: Sisal guarantees that loop-carried value streams always contain at least the initial seed value, statically eliminating uninitialized memory access.
+\end{itemize}

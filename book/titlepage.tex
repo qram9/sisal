@@ -1,0 +1,43 @@
+\begin{titlepage}
+    \centering
+    \begin{tikzpicture}[remember picture,overlay]
+        \fill[sisalnavy] (current page.north west) rectangle ([yshift=-4cm]current page.north east);
+    \end{tikzpicture}
+    
+    \vspace*{1.5cm}
+    {\Huge \bfseries \color{white} SISAL-2026} \\[0.5cm]
+    {\Large \bfseries \color{white} Single-Assignment Dataflow Language} \\[0.3cm]
+    {\small \color{codeframe} Language Specification \& Reference Manual}
+    
+    \vspace{3.5cm}
+    
+    \begin{figure}[h]
+        \centering
+        \begin{tikzpicture}[node distance=1.6cm, auto, >=stealth']
+            % Nodes arranged vertically down the titlepage
+            \node [draw=sisalnavy, rectangle, fill=sisalblue!15, minimum width=4.5cm, minimum height=1.1cm, rounded corners=4pt, align=center, font=\small\bfseries] (ast) {Sisal-2026 AST};
+            \node [draw=sisalnavy, rectangle, fill=sisalpurple!15, minimum width=4.5cm, minimum height=1.1cm, rounded corners=4pt, below=1.6cm of ast, align=center, font=\small\bfseries] (if1) {IF1 IR Graph};
+            \node [draw=sisalnavy, rectangle, fill=sisalgreen!15, minimum width=4.5cm, minimum height=1.1cm, rounded corners=4pt, below=1.6cm of if1, align=center, font=\small\bfseries] (cpp) {C++23 Runtime};
+            \node [draw=sisalnavy, rectangle, fill=sisalorange!15, minimum width=4.5cm, minimum height=1.1cm, rounded corners=4pt, below=1.6cm of cpp, align=center, font=\small\bfseries] (exe) {Binary Executable};
+            
+            % Vertical Edges
+            \draw[->, thick, sisaldarkblue] (ast) -- node[right=4pt, font=\small\bfseries] {AST Lowering (\texttt{to\_if1})} (if1);
+            \draw[->, thick, sisaldarkblue] (if1) -- node[right=4pt, font=\small\bfseries] {Optimization Passes (\texttt{scan\_edge\_liveness})} (cpp);
+            \draw[->, thick, sisaldarkblue] (cpp) -- node[right=4pt, font=\small\bfseries] {C++ Compiler Lowering (\texttt{clang++} / \texttt{g++})} (exe);
+        \end{tikzpicture}
+    \end{figure}
+    
+    \vfill
+    
+    \begin{tcolorbox}[colback=sisalnavy!5!white,colframe=sisalnavy,arc=3mm,center]
+        \centering
+        \textbf{Features}: Dense Dope Vectors (\texttt{array\_dv}) $\bullet$ Rank Polymorphism $\bullet$ $O(1)$ Zero-Copy Views $\bullet$ Einstein Summation (\texttt{EINSUM}) $\bullet$ 58 APL Bulk Operators $\bullet$ Stackless Coroutine Streams $\bullet$ Monad Order Sequencing
+    \end{tcolorbox}
+    
+    \vspace{1cm}
+    
+    {\large \textbf{Sisal-2026 Compiler Team}} \\[0.2cm]
+    {\small LLNL / UEA Heritage $\cdot$ Modern Optimizing Compiler Infrastructure} \\[0.2cm]
+    {\small \today}
+    
+\end{titlepage}

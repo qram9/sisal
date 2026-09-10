@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: nested_array_dv (Nested array_dv[array_dv[T]] Jagged Arrays) ===
+  Grid[1][2] : 20 (Expected: 20)
+  Grid[2][1] : 40 (Expected: 40)
+  Grid Rows  : 2 (Expected: 2)
+  PASS  Nested array_dv[array_dv[T]] indexing execution
+
+--- Summary: 1 passed, 0 failed ---

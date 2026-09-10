@@ -519,3 +519,10 @@ run_group ARRAY_COPY_LIVENESS_DV  array_copy_liveness_dv  ""
 run_group TUPLE_SWAP_DIRECT_DV   tuple_swap_direct_dv   ""
 run_group TUPLE_SWAP_REBIND_DV   tuple_swap_rebind_dv   ""
 run_group GEN_EXTENT_DV           gen_extent_dv          ""
+run_group TRANSFORMER_GQA_SWIGLU_DV transformer_gqa_swiglu ""
+run_group TRANSFORMER_FUSED_DV      transformer_fused_dv ""
+run_group TRANSFORMER_FULLY_INLINED_DV transformer_fully_inlined_dv ""
+run_group TRANSFORMER_ALL_DV        transformer_all_dv ""
+run_group NESTED_ARRAY_DV           nested_array_dv      ""
+
+

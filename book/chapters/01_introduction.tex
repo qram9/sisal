@@ -1,0 +1,68 @@
+\chapter{Introduction to Sisal-2026}
+\label{chap:introduction}
+
+\section{Overview \& Dataflow Parallelism}
+\textbf{Sisal} (\emph{Streams and Iteration in a Single Assignment Language}) is a single-assignment dataflow programming language designed for high-performance parallel computing. Originating from joint research at Lawrence Livermore National Laboratory (LLNL), Colorado State University, and the University of East Anglia (UEA), Sisal has historically delivered execution speeds matching languages such as Fortran-77 and C while providing automatic, deadlock-free parallel execution.
+
+\textbf{Sisal-2026} is a modernization of the Sisal language architecture with a newly written optimizing compiler system. Sisal-2026 preserves the dataflow and single assignment semantics of Sisal 1.2 and Sisal 2.0 while integrating state-of-the-art array programming concepts, coroutine execution models, and compiler intermediate representation (IR) transforms.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=2cm, auto]
+    \node [draw, rectangle, fill=sisalblue!15, minimum width=3cm, minimum height=1.2cm] (sa) {Single Assignment};
+    \node [draw, rectangle, fill=sisalgreen!15, minimum width=3cm, minimum height=1.2cm, right=1cm of sa] (apl) {APL/NumPy Dope Vectors};
+    
+    \node [draw, rectangle, fill=sisalnavy!20, minimum width=10cm, minimum height=1cm, below=1cm of apl] (core) {\textbf{Sisal-2026 Core Compiler Architecture}};
+    \node [draw, rectangle, fill=sisalpurple!15, minimum width=3cm, minimum height=1.2cm, right=1cm of apl] (coro) {C++20 Coroutines};
+    
+    \draw [->, thick] (sa) -- (core);
+    \draw [->, thick] (apl) -- (core);
+    \draw [->, thick] (coro) -- (core);
+\end{tikzpicture}
+\caption{Architectural Pillars of Sisal-2026.}
+\label{fig:pillars}
+\end{figure}
+
+\section{Core Principles \& Architectural Heritage}
+Sisal-2026 is built around three foundational pillars:
+\begin{enumerate}
+    \item \textbf{Single Assignment \& Functional Semantics}: Every variable in Sisal-2026 acts as a mathematical identifier bound to a single value. Once initialized, variables cannot be mutated, preserving equational reasoning. Furthermore, because expression evaluation is strictly free of side effects, independent computational branches can be executed in parallel automatically without synchronization locks or race conditions.
+    
+    \item \textbf{Rank-Polymorphic Dense Arrays (\texttt{array\_dv})}: Drawing inspiration from APL \cite{iverson1962} and modern array computing frameworks (such as NumPy, PyTorch, and JAX), Sisal-2026 models multi-dimensional dense arrays as flat contiguous memory segments wrapped in $O(1)$ dynamic dope vectors (\texttt{sisal\_array\_t}). Slicing, transposition, and reshaping operations operate on array metadata in constant time without element copying.
+    
+    \item \textbf{Static Liveness Analysis \& Copy-on-Write (CoW)}: Memory efficiency is achieved through a hybrid static-dynamic model. At compile time, topological liveness analysis (\texttt{scan\_edge\_liveness}) identifies the topologically last consumer edge for every dataflow variable, inserting reference-release and ownership-transfer directives. At runtime, arrays (\texttt{sisal\_array\_t}) track reference counts. When an element or slice replacement occurs, if exclusive ownership is held ($\text{ref\_count} = 1$), the modification executes \emph{in-place} without memory allocation or copying. If the array remains shared across concurrent branches ($\text{ref\_count} > 1$), Copy-on-Write (CoW) triggers a duplicate allocation, preserving single-assignment immutability for all other live references. This hybrid architecture delivers native C/C++ memory reuse performance while maintaining purely functional semantics.
+\end{enumerate}
+
+\begin{note}[{Explicit Array Layouts vs. Compiler Optimization}]
+Historical Sisal 1.2 relied exclusively on nested ragged array syntax (\texttt{array[array[T]]}), placing the burden on compiler optimizations (such as build-in-place and update-in-place passes) to infer whether nested pointer structures could be flattened into contiguous memory buffers. Recognizing these performance bottlenecks, Sisal 2.0 proposed rectangular (monolithic) multi-dimensional arrays alongside ragged arrays. Sisal-2026 eliminates compiler layout guesswork entirely by placing structural layout decisions directly in the language specification:
+\begin{itemize}
+    \item Dense multi-dimensional computations utilize flat \texttt{array\_dv[T]} dope vectors.
+    \item Irregular or ragged data structures are explicitly declared using algebraic recursive union types (\texttt{union[ nil\_tag: null; cons\_tag: record[ head: ...; tail: ... ] ]}).
+\end{itemize}
+This explicit separation is an architectural strength: it removes compiler layout ambiguity, maximizes opportunities for $O(1)$ zero-copy view metadata shifts, and affords developers predictable, transparent control over hardware vectorization and memory access. While unnecessary array duplications should be avoided, in-place modifications on sliced views are safely optimized by the runtime. The Sisal 1.2 scientific benchmark suite has been modernized using \texttt{array\_dv}, with irregular data structures mapped to algebraic unions and recursive lists.
+\end{note}
+
+\section{Sisal-2026 Language Innovations}
+Compared to historical Sisal versions, Sisal-2026 incorporates several major features:
+\begin{itemize}
+    \item \textbf{58 APL-Style Bulk Operators}: Whole-array primitives (\texttt{MAP}, \texttt{REDUCE}, \texttt{ROTATE}, \texttt{GRADE\_UP}, \texttt{STENCIL}, etc.) allowing vector algorithms to be written cleanly without manual loops.
+    \item \textbf{C++20 Stackless Stream Coroutines}: Stream expressions (\texttt{stream[T]}) compile into C++20 \texttt{co\_yield} stackless coroutines with 2--5 nanosecond context switch performance.
+    \item \textbf{First-Class Higher-Order Functions}: Lambda closures and function pass-through bindings.
+    \item \textbf{Monad-Ordered Side Effects}: Debuggablity with deterministic I/O logging (\texttt{printf}) sequenced via monad control ports while leaving pure computation nodes parallelized.
+    \item \textbf{Einstein Summation (\texttt{EINSUM})}: First-class tensor contraction syntax that parses multi-index Einstein notation and optimizes matrix-vector multiplications directly into hardware BLAS calls (\texttt{cblas\_dgemm}, \texttt{cblas\_dgemv}).
+    \item \textbf{Hardware SIMD Intrinsics}: Native types for 2D/4D vectors (\texttt{float4}, \texttt{int4}) and fixed matrices (\texttt{mat2}, \texttt{mat4}).
+\end{itemize}
+
+\section{Structure of this Specification}
+This document is organized as follows:
+Chapter~\ref{chap:lexical_syntax} describes the lexical structure and grammar.
+Chapter~\ref{chap:type_system} presents the type system.
+Chapter~\ref{chap:rank_polymorphism} covers dense dope vectors and rank polymorphism.
+Chapter~\ref{chap:expressions_operators} details expressions, pattern matching, and SIMD types.
+Chapter~\ref{chap:einsum_bulk_ops} defines Einstein summation and whole-array operations.
+Chapter~\ref{chap:loops_forall} specifies parallel \texttt{for} and sequential loops.
+Chapter~\ref{chap:coroutine_streams} presents stream coroutines.
+Chapter~\ref{chap:side_effects_monads} explains side-effect monad ordering.
+Chapter~\ref{chap:if1_ir} covers the IF1 dataflow intermediate representation.
+Chapter~\ref{chap:cpp23_runtime} details the C++23 runtime generator.
+Chapter~\ref{chap:std_lib} provides the standard library reference.

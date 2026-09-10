@@ -28,7 +28,7 @@ end function
 % --- array-of-rows gather (box-then-flatten): result is flat rank-2 i*10+j ---
 function gp_aor( n: integer returns array_dv[double] )
   for i in 1, n
-    Arow := for j in 1, n returns array_dv of i*10.0d0 + j end for
+    Arow := for j in 1, n returns array_dv of double(i)*10.0d0 + double(j) end for
   returns array_dv of Arow
   end for
 end function

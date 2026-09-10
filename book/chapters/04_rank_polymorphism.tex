@@ -1,0 +1,347 @@
+\chapter{Dense Dope Vectors \& Rank Polymorphism}
+\label{chap:rank_polymorphism}
+
+\section{Context \& Motivation: Beyond Nested Arrays}
+In historical Sisal 1.2, multi-dimensional arrays were represented exclusively as nested ragged structures, e.g., \texttt{array[array[T]]}. Sisal 2.0 recognized the performance limits of nested pointer arrays and proposed rectangular (monolithic) array constructs alongside ragged arrays. While flexible, legacy pointer-based ragged representations introduced three major bottlenecks:
+\begin{enumerate}
+    \item \textbf{Pointer Chasing \& Memory Fragmentation}: A 2D ragged matrix required an array of pointers pointing to separate row buffers scattered across heap memory.
+    \item \textbf{Complex In-Place Analysis}: Inferring update-in-place opportunities across nested pointer arrays required expensive compiler static analysis passes.
+    \item \textbf{Explicit Loop Boilerplate}: Simple elementwise operations (such as matrix addition or scalar scaling) forced developers to write nested parallel loops (\texttt{for i ... for j ...}).
+\end{enumerate}
+
+Sisal-2026 solves these challenges by introducing \textbf{Rank-Polymorphic Dense Arrays (\texttt{array\_dv})}. Unifying concepts from APL \cite{iverson1962}, NumPy, PyTorch, and JAX with single-assignment dataflow semantics, Sisal-2026 represents all multi-dimensional arrays using flat, contiguous memory buffers managed by $O(1)$ dope vectors (\texttt{sisal\_array\_t}).
+
+\begin{tip}[title={Design Philosophy: Not a Weakness, But a Strength}]
+By explicitly separating dense tensor computing (\texttt{array\_dv[T]}) from irregular or ragged patterns (algebraic recursive union types), Sisal-2026 removes the burden on the compiler optimizer to guess layout intentions. This explicit control guarantees predictable memory access patterns, eliminates compiler lowering ambiguity, and gives developers full transparency over hardware performance.
+\end{tip}
+
+\section{What Is Rank Polymorphism?}
+\textbf{Rank polymorphism} allows functions written for lower-rank data (e.g. scalars or vectors) to automatically operate on higher-rank inputs (e.g. matrices or $N$-dimensional tensors) without requiring explicit loops.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=4.5cm, auto, >=stealth']
+    \node [draw=sisalnavy, rounded corners=4pt, rectangle, fill=sisalblue!15, minimum width=3.4cm, minimum height=1.2cm, align=center, font=\bfseries] (scalar) {\textbf{Scalar Function}\\[2pt]\small $f(x, y) = x \cdot y + 1$};
+    \node [draw=sisalnavy, rounded corners=4pt, rectangle, fill=sisalpurple!15, minimum width=3.6cm, minimum height=1.2cm, align=center, font=\bfseries, right=4.5cm of scalar] (matrix) {\textbf{Lifted Execution}\\[2pt]\small Operates on Dope Vectors};
+    
+    \draw [->, thick, sisalpurple!90!black] (scalar) -- node[above=2pt, font=\small\bfseries, align=center] {Rank-Polymorphic Lifting\\[1pt]\scriptsize (Automatic Vectorization)} (matrix);
+    
+    \node [draw=sisalnavy, rounded corners=4pt, fill=codebg, below=1.2cm of matrix, font=\small\ttfamily] (example) {Matrix * Vector + Scalar};
+    \draw [->, dashed, thick, sisaldarkblue] (matrix) -- (example);
+\end{tikzpicture}
+\caption{Rank-Polymorphic Lifting in Sisal-2026.}
+\label{fig:rank_poly_lifting}
+\end{figure}
+
+\section{Sisal-2026 Type Representation (\texttt{array\_dv[T]})}
+In Sisal-2026, all dense multi-dimensional arrays use the single flat parameterized type \texttt{array\_dv[T]}.
+
+\begin{note}[First Edition Specification: Exclusive \texttt{array\_dv} Support]
+In the First Edition of the Sisal-2026 specification, the legacy \texttt{array} keyword is not supported. Only dense dope-vector arrays (\texttt{array\_dv}) are provided. Support for legacy ragged \texttt{array} representations may be evaluated for future editions of the language.
+\end{note}
+
+\begin{note}[Flat vs. Nested Type Syntax]
+The dimensional rank (1D vector, 2D matrix, 3D tensor) of a dense rectangular array is a dynamic property stored in dope vector metadata at runtime, declared simply as \texttt{array\_dv[T]}. Nested type syntax like \texttt{array\_dv[array\_dv[T]]} is valid for constructing jagged arrays with non-uniform row lengths, but flat \texttt{array\_dv[T]} is the required representation for rank-polymorphic dense tensor computing.
+\end{note}
+
+Underneath, every \texttt{array\_dv[T]} value maps to the C++23 runtime structure:
+\begin{lstlisting}[caption={\texttt{sisal\_array\_t} Dope Vector Structure}]
+struct sisal_array_t {
+    void* data;          // Pointer to contiguous element memory
+    int32_t rank;        // Number of dimensions (1, 2, 3, ...)
+    int32_t total_elems; // Total number of elements
+    int32_t elem_size;   // Size of element T in bytes
+    int32_t ref_count;   // Copy-on-Write reference counter
+    int32_t* shape;      // Array of dimension sizes [dim_0, dim_1, ...]
+    int32_t* stride;     // Array of byte strides [stride_0, stride_1, ...]
+    int32_t offset;      // Element offset into contiguous buffer
+};
+\end{lstlisting}
+
+\section{\texttt{array\_dv} Syntax, Benefits \& Potential Pitfalls: Flat vs. Nested Arrays}
+
+While Sisal-2026 uses \texttt{array\_dv} as its primary array constructor, developers can instantiate arrays using two distinct structural models: \textbf{Flat Dope-Vector Arrays} (\texttt{array\_dv[T]}) and \textbf{Nested Jagged Arrays} (\texttt{array\_dv[array\_dv[T]]}). Understanding the syntax, runtime mechanics, benefits, and common pitfalls of each model is essential for writing high-performance dataflow code.
+
+\subsection{1. Flat Dope-Vector Arrays (\texttt{array\_dv[T]})}
+In Sisal-2026, the recommended representation for vectors, matrices, and high-rank tensors is a single flat parameterized type \texttt{array\_dv[T]}. The dimension rank (1D, 2D, 3D, etc.), shape sizes, and stride offsets are maintained at runtime inside the $O(1)$ \texttt{sisal\_array\_t} descriptor metadata.
+
+\begin{itemize}
+    \item \textbf{Declaration Syntax}: Declared simply as \texttt{type Matrix = array\_dv[double]}.
+    \item \textbf{Indexing Syntax}: Indexed using multi-dimensional comma-separated subscripting: \texttt{A[i, j]} or \texttt{A[i, j, k]}.
+    \item \textbf{Memory Representation}: Elements reside in a single, contiguous memory allocation. Accessing \texttt{A[i, j]} computes a linear offset $i \cdot \text{stride}_0 + j \cdot \text{stride}_1$ in $O(1)$ time without dereferencing inner row pointers.
+    \item \textbf{Benefits}: Guarantees maximum cache locality, enables automatic SIMD vectorization and BLAS offloading, supports zero-copy slicing (\texttt{A[i, ..]}), and powers rank-polymorphic function lifting.
+\end{itemize}
+
+\subsection{2. Nested Jagged Arrays (\texttt{array\_dv[array\_dv[T]]})}
+When a programmer writes a nested array type definition—such as \texttt{type IntArray = array\_dv[integer]} followed by \texttt{type JaggedGrid = array\_dv[IntArray]}—the Sisal-2026 compiler constructs an outer dope-vector array whose elements are themselves inner \texttt{sisal\_array\_t} descriptors (\texttt{sizeof(sisal\_array\_t)}).
+
+Listing~\ref{lst:nested_array_demo} shows a complete working program utilizing nested \texttt{array\_dv} structures (\texttt{nested\_array\_dv.sis}).
+
+\begin{lstlisting}[caption={Nested \texttt{array\_dv[array\_dv[T]]} Jagged Arrays (\texttt{nested\_array\_dv.sis})},label={lst:nested_array_demo}]
+define Main
+
+type IntArray = array_dv [integer]
+type NestedArray = array_dv [IntArray]
+
+function Main( returns integer, integer, integer )
+  let
+    % 1. Construct independent row vectors (varying lengths supported)
+    Row1 := array [1: 10, 20, 30];  % 3 elements
+    Row2 := array [1: 40, 50];      % 2 elements
+    
+    % 2. Construct outer dope-vector array storing inner array descriptors
+    Grid := array [1: Row1, Row2];
+    
+    % 3. Access elements via intermediate row bindings
+    R1 := Grid[1];
+    R2 := Grid[2];
+    Elem1 := R1[2]; % Returns Row1[2] = 20
+    Elem2 := R2[1]; % Returns Row2[1] = 40
+    Sz := array_size(Grid) % Returns 2 outer rows
+  in
+    Elem1, Elem2, Sz
+  end let
+end function
+\end{lstlisting}
+
+\subsection{3. Key Differences, Syntax Confusions \& Trade-Offs}
+
+Table~\ref{tab:flat_vs_nested_array_dv} summarizes the structural differences between flat and nested dope-vector arrays in Sisal-2026.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Feature / Property} & \textbf{Flat \texttt{array\_dv[T]}} & \textbf{Nested \texttt{array\_dv[array\_dv[T]]}} \\
+\midrule
+\textbf{Type Declaration} & \texttt{type Matrix = array\_dv[double]} & \texttt{type Jagged = array\_dv[array\_dv[int]]} \\
+\textbf{Buffer Layout} & Single contiguous memory block & Pointer array to separate inner descriptors \\
+\textbf{Row Lengths} & Uniform rectangular ($M \times N$) & Non-uniform / Jagged supported \\
+\textbf{Indexing Syntax} & Comma-separated: \texttt{Grid[i, j]} & Intermediate binding: \texttt{R := Grid[i]; R[j]} \\
+\textbf{Chained Subscripting} & Not needed (\texttt{Grid[i, j]} used) & \texttt{Grid[1][2]} fails parsing; use \texttt{(Grid[1])[2]} \\
+\textbf{Rank Polymorphism} & Supported automatically & Not supported (opaque nested descriptors) \\
+\textbf{Cache \& Vectorization} & Optimal L1/L2 locality, SIMD/BLAS & Pointer indirection, no vectorization \\
+\bottomrule
+\end{tabularx}
+\caption{Comparison of Flat vs. Nested \texttt{array\_dv} Representations.}
+\label{tab:flat_vs_nested_array_dv}
+\end{table}
+
+\begin{tip}[Common Syntax Confusion: Chained Subscripting \texttt{Grid[1][2]}]
+In standard Sisal grammar, writing \texttt{Grid[1][2]} directly on a single line produces a syntax parser error because \texttt{[2]} is not recognized as a trailing suffix on \texttt{Grid[1]}. To index into a nested jagged array, developers must use intermediate let-bindings (\texttt{R1 := Grid[1]; Elem := R1[2]}) or parenthesized subscripting \texttt{(Grid[1])[2]}.
+\end{tip}
+
+\begin{warning}[Performance Guidance: Prefer Flat \texttt{array\_dv[T]}]
+While nested \texttt{array\_dv[array\_dv[T]]} structures compile and execute cleanly for irregular or jagged data collections, they introduce pointer indirection and forfeit rank polymorphism, zero-copy slicing, and SIMD vectorization. Developers should use flat \texttt{array\_dv[T]} for all dense linear algebra and tensor computations, reserving nested arrays strictly for non-uniform data structures.
+\end{warning}
+
+\section{Sisal-2026 Rank-Polymorphic Examples}
+
+\subsection{1. Matrix-Vector \& Matrix-Scalar Operations}
+In Sisal-2026, rank polymorphism operates on \texttt{array\_dv[T]} arguments along with scalar values. Built-in binary operators (\texttt{+}, \texttt{-}, \texttt{*}, \texttt{/}) and functions accepting \texttt{array\_dv} arguments inspect the dynamic rank metadata of their inputs and lift automatically across higher-dimensional dope vectors:
+
+\begin{lstlisting}[caption={Rank-Polymorphic Matrix-Vector \& Scalar Expressions}]
+function TransformAndScale( M : array_dv[real]; V : array_dv[real]; s : real returns array_dv[real] )
+  let
+    % M is a 2D Matrix of Shape [2, 3]
+    % V is a 1D Vector of Shape [3]
+    % s is a scalar real (0D)
+    
+    % 1. Matrix + Vector broadcast addition -> returns Shape [2, 3]
+    M_plus_V := M + V;
+    
+    % 2. Matrix-Scalar broadcast multiplication -> returns Shape [2, 3]
+    Scaled := M_plus_V * s;
+    
+    % 3. Combined inline rank-polymorphic expression
+    Result := (M * s) + V
+  in
+    Result
+  end let
+end function
+\end{lstlisting}
+
+\begin{note}[Rank-Polymorphic Operand Scope]
+Rank-polymorphic lifting applies directly to built-in operators and functions defined with \texttt{array\_dv[T]} parameters (along with scalar values). To apply a scalar-only function \texttt{f(x, y : real)} over array elements, use the whole-array \texttt{MAP(A, B, f)} primitive or define the function signature with \texttt{array\_dv[real]} parameters.
+\end{note}
+
+\section{Array Construction: Flat 1D Literals \& \texttt{reshape}}
+Array literal syntax \texttt{array\_dv [1: v1, v2, ...]} constructs a \textbf{1D flat vector}. To construct a multi-dimensional matrix or tensor from literal values in Sisal-2026, developers initialize a flat 1D vector literal and reshape it using the built-in \texttt{reshape(A, dim0, dim1, ...)} function, or construct it dynamically via parallel \texttt{forall} loop gather reductions.
+
+\begin{lstlisting}[caption={Multi-Dimensional Array Construction via \texttt{reshape}}]
+function MatrixInit( returns array_dv[real] )
+  let
+    % 1. Construct a flat 1D vector literal (16 elements)
+    Flat := array_dv [1: 1.0, 2.0, 3.0, 4.0, 
+                         5.0, 6.0, 7.0, 8.0, 
+                         9.0, 10.0, 11.0, 12.0, 
+                         13.0, 14.0, 15.0, 16.0];
+                         
+    % 2. Reshape into a 4x4 rank-2 matrix (O(1) dope vector view shift)
+    M := reshape(Flat, 4, 4)
+  in
+    M
+  end let
+end function
+\end{lstlisting}
+
+\subsection{2. Zero-Copy Slicing \& Explicit Range Notation}
+Slicing a matrix creates a zero-copy metadata view with $O(1)$ constant time complexity:
+
+\begin{lstlisting}[caption={Zero-Copy Slicing in Sisal-2026}]
+function SlicingDemo( returns array_dv[real] )
+  let
+    % Construct 4x4 Matrix by reshaping flat 1D literal
+    Flat := array_dv [1: 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 
+                         9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0];
+    M := reshape(Flat, 4, 4);
+                      
+    % Sub-matrix view (Rows 2..3, Cols 1..2) -> Shape [2, 2]
+    SubView := M[2..3, 1..2];
+    
+    % Explicit row slice using range notation: Extract row 2 -> 1D Vector of Shape [4]
+    RowVector := M[2, 1..4]
+  in
+    SubView + RowVector % Automatic broadcasting!
+  end let
+end function
+\end{lstlisting}
+
+\section{Indexing Ambiguity \& Explicit Slicing Notation (\texttt{A[i]} vs. \texttt{A[i, ..]})}
+A fundamental design decision in Sisal-2026 is disambiguating single-subscript indexing vs. slicing.
+
+\subsection{The Lowering Problem with \texttt{A[i]}}
+In legacy ragged array languages (such as Sisal 1.2 or C nested arrays), a 2D matrix is an array of pointers (\texttt{array[array[T]]}). In that pointer model, single-index access \texttt{A[i]} dereferences the outer pointer to return a 1D row array \texttt{array[T]}.
+
+However, in Sisal-2026, all dense arrays use flat dope vectors (\texttt{array\_dv[T]}). If single-subscript indexing \texttt{A[i]} were allowed to return a 1D row vector when \texttt{A} is a 2D matrix, but a scalar \texttt{T} when \texttt{A} is a 1D vector, the IF1 IR lowering and static type checking of \texttt{A[i]} would be ambiguous:
+\begin{itemize}
+    \item Does \texttt{A[i]} lower to a scalar element access (\texttt{DOPE\_VECTOR\_ELEMENT}) or a multi-element slice view (\texttt{DOPE\_VECTOR\_SLICE})?
+    \item What is the static return type of \texttt{A[i]} in the compiler type checker?
+\end{itemize}
+
+\subsection{The Sisal-2026 Solution}
+Sisal-2026 enforces strict, deterministic syntax rules:
+\begin{enumerate}
+    \item \textbf{Single Subscript Indexing (\texttt{A[i]})}: \textbf{ALWAYS returns a scalar value \texttt{T}}!
+    \begin{itemize}
+        \item For a 1D vector \texttt{V}, \texttt{V[i]} returns the $i$-th scalar element.
+        \item For a 2D matrix \texttt{M}, single-subscript \texttt{M[i]} performs \textbf{linear (flat 1D) indexing} into the underlying row-major memory buffer as if \texttt{M} were a single flattened 1D row! Thus, \texttt{M[i]} extracts the $i$-th scalar element of the flat matrix.
+        \item 2D coordinate scalar access uses two-subscript indexing \texttt{M[i, j]}.
+    \end{itemize}
+    \item \textbf{Explicit Row/Column Slicing (\texttt{A[i, ..]} or \texttt{A[i, 1..N]})}: To explicitly extract a 1D row vector slice from a 2D matrix, developers use range slicing notation \textbf{\texttt{A[i, ..]}} or \textbf{\texttt{A[i, 1..N]}}.
+\end{enumerate}
+
+\begin{lstlisting}[caption={Indexing vs. Explicit Slicing in Sisal-2026}]
+function IndexVsSliceDemo( M : array_dv[real] returns real, array_dv[real] )
+  let
+    % 1. Coordinate Indexing: M[2, 3] ALWAYS returns a scalar real element
+    scalar_val := M[2, 3];
+    
+    % 2. Explicit Row Slicing: M[2, ..] explicitly extracts Row 2 as a 1D Vector view
+    row_slice := M[2, ..];
+    
+    % 3. Explicit Column Slicing: M[.., 3] explicitly extracts Column 3 as a 1D Vector view
+    col_slice := M[.., 3]
+  in
+    scalar_val, row_slice
+  end let
+end function
+\end{lstlisting}
+
+\begin{tip}[Why This Is a Major Architectural Advantage]
+Enforcing that \texttt{M[i, j]} is scalar element access while \texttt{M[i, ..]} is slice view extraction eliminates type ambiguity in the compiler frontend. The type checker statically knows whether an expression produces a scalar \texttt{T} or a metadata dope vector view \texttt{array\_dv[T]}, leading to clean IF1 node lowering and zero runtime type-check overhead.
+\end{tip}
+
+\section{Broadcasting Rules: Right-Aligned Trailing Axis Agreement}
+Sisal-2026 enforces right-aligned trailing axis broadcasting rules (matching NumPy and PyTorch conventions):
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw=sisalnavy, rounded corners=4pt, minimum height=1.6cm, minimum width=3.2cm, align=center, font=\small},
+    op/.style={font=\Large\bfseries\color{sisalnavy}}
+]
+    % Matrix A Card
+    \node[box, fill=sisalblue!12] (matA) {
+        \textbf{Matrix A}\\[2pt]
+        \footnotesize Shape $[2, 3]$\\[2pt]
+        \scriptsize $2 \times 3$ Elements
+    };
+
+    % Plus Operator
+    \node[op, right=0.4cm of matA] (plus) {$+$};
+
+    % Vector B Card
+    \node[box, fill=sisalgreen!12, right=0.4cm of plus] (vecB) {
+        \textbf{Vector B}\\[2pt]
+        \footnotesize Shape $[3]$\\[2pt]
+        \scriptsize $1 \times 3$ Elements
+    };
+
+    % Equals Operator
+    \node[op, right=0.4cm of vecB] (equals) {$=$};
+
+    % Result Broadcast Card
+    \node[box, fill=sisalpurple!15, draw=sisalpurple!80!black, right=0.4cm of equals] (result) {
+        \textbf{Broadcast Result}\\[2pt]
+        \footnotesize Shape $[2, 3]$\\[2pt]
+        \scriptsize Stride-0 Expansion
+    };
+\end{tikzpicture}
+\caption{Right-Aligned Stride-0 Broadcasting Alignment.}
+\label{fig:broadcasting_alignment}
+\end{figure}
+
+When evaluating $A \oplus B$:
+\begin{enumerate}
+    \item \textbf{Right Alignment}: Align dimension shapes starting from the rightmost (trailing) axis.
+    \item \textbf{Axis Compatibility}: For each aligned axis $d$:
+    \begin{itemize}
+        \item If \texttt{shape\_A[d] == shape\_B[d]}, the dimensions agree.
+        \item If one dimension size is $1$, it is expanded to match the other size by setting its byte stride to $0$.
+        \item If dimension sizes differ and neither is $1$, a runtime shape error is raised.
+    \end{itemize}
+    \item \textbf{Zero-Copy Stride-0 Expansion}: Axis expansion incurs $0$ byte copies because setting \texttt{stride = 0} reuses existing element memory repeatedly without duplication.
+\end{enumerate}
+
+\section{IF1 Compiler Lowering \& Execution Pass}
+During AST lowering to the IF1 dataflow graph:
+\begin{enumerate}
+    \item Binary arithmetic operations between \texttt{array\_dv} operands lower to \texttt{CONFORM\_CHECK} nodes.
+    \item \texttt{CONFORM\_CHECK} verifies shape compatibility and calculates output shape and stride-0 metadata.
+    \item Elementwise computation loops iterate over total elements using \texttt{sisal\_dv\_offset\_at} to compute flat memory addresses.
+\end{enumerate}
+
+\begin{lstlisting}[caption={C++23 Runtime Stride-0 Index Calculation}]
+inline int32_t sisal_dv_offset_at(const sisal_array_t* arr, int32_t flat_idx) {
+    int32_t offset = arr->offset;
+    int32_t rem = flat_idx;
+    for (int32_t i = 0; i < arr->rank; ++i) {
+        int32_t dim_size = arr->shape[i];
+        int32_t coord = rem / arr->stride_mod[i];
+        rem %= arr->stride_mod[i];
+        % Stride of 0 automatically zeroes out offset addition for broadcast axes!
+        offset += coord * arr->stride[i];
+    }
+    return offset;
+}
+\end{lstlisting}
+
+\section{Summary of Benefits in Sisal-2026}
+\begin{table}[h!]
+\centering
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Feature} & \textbf{Legacy Sisal 1.2 / 2.0} & \textbf{Sisal-2026 (\texttt{array\_dv})} \\
+\midrule
+Memory Layout & Ragged nested pointers (\texttt{array[array[T]]}) & Contiguous flat buffer with $O(1)$ dope vector \\
+Slicing Cost & $O(N)$ allocation \& copying & $O(1)$ constant-time metadata view shift \\
+Broadcasting & Manual nested \texttt{forall} loops & Automatic right-aligned zero-copy stride-0 \\
+Single Assignment & Static update-in-place pass & Native Copy-on-Write reference counting \\
+Hardware Acceleration & Manual vectorization & Direct BLAS/LAPACK (\texttt{cblas\_dgemm}) \\
+\bottomrule
+\end{tabularx}
+\caption{Comparison of Array Models.}
+\label{tab:array_comparison}
+\end{table}

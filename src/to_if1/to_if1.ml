@@ -3800,38 +3800,24 @@ and bin_exp a b in_gr node_tag =
           if qq1 = qq2 || If1.resolve_and_compare in_gr [] qq1 qq2 then
             ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
           else
-            match (numeric_rank qq1 in_gr, numeric_rank qq2 in_gr) with
-            | Some r1, Some r2 ->
-                if r1 < r2 then
-                  let (c, pi1, qq1), in_gr =
-                    insert_typecast c1 pi1 qq1 qq2 in_gr
+            raise
+              (If1.Sem_error
+                 (let _ =
+                    let kkk =
+                      If1.cate_list
+                        [
+                          Ast.str_simple_exp ~offset:2 a;
+                          " of type:" ^ string_of_int qq1 ^ " maps to "
+                          ^ If1.p_f_t in_gr qq1;
+                          Ast.str_simple_exp ~offset:2 b;
+                          " of type:" ^ string_of_int qq2 ^ " maps to "
+                          ^ If1.p_f_t in_gr qq2;
+                        ]
+                        "\n"
+                    in
+                    print_endline kkk
                   in
-                  ((c, pi1, qq1), (c2, pi2, qq2), qq2, in_gr)
-                else if r2 < r1 then
-                  let (d, pi2, qq2), in_gr =
-                    insert_typecast c2 pi2 qq2 qq1 in_gr
-                  in
-                  ((c1, pi1, qq1), (d, pi2, qq2), qq1, in_gr)
-                else ((c1, pi1, qq1), (c2, pi2, qq2), qq1, in_gr)
-            | _ ->
-                raise
-                  (If1.Sem_error
-                     (let _ =
-                        let kkk =
-                          If1.cate_list
-                            [
-                              Ast.str_simple_exp ~offset:2 a;
-                              " of type:" ^ string_of_int qq1 ^ " maps to "
-                              ^ If1.p_f_t in_gr qq1;
-                              Ast.str_simple_exp ~offset:2 b;
-                              " of type:" ^ string_of_int qq2 ^ " maps to "
-                              ^ If1.p_f_t in_gr qq2;
-                            ]
-                            "\n"
-                        in
-                        print_endline kkk
-                      in
-                      "ERROR: Bad type in binary exp---"))
+                  "ERROR: Bad type in binary exp--- (implicit scalar mixing forbidden; use explicit conversion)"))
         in
         let (z, _, _), in_gr =
           let in_port_2 = [| ""; "" |] in
@@ -10361,7 +10347,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let in_gr, out_ty =
         match axis_opt with
-        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | None -> (in_gr, get_deep_elem_ty at in_gr)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
             let kn, kp, kt =
@@ -10386,7 +10372,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let in_gr, out_ty =
         match axis_opt with
-        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | None -> (in_gr, get_deep_elem_ty at in_gr)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
             let kn, kp, kt =
@@ -10411,7 +10397,7 @@ and do_simple_exp_impl in_gr in_sim_ex =
       let in_gr = If1.add_edge an ap rn 0 at in_gr in
       let in_gr, out_ty =
         match axis_opt with
-        | None -> (in_gr, If1.lookup_tyid If1.REAL)
+        | None -> (in_gr, get_deep_elem_ty at in_gr)
         | Some k ->
             let (kn, kp, kt), in_gr = do_simple_exp in_gr k in
             let kn, kp, kt =

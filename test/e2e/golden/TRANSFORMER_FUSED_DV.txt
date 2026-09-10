@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: transformer_fused_dv (Hand-Optimized Fused Transformer Layer) ===
+  Output Tensor Elements: 8 (Expected: 8)
+  Output Tensor Sum     : 3.661195
+  Output Tensor Mean    : 0.457649
+  PASS  FusedTransformerBlock forward pass execution
+
+--- Summary: 1 passed, 0 failed ---

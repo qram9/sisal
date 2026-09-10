@@ -1,0 +1,74 @@
+\documentclass[11pt,a4paper,oneside]{book}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,calc,fit,shadows}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable,listings}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+% --- Custom Colors & Styles ---
+\input{macros.tex}
+
+% --- Document Metadata ---
+\title{\Huge\bfseries Sisal-2026 \\ \Large Language Specification \& Reference Manual}
+\author{\Large Sisal-2026 Compiler Team \\ \small Optimizing Compiler & Reference Manual}
+\date{\today}
+
+\begin{document}
+
+\frontmatter
+\input{titlepage.tex}
+
+\cleardoublepage
+\tableofcontents
+
+\cleardoublepage
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+
+This book serves as the definitive specification and reference manual for \textbf{Sisal-2026}, a modern optimizing single-assignment dataflow language and compiler infrastructure. Built upon the legendary foundation of Lawrence Livermore National Laboratory (LLNL) and University of East Anglia (UEA) Sisal~1.2 and Sisal~2.0, \textbf{Sisal-2026} introduces dense rank-polymorphic dope-vector arrays (\texttt{array\_dv}), Einstein summation (\texttt{EINSUM}), first-class higher-order functions, C++20 stackless coroutine streams, hardware SIMD intrinsics, and monad-ordered side-effect execution.
+
+\mainmatter
+
+\input{chapters/01_introduction.tex}
+\input{chapters/02_writing_sisal_programs.tex}
+\input{chapters/02_lexical_syntax.tex}
+\input{chapters/03_type_system.tex}
+\input{chapters/04_rank_polymorphism.tex}
+\input{chapters/05_expressions_operators.tex}
+\input{chapters/06_einsum_bulk_ops.tex}
+\input{chapters/07_loops_forall.tex}
+\input{chapters/08_coroutine_streams.tex}
+\input{chapters/09_side_effects_monads.tex}
+\input{chapters/10_if1_intermediate_representation.tex}
+\input{chapters/11_cpp23_runtime_architecture.tex}
+\input{chapters/13_copy_enforcement_memory_reuse.tex}
+\input{chapters/14_transformer_architecture.tex}
+\input{chapters/12_standard_library_reference.tex}
+
+\backmatter
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

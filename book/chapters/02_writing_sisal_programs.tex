@@ -1,0 +1,495 @@
+\chapter{Practical Guide: Writing Common Programs in Sisal-2026}
+\label{chap:writing_sisal_programs}
+
+This chapter provides a hands-on, practical introduction to writing programs in \textbf{Sisal-2026}. By walking through complete, working implementations of common computational tasks—ranging from basic output and vector arithmetic to matrix multiplication, iterative numerical solvers, stream generators, and stencil convolutions—this guide establishes the core functional mental model required to build high-performance dataflow applications.
+
+\section{The Sisal-2026 Programming Model}
+Programming in Sisal-2026 is fundamentally expression-oriented and purely functional. Developers specify \emph{what} mathematical values to compute rather than \emph{how} to step through memory locations.
+
+Key principles to keep in mind when writing programs:
+\begin{enumerate}
+    \item \textbf{Single Assignment}: Every variable is a mathematically immutable binding. Once defined, a variable cannot be reassigned or mutated.
+    \item \textbf{Strict Static Type Safety}: Scalar types (\texttt{integer}, \texttt{real}, \texttt{double}, \texttt{character}, \texttt{boolean}) do not implicitly coerce or widen. Mixed-type operations require explicit conversion operators (e.g. \texttt{double(i) + d}).
+    \item \textbf{Implicit Data-Parallel Execution}: Parallelism is inferred directly from data dependencies. Functions and independent expression branches automatically execute across available CPU worker threads.
+    \item \textbf{Dense Dope-Vector Arrays (\texttt{array\_dv[T]})}: All multi-dimensional arrays use flat, contiguous memory buffers managed by $O(1)$ dynamic dope vectors, supporting APL/NumPy-style rank polymorphism, zero-copy slicing, and stride-0 broadcasting.
+\end{enumerate}
+
+\section{Program 1: "Hello, World!" \& I/O}
+Unlike original Sisal 1.2, which lacked built-in \texttt{printf} statements and relied solely on function return values for output, Sisal-2026 introduces \texttt{printf} to support inline I/O logging. Because Sisal-2026 is pure functional, output statements like \texttt{printf} are sequenced via \emph{Monad Control Ports} in the compiler IR graph. A Monad Control Port introduces explicit token dependencies between side-effecting nodes, providing deterministic imperative-style serialization for I/O while allowing surrounding pure calculations to execute concurrently (see Chapter~\ref{chap:side_effects_monads} for a formal breakdown). Listing~\ref{lst:prog_hello} shows a complete "Hello, World!" program.
+
+\begin{lstlisting}[caption={Hello World in Sisal-2026 (\texttt{hello.sis})},label={lst:prog_hello}]
+function Main( returns integer )
+  let
+    % printf returns the printed value or dummy integer 0.
+    % Wildcard pattern (_) discards the return value binding.
+    _ := printf("Hello, World! Welcome to Sisal-2026.\n")
+  in
+    0
+  end let
+end function
+\end{lstlisting}
+
+\begin{tip}[Value Pass-Through Logging Idiom]
+Sisal-2026's \texttt{printf} function returns its argument value. This permits inline debug logging without disrupting dataflow:
+\begin{lstlisting}
+y := printf("Value of x = %d\n", x) * 2
+\end{lstlisting}
+The output executes sequentially, while \texttt{x} passes through to the multiplication.
+\end{tip}
+
+\section{Program 2: Vector Arithmetic \& Rank Polymorphism}
+Instead of relying on writing \texttt{for} loops for elementwise operations on arrays, Sisal-2026 utilizes \textbf{Rank Polymorphism} to automatically lift scalar functions to operate on vectors, matrices, and $N$-dimensional tensors.
+
+Listing~\ref{lst:prog_vector} defines a scalar linear operation $f(x, y) = a \cdot x + y$ and applies it directly to 1D vectors and 2D matrices without any explicit loops.
+
+\begin{lstlisting}[caption={Rank-Polymorphic Vector Arithmetic (\texttt{vector\_ops.sis})},label={lst:prog_vector}]
+function VectorScaleAdd( A : array_dv[double]; B : array_dv[double]; alpha : double 
+                         returns array_dv[double] )
+  % Rank polymorphism automatically applies alpha * A + B elementwise
+  alpha * A + B
+end function
+
+function Main( returns array_dv[double] )
+  let
+    V1 := array_dv [1: 1.0, 2.0, 3.0, 4.0];
+    V2 := array_dv [1: 10.0, 20.0, 30.0, 40.0];
+    Scale := 2.5d0
+  in
+    VectorScaleAdd(V1, V2, Scale)  % Returns [12.5, 25.0, 37.5, 50.0]
+  end let
+end function
+\end{lstlisting}
+
+\section{Program 3: Matrix Multiplication (\texttt{EINSUM} vs. Parallel Loops)}
+Multi-dimensional array computations can be expressed either via explicit parallel \texttt{for} loops or via high-level Einstein summation syntax.
+
+Listing~\ref{lst:prog_matmul} demonstrates both approaches for computing matrix product $C = A \cdot B$.
+
+\begin{lstlisting}[caption={Matrix Multiplication in Sisal-2026 (\texttt{matmul.sis})},label={lst:prog_matmul}]
+% Approach A: Explicit Parallel Generator Loop
+function MatMulLoop( A : array_dv[double]; B : array_dv[double]; N, K, M : integer 
+                     returns array_dv[double] )
+  for i in 1, N cross j in 1, M
+    % Compute dot product of Row i of A and Column j of B
+    elem := for k in 1, K
+              prod := A[i, k] * B[k, j]
+            returns
+              sum of prod
+            end for
+  returns
+    array of elem
+  end for
+end function
+
+% Approach B: Einstein Summation Engine (Hardware BLAS Lowering)
+function MatMulEinsum( A : array_dv[double]; B : array_dv[double] 
+                       returns array_dv[double] )
+  % Compiler automatically lowers "ij,jk->ik" to cblas_dgemm()
+  EINSUM("ij,jk->ik", A, B)
+end function
+\end{lstlisting}
+
+\begin{note}[Hardware Acceleration via \texttt{EINSUM}]
+Using \texttt{EINSUM} allows the Sisal-2026 compiler (\texttt{einsum\_lower.ml}) to match subscript patterns against optimized vendor BLAS libraries (\texttt{cblas\_dgemm}, \texttt{cblas\_dgemv}), achieving native peak hardware performance.
+\end{note}
+
+\section{Program 4: Iterative State Algorithms (\texttt{for initial})}
+When an algorithm requires sequential state transitions—where step $k$ depends on values from step $k-1$—Sisal-2026 uses the \texttt{for initial} sequential loop construct.
+
+Listing~\ref{lst:prog_fib} calculates the Fibonacci sequence and estimates the Golden Ratio $\phi \approx 1.6180339887...$ using sequential zero-copy tuple updates.
+
+\begin{lstlisting}[caption={Fibonacci and Golden Ratio Solver (\texttt{fibonacci.sis})},label={lst:prog_fib}]
+function ComputeGoldenRatio( N : integer returns double, double )
+  for initial
+    i := 1;
+    a := 1.0d0;
+    b := 1.0d0;
+    ratio := 1.0d0
+  while i < N repeat
+    i := old i + 1;
+    a := old b;
+    b := old a + old b;
+    ratio := b / a
+  returns
+    value of b,
+    value of ratio
+  end for
+end function
+\end{lstlisting}
+
+\begin{tip}[Understanding \texttt{old} Bindings]
+Inside a \texttt{for initial} loop, \texttt{old x} accesses the binding of \texttt{x} from the previous iteration. The static edge liveness pass tags these state variables, allowing the backend to generate $O(1)$ zero-copy pointer swaps without memory allocation.
+\end{tip}
+
+\section{Program 5: Lazy Coroutine Streams (\texttt{stream[T]})}
+For processing massive or unbounded sequences, Sisal-2026 provides lazily evaluated \texttt{stream[T]} sequences lowered directly to C++20 stackless coroutines (\texttt{co\_yield}).
+
+Listing~\ref{lst:prog_stream} generates a stream of prime numbers using a lazy pipeline.
+
+\begin{lstlisting}[caption={Lazy Prime Stream Generator (\texttt{prime\_stream.sis})},label={lst:prog_stream}]
+function GenerateIntegers( start, limit : integer returns stream[integer] )
+  for initial
+    val := start
+  while val <= limit repeat
+    val := old val + 1
+  returns
+    stream of val
+  end for
+end function
+
+function FilterPrimes( numbers : stream[integer] returns stream[integer] )
+  for val in numbers
+    isPrime := CheckPrime(val)
+  returns
+    stream of val when isPrime
+  end for
+end function
+\end{lstlisting}
+
+\section{Program 6: Image Processing with Bulk Stencils}
+Sisal-2026 includes 58 APL-style bulk array primitives (\texttt{SUM}, \texttt{SORT}, \texttt{STENCIL}, \texttt{PERMUTE}, \texttt{RAVEL}). Listing~\ref{lst:prog_stencil} implements a 2D image smoothing filter using \texttt{STENCIL}.
+
+\begin{lstlisting}[caption={2D Image Smoothing Stencil (\texttt{image\_smooth.sis})},label={lst:prog_stencil}]
+function SmoothImage( Image : array_dv[double] returns array_dv[double] )
+  % Apply a 3x3 averaging window across the 2D grid
+  STENCIL(Image, [3, 3], function( window : array_dv[double] returns double )
+    SUM(window) / 9.0d0
+  end function)
+end function
+\end{lstlisting}
+
+\section{Program 7: Modern Transformer Layer (RMSNorm, GQA, \& SwiGLU FFN)}
+Modern Large Language Model (LLM) architectures---such as Llama~3, Gemma~2, and Mistral---rely on three fundamental tensor building blocks:
+\begin{enumerate}
+    \item \textbf{Root Mean Square Layer Normalization (RMSNorm)}: Scales sequence tensors by their root mean square variance without mean centering.
+    \item \textbf{Grouped-Query Attention (GQA)}: Computes multi-head attention scores via Einstein summation (\texttt{EINSUM("bhqd,bhkd->bhqk")}) and weighted value aggregation.
+    \item \textbf{SwiGLU Feed-Forward Network (FFN)}: Projects input states through gated Swish activation projections ($\text{Swish}(x) = x / (1 + e^{-x})$) combined with elementwise Hadamard products.
+\end{enumerate}
+
+Listing~\ref{lst:prog_transformer} shows the complete, pure Sisal-2026 implementation of a modern Transformer block (\texttt{transformer\_gqa\_swiglu.sis}).
+
+\begin{lstlisting}[caption={Modern Transformer Layer in Sisal-2026 (\texttt{transformer\_gqa\_swiglu.sis})},label={lst:prog_transformer}]
+% 1. RMSNorm (Root Mean Square Layer Normalization)
+function RMSNorm( X : array_dv[double]; Gamma : array_dv[double]; eps : double 
+                 returns array_dv[double] )
+  let
+    Variance := MEAN(X * X);
+    Scale := 1.0d0 / SQRT(Variance + eps)
+  in
+    X * Scale * Gamma
+  end let
+end function
+
+% 2. Numerically Stable Softmax
+function Softmax( X : array_dv[double] returns array_dv[double] )
+  let
+    ExpX := EXP(X);
+    SumExp := SUM(ExpX)
+  in
+    ExpX / SumExp
+  end let
+end function
+
+% 3. Grouped-Query Attention (GQA) via EINSUM
+function GQAttention( Q, K, V : array_dv[double]; scale : double 
+                      returns array_dv[double] )
+  let
+    % Multi-head score contraction Q * K^T
+    Scores := EINSUM("bhqd,bhkd->bhqk", Q, K) * scale;
+    AttnWeights := Softmax(Scores);
+    
+    % Value aggregation AttnWeights * V
+    Context := EINSUM("bhqk,bhkd->bhqd", AttnWeights, V)
+  in
+    Context
+  end let
+end function
+
+% 4. SwiGLU Gated Feed-Forward Network
+function SwiGLUFFN( X, W1, W2, W3 : array_dv[double] returns array_dv[double] )
+  let
+    Gate := EINSUM("sd,dh->sh", X, W1);
+    Up   := EINSUM("sd,dh->sh", X, W2);
+    
+    % Swish activation: Gate / (1 + exp(-Gate))
+    SwishGate := Gate / (1.0d0 + EXP(-Gate));
+    Hidden    := SwishGate * Up
+  in
+    EINSUM("sh,hd->sd", Hidden, W3)
+  end let
+end function
+
+% 5. Complete Transformer Layer Block
+function TransformerBlock( X, Q, K, V, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; 
+                          scale, eps : double returns array_dv[double] )
+  let
+    Norm1   := RMSNorm(X, Gamma1, eps);
+    AttnOut := GQAttention(Q, K, V, scale);
+    X1      := X + AttnOut;
+    
+    Norm2   := RMSNorm(X1, Gamma2, eps);
+    FFNOut  := SwiGLUFFN(Norm2, W1, W2, W3)
+  in
+    X1 + FFNOut
+  end let
+end function
+\end{lstlisting}
+
+\section{Program 8: Hand-Optimized Fused Transformer Layer}
+While Program 7 provides a modular, readable decomposition of a modern Transformer layer, each sub-function introduces separate, un-fused array operations. For example, \texttt{RMSNorm} computes $X^2$ to produce a temporary array, calculates \texttt{MEAN}, computes \texttt{Scale}, and multiplies \texttt{X * Scale * Gamma} in a subsequent pass. Similarly, evaluating \texttt{SwishGate := Gate / (1.0d0 + EXP(-Gate))} and \texttt{Hidden := SwishGate * Up} allocates separate intermediate arrays for both results.
+
+To reduce memory overhead, elementwise Swish activation and Hadamard multiplication can be fused into a single-pass parallel loop (\texttt{FusedSwiGLUActivation}):
+
+\begin{lstlisting}[caption={Single-Pass Swish Activation \& Hadamard Product Fusion}]
+function FusedSwiGLUActivation( Gate, Up : array_dv[double] returns array_dv[double] )
+  % Fuses Swish(Gate) = Gate / (1 + exp(-Gate)) with * Up into a single pass
+  for g in Gate dot u in Up
+    returns array_dv of (g / (1.0d0 + EXP(-g))) * u
+  end for
+end function
+\end{lstlisting}
+
+However, when using \texttt{EINSUM("sd,dh->sh", X, W1)} and \texttt{EINSUM("sd,dh->sh", X, W2)} to compute \texttt{Gate} and \texttt{Up}, full 2D intermediate matrices are still materialized in memory before \texttt{FusedSwiGLUActivation} is invoked.
+
+In a pinch, developers can hand-write explicit nested \texttt{for} loops for matrix multiplication instead of relying on \texttt{EINSUM} primitives. By computing matrix multiplication dot-products for $W_1$ and $W_2$, Swish activation, and Hadamard gate-up multiplication simultaneously inside a single nested loop, the linear projections and activation pipeline are fused into a single unified pass without allocating intermediate \texttt{Gate} or \texttt{Up} matrices at all.
+
+Listing~\ref{lst:prog_transformer_fused} shows the complete hand-optimized implementation (\texttt{transformer\_fused.sis}) incorporating this deep \textbf{Operator Fusion} technique.
+
+\begin{lstlisting}[caption={Hand-Optimized Fused Transformer Layer in Sisal-2026 (\texttt{transformer\_fused.sis})},label={lst:prog_transformer_fused}]
+% Hand-Optimized Operator Fusion for Transformer Block
+
+% 1. Single-Pass Fused RMSNorm (Fuses squaring reduction with scaling)
+function FusedRMSNorm( X : array_dv[double]; Gamma : array_dv[double]; eps : double 
+                      returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma);
+    MeanSq := MEAN(X * X);
+    InvRMS := 1.0d0 / SQRT(MeanSq + eps)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      returns array_dv of X[i, j] * InvRMS * Gamma[j]
+    end for
+  end let
+end function
+
+% 2. Fused Swish Activation & Hadamard Product
+function FusedSwiGLUActivation( Gate : array_dv[double]; Up : array_dv[double]; 
+                                Cols : integer returns array_dv[double] )
+  let
+    Rows := array_size(Gate);
+    ExpGate := EXP(-Gate)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      returns array_dv of (Gate[i, j] / (1.0d0 + ExpGate[i, j])) * Up[i, j]
+    end for
+  end let
+end function
+
+% 3. Fused SwiGLU Feed-Forward Network
+function FusedSwiGLUFFN( X, W1, W2, W3 : array_dv[double] 
+                         returns array_dv[double] )
+  let
+    Cols := array_size(W3);
+    Gate := EINSUM("sd,dh->sh", X, W1);
+    Up   := EINSUM("sd,dh->sh", X, W2);
+    Hidden := FusedSwiGLUActivation(Gate, Up, Cols)
+  in
+    EINSUM("sh,hd->sd", Hidden, W3)
+  end let
+end function
+
+% 4. Fused Transformer Layer Block
+function FusedTransformerBlock( X, Q, K, V, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; 
+                               scale, eps : double returns array_dv[double] )
+  let
+    Norm1   := FusedRMSNorm(X, Gamma1, eps);
+    AttnOut := GQAttention(Q, K, V, scale);
+    X1      := X + AttnOut;
+    
+    Norm2   := FusedRMSNorm(X1, Gamma2, eps);
+    FFNOut  := FusedSwiGLUFFN(Norm2, W1, W2, W3)
+  in
+    X1 + FFNOut
+  end let
+end function
+\end{lstlisting}
+
+\subsection{Further Fusion Opportunities: Joint GEMM, Inline Exponentials, and Complete 3-Stage FFN Fusion}
+Beyond the activation and matrix-loop fusions shown in Listing~\ref{lst:prog_transformer_fused}, three further operator fusion opportunities exist in the SwiGLU pipeline:
+
+\begin{enumerate}
+    \item \textbf{Inline Scalar Exponential Evaluation}: In \texttt{FusedSwiGLUActivation}, evaluating \texttt{ExpGate := EXP(-Gate)} calculates a full 2D intermediate matrix of exponential values in memory. By evaluating the exponential scalar inline inside the elementwise loop (\texttt{exp(-Gate[i, j])}), the intermediate \texttt{ExpGate} array allocation is completely eliminated.
+    \item \textbf{Joint Projection GEMM Fusion ($W_{12}$)}: The \texttt{Gate} and \texttt{Up} projections multiply the exact same input tensor $X \in \mathbb{R}^{S \times D}$ by weights $W_1, W_2 \in \mathbb{R}^{D \times H}$. By concatenating weights into a single joint projection matrix $W_{12} = [W_1 \; W_2] \in \mathbb{R}^{D \times 2H}$, $X$ is read from memory/cache once instead of twice, doubling arithmetic intensity.
+    \item \textbf{Complete 3-Stage FFN Fusion}: By fusing the input matrix projections ($W_1, W_2$), Swish activation, Hadamard product, and the final output projection ($W_3$) into a single nested loop nest (or tiled block kernel), the output $O_{s, d} = \sum_h (\text{Swish}(\sum_k X_{s,k} W_{1,k,h}) \cdot \sum_k X_{s,k} W_{2,k,h}) W_{3,h,d}$ is accumulated directly. In this ultra-fused regime, \textbf{zero intermediate 2D matrices} (\texttt{Gate}, \texttt{Up}, \texttt{ExpGate}, or \texttt{Hidden}) are stored in memory, streaming activations directly from inputs to outputs.
+\end{enumerate}
+
+\begin{note}[{Compiler Optimization Roadmap: Hints, Fusion, Tiling and Disclaimer}]
+While Program 8 demonstrates how a developer can manually hand-write nested loops in a pinch to fuse matrix projections with elementwise activations and reductions, one of the primary immediate goals of the Sisal-2026 compiler infrastructure is to implement \textbf{automatic compiler optimizations}, \textbf{loop tiling}, and \textbf{explicit optimization hints}.
+
+In upcoming compiler releases:
+\begin{itemize}
+    \item \textbf{Automatic Operator Fusion}: The IF1 optimizer pass will automatically detect contiguous chains of matrix contractions, elementwise array operations, and reductions in the intermediate dataflow graph, merging them into unified single-pass execution kernels without requiring manual loop rewrites from the programmer.
+    \item \textbf{Loop Tiling \& Device Memory Optimization}: Because accelerator and device memory capacities (e.g., GPU VRAM, HBM, SRAM) have not kept pace with host DRAM sizes, automatic loop tiling and tile-based memory partitioning are key compiler targets. High-rank tensor operations and matrix loops will be automatically partitioned into cache-sized sub-blocks (tiles), maximizing L1/L2 data reuse and preventing out-of-memory constraints on memory-limited devices.
+    \item \textbf{Tiled EINSUM Subscript Notation (Wishlist Item)}: Extension of the \texttt{EINSUM} format string to natively combine tensor contraction math, L1/L2 cache tiling, and loop permutation in a single bracketed string (e.g. \texttt{EINSUM("((i 32) (j 64)) ((j 64) (k 16)) -> (i 32) (j 64) (k 16)", A, B)}), eliminating separate transformation scripts.
+    \item \textbf{Source-Level Optimization Hints}: Explicit compiler pragmas and annotations (such as \texttt{@fuse}, \texttt{@tile(64, 64)}, \texttt{@unroll}, and \texttt{@simd}) are planned to be provided, giving developers direct control over kernel fusion boundaries, tile block sizes, loop unrolling depths, and hardware vectorization strategies.
+\end{itemize}
+
+\textbf{Work-in-Progress Disclaimer}: This documentation is a work in progress. Because compiler optimizations, backend lowerings, and performance transformations are under active development, developers and researchers should examine the actual execution output, generated C++ code, and benchmark results in \texttt{test/e2e/} to determine the authoritative current state of the compiler's optimization capabilities.
+\end{note}
+
+\section{Program 9: Fully Inlined \& Fused Transformer Block}
+Going beyond modular sub-function boundaries, Program 9 demonstrates a fully inlined, end-to-end fused Sisal-2026 Transformer block (\texttt{FullyFusedTransformerBlock}). By inlining attention score scaling, residual additions, and RMSNorm normalizations directly into contiguous cross-layer matrix contractions and elementwise activations, intermediate stream buffers are entirely eliminated.
+
+\begin{lstlisting}[language=Sisal,caption={Fully Inlined \& Fused Transformer Block (\texttt{transformer\_fully\_inlined\_dv.sis})}]
+% Sisal-2026 Fully Inlined & Fused Transformer Block
+
+define Main
+
+function Softmax( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    ExpX := EXP(X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      SumRow := double(for k in 1, Cols returns value of sum ExpX[i, k] end for)
+    returns array_dv of ExpX[i, j] / SumRow
+    end for
+  end let
+end function
+
+function FullyFusedTransformerBlock( X : array_dv[double]; 
+                                     Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                                     W_O : array_dv[double];
+                                     W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                                     Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                                     scale, eps : double 
+                                     returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    
+    % 1. Pre-LayerNorm 1
+    MeanSq1 := MEAN(X * X);
+    InvRMS1 := 1.0d0 / SQRT(MeanSq1 + eps);
+    Norm1 := for i in 1, Rows cross j in 1, Cols
+             returns array_dv of X[i, j] * InvRMS1 * Gamma1[j]
+             end for;
+             
+    % 2. Attention
+    RawScores := MATMUL(Q, K);
+    SeqLen := array_size(Q);
+    KeyLen := array_size(V);
+    Scores := for i in 1, SeqLen cross j in 1, KeyLen
+              returns array_dv of RawScores[i, j] * scale
+              end for;
+    AttnWeights := Softmax(Scores, KeyLen);
+    Context := MATMUL(AttnWeights, V);
+    AttnOut := MATMUL(Context, W_O);
+    
+    % 3. Residual 1 (Inlined Addition)
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+          
+    % 4. Pre-LayerNorm 2 + SwiGLU FFN + Residual 2 (Fully Inlined & Fused)
+    MeanSq2 := MEAN(X1 * X1);
+    InvRMS2 := 1.0d0 / SQRT(MeanSq2 + eps);
+    
+    ExpW1 := EXP(-MATMUL(X1, W1));
+    Gate  := MATMUL(X1, W1);
+    Up    := MATMUL(X1, W2);
+    
+    Hidden := for i in 1, Rows cross j in 1, array_size(W3)
+              % Swish activation fused with Norm2 scaling on the fly
+              returns array_dv of (Gate[i, j] / (1.0d0 + ExpW1[i, j])) * Up[i, j]
+              end for;
+              
+    FFNOut := MATMUL(Hidden, W3)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+function Main( X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; scale, eps : double 
+              returns integer, double, double )
+  let
+    Out := FullyFusedTransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    Sz := array_size(Out) * array_size(Gamma1);
+    SumVal := SUM(Out);
+    MeanVal := MEAN(Out)
+  in
+    Sz, SumVal, MeanVal
+  end let
+end function
+\end{lstlisting}
+
+\begin{note}[{Deep Loop Fusion: Fusing Matrix Multiplication, Scaling and LayerNorm}]
+In addition to using high-level \texttt{MATMUL} intrinsics, developers can explicitly express matrix multiplication as parallel reduction loops, allowing scale factors, LayerNorm normalizations, and activation functions to be fused directly inside the inner loop dot products:
+
+\begin{enumerate}
+    \item \textbf{Attention Score MatMul \& Scale Fusion}: Instead of computing \texttt{RawScores := MATMUL(Q, K)} followed by a separate scaling pass \texttt{Scores := RawScores * scale}, writing the matrix contraction as an explicit nested loop allows multiplying by \texttt{scale} on the fly inside the return clause:
+    \begin{lstlisting}[language=Sisal]
+Scores := for i in 1, SeqLen cross j in 1, KeyLen
+          returns array_dv of
+            (for k in 1, K_Rows returns value of sum Q[i, k] * K[k, j] end for) * scale
+          end for;
+    \end{lstlisting}
+    This completely eliminates the allocation of the temporary \texttt{RawScores} matrix.
+    
+    \item \textbf{On-the-Fly LayerNorm Scaling in FFN Projections}: Rather than materializing a distinct \texttt{Norm2} matrix in memory, the RMSNorm scaling factor \texttt{(X1[i, k] * InvRMS2 * Gamma2[k])} can be evaluated directly within the inner sum loop of the gate and up projections ($W_1$ and $W_2$).
+    
+    \item \textbf{Output Projection \& Residual Fusion}: The final FFN output matrix multiplication $\text{FFNOut} = \text{Hidden} \cdot W_3$ can be fused directly into the residual sum loop $\text{X1}_{i, j} + \sum_k \text{Hidden}_{i, k} W_{3, k, j}$, writing final results directly to memory without allocating a separate \texttt{FFNOut} array.
+\end{enumerate}
+\end{note}
+
+\section{Compiling \& Running Sisal-2026 Programs}
+Sisal-2026 operates as a C++ code-generator. The compiler parses Sisal source code (\texttt{.sis}), constructs and optimizes the intermediate IF1 dataflow graph, and emits high-performance C++23 function definitions. To produce a native binary, the generated C++ functions are linked against a standard C++ \texttt{main()} entry driver and the Sisal-2026 C++ runtime (\texttt{sisal\_runtime.hpp}).
+
+\begin{note}[Execution Architecture \& Future Roadmap Goals]
+Currently, a driver \texttt{main()} function in C++ is required for binary execution, array allocation, and invocation of generated Sisal functions. As a major execution roadmap goal, direct evaluation via an interactive interpreter, high-level language bindings (such as Python wrappers), and native Sisal top-level \texttt{main} function entry point resolution are planned to be provided, enabling Sisal routines to be executed standalone or integrated into external language runtimes.
+\end{note}
+
+\subsection{Step 1: Translate Sisal Source to C++23}
+Invoke the Sisal-2026 compiler (\texttt{sisal}) to translate the source file into C++23:
+\begin{lstlisting}[language=bash,caption={Translating Sisal Source to C++23}]
+# Translate Sisal source code to C++23 implementation
+./sisal matmul.sis > matmul.cpp
+
+# Optionally dump intermediate IF1 IR dataflow graph for debugging
+./sisal --dump-if1 matmul.sis > matmul.if1
+\end{lstlisting}
+
+\subsection{Step 2: Create a C++ Driver (\texttt{main.cpp})}
+Write a small C++ driver file \texttt{main.cpp} that includes the Sisal runtime header, includes or links \texttt{matmul.cpp}, and calls the compiled function:
+
+\begin{lstlisting}[language=C++,caption={C++ Driver Entry Point (\texttt{main.cpp})}]
+#include "sisal_runtime.hpp"
+#include "matmul.cpp"
+
+int main() {
+    // Create input 2D dope vectors A (2x3) and B (3x2)
+    sisal_array_t A = sisal_array_create_2d(2, 3, {1.0, 2.0, 3.0, 4.0, 5.0, 6.0});
+    sisal_array_t B = sisal_array_create_2d(3, 2, {1.0, 0.0, 0.0, 1.0, 1.0, 1.0});
+
+    // Call compiled Sisal-2026 function
+    sisal_array_t C = MatMulEinsum(A, B);
+
+    // Print result and free resources
+    sisal_array_print(C);
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Step 3: Compile and Link Native Binary}
+Compile \texttt{main.cpp} using a C++23 compliant compiler (\texttt{clang++} or \texttt{g++}):
+
+\begin{lstlisting}[language=bash,caption={Compiling and Executing the Native Binary}]
+# Compile C++ driver with Sisal runtime headers and BLAS framework
+clang++ -std=c++23 -O3 -I./runtime main.cpp -o matmul_app -framework Accelerate
+
+# Execute the native binary
+./matmul_app
+\end{lstlisting}

@@ -1,0 +1,9 @@
+=== dv_run_all test harness ===
+
+=== Group: transformer_gqa_swiglu_dv (Modern LLM Transformer Block: RMSNorm, GQA, SwiGLU, Residuals) ===
+  Output Tensor Elements: 8 (Expected: 8)
+  Output Tensor Sum     : 3.661195
+  Output Tensor Mean    : 0.457649
+  PASS  TransformerBlock GQA SwiGLU forward pass execution
+
+--- Summary: 1 passed, 0 failed ---

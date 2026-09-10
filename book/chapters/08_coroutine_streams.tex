@@ -1,0 +1,40 @@
+\chapter{Streams \& Stackless Coroutines}
+\label{chap:coroutine_streams}
+
+\section{Stream Abstraction (\texttt{stream[T]})}
+A \texttt{stream} in Sisal-2026 represents a potentially infinite sequence of lazily evaluated values. Unlike dense arrays (\texttt{array\_dv}), streams do not require materializing all elements in memory concurrently.
+
+\section{C++20 Stackless Coroutines (\texttt{co\_yield})}
+In the Sisal-2026 compiler, stream generators compile directly into C++20 stackless coroutines (\texttt{sisal\_generator<T>}).
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=5.0cm, auto, >=stealth']
+    \node [draw=sisalnavy, rounded corners=4pt, rectangle, fill=sisalblue!15, minimum width=3.4cm, minimum height=1.2cm, align=center, font=\bfseries] (producer) {Producer Stream};
+    \node [draw=sisalnavy, rounded corners=4pt, rectangle, fill=sisalpurple!15, minimum width=3.4cm, minimum height=1.2cm, align=center, font=\bfseries, right=5.0cm of producer] (consumer) {Consumer Stream};
+    
+    \draw [->, thick, sisalgreen!80!black] (producer) -- node[above=2pt, font=\small\bfseries, align=center] {\texttt{co\_yield val}\\[1pt]\scriptsize (2--5 ns Context Switch)} (consumer);
+    \draw [->, thick, sisalorange!90!black] (consumer) to[bend left=25] node[below=2pt, font=\small\bfseries] {Resume On-Demand} (producer);
+\end{tikzpicture}
+\caption{Zero-Allocation Coroutine Stream Switching.}
+\label{fig:coroutine_switch}
+\end{figure}
+
+\begin{lstlisting}[caption={Stream Generator Function}]
+function GenerateIntegers( start, limit : integer returns stream[integer] )
+  for initial
+    val := start
+  while val <= limit repeat
+    val := old val + 1
+  returns
+    stream of val
+  end for
+end function
+\end{lstlisting}
+
+\section{Heap Allocation Elision (HALO) Performance}
+Because C++20 coroutine frames fit within standard frame boundaries when inlined, modern compilers (GCC 13+, Clang 16+) perform Heap Allocation Elision Optimization (HALO). This places coroutine frame state directly on the caller stack frame, achieving:
+\begin{itemize}
+    \item \textbf{Context Switch Overhead}: 2 to 5 nanoseconds (30$\times$--100$\times$ faster than POSIX \texttt{ucontext} or OS thread context switches).
+    \item \textbf{Memory Overhead}: Zero heap allocation overhead for stream pipelines.
+\end{itemize}

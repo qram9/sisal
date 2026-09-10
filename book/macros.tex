@@ -1,0 +1,124 @@
+% Modern Color Palette
+\definecolor{sisalnavy}{RGB}{20, 35, 60}
+\definecolor{sisalblue}{RGB}{41, 128, 185}
+\definecolor{sisaldarkblue}{RGB}{15, 76, 129}
+\definecolor{sisalgreen}{RGB}{39, 174, 96}
+\definecolor{sisalorange}{RGB}{211, 84, 0}
+\definecolor{sisalpurple}{RGB}{142, 68, 173}
+\definecolor{codebg}{RGB}{248, 249, 250}
+\definecolor{codeframe}{RGB}{220, 224, 230}
+\definecolor{commentgray}{RGB}{108, 117, 125}
+\definecolor{stringgreen}{RGB}{40, 140, 60}
+
+% Hyperref Setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=sisaldarkblue,
+    citecolor=sisalblue,
+    urlcolor=sisalblue,
+    pdftitle={Sisal-2026 Language Specification \& Reference Manual},
+    pdfauthor={Sisal-2026 Compiler Team}
+}
+
+% Page Header & Footer Setup
+\setlength{\headheight}{16pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\color{sisalnavy}\nouppercase{\leftmark}}
+\fancyhead[R]{}
+\fancyfoot[C]{\thepage}
+\fancyfoot[R]{\small\color{commentgray}Sisal-2026 Reference Manual}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.2pt}
+
+% Chapter Title Formatting
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries\color{sisalnavy}}
+  {\chaptertitlename\ \thechapter}{20pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{0pt}{20pt}
+
+% Sisal Language Listing Definition
+\lstdefinelanguage{Sisal}{
+  keywords={
+    function, returns, type, is, array_dv, array, record, union,
+    let, in, end, if, then, else, elseif, for, initial, repeat, while, until,
+    forall, cross, dot, returns, stream, co_yield,
+    EINSUM, MAP, FOLDL, FOLDR, SCAN, CUMSUM, CUMPROD, SUM, PRODUCT,
+    LEAST, GREATEST, MEAN, VARIANCE, STDDEV, NORM, TAKE, DROP, ROTATE,
+    REVERSE, COMPRESS, SORT, ARGMAX, ARGMIN, GRADE_UP, GRADE_DOWN,
+    NONZERO, WHERE, CONCAT, TILE, PAD, STENCIL, INNERPRODUCT, OUTERPRODUCT,
+    RAVEL, EXPAND, SQUEEZE, PERMUTE, ANY, ALL, REDUCE_AXIS, REDUCE
+  },
+  keywordstyle=\color{sisalpurple}\bfseries,
+  ndkeywords={integer, long, unsigned, real, double, boolean, character, float2, float3, float4, int2, int4, mat2, mat3, mat4},
+  ndkeywordstyle=\color{sisalblue}\bfseries,
+  identifierstyle=\color{black},
+  sensitive=true,
+  comment=[l]{\%},
+  morecomment=[s]{/*}{*/},
+  commentstyle=\color{commentgray}\itshape,
+  stringstyle=\color{stringgreen},
+  morestring=[b]",
+  morestring=[b]'
+}
+
+\lstset{
+  language=Sisal,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{sisalpurple}\bfseries,
+  commentstyle=\color{commentgray}\itshape,
+  stringstyle=\color{stringgreen},
+  numbers=left,
+  numberstyle=\tiny\color{commentgray},
+  stepnumber=1,
+  numbersep=8pt,
+  showspaces=false,
+  showstringspaces=false,
+  showtabs=false,
+  frame=single,
+  rulecolor=\color{codeframe},
+  tabsize=2,
+  captionpos=b,
+  breaklines=true,
+  breakatwhitespace=true,
+  escapeinside={(*@}{@*)}
+}
+
+% tcolorbox Environments
+\newtcolorbox{note}[1][Note]{
+  colback=sisalblue!5!white,
+  colframe=sisalblue,
+  fonttitle=\bfseries,
+  title=#1,
+  arc=2mm,
+  breakable
+}
+
+\newtcolorbox{warning}[1][Warning]{
+  colback=sisalorange!5!white,
+  colframe=sisalorange,
+  fonttitle=\bfseries,
+  title=#1,
+  arc=2mm,
+  breakable
+}
+
+\newtcolorbox{tip}[1][Tip]{
+  colback=sisalgreen!5!white,
+  colframe=sisalgreen,
+  fonttitle=\bfseries,
+  title=#1,
+  arc=2mm,
+  breakable
+}
+
+\newtcolorbox{codeblock}[1][]{
+  colback=codebg,
+  colframe=codeframe,
+  arc=1mm,
+  boxrule=0.5pt,
+  left=5pt, right=5pt, top=5pt, bottom=5pt,
+  title=#1,
+  breakable
+}

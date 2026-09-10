@@ -31,3 +31,15 @@ test/*.if1
 /temp.cpp
 /check_new_voucher*.sis
 .DS_Store
+
+# Scratch files and temporary test scratch
+/scratch/
+
+# LaTeX build outputs
+book/*.aux
+book/*.bbl
+book/*.blg
+book/*.log
+book/*.out
+book/*.toc
+

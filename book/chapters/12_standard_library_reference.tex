@@ -1,0 +1,48 @@
+\chapter{Standard Library Reference}
+\label{chap:std_lib}
+
+\section{Mathematical Built-ins}
+Sisal-2026 includes standard scalar math functions:
+\begin{table}[h!]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Function Signature} & \textbf{Return Type} & \textbf{Description} \\
+\midrule
+\texttt{sin(x : real)} & \texttt{real} & Sine function \\
+\texttt{cos(x : real)} & \texttt{real} & Cosine function \\
+\texttt{tan(x : real)} & \texttt{real} & Tangent function \\
+\texttt{exp(x : real)} & \texttt{real} & Natural exponential $e^x$ \\
+\texttt{log(x : real)} & \texttt{real} & Natural logarithm $\ln(x)$ \\
+\texttt{sqrt(x : real)} & \texttt{real} & Square root $\sqrt{x}$ \\
+\texttt{abs(x : T)} & \texttt{T} & Absolute value for integer or real \\
+\bottomrule
+\end{tabular}
+\caption{Mathematical Functions.}
+\label{tab:math_funcs}
+\end{table}
+
+\section{Array Metadata Functions}
+Dope vector metadata properties are queried using built-in array functions:
+\begin{table}[h!]
+\centering
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Function Signature} & \textbf{Return Type} & \textbf{Description} \\
+\midrule
+\texttt{array\_size(A : array\_dv[T])} & \texttt{integer} & Total element count across all axes \\
+\texttt{array\_rank(A : array\_dv[T])} & \texttt{integer} & Dynamic rank (dimension count) \\
+\texttt{array\_dim(A : array\_dv[T], axis : integer)} & \texttt{integer} & Size of specified dimension axis \\
+\texttt{array\_liml(A : array\_dv[T])} & \texttt{integer} & Lower index bound of primary dimension \\
+\texttt{array\_limh(A : array\_dv[T])} & \texttt{integer} & Upper index bound of primary dimension \\
+\bottomrule
+\end{tabularx}
+\caption{Array Metadata Query Functions.}
+\label{tab:array_metadata_funcs}
+\end{table}
+
+\section{I/O \& Format Specifiers}
+Formatted logging is driven by \texttt{printf}:
+\begin{lstlisting}[caption={\texttt{printf} Specifiers in Sisal-2026}]
+_ := printf("Integer: %d, Real: %f, String: %s\n", int_val, real_val, str_val);
+\end{lstlisting}

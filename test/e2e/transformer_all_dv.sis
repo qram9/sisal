@@ -1,0 +1,219 @@
+% Sisal-2026 E2E Test: Integrated Plain, Hand-Fused, and Fully-Inlined Transformer Layer Variants
+
+define Main
+
+% ---------------------------------------------------------------------------
+% 1. Plain Modular Reference Transformer Implementation
+% ---------------------------------------------------------------------------
+function RMSNorm( X : array_dv[double]; Gamma : array_dv[double]; eps : double returns array_dv[double] )
+  let
+    Variance := MEAN(X * X);
+    Scale := 1.0d0 / SQRT(Variance + eps)
+  in
+    X * Scale * Gamma
+  end let
+end function
+
+function Swish( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := integer(array_size(X) / Cols);
+    ExpX := EXP(-X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X[i, j] / (1.0d0 + ExpX[i, j])
+    end for
+  end let
+end function
+
+function SwiGLUFFN( X : array_dv[double]; W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := integer(array_size(X) / Cols);
+    Gate := MATMUL(X, W1);
+    Up   := MATMUL(X, W2);
+    SwishGate := Swish(Gate, Cols);
+    Hidden := for i in 1, Rows cross j in 1, Cols
+              returns array_dv of SwishGate[i, j] * Up[i, j]
+              end for
+  in
+    MATMUL(Hidden, W3)
+  end let
+end function
+
+function Softmax( X : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := integer(array_size(X) / Cols);
+    ExpX := EXP(X)
+  in
+    for i in 1, Rows cross j in 1, Cols
+      SumRow := double(for k in 1, Cols returns value of sum ExpX[i, k] end for)
+    returns array_dv of ExpX[i, j] / SumRow
+    end for
+  end let
+end function
+
+function GQAttention( Q : array_dv[double]; K : array_dv[double]; V : array_dv[double]; W_O : array_dv[double]; scale : double returns array_dv[double] )
+  let
+    RawScores := MATMUL(Q, K);
+    SeqLen := array_size(Q);
+    KeyLen := array_size(V);
+    Scores := for i in 1, SeqLen cross j in 1, KeyLen
+              returns array_dv of RawScores[i, j] * scale
+              end for;
+    AttnWeights := Softmax(Scores, KeyLen);
+    Context := MATMUL(AttnWeights, V);
+    Out := MATMUL(Context, W_O)
+  in
+    Out
+  end let
+end function
+
+function TransformerBlock( X : array_dv[double]; 
+                          Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                          W_O : array_dv[double];
+                          W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                          Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                          scale, eps : double 
+                          returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    Norm1 := RMSNorm(X, Gamma1, eps);
+    AttnOut := GQAttention(Q, K, V, W_O, scale);
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+    Norm2 := RMSNorm(X1, Gamma2, eps);
+    FFNOut := SwiGLUFFN(Norm2, W1, W2, W3, Cols)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+% ---------------------------------------------------------------------------
+% 2. Hand-Optimized Fused Transformer Layer Implementation
+% ---------------------------------------------------------------------------
+function FusedRMSNorm( X : array_dv[double]; Gamma : array_dv[double]; eps : double returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma);
+    MeanSq := MEAN(X * X);
+    InvRMS := 1.0d0 / SQRT(MeanSq + eps)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X[i, j] * InvRMS * Gamma[j]
+    end for
+  end let
+end function
+
+function FusedSwiGLUActivation( Gate : array_dv[double]; Up : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Rows := integer(array_size(Gate) / Cols);
+    ExpGate := EXP(-Gate)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of (Gate[i, j] / (1.0d0 + ExpGate[i, j])) * Up[i, j]
+    end for
+  end let
+end function
+
+function FusedSwiGLUFFN( X : array_dv[double]; W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double]; Cols : integer returns array_dv[double] )
+  let
+    Gate := MATMUL(X, W1);
+    Up   := MATMUL(X, W2);
+    Hidden := FusedSwiGLUActivation(Gate, Up, Cols)
+  in
+    MATMUL(Hidden, W3)
+  end let
+end function
+
+function FusedTransformerBlock( X : array_dv[double]; 
+                               Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                               W_O : array_dv[double];
+                               W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                               Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                               scale, eps : double 
+                               returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    Norm1 := FusedRMSNorm(X, Gamma1, eps);
+    AttnOut := GQAttention(Q, K, V, W_O, scale);
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+    Norm2 := FusedRMSNorm(X1, Gamma2, eps);
+    FFNOut := FusedSwiGLUFFN(Norm2, W1, W2, W3, Cols)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+% ---------------------------------------------------------------------------
+% 3. Fully Inlined & End-to-End Fused Transformer Implementation
+% ---------------------------------------------------------------------------
+function FullyFusedTransformerBlock( X : array_dv[double]; 
+                                     Q : array_dv[double]; K : array_dv[double]; V : array_dv[double];
+                                     W_O : array_dv[double];
+                                     W1 : array_dv[double]; W2 : array_dv[double]; W3 : array_dv[double];
+                                     Gamma1 : array_dv[double]; Gamma2 : array_dv[double];
+                                     scale, eps : double 
+                                     returns array_dv[double] )
+  let
+    Rows := array_size(X);
+    Cols := array_size(Gamma1);
+    MeanSq1 := MEAN(X * X);
+    InvRMS1 := 1.0d0 / SQRT(MeanSq1 + eps);
+    Norm1 := for i in 1, Rows cross j in 1, Cols
+             returns array_dv of X[i, j] * InvRMS1 * Gamma1[j]
+             end for;
+    RawScores := MATMUL(Q, K);
+    SeqLen := array_size(Q);
+    KeyLen := array_size(V);
+    Scores := for i in 1, SeqLen cross j in 1, KeyLen
+              returns array_dv of RawScores[i, j] * scale
+              end for;
+    AttnWeights := Softmax(Scores, KeyLen);
+    Context := MATMUL(AttnWeights, V);
+    AttnOut := MATMUL(Context, W_O);
+    X1 := for i in 1, Rows cross j in 1, Cols
+          returns array_dv of X[i, j] + AttnOut[i, j]
+          end for;
+    MeanSq2 := MEAN(X1 * X1);
+    InvRMS2 := 1.0d0 / SQRT(MeanSq2 + eps);
+    Norm2 := for i in 1, Rows cross j in 1, Cols
+             returns array_dv of X1[i, j] * InvRMS2 * Gamma2[j]
+             end for;
+    Gate  := MATMUL(Norm2, W1);
+    Up    := MATMUL(Norm2, W2);
+    Hidden := FusedSwiGLUActivation(Gate, Up, Cols);
+    FFNOut := MATMUL(Hidden, W3)
+  in
+    for i in 1, Rows cross j in 1, Cols
+    returns array_dv of X1[i, j] + FFNOut[i, j]
+    end for
+  end let
+end function
+
+% ---------------------------------------------------------------------------
+% Main Entry Point: Executes all 3 variants and computes max differences
+% ---------------------------------------------------------------------------
+function Main( X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2 : array_dv[double]; scale, eps : double 
+              returns double, double, double )
+  let
+    OutPlain   := TransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    OutFused   := FusedTransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    OutInlined := FullyFusedTransformerBlock(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+    
+    DiffArr1 := ABS(OutPlain - OutFused);
+    DiffArr2 := ABS(OutPlain - OutInlined);
+    SumPlain := SUM(OutPlain);
+    DiffFused := for x in DiffArr1 returns value of greatest x end for;
+    DiffInlined := for x in DiffArr2 returns value of greatest x end for
+  in
+    SumPlain, DiffFused, DiffInlined
+  end let
+end function

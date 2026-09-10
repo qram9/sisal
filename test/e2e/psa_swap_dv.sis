@@ -116,7 +116,7 @@ function Choose_Tuple (seed : fourplex; from : integer;
    let
        random, seed1 := ranf(seed);
        size          := PSize[from];
-       index         := trunc( random * double_real(size) ) + 1
+       index         := integer(trunc( random * double_real(size) )) + 1
    in
        seed1, index, schedule[from, index]
    end let
@@ -127,7 +127,7 @@ function Choose_Period (seed : fourplex; N_Periods : integer
    let
        random, seed1 := ranf(seed)
    in
-       seed1, trunc(random * double_real(N_Periods)) + 1
+       seed1, integer(trunc(random * double_real(N_Periods))) + 1
    end let
 end function
 

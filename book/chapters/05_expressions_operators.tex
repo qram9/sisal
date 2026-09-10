@@ -1,0 +1,94 @@
+\chapter{Expressions, Operators \& SIMD Intrinsics}
+\label{chap:expressions_operators}
+
+\section{Arithmetic, Relational \& Logical Expressions}
+Sisal-2026 supports standard mathematical operators with traditional precedence rules:
+
+\begin{table}[h!]
+\centering
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Category} & \textbf{Operators} & \textbf{Description} \\
+\midrule
+Arithmetic & \texttt{+}, \texttt{-}, \texttt{*}, \texttt{/}, \texttt{**}, \texttt{mod} & Addition, Subtraction, Multiplication, Division, Power, Modulo \\
+Relational & \texttt{=}, \texttt{\textasciitilde=}, \texttt{<}, \texttt{<=}, \texttt{>}, \texttt{>=} & Equal, Not Equal, Less, Less-Equal, Greater, Greater-Equal \\
+Logical & \texttt{and}, \texttt{or}, \texttt{not} & Boolean operations \\
+Bitwise & \texttt{bit\_and}, \texttt{bit\_or}, \texttt{bit\_xor} & Low-level bitwise operations \\
+\bottomrule
+\end{tabularx}
+\caption{Operator Precedence \& Categories.}
+\label{tab:operators}
+\end{table}
+
+\section{Pattern Matching \& Wildcard Bindings}
+\label{sec:wildcard}
+Sisal-2026 introduces pattern matching with wildcard (\texttt{\_}) support in \texttt{let} bindings, assignment expressions, and function returns:
+
+\begin{lstlisting}[caption={Wildcard Pattern Matching Examples}]
+function TupleUnpack( returns integer, real, boolean )
+  10, 3.14, true
+end function
+
+function Main( returns integer )
+  let
+    % Ignore second return value using wildcard _
+    val, _, flag := TupleUnpack();
+    _ := printf("Flag value: %d\n", if flag then 1 else 0 end if)
+  in
+    val
+  end let
+end function
+\end{lstlisting}
+
+\section{First-Class Higher-Order Functions (HOFs) \& Closures}
+Functions in Sisal-2026 are first-class values. Lambda expressions create functional closures that capture environment variables:
+
+\begin{lstlisting}[caption={Higher-Order Function \& Closure Usage}]
+function ApplyTwice( f : function(integer returns integer); x : integer returns integer )
+  f(f(x))
+end function
+
+function TestHOF( returns integer )
+  let
+    multiplier := 5;
+    % Lambda closure capturing multiplier
+    scale := function( v : integer returns integer ) v * multiplier end function;
+    res := ApplyTwice(scale, 2) % Computes (2 * 5) * 5 = 50
+  in
+    res
+  end let
+end function
+\end{lstlisting}
+
+\section{Hardware SIMD Intrinsics (\texttt{float4}, \texttt{mat2})}
+To exploit CPU vector execution units (ARM Neon, x86 AVX-512) and GPU shader cores, Sisal-2026 introduces fixed-size SIMD vector and matrix types:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{SIMD Type} & \textbf{Components} & \textbf{Target Alignment} \\
+\midrule
+\texttt{float2}, \texttt{int2} & 2 single-precision floats / ints & 64-bit SIMD lane \\
+\texttt{float3} & 3 single-precision floats & 96-bit SIMD lane \\
+\texttt{float4}, \texttt{int4} & 4 single-precision floats / ints & 128-bit SIMD lane \\
+\texttt{mat2} & $2 \times 2$ matrix & 128-bit SIMD matrix register \\
+\texttt{mat3} & $3 \times 3$ matrix & 288-bit SIMD register block \\
+\texttt{mat4} & $4 \times 4$ matrix & 512-bit SIMD register block \\
+\bottomrule
+\end{tabular}
+\caption{Fixed SIMD Vector \& Matrix Primitives.}
+\label{tab:simd_types}
+\end{table}
+
+\begin{lstlisting}[caption={SIMD Math Intrinsics Example}]
+function TransformVector( v : float4; m : mat4 returns float4 )
+  let
+    % Direct SIMD matrix-vector multiplication compiled to single AVX/Neon instruction
+    v_out := m * v;
+    norm  := dot(v_out, v_out)
+  in
+    v_out
+  end let
+end function
+\end{lstlisting}

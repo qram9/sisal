@@ -159,6 +159,19 @@ make_double_3d (const double *data, int d0, int d1, int d2)
 }
 
 static sisal_array_t
+make_double_4d (const double *data, int d0, int d1, int d2, int d3)
+{
+  int n = d0 * d1 * d2 * d3;
+  sisal_array_t a = sisal_array_alloc_empty (4, 4, (uint64_t)n);
+  a.dims[0] = d0;
+  a.dims[1] = d1;
+  a.dims[2] = d2;
+  a.dims[3] = d3;
+  memcpy (a.data, data, (size_t)n * sizeof (double));
+  return a;
+}
+
+static sisal_array_t
 make_double_2d_lb (const double *data, int rows, int cols, int lb0, int lb1)
 {
   int n = rows * cols;

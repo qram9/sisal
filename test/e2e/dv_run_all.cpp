@@ -51,6 +51,19 @@ struct GEN_EXTENT_DV_results {
 extern "C" struct GEN_EXTENT_DV_results func_MAIN(int32_t n, int32_t m);
 #endif
 
+#ifdef TEST_TRANSFORMER_GQA_SWIGLU_DV
+struct TRANSFORMER_GQA_SWIGLU_DV_results {
+  int32_t res_0;
+  double res_1;
+  double res_2;
+};
+extern "C" struct TRANSFORMER_GQA_SWIGLU_DV_results func_MAIN(
+    sisal_array_t X, sisal_array_t Q, sisal_array_t K, sisal_array_t V,
+    sisal_array_t W_O, sisal_array_t W1, sisal_array_t W2, sisal_array_t W3,
+    sisal_array_t Gamma1, sisal_array_t Gamma2,
+    double scale, double eps);
+#endif
+
 #ifdef TEST_GAUSSJ1_DV
 extern "C" sisal_array_t func_MAIN(int32_t n, sisal_array_t Ain, sisal_array_t Bin);
 #endif
@@ -21634,6 +21647,286 @@ static void test_gen_extent_dv(void) {
 }
 #endif
 
+#ifdef TEST_TRANSFORMER_GQA_SWIGLU_DV
+static void test_transformer_gqa_swiglu_dv(void) {
+  printf("\n=== Group: transformer_gqa_swiglu_dv (Modern LLM Transformer Block: RMSNorm, GQA, SwiGLU, Residuals) ===\n");
+  
+  double x_data[] = { 0.5, -0.2, 1.0, 0.8,
+                     -0.4,  0.6, 0.2, -0.1 };
+  sisal_array_t X = make_double_2d(x_data, 2, 4);
+
+  double q_data[] = { 0.1, 0.2, 0.3, 0.4,
+                      0.5, 0.6, 0.7, 0.8 };
+  sisal_array_t Q = make_double_2d(q_data, 2, 4);
+
+  double k_data[] = { 0.1, 0.2,
+                      0.3, 0.4,
+                      0.5, 0.6,
+                      0.7, 0.8 };
+  sisal_array_t K = make_double_2d(k_data, 4, 2);
+
+  double v_data[] = { 0.2, 0.4, 0.6, 0.8,
+                      0.1, 0.3, 0.5, 0.7 };
+  sisal_array_t V = make_double_2d(v_data, 2, 4);
+
+  double w_data[] = { 0.1, 0.0, 0.2, 0.0,
+                      0.0, 0.1, 0.0, 0.2,
+                      0.2, 0.0, 0.1, 0.0,
+                      0.0, 0.2, 0.0, 0.1 };
+  sisal_array_t W_O = make_double_2d(w_data, 4, 4);
+  sisal_array_t W1 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W2 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W3 = make_double_2d(w_data, 4, 4);
+
+  double gamma_data[] = { 1.0, 1.0, 1.0, 1.0 };
+  sisal_array_t Gamma1 = make_double_arr(gamma_data, 4);
+  sisal_array_t Gamma2 = make_double_arr(gamma_data, 4);
+
+  double scale = 0.7071067811865475;
+  double eps = 1e-5;
+
+  struct TRANSFORMER_GQA_SWIGLU_DV_results res = func_MAIN(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+
+  bool ok = (res.res_0 == 8) && std::isfinite(res.res_1) && std::isfinite(res.res_2);
+  printf("  Output Tensor Elements: %d (Expected: 8)\n", res.res_0);
+  printf("  Output Tensor Sum     : %.6f\n", res.res_1);
+  printf("  Output Tensor Mean    : %.6f\n", res.res_2);
+
+  check("TransformerBlock GQA SwiGLU forward pass execution", ok);
+
+  if (X.data) free(X.data);
+  if (Q.data) free(Q.data);
+  if (K.data) free(K.data);
+  if (V.data) free(V.data);
+  if (W_O.data) free(W_O.data);
+  if (W1.data) free(W1.data);
+  if (W2.data) free(W2.data);
+  if (W3.data) free(W3.data);
+  if (Gamma1.data) free(Gamma1.data);
+  if (Gamma2.data) free(Gamma2.data);
+}
+#endif
+
+#ifdef TEST_TRANSFORMER_FUSED_DV
+struct TRANSFORMER_FUSED_DV_results {
+  int res_0;
+  double res_1;
+  double res_2;
+};
+extern "C" struct TRANSFORMER_FUSED_DV_results func_MAIN(sisal_array_t X, sisal_array_t Q, sisal_array_t K, sisal_array_t V, sisal_array_t W_O, sisal_array_t W1, sisal_array_t W2, sisal_array_t W3, sisal_array_t Gamma1, sisal_array_t Gamma2, double scale, double eps);
+
+static void test_transformer_fused_dv(void) {
+  printf("\n=== Group: transformer_fused_dv (Hand-Optimized Fused Transformer Layer) ===\n");
+  
+  double x_data[] = { 0.5, -0.2, 1.0, 0.8,
+                     -0.4,  0.6, 0.2, -0.1 };
+  sisal_array_t X = make_double_2d(x_data, 2, 4);
+
+  double q_data[] = { 0.1, 0.2, 0.3, 0.4,
+                      0.5, 0.6, 0.7, 0.8 };
+  sisal_array_t Q = make_double_2d(q_data, 2, 4);
+
+  double k_data[] = { 0.1, 0.2,
+                      0.3, 0.4,
+                      0.5, 0.6,
+                      0.7, 0.8 };
+  sisal_array_t K = make_double_2d(k_data, 4, 2);
+
+  double v_data[] = { 0.2, 0.4, 0.6, 0.8,
+                      0.1, 0.3, 0.5, 0.7 };
+  sisal_array_t V = make_double_2d(v_data, 2, 4);
+
+  double w_data[] = { 0.1, 0.0, 0.2, 0.0,
+                      0.0, 0.1, 0.0, 0.2,
+                      0.2, 0.0, 0.1, 0.0,
+                      0.0, 0.2, 0.0, 0.1 };
+  sisal_array_t W_O = make_double_2d(w_data, 4, 4);
+  sisal_array_t W1 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W2 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W3 = make_double_2d(w_data, 4, 4);
+
+  double gamma_data[] = { 1.0, 1.0, 1.0, 1.0 };
+  sisal_array_t Gamma1 = make_double_arr(gamma_data, 4);
+  sisal_array_t Gamma2 = make_double_arr(gamma_data, 4);
+
+  double scale = 0.7071067811865475;
+  double eps = 1e-5;
+
+  struct TRANSFORMER_FUSED_DV_results res = func_MAIN(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+
+  bool ok = (res.res_0 == 8) && std::isfinite(res.res_1) && std::isfinite(res.res_2);
+  printf("  Output Tensor Elements: %d (Expected: 8)\n", res.res_0);
+  printf("  Output Tensor Sum     : %.6f\n", res.res_1);
+  printf("  Output Tensor Mean    : %.6f\n", res.res_2);
+
+  check("FusedTransformerBlock forward pass execution", ok);
+
+  if (X.data) free(X.data);
+  if (Q.data) free(Q.data);
+  if (K.data) free(K.data);
+  if (V.data) free(V.data);
+  if (W_O.data) free(W_O.data);
+  if (W1.data) free(W1.data);
+  if (W2.data) free(W2.data);
+  if (W3.data) free(W3.data);
+  if (Gamma1.data) free(Gamma1.data);
+  if (Gamma2.data) free(Gamma2.data);
+}
+#endif
+
+#ifdef TEST_NESTED_ARRAY_DV
+struct NESTED_ARRAY_DV_results {
+  int res_0;
+  int res_1;
+  int res_2;
+};
+extern "C" struct NESTED_ARRAY_DV_results func_MAIN();
+
+static void test_nested_array_dv(void) {
+  printf("\n=== Group: nested_array_dv (Nested array_dv[array_dv[T]] Jagged Arrays) ===\n");
+  struct NESTED_ARRAY_DV_results res = func_MAIN();
+  bool ok = (res.res_0 == 20) && (res.res_1 == 40) && (res.res_2 == 2);
+  printf("  Grid[1][2] : %d (Expected: 20)\n", res.res_0);
+  printf("  Grid[2][1] : %d (Expected: 40)\n", res.res_1);
+  printf("  Grid Rows  : %d (Expected: 2)\n", res.res_2);
+  check("Nested array_dv[array_dv[T]] indexing execution", ok);
+}
+#endif
+
+#ifdef TEST_TRANSFORMER_FULLY_INLINED_DV
+struct TRANSFORMER_FULLY_INLINED_DV_results {
+  int res_0;
+  double res_1;
+  double res_2;
+};
+extern "C" struct TRANSFORMER_FULLY_INLINED_DV_results func_MAIN(sisal_array_t X, sisal_array_t Q, sisal_array_t K, sisal_array_t V, sisal_array_t W_O, sisal_array_t W1, sisal_array_t W2, sisal_array_t W3, sisal_array_t Gamma1, sisal_array_t Gamma2, double scale, double eps);
+
+static void test_transformer_fully_inlined_dv(void) {
+  printf("\n=== Group: transformer_fully_inlined_dv (Fully Inlined & Fused Transformer Block) ===\n");
+  
+  double x_data[] = { 0.5, -0.2, 1.0, 0.8,
+                     -0.4,  0.6, 0.2, -0.1 };
+  sisal_array_t X = make_double_2d(x_data, 2, 4);
+
+  double q_data[] = { 0.1, 0.2, 0.3, 0.4,
+                      0.5, 0.6, 0.7, 0.8 };
+  sisal_array_t Q = make_double_2d(q_data, 2, 4);
+
+  double k_data[] = { 0.1, 0.2,
+                      0.3, 0.4,
+                      0.5, 0.6,
+                      0.7, 0.8 };
+  sisal_array_t K = make_double_2d(k_data, 4, 2);
+
+  double v_data[] = { 0.2, 0.4, 0.6, 0.8,
+                      0.1, 0.3, 0.5, 0.7 };
+  sisal_array_t V = make_double_2d(v_data, 2, 4);
+
+  double w_data[] = { 0.1, 0.0, 0.2, 0.0,
+                      0.0, 0.1, 0.0, 0.2,
+                      0.2, 0.0, 0.1, 0.0,
+                      0.0, 0.2, 0.0, 0.1 };
+  sisal_array_t W_O = make_double_2d(w_data, 4, 4);
+  sisal_array_t W1 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W2 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W3 = make_double_2d(w_data, 4, 4);
+
+  double gamma_data[] = { 1.0, 1.0, 1.0, 1.0 };
+  sisal_array_t Gamma1 = make_double_arr(gamma_data, 4);
+  sisal_array_t Gamma2 = make_double_arr(gamma_data, 4);
+
+  double scale = 0.7071067811865475;
+  double eps = 1e-5;
+
+  struct TRANSFORMER_FULLY_INLINED_DV_results res = func_MAIN(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+
+  bool ok = (res.res_0 == 8) && std::isfinite(res.res_1) && std::isfinite(res.res_2);
+  printf("  Output Tensor Elements: %d (Expected: 8)\n", res.res_0);
+  printf("  Output Tensor Sum     : %.6f\n", res.res_1);
+  printf("  Output Tensor Mean    : %.6f\n", res.res_2);
+
+  check("FullyFusedTransformerBlock forward pass execution", ok);
+
+  if (X.data) free(X.data);
+  if (Q.data) free(Q.data);
+  if (K.data) free(K.data);
+  if (V.data) free(V.data);
+  if (W_O.data) free(W_O.data);
+  if (W1.data) free(W1.data);
+  if (W2.data) free(W2.data);
+  if (W3.data) free(W3.data);
+  if (Gamma1.data) free(Gamma1.data);
+  if (Gamma2.data) free(Gamma2.data);
+}
+#endif
+
+#ifdef TEST_TRANSFORMER_ALL_DV
+struct TRANSFORMER_ALL_DV_results {
+  double res_0;
+  double res_1;
+  double res_2;
+};
+extern "C" struct TRANSFORMER_ALL_DV_results func_MAIN(sisal_array_t X, sisal_array_t Q, sisal_array_t K, sisal_array_t V, sisal_array_t W_O, sisal_array_t W1, sisal_array_t W2, sisal_array_t W3, sisal_array_t Gamma1, sisal_array_t Gamma2, double scale, double eps);
+
+static void test_transformer_all_dv(void) {
+  printf("\n=== Group: transformer_all_dv (Integrated Plain, Fused & Inlined Transformer Comparison) ===\n");
+  
+  double x_data[] = { 0.5, -0.2, 1.0, 0.8,
+                     -0.4,  0.6, 0.2, -0.1 };
+  sisal_array_t X = make_double_2d(x_data, 2, 4);
+
+  double q_data[] = { 0.1, 0.2, 0.3, 0.4,
+                      0.5, 0.6, 0.7, 0.8 };
+  sisal_array_t Q = make_double_2d(q_data, 2, 4);
+
+  double k_data[] = { 0.1, 0.2,
+                      0.3, 0.4,
+                      0.5, 0.6,
+                      0.7, 0.8 };
+  sisal_array_t K = make_double_2d(k_data, 4, 2);
+
+  double v_data[] = { 0.2, 0.4, 0.6, 0.8,
+                      0.1, 0.3, 0.5, 0.7 };
+  sisal_array_t V = make_double_2d(v_data, 2, 4);
+
+  double w_data[] = { 0.1, 0.0, 0.2, 0.0,
+                      0.0, 0.1, 0.0, 0.2,
+                      0.2, 0.0, 0.1, 0.0,
+                      0.0, 0.2, 0.0, 0.1 };
+  sisal_array_t W_O = make_double_2d(w_data, 4, 4);
+  sisal_array_t W1 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W2 = make_double_2d(w_data, 4, 4);
+  sisal_array_t W3 = make_double_2d(w_data, 4, 4);
+
+  double gamma_data[] = { 1.0, 1.0, 1.0, 1.0 };
+  sisal_array_t Gamma1 = make_double_arr(gamma_data, 4);
+  sisal_array_t Gamma2 = make_double_arr(gamma_data, 4);
+
+  double scale = 0.7071067811865475;
+  double eps = 1e-5;
+
+  struct TRANSFORMER_ALL_DV_results res = func_MAIN(X, Q, K, V, W_O, W1, W2, W3, Gamma1, Gamma2, scale, eps);
+
+  bool ok = (res.res_1 < 1e-10) && (res.res_2 < 1e-10);
+  printf("  Plain Reference Sum        : %.6f\n", res.res_0);
+  printf("  Max Diff (Fused vs Plain)  : %.10e (Expected: 0.0)\n", res.res_1);
+  printf("  Max Diff (Inlined vs Plain): %.10e (Expected: 0.0)\n", res.res_2);
+
+  check("Integrated Transformer variants match plain reference output", ok);
+
+  if (X.data) free(X.data);
+  if (Q.data) free(Q.data);
+  if (K.data) free(K.data);
+  if (V.data) free(V.data);
+  if (W_O.data) free(W_O.data);
+  if (W1.data) free(W1.data);
+  if (W2.data) free(W2.data);
+  if (W3.data) free(W3.data);
+  if (Gamma1.data) free(Gamma1.data);
+  if (Gamma2.data) free(Gamma2.data);
+}
+#endif
+
 #ifdef TEST_NEWQUEENS_DV
 static void test_newqueens_dv(void) {
   printf("\n=== Group: newqueens_dv (N-Queens solver with forward decl) ===\n");
@@ -21928,6 +22221,26 @@ run_active_test (void)
 
 #ifdef TEST_GEN_EXTENT_DV
   test_gen_extent_dv ();
+#endif
+
+#ifdef TEST_TRANSFORMER_GQA_SWIGLU_DV
+  test_transformer_gqa_swiglu_dv ();
+#endif
+
+#ifdef TEST_TRANSFORMER_FUSED_DV
+  test_transformer_fused_dv ();
+#endif
+
+#ifdef TEST_NESTED_ARRAY_DV
+  test_nested_array_dv ();
+#endif
+
+#ifdef TEST_TRANSFORMER_FULLY_INLINED_DV
+  test_transformer_fully_inlined_dv ();
+#endif
+
+#ifdef TEST_TRANSFORMER_ALL_DV
+  test_transformer_all_dv ();
 #endif
 
 #ifdef TEST_GAUSSJ1_DV
@@ -23260,7 +23573,7 @@ run_active_test (void)
     && !defined(TEST_LU_PIV_DV)                                               \
     && !defined(TEST_RANK8_SLICES)                                            \
     && !defined(TEST_NEWTON_RAPHSON)                                          \
-    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FROMC_DV) && !defined(TEST_COMMON_DV) && !defined(TEST_FUNCARRAY_DV) && !defined(TEST_CHOOSE_DV) && !defined(TEST_QUICKSORT_WHEN_DV) && !defined(TEST_HELPER_FUNCS_DV) && !defined(TEST_HELLO_DV) && !defined(TEST_GAUSSJ1_DV) && !defined(TEST_LAPLACE_DV) && !defined(TEST_LU_NPIV_DV) && !defined(TEST_NEWQUEENS_DV) && !defined(TEST_PBATCHER_DV) && !defined(TEST_SBATCHER_DV) && !defined(TEST_PINSERTDATA_DV) && !defined(TEST_SCAT_DV) && !defined(TEST_BUBBLE_DV) && !defined(TEST_ADA_DV) && !defined(TEST_LETREC_SCOPE_DV) && !defined(TEST_HOF_PASSING_DV) && !defined(TEST_GEN_EXTENT_DV) && !defined(TEST_FEO_FFT_PARTS2)         \
+    && !defined(TEST_FEO_FFT_PARTS1) && !defined(TEST_FROMC_DV) && !defined(TEST_COMMON_DV) && !defined(TEST_FUNCARRAY_DV) && !defined(TEST_CHOOSE_DV) && !defined(TEST_QUICKSORT_WHEN_DV) && !defined(TEST_HELPER_FUNCS_DV) && !defined(TEST_HELLO_DV) && !defined(TEST_GAUSSJ1_DV) && !defined(TEST_LAPLACE_DV) && !defined(TEST_LU_NPIV_DV) && !defined(TEST_NEWQUEENS_DV) && !defined(TEST_PBATCHER_DV) && !defined(TEST_SBATCHER_DV) && !defined(TEST_PINSERTDATA_DV) && !defined(TEST_SCAT_DV) && !defined(TEST_BUBBLE_DV) && !defined(TEST_ADA_DV) && !defined(TEST_LETREC_SCOPE_DV) && !defined(TEST_HOF_PASSING_DV) && !defined(TEST_GEN_EXTENT_DV) && !defined(TEST_TRANSFORMER_GQA_SWIGLU_DV) && !defined(TEST_TRANSFORMER_FUSED_DV) && !defined(TEST_NESTED_ARRAY_DV) && !defined(TEST_TRANSFORMER_FULLY_INLINED_DV) && !defined(TEST_TRANSFORMER_ALL_DV) && !defined(TEST_FEO_FFT_PARTS2)
   g_no_macro = true;
 #endif
 }

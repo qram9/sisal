@@ -1,0 +1,112 @@
+\chapter{The Sisal-2026 Type System}
+\label{chap:type_system}
+
+\section{Scalar Primitive Types}
+Sisal-2026 provides a comprehensive suite of scalar primitive integer and floating-point types:
+\begin{table}[h!]
+\centering
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Type Name} & \textbf{C++23 Representation} & \textbf{Description} \\
+\midrule
+\texttt{integer} & \texttt{int32\_t} & 32-bit signed integer \\
+\texttt{long} & \texttt{int64\_t} & 64-bit signed integer \\
+\texttt{unsigned} & \texttt{uint32\_t} & 32-bit unsigned integer \\
+\texttt{unsigned long} & \texttt{uint64\_t} & 64-bit unsigned integer \\
+\texttt{real} & \texttt{float} & Single-precision IEEE 754 float (32-bit) \\
+\texttt{double} & \texttt{double} & Double-precision IEEE 754 float (64-bit) \\
+\texttt{boolean} & \texttt{bool} & Boolean logical value (\texttt{true}/\texttt{false}) \\
+\texttt{character} & \texttt{char} & 8-bit ASCII character \\
+\bottomrule
+\end{tabularx}
+\caption{Primitive Scalar Types in Sisal-2026.}
+\label{tab:primitive_types}
+\end{table}
+
+\section{Strict Type Safety \& Explicit Conversions}
+Sisal-2026 enforces \textbf{strict static type safety}. Binary operators and function calls prohibit implicit type coercion across distinct scalar types. Operands in expressions must match exactly; mixed-type arithmetic (such as adding an \texttt{integer} to a \texttt{double} or a \texttt{real} to an \texttt{unsigned}) triggers a static compilation type error.
+
+To combine different scalar types, operands must be explicitly converted using built-in type conversion operators:
+
+\begin{table}[h!]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Conversion Function} & \textbf{Semantics \& Behavior} \\
+\midrule
+\texttt{double(x)} & Promotes \texttt{integer}, \texttt{long}, or \texttt{real} to double-precision \texttt{double}. \\
+\texttt{real(x)} & Converts integer types or demotes \texttt{double} to single-precision \texttt{real}. \\
+\texttt{integer(x)} & Truncates floating-point types or demotes 64-bit \texttt{long} to 32-bit \texttt{integer}. \\
+\texttt{long(x)} & Promotes 32-bit \texttt{integer} to 64-bit \texttt{long}. \\
+\texttt{unsigned(x)} & Converts signed integer to 32-bit \texttt{unsigned}. \\
+\texttt{unsigned\_long(x)} & Converts signed/unsigned types to 64-bit \texttt{unsigned long}. \\
+\bottomrule
+\end{tabularx}
+\caption{Explicit Type Conversion Operators in Sisal-2026.}
+\label{tab:type_conversions}
+\end{table}
+
+\begin{lstlisting}[caption={Explicit Type Conversion Example}]
+function MixedArithmetic( i : integer; d : double returns double )
+  % ERROR: i + d  (Implicit mixing of integer and double is forbidden!)
+  
+  % CORRECT: Explicitly promote i to double before addition
+  double(i) + d
+end function
+\end{lstlisting}
+
+\section{Composite Types}
+Composite types allow developers to construct structured data representations.
+
+\subsection{Record Types}
+A \texttt{record} type defines a fixed collection of named fields:
+\begin{lstlisting}[caption={Record Type Declaration \& Field Access}]
+type Point2D = record[ x, y : real ];
+type Particle = record[ 
+  id : integer; 
+  pos : Point2D; 
+  vel : Point2D 
+];
+
+function MoveParticle( p : Particle; dt : real returns Particle )
+  p replace [ pos: record Point2D[ x: p.pos.x + p.vel.x * dt; 
+                                  y: p.pos.y + p.vel.y * dt ] ]
+end function
+\end{lstlisting}
+
+\subsection{Union \& Tagged Variant Types}
+A \texttt{union} type represents a tagged variant type (discriminated union):
+\begin{lstlisting}[caption={Union Type Declaration}]
+type Shape = union[ 
+  circle : record[ radius : real ]; 
+  rectangle : record[ width, height : real ] 
+];
+
+function Area( s : Shape returns real )
+  tagcase s
+    tag circle c => 3.14159 * c.radius * c.radius
+    tag rectangle r => r.width * r.height
+  end tagcase
+end function
+\end{lstlisting}
+
+\section{Algebraic Recursive Types}
+Sisal-2026 supports recursive algebraic data structures using type references inside union definitions.
+
+\begin{lstlisting}[caption={Algebraic Recursive List Type}]
+type IntList = union[
+  nil_tag  : null;
+  cons_tag : record[ head : integer; tail : IntList ]
+];
+
+function SumList( L : IntList returns integer )
+  tagcase L
+    tag nil_tag => 0
+    tag cons_tag c => c.head + SumList(c.tail)
+  end tagcase
+end function
+\end{lstlisting}
+
+\begin{note}[Ragged Data Structures]
+Legacy Sisal 1.2 nested ragged array syntax (\texttt{array[array[T]]}) is not part of Sisal-2026. Dense multi-dimensional arrays use \texttt{array\_dv[T]}. For irregular or ragged structures (e.g. sparse trees, graphs, ragged lists), algebraic union types like \texttt{IntList} are used instead.
+\end{note}

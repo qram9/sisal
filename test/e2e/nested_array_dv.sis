@@ -1,0 +1,22 @@
+% Sisal-2026 E2E Test: Nested array_dv[array_dv[T]] (Jagged Arrays)
+
+define Main
+
+type IntArray = array_dv [integer]
+type NestedArray = array_dv [IntArray]
+
+function Main( returns integer, integer, integer )
+  let
+    Row1 := array [1: 10, 20, 30];
+    Row2 := array [1: 40, 50, 60];
+    Grid := array [1: Row1, Row2];
+    
+    R1 := Grid[1];
+    R2 := Grid[2];
+    Elem1 := R1[2]; % 20
+    Elem2 := R2[1]; % 40
+    Sz := array_size(Grid) % 2 rows
+  in
+    Elem1, Elem2, Sz
+  end let
+end function

@@ -1,0 +1,162 @@
+\chapter{Einstein Summation \& Bulk Array Operations}
+\label{chap:einsum_bulk_ops}
+
+\section{Einstein Summation Engine (\texttt{EINSUM})}
+Sisal-2026 includes a built-in Einstein summation contraction engine. The syntax parses standard multi-tensor subscript notation:
+
+\begin{lstlisting}[caption={Einstein Summation Syntax}]
+C := EINSUM("ij,jk->ik", MatrixA, MatrixB)
+\end{lstlisting}
+
+\subsection{Lowering Fast-Paths}
+The compiler inspects \texttt{EINSUM} subscript strings during AST lowering (\texttt{einsum\_lower.ml}) and routes contractions to hardware BLAS fast-paths:
+\begin{itemize}
+    \item \texttt{"ij,jk->ik"}: Matrix-Matrix Multiplication $\rightarrow$ \texttt{cblas\_dgemm} / \texttt{cblas\_sgemm}.
+    \item \texttt{"ij,j->i"}: Matrix-Vector Multiplication $\rightarrow$ \texttt{cblas\_dgemv} / \texttt{cblas\_sgemv}.
+    \item \texttt{"i,i->"}: Vector Dot Product $\rightarrow$ \texttt{cblas\_ddot} / \texttt{cblas\_sdot}.
+    \item \texttt{"ij->ji"}: Matrix Transposition $\rightarrow$ $O(1)$ stride swap in dope vector metadata.
+\end{itemize}
+
+For general multi-index contractions not matching single 2D BLAS signatures, the compiler lowers the expression to an IF1 \texttt{EINSUM\_NODE} multi-loop iteration graph.
+
+\subsection{High-Rank Tensors \& Contraction Path Optimization}
+While \texttt{MATMUL} and \texttt{INNERPRODUCT} provide direct, concise syntax for standard 2D matrix operations, \texttt{EINSUM} serves two critical structural roles in tensor compilation:
+\begin{enumerate}
+    \item \textbf{High-Rank Tensor Contractions}: For 3D, 4D, and 5D attention graphs (e.g. $Q, K, V \in \mathbb{R}^{B \times H \times S \times D}$ in Grouped Query Attention), \texttt{EINSUM("bhqd,bhkd->bhqk", Q, K)} declaratively specifies contraction axes without manual reshape or permutation boilerplate.
+    \item \textbf{Multi-Contraction Chain Optimization (Compiler Roadmap Target)}: When chaining multiple matrix/tensor products in sequence (e.g., $P \cdot V \cdot W_O$), exposing the contraction topology through \texttt{EINSUM} provides the structural foundation for \textbf{Dynamic Programming Contraction Path Optimization} (on the compiler optimizer roadmap). This pass will automatically evaluate intermediate tensor dimension products to select the optimal parenthesization order that minimizes total FLOP complexity (reducing $O(N^4)$ naive contractions down to optimal $O(N^3)$ sequences) before emitting BLAS kernel calls.
+\end{enumerate}
+
+\subsection{Tiled EINSUM Subscripts \& Unified Permutation (Wishlist Item)}
+An upcoming design proposal on the Sisal-2026 compiler wishlist extends the \texttt{EINSUM} subscript string to natively unify \textbf{tensor contraction math}, \textbf{L1/L2 cache tiling}, and \textbf{loop permutation} into a single bracketed notation, eliminating separate imperative transformation scripts.
+
+In this syntax, bracket nesting depth represents tile/cache depth (e.g. \texttt{(i 32)} represents a 32-element L2 block tile), while the left-to-right order of terms on the output side (\texttt{->}) dictates the execution loop nesting:
+
+\begin{lstlisting}[language=Sisal,caption={Tiled EINSUM Subscript with Middle $k$ Loop}]
+% Tiled Matrix Multiplication (32x64x16) with k as Middle Loop
+C := EINSUM("((i 32) (j 64)) ((j 64) (k 16)) -> (i 32) (k 16) (j 64)", A, B)
+\end{lstlisting}
+
+\subsubsection{Step-by-Step Lowering Walkthrough (Pseudo-Fortran)}
+
+To understand why placing $k$ as the middle loop delivers superior performance, consider the step-by-step compiler lowerings from naive untiled execution down to tiled $k$-in-the-middle micro-kernels:
+
+\begin{enumerate}
+    \item \textbf{Naive Untiled Lowering (\texttt{"ik, kj -> ij"} $\rightarrow$ $i \rightarrow j \rightarrow k$ order)}:
+\begin{lstlisting}[language=Fortran]
+! Naive Lowering: Reduction k in innermost loop (Strided access on B)
+DO i = 1, M
+   DO j = 1, N
+      sum_val = 0.0d0
+      DO k = 1, K
+         sum_val = sum_val + A(i, k) * B(k, j)   ! B(k, j) jumps N elements every step
+      END DO
+      C(i, j) = sum_val
+   END DO
+END DO
+\end{lstlisting}
+
+    \item \textbf{Interchanged Lowering ($k$ as Middle Loop $\rightarrow$ $i \rightarrow k \rightarrow j$ order)}:
+\begin{lstlisting}[language=Fortran]
+! Interchanged: k in middle position (Scalar broadcast of A, unit-stride for B and C)
+DO i = 1, M
+   DO k = 1, K                       ! k is MIDDLE loop!
+      a_val = A(i, k)                ! Broadcast: Load once into register
+      DO j = 1, N                    ! Innermost loop over j (Vector unit-stride)
+         C(i, j) = C(i, j) + a_val * B(k, j)
+      END DO
+   END DO
+END DO
+\end{lstlisting}
+
+    \item \textbf{Tiled Lowering with $k$ in Middle (\texttt{"((i 32) (j 64)) ((j 64) (k 16)) -> (i 32) (k 16) (j 64)"})}:
+\begin{lstlisting}[language=Fortran]
+! Tiled & Interchanged: i_tile -> k_tile -> j_tile -> i_elem -> k_elem -> j_elem
+DO i_tile = 1, M, 32
+   DO k_tile = 1, K, 16                 ! k_tile is MIDDLE tile loop!
+      DO j_tile = 1, N, 64
+         
+         ! Inner Micro-kernel (L1 Cache / SIMD Vector Registers)
+         DO i_elem = i_tile, MIN(i_tile + 31, M)
+            DO k_elem = k_tile, MIN(k_tile + 15, K)   ! k_elem is MIDDLE element loop!
+               a_val = A(i_elem, k_elem)
+               
+               !DIR$ SIMD (Vectorized unit-stride loop over j_elem)
+               DO j_elem = j_tile, MIN(j_tile + 63, N)
+                  C(i_elem, j_elem) = C(i_elem, j_elem) + a_val * B(k_elem, j_elem)
+               END DO
+            END DO
+         END DO
+
+      END DO
+   END DO
+END DO
+\end{lstlisting}
+\end{enumerate}
+
+\subsubsection{Related Work \& Novelty Analysis}
+
+A comparison of the Sisal-2026 tiled \texttt{EINSUM} proposal with state-of-the-art tensor compilers and programming frameworks highlights its unique design positioning:
+
+\begin{itemize}
+    \item \textbf{NumPy / PyTorch \texttt{einsum}}: Uses standard Einstein notation (\texttt{"ik,kj->ij"}). Expresses contraction math declaratively, but has \textbf{zero syntax for loop tiling, cache block sizes, or execution loop ordering}.
+    \item \textbf{Halide (Ragan-Kelley et al., PLDI 2013) \& TVM (Chen et al., OSDI 2018)}: Pioneered the decoupling of computation algorithms from execution schedules. However, scheduling is imperative and separate from the math expression (e.g. \texttt{s.tile(i, i\_out, i\_in, 32).reorder(i\_out, k\_out, j\_out)} in an external Python script).
+    \item \textbf{Einops (Rozenberg, ICLR 2022)}: Provides index rearrangement syntax (\texttt{"b (h w) -> b h w"}), but focuses exclusively on spatial array reshaping and tensor broadcasting---\textbf{cannot specify contraction reductions, cache block sizes, or SIMD loop order}.
+    \item \textbf{Tensor Comprehensions (Vasilache et al., FAIR 2018) \& TACO (Kjolstad et al., OOPSLA 2017)}: Uses polyhedral compiler infrastructure (ISL) to discover tile sizes automatically during compilation. No inline syntax exists for the developer to specify tile bounds directly in the string.
+    \item \textbf{Sisal-2026 Novelty}:
+    \begin{enumerate}
+        \item \textbf{Purely Functional Inline Scheduling}: Unifies math definition and hardware loop schedule in a single functional string expression.
+        \item \textbf{Zero-Keyword Positional Ordering}: The position of bracketed terms on the RHS of \texttt{->} dictates outer/inner loop nesting and loop interchange (e.g. \texttt{-> (i 32) (k 16) (j 64)} places $k$ in the middle).
+        \item \textbf{Cache Depth Mapping}: Bracket depth corresponds 1-to-1 to physical memory levels: \texttt{i} (flat DRAM), \texttt{(i 32)} (L2 Cache), \texttt{((i 128) 8)} (L1 / Vector Register).
+    \end{enumerate}
+\end{itemize}
+
+\begin{note}[Work-in-Progress Disclaimer]
+This documentation and manual are works in progress. Because compiler optimization passes, AST lowerings, and backend code generators are actively evolving, developers should examine the execution logs, generated C++ files, and benchmark results in \texttt{test/e2e/} to inspect the authoritative current state of the compiler's optimization capabilities.
+\end{note}
+
+
+\section{APL-Style Bulk Operations Battery (58 Primitives)}
+Sisal-2026 provides 58 whole-array bulk primitives, eliminating manual parallel \texttt{forall} boilerplate code for standard array manipulations:
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}p{4.0cm} >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Category} & \textbf{Primitive Names} & \textbf{Semantics \& Description} \\
+\midrule
+Reductions & \texttt{SUM}, \texttt{PRODUCT}, \texttt{LEAST}, \texttt{GREATEST}, \texttt{MEAN}, \texttt{VARIANCE}, \texttt{STDDEV}, \texttt{NORM} & Reduce array along default or specified axis into scalar value. \\
+\addlinespace
+Scans & \texttt{SCAN}, \texttt{CUMSUM}, \texttt{CUMPROD} & Prefix scan operation along leading axis. \\
+\addlinespace
+Structural & \texttt{TAKE}, \texttt{DROP}, \texttt{ROTATE}, \texttt{REVERSE}, \texttt{COMPRESS}, \texttt{RAVEL}, \texttt{EXPAND}, \texttt{SQUEEZE}, \texttt{PERMUTE} & Structural reshaping and axis permuting operations. \\
+\addlinespace
+Selection & \texttt{SORT}, \texttt{ARGMAX}, \texttt{ARGMIN}, \texttt{GRADE\_UP}, \texttt{GRADE\_DOWN}, \texttt{NONZERO}, \texttt{WHERE} & Sorting and index mask extraction. \\
+\addlinespace
+Higher-Order & \texttt{MAP}, \texttt{FOLDL}, \texttt{FOLDR}, \texttt{STENCIL}, \texttt{INNERPRODUCT}, \texttt{OUTERPRODUCT} & Functional combinators across multidimensional dope vectors. \\
+\bottomrule
+\end{tabularx}
+\caption{APL Bulk Operation Battery Summary.}
+\label{tab:bulk_ops}
+\end{table}
+
+\begin{lstlisting}[caption={Bulk Operation Battery Code Examples}]
+let
+  A := array_dv [1: 5.0, 2.0, 9.0, 1.0, 7.0];
+  
+  % Calculate Mean and Standard Deviation
+  m := MEAN(A);
+  s := STDDEV(A);
+  
+  % Sort and Grade Indices
+  SortedA := SORT(A);          % [1.0, 2.0, 5.0, 7.0, 9.0]
+  MaxIdx  := ARGMAX(A);        % 3 (index of value 9.0)
+  
+  % Stencil Convolution
+  Smooth := STENCIL(A, 3, function(window : array_dv[real] returns real)
+    (window[1] + window[2] + window[3]) / 3.0
+  end function)
+in
+  SortedA, MaxIdx, Smooth
+end let
+\end{lstlisting}

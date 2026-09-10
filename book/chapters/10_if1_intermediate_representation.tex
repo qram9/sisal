@@ -1,0 +1,44 @@
+\chapter{The IF1 Intermediate Representation}
+\label{chap:if1_ir}
+
+\section{IF1 Dataflow Graph Architecture}
+The core intermediate representation of the Sisal-2026 compiler is \textbf{IF1} (\emph{Intermediate Format 1}), an acyclic directed dataflow graph format.
+
+An IF1 graph consists of:
+\begin{itemize}
+    \item \textbf{Nodes}: Representing operations, function calls, or subgraphs.
+    \item \textbf{Edges}: Representing data values flowing from output ports of source nodes to input ports of destination nodes.
+    \item \textbf{Types}: Attached to every edge to enforce type safety.
+\end{itemize}
+
+\section{Simple vs. Compound Nodes}
+IF1 distinguishes between two primary categories of nodes:
+\begin{enumerate}
+    \item \textbf{Simple Nodes}: Primitive scalar arithmetic, dope vector indexing, logic, or function calls (e.g. \texttt{Plus}, \texttt{Times}, \texttt{DopeVectorSlice}).
+    \item \textbf{Compound Nodes}: Complex control structures containing nested subgraphs (e.g. \texttt{SelectNode} for conditionals, \texttt{ForallNode} for parallel loops, \texttt{LoopANode}/\texttt{LoopBNode} for sequential loops).
+\end{enumerate}
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=1.5cm, auto, >=stealth']
+    \node [draw, rectangle, fill=sisalpurple!20, minimum width=6cm, minimum height=3.5cm, label=above:\textbf{ForallNode (Compound Node)}] (forall) {};
+    
+    \node [draw, rectangle, fill=sisalblue!20, yshift=0.8cm] (gen) at (forall.center) {Generator Subgraph};
+    \node [draw, rectangle, fill=sisalgreen!20] (body) at (forall.center) {Body Subgraph};
+    \node [draw, rectangle, fill=sisalorange!20, yshift=-0.8cm] (ret) at (forall.center) {Returns Reduction Subgraph};
+    
+    \draw [->, thick] (gen) -- (body);
+    \draw [->, thick] (body) -- (ret);
+\end{tikzpicture}
+\caption{Structure of an IF1 Compound \texttt{ForallNode}.}
+\label{fig:if1_compound}
+\end{figure}
+
+\section{Optimization Passes}
+The Sisal-2026 compiler executes several optimization passes directly on IF1 graphs:
+\begin{itemize}
+    \item \textbf{Common Subexpression Elimination (CSE)}: Merges identical pure subgraphs.
+    \item \textbf{Dead Code Elimination (DCE)}: Removes unreferenced node outputs.
+    \item \textbf{Loop Invariant Code Motion (LICM)}: Hoists constant expressions out of sequential loops.
+    \item \textbf{Copy Elimination \& Static Liveness}: Eliminates array buffer copies whenever reference counts equal 1.
+\end{itemize}

@@ -1,0 +1,197 @@
+\chapter{Copy Elimination, Liveness Analysis \& Memory Reuse}
+\label{chap:copy_enforcement}
+
+\section{The Single-Assignment Memory Challenge}
+A foundational principle of pure functional dataflow languages is \emph{single assignment}: once an array variable is bound, its contents are mathematically immutable. However, naive enforcement of immutability would require generating a full $O(N)$ deep memory copy (\texttt{memcpy}) whenever an array element or slice is modified (e.g., $A' = A[i \gets v]$). In large-scale scientific computation involving multi-gigabyte matrices, such redundant copying would degrade performance and destroy cache locality.
+
+Historically, Sisal~1.2 and 2.0 addressed this challenge using pure compile-time optimizations known as \emph{build-in-place} and \emph{update-in-place} passes. While effective for simple loops, purely static passes conservatively fall back to full memory copies whenever complex control flow, recursion, or dynamic aliasing prevents proving at compile time that live ranges are non-overlapping.
+
+\textbf{Sisal-2026} introduces a hybrid static-dynamic memory architecture:
+\begin{enumerate}
+    \item \textbf{Static Edge Liveness Analysis}: A compiler optimization pass computes topological liveness across dataflow graph edges, identifying the \emph{topologically last consumer} of every array reference and emitting ownership-stealing directives.
+    \item \textbf{Dynamic Copy-on-Write (CoW) Reference Counting}: A C++23 runtime system tracks array buffer reference counts (\texttt{ref\_count}). When an array update is executed, if the reference count is $1$ (guaranteed by the static pass on the last consumer edge), the update executes \textbf{in-place} with zero memory allocation. If the reference count exceeds $1$ (due to concurrent live branches), the runtime dynamically intercepts the update and performs a Copy-on-Write allocation.
+\end{enumerate}
+
+\section{Static Edge Liveness Analysis in the Compiler}
+In Sisal-2026, the compiler backend (\texttt{src/backend/cpp/cpp\_lower.ml}) implements static edge liveness analysis via \texttt{scan\_edge\_liveness}. 
+
+Given an IF1 dataflow graph $G = (V, E)$, every node $n \in V$ represents a primitive computation or compound control-flow construct, and every edge $e = ((n_{src}, p_{src}), (n_{dst}, p_{dst})) \in E$ represents a directed value dependency.
+
+For a produced array value at output port $(n_{src}, p_{src})$, let $C(n_{src}, p_{src})$ denote the set of all consumer edges reading that value:
+\begin{equation}
+C(n_{src}, p_{src}) = \{ ((n_{src}, p_{src}), (n_{dst}, p_{dst})) \in E \}
+\end{equation}
+
+The compiler computes a topological sorting $T : V \to \mathbb{N}$ of all graph nodes. The \emph{topologically last consumer edge} $e_{last} \in C(n_{src}, p_{src})$ is defined as:
+\begin{equation}
+e_{last} = \arg\max_{((n_{src}, p_{src}), (n_{dst}, p_{dst})) \in C(n_{src}, p_{src})} T(n_{dst})
+\end{equation}
+
+On $e_{last}$, the static analysis pass tags the edge in \texttt{edge\_free\_map}. During C++ code generation, the backend emits ownership-stealing instructions (such as \texttt{std::move} or passing a mutable reference \texttt{\&A}) for $e_{last}$, while emitting reference-incrementing code for all earlier consumer edges.
+
+\section{Static Liveness \& Memory Ownership Algorithm}
+Algorithm~\ref{alg:liveness_cow} presents the formal algorithm for static edge liveness analysis and ownership assignment as implemented in the Sisal-2026 compiler backend.
+
+\begin{algorithm}[H]
+\caption{Static Edge Liveness Analysis \& Memory Ownership Pass}
+\label{alg:liveness_cow}
+\begin{algorithmic}[1]
+\REQUIRE IF1 Dataflow Subgraph $G = (V, E)$, Port Map $M$, Typemap $TM$
+\ENSURE Edge Free Map $EFM$ mapping last consumer edges to release directives
+
+\STATE \COMMENT{\textbf{Step 1: Compute Topological Node Ordering}}
+\STATE $L \gets \text{TopoSort}(V, E)$
+\STATE $\text{TopoPos} \gets \text{EmptyMap}()$
+\FORALL{node $v \in L$ at index $i$}
+    \STATE $\text{TopoPos}[v] \gets i$
+\ENDFOR
+
+\STATE \COMMENT{\textbf{Step 2: Group Consumer Edges by Producer Output Port}}
+\STATE $\text{Consumers} \gets \text{EmptyMap}()$
+\FORALL{edge $e = ((n_{src}, p_{src}), (n_{dst}, p_{dst}), \text{type}) \in E$}
+    \STATE $\text{Key} \gets (n_{src}, p_{src})$
+    \STATE $\text{Consumers}[\text{Key}] \gets \text{Consumers}[\text{Key}] \cup \{ e \}$
+\ENDFOR
+
+\STATE \COMMENT{\textbf{Step 3: Identify Topologically Last Consumer Edge}}
+\FORALL{Key $(n_{src}, p_{src}) \in \text{Keys}(\text{Consumers})$}
+    \STATE $\text{EdgeList} \gets \text{Consumers}[(n_{src}, p_{src})]$
+    \STATE Sort $\text{EdgeList}$ ascending by $\text{TopoPos}[n_{dst}]$
+    \STATE $e_{last} \gets \text{LastElement}(\text{EdgeList})$
+    \STATE Let $e_{last} = ((n_{src}, p_{src}), (n_{dst}, p_{dst}), \text{type})$
+    \STATE $EFM[(n_{src}, p_{src}, n_{dst}, p_{dst})] \gets \text{STOLEN\_OWNERSHIP}$
+\ENDFOR
+
+\STATE \COMMENT{\textbf{Step 4: Code Generation Lowering}}
+\FORALL{edge $e = ((n_{src}, p_{src}), (n_{dst}, p_{dst})) \in E$}
+    \IF{$EFM[e] == \text{STOLEN\_OWNERSHIP}$}
+        \STATE Emit \texttt{std::move(var\_src)} or pass \texttt{\&var\_src} (Steal buffer, decrement $\text{ref\_count}$)
+    \ELSE
+        \STATE Emit \texttt{var\_src} (Copy handle, increment $\text{ref\_count}$)
+    \ENDIF
+\ENDFOR
+\RETURN $EFM$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Dynamic Copy-on-Write (CoW) Runtime Architecture}
+The runtime system complements the static compiler pass by managing array dope vectors (\texttt{sisal\_array\_t}) and checking reference counts at execution time.
+
+\begin{figure}[h!]
+\centering
+\begin{tikzpicture}[node distance=1.8cm, auto, >=stealth']
+    \node [draw=sisalnavy, rectangle, fill=sisalblue!15, rounded corners=4pt, align=center, minimum width=3.4cm, minimum height=1.1cm, font=\bfseries] (replace) {\textbf{Array Replace Call}\\[2pt]\texttt{\small A[i] := val}};
+    \node [draw=sisalnavy, diamond, fill=sisalpurple!15, aspect=2, align=center, font=\bfseries, below=1.2cm of replace] (check) {\texttt{ref\_count == 1?}};
+    
+    \node [draw=sisalnavy, rectangle, fill=sisalgreen!20, rounded corners=4pt, align=center, minimum width=3.4cm, minimum height=1.2cm, right=1.4cm of check] (inplace) {\textbf{In-Place Update}\\[1pt]\small $O(1)$ Time, 0 Allocations\\[1pt]\texttt{\scriptsize buffer[i] = val}};
+    \node [draw=sisalnavy, rectangle, fill=red!15, rounded corners=4pt, align=center, minimum width=3.4cm, minimum height=1.2cm, left=1.4cm of check] (cow) {\textbf{Copy-on-Write (CoW)}\\[1pt]\small $O(N)$ \texttt{memcpy} + Alloc\\[1pt]\texttt{\scriptsize new\_buf[i] = val}};
+    
+    \draw [->, thick, sisalnavy] (replace) -- (check);
+    \draw [->, thick, sisalgreen!80!black] (check) -- node [above=2pt, font=\small\bfseries] {Yes (Exclusive)} (inplace);
+    \draw [->, thick, red!80!black] (check) -- node [above=2pt, font=\small\bfseries] {No (Shared)} (cow);
+\end{tikzpicture}
+\caption{Decision Flowchart for Sisal-2026 Copy-on-Write (CoW) Runtime.}
+\label{fig:cow_flowchart}
+\end{figure}
+
+Every array value \texttt{sisal\_array\_t} maintains reference counting over its underlying contiguous memory buffer. When an array modification function (e.g., \texttt{sisal\_array\_replace\_i32}) is invoked, the runtime executes the logic shown in Listing~\ref{lst:cow_runtime}.
+
+\begin{lstlisting}[language=C++,caption={Sisal-2026 Copy-on-Write Replacement Runtime Logic},label=lst:cow_runtime]
+sisal_array_t sisal_array_consume_replace(sisal_array_t* arr_ptr, 
+                                           size_t index, 
+                                           float val) {
+    sisal_array_t result;
+    // Steal reference from caller
+    result.data = std::move(arr_ptr->data); 
+    result.size = arr_ptr->size;
+    
+    // Check reference count on underlying buffer
+    if (result.data.use_count() > 1) {
+        // Shared ownership: Copy-on-Write (CoW) required!
+        void* new_ptr = NULL;
+        posix_memalign(&new_ptr, 4096, result.size * sizeof(float));
+        memcpy(new_ptr, result.data.get(), result.size * sizeof(float));
+        result.data = std::shared_ptr<float>((float*)new_ptr, FreeDeleter());
+    } else {
+        // Exclusive ownership (use_count == 1): In-place update!
+    }
+    
+    result.data.get()[index] = val;
+    return result;
+}
+\end{lstlisting}
+
+\section{Empirical Analysis of Test Cases}
+To verify the hybrid static-dynamic memory model, the Sisal-2026 test suite contains dedicated regression programs and unit tests.
+
+\subsection{Case 1: Overlapping Live Ranges (\texttt{array\_copy\_liveness\_dv.sis})}
+The test program \texttt{array\_copy\_liveness\_dv.sis} forces overlapping live ranges where two array bindings remain live simultaneously.
+
+\begin{lstlisting}[caption={Sisal Source: \texttt{array\_copy\_liveness\_dv.sis}}]
+function Main( returns array_dv[integer], array_dv[integer] )
+  let
+    A := array_dv [1: 10, 20, 30];
+    B := A;
+    B2 := B[1: 999]
+  in
+    A, B2
+  end let
+end function
+\end{lstlisting}
+
+\subsubsection{Compiler Analysis \& Execution Trace}
+\begin{itemize}
+    \item \textbf{Static Graph Analysis}: The compiler detects that array \texttt{A} is returned directly as output 0 (\texttt{returns A}) AND used to define \texttt{B}. Because \texttt{A} has multiple active output edges, \texttt{scan\_edge\_liveness} cannot mark \texttt{A} as dead.
+    \item \textbf{Runtime Execution}: \texttt{B := A} increments the reference count of the underlying buffer to $\text{ref\_count} = 2$.
+    \item \textbf{CoW Interception}: When \texttt{B2 := B[1: 999]} executes, the runtime checks $\text{ref\_count} = 2 > 1$, intercepts the write, allocates a new 3-element buffer, and copies \texttt{[10, 20, 30]} into \texttt{B2}.
+    \item \textbf{C++ Assertion Verification}: In \texttt{test/e2e/parts/dv\_part\_01.cpp}, the test runner confirms:
+    \begin{lstlisting}[language=C++]
+    check("A remains [10, 20, 30]", A.data.get()[0] == 10);
+    check("B2 modified to [999, 20, 30]", B2.data.get()[0] == 999);
+    check("A and B2 have separate data buffers", A.data != B2.data);
+    \end{lstlisting}
+\end{itemize}
+
+\subsection{Case 2: Non-Overlapping Live Ranges (Sequential Loop Updates)}
+In contrast, consider a sequential loop performing iterative element replacement:
+
+\begin{lstlisting}[caption={Sisal Source: In-Place Loop Update}]
+function InPlaceLoop( N : integer returns array_dv[integer] )
+  for initial
+    i := 1;
+    A := array_dv [1: 10, 20, 30, 40, 50];
+  while i <= 5 repeat
+    i := old i + 1;
+    A := (old A)[old i: (old i) * 10];
+  returns value of A
+  end for
+end function
+\end{lstlisting}
+
+\subsubsection{Compiler Analysis \& Execution Trace}
+\begin{itemize}
+    \item \textbf{Static Graph Analysis}: In each loop iteration, \texttt{old A} has exactly one consumer: the element replacement node. \texttt{scan\_edge\_liveness} identifies this edge as the topologically last consumer edge, tagging it for ownership stealing.
+    \item \textbf{Compiler Code Generation}: The compiler generates code that passes \texttt{\&A} (stealing \texttt{old A}'s pointer and releasing the previous binding reference).
+    \item \textbf{Runtime Execution}: When the replacement helper checks $\text{ref\_count}$, it discovers $\text{ref\_count} = 1$. The update executes \textbf{in-place} directly into the memory buffer.
+    \item \textbf{Performance}: All 5 loop iterations execute in $O(1)$ space with zero memory allocation and zero \texttt{memcpy} calls.
+\end{itemize}
+
+\section{Summary of Memory Enforcement Rules}
+Table~\ref{tab:copy_summary} summarizes the interaction between static compiler passes and dynamic runtime mechanisms across common Sisal-2026 coding patterns.
+
+\begin{table}[h!]
+\centering
+\caption{Summary of Copy Enforcement across Sisal-2026 Coding Patterns}
+\label{tab:copy_summary}
+\begin{tabularx}{\textwidth}{X p{3.2cm} p{3.2cm} X}
+\toprule
+\textbf{Sisal Coding Pattern} & \textbf{Static Compiler Action} & \textbf{Runtime Action} & \textbf{Memory \& Time Performance} \\
+\midrule
+Sequential Loop Update (\texttt{A := (old A)[i: v]}) & \texttt{scan\_edge\_liveness} marks input dead; steals ownership. & Sees $\text{ref\_count} = 1$; updates in-place. & $O(1)$ Space, $0$ Allocations, $0$ \texttt{memcpy}. \\
+\midrule
+Zero-Copy Slice (\texttt{Sub = M[1..2, 3..4]}) & Shifts dope vector origin/strides metadata. & Shares buffer; increments $\text{ref\_count}$. & $O(1)$ Constant Time Metadata View. \\
+\midrule
+Aliased Modification (\texttt{B := A; B2 := B[i: v]}) & Detects active live branch on \texttt{A}; retains reference. & Sees $\text{ref\_count} > 1$; triggers CoW. & $O(N)$ Duplicated Buffer Allocation \& Copy. \\
+\bottomrule
+\end{tabularx}
+\end{table}
