@@ -158,20 +158,17 @@ Scores := EINSUM("b h ((s 64) (d 16)) (b h ((k 64) (d 16))) -> b h (s 64) (d 16)
 Lowered to parallel threads over $(b, h)$, outer tiles over Query sequence $(s)$, **head dimension $d$ reduced in middle registers**, and Key sequence $(k)$ streamed with unit-stride vector memory access.
 
 #### 5. Higher-Order Epilogue & Pre-Processing Fusion inside `EINSUM` (Wishlist Item)
-Rather than introducing a separate keyword, `EINSUM` itself is extended to support on-the-fly higher-order function (HOF) fusion for pre-processing loads and post-processing stores directly in the subscript string using bound function names:
+Activation functions and transformations (such as `SwiGLU`, `Swish`, `GELU`, `ReLU`, `SiLU`, `RMSNorm`, `RoPE`, `BiasAdd`) can be captured **directly inside the subscript string** as named tokens without needing to pass them as arguments to `EINSUM`:
 
 ```sisal
-let
-  SwiGLU := function(gate, up : double returns double) (gate / (1.0d0 + exp(-gate))) * up end function;
-in
-  Hidden := EINSUM(
-    % Bound function SwiGLU applied directly inside (h 64) tile bracket on store!
-    "((s 32) (h 64)) ((h 64) (d 16)), ((s 32) (h 64)) ((h 64) (d 16)) -> (s 32) (d 16) ((h 64) SwiGLU)",
-    SwiGLU, X, W1, X, W2
-  )
-end let
+% Activation token SwiGLU is captured directly inside the string -- ZERO extra function args needed!
+Hidden := EINSUM(
+  "((s 32) (h 64)) ((h 64) (d 16)), ((s 32) (h 64)) ((h 64) (d 16)) -> (s 32) (d 16) ((h 64) SwiGLU)",
+  X, W1, X, W2
+)
 ```
-This unifies (1) tensor contraction math, (2) L1/L2 cache tiling, (3) loop interchange, (4) pre-processing load HOFs, and (5) post-processing store HOFs **all directly inside `EINSUM`** with zero extra language keywords!
+The subscript parser (`einsum_lower.ml`) resolves built-in activations or in-scope function identifiers directly from the AST symbol table. This unifies (1) tensor contraction math, (2) L1/L2 cache tiling, (3) loop interchange, (4) pre-processing load transformations, and (5) post-processing store activations **all inside a single self-contained `EINSUM` expression**!
+
 
 #### 6. Related Work & Novelty Analysis
 

@@ -140,18 +140,15 @@ A comparison of the Sisal-2026 tiled \texttt{EINSUM} proposal with state-of-the-
 \end{itemize}
 
 \subsection{Higher-Order Epilogue \& Pre-Processing Fusion in EINSUM (Wishlist Item)}
-Rather than introducing a separate keyword, \texttt{EINSUM} itself is extended to support on-the-fly higher-order function (HOF) fusion for pre-processing loads and post-processing stores directly in the subscript string using bound function names:
+Activation functions and transformations (such as \texttt{SwiGLU}, \texttt{Swish}, \texttt{GELU}, \texttt{ReLU}, \texttt{SiLU}, \texttt{RMSNorm}, \texttt{RoPE}, \texttt{BiasAdd}) can be captured \textbf{directly inside the subscript string} as named tokens without needing to pass them as extra function arguments to \texttt{EINSUM}:
 
 \begin{lstlisting}[language=Sisal,caption={Fused SwiGLU FFN via EINSUM in Sisal-2026}]
 function FusedSwiGLUFFN( X, W1, W2, W3 : array_dv[double] returns array_dv[double] )
   let
-    SwiGLU := function(gate_val, up_val : double returns double)
-      (gate_val / (1.0d0 + exp(-gate_val))) * up_val
-    end function;
-    
+    % Activation token SwiGLU captured inside the string -- ZERO extra function args!
     Hidden := EINSUM(
       "((s 32) (h 64)) ((h 64) (d 16)), ((s 32) (h 64)) ((h 64) (d 16)) -> (s 32) (d 16) ((h 64) SwiGLU)",
-      SwiGLU, X, W1, X, W2
+      X, W1, X, W2
     )
   in
     EINSUM("((s 32) (d 16)) ((d 16) (h 64)) -> (s 32) (h 64) (d 16)", Hidden, W3)
@@ -159,7 +156,7 @@ function FusedSwiGLUFFN( X, W1, W2, W3 : array_dv[double] returns array_dv[doubl
 end function
 \end{lstlisting}
 
-This unifies (1) tensor contraction math, (2) L1/L2 cache tiling, (3) loop interchange, (4) pre-processing load HOFs, and (5) post-processing store HOFs \textbf{all directly inside \texttt{EINSUM}} with zero extra language keywords!
+The subscript parser (\texttt{einsum\_lower.ml}) resolves built-in activation tokens or in-scope function identifiers directly from the AST symbol table. This unifies (1) tensor contraction math, (2) L1/L2 cache tiling, (3) loop interchange, (4) pre-processing load transformations, and (5) post-processing store activations \textbf{all inside a single self-contained \texttt{EINSUM} expression}!
 
 \begin{note}[Work-in-Progress Disclaimer]
 This documentation and manual are works in progress. Because compiler optimization passes, AST lowerings, and backend code generators are actively evolving, developers should examine the execution logs, generated C++ files, and benchmark results in \texttt{test/e2e/} to inspect the authoritative current state of the compiler's optimization capabilities.
