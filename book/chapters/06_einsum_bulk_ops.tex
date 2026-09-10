@@ -91,6 +91,35 @@ DO i_tile = 1, M, 32
    END DO
 END DO
 \end{lstlisting}
+
+    \item \textbf{3D Batched MatMul \& 4D Attention Lowering (\texttt{"b ((m 32) (k 16)) (b ((k 16) (n 64))) -> b (m 32) (k 16) (n 64)"})}:
+\begin{lstlisting}[language=Fortran]
+! 3D Batched MatMul with Parallel Batch (b) & Middle k Loop
+!$OMP PARALLEL DO COLLAPSE(2) PRIVATE(m_elem, k_elem, n_elem, a_val)
+DO b = 1, B
+   DO m_tile = 1, M, 32
+      DO k_tile = 1, K, 16                 ! k_tile is MIDDLE tile loop!
+         DO n_tile = 1, N, 64
+            
+            ! Inner Micro-kernel (Fits 100% in L1 Cache)
+            DO m_elem = m_tile, MIN(m_tile + 31, M)
+               DO k_elem = k_tile, MIN(k_tile + 15, K)   ! k_elem is MIDDLE element loop!
+                  a_val = A(b, m_elem, k_elem)
+                  
+                  !DIR$ SIMD
+                  DO n_elem = n_tile, MIN(n_tile + 63, N)
+                     C(b, m_elem, n_elem) = C(b, m_elem, n_elem) + a_val * B(b, k_elem, n_elem)
+                  END DO
+               END DO
+            END DO
+
+         END DO
+      END DO
+   END DO
+END DO
+!$OMP END PARALLEL DO
+\end{lstlisting}
+    For 4D Transformer Attention ($Q \cdot K^T$ with Batch $b$, Heads $h$, Sequence $s$, Head Dim $d$), writing \texttt{Scores := EINSUM("b h ((s 64) (d 16)) (b h ((k 64) (d 16))) -> b h (s 64) (d 16) (k 64)", Q, K)} lowers to thread-parallel batch execution over $(b, h)$, outer tiles over Query sequence $(s)$, \textbf{head dimension $d$ reduced in middle registers}, and Key sequence $(k)$ streamed with unit-stride vector memory access.
 \end{enumerate}
 
 \subsubsection{Related Work \& Novelty Analysis}

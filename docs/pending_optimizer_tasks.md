@@ -118,7 +118,46 @@ DO i_tile = 1, M, 32
             END DO
          END DO
 
-#### 4. Related Work & Novelty Analysis
+      END DO
+   END DO
+END DO
+```
+
+#### 4. 3D Batched MatMul & 4D Attention Lowering Example (`EINSUM("b ((m 32) (k 16)) (b ((k 16) (n 64))) -> b (m 32) (k 16) (n 64)")`)
+```fortran
+! 3D Batched MatMul with Parallel Batch (b) & Middle k Loop
+!$OMP PARALLEL DO COLLAPSE(2) PRIVATE(m_elem, k_elem, n_elem, a_val)
+DO b = 1, B
+   DO m_tile = 1, M, 32
+      DO k_tile = 1, K, 16                 ! k_tile is MIDDLE tile loop!
+         DO n_tile = 1, N, 64
+            
+            ! Inner Micro-kernel (Fits 100% in L1 Cache)
+            DO m_elem = m_tile, MIN(m_tile + 31, M)
+               DO k_elem = k_tile, MIN(k_tile + 15, K)   ! k_elem is MIDDLE element loop!
+                  a_val = A(b, m_elem, k_elem)
+                  
+                  !DIR$ SIMD
+                  DO n_elem = n_tile, MIN(n_tile + 63, N)
+                     C(b, m_elem, n_elem) = C(b, m_elem, n_elem) + a_val * B(b, k_elem, n_elem)
+                  END DO
+               END DO
+            END DO
+
+         END DO
+      END DO
+   END DO
+END DO
+!$OMP END PARALLEL DO
+```
+
+For 4D Transformer Attention ($Q \cdot K^T$ with Batch $b$, Heads $h$, Sequence $s$, Head Dim $d$):
+```sisal
+Scores := EINSUM("b h ((s 64) (d 16)) (b h ((k 64) (d 16))) -> b h (s 64) (d 16) (k 64)", Q, K)
+```
+Lowered to parallel threads over $(b, h)$, outer tiles over Query sequence $(s)$, **head dimension $d$ reduced in middle registers**, and Key sequence $(k)$ streamed with unit-stride vector memory access.
+
+#### 5. Related Work & Novelty Analysis
 
 - **NumPy / PyTorch `einsum`**: Uses standard Einstein notation (`"ik,kj->ij"`). Expresses contraction math declaratively, but has **zero syntax for loop tiling, cache block sizes, or execution loop ordering**.
 - **Halide (Ragan-Kelley et al., PLDI 2013) & TVM (Chen et al., OSDI 2018)**: Pioneered the decoupling of computation algorithm from execution schedule. However, scheduling is imperative and separate from the math expression (e.g. `s.tile(i, i_out, i_in, 32).reorder(i_out, k_out, j_out)` in an external Python script).
