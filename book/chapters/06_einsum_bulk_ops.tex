@@ -156,10 +156,87 @@ function FusedSwiGLUFFN( X, W1, W2, W3 : array_dv[double] returns array_dv[doubl
 end function
 \end{lstlisting}
 
+\begin{lstlisting}[language=Fortran,caption={Pseudo-Fortran Lowering of \texttt{FusedSwiGLUFFN} (Listing 7.3)}]
+! =========================================================================
+! PSEUDO-FORTRAN LOWERING OF FusedSwiGLUFFN
+! Stage 1: Tiled GEMM W1 & W2 with SwiGLU Activation inlined on store
+! Stage 2: Tiled GEMM Down Projection W3 (h in middle loop)
+! =========================================================================
+
+SUBROUTINE FusedSwiGLUFFN_Lowered(S, D, H, X, W1, W2, W3, Output)
+   INTEGER, INTENT(IN) :: S, D, H
+   REAL(8), INTENT(IN) :: X(S, D), W1(D, H), W2(D, H), W3(H, D)
+   REAL(8), INTENT(OUT) :: Output(S, D)
+   
+   REAL(8) :: Hidden(S, H)
+   INTEGER :: s_tile, d_tile, h_tile, s_elem, d_elem, h_elem
+   REAL(8) :: x_val, gate_acc, up_acc, fused_act, h_val
+
+   ! ----------------------------------------------------------------------
+   ! STAGE 1: Hidden := EINSUM("((s 32) (h 64)) ... -> (s 32) (d 16) ((h 64) SwiGLU)", X, W1, X, W2)
+   ! Loop Order: s_tile -> d_tile -> h_tile -> s_elem -> d_elem -> h_elem (d in middle!)
+   ! ----------------------------------------------------------------------
+   Hidden = 0.0d0
+   !$OMP PARALLEL DO PRIVATE(s_elem, d_elem, h_elem, x_val, gate_acc, up_acc, fused_act)
+   DO s_tile = 1, S, 32
+      DO d_tile = 1, D, 16                 ! d_tile is MIDDLE reduction loop!
+         DO h_tile = 1, H, 64
+            
+            DO s_elem = s_tile, MIN(s_tile + 31, S)
+               DO d_elem = d_tile, MIN(d_tile + 15, D)
+                  x_val = X(s_elem, d_elem)
+                  
+                  !DIR$ SIMD (Vectorized SwiGLU activation store over h_elem)
+                  DO h_elem = h_tile, MIN(h_tile + 63, H)
+                     gate_acc = x_val * W1(d_elem, h_elem)
+                     up_acc   = x_val * W2(d_elem, h_elem)
+                     
+                     ! INLINED SwiGLU ACTIVATION IN VECTOR REGISTERS ON STORE
+                     fused_act = (gate_acc / (1.0d0 + EXP(-gate_acc))) * up_acc
+                     
+                     Hidden(s_elem, h_elem) = Hidden(s_elem, h_elem) + fused_act
+                  END DO
+               END DO
+            END DO
+
+         END DO
+      END DO
+   END DO
+   !$OMP END PARALLEL DO
+
+   ! ----------------------------------------------------------------------
+   ! STAGE 2: Output := EINSUM("((s 32) (d 16)) ((d 16) (h 64)) -> (s 32) (h 64) (d 16)", Hidden, W3)
+   ! Loop Order: s_tile -> h_tile -> d_tile -> s_elem -> h_elem -> d_elem (h in middle!)
+   ! ----------------------------------------------------------------------
+   Output = 0.0d0
+   !$OMP PARALLEL DO PRIVATE(s_elem, h_elem, d_elem, h_val)
+   DO s_tile = 1, S, 32
+      DO h_tile = 1, H, 64                 ! h_tile is MIDDLE reduction loop!
+         DO d_tile = 1, D, 16
+            
+            DO s_elem = s_tile, MIN(s_tile + 31, S)
+               DO h_elem = h_tile, MIN(h_tile + 63, H)
+                  h_val = Hidden(s_elem, h_elem)
+                  
+                  !DIR$ SIMD (Vectorized output projection over d_elem)
+                  DO d_elem = d_tile, MIN(d_tile + 15, D)
+                     Output(s_elem, d_elem) = Output(s_elem, d_elem) + h_val * W3(h_elem, d_elem)
+                  END DO
+               END DO
+            END DO
+
+         END DO
+      END DO
+   END DO
+   !$OMP END PARALLEL DO
+
+END SUBROUTINE FusedSwiGLUFFN_Lowered
+\end{lstlisting}
+
 The subscript parser (\texttt{einsum\_lower.ml}) resolves built-in activation tokens or in-scope function identifiers directly from the AST symbol table. This unifies (1) tensor contraction math, (2) L1/L2 cache tiling, (3) loop interchange, (4) pre-processing load transformations, and (5) post-processing store activations \textbf{all inside a single self-contained \texttt{EINSUM} expression}!
 
 \begin{note}[Work-in-Progress Disclaimer]
-This documentation and manual are works in progress. Because compiler optimization passes, AST lowerings, and backend code generators are actively evolving, developers should examine the execution logs, generated C++ files, and benchmark results in \texttt{test/e2e/} to inspect the authoritative current state of the compiler's optimization capabilities.
+This documentation and manual are works in progress. Because compiler optimization passes, AST lowerings, and backend code generators are actively evolving, developers should examine the execution logs, generated C++ files, and benchmark results in \texttt{test/e2e/} to inspect the current state of the compiler's optimization capabilities.
 \end{note}
 
 

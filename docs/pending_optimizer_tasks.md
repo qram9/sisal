@@ -6,7 +6,7 @@ This document explicitly separates **currently implemented compiler features** f
 
 ## Implemented vs. Planned Feature Matrix
 
-| Feature / Optimization Area | Status | Authoritative Verification Source |
+| Feature / Optimization Area | Status | Unit Tests |
 | :--- | :--- | :--- |
 | **Rank-Polymorphic `array_dv`** | Implemented & Verified | `test/e2e/dv_rank8_slices.sis`, `test/e2e/reshape_matmul_dv.sis` |
 | **Standard `EINSUM` (`"ij,jk->ik"`)** | Implemented (BLAS lowering) | `test/e2e/transformer_gqa_swiglu.sis`, `test/e2e/dv_matmul.sis` |
